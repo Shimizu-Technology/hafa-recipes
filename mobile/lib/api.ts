@@ -17,7 +17,7 @@ import {
 // so the mobile device/emulator can connect
 const API_BASE_URL = __DEV__
   ? 'http://192.168.1.190:8000'  // Your computer's local IP
-  : 'https://your-api.onrender.com'; // Production URL
+  : 'https://recipe-api-x5na.onrender.com'; // Production URL on Render
 
 class ApiClient {
   private client: AxiosInstance;
