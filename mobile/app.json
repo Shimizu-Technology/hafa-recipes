@@ -1,28 +1,30 @@
 {
   "expo": {
-    "name": "recipe-mobile",
-    "slug": "recipe-mobile",
+    "name": "Recipe Extractor",
+    "slug": "recipe-extractor",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "recipemobile",
+    "scheme": "recipeextractor",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#007AFF"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.shimizutechnology.recipeextractor"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#007AFF"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.shimizutechnology.recipeextractor"
     },
     "web": {
       "bundler": "metro",
