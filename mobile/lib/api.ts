@@ -13,6 +13,8 @@ import {
   GroceryItem,
   GroceryItemCreate,
   GroceryCount,
+  ChatMessage,
+  ChatResponse,
 } from '../types/recipe';
 
 // Configure base URL based on environment
@@ -271,6 +273,22 @@ class ApiClient {
 
   async clearAllGroceryItems(): Promise<{ message: string; count: number }> {
     const { data } = await this.client.delete('/api/grocery/clear/all');
+    return data;
+  }
+
+  // ============================================================
+  // Recipe Chat
+  // ============================================================
+
+  async chatAboutRecipe(
+    recipeId: string,
+    message: string,
+    history: ChatMessage[] = []
+  ): Promise<ChatResponse> {
+    const { data } = await this.client.post(`/api/recipes/${recipeId}/chat`, {
+      message,
+      history,
+    });
     return data;
   }
 }

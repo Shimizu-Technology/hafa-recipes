@@ -117,20 +117,30 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
+  const colors = colorScheme === 'dark' 
+    ? { background: '#000', tint: '#FF6B35', text: '#fff' }
+    : { background: '#fff', tint: '#FF6B35', text: '#000' };
 
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <AuthTokenSync>
           <AuthProtection>
-            <Stack>
+            <Stack
+              screenOptions={{
+                headerStyle: { backgroundColor: colors.background },
+                headerTintColor: colors.tint,
+                headerTitleStyle: { color: colors.text, fontWeight: '600' },
+                headerShadowVisible: false,
+                headerBackTitle: 'Back',
+              }}
+            >
               <Stack.Screen name="(auth)" options={{ headerShown: false }} />
               <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
               <Stack.Screen 
                 name="recipe/[id]" 
                 options={{ 
                   headerTitle: 'Recipe',
-                  presentation: 'card',
                 }} 
               />
               <Stack.Screen name="modal" options={{ presentation: 'modal' }} />

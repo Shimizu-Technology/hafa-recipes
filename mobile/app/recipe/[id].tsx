@@ -16,6 +16,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { Text, View, Card, Chip, Divider, useColors } from '@/components/Themed';
 import AddIngredientsModal from '@/components/AddIngredientsModal';
+import RecipeChatModal from '@/components/RecipeChatModal';
 import { useRecipe, useDeleteRecipe, useToggleRecipeSharing } from '@/hooks/useRecipes';
 import { useAddFromRecipe } from '@/hooks/useGrocery';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
@@ -37,6 +38,7 @@ export default function RecipeDetailScreen() {
   const addToGroceryMutation = useAddFromRecipe();
   const [imageError, setImageError] = useState(false);
   const [showIngredientPicker, setShowIngredientPicker] = useState(false);
+  const [showChatModal, setShowChatModal] = useState(false);
   const { userId } = useAuth();
   
   // Check if the current user owns this recipe
@@ -193,17 +195,11 @@ export default function RecipeDetailScreen() {
       <Stack.Screen 
         options={{ 
           headerTitle: 'Recipe',
-          headerBackTitle: 'Back',
-          headerStyle: {
-            backgroundColor: colors.background,
-          },
-          headerTintColor: colors.tint,
-          headerTitleStyle: {
-            color: colors.text,
-            fontWeight: '600',
-          },
           headerRight: () => (
             <RNView style={styles.headerButtons}>
+              <TouchableOpacity onPress={() => setShowChatModal(true)} style={styles.headerButton}>
+                <Ionicons name="chatbubbles-outline" size={22} color={colors.tint} />
+              </TouchableOpacity>
               <TouchableOpacity onPress={handleShare} style={styles.headerButton}>
                 <Ionicons name="share-outline" size={22} color={colors.tint} />
               </TouchableOpacity>
@@ -541,6 +537,15 @@ export default function RecipeDetailScreen() {
           ingredients={allIngredients}
           recipeTitle={recipe.extracted.title}
           isLoading={addToGroceryMutation.isPending}
+        />
+      )}
+
+      {/* AI Chat Modal */}
+      {recipe && (
+        <RecipeChatModal
+          isVisible={showChatModal}
+          onClose={() => setShowChatModal(false)}
+          recipe={recipe}
         />
       )}
     </>
