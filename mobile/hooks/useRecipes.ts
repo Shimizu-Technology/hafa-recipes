@@ -14,19 +14,19 @@ const ACTIVE_JOB_KEY = 'active_extraction_job';
 export const recipeKeys = {
   all: ['recipes'] as const,
   lists: () => [...recipeKeys.all, 'list'] as const,
-  list: (filters: { limit?: number; offset?: number }) =>
+  list: (filters: { limit?: number; offset?: number; sourceType?: string }) =>
     [...recipeKeys.lists(), filters] as const,
   recent: (limit?: number) => [...recipeKeys.all, 'recent', limit] as const,
-  search: (query: string) => [...recipeKeys.all, 'search', query] as const,
+  search: (query: string, sourceType?: string) => [...recipeKeys.all, 'search', query, sourceType] as const,
   details: () => [...recipeKeys.all, 'detail'] as const,
   detail: (id: string) => [...recipeKeys.details(), id] as const,
-  count: () => [...recipeKeys.all, 'count'] as const,
+  count: (sourceType?: string) => [...recipeKeys.all, 'count', sourceType] as const,
   // Discover (public recipes)
   discover: () => ['discover'] as const,
-  discoverList: (filters: { limit?: number; offset?: number }) =>
+  discoverList: (filters: { limit?: number; offset?: number; sourceType?: string }) =>
     [...recipeKeys.discover(), 'list', filters] as const,
-  discoverSearch: (query: string) => [...recipeKeys.discover(), 'search', query] as const,
-  discoverCount: () => [...recipeKeys.discover(), 'count'] as const,
+  discoverSearch: (query: string, sourceType?: string) => [...recipeKeys.discover(), 'search', query, sourceType] as const,
+  discoverCount: (sourceType?: string) => [...recipeKeys.discover(), 'count', sourceType] as const,
 };
 
 // ============================================================
@@ -34,12 +34,12 @@ export const recipeKeys = {
 // ============================================================
 
 /**
- * Fetch all recipes with pagination
+ * Fetch all recipes with pagination and optional source filter
  */
-export function useRecipes(limit = 50, offset = 0) {
+export function useRecipes(limit = 50, offset = 0, sourceType?: string) {
   return useQuery({
-    queryKey: recipeKeys.list({ limit, offset }),
-    queryFn: () => api.getRecipes(limit, offset),
+    queryKey: recipeKeys.list({ limit, offset, sourceType }),
+    queryFn: () => api.getRecipes(limit, offset, sourceType),
   });
 }
 
@@ -65,23 +65,23 @@ export function useRecipe(id: string) {
 }
 
 /**
- * Search recipes
+ * Search recipes with optional source filter
  */
-export function useSearchRecipes(query: string) {
+export function useSearchRecipes(query: string, sourceType?: string) {
   return useQuery({
-    queryKey: recipeKeys.search(query),
-    queryFn: () => api.searchRecipes(query),
+    queryKey: recipeKeys.search(query, sourceType),
+    queryFn: () => api.searchRecipes(query, 20, sourceType),
     enabled: query.length > 0,
   });
 }
 
 /**
- * Get recipe count
+ * Get recipe count with optional source filter
  */
-export function useRecipeCount() {
+export function useRecipeCount(sourceType?: string) {
   return useQuery({
-    queryKey: recipeKeys.count(),
-    queryFn: () => api.getRecipeCount(),
+    queryKey: recipeKeys.count(sourceType),
+    queryFn: () => api.getRecipeCount(sourceType),
   });
 }
 
@@ -347,33 +347,33 @@ export function useCheckDuplicate() {
 // ============================================================
 
 /**
- * Fetch public recipes with pagination
+ * Fetch public recipes with pagination and optional source filter
  */
-export function useDiscoverRecipes(limit = 50, offset = 0) {
+export function useDiscoverRecipes(limit = 50, offset = 0, sourceType?: string) {
   return useQuery({
-    queryKey: recipeKeys.discoverList({ limit, offset }),
-    queryFn: () => api.getPublicRecipes(limit, offset),
+    queryKey: recipeKeys.discoverList({ limit, offset, sourceType }),
+    queryFn: () => api.getPublicRecipes(limit, offset, sourceType),
   });
 }
 
 /**
- * Search public recipes
+ * Search public recipes with optional source filter
  */
-export function useSearchPublicRecipes(query: string) {
+export function useSearchPublicRecipes(query: string, sourceType?: string) {
   return useQuery({
-    queryKey: recipeKeys.discoverSearch(query),
-    queryFn: () => api.searchPublicRecipes(query),
+    queryKey: recipeKeys.discoverSearch(query, sourceType),
+    queryFn: () => api.searchPublicRecipes(query, 20, sourceType),
     enabled: query.length > 0,
   });
 }
 
 /**
- * Get public recipe count
+ * Get public recipe count with optional source filter
  */
-export function usePublicRecipeCount() {
+export function usePublicRecipeCount(sourceType?: string) {
   return useQuery({
-    queryKey: recipeKeys.discoverCount(),
-    queryFn: () => api.getPublicRecipeCount(),
+    queryKey: recipeKeys.discoverCount(sourceType),
+    queryFn: () => api.getPublicRecipeCount(sourceType),
   });
 }
 

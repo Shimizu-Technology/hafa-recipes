@@ -7,6 +7,7 @@ import {
   RefreshControl,
   View as RNView,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,6 +19,16 @@ import { RecipeListItem } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
 const ITEMS_PER_PAGE = 20;
+
+// Source filter options
+const SOURCE_FILTERS = [
+  { key: 'all', label: 'All', icon: 'apps-outline' },
+  { key: 'tiktok', label: 'TikTok', icon: 'logo-tiktok' },
+  { key: 'youtube', label: 'YouTube', icon: 'logo-youtube' },
+  { key: 'instagram', label: 'Instagram', icon: 'logo-instagram' },
+] as const;
+
+type SourceFilter = typeof SOURCE_FILTERS[number]['key'];
 
 function RecipeCard({ 
   recipe, 
@@ -118,14 +129,20 @@ export default function HistoryScreen() {
   const insets = useSafeAreaInsets();
   const [searchQuery, setSearchQuery] = useState('');
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   
-  const { data: recipes, isLoading, refetch, isRefetching } = useRecipes();
-  const { data: searchResults } = useSearchRecipes(searchQuery);
-  const { data: countData } = useRecipeCount();
+  // Pass source filter to server-side queries
+  const sourceTypeParam = sourceFilter === 'all' ? undefined : sourceFilter;
+  
+  const { data: recipes, isLoading, refetch, isRefetching } = useRecipes(50, 0, sourceTypeParam);
+  const { data: searchResults } = useSearchRecipes(searchQuery, sourceTypeParam);
+  const { data: countData } = useRecipeCount(sourceTypeParam);
 
-  const allRecipes = searchQuery.length > 0 ? searchResults : recipes;
-  const displayRecipes = allRecipes?.slice(0, displayCount);
-  const hasMore = allRecipes && displayCount < allRecipes.length;
+  // Use search results or recipes from server (already filtered)
+  const filteredRecipes = searchQuery.length > 0 ? searchResults : recipes;
+
+  const displayRecipes = filteredRecipes?.slice(0, displayCount);
+  const hasMore = filteredRecipes && displayCount < filteredRecipes.length;
 
   const handleRefresh = useCallback(() => {
     setDisplayCount(ITEMS_PER_PAGE);
@@ -183,7 +200,7 @@ export default function HistoryScreen() {
           activeOpacity={0.7}
         >
           <Text style={[styles.loadMoreText, { color: colors.text }]}>
-            Load More ({allRecipes ? allRecipes.length - displayCount : 0} remaining)
+            Load More ({filteredRecipes ? filteredRecipes.length - displayCount : 0} remaining)
           </Text>
           <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
         </TouchableOpacity>
@@ -201,6 +218,45 @@ export default function HistoryScreen() {
           onChangeText={setSearchQuery}
           placeholder="Search recipes..."
         />
+        
+        {/* Source filters */}
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          style={styles.filterScroll}
+          contentContainerStyle={styles.filterContainer}
+        >
+          {SOURCE_FILTERS.map((filter) => (
+            <TouchableOpacity
+              key={filter.key}
+              onPress={() => {
+                setSourceFilter(filter.key);
+                setDisplayCount(ITEMS_PER_PAGE);
+              }}
+              style={[
+                styles.filterChip,
+                {
+                  backgroundColor: sourceFilter === filter.key ? colors.tint : colors.backgroundSecondary,
+                  borderColor: sourceFilter === filter.key ? colors.tint : colors.border,
+                },
+              ]}
+            >
+              <Ionicons
+                name={filter.icon as any}
+                size={16}
+                color={sourceFilter === filter.key ? '#FFFFFF' : colors.textMuted}
+              />
+              <Text
+                style={[
+                  styles.filterChipText,
+                  { color: sourceFilter === filter.key ? '#FFFFFF' : colors.text },
+                ]}
+              >
+                {filter.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </RNView>
       
       <FlatList
@@ -255,6 +311,27 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: fontSize.xs,
     fontWeight: fontWeight.semibold,
+  },
+  filterScroll: {
+    marginTop: spacing.md,
+    marginHorizontal: -spacing.lg,
+  },
+  filterContainer: {
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+    borderWidth: 1,
+  },
+  filterChipText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
   },
   card: {
     flexDirection: 'row',

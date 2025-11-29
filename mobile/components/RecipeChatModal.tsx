@@ -182,8 +182,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     >
       <KeyboardAvoidingView
         style={[styles.container, { backgroundColor: colors.background }]}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
       >
         {/* Header */}
         <RNView style={[styles.header, { borderBottomColor: colors.border }]}>
@@ -341,7 +341,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
             {
               backgroundColor: colors.background,
               borderTopColor: colors.border,
-              paddingBottom: Math.max(insets.bottom, spacing.sm),
+              paddingBottom: insets.bottom + spacing.sm,
+              paddingTop: spacing.md,
             },
           ]}
         >
@@ -525,16 +526,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
     borderTopWidth: 1,
     gap: spacing.sm,
   },
   input: {
     flex: 1,
-    minHeight: 44,
+    height: 44,
     maxHeight: 100,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingTop: 12,
+    paddingBottom: 10,
     borderRadius: radius.lg,
     borderWidth: 1,
     fontSize: fontSize.md,

@@ -25,6 +25,7 @@ import {
   useToggleGroceryItem,
   useDeleteGroceryItem,
   useClearCheckedItems,
+  useClearAllItems,
   useAddGroceryItem,
 } from '@/hooks/useGrocery';
 import { api } from '@/lib/api';
@@ -133,6 +134,7 @@ export default function GroceryScreen() {
   const toggleMutation = useToggleGroceryItem();
   const deleteMutation = useDeleteGroceryItem();
   const clearCheckedMutation = useClearCheckedItems();
+  const clearAllMutation = useClearAllItems();
   const addItemMutation = useAddGroceryItem();
 
   const handleRefresh = useCallback(() => {
@@ -166,6 +168,23 @@ export default function GroceryScreen() {
           text: 'Clear',
           style: 'destructive',
           onPress: () => clearCheckedMutation.mutate(),
+        },
+      ]
+    );
+  };
+
+  const handleClearAll = () => {
+    if (!countData || countData.total === 0) return;
+    
+    Alert.alert(
+      'Clear All Items',
+      `Remove all ${countData.total} item${countData.total !== 1 ? 's' : ''} from your grocery list? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear All',
+          style: 'destructive',
+          onPress: () => clearAllMutation.mutate(),
         },
       ]
     );
@@ -278,18 +297,26 @@ export default function GroceryScreen() {
                 color={colors.textMuted}
               />
               <Text style={[styles.filterText, { color: colors.textMuted }]}>
-                {showChecked ? 'Hide checked' : 'Show checked'}
+                {showChecked ? 'Hide' : 'Show'} checked
               </Text>
             </TouchableOpacity>
 
-            {countData.checked > 0 && (
-              <TouchableOpacity onPress={handleClearChecked} style={styles.clearButton}>
-                <Ionicons name="trash-outline" size={18} color={colors.error} />
+            <RNView style={styles.clearButtons}>
+              {countData.checked > 0 && (
+                <TouchableOpacity onPress={handleClearChecked} style={styles.clearButton}>
+                  <Ionicons name="checkmark-done-outline" size={16} color={colors.textMuted} />
+                  <Text style={[styles.clearText, { color: colors.textMuted }]}>
+                    Clear done
+                  </Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={handleClearAll} style={styles.clearButton}>
+                <Ionicons name="trash-outline" size={16} color={colors.error} />
                 <Text style={[styles.clearText, { color: colors.error }]}>
-                  Clear checked ({countData.checked})
+                  Clear all
                 </Text>
               </TouchableOpacity>
-            )}
+            </RNView>
           </RNView>
         )}
       </RNView>
@@ -386,6 +413,11 @@ const styles = StyleSheet.create({
   },
   filterText: {
     fontSize: fontSize.sm,
+  },
+  clearButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
   },
   clearButton: {
     flexDirection: 'row',

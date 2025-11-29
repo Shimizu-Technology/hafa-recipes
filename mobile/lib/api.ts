@@ -89,9 +89,9 @@ class ApiClient {
   // My Recipes (user's own recipes)
   // ============================================================
 
-  async getRecipes(limit = 50, offset = 0): Promise<RecipeListItem[]> {
+  async getRecipes(limit = 50, offset = 0, sourceType?: string): Promise<RecipeListItem[]> {
     const { data } = await this.client.get('/api/recipes/', {
-      params: { limit, offset },
+      params: { limit, offset, source_type: sourceType || undefined },
     });
     return data;
   }
@@ -108,9 +108,9 @@ class ApiClient {
     return data;
   }
 
-  async searchRecipes(query: string, limit = 20): Promise<RecipeListItem[]> {
+  async searchRecipes(query: string, limit = 20, sourceType?: string): Promise<RecipeListItem[]> {
     const { data } = await this.client.get('/api/recipes/search', {
-      params: { q: query, limit },
+      params: { q: query, limit, source_type: sourceType || undefined },
     });
     return data;
   }
@@ -126,8 +126,10 @@ class ApiClient {
     return data;
   }
 
-  async getRecipeCount(): Promise<{ count: number }> {
-    const { data } = await this.client.get('/api/recipes/count');
+  async getRecipeCount(sourceType?: string): Promise<{ count: number }> {
+    const { data } = await this.client.get('/api/recipes/count', {
+      params: { source_type: sourceType || undefined },
+    });
     return data;
   }
 
@@ -159,22 +161,24 @@ class ApiClient {
   // Discover (public recipes)
   // ============================================================
 
-  async getPublicRecipes(limit = 50, offset = 0): Promise<RecipeListItem[]> {
+  async getPublicRecipes(limit = 50, offset = 0, sourceType?: string): Promise<RecipeListItem[]> {
     const { data } = await this.client.get('/api/recipes/discover', {
-      params: { limit, offset },
+      params: { limit, offset, source_type: sourceType || undefined },
     });
     return data;
   }
 
-  async searchPublicRecipes(query: string, limit = 20): Promise<RecipeListItem[]> {
+  async searchPublicRecipes(query: string, limit = 20, sourceType?: string): Promise<RecipeListItem[]> {
     const { data } = await this.client.get('/api/recipes/discover/search', {
-      params: { q: query, limit },
+      params: { q: query, limit, source_type: sourceType || undefined },
     });
     return data;
   }
 
-  async getPublicRecipeCount(): Promise<{ count: number }> {
-    const { data } = await this.client.get('/api/recipes/discover/count');
+  async getPublicRecipeCount(sourceType?: string): Promise<{ count: number }> {
+    const { data } = await this.client.get('/api/recipes/discover/count', {
+      params: { source_type: sourceType || undefined },
+    });
     return data;
   }
 
