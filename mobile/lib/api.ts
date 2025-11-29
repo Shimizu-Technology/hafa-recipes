@@ -10,6 +10,9 @@ import {
   ExtractResponse,
   JobStatus,
   Location,
+  GroceryItem,
+  GroceryItemCreate,
+  GroceryCount,
 } from '../types/recipe';
 
 // Configure base URL based on environment
@@ -206,6 +209,68 @@ class ApiClient {
 
   async getLocations(): Promise<{ locations: Location[]; default: string }> {
     const { data } = await this.client.get('/api/locations');
+    return data;
+  }
+
+  // ============================================================
+  // Grocery List
+  // ============================================================
+
+  async getGroceryList(includeChecked = true): Promise<GroceryItem[]> {
+    const { data } = await this.client.get('/api/grocery/', {
+      params: { include_checked: includeChecked },
+    });
+    return data;
+  }
+
+  async getGroceryCount(): Promise<GroceryCount> {
+    const { data } = await this.client.get('/api/grocery/count');
+    return data;
+  }
+
+  async addGroceryItem(item: GroceryItemCreate): Promise<GroceryItem> {
+    const { data } = await this.client.post('/api/grocery/', item);
+    return data;
+  }
+
+  async addGroceryItemsFromRecipe(
+    recipeId: string,
+    recipeTitle: string,
+    ingredients: GroceryItemCreate[]
+  ): Promise<GroceryItem[]> {
+    const { data } = await this.client.post('/api/grocery/from-recipe', {
+      recipe_id: recipeId,
+      recipe_title: recipeTitle,
+      ingredients,
+    });
+    return data;
+  }
+
+  async toggleGroceryItem(id: string): Promise<GroceryItem> {
+    const { data } = await this.client.put(`/api/grocery/${id}/toggle`);
+    return data;
+  }
+
+  async updateGroceryItem(
+    id: string,
+    update: Partial<GroceryItemCreate> & { checked?: boolean }
+  ): Promise<GroceryItem> {
+    const { data } = await this.client.put(`/api/grocery/${id}`, update);
+    return data;
+  }
+
+  async deleteGroceryItem(id: string): Promise<{ message: string; id: string }> {
+    const { data } = await this.client.delete(`/api/grocery/${id}`);
+    return data;
+  }
+
+  async clearCheckedGroceryItems(): Promise<{ message: string; count: number }> {
+    const { data } = await this.client.delete('/api/grocery/clear/checked');
+    return data;
+  }
+
+  async clearAllGroceryItems(): Promise<{ message: string; count: number }> {
+    const { data } = await this.client.delete('/api/grocery/clear/all');
     return data;
   }
 }

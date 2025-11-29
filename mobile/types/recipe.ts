@@ -120,3 +120,34 @@ export interface Location {
   description: string;
 }
 
+// ============================================================
+// Grocery List Types
+// ============================================================
+
+export interface GroceryItem {
+  id: string;
+  name: string;
+  quantity: string | null;
+  unit: string | null;
+  notes: string | null;
+  checked: boolean;
+  recipe_id: string | null;
+  recipe_title: string | null;
+  created_at: string;
+}
+
+export interface GroceryItemCreate {
+  name: string;
+  quantity?: string | null;
+  unit?: string | null;
+  notes?: string | null;
+  recipe_id?: string | null;
+  recipe_title?: string | null;
+}
+
+export interface GroceryCount {
+  total: number;
+  unchecked: number;
+  checked: number;
+}
+

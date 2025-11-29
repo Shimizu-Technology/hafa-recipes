@@ -15,9 +15,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { Text, View, Card, Chip, Divider, useColors } from '@/components/Themed';
+import AddIngredientsModal from '@/components/AddIngredientsModal';
 import { useRecipe, useDeleteRecipe, useToggleRecipeSharing } from '@/hooks/useRecipes';
+import { useAddFromRecipe } from '@/hooks/useGrocery';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { useAuth } from '@clerk/clerk-expo';
+import { Ingredient } from '@/types/recipe';
 
 type TabType = 'ingredients' | 'steps' | 'nutrition';
 
@@ -31,11 +34,61 @@ export default function RecipeDetailScreen() {
   const { data: recipe, isLoading, error } = useRecipe(id);
   const deleteMutation = useDeleteRecipe();
   const toggleSharingMutation = useToggleRecipeSharing();
+  const addToGroceryMutation = useAddFromRecipe();
   const [imageError, setImageError] = useState(false);
+  const [showIngredientPicker, setShowIngredientPicker] = useState(false);
   const { userId } = useAuth();
   
   // Check if the current user owns this recipe
   const isOwner = recipe?.user_id === userId;
+  
+  // Get all ingredients from all components
+  const allIngredients = recipe?.extracted.components.flatMap(
+    (component) => component.ingredients
+  ) || [];
+
+  const handleAddToGrocery = () => {
+    if (!recipe) return;
+    
+    if (allIngredients.length === 0) {
+      Alert.alert('No Ingredients', 'This recipe has no ingredients to add.');
+      return;
+    }
+
+    // Open the ingredient picker modal
+    setShowIngredientPicker(true);
+  };
+
+  const handleConfirmAddToGrocery = (selectedIngredients: Ingredient[]) => {
+    if (!recipe || selectedIngredients.length === 0) {
+      setShowIngredientPicker(false);
+      return;
+    }
+
+    addToGroceryMutation.mutate(
+      {
+        recipeId: recipe.id,
+        recipeTitle: recipe.extracted.title,
+        ingredients: selectedIngredients,
+      },
+      {
+        onSuccess: () => {
+          setShowIngredientPicker(false);
+          Alert.alert(
+            'Added!',
+            `${selectedIngredients.length} ingredient${selectedIngredients.length !== 1 ? 's' : ''} added to your grocery list.`,
+            [
+              { text: 'OK' },
+              { text: 'View List', onPress: () => router.push('/(tabs)/grocery') },
+            ]
+          );
+        },
+        onError: () => {
+          Alert.alert('Error', 'Failed to add ingredients to grocery list.');
+        },
+      }
+    );
+  };
 
   const handleDelete = () => {
     Alert.alert(
@@ -359,6 +412,19 @@ export default function RecipeDetailScreen() {
                       ))}
                     </RNView>
                   ))}
+                  
+                  {/* Add to Grocery List Button */}
+                  <TouchableOpacity
+                    style={[styles.addToGroceryButton, { backgroundColor: colors.tint }]}
+                    onPress={handleAddToGrocery}
+                    activeOpacity={0.8}
+                    disabled={addToGroceryMutation.isPending}
+                  >
+                    <Ionicons name="cart-outline" size={20} color="#FFFFFF" />
+                    <Text style={styles.addToGroceryText}>
+                      {addToGroceryMutation.isPending ? 'Adding...' : 'Add to Grocery List'}
+                    </Text>
+                  </TouchableOpacity>
                 </>
               )}
 
@@ -465,6 +531,18 @@ export default function RecipeDetailScreen() {
           </RNView>
         </ScrollView>
       </View>
+
+      {/* Add Ingredients Modal */}
+      {recipe && (
+        <AddIngredientsModal
+          visible={showIngredientPicker}
+          onClose={() => setShowIngredientPicker(false)}
+          onConfirm={handleConfirmAddToGrocery}
+          ingredients={allIngredients}
+          recipeTitle={recipe.extracted.title}
+          isLoading={addToGroceryMutation.isPending}
+        />
+      )}
     </>
   );
 }
@@ -735,5 +813,19 @@ const styles = StyleSheet.create({
   },
   equipmentText: {
     fontSize: fontSize.sm,
+  },
+  addToGroceryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    marginTop: spacing.lg,
+  },
+  addToGroceryText: {
+    color: '#FFFFFF',
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
   },
 });
