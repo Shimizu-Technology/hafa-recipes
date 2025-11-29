@@ -95,9 +95,11 @@ interface InputProps {
   multiline?: boolean;
   numberOfLines?: number;
   editable?: boolean;
-  keyboardType?: 'default' | 'url' | 'email-address' | 'numeric';
+  keyboardType?: 'default' | 'url' | 'email-address' | 'numeric' | 'number-pad';
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   autoCorrect?: boolean;
+  secureTextEntry?: boolean;
+  maxLength?: number;
   style?: object;
 }
 
@@ -111,6 +113,8 @@ export function Input({
   keyboardType = 'default',
   autoCapitalize = 'sentences',
   autoCorrect = true,
+  secureTextEntry = false,
+  maxLength,
   style,
 }: InputProps) {
   const colors = useColors();
@@ -127,6 +131,8 @@ export function Input({
       keyboardType={keyboardType}
       autoCapitalize={autoCapitalize}
       autoCorrect={autoCorrect}
+      secureTextEntry={secureTextEntry}
+      maxLength={maxLength}
       style={[
         {
           backgroundColor: colors.backgroundSecondary,

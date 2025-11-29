@@ -15,8 +15,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { Text, View, Card, Chip, Divider, useColors } from '@/components/Themed';
-import { useRecipe, useDeleteRecipe } from '@/hooks/useRecipes';
+import { useRecipe, useDeleteRecipe, useToggleRecipeSharing } from '@/hooks/useRecipes';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { useAuth } from '@clerk/clerk-expo';
 
 type TabType = 'ingredients' | 'steps' | 'nutrition';
 
@@ -29,7 +30,12 @@ export default function RecipeDetailScreen() {
   
   const { data: recipe, isLoading, error } = useRecipe(id);
   const deleteMutation = useDeleteRecipe();
+  const toggleSharingMutation = useToggleRecipeSharing();
   const [imageError, setImageError] = useState(false);
+  const { userId } = useAuth();
+  
+  // Check if the current user owns this recipe
+  const isOwner = recipe?.user_id === userId;
 
   const handleDelete = () => {
     Alert.alert(
@@ -69,6 +75,15 @@ export default function RecipeDetailScreen() {
   const handleOpenSource = () => {
     if (recipe?.source_url) {
       Linking.openURL(recipe.source_url);
+    }
+  };
+
+  const handleToggleSharing = async () => {
+    if (!recipe) return;
+    try {
+      await toggleSharingMutation.mutateAsync(id);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update sharing settings');
     }
   };
 
@@ -233,6 +248,54 @@ export default function RecipeDetailScreen() {
               </Text>
               <Ionicons name="open-outline" size={18} color={colors.textMuted} />
             </TouchableOpacity>
+
+            {/* Share to Library Toggle - only show for owner */}
+            {isOwner && (
+              <TouchableOpacity 
+                style={[
+                  styles.shareButton, 
+                  { 
+                    borderColor: recipe.is_public ? colors.success : colors.border,
+                    backgroundColor: recipe.is_public ? colors.success + '10' : 'transparent',
+                  }
+                ]} 
+                onPress={handleToggleSharing}
+                activeOpacity={0.7}
+                disabled={toggleSharingMutation.isPending}
+              >
+                <Ionicons 
+                  name={recipe.is_public ? 'globe' : 'globe-outline'} 
+                  size={20} 
+                  color={recipe.is_public ? colors.success : colors.textSecondary} 
+                />
+                <Text style={[
+                  styles.shareButtonText, 
+                  { color: recipe.is_public ? colors.success : colors.text }
+                ]}>
+                  {toggleSharingMutation.isPending 
+                    ? 'Updating...' 
+                    : recipe.is_public 
+                      ? 'Shared to Library' 
+                      : 'Share to Library'
+                  }
+                </Text>
+                <Ionicons 
+                  name={recipe.is_public ? 'checkmark-circle' : 'add-circle-outline'} 
+                  size={18} 
+                  color={recipe.is_public ? colors.success : colors.textMuted} 
+                />
+              </TouchableOpacity>
+            )}
+
+            {/* Public badge for non-owner viewing public recipe */}
+            {!isOwner && recipe.is_public && (
+              <RNView style={[styles.publicBadge, { backgroundColor: colors.tint + '15' }]}>
+                <Ionicons name="globe" size={16} color={colors.tint} />
+                <Text style={[styles.publicBadgeText, { color: colors.tint }]}>
+                  Public Recipe
+                </Text>
+              </RNView>
+            )}
 
             {/* Tabs */}
             <RNView style={[styles.tabContainer, { borderBottomColor: colors.border }]}>
@@ -510,12 +573,40 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: radius.md,
     borderWidth: 1,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.sm,
   },
   sourceButtonText: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
     flex: 1,
+  },
+  shareButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginBottom: spacing.lg,
+  },
+  shareButtonText: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+    flex: 1,
+  },
+  publicBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    marginBottom: spacing.lg,
+  },
+  publicBadgeText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
   },
   tabContainer: {
     flexDirection: 'row',

@@ -21,6 +21,12 @@ export const recipeKeys = {
   details: () => [...recipeKeys.all, 'detail'] as const,
   detail: (id: string) => [...recipeKeys.details(), id] as const,
   count: () => [...recipeKeys.all, 'count'] as const,
+  // Discover (public recipes)
+  discover: () => ['discover'] as const,
+  discoverList: (filters: { limit?: number; offset?: number }) =>
+    [...recipeKeys.discover(), 'list', filters] as const,
+  discoverSearch: (query: string) => [...recipeKeys.discover(), 'search', query] as const,
+  discoverCount: () => [...recipeKeys.discover(), 'count'] as const,
 };
 
 // ============================================================
@@ -333,6 +339,60 @@ export function useUpdateRecipe() {
 export function useCheckDuplicate() {
   return useMutation({
     mutationFn: (url: string) => api.checkDuplicate(url),
+  });
+}
+
+// ============================================================
+// Discover (Public Recipes) Hooks
+// ============================================================
+
+/**
+ * Fetch public recipes with pagination
+ */
+export function useDiscoverRecipes(limit = 50, offset = 0) {
+  return useQuery({
+    queryKey: recipeKeys.discoverList({ limit, offset }),
+    queryFn: () => api.getPublicRecipes(limit, offset),
+  });
+}
+
+/**
+ * Search public recipes
+ */
+export function useSearchPublicRecipes(query: string) {
+  return useQuery({
+    queryKey: recipeKeys.discoverSearch(query),
+    queryFn: () => api.searchPublicRecipes(query),
+    enabled: query.length > 0,
+  });
+}
+
+/**
+ * Get public recipe count
+ */
+export function usePublicRecipeCount() {
+  return useQuery({
+    queryKey: recipeKeys.discoverCount(),
+    queryFn: () => api.getPublicRecipeCount(),
+  });
+}
+
+/**
+ * Toggle recipe sharing (public/private)
+ */
+export function useToggleRecipeSharing() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => api.toggleRecipeSharing(id),
+    onSuccess: (data, id) => {
+      // Invalidate the recipe detail to refresh is_public
+      queryClient.invalidateQueries({ queryKey: recipeKeys.detail(id) });
+      // Invalidate discover lists as the recipe may now be visible/hidden
+      queryClient.invalidateQueries({ queryKey: recipeKeys.discover() });
+      // Invalidate my recipes list
+      queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
+    },
   });
 }
 

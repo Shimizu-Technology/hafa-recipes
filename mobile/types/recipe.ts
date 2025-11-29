@@ -70,6 +70,8 @@ export interface Recipe {
   extraction_quality: string | null;
   has_audio_transcript: boolean;
   created_at: string;
+  user_id: string | null;
+  is_public: boolean;
 }
 
 export interface RecipeListItem {
@@ -84,12 +86,15 @@ export interface RecipeListItem {
   servings: number | null;
   total_time: string | null;
   created_at: string;
+  user_id: string | null;
+  is_public: boolean;
 }
 
 export interface ExtractRequest {
   url: string;
   location?: string;
   notes?: string;
+  is_public?: boolean;  // Default true - share to library
 }
 
 export interface ExtractResponse {

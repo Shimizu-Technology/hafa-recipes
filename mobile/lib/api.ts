@@ -19,8 +19,12 @@ const API_BASE_URL = __DEV__
   ? 'http://192.168.1.190:8000'  // Your computer's local IP
   : 'https://recipe-api-x5na.onrender.com'; // Production URL on Render
 
+// Token getter function type - will be set by the app
+type TokenGetter = () => Promise<string | null>;
+
 class ApiClient {
   private client: AxiosInstance;
+  private getTokenFn: TokenGetter | null = null;
 
   constructor() {
     this.client = axios.create({
@@ -31,6 +35,24 @@ class ApiClient {
       },
     });
 
+    // Add request interceptor for auth token - fetches fresh token each request
+    this.client.interceptors.request.use(
+      async (config) => {
+        if (this.getTokenFn) {
+          try {
+            const token = await this.getTokenFn();
+            if (token) {
+              config.headers.Authorization = `Bearer ${token}`;
+            }
+          } catch (e) {
+            console.warn('Failed to get auth token:', e);
+          }
+        }
+        return config;
+      },
+      (error) => Promise.reject(error)
+    );
+
     // Add response interceptor for error handling
     this.client.interceptors.response.use(
       (response) => response,
@@ -39,6 +61,14 @@ class ApiClient {
         return Promise.reject(error);
       }
     );
+  }
+
+  /**
+   * Set the token getter function.
+   * This will be called on every request to get a fresh token.
+   */
+  setTokenGetter(getter: TokenGetter | null) {
+    this.getTokenFn = getter;
   }
 
   // ============================================================
@@ -51,7 +81,7 @@ class ApiClient {
   }
 
   // ============================================================
-  // Recipes
+  // My Recipes (user's own recipes)
   // ============================================================
 
   async getRecipes(limit = 50, offset = 0): Promise<RecipeListItem[]> {
@@ -103,6 +133,7 @@ class ApiClient {
       servings?: number;
       notes?: string;
       tags?: string[];
+      is_public?: boolean;
     }
   ): Promise<Recipe> {
     const { data } = await this.client.put(`/api/recipes/${id}`, update);
@@ -111,6 +142,34 @@ class ApiClient {
 
   async deleteRecipe(id: string): Promise<{ message: string; id: string }> {
     const { data } = await this.client.delete(`/api/recipes/${id}`);
+    return data;
+  }
+
+  async toggleRecipeSharing(id: string): Promise<{ is_public: boolean; message: string }> {
+    const { data } = await this.client.post(`/api/recipes/${id}/share`);
+    return data;
+  }
+
+  // ============================================================
+  // Discover (public recipes)
+  // ============================================================
+
+  async getPublicRecipes(limit = 50, offset = 0): Promise<RecipeListItem[]> {
+    const { data } = await this.client.get('/api/recipes/discover', {
+      params: { limit, offset },
+    });
+    return data;
+  }
+
+  async searchPublicRecipes(query: string, limit = 20): Promise<RecipeListItem[]> {
+    const { data } = await this.client.get('/api/recipes/discover/search', {
+      params: { q: query, limit },
+    });
+    return data;
+  }
+
+  async getPublicRecipeCount(): Promise<{ count: number }> {
+    const { data } = await this.client.get('/api/recipes/discover/count');
     return data;
   }
 
@@ -123,6 +182,7 @@ class ApiClient {
       url: request.url,
       location: request.location || 'Guam',
       notes: request.notes || '',
+      is_public: request.is_public ?? true,  // Public by default
     });
     return data;
   }
@@ -134,6 +194,7 @@ class ApiClient {
       url: request.url,
       location: request.location || 'Guam',
       notes: request.notes || '',
+      is_public: request.is_public ?? true,  // Public by default
     });
     return data;
   }
@@ -154,4 +215,3 @@ export const api = new ApiClient();
 
 // Export base URL for debugging
 export { API_BASE_URL };
-

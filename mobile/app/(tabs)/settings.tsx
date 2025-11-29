@@ -1,6 +1,8 @@
-import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView } from 'react-native';
+import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Image } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useUser, useClerk } from '@clerk/clerk-expo';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Card, SectionHeader, Divider, useColors } from '@/components/Themed';
 import { useRecipeCount } from '@/hooks/useRecipes';
@@ -53,6 +55,8 @@ export default function SettingsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { data: countData } = useRecipeCount();
+  const { user } = useUser();
+  const { signOut } = useClerk();
 
   const handleClearCache = () => {
     Alert.alert(
@@ -72,6 +76,23 @@ export default function SettingsScreen() {
     );
   };
 
+  const handleSignOut = () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            await signOut();
+          },
+        },
+      ]
+    );
+  };
+
   const handleOpenAPI = () => {
     Linking.openURL(`${API_BASE_URL}/docs`);
   };
@@ -82,6 +103,30 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
       >
+        {/* User Profile Card */}
+        <RNView style={styles.section}>
+          <SectionHeader title="Account" />
+          <Card>
+            <RNView style={styles.userCard}>
+              {user?.imageUrl ? (
+                <Image source={{ uri: user.imageUrl }} style={styles.userAvatar} />
+              ) : (
+                <RNView style={[styles.userAvatarPlaceholder, { backgroundColor: colors.tint + '20' }]}>
+                  <Ionicons name="person" size={32} color={colors.tint} />
+                </RNView>
+              )}
+              <RNView style={styles.userInfo}>
+                <Text style={[styles.userName, { color: colors.text }]}>
+                  {user?.firstName || user?.emailAddresses[0]?.emailAddress?.split('@')[0] || 'User'}
+                </Text>
+                <Text style={[styles.userEmail, { color: colors.textMuted }]}>
+                  {user?.emailAddresses[0]?.emailAddress}
+                </Text>
+              </RNView>
+            </RNView>
+          </Card>
+        </RNView>
+
         {/* Stats Card */}
         <RNView style={styles.section}>
           <SectionHeader title="Statistics" />
@@ -162,6 +207,18 @@ export default function SettingsScreen() {
               </Text>
             </RNView>
           </Card>
+        </RNView>
+
+        {/* Sign Out */}
+        <RNView style={styles.section}>
+          <TouchableOpacity
+            style={[styles.signOutButton, { backgroundColor: colors.error + '15' }]}
+            onPress={handleSignOut}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="log-out-outline" size={20} color={colors.error} />
+            <Text style={[styles.signOutText, { color: colors.error }]}>Sign Out</Text>
+          </TouchableOpacity>
         </RNView>
       </ScrollView>
     </View>
@@ -261,5 +318,45 @@ const styles = StyleSheet.create({
   },
   techItem: {
     fontSize: fontSize.sm,
+  },
+  userCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  userAvatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
+  userAvatarPlaceholder: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  userInfo: {
+    flex: 1,
+  },
+  userName: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.semibold,
+  },
+  userEmail: {
+    fontSize: fontSize.sm,
+    marginTop: 2,
+  },
+  signOutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+  },
+  signOutText: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
   },
 });

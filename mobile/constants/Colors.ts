@@ -17,6 +17,7 @@ export default {
     
     // UI elements
     tint: tintColorLight,
+    accent: tintColorLight, // Alias for tint
     border: '#E8E8E8',
     borderLight: '#F0F0F0',
     
@@ -26,6 +27,7 @@ export default {
     
     // Cards and surfaces
     card: '#FFFFFF',
+    cardBackground: '#FFFFFF', // Alias for card
     cardBorder: '#F0F0F0',
     
     // Status colors
@@ -46,6 +48,7 @@ export default {
     
     // UI elements
     tint: tintColorDark,
+    accent: tintColorDark, // Alias for tint
     border: '#2C2C2E',
     borderLight: '#1C1C1E',
     
@@ -55,6 +58,7 @@ export default {
     
     // Cards and surfaces
     card: '#1C1C1E',
+    cardBackground: '#1C1C1E', // Alias for card
     cardBorder: '#2C2C2E',
     
     // Status colors

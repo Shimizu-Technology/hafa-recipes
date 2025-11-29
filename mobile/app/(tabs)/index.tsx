@@ -7,9 +7,11 @@ import {
   Platform,
   ScrollView,
   View as RNView,
+  Switch,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Input, Button, Chip, Card, useColors } from '@/components/Themed';
 import ExtractionProgress from '@/components/ExtractionProgress';
@@ -22,6 +24,7 @@ export default function ExtractScreen() {
   const [url, setUrl] = useState('');
   const [notes, setNotes] = useState('');
   const [selectedLocation, setSelectedLocation] = useState('Guam');
+  const [isPublic, setIsPublic] = useState(true);  // Public by default
   const [isChecking, setIsChecking] = useState(false);
   
   const { data: locationsData } = useLocations();
@@ -38,6 +41,7 @@ export default function ExtractScreen() {
         extraction.reset();
         setUrl('');
         setNotes('');
+        setIsPublic(true);  // Reset to default
       }, 1000);
       return () => clearTimeout(timer);
     }
@@ -88,6 +92,7 @@ export default function ExtractScreen() {
         url: url.trim(),
         location: selectedLocation,
         notes: notes.trim(),
+        is_public: isPublic,
       });
 
       // If recipe already existed (shouldn't happen after duplicate check, but just in case)
@@ -95,6 +100,7 @@ export default function ExtractScreen() {
         router.push(`/recipe/${result.recipeId}`);
         setUrl('');
         setNotes('');
+        setIsPublic(true);  // Reset to default
       }
       // Otherwise, polling has started and progress UI will show
       
@@ -257,6 +263,43 @@ export default function ExtractScreen() {
             />
           </RNView>
 
+          {/* Share Toggle */}
+          <TouchableOpacity 
+            style={[
+              styles.shareToggle, 
+              { 
+                backgroundColor: isPublic ? colors.tint + '15' : colors.backgroundSecondary,
+                borderColor: isPublic ? colors.tint : colors.border,
+              }
+            ]}
+            onPress={() => !isLoading && setIsPublic(!isPublic)}
+            activeOpacity={0.7}
+            disabled={isLoading}
+          >
+            <RNView style={styles.shareToggleContent}>
+              <Ionicons 
+                name={isPublic ? 'globe' : 'lock-closed'} 
+                size={20} 
+                color={isPublic ? colors.tint : colors.textMuted} 
+              />
+              <RNView style={styles.shareToggleText}>
+                <Text style={[styles.shareToggleTitle, { color: colors.text }]}>
+                  {isPublic ? 'Share to Library' : 'Keep Private'}
+                </Text>
+                <Text style={[styles.shareToggleSubtitle, { color: colors.textMuted }]}>
+                  {isPublic ? 'Others can discover this recipe' : 'Only visible to you'}
+                </Text>
+              </RNView>
+            </RNView>
+            <Switch
+              value={isPublic}
+              onValueChange={setIsPublic}
+              disabled={isLoading}
+              trackColor={{ false: colors.border, true: colors.tint }}
+              thumbColor="#FFFFFF"
+            />
+          </TouchableOpacity>
+
           {/* Extract Button */}
           <RNView style={styles.section}>
             <Button
@@ -340,5 +383,31 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.xl,
     paddingHorizontal: spacing.lg,
+  },
+  shareToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    marginBottom: spacing.lg,
+  },
+  shareToggleContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: spacing.md,
+  },
+  shareToggleText: {
+    flex: 1,
+  },
+  shareToggleTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
+  shareToggleSubtitle: {
+    fontSize: fontSize.xs,
+    marginTop: 2,
   },
 });

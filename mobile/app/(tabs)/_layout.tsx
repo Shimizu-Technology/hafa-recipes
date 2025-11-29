@@ -59,11 +59,25 @@ export default function TabLayout() {
       <Tabs.Screen
         name="history"
         options={{
-          title: 'Recipes',
+          title: 'My Recipes',
           headerTitle: 'My Recipes',
           tabBarIcon: ({ focused, color, size }) => (
             <Ionicons 
               name={focused ? 'book' : 'book-outline'} 
+              size={24} 
+              color={color} 
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="discover"
+        options={{
+          title: 'Discover',
+          headerTitle: 'Discover Recipes',
+          tabBarIcon: ({ focused, color, size }) => (
+            <Ionicons 
+              name={focused ? 'globe' : 'globe-outline'} 
               size={24} 
               color={color} 
             />
