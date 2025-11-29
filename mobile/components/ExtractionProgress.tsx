@@ -1,0 +1,247 @@
+/**
+ * ExtractionProgress component - shows real-time extraction progress
+ */
+
+import React from 'react';
+import { View, StyleSheet, ActivityIndicator } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Text } from './Themed';
+import Colors from '@/constants/Colors';
+import { useColorScheme } from './useColorScheme';
+
+interface ExtractionProgressProps {
+  progress: number; // 0-100
+  currentStep: string;
+  message: string;
+  elapsedTime: number; // seconds
+  error?: string | null;
+}
+
+// Map backend step names to display info
+const STEP_CONFIG: Record<string, { label: string; order: number }> = {
+  initializing: { label: 'Starting...', order: 0 },
+  detecting: { label: 'Detecting platform', order: 1 },
+  metadata: { label: 'Fetching video info', order: 2 },
+  downloading: { label: 'Downloading audio', order: 3 },
+  transcribing: { label: 'Transcribing with AI', order: 4 },
+  metadata_fallback: { label: 'Fetching metadata', order: 4 }, // Same order as transcribing (alternate path)
+  extracting: { label: 'Extracting recipe', order: 5 },
+  saving: { label: 'Saving thumbnail', order: 6 },
+  complete: { label: 'Complete!', order: 7 },
+  error: { label: 'Error', order: -1 },
+};
+
+// Main steps to display
+const STEPS = ['downloading', 'transcribing', 'extracting', 'saving'];
+
+function formatTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+}
+
+function getEstimatedRemaining(progress: number, elapsed: number): string {
+  if (progress <= 0 || elapsed <= 0) return '~60s';
+  const estimated = Math.round((elapsed / progress) * (100 - progress));
+  if (estimated > 120) return '~2 min';
+  if (estimated > 60) return '~1 min';
+  return `~${estimated}s`;
+}
+
+export default function ExtractionProgress({
+  progress,
+  currentStep,
+  message,
+  elapsedTime,
+  error,
+}: ExtractionProgressProps) {
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
+  const currentStepOrder = STEP_CONFIG[currentStep]?.order ?? 0;
+
+  if (error) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.cardBackground }]}>
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle" size={48} color="#ef4444" />
+          <Text style={styles.errorTitle}>Extraction Failed</Text>
+          <Text style={[styles.errorMessage, { color: colors.text }]}>{error}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.cardBackground }]}>
+      <Text style={[styles.title, { color: colors.text }]}>Extracting Recipe</Text>
+      
+      {/* Steps list */}
+      <View style={styles.stepsContainer}>
+        {STEPS.map((step, index) => {
+          const stepInfo = STEP_CONFIG[step];
+          const isCompleted = currentStepOrder > stepInfo.order;
+          const isCurrent = currentStep === step;
+          
+          return (
+            <View key={step} style={styles.stepRow}>
+              <View style={styles.stepIconContainer}>
+                {isCompleted ? (
+                  <Ionicons name="checkmark-circle" size={24} color={colors.accent} />
+                ) : isCurrent ? (
+                  <ActivityIndicator size="small" color={colors.accent} />
+                ) : (
+                  <View style={[styles.stepCircle, { borderColor: colors.border }]} />
+                )}
+              </View>
+              <Text
+                style={[
+                  styles.stepLabel,
+                  { color: colors.text },
+                  isCompleted && styles.stepLabelCompleted,
+                  isCurrent && { color: colors.accent, fontWeight: '600' },
+                  !isCompleted && !isCurrent && { opacity: 0.5 },
+                ]}
+                numberOfLines={1}
+              >
+                {stepInfo.label}
+              </Text>
+              {isCompleted && (
+                <Ionicons name="checkmark" size={16} color={colors.accent} style={styles.checkIcon} />
+              )}
+            </View>
+          );
+        })}
+      </View>
+
+      {/* Progress bar */}
+      <View style={styles.progressContainer}>
+        <View style={[styles.progressTrack, { backgroundColor: colors.border }]}>
+          <View
+            style={[
+              styles.progressFill,
+              { 
+                backgroundColor: colors.accent, 
+                flex: progress / 100,
+              },
+            ]}
+          />
+          <View style={{ flex: (100 - progress) / 100 }} />
+        </View>
+        <Text style={[styles.progressText, { color: colors.text }]}>{progress}%</Text>
+      </View>
+
+      {/* Time info */}
+      <View style={styles.timeContainer}>
+        <View style={styles.timeItem}>
+          <Ionicons name="time-outline" size={16} color={colors.text} style={{ opacity: 0.6 }} />
+          <Text style={[styles.timeText, { color: colors.text }]}>
+            {formatTime(elapsedTime)} elapsed
+          </Text>
+        </View>
+        <View style={styles.timeItem}>
+          <Ionicons name="hourglass-outline" size={16} color={colors.text} style={{ opacity: 0.6 }} />
+          <Text style={[styles.timeText, { color: colors.text }]}>
+            {getEstimatedRemaining(progress, elapsedTime)} remaining
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    borderRadius: 16,
+    padding: 24,
+    marginVertical: 16,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  stepsContainer: {
+    marginBottom: 24,
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  stepIconContainer: {
+    width: 32,
+    alignItems: 'center',
+  },
+  stepCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+  },
+  stepLabel: {
+    fontSize: 16,
+    marginLeft: 12,
+    flex: 1,
+  },
+  stepLabelCompleted: {
+    textDecorationLine: 'line-through',
+    opacity: 0.7,
+  },
+  checkIcon: {
+    marginLeft: 8,
+  },
+  progressContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  progressTrack: {
+    flex: 1,
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+    flexDirection: 'row',
+  },
+  progressFill: {
+    height: '100%',
+    borderTopLeftRadius: 4,
+    borderBottomLeftRadius: 4,
+  },
+  progressText: {
+    marginLeft: 12,
+    fontSize: 14,
+    fontWeight: '600',
+    minWidth: 40,
+  },
+  timeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  timeItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  timeText: {
+    fontSize: 13,
+    opacity: 0.8,
+  },
+  errorContainer: {
+    alignItems: 'center',
+    padding: 16,
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#ef4444',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  errorMessage: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+});
+

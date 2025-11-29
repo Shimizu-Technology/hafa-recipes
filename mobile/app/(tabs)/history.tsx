@@ -28,6 +28,8 @@ function RecipeCard({
   onPress: () => void;
   colors: ReturnType<typeof useColors>;
 }) {
+  const [imageError, setImageError] = useState(false);
+  
   const sourceIcon = recipe.source_type === 'tiktok' 
     ? 'logo-tiktok' 
     : recipe.source_type === 'youtube' 
@@ -36,6 +38,8 @@ function RecipeCard({
         ? 'logo-instagram' 
         : 'globe-outline';
 
+  const showPlaceholder = !recipe.thumbnail_url || imageError;
+
   return (
     <TouchableOpacity 
       style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]} 
@@ -43,12 +47,16 @@ function RecipeCard({
       activeOpacity={0.7}
     >
       {/* Thumbnail */}
-      {recipe.thumbnail_url ? (
-        <Image source={{ uri: recipe.thumbnail_url }} style={styles.thumbnail} />
-      ) : (
+      {showPlaceholder ? (
         <RNView style={[styles.placeholderThumbnail, { backgroundColor: colors.tint + '15' }]}>
           <Ionicons name="restaurant-outline" size={32} color={colors.tint} />
         </RNView>
+      ) : (
+        <Image 
+          source={{ uri: recipe.thumbnail_url! }} 
+          style={styles.thumbnail}
+          onError={() => setImageError(true)}
+        />
       )}
       
       {/* Content */}
@@ -138,28 +146,19 @@ export default function HistoryScreen() {
     />
   );
 
-  const ListHeader = () => (
-    <RNView style={styles.header}>
-      {/* Title */}
-      <RNView style={styles.titleRow}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>
-          My Recipes
-        </Text>
-        {countData && (
-          <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
-            <Text style={styles.countText}>{countData.count}</Text>
-          </RNView>
-        )}
-      </RNView>
-      
-      {/* Search */}
-      <Input
-        value={searchQuery}
-        onChangeText={setSearchQuery}
-        placeholder="Search recipes..."
-      />
+  // Memoize header to prevent re-render on search change
+  const ListHeaderTitle = useCallback(() => (
+    <RNView style={styles.titleRow}>
+      <Text style={[styles.headerTitle, { color: colors.text }]}>
+        My Recipes
+      </Text>
+      {countData && (
+        <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
+          <Text style={styles.countText}>{countData.count}</Text>
+        </RNView>
+      )}
     </RNView>
-  );
+  ), [colors.text, colors.tint, countData]);
 
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
@@ -194,11 +193,20 @@ export default function HistoryScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Fixed header with search - outside FlatList to prevent focus loss */}
+      <RNView style={styles.header}>
+        <ListHeaderTitle />
+        <Input
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search recipes..."
+        />
+      </RNView>
+      
       <FlatList
         data={displayRecipes}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
-        ListHeaderComponent={ListHeader}
         ListEmptyComponent={!isLoading ? ListEmpty : null}
         ListFooterComponent={ListFooter}
         contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.xl }]}
@@ -220,11 +228,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   listContent: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,
   },
   header: {
-    marginBottom: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
   },
   titleRow: {
     flexDirection: 'row',

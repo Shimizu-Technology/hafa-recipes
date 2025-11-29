@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   StyleSheet,
   TouchableOpacity,
@@ -12,7 +12,8 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { View, Text, Input, Button, Chip, Card, useColors } from '@/components/Themed';
-import { useExtractRecipe, useLocations, useCheckDuplicate } from '@/hooks/useRecipes';
+import ExtractionProgress from '@/components/ExtractionProgress';
+import { useAsyncExtraction, useLocations, useCheckDuplicate } from '@/hooks/useRecipes';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
 export default function ExtractScreen() {
@@ -21,10 +22,26 @@ export default function ExtractScreen() {
   const [url, setUrl] = useState('');
   const [notes, setNotes] = useState('');
   const [selectedLocation, setSelectedLocation] = useState('Guam');
+  const [isChecking, setIsChecking] = useState(false);
   
   const { data: locationsData } = useLocations();
-  const extractMutation = useExtractRecipe();
+  const extraction = useAsyncExtraction();
   const checkDuplicate = useCheckDuplicate();
+
+  // Navigate to recipe when extraction completes
+  useEffect(() => {
+    if (extraction.isComplete && extraction.recipeId) {
+      // Small delay to show completion state
+      const timer = setTimeout(() => {
+        router.push(`/recipe/${extraction.recipeId}`);
+        // Reset after navigation
+        extraction.reset();
+        setUrl('');
+        setNotes('');
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [extraction.isComplete, extraction.recipeId]);
 
   const handleExtract = async () => {
     if (!url.trim()) {
@@ -46,10 +63,13 @@ export default function ExtractScreen() {
     }
 
     try {
+      setIsChecking(true);
+      
       // Check for duplicate first
       const duplicate = await checkDuplicate.mutateAsync(url.trim());
       
       if (duplicate.exists && duplicate.recipe_id) {
+        setIsChecking(false);
         Alert.alert(
           'Recipe Already Saved',
           `"${duplicate.title}" has already been extracted.`,
@@ -61,29 +81,96 @@ export default function ExtractScreen() {
         return;
       }
 
-      // Extract the recipe
-      const result = await extractMutation.mutateAsync({
+      setIsChecking(false);
+
+      // Start async extraction
+      const result = await extraction.startExtraction({
         url: url.trim(),
         location: selectedLocation,
         notes: notes.trim(),
       });
 
-      // Navigate to the recipe detail
-      router.push(`/recipe/${result.id}`);
-      
-      // Clear form
-      setUrl('');
-      setNotes('');
+      // If recipe already existed (shouldn't happen after duplicate check, but just in case)
+      if (result.isExisting && result.recipeId) {
+        router.push(`/recipe/${result.recipeId}`);
+        setUrl('');
+        setNotes('');
+      }
+      // Otherwise, polling has started and progress UI will show
       
     } catch (error: any) {
+      setIsChecking(false);
       Alert.alert(
         'Extraction Failed',
-        error.response?.data?.detail || error.message || 'Something went wrong. Please try again.'
+        error.message || 'Something went wrong. Please try again.'
       );
     }
   };
 
-  const isLoading = extractMutation.isPending || checkDuplicate.isPending;
+  const handleCancel = () => {
+    Alert.alert(
+      'Cancel Extraction?',
+      'The extraction will continue in the background. You can check your history for the result.',
+      [
+        { text: 'Keep Waiting', style: 'cancel' },
+        { 
+          text: 'Go to History', 
+          onPress: () => {
+            router.push('/history');
+          }
+        },
+      ]
+    );
+  };
+
+  const handleRetry = () => {
+    extraction.reset();
+  };
+
+  const isLoading = isChecking || extraction.isExtracting;
+
+  // Show progress UI when extracting
+  if (extraction.isExtracting || extraction.isFailed) {
+    return (
+      <View style={styles.container}>
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <ExtractionProgress
+            progress={extraction.progress}
+            currentStep={extraction.currentStep}
+            message={extraction.message}
+            elapsedTime={extraction.elapsedTime}
+            error={extraction.error}
+          />
+
+          {extraction.isFailed ? (
+            <RNView style={styles.buttonRow}>
+              <Button
+                title="Try Again"
+                onPress={handleRetry}
+                size="lg"
+              />
+            </RNView>
+          ) : (
+            <RNView style={styles.buttonRow}>
+              <Button
+                title="Cancel"
+                onPress={handleCancel}
+                variant="secondary"
+                size="lg"
+              />
+            </RNView>
+          )}
+
+          <Text style={[styles.backgroundHint, { color: colors.textMuted }]}>
+            💡 You can leave this screen - extraction continues in the background
+          </Text>
+        </ScrollView>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -173,24 +260,12 @@ export default function ExtractScreen() {
           {/* Extract Button */}
           <RNView style={styles.section}>
             <Button
-              title={
-                checkDuplicate.isPending 
-                  ? 'Checking...' 
-                  : extractMutation.isPending 
-                    ? 'Extracting...' 
-                    : 'Extract Recipe'
-              }
+              title={isChecking ? 'Checking...' : 'Extract Recipe'}
               onPress={handleExtract}
               disabled={isLoading || !url.trim()}
-              loading={isLoading}
+              loading={isChecking}
               size="lg"
             />
-            
-            {isLoading && (
-              <Text style={[styles.loadingHint, { color: colors.textMuted }]}>
-                This may take 30-60 seconds...
-              </Text>
-            )}
           </RNView>
 
           {/* Footer */}
@@ -250,16 +325,20 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingRight: spacing.lg,
   },
-  loadingHint: {
-    fontSize: fontSize.sm,
-    textAlign: 'center',
-    marginTop: spacing.md,
-  },
   footer: {
     alignItems: 'center',
     paddingTop: spacing.xl,
   },
   footerText: {
     fontSize: fontSize.xs,
+  },
+  buttonRow: {
+    marginTop: spacing.md,
+  },
+  backgroundHint: {
+    fontSize: fontSize.sm,
+    textAlign: 'center',
+    marginTop: spacing.xl,
+    paddingHorizontal: spacing.lg,
   },
 });

@@ -29,6 +29,7 @@ export default function RecipeDetailScreen() {
   
   const { data: recipe, isLoading, error } = useRecipe(id);
   const deleteMutation = useDeleteRecipe();
+  const [imageError, setImageError] = useState(false);
 
   const handleDelete = () => {
     Alert.alert(
@@ -152,8 +153,12 @@ export default function RecipeDetailScreen() {
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
         >
           {/* Hero Image */}
-          {recipe.thumbnail_url ? (
-            <Image source={{ uri: recipe.thumbnail_url }} style={styles.heroImage} />
+          {recipe.thumbnail_url && !imageError ? (
+            <Image 
+              source={{ uri: recipe.thumbnail_url }} 
+              style={styles.heroImage}
+              onError={() => setImageError(true)}
+            />
           ) : (
             <RNView style={[styles.placeholderHero, { backgroundColor: colors.tint + '15' }]}>
               <Ionicons name="restaurant-outline" size={64} color={colors.tint} />
