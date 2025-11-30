@@ -117,6 +117,8 @@ class ApiClient {
 
   async checkDuplicate(url: string): Promise<{
     exists: boolean;
+    owned_by_user?: boolean;
+    is_public?: boolean;
     recipe_id?: string;
     title?: string;
   }> {
@@ -155,6 +157,68 @@ class ApiClient {
   async toggleRecipeSharing(id: string): Promise<{ is_public: boolean; message: string }> {
     const { data } = await this.client.post(`/api/recipes/${id}/share`);
     return data;
+  }
+
+  async createManualRecipe(
+    recipeData: {
+      title: string;
+      servings?: number | null;
+      prep_time?: string | null;
+      cook_time?: string | null;
+      total_time?: string | null;
+      ingredients: Array<{
+        name: string;
+        quantity?: string | null;
+        unit?: string | null;
+        notes?: string | null;
+      }>;
+      steps: string[];
+      notes?: string | null;
+      tags?: string[] | null;
+      is_public?: boolean;
+      nutrition?: {
+        calories?: number;
+        protein?: number;
+        carbs?: number;
+        fat?: number;
+      } | null;
+    },
+    imageUri?: string | null
+  ): Promise<Recipe> {
+    // Create form data for multipart upload
+    const formData = new FormData();
+    formData.append('recipe_data', JSON.stringify(recipeData));
+    
+    // Add image if provided
+    if (imageUri) {
+      const filename = imageUri.split('/').pop() || 'photo.jpg';
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : 'image/jpeg';
+      
+      formData.append('image', {
+        uri: imageUri,
+        name: filename,
+        type,
+      } as any);
+    }
+    
+    // Use fetch for multipart form data (axios has issues with FormData in React Native)
+    const token = this.getTokenFn ? await this.getTokenFn() : null;
+    
+    const response = await fetch(`${API_BASE_URL}/api/recipes/manual`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || 'Failed to create recipe');
+    }
+    
+    return response.json();
   }
 
   // ============================================================
@@ -293,6 +357,135 @@ class ApiClient {
       message,
       history,
     });
+    return data;
+  }
+
+  async suggestTags(title: string, ingredients: string[]): Promise<{ tags: string[] }> {
+    const { data } = await this.client.post('/api/recipes/ai/suggest-tags', {
+      title,
+      ingredients,
+    });
+    return data;
+  }
+
+  async estimateNutrition(
+    ingredients: string[],
+    servings: number = 4
+  ): Promise<{ nutrition: { calories: number; protein: number; carbs: number; fat: number } }> {
+    const { data } = await this.client.post('/api/recipes/ai/estimate-nutrition', {
+      ingredients,
+      servings,
+    });
+    return data;
+  }
+
+  // ============================================================
+  // Recipe Editing
+  // ============================================================
+
+  async editRecipe(
+    recipeId: string,
+    editData: {
+      title: string;
+      servings?: number | null;
+      prep_time?: string | null;
+      cook_time?: string | null;
+      total_time?: string | null;
+      ingredients: Array<{
+        name: string;
+        quantity?: string | null;
+        unit?: string | null;
+        notes?: string | null;
+      }>;
+      steps: string[];
+      notes?: string | null;
+      tags?: string[] | null;
+      is_public?: boolean;
+      nutrition?: {
+        calories?: number;
+        protein?: number;
+        carbs?: number;
+        fat?: number;
+      } | null;
+    },
+    imageUri?: string | null
+  ): Promise<Recipe> {
+    // If no image, use simple PATCH
+    if (!imageUri) {
+      const { data } = await this.client.patch(`/api/recipes/${recipeId}`, editData);
+      return data;
+    }
+
+    // With image, use FormData
+    const formData = new FormData();
+    formData.append('recipe_data', JSON.stringify(editData));
+    
+    const filename = imageUri.split('/').pop() || 'photo.jpg';
+    const match = /\.(\w+)$/.exec(filename);
+    const type = match ? `image/${match[1]}` : 'image/jpeg';
+    
+    formData.append('image', {
+      uri: imageUri,
+      name: filename,
+      type,
+    } as any);
+    
+    const token = this.getTokenFn ? await this.getTokenFn() : null;
+    
+    const response = await fetch(`${API_BASE_URL}/api/recipes/${recipeId}/edit`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to update recipe' }));
+      throw new Error(error.detail || 'Failed to update recipe');
+    }
+    
+    return response.json();
+  }
+
+  async restoreOriginalRecipe(recipeId: string): Promise<Recipe> {
+    const { data } = await this.client.post(`/api/recipes/${recipeId}/restore`);
+    return data;
+  }
+
+  async checkHasOriginal(recipeId: string): Promise<{ has_original: boolean; source_type: string }> {
+    const { data } = await this.client.get(`/api/recipes/${recipeId}/has-original`);
+    return data;
+  }
+
+  // ============================================================
+  // Saved/Bookmarked Recipes
+  // ============================================================
+
+  async saveRecipe(recipeId: string): Promise<{ saved: boolean; message: string }> {
+    const { data } = await this.client.post(`/api/recipes/${recipeId}/save`);
+    return data;
+  }
+
+  async unsaveRecipe(recipeId: string): Promise<{ saved: boolean; message: string }> {
+    const { data } = await this.client.delete(`/api/recipes/${recipeId}/save`);
+    return data;
+  }
+
+  async checkRecipeSaved(recipeId: string): Promise<{ is_saved: boolean }> {
+    const { data } = await this.client.get(`/api/recipes/${recipeId}/saved`);
+    return data;
+  }
+
+  async getSavedRecipes(limit = 50, offset = 0): Promise<RecipeListItem[]> {
+    const { data } = await this.client.get('/api/recipes/saved/list', {
+      params: { limit, offset },
+    });
+    return data;
+  }
+
+  async getSavedRecipesCount(): Promise<{ count: number }> {
+    const { data } = await this.client.get('/api/recipes/saved/count');
     return data;
   }
 }

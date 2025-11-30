@@ -143,6 +143,13 @@ function RootLayoutNav() {
                   headerTitle: 'Recipe',
                 }} 
               />
+              <Stack.Screen 
+                name="add-recipe" 
+                options={{ 
+                  headerTitle: 'Add Recipe',
+                  presentation: 'modal',
+                }} 
+              />
               <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
             </Stack>
           </AuthProtection>

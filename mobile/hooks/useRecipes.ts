@@ -396,3 +396,110 @@ export function useToggleRecipeSharing() {
   });
 }
 
+// ============================================================
+// Saved/Bookmarked Recipes
+// ============================================================
+
+/**
+ * Fetch saved recipes
+ */
+export function useSavedRecipes(limit = 50, offset = 0) {
+  return useQuery({
+    queryKey: ['savedRecipes', { limit, offset }],
+    queryFn: () => api.getSavedRecipes(limit, offset),
+  });
+}
+
+/**
+ * Get saved recipes count
+ */
+export function useSavedRecipesCount() {
+  return useQuery({
+    queryKey: ['savedRecipesCount'],
+    queryFn: () => api.getSavedRecipesCount(),
+  });
+}
+
+/**
+ * Check if a specific recipe is saved
+ */
+export function useIsRecipeSaved(recipeId: string) {
+  return useQuery({
+    queryKey: ['recipeSaved', recipeId],
+    queryFn: () => api.checkRecipeSaved(recipeId),
+    enabled: !!recipeId,
+  });
+}
+
+/**
+ * Save a recipe (with optimistic update for instant UI feedback)
+ */
+export function useSaveRecipe() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (recipeId: string) => api.saveRecipe(recipeId),
+    // Optimistic update - update UI immediately before server responds
+    onMutate: async (recipeId) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['recipeSaved', recipeId] });
+      
+      // Snapshot the previous value
+      const previousSaved = queryClient.getQueryData(['recipeSaved', recipeId]);
+      
+      // Optimistically update to the new value
+      queryClient.setQueryData(['recipeSaved', recipeId], { is_saved: true });
+      
+      // Return context with the snapshot
+      return { previousSaved, recipeId };
+    },
+    onError: (err, recipeId, context) => {
+      // If the mutation fails, roll back to the previous value
+      if (context?.previousSaved) {
+        queryClient.setQueryData(['recipeSaved', recipeId], context.previousSaved);
+      }
+    },
+    onSettled: (data, error, recipeId) => {
+      // Always refetch after error or success to ensure consistency
+      queryClient.invalidateQueries({ queryKey: ['savedRecipes'] });
+      queryClient.invalidateQueries({ queryKey: ['savedRecipesCount'] });
+    },
+  });
+}
+
+/**
+ * Unsave a recipe (with optimistic update for instant UI feedback)
+ */
+export function useUnsaveRecipe() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (recipeId: string) => api.unsaveRecipe(recipeId),
+    // Optimistic update - update UI immediately before server responds
+    onMutate: async (recipeId) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['recipeSaved', recipeId] });
+      
+      // Snapshot the previous value
+      const previousSaved = queryClient.getQueryData(['recipeSaved', recipeId]);
+      
+      // Optimistically update to the new value
+      queryClient.setQueryData(['recipeSaved', recipeId], { is_saved: false });
+      
+      // Return context with the snapshot
+      return { previousSaved, recipeId };
+    },
+    onError: (err, recipeId, context) => {
+      // If the mutation fails, roll back to the previous value
+      if (context?.previousSaved) {
+        queryClient.setQueryData(['recipeSaved', recipeId], context.previousSaved);
+      }
+    },
+    onSettled: (data, error, recipeId) => {
+      // Always refetch after error or success to ensure consistency
+      queryClient.invalidateQueries({ queryKey: ['savedRecipes'] });
+      queryClient.invalidateQueries({ queryKey: ['savedRecipesCount'] });
+    },
+  });
+}
+

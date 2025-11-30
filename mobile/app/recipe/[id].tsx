@@ -9,6 +9,8 @@ import {
   Share,
   View as RNView,
   ActivityIndicator,
+  ActionSheetIOS,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,7 +19,14 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text, View, Card, Chip, Divider, useColors } from '@/components/Themed';
 import AddIngredientsModal from '@/components/AddIngredientsModal';
 import RecipeChatModal from '@/components/RecipeChatModal';
-import { useRecipe, useDeleteRecipe, useToggleRecipeSharing } from '@/hooks/useRecipes';
+import { 
+  useRecipe, 
+  useDeleteRecipe, 
+  useToggleRecipeSharing,
+  useIsRecipeSaved,
+  useSaveRecipe,
+  useUnsaveRecipe,
+} from '@/hooks/useRecipes';
 import { useAddFromRecipe } from '@/hooks/useGrocery';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { useAuth } from '@clerk/clerk-expo';
@@ -40,6 +49,13 @@ export default function RecipeDetailScreen() {
   const [showIngredientPicker, setShowIngredientPicker] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
   const { userId } = useAuth();
+  
+  // Save/bookmark functionality
+  const { data: savedStatus } = useIsRecipeSaved(id);
+  const saveMutation = useSaveRecipe();
+  const unsaveMutation = useUnsaveRecipe();
+  const isSaved = savedStatus?.is_saved ?? false;
+  const isSavePending = saveMutation.isPending || unsaveMutation.isPending;
   
   // Check if the current user owns this recipe
   const isOwner = recipe?.user_id === userId;
@@ -114,17 +130,165 @@ export default function RecipeDetailScreen() {
     );
   };
 
+  const handleSaveToggle = () => {
+    if (isSavePending) return;
+    if (isSaved) {
+      unsaveMutation.mutate(id);
+    } else {
+      saveMutation.mutate(id);
+    }
+  };
+
+  const handleMoreOptions = () => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Edit Recipe', 'Delete Recipe'],
+          destructiveButtonIndex: 2,
+          cancelButtonIndex: 0,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) {
+            router.push(`/edit-recipe/${id}`);
+          } else if (buttonIndex === 2) {
+            handleDelete();
+          }
+        }
+      );
+    } else {
+      // Android fallback using Alert
+      Alert.alert(
+        'Recipe Options',
+        '',
+        [
+          { text: 'Edit Recipe', onPress: () => router.push(`/edit-recipe/${id}`) },
+          { text: 'Delete Recipe', style: 'destructive', onPress: handleDelete },
+          { text: 'Cancel', style: 'cancel' },
+        ]
+      );
+    }
+  };
+
+  const formatRecipeAsText = () => {
+    if (!recipe) return '';
+    const { extracted } = recipe;
+    
+    let text = `🍳 ${extracted.title}\n`;
+    text += '━'.repeat(30) + '\n\n';
+    
+    // Meta info
+    const metaParts: string[] = [];
+    if (extracted.servings) metaParts.push(`👥 ${extracted.servings} servings`);
+    if (extracted.times.total) metaParts.push(`⏱️ ${extracted.times.total}`);
+    if (extracted.totalEstimatedCost) metaParts.push(`💰 $${extracted.totalEstimatedCost.toFixed(2)}`);
+    if (metaParts.length > 0) {
+      text += metaParts.join('  •  ') + '\n\n';
+    }
+    
+    // Tags
+    if (extracted.tags.length > 0) {
+      text += `🏷️ ${extracted.tags.join(', ')}\n\n`;
+    }
+    
+    // Ingredients
+    text += '📝 INGREDIENTS\n';
+    text += '─'.repeat(20) + '\n';
+    extracted.components.forEach((component, compIndex) => {
+      if (extracted.components.length > 1 && component.name) {
+        text += `\n${component.name}:\n`;
+      }
+      component.ingredients.forEach(ing => {
+        const qty = ing.quantity && ing.quantity !== 'null' ? ing.quantity : '';
+        const unit = ing.unit && ing.unit !== 'null' ? ing.unit : '';
+        const qtyUnit = qty ? `${qty}${unit ? ' ' + unit : ''} ` : '';
+        const notes = ing.notes && ing.notes !== 'null' ? ` (${ing.notes})` : '';
+        text += `• ${qtyUnit}${ing.name}${notes}\n`;
+      });
+    });
+    
+    text += '\n';
+    
+    // Steps
+    text += '👨‍🍳 INSTRUCTIONS\n';
+    text += '─'.repeat(20) + '\n';
+    let stepNum = 1;
+    extracted.components.forEach((component) => {
+      if (extracted.components.length > 1 && component.name) {
+        text += `\n${component.name}:\n`;
+      }
+      component.steps.forEach(step => {
+        text += `${stepNum}. ${step}\n`;
+        stepNum++;
+      });
+    });
+    
+    // Nutrition (if available)
+    if (extracted.nutrition?.perServing) {
+      const n = extracted.nutrition.perServing;
+      const nutritionParts: string[] = [];
+      if (n.calories) nutritionParts.push(`${n.calories} cal`);
+      if (n.protein) nutritionParts.push(`${n.protein}g protein`);
+      if (n.carbs) nutritionParts.push(`${n.carbs}g carbs`);
+      if (n.fat) nutritionParts.push(`${n.fat}g fat`);
+      
+      if (nutritionParts.length > 0) {
+        text += '\n📊 NUTRITION (per serving)\n';
+        text += '─'.repeat(20) + '\n';
+        text += nutritionParts.join(' | ') + '\n';
+      }
+    }
+    
+    // Equipment
+    if (extracted.equipment && extracted.equipment.length > 0) {
+      text += '\n🔧 EQUIPMENT\n';
+      text += '─'.repeat(20) + '\n';
+      text += extracted.equipment.join(', ') + '\n';
+    }
+    
+    // Source
+    text += '\n' + '━'.repeat(30) + '\n';
+    text += `📺 Source: ${recipe.source_url}\n`;
+    text += `Extracted with Recipe Extractor 🧑‍🍳`;
+    
+    return text;
+  };
+
   const handleShare = async () => {
     if (!recipe) return;
-    try {
-      await Share.share({
-        title: recipe.extracted.title,
-        message: `Check out this recipe: ${recipe.extracted.title}\n\nSource: ${recipe.source_url}`,
-        url: recipe.source_url,
-      });
-    } catch (error) {
-      console.error('Share error:', error);
-    }
+    
+    Alert.alert(
+      'Share Recipe',
+      'How would you like to share?',
+      [
+        {
+          text: 'Full Recipe',
+          onPress: async () => {
+            try {
+              await Share.share({
+                message: formatRecipeAsText(),
+              });
+            } catch (error) {
+              console.error('Share error:', error);
+            }
+          },
+        },
+        {
+          text: 'Just Link',
+          onPress: async () => {
+            try {
+              await Share.share({
+                title: recipe.extracted.title,
+                message: `Check out this recipe: ${recipe.extracted.title}\n\n${recipe.source_url}`,
+                url: recipe.source_url,
+              });
+            } catch (error) {
+              console.error('Share error:', error);
+            }
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
   };
 
   const handleOpenSource = () => {
@@ -203,9 +367,26 @@ export default function RecipeDetailScreen() {
               <TouchableOpacity onPress={handleShare} style={styles.headerButton}>
                 <Ionicons name="share-outline" size={22} color={colors.tint} />
               </TouchableOpacity>
-              <TouchableOpacity onPress={handleDelete} style={styles.headerButton}>
-                <Ionicons name="trash-outline" size={22} color={colors.error} />
-              </TouchableOpacity>
+              {/* Save button for non-owners */}
+              {!isOwner && userId && (
+                <TouchableOpacity onPress={handleSaveToggle} style={styles.headerButton} disabled={isSavePending}>
+                  {isSavePending ? (
+                    <ActivityIndicator size="small" color={colors.tint} />
+                  ) : (
+                    <Ionicons 
+                      name={isSaved ? "heart" : "heart-outline"} 
+                      size={22} 
+                      color={isSaved ? colors.error : colors.tint} 
+                    />
+                  )}
+                </TouchableOpacity>
+              )}
+              {/* More options for owners */}
+              {isOwner && (
+                <TouchableOpacity onPress={handleMoreOptions} style={styles.headerButton}>
+                  <Ionicons name="ellipsis-horizontal" size={22} color={colors.tint} />
+                </TouchableOpacity>
+              )}
             </RNView>
           ),
         }} 
@@ -376,36 +557,33 @@ export default function RecipeDetailScreen() {
                 <>
                   {extracted.components.map((component, compIndex) => (
                     <RNView key={compIndex} style={styles.componentSection}>
-                      {extracted.components.length > 1 && (
+                      {extracted.components.length > 1 && component.name && typeof component.name === 'string' ? (
                         <Text style={[styles.componentTitle, { color: colors.tint }]}>
                           {component.name}
                         </Text>
-                      )}
-                      {component.ingredients.map((ing, ingIndex) => (
-                        <RNView key={ingIndex} style={styles.ingredientRow}>
-                          <RNView style={[styles.bullet, { backgroundColor: colors.tint }]} />
-                          <RNView style={styles.ingredientContent}>
-                            <Text style={[styles.ingredientText, { color: colors.text }]}>
-                              {ing.quantity && (
-                                <Text style={styles.ingredientQty}>
-                                  {ing.quantity} {ing.unit}{' '}
-                                </Text>
-                              )}
-                              {ing.name}
-                              {ing.notes && (
-                                <Text style={[styles.ingredientNotes, { color: colors.textMuted }]}>
-                                  {' '}({ing.notes})
-                                </Text>
-                              )}
-                            </Text>
-                            {ing.estimatedCost && (
-                              <Text style={[styles.ingredientCost, { color: colors.textMuted }]}>
-                                ${ing.estimatedCost.toFixed(2)}
+                      ) : null}
+                      {component.ingredients.map((ing, ingIndex) => {
+                        // Build the quantity/unit string safely
+                        const qty = ing.quantity && ing.quantity !== 'null' ? ing.quantity : '';
+                        const unit = ing.unit && ing.unit !== 'null' ? ing.unit : '';
+                        const qtyUnit = qty ? `${qty}${unit ? ` ${unit}` : ''} ` : '';
+                        const notes = ing.notes && ing.notes !== 'null' ? ing.notes : '';
+                        const cost = typeof ing.estimatedCost === 'number' ? `$${ing.estimatedCost.toFixed(2)}` : null;
+                        
+                        return (
+                          <RNView key={ingIndex} style={styles.ingredientRow}>
+                            <RNView style={[styles.bullet, { backgroundColor: colors.tint }]} />
+                            <RNView style={styles.ingredientContent}>
+                              <Text style={[styles.ingredientText, { color: colors.text }]}>
+                                {qtyUnit ? <Text style={styles.ingredientQty}>{qtyUnit}</Text> : null}
+                                {ing.name}
+                                {notes ? <Text style={[styles.ingredientNotes, { color: colors.textMuted }]}>{` (${notes})`}</Text> : null}
                               </Text>
-                            )}
+                              {cost ? <Text style={[styles.ingredientCost, { color: colors.textMuted }]}>{cost}</Text> : null}
+                            </RNView>
                           </RNView>
-                        </RNView>
-                      ))}
+                        );
+                      })}
                     </RNView>
                   ))}
                   

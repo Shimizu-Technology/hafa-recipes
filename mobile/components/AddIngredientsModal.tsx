@@ -148,11 +148,11 @@ export default function AddIngredientsModal({
                 />
                 <RNView style={styles.ingredientContent}>
                   <Text style={[styles.ingredientName, { color: colors.text }]}>
-                    {ingredient.quantity && `${ingredient.quantity} `}
-                    {ingredient.unit && `${ingredient.unit} `}
+                    {ingredient.quantity && ingredient.quantity !== 'null' && `${ingredient.quantity} `}
+                    {ingredient.unit && ingredient.unit !== 'null' && `${ingredient.unit} `}
                     {ingredient.name}
                   </Text>
-                  {ingredient.notes && (
+                  {ingredient.notes && ingredient.notes !== 'null' && (
                     <Text style={[styles.ingredientNotes, { color: colors.textMuted }]}>
                       {ingredient.notes}
                     </Text>

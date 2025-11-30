@@ -7,13 +7,22 @@ import {
   RefreshControl,
   View as RNView,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useAuth } from '@clerk/clerk-expo';
 
 import { View, Text, Input, Chip, useColors } from '@/components/Themed';
-import { useDiscoverRecipes, useSearchPublicRecipes, usePublicRecipeCount } from '@/hooks/useRecipes';
+import { 
+  useDiscoverRecipes, 
+  useSearchPublicRecipes, 
+  usePublicRecipeCount,
+  useIsRecipeSaved,
+  useSaveRecipe,
+  useUnsaveRecipe,
+} from '@/hooks/useRecipes';
 import { RecipeListItem } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
@@ -25,18 +34,73 @@ const SOURCE_FILTERS = [
   { key: 'tiktok', label: 'TikTok', icon: 'logo-tiktok' },
   { key: 'youtube', label: 'YouTube', icon: 'logo-youtube' },
   { key: 'instagram', label: 'Instagram', icon: 'logo-instagram' },
+  { key: 'manual', label: 'Manual', icon: 'create-outline' },
 ] as const;
 
 type SourceFilter = typeof SOURCE_FILTERS[number]['key'];
+
+// Save/Bookmark button component
+function SaveButton({ 
+  recipeId, 
+  colors,
+  isOwner,
+}: { 
+  recipeId: string; 
+  colors: ReturnType<typeof useColors>;
+  isOwner: boolean;
+}) {
+  const { data: savedStatus, isLoading } = useIsRecipeSaved(recipeId);
+  const saveMutation = useSaveRecipe();
+  const unsaveMutation = useUnsaveRecipe();
+  
+  // Don't show save button for own recipes
+  if (isOwner) return null;
+  
+  const isSaved = savedStatus?.is_saved ?? false;
+  const isPending = saveMutation.isPending || unsaveMutation.isPending;
+  
+  const handlePress = () => {
+    if (isPending) return;
+    if (isSaved) {
+      unsaveMutation.mutate(recipeId);
+    } else {
+      saveMutation.mutate(recipeId);
+    }
+  };
+  
+  if (isLoading) {
+    return (
+      <RNView style={styles.saveButton}>
+        <ActivityIndicator size="small" color={colors.textMuted} />
+      </RNView>
+    );
+  }
+  
+  return (
+    <TouchableOpacity 
+      style={styles.saveButton} 
+      onPress={handlePress}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+    >
+      <Ionicons 
+        name={isSaved ? "heart" : "heart-outline"} 
+        size={22} 
+        color={isSaved ? colors.error : colors.textMuted} 
+      />
+    </TouchableOpacity>
+  );
+}
 
 function RecipeCard({ 
   recipe, 
   onPress,
   colors,
+  currentUserId,
 }: { 
   recipe: RecipeListItem; 
   onPress: () => void;
   colors: ReturnType<typeof useColors>;
+  currentUserId?: string | null;
 }) {
   const [imageError, setImageError] = useState(false);
   
@@ -46,9 +110,12 @@ function RecipeCard({
       ? 'logo-youtube' 
       : recipe.source_type === 'instagram' 
         ? 'logo-instagram' 
-        : 'globe-outline';
+        : recipe.source_type === 'manual'
+          ? 'create-outline'
+          : 'globe-outline';
 
   const showPlaceholder = !recipe.thumbnail_url || imageError;
+  const isOwner = recipe.user_id === currentUserId;
 
   return (
     <TouchableOpacity 
@@ -57,17 +124,25 @@ function RecipeCard({
       activeOpacity={0.7}
     >
       {/* Thumbnail */}
-      {showPlaceholder ? (
-        <RNView style={[styles.placeholderThumbnail, { backgroundColor: colors.tint + '15' }]}>
-          <Ionicons name="restaurant-outline" size={32} color={colors.tint} />
-        </RNView>
-      ) : (
-        <Image 
-          source={{ uri: recipe.thumbnail_url! }} 
-          style={styles.thumbnail}
-          onError={() => setImageError(true)}
-        />
-      )}
+      <RNView>
+        {showPlaceholder ? (
+          <RNView style={[styles.placeholderThumbnail, { backgroundColor: colors.tint + '15' }]}>
+            <Ionicons name="restaurant-outline" size={32} color={colors.tint} />
+          </RNView>
+        ) : (
+          <Image 
+            source={{ uri: recipe.thumbnail_url! }} 
+            style={styles.thumbnail}
+            onError={() => setImageError(true)}
+          />
+        )}
+        {/* Save button overlay */}
+        {currentUserId && (
+          <RNView style={styles.saveButtonContainer}>
+            <SaveButton recipeId={recipe.id} colors={colors} isOwner={isOwner} />
+          </RNView>
+        )}
+      </RNView>
       
       {/* Content */}
       <RNView style={styles.cardContent}>
@@ -126,6 +201,7 @@ export default function DiscoverScreen() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { userId } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
@@ -159,6 +235,7 @@ export default function DiscoverScreen() {
       recipe={item}
       colors={colors}
       onPress={() => router.push(`/recipe/${item.id}`)}
+      currentUserId={userId}
     />
   );
 
@@ -355,6 +432,16 @@ const styles = StyleSheet.create({
     height: 120,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  saveButtonContainer: {
+    position: 'absolute',
+    top: spacing.xs,
+    right: spacing.xs,
+  },
+  saveButton: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: radius.full,
+    padding: spacing.xs,
   },
   cardContent: {
     flex: 1,

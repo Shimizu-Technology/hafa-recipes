@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   FlatList,
@@ -8,24 +8,32 @@ import {
   View as RNView,
   ActivityIndicator,
   ScrollView,
+  Switch,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Input, Chip, Button, useColors } from '@/components/Themed';
-import { useRecipes, useSearchRecipes, useRecipeCount } from '@/hooks/useRecipes';
+import { 
+  useRecipes, 
+  useSearchRecipes, 
+  useRecipeCount,
+  useSavedRecipes,
+} from '@/hooks/useRecipes';
 import { RecipeListItem } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { useAuth } from '@clerk/clerk-expo';
 
 const ITEMS_PER_PAGE = 20;
 
-// Source filter options
+// Source filter options (no longer includes 'saved' - that's a toggle now)
 const SOURCE_FILTERS = [
   { key: 'all', label: 'All', icon: 'apps-outline' },
   { key: 'tiktok', label: 'TikTok', icon: 'logo-tiktok' },
   { key: 'youtube', label: 'YouTube', icon: 'logo-youtube' },
   { key: 'instagram', label: 'Instagram', icon: 'logo-instagram' },
+  { key: 'manual', label: 'Manual', icon: 'create-outline' },
 ] as const;
 
 type SourceFilter = typeof SOURCE_FILTERS[number]['key'];
@@ -34,10 +42,12 @@ function RecipeCard({
   recipe, 
   onPress,
   colors,
+  isSavedRecipe,
 }: { 
   recipe: RecipeListItem; 
   onPress: () => void;
   colors: ReturnType<typeof useColors>;
+  isSavedRecipe?: boolean;
 }) {
   const [imageError, setImageError] = useState(false);
   
@@ -47,7 +57,9 @@ function RecipeCard({
       ? 'logo-youtube' 
       : recipe.source_type === 'instagram' 
         ? 'logo-instagram' 
-        : 'globe-outline';
+        : recipe.source_type === 'manual'
+          ? 'create-outline'
+          : 'globe-outline';
 
   const showPlaceholder = !recipe.thumbnail_url || imageError;
 
@@ -58,17 +70,25 @@ function RecipeCard({
       activeOpacity={0.7}
     >
       {/* Thumbnail */}
-      {showPlaceholder ? (
-        <RNView style={[styles.placeholderThumbnail, { backgroundColor: colors.tint + '15' }]}>
-          <Ionicons name="restaurant-outline" size={32} color={colors.tint} />
-        </RNView>
-      ) : (
-        <Image 
-          source={{ uri: recipe.thumbnail_url! }} 
-          style={styles.thumbnail}
-          onError={() => setImageError(true)}
-        />
-      )}
+      <RNView>
+        {showPlaceholder ? (
+          <RNView style={[styles.placeholderThumbnail, { backgroundColor: colors.tint + '15' }]}>
+            <Ionicons name="restaurant-outline" size={32} color={colors.tint} />
+          </RNView>
+        ) : (
+          <Image 
+            source={{ uri: recipe.thumbnail_url! }} 
+            style={styles.thumbnail}
+            onError={() => setImageError(true)}
+          />
+        )}
+        {/* Saved badge */}
+        {isSavedRecipe && (
+          <RNView style={[styles.savedBadge, { backgroundColor: colors.error }]}>
+            <Ionicons name="heart" size={10} color="#FFFFFF" />
+          </RNView>
+        )}
+      </RNView>
       
       {/* Content */}
       <RNView style={styles.cardContent}>
@@ -127,27 +147,62 @@ export default function HistoryScreen() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { userId } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
+  const [includeSaved, setIncludeSaved] = useState(true); // Toggle for including saved recipes
   
   // Pass source filter to server-side queries
   const sourceTypeParam = sourceFilter === 'all' ? undefined : sourceFilter;
   
-  const { data: recipes, isLoading, refetch, isRefetching } = useRecipes(50, 0, sourceTypeParam);
+  // Own recipes queries
+  const { data: recipes, isLoading: isLoadingRecipes, refetch: refetchRecipes, isRefetching: isRefetchingRecipes } = useRecipes(50, 0, sourceTypeParam);
   const { data: searchResults } = useSearchRecipes(searchQuery, sourceTypeParam);
   const { data: countData } = useRecipeCount(sourceTypeParam);
+  
+  // Saved recipes queries (always fetch, we'll combine based on toggle)
+  const { data: savedRecipes, isLoading: isLoadingSaved, refetch: refetchSaved, isRefetching: isRefetchingSaved } = useSavedRecipes(50, 0);
 
-  // Use search results or recipes from server (already filtered)
-  const filteredRecipes = searchQuery.length > 0 ? searchResults : recipes;
+  const isLoading = isLoadingRecipes || (includeSaved && isLoadingSaved);
+  const isRefetching = isRefetchingRecipes || (includeSaved && isRefetchingSaved);
+  
+  const handleRefreshAll = useCallback(() => {
+    refetchRecipes();
+    if (includeSaved) refetchSaved();
+  }, [refetchRecipes, refetchSaved, includeSaved]);
 
-  const displayRecipes = filteredRecipes?.slice(0, displayCount);
-  const hasMore = filteredRecipes && displayCount < filteredRecipes.length;
+  // Combine own recipes with saved recipes when toggle is on
+  const combinedRecipes = useMemo(() => {
+    const ownRecipes = searchQuery.length > 0 ? searchResults : recipes;
+    if (!ownRecipes) return undefined;
+    
+    if (!includeSaved || !savedRecipes) {
+      return ownRecipes;
+    }
+    
+    // Combine and dedupe (in case a saved recipe somehow appears in both)
+    const ownIds = new Set(ownRecipes.map(r => r.id));
+    const uniqueSaved = savedRecipes.filter(r => !ownIds.has(r.id));
+    
+    // Apply source filter to saved recipes too
+    const filteredSaved = sourceTypeParam 
+      ? uniqueSaved.filter(r => r.source_type === sourceTypeParam)
+      : uniqueSaved;
+    
+    // Combine: own recipes first, then saved
+    return [...ownRecipes, ...filteredSaved];
+  }, [recipes, searchResults, savedRecipes, includeSaved, searchQuery, sourceTypeParam]);
+
+  const totalCount = (countData?.count || 0) + (includeSaved && savedRecipes ? savedRecipes.length : 0);
+
+  const displayRecipes = combinedRecipes?.slice(0, displayCount);
+  const hasMore = combinedRecipes && displayCount < combinedRecipes.length;
 
   const handleRefresh = useCallback(() => {
     setDisplayCount(ITEMS_PER_PAGE);
-    refetch();
-  }, [refetch]);
+    handleRefreshAll();
+  }, [handleRefreshAll]);
 
   const handleLoadMore = () => {
     if (hasMore) {
@@ -160,6 +215,7 @@ export default function HistoryScreen() {
       recipe={item}
       colors={colors}
       onPress={() => router.push(`/recipe/${item.id}`)}
+      isSavedRecipe={item.user_id !== userId}
     />
   );
 
@@ -169,17 +225,21 @@ export default function HistoryScreen() {
       <Text style={[styles.headerTitle, { color: colors.text }]}>
         My Recipes
       </Text>
-      {countData && (
+      {totalCount !== undefined && (
         <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
-          <Text style={styles.countText}>{countData.count}</Text>
+          <Text style={styles.countText}>{totalCount}</Text>
         </RNView>
       )}
     </RNView>
-  ), [colors.text, colors.tint, countData]);
+  ), [colors.text, colors.tint, totalCount]);
 
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
-      <Ionicons name="restaurant-outline" size={64} color={colors.textMuted} />
+      <Ionicons 
+        name="restaurant-outline"
+        size={64} 
+        color={colors.textMuted} 
+      />
       <Text style={[styles.emptyTitle, { color: colors.text }]}>
         No recipes yet
       </Text>
@@ -257,6 +317,22 @@ export default function HistoryScreen() {
             </TouchableOpacity>
           ))}
         </ScrollView>
+        
+        {/* Include Saved Toggle */}
+        <RNView style={styles.toggleRow}>
+          <RNView style={styles.toggleLabelRow}>
+            <Ionicons name="heart" size={16} color={includeSaved ? colors.error : colors.textMuted} />
+            <Text style={[styles.toggleLabel, { color: colors.text }]}>
+              Include Saved
+            </Text>
+          </RNView>
+          <Switch
+            value={includeSaved}
+            onValueChange={setIncludeSaved}
+            trackColor={{ false: colors.border, true: colors.tint + '60' }}
+            thumbColor={includeSaved ? colors.tint : colors.textMuted}
+          />
+        </RNView>
       </RNView>
       
       <FlatList
@@ -265,7 +341,7 @@ export default function HistoryScreen() {
         keyExtractor={(item) => item.id}
         ListEmptyComponent={!isLoading ? ListEmpty : null}
         ListFooterComponent={ListFooter}
-        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.xl }]}
+        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.xl + 80 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl 
@@ -275,6 +351,15 @@ export default function HistoryScreen() {
           />
         }
       />
+      
+      {/* Floating Action Button - Add Recipe */}
+      <TouchableOpacity
+        style={[styles.fab, { backgroundColor: colors.tint }]}
+        onPress={() => router.push('/add-recipe')}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="add" size={28} color="#FFFFFF" />
+      </TouchableOpacity>
     </View>
   );
 }
@@ -333,6 +418,22 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+  },
+  toggleLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  toggleLabel: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+  },
   card: {
     flexDirection: 'row',
     borderRadius: radius.lg,
@@ -349,6 +450,13 @@ const styles = StyleSheet.create({
     height: 120,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  savedBadge: {
+    position: 'absolute',
+    top: spacing.xs,
+    left: spacing.xs,
+    borderRadius: radius.full,
+    padding: 4,
   },
   placeholderEmoji: {
     fontSize: 32,
@@ -434,5 +542,20 @@ const styles = StyleSheet.create({
   loadMoreText: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
+  },
+  fab: {
+    position: 'absolute',
+    right: spacing.lg,
+    bottom: 16,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
   },
 });

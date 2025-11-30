@@ -13,6 +13,7 @@ import {
   View as RNView,
   Alert,
   TextInput,
+  Share,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -78,8 +79,8 @@ function GroceryItemRow({
           ]}
           numberOfLines={1}
         >
-          {item.quantity && `${item.quantity} `}
-          {item.unit && `${item.unit} `}
+          {item.quantity && item.quantity !== 'null' && `${item.quantity} `}
+          {item.unit && item.unit !== 'null' && `${item.unit} `}
           {item.name}
         </Text>
         {item.recipe_title && (
@@ -87,7 +88,7 @@ function GroceryItemRow({
             from {item.recipe_title}
           </Text>
         )}
-        {item.notes && (
+        {item.notes && item.notes !== 'null' && (
           <Text style={[styles.itemNotes, { color: colors.textMuted }]} numberOfLines={1}>
             {item.notes}
           </Text>
@@ -201,6 +202,75 @@ export default function GroceryScreen() {
     );
   };
 
+  const formatGroceryListAsText = () => {
+    if (!groceryItems || groceryItems.length === 0) return '';
+    
+    // Group items by recipe
+    const byRecipe: { [key: string]: typeof groceryItems } = {};
+    const noRecipe: typeof groceryItems = [];
+    
+    groceryItems.forEach(item => {
+      if (item.recipe_title) {
+        if (!byRecipe[item.recipe_title]) {
+          byRecipe[item.recipe_title] = [];
+        }
+        byRecipe[item.recipe_title].push(item);
+      } else {
+        noRecipe.push(item);
+      }
+    });
+
+    let text = '🛒 Grocery List\n\n';
+    
+    // Format items with simple list style
+    const formatItem = (item: GroceryItem) => {
+      const marker = item.checked ? '✓' : '-';
+      const qty = item.quantity && item.quantity !== 'null' ? item.quantity : '';
+      const unit = item.unit && item.unit !== 'null' ? item.unit : '';
+      const qtyUnit = qty ? `${qty}${unit ? ' ' + unit : ''} ` : '';
+      const notes = item.notes && item.notes !== 'null' ? ` (${item.notes})` : '';
+      return `${marker} ${qtyUnit}${item.name}${notes}`;
+    };
+
+    // Add items without recipe first
+    if (noRecipe.length > 0) {
+      noRecipe.forEach(item => {
+        text += formatItem(item) + '\n';
+      });
+      if (Object.keys(byRecipe).length > 0) {
+        text += '\n';
+      }
+    }
+
+    // Add items grouped by recipe
+    Object.entries(byRecipe).forEach(([recipeName, items], index) => {
+      if (index > 0 || noRecipe.length > 0) text += '\n';
+      text += `📖 ${recipeName}\n`;
+      items.forEach(item => {
+        text += formatItem(item) + '\n';
+      });
+    });
+
+    return text.trim();
+  };
+
+  const handleExportList = async () => {
+    if (!groceryItems || groceryItems.length === 0) {
+      Alert.alert('Empty List', 'Add some items to your grocery list first.');
+      return;
+    }
+
+    const listText = formatGroceryListAsText();
+    
+    try {
+      await Share.share({
+        message: listText,
+      });
+    } catch (error) {
+      console.error('Share error:', error);
+    }
+  };
+
   const handleEdit = (item: GroceryItem) => {
     setEditingItem(item);
   };
@@ -253,11 +323,18 @@ export default function GroceryScreen() {
       <RNView style={styles.header}>
         {/* Title row */}
         <RNView style={styles.titleRow}>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>Grocery List</Text>
-          {countData && countData.unchecked > 0 && (
-            <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
-              <Text style={styles.countText}>{countData.unchecked}</Text>
-            </RNView>
+          <RNView style={styles.titleLeft}>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>Grocery List</Text>
+            {countData && countData.unchecked > 0 && (
+              <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
+                <Text style={styles.countText}>{countData.unchecked}</Text>
+              </RNView>
+            )}
+          </RNView>
+          {countData && countData.total > 0 && (
+            <TouchableOpacity onPress={handleExportList} style={styles.exportButton}>
+              <Ionicons name="share-outline" size={22} color={colors.tint} />
+            </TouchableOpacity>
           )}
         </RNView>
 
@@ -365,7 +442,12 @@ const styles = StyleSheet.create({
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: spacing.md,
+  },
+  titleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: fontSize.xxl,
@@ -376,6 +458,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     borderRadius: radius.full,
+  },
+  exportButton: {
+    padding: spacing.sm,
   },
   countText: {
     color: '#FFFFFF',

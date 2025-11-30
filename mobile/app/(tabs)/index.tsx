@@ -47,6 +47,32 @@ export default function ExtractScreen() {
     }
   }, [extraction.isComplete, extraction.recipeId]);
 
+  // Proceed with extraction (called after duplicate check or when user chooses "Extract Anyway")
+  const proceedWithExtraction = async () => {
+    try {
+      const result = await extraction.startExtraction({
+        url: url.trim(),
+        location: selectedLocation,
+        notes: notes.trim(),
+        is_public: isPublic,
+      });
+
+      // If recipe already existed (shouldn't happen after duplicate check, but just in case)
+      if (result.isExisting && result.recipeId) {
+        router.push(`/recipe/${result.recipeId}`);
+        setUrl('');
+        setNotes('');
+        setIsPublic(true);  // Reset to default
+      }
+      // Otherwise, polling has started and progress UI will show
+    } catch (error: any) {
+      Alert.alert(
+        'Extraction Failed',
+        error.message || 'Something went wrong. Please try again.'
+      );
+    }
+  };
+
   const handleExtract = async () => {
     if (!url.trim()) {
       Alert.alert('Missing URL', 'Please paste a video URL to extract a recipe.');
@@ -69,40 +95,49 @@ export default function ExtractScreen() {
     try {
       setIsChecking(true);
       
-      // Check for duplicate first
+      // Check for duplicate first (both user's own and public recipes)
+      console.log('Checking duplicate for URL:', url.trim());
       const duplicate = await checkDuplicate.mutateAsync(url.trim());
+      console.log('Duplicate check result:', JSON.stringify(duplicate));
       
       if (duplicate.exists && duplicate.recipe_id) {
         setIsChecking(false);
-        Alert.alert(
-          'Recipe Already Saved',
-          `"${duplicate.title}" has already been extracted.`,
-          [
-            { text: 'View Recipe', onPress: () => router.push(`/recipe/${duplicate.recipe_id}`) },
-            { text: 'Cancel', style: 'cancel' },
-          ]
-        );
+        
+        if (duplicate.owned_by_user) {
+          // User already has this recipe
+          Alert.alert(
+            'Recipe Already Saved',
+            `You already have "${duplicate.title}" in your recipes.`,
+            [
+              { text: 'View Recipe', onPress: () => router.push(`/recipe/${duplicate.recipe_id}`) },
+              { text: 'Cancel', style: 'cancel' },
+            ]
+          );
+        } else {
+          // Someone else has already extracted this (public recipe)
+          Alert.alert(
+            'Recipe Already Extracted! 🎉',
+            `"${duplicate.title}" is already in our library. View it instantly instead of waiting for extraction!`,
+            [
+              { 
+                text: 'View Recipe', 
+                onPress: () => router.push(`/recipe/${duplicate.recipe_id}`),
+                style: 'default',
+              },
+              { 
+                text: 'Extract Anyway', 
+                onPress: () => proceedWithExtraction(),
+                style: 'destructive',
+              },
+              { text: 'Cancel', style: 'cancel' },
+            ]
+          );
+        }
         return;
       }
 
       setIsChecking(false);
-
-      // Start async extraction
-      const result = await extraction.startExtraction({
-        url: url.trim(),
-        location: selectedLocation,
-        notes: notes.trim(),
-        is_public: isPublic,
-      });
-
-      // If recipe already existed (shouldn't happen after duplicate check, but just in case)
-      if (result.isExisting && result.recipeId) {
-        router.push(`/recipe/${result.recipeId}`);
-        setUrl('');
-        setNotes('');
-        setIsPublic(true);  // Reset to default
-      }
-      // Otherwise, polling has started and progress UI will show
+      await proceedWithExtraction();
       
     } catch (error: any) {
       setIsChecking(false);

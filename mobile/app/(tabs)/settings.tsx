@@ -1,4 +1,4 @@
-import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Image } from 'react-native';
+import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Image, Share } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser, useClerk } from '@clerk/clerk-expo';
@@ -8,6 +8,9 @@ import { View, Text, Card, SectionHeader, Divider, useColors } from '@/component
 import { useRecipeCount } from '@/hooks/useRecipes';
 import { API_BASE_URL } from '@/lib/api';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+
+// TODO: Update with real App Store ID once approved
+const APP_STORE_URL = 'https://apps.apple.com/app/recipe-extractor/id123456789';
 
 interface MenuItemProps {
   icon: string;
@@ -95,6 +98,16 @@ export default function SettingsScreen() {
 
   const handleOpenAPI = () => {
     Linking.openURL(`${API_BASE_URL}/docs`);
+  };
+
+  const handleShareApp = async () => {
+    try {
+      await Share.share({
+        message: `🍳 Check out Recipe Extractor!\n\nTransform cooking videos from TikTok, YouTube, and Instagram into detailed recipes using AI.\n\nDownload it here: ${APP_STORE_URL}`,
+      });
+    } catch (error) {
+      console.error('Share error:', error);
+    }
   };
 
   return (
@@ -207,6 +220,18 @@ export default function SettingsScreen() {
               </Text>
             </RNView>
           </Card>
+        </RNView>
+
+        {/* Share App */}
+        <RNView style={styles.section}>
+          <TouchableOpacity
+            style={[styles.shareAppButton, { backgroundColor: colors.tint }]}
+            onPress={handleShareApp}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="heart-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.shareAppText}>Share App with Friends</Text>
+          </TouchableOpacity>
         </RNView>
 
         {/* Sign Out */}
@@ -358,5 +383,18 @@ const styles = StyleSheet.create({
   signOutText: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
+  },
+  shareAppButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+  },
+  shareAppText: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+    color: '#FFFFFF',
   },
 });
