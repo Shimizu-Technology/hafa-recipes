@@ -12,19 +12,25 @@ import {
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useAuth } from '@clerk/clerk-expo';
 
 import { View, Text, Input, Button, Chip, Card, useColors } from '@/components/Themed';
 import ExtractionProgress from '@/components/ExtractionProgress';
+import { SignInBanner } from '@/components/SignInBanner';
 import { useAsyncExtraction, useLocations, useCheckDuplicate } from '@/hooks/useRecipes';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
 export default function ExtractScreen() {
   const router = useRouter();
   const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const { isSignedIn } = useAuth();
+  
+  // All hooks must be called unconditionally
   const [url, setUrl] = useState('');
   const [notes, setNotes] = useState('');
   const [selectedLocation, setSelectedLocation] = useState('Guam');
-  const [isPublic, setIsPublic] = useState(true);  // Public by default
+  const [isPublic, setIsPublic] = useState(true);
   const [isChecking, setIsChecking] = useState(false);
   
   const { data: locationsData } = useLocations();
@@ -34,19 +40,17 @@ export default function ExtractScreen() {
   // Navigate to recipe when extraction completes
   useEffect(() => {
     if (extraction.isComplete && extraction.recipeId) {
-      // Small delay to show completion state
       const timer = setTimeout(() => {
         router.push(`/recipe/${extraction.recipeId}`);
-        // Reset after navigation
         extraction.reset();
         setUrl('');
         setNotes('');
-        setIsPublic(true);  // Reset to default
+        setIsPublic(true);
       }, 1000);
       return () => clearTimeout(timer);
     }
   }, [extraction.isComplete, extraction.recipeId]);
-
+  
   // Proceed with extraction (called after duplicate check or when user chooses "Extract Anyway")
   const proceedWithExtraction = async () => {
     try {
@@ -173,9 +177,9 @@ export default function ExtractScreen() {
   // Show progress UI when extracting
   if (extraction.isExtracting || extraction.isFailed) {
     return (
-      <View style={styles.container}>
+      <RNView style={[styles.container, { backgroundColor: colors.background }]}>
         <ScrollView 
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 80) + spacing.xl }]}
           showsVerticalScrollIndicator={false}
         >
           <ExtractionProgress
@@ -209,18 +213,21 @@ export default function ExtractScreen() {
             💡 You can leave this screen - extraction continues in the background
           </Text>
         </ScrollView>
-      </View>
+      </RNView>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <RNView style={[styles.container, { backgroundColor: colors.background }]}>
       <KeyboardAvoidingView 
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView 
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent, 
+            { paddingBottom: Math.max(insets.bottom, 80) + spacing.xl + (isSignedIn ? 0 : 100) }
+          ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
@@ -338,9 +345,9 @@ export default function ExtractScreen() {
           {/* Extract Button */}
           <RNView style={styles.section}>
             <Button
-              title={isChecking ? 'Checking...' : 'Extract Recipe'}
+              title={!isSignedIn ? 'Sign In to Extract' : isChecking ? 'Checking...' : 'Extract Recipe'}
               onPress={handleExtract}
-              disabled={isLoading || !url.trim()}
+              disabled={!isSignedIn || isLoading || !url.trim()}
               loading={isChecking}
               size="lg"
             />
@@ -354,13 +361,17 @@ export default function ExtractScreen() {
           </RNView>
         </ScrollView>
       </KeyboardAvoidingView>
-    </View>
+      
+      {/* Sign In Banner for guests */}
+      {!isSignedIn && <SignInBanner message="Sign in to extract recipes" />}
+    </RNView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    overflow: 'hidden',
   },
   flex: {
     flex: 1,

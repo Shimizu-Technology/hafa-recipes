@@ -1,12 +1,14 @@
-import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Image, Share } from 'react-native';
+import { useState } from 'react';
+import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Image, Share, ActivityIndicator } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useUser, useClerk } from '@clerk/clerk-expo';
+import { useUser, useClerk, useAuth } from '@clerk/clerk-expo';
+import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Card, SectionHeader, Divider, useColors } from '@/components/Themed';
 import { useRecipeCount } from '@/hooks/useRecipes';
-import { API_BASE_URL } from '@/lib/api';
+import { API_BASE_URL, api } from '@/lib/api';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
 // TODO: Update with real App Store ID once approved
@@ -55,12 +57,15 @@ function MenuItem({ icon, label, value, onPress, colors }: MenuItemProps) {
 
 export default function SettingsScreen() {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { isSignedIn } = useAuth();
   const { data: countData } = useRecipeCount();
   const { user } = useUser();
   const { signOut } = useClerk();
-
+  const [isDeleting, setIsDeleting] = useState(false);
+  
   const handleClearCache = () => {
     Alert.alert(
       'Clear Cache',
@@ -89,7 +94,65 @@ export default function SettingsScreen() {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
+            // Cancel all pending queries first
+            queryClient.cancelQueries();
+            queryClient.clear();
+            // Clear the API token getter to prevent further requests
+            api.setTokenGetter(null);
             await signOut();
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete Account',
+      'Are you sure you want to permanently delete your account? This will delete all your recipes, grocery list items, and saved data. This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Account',
+          style: 'destructive',
+          onPress: () => {
+            // Second confirmation for extra safety
+            Alert.alert(
+              'Final Confirmation',
+              'This is permanent. All your data will be deleted forever.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete Forever',
+                  style: 'destructive',
+                  onPress: async () => {
+                    setIsDeleting(true);
+                    try {
+                      // Delete account on server
+                      await api.deleteAccount();
+                      
+                      // Cancel all pending queries to prevent refetch errors
+                      queryClient.cancelQueries();
+                      queryClient.clear();
+                      
+                      // Clear the API token getter to prevent further requests
+                      api.setTokenGetter(null);
+                      
+                      // Sign out
+                      await signOut();
+                    } catch (error: any) {
+                      console.error('Delete account error:', error);
+                      // Only show error if it's not an auth error (account was already deleted)
+                      if (error?.response?.status !== 401) {
+                        Alert.alert('Error', 'Failed to delete account. Please try again.');
+                      }
+                    } finally {
+                      setIsDeleting(false);
+                    }
+                  },
+                },
+              ]
+            );
           },
         },
       ]
@@ -111,43 +174,58 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <RNView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView 
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 80) + spacing.xl }]}
       >
         {/* User Profile Card */}
         <RNView style={styles.section}>
           <SectionHeader title="Account" />
-          <Card>
-            <RNView style={styles.userCard}>
-              {user?.imageUrl ? (
-                <Image source={{ uri: user.imageUrl }} style={styles.userAvatar} />
-              ) : (
-                <RNView style={[styles.userAvatarPlaceholder, { backgroundColor: colors.tint + '20' }]}>
-                  <Ionicons name="person" size={32} color={colors.tint} />
+          <TouchableOpacity 
+            activeOpacity={isSignedIn ? 1 : 0.7}
+            onPress={isSignedIn ? undefined : () => router.push('/(auth)/sign-in')}
+            disabled={isSignedIn}
+          >
+            <Card>
+              <RNView style={styles.userCard}>
+                {isSignedIn && user?.imageUrl ? (
+                  <Image source={{ uri: user.imageUrl }} style={styles.userAvatar} />
+                ) : (
+                  <RNView style={[styles.userAvatarPlaceholder, { backgroundColor: colors.tint + '20' }]}>
+                    <Ionicons name="person" size={32} color={colors.tint} />
+                  </RNView>
+                )}
+                <RNView style={styles.userInfo}>
+                  <Text style={[styles.userName, { color: colors.text }]}>
+                    {isSignedIn 
+                      ? (user?.firstName || user?.emailAddresses[0]?.emailAddress?.split('@')[0] || 'User')
+                      : 'Guest User'}
+                  </Text>
+                  <Text style={[styles.userEmail, { color: isSignedIn ? colors.textMuted : colors.tint }]}>
+                    {isSignedIn 
+                      ? user?.emailAddresses[0]?.emailAddress
+                      : 'Tap to sign in →'}
+                  </Text>
                 </RNView>
-              )}
-              <RNView style={styles.userInfo}>
-                <Text style={[styles.userName, { color: colors.text }]}>
-                  {user?.firstName || user?.emailAddresses[0]?.emailAddress?.split('@')[0] || 'User'}
-                </Text>
-                <Text style={[styles.userEmail, { color: colors.textMuted }]}>
-                  {user?.emailAddresses[0]?.emailAddress}
-                </Text>
+                {!isSignedIn && (
+                  <Ionicons name="chevron-forward" size={20} color={colors.tint} />
+                )}
               </RNView>
-            </RNView>
-          </Card>
+            </Card>
+          </TouchableOpacity>
         </RNView>
 
-        {/* Stats Card */}
-        <RNView style={styles.section}>
-          <SectionHeader title="Statistics" />
-          <RNView style={[styles.statCard, { backgroundColor: colors.tint }]}>
-            <Text style={styles.statValue}>{countData?.count ?? '...'}</Text>
-            <Text style={styles.statLabel}>Recipes Saved</Text>
+        {/* Stats Card - only for signed in users */}
+        {isSignedIn && (
+          <RNView style={styles.section}>
+            <SectionHeader title="Statistics" />
+            <RNView style={[styles.statCard, { backgroundColor: colors.tint }]}>
+              <Text style={styles.statValue}>{countData?.count ?? '...'}</Text>
+              <Text style={styles.statLabel}>Recipes Saved</Text>
+            </RNView>
           </RNView>
-        </RNView>
+        )}
 
         {/* Data Section */}
         <RNView style={styles.section}>
@@ -191,7 +269,7 @@ export default function SettingsScreen() {
                   Recipe Extractor
                 </Text>
                 <Text style={[styles.aboutVersion, { color: colors.textMuted }]}>
-                  Version 1.0.0
+                  Version 1.0.1
                 </Text>
               </RNView>
             </RNView>
@@ -234,25 +312,55 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </RNView>
 
-        {/* Sign Out */}
-        <RNView style={styles.section}>
-          <TouchableOpacity
-            style={[styles.signOutButton, { backgroundColor: colors.error + '15' }]}
-            onPress={handleSignOut}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="log-out-outline" size={20} color={colors.error} />
-            <Text style={[styles.signOutText, { color: colors.error }]}>Sign Out</Text>
-          </TouchableOpacity>
-        </RNView>
+        {/* Account Actions - only for signed in users */}
+        {isSignedIn && (
+          <RNView style={styles.section}>
+            <SectionHeader title="Account Actions" />
+            <RNView style={[styles.accountActionsCard, { backgroundColor: colors.backgroundSecondary }]}>
+              <TouchableOpacity
+                style={styles.accountActionRow}
+                onPress={handleSignOut}
+                activeOpacity={0.7}
+              >
+                <RNView style={styles.accountActionLeft}>
+                  <Ionicons name="log-out-outline" size={20} color={colors.text} />
+                  <Text style={[styles.accountActionText, { color: colors.text }]}>Sign Out</Text>
+                </RNView>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+              
+              <RNView style={[styles.accountDivider, { backgroundColor: colors.border }]} />
+              
+              <TouchableOpacity
+                style={styles.accountActionRow}
+                onPress={handleDeleteAccount}
+                activeOpacity={0.7}
+                disabled={isDeleting}
+              >
+                <RNView style={styles.accountActionLeft}>
+                  {isDeleting ? (
+                    <ActivityIndicator size="small" color={colors.textMuted} />
+                  ) : (
+                    <Ionicons name="trash-outline" size={20} color={colors.textMuted} />
+                  )}
+                  <Text style={[styles.accountActionText, { color: colors.textMuted }]}>
+                    {isDeleting ? 'Deleting...' : 'Delete Account'}
+                  </Text>
+                </RNView>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+            </RNView>
+          </RNView>
+        )}
       </ScrollView>
-    </View>
+    </RNView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    overflow: 'hidden',
   },
   scrollContent: {
     padding: spacing.lg,
@@ -372,18 +480,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     marginTop: 2,
   },
-  signOutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    padding: spacing.md,
-    borderRadius: radius.md,
-  },
-  signOutText: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
-  },
   shareAppButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -396,5 +492,27 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
     color: '#FFFFFF',
+  },
+  accountActionsCard: {
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+  },
+  accountActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: spacing.md,
+  },
+  accountActionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  accountActionText: {
+    fontSize: fontSize.md,
+  },
+  accountDivider: {
+    height: 1,
+    marginLeft: spacing.md + 20 + spacing.md, // Icon width + gaps
   },
 });

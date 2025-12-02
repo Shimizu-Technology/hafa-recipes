@@ -8,6 +8,7 @@ import {
   View as RNView,
   ScrollView,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -44,12 +45,17 @@ function SaveButton({
   recipeId, 
   colors,
   isOwner,
+  isSignedIn,
+  onSignInRequired,
 }: { 
   recipeId: string; 
   colors: ReturnType<typeof useColors>;
   isOwner: boolean;
+  isSignedIn: boolean;
+  onSignInRequired: () => void;
 }) {
-  const { data: savedStatus, isLoading } = useIsRecipeSaved(recipeId);
+  // Only fetch saved status if user is signed in
+  const { data: savedStatus, isLoading } = useIsRecipeSaved(recipeId, isSignedIn);
   const saveMutation = useSaveRecipe();
   const unsaveMutation = useUnsaveRecipe();
   
@@ -60,6 +66,12 @@ function SaveButton({
   const isPending = saveMutation.isPending || unsaveMutation.isPending;
   
   const handlePress = () => {
+    // Guest users need to sign in to save recipes
+    if (!isSignedIn) {
+      onSignInRequired();
+      return;
+    }
+    
     if (isPending) return;
     if (isSaved) {
       unsaveMutation.mutate(recipeId);
@@ -68,7 +80,8 @@ function SaveButton({
     }
   };
   
-  if (isLoading) {
+  // Show loading only when signed in and actually loading
+  if (isLoading && isSignedIn) {
     return (
       <RNView style={styles.saveButton}>
         <ActivityIndicator size="small" color={colors.textMuted} />
@@ -96,11 +109,15 @@ function RecipeCard({
   onPress,
   colors,
   currentUserId,
+  isSignedIn,
+  onSignInRequired,
 }: { 
   recipe: RecipeListItem; 
   onPress: () => void;
   colors: ReturnType<typeof useColors>;
   currentUserId?: string | null;
+  isSignedIn: boolean;
+  onSignInRequired: () => void;
 }) {
   const [imageError, setImageError] = useState(false);
   
@@ -136,12 +153,16 @@ function RecipeCard({
             onError={() => setImageError(true)}
           />
         )}
-        {/* Save button overlay */}
-        {currentUserId && (
-          <RNView style={styles.saveButtonContainer}>
-            <SaveButton recipeId={recipe.id} colors={colors} isOwner={isOwner} />
-          </RNView>
-        )}
+        {/* Save button overlay - show for all users, handles auth inside */}
+        <RNView style={styles.saveButtonContainer}>
+          <SaveButton 
+            recipeId={recipe.id} 
+            colors={colors} 
+            isOwner={isOwner}
+            isSignedIn={isSignedIn}
+            onSignInRequired={onSignInRequired}
+          />
+        </RNView>
       </RNView>
       
       {/* Content */}
@@ -201,10 +222,24 @@ export default function DiscoverScreen() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { userId } = useAuth();
+  const { userId, isSignedIn } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
+
+  const handleSignInRequired = useCallback(() => {
+    Alert.alert(
+      'Sign In Required',
+      'Create a free account to save recipes and access all features.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign In',
+          onPress: () => router.push('/(auth)/sign-in'),
+        },
+      ]
+    );
+  }, [router]);
   
   // Pass source filter to server-side queries
   const sourceTypeParam = sourceFilter === 'all' ? undefined : sourceFilter;
@@ -236,6 +271,8 @@ export default function DiscoverScreen() {
       colors={colors}
       onPress={() => router.push(`/recipe/${item.id}`)}
       currentUserId={userId}
+      isSignedIn={!!isSignedIn}
+      onSignInRequired={handleSignInRequired}
     />
   );
 
@@ -285,7 +322,7 @@ export default function DiscoverScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <RNView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Fixed header with search - outside FlatList to prevent focus loss */}
       <RNView style={styles.header}>
         <ListHeaderTitle />
@@ -344,7 +381,7 @@ export default function DiscoverScreen() {
         keyExtractor={(item) => item.id}
         ListEmptyComponent={!isLoading ? ListEmpty : null}
         ListFooterComponent={ListFooter}
-        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.xl }]}
+        contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom, 80) + spacing.xl }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl 
@@ -354,13 +391,14 @@ export default function DiscoverScreen() {
           />
         }
       />
-    </View>
+    </RNView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    overflow: 'hidden',
   },
   listContent: {
     paddingHorizontal: spacing.lg,

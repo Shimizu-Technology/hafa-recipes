@@ -136,11 +136,21 @@ export default function SignUpScreen() {
         <ScrollView
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl }
+            { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.xl }
           ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {/* Back Button */}
+          <TouchableOpacity
+            style={[styles.backButton, { backgroundColor: colors.backgroundSecondary }]}
+            onPress={() => setPendingVerification(false)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="chevron-back" size={24} color={colors.text} />
+            <Text style={[styles.backButtonText, { color: colors.text }]}>Back</Text>
+          </TouchableOpacity>
+
           <RNView style={styles.header}>
             <RNView style={[styles.logoContainer, { backgroundColor: colors.tint + '15' }]}>
               <Ionicons name="mail-outline" size={40} color={colors.tint} />
@@ -174,16 +184,6 @@ export default function SignUpScreen() {
               size="lg"
             />
           </RNView>
-
-          <TouchableOpacity
-            style={styles.resendContainer}
-            onPress={() => setPendingVerification(false)}
-            disabled={isLoading}
-          >
-            <Text style={[styles.footerLink, { color: colors.tint }]}>
-              Go Back
-            </Text>
-          </TouchableOpacity>
         </ScrollView>
       </View>
     );
@@ -198,11 +198,21 @@ export default function SignUpScreen() {
         <ScrollView
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl }
+            { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.xl }
           ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {/* Back Button */}
+          <TouchableOpacity
+            style={[styles.backButton, { backgroundColor: colors.backgroundSecondary }]}
+            onPress={() => router.back()}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="chevron-back" size={24} color={colors.text} />
+            <Text style={[styles.backButtonText, { color: colors.text }]}>Back</Text>
+          </TouchableOpacity>
+
           {/* Logo / Header */}
           <RNView style={styles.header}>
             <RNView style={[styles.logoContainer, { backgroundColor: colors.tint + '15' }]}>
@@ -339,6 +349,21 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: spacing.lg,
   },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingLeft: spacing.xs,
+    borderRadius: radius.md,
+    marginBottom: spacing.lg,
+  },
+  backButtonText: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+    marginLeft: 2,
+  },
   header: {
     alignItems: 'center',
     marginBottom: spacing.xl,
@@ -428,10 +453,6 @@ const styles = StyleSheet.create({
   footerLink: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
-  },
-  resendContainer: {
-    alignItems: 'center',
-    marginTop: spacing.lg,
   },
 });
 

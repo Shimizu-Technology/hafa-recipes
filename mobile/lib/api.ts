@@ -62,7 +62,11 @@ class ApiClient {
     this.client.interceptors.response.use(
       (response) => response,
       (error) => {
-        console.error('API Error:', error.response?.data || error.message);
+        // Don't log 401 errors - they're expected when signed out
+        const status = error.response?.status;
+        if (status !== 401) {
+          console.error('API Error:', error.response?.data || error.message);
+        }
         return Promise.reject(error);
       }
     );
@@ -486,6 +490,15 @@ class ApiClient {
 
   async getSavedRecipesCount(): Promise<{ count: number }> {
     const { data } = await this.client.get('/api/recipes/saved/count');
+    return data;
+  }
+
+  // ============================================================
+  // User Account
+  // ============================================================
+
+  async deleteAccount(): Promise<{ message: string; deleted: { recipes: number } }> {
+    const { data } = await this.client.delete('/api/users/me');
     return data;
   }
 }

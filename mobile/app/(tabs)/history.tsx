@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Input, Chip, Button, useColors } from '@/components/Themed';
+import { SignInBanner } from '@/components/SignInBanner';
 import { 
   useRecipes, 
   useSearchRecipes, 
@@ -147,21 +148,23 @@ export default function HistoryScreen() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { userId } = useAuth();
+  const { userId, isSignedIn } = useAuth();
+  
+  // All hooks must be called unconditionally
   const [searchQuery, setSearchQuery] = useState('');
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
-  const [includeSaved, setIncludeSaved] = useState(true); // Toggle for including saved recipes
+  const [includeSaved, setIncludeSaved] = useState(true);
   
   // Pass source filter to server-side queries
   const sourceTypeParam = sourceFilter === 'all' ? undefined : sourceFilter;
   
-  // Own recipes queries
+  // Own recipes queries - only enabled when signed in
   const { data: recipes, isLoading: isLoadingRecipes, refetch: refetchRecipes, isRefetching: isRefetchingRecipes } = useRecipes(50, 0, sourceTypeParam);
   const { data: searchResults } = useSearchRecipes(searchQuery, sourceTypeParam);
   const { data: countData } = useRecipeCount(sourceTypeParam);
   
-  // Saved recipes queries (always fetch, we'll combine based on toggle)
+  // Saved recipes queries
   const { data: savedRecipes, isLoading: isLoadingSaved, refetch: refetchSaved, isRefetching: isRefetchingSaved } = useSavedRecipes(50, 0);
 
   const isLoading = isLoadingRecipes || (includeSaved && isLoadingSaved);
@@ -171,7 +174,7 @@ export default function HistoryScreen() {
     refetchRecipes();
     if (includeSaved) refetchSaved();
   }, [refetchRecipes, refetchSaved, includeSaved]);
-
+  
   // Combine own recipes with saved recipes when toggle is on
   const combinedRecipes = useMemo(() => {
     const ownRecipes = searchQuery.length > 0 ? searchResults : recipes;
@@ -260,7 +263,7 @@ export default function HistoryScreen() {
           activeOpacity={0.7}
         >
           <Text style={[styles.loadMoreText, { color: colors.text }]}>
-            Load More ({filteredRecipes ? filteredRecipes.length - displayCount : 0} remaining)
+            Load More ({combinedRecipes ? combinedRecipes.length - displayCount : 0} remaining)
           </Text>
           <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
         </TouchableOpacity>
@@ -269,7 +272,7 @@ export default function HistoryScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <RNView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Fixed header with search - outside FlatList to prevent focus loss */}
       <RNView style={styles.header}>
         <ListHeaderTitle />
@@ -341,7 +344,7 @@ export default function HistoryScreen() {
         keyExtractor={(item) => item.id}
         ListEmptyComponent={!isLoading ? ListEmpty : null}
         ListFooterComponent={ListFooter}
-        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.xl + 80 }]}
+        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.xl + 80 + (isSignedIn ? 0 : 100) }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl 
@@ -352,21 +355,27 @@ export default function HistoryScreen() {
         }
       />
       
-      {/* Floating Action Button - Add Recipe */}
-      <TouchableOpacity
-        style={[styles.fab, { backgroundColor: colors.tint }]}
-        onPress={() => router.push('/add-recipe')}
-        activeOpacity={0.8}
-      >
-        <Ionicons name="add" size={28} color="#FFFFFF" />
-      </TouchableOpacity>
-    </View>
+      {/* Floating Action Button - Add Recipe (only for signed-in users) */}
+      {isSignedIn && (
+        <TouchableOpacity
+          style={[styles.fab, { backgroundColor: colors.tint }]}
+          onPress={() => router.push('/add-recipe')}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="add" size={28} color="#FFFFFF" />
+        </TouchableOpacity>
+      )}
+      
+      {/* Sign In Banner for guests */}
+      {!isSignedIn && <SignInBanner message="Sign in to save your recipes" />}
+    </RNView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    overflow: 'hidden',
   },
   listContent: {
     paddingHorizontal: spacing.lg,

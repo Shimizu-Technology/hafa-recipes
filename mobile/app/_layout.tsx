@@ -60,7 +60,11 @@ export default function RootLayout() {
 
 /**
  * Handles auth-based routing.
- * Redirects to sign-in if not authenticated.
+ * 
+ * Tab screens handle guest access themselves with SignInBanner.
+ * This only handles:
+ * - Redirecting signed-in users from auth screens to main app
+ * - Protecting add-recipe modal from guests
  */
 function AuthProtection({ children }: { children: React.ReactNode }) {
   const { isSignedIn, isLoaded } = useAuth();
@@ -71,13 +75,17 @@ function AuthProtection({ children }: { children: React.ReactNode }) {
     if (!isLoaded) return;
 
     const inAuthGroup = segments[0] === '(auth)';
-
-    if (!isSignedIn && !inAuthGroup) {
-      // User is not signed in and not on auth screen - redirect to sign-in
-      router.replace('/(auth)/sign-in');
-    } else if (isSignedIn && inAuthGroup) {
-      // User is signed in but on auth screen - redirect to main app
+    
+    // User signed in on auth screen -> redirect to main app
+    if (isSignedIn && inAuthGroup) {
       router.replace('/(tabs)');
+      return;
+    }
+
+    // Only protect add-recipe modal from guests
+    // Tab screens handle their own guest access with SignInBanner
+    if (!isSignedIn && segments[0] === 'add-recipe') {
+      router.replace('/(tabs)/discover');
     }
   }, [isSignedIn, isLoaded, segments]);
 

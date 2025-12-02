@@ -48,10 +48,22 @@ export default function RecipeDetailScreen() {
   const [imageError, setImageError] = useState(false);
   const [showIngredientPicker, setShowIngredientPicker] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
-  const { userId } = useAuth();
+  const { userId, isSignedIn } = useAuth();
+
+  // Sign-in prompt for guests
+  const showSignInPrompt = (action: string) => {
+    Alert.alert(
+      'Sign In Required',
+      `Create a free account to ${action}.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign In', onPress: () => router.push('/(auth)/sign-in') },
+      ]
+    );
+  };
   
-  // Save/bookmark functionality
-  const { data: savedStatus } = useIsRecipeSaved(id);
+  // Save/bookmark functionality - only fetch if signed in
+  const { data: savedStatus } = useIsRecipeSaved(id, !!isSignedIn);
   const saveMutation = useSaveRecipe();
   const unsaveMutation = useUnsaveRecipe();
   const isSaved = savedStatus?.is_saved ?? false;
@@ -66,6 +78,11 @@ export default function RecipeDetailScreen() {
   ) || [];
 
   const handleAddToGrocery = () => {
+    if (!isSignedIn) {
+      showSignInPrompt('add ingredients to your grocery list');
+      return;
+    }
+    
     if (!recipe) return;
     
     if (allIngredients.length === 0) {
@@ -131,6 +148,10 @@ export default function RecipeDetailScreen() {
   };
 
   const handleSaveToggle = () => {
+    if (!isSignedIn) {
+      showSignInPrompt('save recipes');
+      return;
+    }
     if (isSavePending) return;
     if (isSaved) {
       unsaveMutation.mutate(id);
@@ -361,14 +382,23 @@ export default function RecipeDetailScreen() {
           headerTitle: 'Recipe',
           headerRight: () => (
             <RNView style={styles.headerButtons}>
-              <TouchableOpacity onPress={() => setShowChatModal(true)} style={styles.headerButton}>
+              <TouchableOpacity 
+                onPress={() => {
+                  if (!isSignedIn) {
+                    showSignInPrompt('chat with AI about this recipe');
+                    return;
+                  }
+                  setShowChatModal(true);
+                }} 
+                style={styles.headerButton}
+              >
                 <Ionicons name="chatbubbles-outline" size={22} color={colors.tint} />
               </TouchableOpacity>
               <TouchableOpacity onPress={handleShare} style={styles.headerButton}>
                 <Ionicons name="share-outline" size={22} color={colors.tint} />
               </TouchableOpacity>
-              {/* Save button for non-owners */}
-              {!isOwner && userId && (
+              {/* Save button for non-owners (works for guests with sign-in prompt) */}
+              {!isOwner && (
                 <TouchableOpacity onPress={handleSaveToggle} style={styles.headerButton} disabled={isSavePending}>
                   {isSavePending ? (
                     <ActivityIndicator size="small" color={colors.tint} />

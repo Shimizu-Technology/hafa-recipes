@@ -17,8 +17,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useAuth } from '@clerk/clerk-expo';
 
 import { View, Text, Button, useColors } from '@/components/Themed';
+import { SignInBanner } from '@/components/SignInBanner';
 import EditGroceryItemModal from '@/components/EditGroceryItemModal';
 import {
   useGroceryList,
@@ -125,6 +127,9 @@ function GroceryItemRow({
 export default function GroceryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { isSignedIn } = useAuth();
+  
+  // All hooks must be called unconditionally
   const [newItemName, setNewItemName] = useState('');
   const [showChecked, setShowChecked] = useState(true);
   const [editingItem, setEditingItem] = useState<GroceryItem | null>(null);
@@ -141,7 +146,7 @@ export default function GroceryScreen() {
   const handleRefresh = useCallback(() => {
     refetch();
   }, [refetch]);
-
+  
   const handleToggle = (id: string) => {
     toggleMutation.mutate(id);
   };
@@ -318,7 +323,7 @@ export default function GroceryScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <RNView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Fixed header with input - outside FlatList to prevent focus loss */}
       <RNView style={styles.header}>
         {/* Title row */}
@@ -403,7 +408,7 @@ export default function GroceryScreen() {
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
         ListEmptyComponent={!isLoading ? ListEmpty : null}
-        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.xl }]}
+        contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom, 80) + spacing.xl + (isSignedIn ? 0 : 100) }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -422,13 +427,17 @@ export default function GroceryScreen() {
         item={editingItem}
         isLoading={isUpdating}
       />
-    </View>
+      
+      {/* Sign In Banner for guests */}
+      {!isSignedIn && <SignInBanner message="Sign in to create grocery lists" />}
+    </RNView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    overflow: 'hidden',
   },
   listContent: {
     paddingHorizontal: spacing.lg,

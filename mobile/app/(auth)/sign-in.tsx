@@ -103,11 +103,21 @@ export default function SignInScreen() {
         <ScrollView
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl }
+            { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.xl }
           ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {/* Back Button */}
+          <TouchableOpacity
+            style={[styles.backButton, { backgroundColor: colors.backgroundSecondary }]}
+            onPress={() => router.back()}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="chevron-back" size={24} color={colors.text} />
+            <Text style={[styles.backButtonText, { color: colors.text }]}>Back</Text>
+          </TouchableOpacity>
+
           {/* Logo / Header */}
           <RNView style={styles.header}>
             <RNView style={[styles.logoContainer, { backgroundColor: colors.tint + '15' }]}>
@@ -230,6 +240,21 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: spacing.lg,
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingLeft: spacing.xs,
+    borderRadius: radius.md,
+    marginBottom: spacing.lg,
+  },
+  backButtonText: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+    marginLeft: 2,
   },
   header: {
     alignItems: 'center',
