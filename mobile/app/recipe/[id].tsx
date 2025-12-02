@@ -19,6 +19,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text, View, Card, Chip, Divider, useColors } from '@/components/Themed';
 import AddIngredientsModal from '@/components/AddIngredientsModal';
 import RecipeChatModal from '@/components/RecipeChatModal';
+import AddToCollectionModal from '@/components/AddToCollectionModal';
 import { 
   useRecipe, 
   useDeleteRecipe, 
@@ -32,7 +33,7 @@ import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { useAuth } from '@clerk/clerk-expo';
 import { Ingredient } from '@/types/recipe';
 
-type TabType = 'ingredients' | 'steps' | 'nutrition';
+type TabType = 'ingredients' | 'steps' | 'nutrition' | 'cost';
 
 export default function RecipeDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -40,6 +41,7 @@ export default function RecipeDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<TabType>('ingredients');
+  const [scaledServings, setScaledServings] = useState<number | null>(null);
   
   const { data: recipe, isLoading, error } = useRecipe(id);
   const deleteMutation = useDeleteRecipe();
@@ -48,22 +50,11 @@ export default function RecipeDetailScreen() {
   const [imageError, setImageError] = useState(false);
   const [showIngredientPicker, setShowIngredientPicker] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
-  const { userId, isSignedIn } = useAuth();
-
-  // Sign-in prompt for guests
-  const showSignInPrompt = (action: string) => {
-    Alert.alert(
-      'Sign In Required',
-      `Create a free account to ${action}.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Sign In', onPress: () => router.push('/(auth)/sign-in') },
-      ]
-    );
-  };
+  const [showCollectionModal, setShowCollectionModal] = useState(false);
+  const { userId } = useAuth();
   
-  // Save/bookmark functionality - only fetch if signed in
-  const { data: savedStatus } = useIsRecipeSaved(id, !!isSignedIn);
+  // Save/bookmark functionality
+  const { data: savedStatus } = useIsRecipeSaved(id);
   const saveMutation = useSaveRecipe();
   const unsaveMutation = useUnsaveRecipe();
   const isSaved = savedStatus?.is_saved ?? false;
@@ -78,11 +69,6 @@ export default function RecipeDetailScreen() {
   ) || [];
 
   const handleAddToGrocery = () => {
-    if (!isSignedIn) {
-      showSignInPrompt('add ingredients to your grocery list');
-      return;
-    }
-    
     if (!recipe) return;
     
     if (allIngredients.length === 0) {
@@ -148,10 +134,6 @@ export default function RecipeDetailScreen() {
   };
 
   const handleSaveToggle = () => {
-    if (!isSignedIn) {
-      showSignInPrompt('save recipes');
-      return;
-    }
     if (isSavePending) return;
     if (isSaved) {
       unsaveMutation.mutate(id);
@@ -162,31 +144,66 @@ export default function RecipeDetailScreen() {
 
   const handleMoreOptions = () => {
     if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: ['Cancel', 'Edit Recipe', 'Delete Recipe'],
-          destructiveButtonIndex: 2,
-          cancelButtonIndex: 0,
-        },
-        (buttonIndex) => {
-          if (buttonIndex === 1) {
-            router.push(`/edit-recipe/${id}`);
-          } else if (buttonIndex === 2) {
-            handleDelete();
+      if (isOwner) {
+        // Owner options: Add to Collection, Edit, Delete
+        ActionSheetIOS.showActionSheetWithOptions(
+          {
+            options: ['Cancel', 'Add to Collection', 'Edit Recipe', 'Delete Recipe'],
+            destructiveButtonIndex: 3,
+            cancelButtonIndex: 0,
+          },
+          (buttonIndex) => {
+            if (buttonIndex === 1) {
+              setShowCollectionModal(true);
+            } else if (buttonIndex === 2) {
+              router.push(`/edit-recipe/${id}`);
+            } else if (buttonIndex === 3) {
+              handleDelete();
+            }
           }
-        }
-      );
+        );
+      } else {
+        // Non-owner options: Save/Unsave, Add to Collection
+        const saveText = isSaved ? 'Remove from Saved' : 'Save to My Recipes';
+        ActionSheetIOS.showActionSheetWithOptions(
+          {
+            options: ['Cancel', saveText, 'Add to Collection'],
+            cancelButtonIndex: 0,
+          },
+          (buttonIndex) => {
+            if (buttonIndex === 1) {
+              handleSaveToggle();
+            } else if (buttonIndex === 2) {
+              setShowCollectionModal(true);
+            }
+          }
+        );
+      }
     } else {
       // Android fallback using Alert
-      Alert.alert(
-        'Recipe Options',
-        '',
-        [
-          { text: 'Edit Recipe', onPress: () => router.push(`/edit-recipe/${id}`) },
-          { text: 'Delete Recipe', style: 'destructive', onPress: handleDelete },
-          { text: 'Cancel', style: 'cancel' },
-        ]
-      );
+      if (isOwner) {
+        Alert.alert(
+          'Recipe Options',
+          '',
+          [
+            { text: 'Add to Collection', onPress: () => setShowCollectionModal(true) },
+            { text: 'Edit Recipe', onPress: () => router.push(`/edit-recipe/${id}`) },
+            { text: 'Delete Recipe', style: 'destructive', onPress: handleDelete },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+      } else {
+        const saveText = isSaved ? 'Remove from Saved' : 'Save to My Recipes';
+        Alert.alert(
+          'Recipe Options',
+          '',
+          [
+            { text: saveText, onPress: handleSaveToggle },
+            { text: 'Add to Collection', onPress: () => setShowCollectionModal(true) },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+      }
     }
   };
 
@@ -373,7 +390,36 @@ export default function RecipeDetailScreen() {
     { key: 'ingredients', label: 'Ingredients' },
     { key: 'steps', label: 'Steps' },
     { key: 'nutrition', label: 'Nutrition' },
+    ...(extracted.totalEstimatedCost ? [{ key: 'cost' as TabType, label: 'Cost' }] : []),
   ];
+
+  // Recipe scaling logic
+  const originalServings = extracted.servings || 1;
+  const currentServings = scaledServings ?? originalServings;
+  const scaleFactor = currentServings / originalServings;
+  const isScaled = scaledServings !== null && scaledServings !== originalServings;
+
+  // Helper to scale ingredient quantities
+  const scaleQuantity = (quantity: string | null): string | null => {
+    if (!quantity || scaleFactor === 1) return quantity;
+    
+    // Try to parse the quantity as a number or fraction
+    const parsed = parseFloat(quantity);
+    if (!isNaN(parsed)) {
+      const scaled = parsed * scaleFactor;
+      // Format nicely: show fractions for small numbers, decimals for larger
+      if (scaled < 1) {
+        // Convert to common fractions
+        const fractions: Record<string, string> = {
+          '0.25': '¼', '0.33': '⅓', '0.5': '½', '0.67': '⅔', '0.75': '¾',
+        };
+        const key = scaled.toFixed(2);
+        return fractions[key] || scaled.toFixed(1);
+      }
+      return scaled % 1 === 0 ? scaled.toString() : scaled.toFixed(1);
+    }
+    return quantity; // Return original if can't parse
+  };
 
   return (
     <>
@@ -382,41 +428,15 @@ export default function RecipeDetailScreen() {
           headerTitle: 'Recipe',
           headerRight: () => (
             <RNView style={styles.headerButtons}>
-              <TouchableOpacity 
-                onPress={() => {
-                  if (!isSignedIn) {
-                    showSignInPrompt('chat with AI about this recipe');
-                    return;
-                  }
-                  setShowChatModal(true);
-                }} 
-                style={styles.headerButton}
-              >
+              <TouchableOpacity onPress={() => setShowChatModal(true)} style={styles.headerButton}>
                 <Ionicons name="chatbubbles-outline" size={22} color={colors.tint} />
               </TouchableOpacity>
               <TouchableOpacity onPress={handleShare} style={styles.headerButton}>
                 <Ionicons name="share-outline" size={22} color={colors.tint} />
               </TouchableOpacity>
-              {/* Save button for non-owners (works for guests with sign-in prompt) */}
-              {!isOwner && (
-                <TouchableOpacity onPress={handleSaveToggle} style={styles.headerButton} disabled={isSavePending}>
-                  {isSavePending ? (
-                    <ActivityIndicator size="small" color={colors.tint} />
-                  ) : (
-                    <Ionicons 
-                      name={isSaved ? "heart" : "heart-outline"} 
-                      size={22} 
-                      color={isSaved ? colors.error : colors.tint} 
-                    />
-                  )}
-                </TouchableOpacity>
-              )}
-              {/* More options for owners */}
-              {isOwner && (
-                <TouchableOpacity onPress={handleMoreOptions} style={styles.headerButton}>
-                  <Ionicons name="ellipsis-horizontal" size={22} color={colors.tint} />
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity onPress={handleMoreOptions} style={styles.headerButton}>
+                <Ionicons name="ellipsis-horizontal" size={22} color={colors.tint} />
+              </TouchableOpacity>
             </RNView>
           ),
         }} 
@@ -450,14 +470,39 @@ export default function RecipeDetailScreen() {
             {/* Meta Row */}
             <RNView style={styles.metaRow}>
               {extracted.servings && (
-                <RNView style={[styles.metaItem, { backgroundColor: colors.backgroundSecondary }]}>
-                  <Text style={styles.metaIcon}>👥</Text>
-                  <Text style={[styles.metaValue, { color: colors.text }]}>
-                    {extracted.servings}
-                  </Text>
-                  <Text style={[styles.metaLabel, { color: colors.textMuted }]}>
-                    servings
-                  </Text>
+                <RNView style={[styles.metaItemScalable, { backgroundColor: colors.backgroundSecondary }]}>
+                  <TouchableOpacity 
+                    style={[styles.scaleButton, { backgroundColor: colors.tint + '20' }]}
+                    onPress={() => setScaledServings(Math.max(1, currentServings - 1))}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="remove" size={16} color={colors.tint} />
+                  </TouchableOpacity>
+                  <RNView style={styles.servingsDisplay}>
+                    <Text style={styles.metaIcon}>👥</Text>
+                    <Text style={[styles.metaValue, { color: isScaled ? colors.tint : colors.text }]}>
+                      {currentServings}
+                    </Text>
+                    <Text style={[styles.metaLabel, { color: colors.textMuted }]}>
+                      {isScaled ? `(was ${originalServings})` : 'servings'}
+                    </Text>
+                  </RNView>
+                  <TouchableOpacity 
+                    style={[styles.scaleButton, { backgroundColor: colors.tint + '20' }]}
+                    onPress={() => setScaledServings(currentServings + 1)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="add" size={16} color={colors.tint} />
+                  </TouchableOpacity>
+                  {isScaled && (
+                    <TouchableOpacity 
+                      style={styles.resetButton}
+                      onPress={() => setScaledServings(null)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="refresh" size={14} color={colors.textMuted} />
+                    </TouchableOpacity>
+                  )}
                 </RNView>
               )}
               {extracted.times.total && (
@@ -493,6 +538,19 @@ export default function RecipeDetailScreen() {
                 {extracted.tags.map((tag, index) => (
                   <Chip key={index} label={tag} size="sm" />
                 ))}
+              </RNView>
+            )}
+
+            {/* Notes Section */}
+            {extracted.notes && extracted.notes !== 'null' && (
+              <RNView style={[styles.notesSection, { backgroundColor: colors.backgroundSecondary }]}>
+                <RNView style={styles.notesTitleRow}>
+                  <Ionicons name="document-text-outline" size={18} color={colors.tint} />
+                  <Text style={[styles.notesTitle, { color: colors.text }]}>Notes</Text>
+                </RNView>
+                <Text style={[styles.notesText, { color: colors.textSecondary }]}>
+                  {extracted.notes}
+                </Text>
               </RNView>
             )}
 
@@ -593,19 +651,26 @@ export default function RecipeDetailScreen() {
                         </Text>
                       ) : null}
                       {component.ingredients.map((ing, ingIndex) => {
-                        // Build the quantity/unit string safely
-                        const qty = ing.quantity && ing.quantity !== 'null' ? ing.quantity : '';
+                        // Build the quantity/unit string safely (with scaling)
+                        const originalQty = ing.quantity && ing.quantity !== 'null' ? ing.quantity : '';
+                        const scaledQty = scaleQuantity(originalQty);
                         const unit = ing.unit && ing.unit !== 'null' ? ing.unit : '';
-                        const qtyUnit = qty ? `${qty}${unit ? ` ${unit}` : ''} ` : '';
+                        const qtyUnit = scaledQty ? `${scaledQty}${unit ? ` ${unit}` : ''} ` : '';
                         const notes = ing.notes && ing.notes !== 'null' ? ing.notes : '';
-                        const cost = typeof ing.estimatedCost === 'number' ? `$${ing.estimatedCost.toFixed(2)}` : null;
+                        const cost = typeof ing.estimatedCost === 'number' 
+                          ? `$${(ing.estimatedCost * scaleFactor).toFixed(2)}` 
+                          : null;
                         
                         return (
                           <RNView key={ingIndex} style={styles.ingredientRow}>
-                            <RNView style={[styles.bullet, { backgroundColor: colors.tint }]} />
+                            <RNView style={[styles.bullet, { backgroundColor: isScaled ? colors.tint : colors.tint }]} />
                             <RNView style={styles.ingredientContent}>
                               <Text style={[styles.ingredientText, { color: colors.text }]}>
-                                {qtyUnit ? <Text style={styles.ingredientQty}>{qtyUnit}</Text> : null}
+                                {qtyUnit ? (
+                                  <Text style={[styles.ingredientQty, isScaled && { color: colors.tint }]}>
+                                    {qtyUnit}
+                                  </Text>
+                                ) : null}
                                 {ing.name}
                                 {notes ? <Text style={[styles.ingredientNotes, { color: colors.textMuted }]}>{` (${notes})`}</Text> : null}
                               </Text>
@@ -731,6 +796,89 @@ export default function RecipeDetailScreen() {
                   )}
                 </>
               )}
+
+              {activeTab === 'cost' && extracted.totalEstimatedCost && (
+                <>
+                  {/* Cost Summary */}
+                  <RNView style={styles.costSummaryCard}>
+                    <RNView style={[styles.costTotalBox, { backgroundColor: colors.tint }]}>
+                      <Text style={styles.costTotalLabel}>Estimated Total Cost</Text>
+                      <Text style={styles.costTotalValue}>
+                        ${(extracted.totalEstimatedCost * scaleFactor).toFixed(2)}
+                      </Text>
+                      {isScaled && (
+                        <Text style={styles.costScaledNote}>
+                          (scaled for {currentServings} servings)
+                        </Text>
+                      )}
+                    </RNView>
+                    
+                    <RNView style={styles.costMetaRow}>
+                      <RNView style={[styles.costMetaItem, { backgroundColor: colors.backgroundSecondary }]}>
+                        <Text style={[styles.costMetaValue, { color: colors.text }]}>
+                          ${((extracted.totalEstimatedCost * scaleFactor) / currentServings).toFixed(2)}
+                        </Text>
+                        <Text style={[styles.costMetaLabel, { color: colors.textMuted }]}>
+                          per serving
+                        </Text>
+                      </RNView>
+                      <RNView style={[styles.costMetaItem, { backgroundColor: colors.backgroundSecondary }]}>
+                        <Text style={[styles.costMetaValue, { color: colors.text }]}>
+                          📍 {extracted.costLocation}
+                        </Text>
+                        <Text style={[styles.costMetaLabel, { color: colors.textMuted }]}>
+                          pricing region
+                        </Text>
+                      </RNView>
+                    </RNView>
+                  </RNView>
+
+                  {/* Cost Breakdown */}
+                  <RNView style={styles.costBreakdownSection}>
+                    <Text style={[styles.costBreakdownTitle, { color: colors.text }]}>
+                      Ingredient Costs
+                    </Text>
+                    {extracted.components.map((component, compIndex) => (
+                      <RNView key={compIndex}>
+                        {extracted.components.length > 1 && (
+                          <Text style={[styles.componentTitle, { color: colors.tint }]}>
+                            {component.name}
+                          </Text>
+                        )}
+                        {component.ingredients
+                          .filter(ing => typeof ing.estimatedCost === 'number')
+                          .map((ing, ingIndex) => {
+                            const scaledCost = (ing.estimatedCost || 0) * scaleFactor;
+                            const originalQty = ing.quantity && ing.quantity !== 'null' ? ing.quantity : '';
+                            const scaledQty = scaleQuantity(originalQty);
+                            const unit = ing.unit && ing.unit !== 'null' ? ing.unit : '';
+                            
+                            return (
+                              <RNView 
+                                key={ingIndex} 
+                                style={[styles.costItem, { borderBottomColor: colors.border }]}
+                              >
+                                <RNView style={styles.costItemLeft}>
+                                  <Text style={[styles.costItemName, { color: colors.text }]}>
+                                    {ing.name}
+                                  </Text>
+                                  {scaledQty && (
+                                    <Text style={[styles.costItemQty, { color: colors.textMuted }]}>
+                                      {scaledQty}{unit ? ` ${unit}` : ''}
+                                    </Text>
+                                  )}
+                                </RNView>
+                                <Text style={[styles.costItemPrice, { color: colors.tint }]}>
+                                  ${scaledCost.toFixed(2)}
+                                </Text>
+                              </RNView>
+                            );
+                          })}
+                      </RNView>
+                    ))}
+                  </RNView>
+                </>
+              )}
             </RNView>
           </RNView>
         </ScrollView>
@@ -754,6 +902,16 @@ export default function RecipeDetailScreen() {
           isVisible={showChatModal}
           onClose={() => setShowChatModal(false)}
           recipe={recipe}
+        />
+      )}
+      
+      {/* Add to Collection Modal */}
+      {recipe && (
+        <AddToCollectionModal
+          visible={showCollectionModal}
+          onClose={() => setShowCollectionModal(false)}
+          recipeId={id}
+          recipeTitle={extracted?.title || 'Recipe'}
         />
       )}
     </>
@@ -839,6 +997,52 @@ const styles = StyleSheet.create({
   },
   metaLabel: {
     fontSize: fontSize.sm,
+  },
+  // Scalable servings
+  metaItemScalable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.md,
+  },
+  scaleButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  servingsDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  resetButton: {
+    padding: spacing.xs,
+    marginLeft: spacing.xs,
+  },
+  // Notes section
+  notesSection: {
+    padding: spacing.md,
+    borderRadius: radius.md,
+    marginBottom: spacing.lg,
+  },
+  notesTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  notesTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+  },
+  notesText: {
+    fontSize: fontSize.md,
+    lineHeight: 22,
   },
   qualityBadge: {
     paddingHorizontal: spacing.md,
@@ -1038,6 +1242,80 @@ const styles = StyleSheet.create({
   },
   addToGroceryText: {
     color: '#FFFFFF',
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+  },
+  // Cost tab styles
+  costSummaryCard: {
+    marginBottom: spacing.xl,
+  },
+  costTotalBox: {
+    padding: spacing.xl,
+    borderRadius: radius.lg,
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  costTotalLabel: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+    marginBottom: spacing.xs,
+  },
+  costTotalValue: {
+    color: '#FFFFFF',
+    fontSize: 36,
+    fontWeight: fontWeight.bold,
+  },
+  costScaledNote: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: fontSize.sm,
+    marginTop: spacing.xs,
+  },
+  costMetaRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  costMetaItem: {
+    flex: 1,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    alignItems: 'center',
+  },
+  costMetaValue: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.semibold,
+    marginBottom: spacing.xs,
+  },
+  costMetaLabel: {
+    fontSize: fontSize.sm,
+  },
+  costBreakdownSection: {
+    marginBottom: spacing.lg,
+  },
+  costBreakdownTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.semibold,
+    marginBottom: spacing.md,
+  },
+  costItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+  },
+  costItemLeft: {
+    flex: 1,
+  },
+  costItemName: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
+  costItemQty: {
+    fontSize: fontSize.sm,
+    marginTop: 2,
+  },
+  costItemPrice: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },

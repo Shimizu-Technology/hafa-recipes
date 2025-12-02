@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   FlatList,
@@ -6,9 +6,7 @@ import {
   Image,
   RefreshControl,
   View as RNView,
-  ScrollView,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,6 +14,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/clerk-expo';
 
 import { View, Text, Input, Chip, useColors } from '@/components/Themed';
+import { SignInBanner } from '@/components/SignInBanner';
+import FilterBottomSheet, { FilterState, SourceFilter, TimeFilter } from '@/components/FilterBottomSheet';
 import { 
   useDiscoverRecipes, 
   useSearchPublicRecipes, 
@@ -23,41 +23,38 @@ import {
   useIsRecipeSaved,
   useSaveRecipe,
   useUnsaveRecipe,
+  usePopularTags,
+  filterRecipesLocally,
+  SearchFilters,
 } from '@/hooks/useRecipes';
 import { RecipeListItem } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { haptics } from '@/utils/haptics';
+import { SkeletonRecipeList } from '@/components/Skeleton';
+import { AnimatedListItem, ScalePressable } from '@/components/Animated';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSequence,
+  withSpring,
+} from 'react-native-reanimated';
 
 const ITEMS_PER_PAGE = 20;
 
-// Source filter options
-const SOURCE_FILTERS = [
-  { key: 'all', label: 'All', icon: 'apps-outline' },
-  { key: 'tiktok', label: 'TikTok', icon: 'logo-tiktok' },
-  { key: 'youtube', label: 'YouTube', icon: 'logo-youtube' },
-  { key: 'instagram', label: 'Instagram', icon: 'logo-instagram' },
-  { key: 'manual', label: 'Manual', icon: 'create-outline' },
-] as const;
-
-type SourceFilter = typeof SOURCE_FILTERS[number]['key'];
-
-// Save/Bookmark button component
+// Save/Bookmark button component with heart pulse animation
 function SaveButton({ 
   recipeId, 
   colors,
   isOwner,
-  isSignedIn,
-  onSignInRequired,
 }: { 
   recipeId: string; 
   colors: ReturnType<typeof useColors>;
   isOwner: boolean;
-  isSignedIn: boolean;
-  onSignInRequired: () => void;
 }) {
-  // Only fetch saved status if user is signed in
-  const { data: savedStatus, isLoading } = useIsRecipeSaved(recipeId, isSignedIn);
+  const { data: savedStatus, isLoading } = useIsRecipeSaved(recipeId);
   const saveMutation = useSaveRecipe();
   const unsaveMutation = useUnsaveRecipe();
+  const scale = useSharedValue(1);
   
   // Don't show save button for own recipes
   if (isOwner) return null;
@@ -65,14 +62,20 @@ function SaveButton({
   const isSaved = savedStatus?.is_saved ?? false;
   const isPending = saveMutation.isPending || unsaveMutation.isPending;
   
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+  
   const handlePress = () => {
-    // Guest users need to sign in to save recipes
-    if (!isSignedIn) {
-      onSignInRequired();
-      return;
-    }
-    
     if (isPending) return;
+    haptics.medium();
+    
+    // Pulse animation
+    scale.value = withSequence(
+      withSpring(1.4, { damping: 8, stiffness: 400 }),
+      withSpring(1, { damping: 8, stiffness: 400 })
+    );
+    
     if (isSaved) {
       unsaveMutation.mutate(recipeId);
     } else {
@@ -80,8 +83,7 @@ function SaveButton({
     }
   };
   
-  // Show loading only when signed in and actually loading
-  if (isLoading && isSignedIn) {
+  if (isLoading) {
     return (
       <RNView style={styles.saveButton}>
         <ActivityIndicator size="small" color={colors.textMuted} />
@@ -95,11 +97,13 @@ function SaveButton({
       onPress={handlePress}
       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
     >
-      <Ionicons 
-        name={isSaved ? "heart" : "heart-outline"} 
-        size={22} 
-        color={isSaved ? colors.error : colors.textMuted} 
-      />
+      <Animated.View style={animatedStyle}>
+        <Ionicons 
+          name={isSaved ? "heart" : "heart-outline"} 
+          size={22} 
+          color={isSaved ? colors.error : colors.textMuted} 
+        />
+      </Animated.View>
     </TouchableOpacity>
   );
 }
@@ -109,15 +113,11 @@ function RecipeCard({
   onPress,
   colors,
   currentUserId,
-  isSignedIn,
-  onSignInRequired,
 }: { 
   recipe: RecipeListItem; 
   onPress: () => void;
   colors: ReturnType<typeof useColors>;
   currentUserId?: string | null;
-  isSignedIn: boolean;
-  onSignInRequired: () => void;
 }) {
   const [imageError, setImageError] = useState(false);
   
@@ -135,10 +135,9 @@ function RecipeCard({
   const isOwner = recipe.user_id === currentUserId;
 
   return (
-    <TouchableOpacity 
+    <ScalePressable 
       style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]} 
-      onPress={onPress} 
-      activeOpacity={0.7}
+      onPress={onPress}
     >
       {/* Thumbnail */}
       <RNView>
@@ -153,16 +152,12 @@ function RecipeCard({
             onError={() => setImageError(true)}
           />
         )}
-        {/* Save button overlay - show for all users, handles auth inside */}
-        <RNView style={styles.saveButtonContainer}>
-          <SaveButton 
-            recipeId={recipe.id} 
-            colors={colors} 
-            isOwner={isOwner}
-            isSignedIn={isSignedIn}
-            onSignInRequired={onSignInRequired}
-          />
-        </RNView>
+        {/* Save button overlay */}
+        {currentUserId && (
+          <RNView style={styles.saveButtonContainer}>
+            <SaveButton recipeId={recipe.id} colors={colors} isOwner={isOwner} />
+          </RNView>
+        )}
       </RNView>
       
       {/* Content */}
@@ -214,7 +209,7 @@ function RecipeCard({
           )}
         </RNView>
       </RNView>
-    </TouchableOpacity>
+    </ScalePressable>
   );
 }
 
@@ -225,34 +220,90 @@ export default function DiscoverScreen() {
   const { userId, isSignedIn } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  
+  // Filter state
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
-
-  const handleSignInRequired = useCallback(() => {
-    Alert.alert(
-      'Sign In Required',
-      'Create a free account to save recipes and access all features.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign In',
-          onPress: () => router.push('/(auth)/sign-in'),
-        },
-      ]
-    );
-  }, [router]);
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   
   // Pass source filter to server-side queries
   const sourceTypeParam = sourceFilter === 'all' ? undefined : sourceFilter;
+  const timeFilterParam = timeFilter === 'all' ? undefined : timeFilter;
   
-  const { data: recipes, isLoading, refetch, isRefetching } = useDiscoverRecipes(50, 0, sourceTypeParam);
-  const { data: searchResults } = useSearchPublicRecipes(searchQuery, sourceTypeParam);
-  const { data: countData } = usePublicRecipeCount(sourceTypeParam);
+  // Check if any filters are active (excluding search)
+  const activeFilterCount = 
+    (sourceFilter !== 'all' ? 1 : 0) + 
+    (timeFilter !== 'all' ? 1 : 0) + 
+    selectedTags.length;
+  
+  // Check if search or filters are active
+  const hasActiveFilters = searchQuery.length > 0 || activeFilterCount > 0;
+  
+  // Only fetch when authenticated
+  const isAuthenticated = !!isSignedIn;
+  
+  // Discover recipes with infinite scroll
+  const { 
+    recipes, 
+    total: recipesTotal,
+    isLoading, 
+    refetch, 
+    isRefetching,
+    fetchNextPage,
+    hasNextPage: hasMoreRecipes,
+    isFetchingNextPage,
+  } = useDiscoverRecipes(sourceTypeParam, isAuthenticated);
+  
+  // Search/filter results (when filters are active)
+  const { 
+    recipes: searchResults,
+    fetchNextPage: fetchNextSearchResults,
+    hasNextPage: hasMoreSearchResults,
+    isFetchingNextPage: isFetchingNextSearchResults,
+  } = useSearchPublicRecipes({
+    query: searchQuery,
+    sourceType: sourceTypeParam,
+    timeFilter: timeFilterParam,
+    tags: selectedTags.length > 0 ? selectedTags : undefined,
+  }, isAuthenticated);
+  
+  const { data: countData } = usePublicRecipeCount(sourceTypeParam, isAuthenticated);
+  
+  // Popular tags from all public recipes
+  const { data: popularTags } = usePopularTags('public', isAuthenticated);
+  
+  // Handle filter apply
+  const handleApplyFilters = useCallback((filters: FilterState) => {
+    setSourceFilter(filters.sourceFilter);
+    setTimeFilter(filters.timeFilter);
+    setSelectedTags(filters.selectedTags);
+    setDisplayCount(ITEMS_PER_PAGE);
+  }, []);
 
-  // Use search results or recipes from server (already filtered)
-  const filteredRecipes = searchQuery.length > 0 ? searchResults : recipes;
+  // Build current filter state for optimistic filtering
+  const currentFilters: SearchFilters = useMemo(() => ({
+    query: searchQuery || undefined,
+    sourceType: sourceTypeParam,
+    timeFilter: timeFilterParam,
+    tags: selectedTags.length > 0 ? selectedTags : undefined,
+  }), [searchQuery, sourceTypeParam, timeFilterParam, selectedTags]);
+
+  // Optimistic filtering: filter locally while server request is in flight
+  // Use server search results if available, otherwise filter cached data locally
+  const filteredRecipes = useMemo(() => {
+    if (!hasActiveFilters) return recipes;
+    // If search results are back, use them; otherwise filter cached data locally
+    return searchResults?.length ? searchResults : filterRecipesLocally(recipes, currentFilters);
+  }, [hasActiveFilters, recipes, searchResults, currentFilters]);
 
   const displayRecipes = filteredRecipes?.slice(0, displayCount);
-  const hasMore = filteredRecipes && displayCount < filteredRecipes.length;
+  
+  // Determine if there's more to load - either from server or locally
+  const hasMoreLocal = filteredRecipes && displayCount < filteredRecipes.length;
+  const hasMoreServer = hasActiveFilters ? hasMoreSearchResults : hasMoreRecipes;
+  const hasMore = hasMoreLocal || hasMoreServer;
+  const isFetchingMore = isFetchingNextPage || isFetchingNextSearchResults;
 
   const handleRefresh = useCallback(() => {
     setDisplayCount(ITEMS_PER_PAGE);
@@ -260,20 +311,33 @@ export default function DiscoverScreen() {
   }, [refetch]);
 
   const handleLoadMore = () => {
-    if (hasMore) {
+    if (hasMoreLocal) {
+      // First, show more of what we already have
+      setDisplayCount(prev => prev + ITEMS_PER_PAGE);
+    } else if (hasMoreServer) {
+      // Then, fetch more from the server
+      if (hasActiveFilters && hasMoreSearchResults) {
+        fetchNextSearchResults();
+      } else if (hasMoreRecipes) {
+        fetchNextPage();
+      }
+      // Increase display count after fetch
       setDisplayCount(prev => prev + ITEMS_PER_PAGE);
     }
   };
 
-  const renderItem = ({ item }: { item: RecipeListItem }) => (
-    <RecipeCard
-      recipe={item}
-      colors={colors}
-      onPress={() => router.push(`/recipe/${item.id}`)}
-      currentUserId={userId}
-      isSignedIn={!!isSignedIn}
-      onSignInRequired={handleSignInRequired}
-    />
+  const renderItem = ({ item, index }: { item: RecipeListItem; index: number }) => (
+    <AnimatedListItem index={index} delay={40}>
+      <RecipeCard
+        recipe={item}
+        colors={colors}
+        onPress={() => {
+          haptics.light();
+          router.push(`/recipe/${item.id}`);
+        }}
+        currentUserId={userId}
+      />
+    </AnimatedListItem>
   );
 
   // Memoize header to prevent re-render on search change
@@ -287,8 +351,11 @@ export default function DiscoverScreen() {
           <Text style={styles.countText}>{countData.count}</Text>
         </RNView>
       )}
+      {isRefetching && (
+        <ActivityIndicator size="small" color={colors.tint} style={{ marginLeft: spacing.sm }} />
+      )}
     </RNView>
-  ), [colors.text, colors.tint, countData]);
+  ), [colors.text, colors.tint, countData, isRefetching]);
 
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
@@ -305,100 +372,154 @@ export default function DiscoverScreen() {
   const ListFooter = () => {
     if (!hasMore) return null;
     
+    const remaining = hasMoreLocal && filteredRecipes 
+      ? filteredRecipes.length - displayCount 
+      : (hasMoreServer ? '...' : 0);
+    
     return (
       <RNView style={styles.footerContainer}>
         <TouchableOpacity 
           style={[styles.loadMoreButton, { borderColor: colors.border }]}
           onPress={handleLoadMore}
           activeOpacity={0.7}
+          disabled={isFetchingMore}
         >
-          <Text style={[styles.loadMoreText, { color: colors.text }]}>
-            Load More ({filteredRecipes ? filteredRecipes.length - displayCount : 0} remaining)
-          </Text>
-          <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+          {isFetchingMore ? (
+            <ActivityIndicator size="small" color={colors.tint} />
+          ) : (
+            <>
+              <Text style={[styles.loadMoreText, { color: colors.text }]}>
+                Load More {typeof remaining === 'number' && remaining > 0 ? `(${remaining} remaining)` : ''}
+              </Text>
+              <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+            </>
+          )}
         </TouchableOpacity>
       </RNView>
     );
   };
 
   return (
-    <RNView style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={styles.container}>
+      {/* Filter Bottom Sheet */}
+      <FilterBottomSheet
+        visible={showFilterModal}
+        onClose={() => setShowFilterModal(false)}
+        onApply={handleApplyFilters}
+        initialFilters={{ sourceFilter, timeFilter, selectedTags }}
+        popularTags={popularTags}
+      />
+      
       {/* Fixed header with search - outside FlatList to prevent focus loss */}
       <RNView style={styles.header}>
         <ListHeaderTitle />
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
           Browse recipes shared by the community
         </Text>
-        <Input
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholder="Search public recipes..."
-        />
         
-        {/* Source filters */}
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          style={styles.filterScroll}
-          contentContainerStyle={styles.filterContainer}
-        >
-          {SOURCE_FILTERS.map((filter) => (
+        {/* Search + Filter row */}
+        <RNView style={styles.searchRow}>
+          <RNView style={styles.searchInputContainer}>
+            <Input
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search recipes..."
+            />
+          </RNView>
+          <TouchableOpacity
+            style={[
+              styles.filterButton,
+              {
+                backgroundColor: activeFilterCount > 0 ? colors.tint : colors.backgroundSecondary,
+                borderColor: activeFilterCount > 0 ? colors.tint : colors.border,
+              },
+            ]}
+            onPress={() => setShowFilterModal(true)}
+          >
+            <Ionicons
+              name="options-outline"
+              size={20}
+              color={activeFilterCount > 0 ? '#FFFFFF' : colors.text}
+            />
+            {activeFilterCount > 0 && (
+              <RNView style={[styles.filterBadge, { backgroundColor: '#FFFFFF' }]}>
+                <Text style={[styles.filterBadgeText, { color: colors.tint }]}>
+                  {activeFilterCount}
+                </Text>
+              </RNView>
+            )}
+          </TouchableOpacity>
+        </RNView>
+        
+        {/* Active filters summary */}
+        {activeFilterCount > 0 && (
+          <RNView style={styles.activeFiltersRow}>
+            {sourceFilter !== 'all' && (
+              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
+                <Text style={[styles.activeFilterText, { color: colors.tint }]}>
+                  {sourceFilter}
+                </Text>
+              </RNView>
+            )}
+            {timeFilter !== 'all' && (
+              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.success + '20' }]}>
+                <Text style={[styles.activeFilterText, { color: colors.success }]}>
+                  {timeFilter === 'quick' ? '<30 min' : timeFilter === 'medium' ? '30-60 min' : '60+ min'}
+                </Text>
+              </RNView>
+            )}
+            {selectedTags.length > 0 && (
+              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
+                <Text style={[styles.activeFilterText, { color: colors.tint }]}>
+                  {selectedTags.length} tag{selectedTags.length > 1 ? 's' : ''}
+                </Text>
+              </RNView>
+            )}
             <TouchableOpacity
-              key={filter.key}
               onPress={() => {
-                setSourceFilter(filter.key);
-                setDisplayCount(ITEMS_PER_PAGE);
+                setSourceFilter('all');
+                setTimeFilter('all');
+                setSelectedTags([]);
               }}
-              style={[
-                styles.filterChip,
-                {
-                  backgroundColor: sourceFilter === filter.key ? colors.tint : colors.backgroundSecondary,
-                  borderColor: sourceFilter === filter.key ? colors.tint : colors.border,
-                },
-              ]}
             >
-              <Ionicons
-                name={filter.icon as any}
-                size={16}
-                color={sourceFilter === filter.key ? '#FFFFFF' : colors.textMuted}
-              />
-              <Text
-                style={[
-                  styles.filterChipText,
-                  { color: sourceFilter === filter.key ? '#FFFFFF' : colors.text },
-                ]}
-              >
-                {filter.label}
+              <Text style={[styles.clearFiltersText, { color: colors.textMuted }]}>
+                Clear
               </Text>
             </TouchableOpacity>
-          ))}
-        </ScrollView>
+          </RNView>
+        )}
       </RNView>
       
-      <FlatList
-        data={displayRecipes}
-        renderItem={renderItem}
-        keyExtractor={(item) => item.id}
-        ListEmptyComponent={!isLoading ? ListEmpty : null}
-        ListFooterComponent={ListFooter}
-        contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom, 80) + spacing.xl }]}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl 
-            refreshing={isRefetching} 
-            onRefresh={handleRefresh}
-            tintColor={colors.tint}
-          />
-        }
-      />
-    </RNView>
+      {isLoading && !displayRecipes?.length ? (
+        <SkeletonRecipeList count={5} />
+      ) : (
+        <FlatList
+          data={displayRecipes}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+          ListEmptyComponent={ListEmpty}
+          ListFooterComponent={ListFooter}
+          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.xl + (isSignedIn ? 0 : 100) }]}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl 
+              refreshing={isRefetching} 
+              onRefresh={handleRefresh}
+              tintColor={colors.tint}
+            />
+          }
+        />
+      )}
+      
+      {/* Sign In Banner for guests - shows save prompt */}
+      {!isSignedIn && <SignInBanner message="Sign in to save recipes" />}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    overflow: 'hidden',
   },
   listContent: {
     paddingHorizontal: spacing.lg,
@@ -422,26 +543,56 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     marginBottom: spacing.md,
   },
-  filterScroll: {
-    marginTop: spacing.md,
-    marginHorizontal: -spacing.lg,
-  },
-  filterContainer: {
-    paddingHorizontal: spacing.lg,
-    gap: spacing.sm,
-  },
-  filterChip: {
+  searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.full,
-    borderWidth: 1,
+    gap: spacing.sm,
   },
-  filterChipText: {
-    fontSize: fontSize.sm,
+  searchInputContainer: {
+    flex: 1,
+  },
+  filterButton: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  filterBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  filterBadgeText: {
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+  },
+  activeFiltersRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  activeFilterChip: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+  },
+  activeFilterText: {
+    fontSize: fontSize.xs,
     fontWeight: fontWeight.medium,
+  },
+  clearFiltersText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+    marginLeft: spacing.xs,
   },
   countBadge: {
     marginLeft: spacing.sm,

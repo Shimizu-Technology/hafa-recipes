@@ -1,13 +1,54 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Tabs } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@clerk/clerk-expo';
 
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { api } from '@/lib/api';
+import { recipeKeys } from '@/hooks/useRecipes';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const queryClient = useQueryClient();
+  const { isSignedIn, isLoaded } = useAuth();
+
+  // Prefetch both tabs' data when the user is authenticated
+  useEffect(() => {
+    // Wait for auth to be loaded AND user to be signed in
+    if (!isLoaded || !isSignedIn) return;
+
+    // Prefetch My Recipes (first page of infinite query)
+    queryClient.prefetchInfiniteQuery({
+      queryKey: recipeKeys.infinite(undefined),
+      queryFn: ({ pageParam = 0 }) => api.getRecipes(20, pageParam),
+      initialPageParam: 0,
+      staleTime: 30_000,
+    });
+
+    // Prefetch Discover (first page of infinite query)
+    queryClient.prefetchInfiniteQuery({
+      queryKey: recipeKeys.discoverInfinite(undefined),
+      queryFn: ({ pageParam = 0 }) => api.getPublicRecipes(20, pageParam),
+      initialPageParam: 0,
+      staleTime: 30_000,
+    });
+
+    // Prefetch popular tags for both scopes
+    queryClient.prefetchQuery({
+      queryKey: recipeKeys.popularTags('user'),
+      queryFn: () => api.getPopularTags('user'),
+      staleTime: 60_000,
+    });
+
+    queryClient.prefetchQuery({
+      queryKey: recipeKeys.popularTags('public'),
+      queryFn: () => api.getPopularTags('public'),
+      staleTime: 60_000,
+    });
+  }, [queryClient, isSignedIn, isLoaded]);
 
   return (
     <Tabs

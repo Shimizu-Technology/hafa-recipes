@@ -2,7 +2,7 @@
   "expo": {
     "name": "Recipe Extractor",
     "slug": "recipe-extractor",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "recipeextractor",
@@ -16,9 +16,11 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.shimizutechnology.recipeextractor",
-      "buildNumber": "10",
+      "buildNumber": "13",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Recipe Extractor needs access to your camera to take photos of your recipes. For example, you can photograph a handwritten family recipe or a dish you've prepared to add as a recipe image.",
+        "NSPhotoLibraryUsageDescription": "Recipe Extractor needs access to your photo library to select images for your recipes. For example, you can choose a photo of a finished dish to use as the recipe thumbnail."
       }
     },
     "android": {
@@ -38,7 +40,14 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Recipe Extractor needs access to your camera to take photos of your recipes. For example, you can photograph a handwritten family recipe or a dish you've prepared to add as a recipe image.",
+          "photosPermission": "Recipe Extractor needs access to your photo library to select images for your recipes. For example, you can choose a photo of a finished dish to use as the recipe thumbnail."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

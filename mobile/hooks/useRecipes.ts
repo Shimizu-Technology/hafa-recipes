@@ -2,30 +2,49 @@
  * React Query hooks for recipe operations.
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient, keepPreviousData, useInfiniteQuery } from '@tanstack/react-query';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../lib/api';
-import { ExtractRequest, JobStatus } from '../types/recipe';
+import { ExtractRequest, JobStatus, RecipeListItem, PaginatedRecipes } from '../types/recipe';
+
+// Page size for infinite scroll
+const PAGE_SIZE = 20;
 
 const ACTIVE_JOB_KEY = 'active_extraction_job';
 
 // Query keys
+// Filter types
+export type SearchFilters = {
+  query?: string;
+  sourceType?: string;
+  timeFilter?: string;
+  tags?: string[];
+};
+
 export const recipeKeys = {
   all: ['recipes'] as const,
   lists: () => [...recipeKeys.all, 'list'] as const,
   list: (filters: { limit?: number; offset?: number; sourceType?: string }) =>
     [...recipeKeys.lists(), filters] as const,
+  infinite: (sourceType?: string) => [...recipeKeys.all, 'infinite', sourceType] as const,
+  infiniteSearch: (filters: SearchFilters) => [...recipeKeys.all, 'infiniteSearch', filters] as const,
   recent: (limit?: number) => [...recipeKeys.all, 'recent', limit] as const,
-  search: (query: string, sourceType?: string) => [...recipeKeys.all, 'search', query, sourceType] as const,
+  search: (filters: SearchFilters) => [...recipeKeys.all, 'search', filters] as const,
   details: () => [...recipeKeys.all, 'detail'] as const,
   detail: (id: string) => [...recipeKeys.details(), id] as const,
   count: (sourceType?: string) => [...recipeKeys.all, 'count', sourceType] as const,
+  popularTags: (scope: 'user' | 'public') => [...recipeKeys.all, 'popularTags', scope] as const,
+  // Saved recipes
+  saved: () => ['savedRecipes'] as const,
+  savedInfinite: () => [...recipeKeys.saved(), 'infinite'] as const,
   // Discover (public recipes)
   discover: () => ['discover'] as const,
   discoverList: (filters: { limit?: number; offset?: number; sourceType?: string }) =>
     [...recipeKeys.discover(), 'list', filters] as const,
-  discoverSearch: (query: string, sourceType?: string) => [...recipeKeys.discover(), 'search', query, sourceType] as const,
+  discoverInfinite: (sourceType?: string) => [...recipeKeys.discover(), 'infinite', sourceType] as const,
+  discoverInfiniteSearch: (filters: SearchFilters) => [...recipeKeys.discover(), 'infiniteSearch', filters] as const,
+  discoverSearch: (filters: SearchFilters) => [...recipeKeys.discover(), 'search', filters] as const,
   discoverCount: (sourceType?: string) => [...recipeKeys.discover(), 'count', sourceType] as const,
 };
 
@@ -34,13 +53,41 @@ export const recipeKeys = {
 // ============================================================
 
 /**
- * Fetch all recipes with pagination and optional source filter
+ * Fetch all recipes with infinite scroll pagination
  */
-export function useRecipes(limit = 50, offset = 0, sourceType?: string) {
-  return useQuery({
-    queryKey: recipeKeys.list({ limit, offset, sourceType }),
-    queryFn: () => api.getRecipes(limit, offset, sourceType),
+export function useInfiniteRecipes(sourceType?: string, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: recipeKeys.infinite(sourceType),
+    queryFn: ({ pageParam = 0 }) => api.getRecipes(PAGE_SIZE, pageParam, sourceType),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      if (!lastPage.has_more) return undefined;
+      return lastPage.offset + lastPage.limit;
+    },
+    enabled,
+    staleTime: 30_000,
   });
+}
+
+/**
+ * Helper hook that flattens infinite query pages into a single array
+ */
+export function useRecipes(sourceType?: string, enabled = true) {
+  const query = useInfiniteRecipes(sourceType, enabled);
+  
+  const recipes = useMemo(() => {
+    if (!query.data?.pages) return [];
+    return query.data.pages.flatMap(page => page.items);
+  }, [query.data?.pages]);
+  
+  const total = query.data?.pages[0]?.total ?? 0;
+  
+  return {
+    ...query,
+    recipes,
+    total,
+    hasMore: query.hasNextPage,
+  };
 }
 
 /**
@@ -65,23 +112,59 @@ export function useRecipe(id: string) {
 }
 
 /**
- * Search recipes with optional source filter
+ * Search and filter recipes with infinite scroll
  */
-export function useSearchRecipes(query: string, sourceType?: string) {
-  return useQuery({
-    queryKey: recipeKeys.search(query, sourceType),
-    queryFn: () => api.searchRecipes(query, 20, sourceType),
-    enabled: query.length > 0,
+export function useInfiniteSearchRecipes(filters: SearchFilters, enabled = true) {
+  const { query, sourceType, timeFilter, tags } = filters;
+  const hasFilters = query || sourceType || timeFilter || (tags && tags.length > 0);
+  
+  return useInfiniteQuery({
+    queryKey: recipeKeys.infiniteSearch(filters),
+    queryFn: ({ pageParam = 0 }) => 
+      api.searchRecipes(query || '', PAGE_SIZE, pageParam, sourceType, timeFilter, tags),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      if (!lastPage.has_more) return undefined;
+      return lastPage.offset + lastPage.limit;
+    },
+    enabled: enabled && !!hasFilters,
+    staleTime: 30_000,
   });
+}
+
+/**
+ * Helper hook that flattens search results into a single array
+ */
+export function useSearchRecipes(filters: SearchFilters, enabled = true) {
+  const { query, sourceType, timeFilter, tags } = filters;
+  const hasFilters = query || sourceType || timeFilter || (tags && tags.length > 0);
+  
+  const infiniteQuery = useInfiniteSearchRecipes(filters, enabled);
+  
+  const recipes = useMemo(() => {
+    if (!infiniteQuery.data?.pages) return [];
+    return infiniteQuery.data.pages.flatMap(page => page.items);
+  }, [infiniteQuery.data?.pages]);
+  
+  const total = infiniteQuery.data?.pages[0]?.total ?? 0;
+  
+  return {
+    ...infiniteQuery,
+    data: hasFilters ? recipes : undefined, // Keep existing behavior for backward compat
+    recipes,
+    total,
+    hasMore: infiniteQuery.hasNextPage,
+  };
 }
 
 /**
  * Get recipe count with optional source filter
  */
-export function useRecipeCount(sourceType?: string) {
+export function useRecipeCount(sourceType?: string, enabled = true) {
   return useQuery({
     queryKey: recipeKeys.count(sourceType),
     queryFn: () => api.getRecipeCount(sourceType),
+    enabled,
   });
 }
 
@@ -347,33 +430,108 @@ export function useCheckDuplicate() {
 // ============================================================
 
 /**
- * Fetch public recipes with pagination and optional source filter
+ * Fetch public recipes with infinite scroll pagination
  */
-export function useDiscoverRecipes(limit = 50, offset = 0, sourceType?: string) {
-  return useQuery({
-    queryKey: recipeKeys.discoverList({ limit, offset, sourceType }),
-    queryFn: () => api.getPublicRecipes(limit, offset, sourceType),
+export function useInfiniteDiscoverRecipes(sourceType?: string, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: recipeKeys.discoverInfinite(sourceType),
+    queryFn: ({ pageParam = 0 }) => api.getPublicRecipes(PAGE_SIZE, pageParam, sourceType),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      if (!lastPage.has_more) return undefined;
+      return lastPage.offset + lastPage.limit;
+    },
+    enabled,
+    staleTime: 30_000,
   });
 }
 
 /**
- * Search public recipes with optional source filter
+ * Helper hook that flattens discover results into a single array
  */
-export function useSearchPublicRecipes(query: string, sourceType?: string) {
-  return useQuery({
-    queryKey: recipeKeys.discoverSearch(query, sourceType),
-    queryFn: () => api.searchPublicRecipes(query, 20, sourceType),
-    enabled: query.length > 0,
+export function useDiscoverRecipes(sourceType?: string, enabled = true) {
+  const query = useInfiniteDiscoverRecipes(sourceType, enabled);
+  
+  const recipes = useMemo(() => {
+    if (!query.data?.pages) return [];
+    return query.data.pages.flatMap(page => page.items);
+  }, [query.data?.pages]);
+  
+  const total = query.data?.pages[0]?.total ?? 0;
+  
+  return {
+    ...query,
+    recipes,
+    total,
+    hasMore: query.hasNextPage,
+  };
+}
+
+/**
+ * Search and filter public recipes with infinite scroll
+ */
+export function useInfiniteSearchPublicRecipes(filters: SearchFilters, enabled = true) {
+  const { query, sourceType, timeFilter, tags } = filters;
+  const hasFilters = query || sourceType || timeFilter || (tags && tags.length > 0);
+  
+  return useInfiniteQuery({
+    queryKey: recipeKeys.discoverInfiniteSearch(filters),
+    queryFn: ({ pageParam = 0 }) => 
+      api.searchPublicRecipes(query || '', PAGE_SIZE, pageParam, sourceType, timeFilter, tags),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      if (!lastPage.has_more) return undefined;
+      return lastPage.offset + lastPage.limit;
+    },
+    enabled: enabled && !!hasFilters,
+    staleTime: 30_000,
   });
+}
+
+/**
+ * Helper hook that flattens public search results into a single array
+ */
+export function useSearchPublicRecipes(filters: SearchFilters, enabled = true) {
+  const { query, sourceType, timeFilter, tags } = filters;
+  const hasFilters = query || sourceType || timeFilter || (tags && tags.length > 0);
+  
+  const infiniteQuery = useInfiniteSearchPublicRecipes(filters, enabled);
+  
+  const recipes = useMemo(() => {
+    if (!infiniteQuery.data?.pages) return [];
+    return infiniteQuery.data.pages.flatMap(page => page.items);
+  }, [infiniteQuery.data?.pages]);
+  
+  const total = infiniteQuery.data?.pages[0]?.total ?? 0;
+  
+  return {
+    ...infiniteQuery,
+    data: hasFilters ? recipes : undefined, // Keep existing behavior for backward compat
+    recipes,
+    total,
+    hasMore: infiniteQuery.hasNextPage,
+  };
 }
 
 /**
  * Get public recipe count with optional source filter
  */
-export function usePublicRecipeCount(sourceType?: string) {
+export function usePublicRecipeCount(sourceType?: string, enabled = true) {
   return useQuery({
     queryKey: recipeKeys.discoverCount(sourceType),
     queryFn: () => api.getPublicRecipeCount(sourceType),
+    enabled,
+  });
+}
+
+/**
+ * Get popular tags for user's recipes or all public recipes
+ */
+export function usePopularTags(scope: 'user' | 'public' = 'user', enabled = true) {
+  return useQuery({
+    queryKey: recipeKeys.popularTags(scope),
+    queryFn: () => api.getPopularTags(scope),
+    enabled,
   });
 }
 
@@ -401,13 +559,41 @@ export function useToggleRecipeSharing() {
 // ============================================================
 
 /**
- * Fetch saved recipes
+ * Fetch saved recipes with infinite scroll
  */
-export function useSavedRecipes(limit = 50, offset = 0) {
-  return useQuery({
-    queryKey: ['savedRecipes', { limit, offset }],
-    queryFn: () => api.getSavedRecipes(limit, offset),
+export function useInfiniteSavedRecipes(enabled = true) {
+  return useInfiniteQuery({
+    queryKey: recipeKeys.savedInfinite(),
+    queryFn: ({ pageParam = 0 }) => api.getSavedRecipes(PAGE_SIZE, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      if (!lastPage.has_more) return undefined;
+      return lastPage.offset + lastPage.limit;
+    },
+    enabled,
+    staleTime: 30_000,
   });
+}
+
+/**
+ * Helper hook that flattens saved recipes into a single array
+ */
+export function useSavedRecipes(enabled = true) {
+  const query = useInfiniteSavedRecipes(enabled);
+  
+  const recipes = useMemo(() => {
+    if (!query.data?.pages) return [];
+    return query.data.pages.flatMap(page => page.items);
+  }, [query.data?.pages]);
+  
+  const total = query.data?.pages[0]?.total ?? 0;
+  
+  return {
+    ...query,
+    recipes,
+    total,
+    hasMore: query.hasNextPage,
+  };
 }
 
 /**
@@ -503,3 +689,89 @@ export function useUnsaveRecipe() {
   });
 }
 
+// ============================================================
+// Client-Side Filtering Utilities
+// ============================================================
+
+/**
+ * Parse time string to minutes for comparison
+ * Examples: "30 minutes" -> 30, "1 hour" -> 60, "1 hour 30 minutes" -> 90
+ */
+function parseTimeToMinutes(timeStr: string | null): number | null {
+  if (!timeStr) return null;
+  
+  let total = 0;
+  const hourMatch = timeStr.match(/(\d+)\s*h(?:our)?s?/i);
+  const minMatch = timeStr.match(/(\d+)\s*m(?:in(?:ute)?s?)?/i);
+  
+  if (hourMatch) total += parseInt(hourMatch[1]) * 60;
+  if (minMatch) total += parseInt(minMatch[1]);
+  
+  // If no match, try to parse as just a number (assume minutes)
+  if (!hourMatch && !minMatch) {
+    const numMatch = timeStr.match(/(\d+)/);
+    if (numMatch) total = parseInt(numMatch[1]);
+  }
+  
+  return total > 0 ? total : null;
+}
+
+/**
+ * Filter recipes client-side for instant UI feedback
+ * This is used while the server request is in flight
+ */
+export function filterRecipesLocally(
+  recipes: RecipeListItem[] | undefined,
+  filters: SearchFilters
+): RecipeListItem[] {
+  if (!recipes) return [];
+  
+  const { query, sourceType, timeFilter, tags } = filters;
+  
+  return recipes.filter((recipe) => {
+    // Source type filter
+    if (sourceType && recipe.source_type !== sourceType) {
+      return false;
+    }
+    
+    // Time filter
+    if (timeFilter) {
+      const minutes = parseTimeToMinutes(recipe.total_time);
+      if (minutes === null) {
+        // If no time info, only include if filter is 'any' or not set
+        if (timeFilter !== 'all') return false;
+      } else {
+        switch (timeFilter) {
+          case 'quick': // Under 30 min
+            if (minutes >= 30) return false;
+            break;
+          case 'medium': // 30-60 min
+            if (minutes < 30 || minutes > 60) return false;
+            break;
+          case 'long': // Over 1 hour
+            if (minutes <= 60) return false;
+            break;
+        }
+      }
+    }
+    
+    // Tag filter (recipe must have all selected tags)
+    if (tags && tags.length > 0) {
+      const recipeTags = recipe.tags.map(t => t.toLowerCase());
+      const hasAllTags = tags.every(tag => 
+        recipeTags.some(rt => rt.includes(tag.toLowerCase()))
+      );
+      if (!hasAllTags) return false;
+    }
+    
+    // Search query filter
+    if (query && query.trim()) {
+      const searchLower = query.toLowerCase().trim();
+      const titleMatch = recipe.title.toLowerCase().includes(searchLower);
+      const tagMatch = recipe.tags.some(t => t.toLowerCase().includes(searchLower));
+      if (!titleMatch && !tagMatch) return false;
+    }
+    
+    return true;
+  });
+}

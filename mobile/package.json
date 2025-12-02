@@ -1,7 +1,7 @@
 {
   "name": "recipe-mobile",
   "main": "expo-router/entry",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
@@ -19,6 +19,7 @@
     "expo-auth-session": "~7.0.9",
     "expo-constants": "~18.0.10",
     "expo-font": "~14.0.9",
+    "expo-haptics": "~15.0.7",
     "expo-image-picker": "~17.0.8",
     "expo-linking": "~8.0.9",
     "expo-router": "~6.0.15",
@@ -26,6 +27,7 @@
     "expo-splash-screen": "~31.0.11",
     "expo-status-bar": "~3.0.8",
     "expo-web-browser": "~15.0.9",
+    "moti": "^0.30.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",

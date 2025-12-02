@@ -8,7 +8,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Card, SectionHeader, Divider, useColors } from '@/components/Themed';
 import { useRecipeCount } from '@/hooks/useRecipes';
-import { API_BASE_URL, api } from '@/lib/api';
+import { API_BASE_URL } from '@/lib/api';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
 // TODO: Update with real App Store ID once approved
@@ -61,11 +61,12 @@ export default function SettingsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { isSignedIn } = useAuth();
-  const { data: countData } = useRecipeCount();
   const { user } = useUser();
+  const { data: countData } = useRecipeCount(undefined, !!isSignedIn);
   const { signOut } = useClerk();
   const [isDeleting, setIsDeleting] = useState(false);
-  
+  const { api } = require('@/lib/api');
+
   const handleClearCache = () => {
     Alert.alert(
       'Clear Cache',
@@ -94,10 +95,7 @@ export default function SettingsScreen() {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
-            // Cancel all pending queries first
-            queryClient.cancelQueries();
             queryClient.clear();
-            // Clear the API token getter to prevent further requests
             api.setTokenGetter(null);
             await signOut();
           },
@@ -116,7 +114,6 @@ export default function SettingsScreen() {
           text: 'Delete Account',
           style: 'destructive',
           onPress: () => {
-            // Second confirmation for extra safety
             Alert.alert(
               'Final Confirmation',
               'This is permanent. All your data will be deleted forever.',
@@ -128,24 +125,13 @@ export default function SettingsScreen() {
                   onPress: async () => {
                     setIsDeleting(true);
                     try {
-                      // Delete account on server
                       await api.deleteAccount();
-                      
-                      // Cancel all pending queries to prevent refetch errors
-                      queryClient.cancelQueries();
                       queryClient.clear();
-                      
-                      // Clear the API token getter to prevent further requests
                       api.setTokenGetter(null);
-                      
-                      // Sign out
                       await signOut();
-                    } catch (error: any) {
+                    } catch (error) {
                       console.error('Delete account error:', error);
-                      // Only show error if it's not an auth error (account was already deleted)
-                      if (error?.response?.status !== 401) {
-                        Alert.alert('Error', 'Failed to delete account. Please try again.');
-                      }
+                      Alert.alert('Error', 'Failed to delete account. Please try again.');
                     } finally {
                       setIsDeleting(false);
                     }
@@ -174,10 +160,10 @@ export default function SettingsScreen() {
   };
 
   return (
-    <RNView style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={styles.container}>
       <ScrollView 
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 80) + spacing.xl }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
       >
         {/* User Profile Card */}
         <RNView style={styles.section}>
@@ -269,7 +255,7 @@ export default function SettingsScreen() {
                   Recipe Extractor
                 </Text>
                 <Text style={[styles.aboutVersion, { color: colors.textMuted }]}>
-                  Version 1.0.1
+                  Version 1.1.0
                 </Text>
               </RNView>
             </RNView>
@@ -353,14 +339,13 @@ export default function SettingsScreen() {
           </RNView>
         )}
       </ScrollView>
-    </RNView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    overflow: 'hidden',
   },
   scrollContent: {
     padding: spacing.lg,
@@ -480,19 +465,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     marginTop: 2,
   },
-  shareAppButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    padding: spacing.md,
-    borderRadius: radius.md,
-  },
-  shareAppText: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.semibold,
-    color: '#FFFFFF',
-  },
   accountActionsCard: {
     borderRadius: radius.lg,
     overflow: 'hidden',
@@ -506,13 +478,27 @@ const styles = StyleSheet.create({
   accountActionLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   accountActionText: {
     fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
   },
   accountDivider: {
     height: 1,
-    marginLeft: spacing.md + 20 + spacing.md, // Icon width + gaps
+    marginLeft: spacing.md + 20 + spacing.sm, // Align with text after icon
+  },
+  shareAppButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+  },
+  shareAppText: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+    color: '#FFFFFF',
   },
 });

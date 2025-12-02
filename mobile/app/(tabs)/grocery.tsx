@@ -34,6 +34,8 @@ import {
 import { api } from '@/lib/api';
 import { GroceryItem } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { haptics } from '@/utils/haptics';
+import { AnimatedListItem, ScalePressable } from '@/components/Animated';
 
 function GroceryItemRow({
   item,
@@ -50,7 +52,7 @@ function GroceryItemRow({
 }) {
   // The entire row is tappable to toggle for easier interaction
   return (
-    <TouchableOpacity 
+    <ScalePressable 
       style={[
         styles.itemRow, 
         { 
@@ -60,7 +62,7 @@ function GroceryItemRow({
         }
       ]}
       onPress={onToggle}
-      activeOpacity={0.6}
+      scaleValue={0.98}
     >
       {/* Checkbox */}
       <RNView style={styles.checkbox}>
@@ -120,7 +122,7 @@ function GroceryItemRow({
       >
         <Ionicons name="trash-outline" size={20} color={colors.error} />
       </TouchableOpacity>
-    </TouchableOpacity>
+    </ScalePressable>
   );
 }
 
@@ -148,10 +150,12 @@ export default function GroceryScreen() {
   }, [refetch]);
   
   const handleToggle = (id: string) => {
+    haptics.light();
     toggleMutation.mutate(id);
   };
 
   const handleDelete = (id: string, name: string) => {
+    haptics.warning();
     Alert.alert('Delete Item', `Remove "${name}" from your list?`, [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -199,6 +203,7 @@ export default function GroceryScreen() {
   const handleAddItem = () => {
     if (!newItemName.trim()) return;
     
+    haptics.success();
     addItemMutation.mutate(
       { name: newItemName.trim() },
       {
@@ -300,14 +305,16 @@ export default function GroceryScreen() {
     }
   };
 
-  const renderItem = ({ item }: { item: GroceryItem }) => (
-    <GroceryItemRow
-      item={item}
-      colors={colors}
-      onToggle={() => handleToggle(item.id)}
-      onDelete={() => handleDelete(item.id, item.name)}
-      onEdit={() => handleEdit(item)}
-    />
+  const renderItem = ({ item, index }: { item: GroceryItem; index: number }) => (
+    <AnimatedListItem index={index} delay={30}>
+      <GroceryItemRow
+        item={item}
+        colors={colors}
+        onToggle={() => handleToggle(item.id)}
+        onDelete={() => handleDelete(item.id, item.name)}
+        onEdit={() => handleEdit(item)}
+      />
+    </AnimatedListItem>
   );
 
   const ListEmpty = () => (

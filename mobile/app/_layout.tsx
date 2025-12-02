@@ -5,12 +5,13 @@ import { ClerkProvider, ClerkLoaded, useAuth } from '@clerk/clerk-expo';
 import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { queryClient } from '@/lib/queryClient';
 import { tokenCache, CLERK_PUBLISHABLE_KEY } from '@/lib/auth';
+import { api } from '@/lib/api';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -99,25 +100,20 @@ function AuthProtection({ children }: { children: React.ReactNode }) {
 function AuthTokenSync({ children }: { children: React.ReactNode }) {
   const { getToken, isSignedIn, isLoaded } = useAuth();
 
-  useEffect(() => {
-    const setupTokenGetter = async () => {
-      if (!isLoaded) return;
-      
-      // Import API dynamically to avoid circular deps
-      const { api } = await import('@/lib/api');
-      
-      if (isSignedIn) {
-        // Pass the getToken function - it will be called on each request
-        // to get a fresh token (Clerk tokens expire in ~60 seconds)
-        api.setTokenGetter(async () => {
-          return await getToken();
-        });
-      } else {
-        api.setTokenGetter(null);
-      }
-    };
-
-    setupTokenGetter();
+  // Use useLayoutEffect to set token getter BEFORE children render/effects run
+  // This ensures token is available before any API calls
+  useLayoutEffect(() => {
+    if (!isLoaded) return;
+    
+    if (isSignedIn) {
+      // Pass the getToken function - it will be called on each request
+      // to get a fresh token (Clerk tokens expire in ~60 seconds)
+      api.setTokenGetter(async () => {
+        return await getToken();
+      });
+    } else {
+      api.setTokenGetter(null);
+    }
   }, [isSignedIn, isLoaded, getToken]);
 
   return <>{children}</>;

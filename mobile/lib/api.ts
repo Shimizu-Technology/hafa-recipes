@@ -6,6 +6,7 @@ import axios, { AxiosInstance } from 'axios';
 import {
   Recipe,
   RecipeListItem,
+  PaginatedRecipes,
   ExtractRequest,
   ExtractResponse,
   JobStatus,
@@ -15,14 +16,41 @@ import {
   GroceryCount,
   ChatMessage,
   ChatResponse,
+  Collection,
+  CollectionRecipe,
 } from '../types/recipe';
 
 // Configure base URL based on environment
-// For local development, use your machine's IP address instead of localhost
-// so the mobile device/emulator can connect
-const API_BASE_URL = __DEV__
-  ? 'http://192.168.1.190:8000'  // Your computer's local IP
-  : 'https://recipe-api-x5na.onrender.com'; // Production URL on Render
+import Constants from 'expo-constants';
+
+// API Configuration
+// For development: Automatically detect the dev machine's IP from Expo
+// For production: Use the Render URL
+// Set USE_LOCAL_API to true ONLY if you're running the backend locally with uvicorn
+const USE_LOCAL_API = true; // Using local backend with uvicorn
+
+function getApiBaseUrl(): string {
+  if (!__DEV__ || !USE_LOCAL_API) {
+    // Production or explicitly using remote
+    return 'https://recipe-api-x5na.onrender.com';
+  }
+  
+  // In development, try to get the IP from Expo's dev server
+  // This extracts the IP from Expo's debugger host (e.g., "192.168.1.100:8081")
+  const debuggerHost = Constants.expoConfig?.hostUri || Constants.manifest?.debuggerHost;
+  
+  if (debuggerHost) {
+    const host = debuggerHost.split(':')[0]; // Remove port
+    console.log(`📡 Using local API at: http://${host}:8000`);
+    return `http://${host}:8000`;
+  }
+  
+  // Fallback to production if we can't detect local IP
+  console.log('⚠️ Could not detect local IP, using production API');
+  return 'https://recipe-api-x5na.onrender.com';
+}
+
+const API_BASE_URL = getApiBaseUrl();
 
 // Token getter function type - will be set by the app
 type TokenGetter = () => Promise<string | null>;
@@ -93,7 +121,7 @@ class ApiClient {
   // My Recipes (user's own recipes)
   // ============================================================
 
-  async getRecipes(limit = 50, offset = 0, sourceType?: string): Promise<RecipeListItem[]> {
+  async getRecipes(limit = 20, offset = 0, sourceType?: string): Promise<PaginatedRecipes> {
     const { data } = await this.client.get('/api/recipes/', {
       params: { limit, offset, source_type: sourceType || undefined },
     });
@@ -112,9 +140,23 @@ class ApiClient {
     return data;
   }
 
-  async searchRecipes(query: string, limit = 20, sourceType?: string): Promise<RecipeListItem[]> {
+  async searchRecipes(
+    query: string = '', 
+    limit = 20, 
+    offset = 0,
+    sourceType?: string,
+    timeFilter?: string,
+    tags?: string[],
+  ): Promise<PaginatedRecipes> {
     const { data } = await this.client.get('/api/recipes/search', {
-      params: { q: query, limit, source_type: sourceType || undefined },
+      params: { 
+        q: query || undefined, 
+        limit,
+        offset,
+        source_type: sourceType || undefined,
+        time_filter: timeFilter || undefined,
+        tags: tags?.join(',') || undefined,
+      },
     });
     return data;
   }
@@ -229,16 +271,30 @@ class ApiClient {
   // Discover (public recipes)
   // ============================================================
 
-  async getPublicRecipes(limit = 50, offset = 0, sourceType?: string): Promise<RecipeListItem[]> {
+  async getPublicRecipes(limit = 20, offset = 0, sourceType?: string): Promise<PaginatedRecipes> {
     const { data } = await this.client.get('/api/recipes/discover', {
       params: { limit, offset, source_type: sourceType || undefined },
     });
     return data;
   }
 
-  async searchPublicRecipes(query: string, limit = 20, sourceType?: string): Promise<RecipeListItem[]> {
+  async searchPublicRecipes(
+    query: string = '', 
+    limit = 20, 
+    offset = 0,
+    sourceType?: string,
+    timeFilter?: string,
+    tags?: string[],
+  ): Promise<PaginatedRecipes> {
     const { data } = await this.client.get('/api/recipes/discover/search', {
-      params: { q: query, limit, source_type: sourceType || undefined },
+      params: { 
+        q: query || undefined, 
+        limit,
+        offset,
+        source_type: sourceType || undefined,
+        time_filter: timeFilter || undefined,
+        tags: tags?.join(',') || undefined,
+      },
     });
     return data;
   }
@@ -246,6 +302,13 @@ class ApiClient {
   async getPublicRecipeCount(sourceType?: string): Promise<{ count: number }> {
     const { data } = await this.client.get('/api/recipes/discover/count', {
       params: { source_type: sourceType || undefined },
+    });
+    return data;
+  }
+
+  async getPopularTags(scope: 'user' | 'public' = 'user', limit = 10): Promise<{ tag: string; count: number }[]> {
+    const { data } = await this.client.get('/api/recipes/tags/popular', {
+      params: { scope, limit },
     });
     return data;
   }
@@ -481,7 +544,7 @@ class ApiClient {
     return data;
   }
 
-  async getSavedRecipes(limit = 50, offset = 0): Promise<RecipeListItem[]> {
+  async getSavedRecipes(limit = 20, offset = 0): Promise<PaginatedRecipes> {
     const { data } = await this.client.get('/api/recipes/saved/list', {
       params: { limit, offset },
     });
@@ -494,10 +557,51 @@ class ApiClient {
   }
 
   // ============================================================
+  // Collections
+  // ============================================================
+
+  async getCollections(): Promise<Collection[]> {
+    const { data } = await this.client.get('/api/collections');
+    return data;
+  }
+
+  async createCollection(name: string, emoji?: string): Promise<Collection> {
+    const { data } = await this.client.post('/api/collections', { name, emoji });
+    return data;
+  }
+
+  async updateCollection(collectionId: string, updates: { name?: string; emoji?: string }): Promise<Collection> {
+    const { data } = await this.client.put(`/api/collections/${collectionId}`, updates);
+    return data;
+  }
+
+  async deleteCollection(collectionId: string): Promise<void> {
+    await this.client.delete(`/api/collections/${collectionId}`);
+  }
+
+  async getCollectionRecipes(collectionId: string): Promise<CollectionRecipe[]> {
+    const { data } = await this.client.get(`/api/collections/${collectionId}/recipes`);
+    return data;
+  }
+
+  async addRecipeToCollection(collectionId: string, recipeId: string): Promise<void> {
+    await this.client.post(`/api/collections/${collectionId}/recipes`, { recipe_id: recipeId });
+  }
+
+  async removeRecipeFromCollection(collectionId: string, recipeId: string): Promise<void> {
+    await this.client.delete(`/api/collections/${collectionId}/recipes/${recipeId}`);
+  }
+
+  async getRecipeCollections(recipeId: string): Promise<string[]> {
+    const { data } = await this.client.get(`/api/collections/recipe/${recipeId}/collections`);
+    return data;
+  }
+
+  // ============================================================
   // User Account
   // ============================================================
 
-  async deleteAccount(): Promise<{ message: string; deleted: { recipes: number } }> {
+  async deleteAccount(): Promise<{ message: string }> {
     const { data } = await this.client.delete('/api/users/me');
     return data;
   }

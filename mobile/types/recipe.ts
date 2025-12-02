@@ -90,6 +90,14 @@ export interface RecipeListItem {
   is_public: boolean;
 }
 
+export interface PaginatedRecipes {
+  items: RecipeListItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
 export interface ExtractRequest {
   url: string;
   location?: string;
@@ -167,5 +175,30 @@ export interface ChatRequest {
 
 export interface ChatResponse {
   response: string;
+}
+
+// ============================================================
+// Collections
+// ============================================================
+
+export interface Collection {
+  id: string;
+  name: string;
+  emoji: string | null;
+  recipe_count: number;
+  created_at: string;
+  updated_at: string;
+  preview_thumbnails?: (string | null)[];
+}
+
+export interface CollectionRecipe {
+  id: string;
+  title: string;
+  source_type: string;
+  thumbnail_url: string | null;
+  tags: string[];
+  total_time: string | null;
+  servings: number | null;
+  added_at: string;
 }
 
