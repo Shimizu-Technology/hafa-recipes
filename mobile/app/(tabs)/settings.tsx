@@ -274,10 +274,13 @@ export default function SettingsScreen() {
             </Text>
             <RNView style={styles.techList}>
               <Text style={[styles.techItem, { color: colors.textSecondary }]}>
-                • OpenAI Whisper
+                • OpenAI Whisper (transcription)
               </Text>
               <Text style={[styles.techItem, { color: colors.textSecondary }]}>
-                • GPT-4o-mini
+                • Gemini 2.0 Flash (extraction)
+              </Text>
+              <Text style={[styles.techItem, { color: colors.textSecondary }]}>
+                • GPT-4o (recipe chat)
               </Text>
               <Text style={[styles.techItem, { color: colors.textSecondary }]}>
                 • FastAPI + React Native
