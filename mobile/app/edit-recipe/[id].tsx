@@ -229,6 +229,9 @@ export default function EditRecipeScreen() {
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
       queryClient.invalidateQueries({ queryKey: ['recipe', id] });
       queryClient.invalidateQueries({ queryKey: ['recipe-original', id] });
+      // Also invalidate version history (new version was created)
+      queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'list', id] });
+      queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'count', id] });
       
       Alert.alert('Success!', 'Recipe updated successfully.', [
         { text: 'OK', onPress: () => router.back() },
@@ -246,6 +249,9 @@ export default function EditRecipeScreen() {
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
       queryClient.invalidateQueries({ queryKey: ['recipe', id] });
       queryClient.invalidateQueries({ queryKey: ['recipe-original', id] });
+      // Also invalidate version history
+      queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'list', id] });
+      queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'count', id] });
       
       Alert.alert('Restored!', 'Recipe has been restored to the original version.', [
         { text: 'OK', onPress: () => router.back() },

@@ -4,37 +4,20 @@ Planned features and improvements for Recipe Extractor.
 
 ---
 
-## 🚀 Up Next (v1.2.0)
-
-### Recipe Version Tracking
-- [ ] Track all edits and re-extractions
-- [ ] View version history
-- [ ] Restore any previous version
-- [ ] See who edited and when
-
-### Grocery List Improvements
-- [ ] Group items by recipe (collapsible sections)
-- [ ] Custom groups/lists (add non-recipe items)
-- [ ] Toggle recipe visibility in grocery list
-- [ ] Smart ingredient combining (aggregate duplicates)
-
-### Personal Notes
-- [ ] Add private notes to any recipe (yours or saved)
-- [ ] Notes visible only to you
+## 🚀 Up Next (v1.3.0)
 
 ### Fork Recipe
 - [ ] Create your own version of a saved recipe
 - [ ] Edit without affecting the original
 
----
-
-## 📸 Future Features
-
 ### Photo-to-Recipe (OCR)
 - [ ] Scan handwritten or printed recipes
 - [ ] Camera capture or photo library
 - [ ] AI extracts text and structures the recipe
-- [ ] Great for grandmother's recipe cards!
+
+---
+
+## 📸 Future Features
 
 ### iOS Home Screen Widget
 - [ ] Grocery list count widget
@@ -84,9 +67,18 @@ Planned features and improvements for Recipe Extractor.
 
 ## ✅ Recently Completed
 
+### v1.2.0
+- [x] Personal notes on any recipe (private to you)
+- [x] Version tracking (view history, restore any version)
+- [x] Detailed change summaries (see exactly what changed)
+- [x] Admin re-extraction permissions fix (JWT template)
+- [x] Grocery list grouped by recipe (collapsible sections)
+- [x] "Other Items" section for non-recipe grocery items
+- [x] Collapse state persists via AsyncStorage
+
 ### v1.1.1
 - [x] Re-extract recipes with latest AI
-- [x] Admin role support
+- [x] Admin role support (via Clerk public metadata)
 - [x] Skeleton loading UI
 - [x] Smooth animated progress
 - [x] Network resilience improvements

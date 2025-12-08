@@ -852,3 +852,121 @@ export function filterRecipesLocally(
     return true;
   });
 }
+
+// ============================================================
+// Personal Recipe Notes
+// ============================================================
+
+export const noteKeys = {
+  all: ['recipeNotes'] as const,
+  detail: (recipeId: string) => [...noteKeys.all, recipeId] as const,
+};
+
+export const versionKeys = {
+  all: ['recipeVersions'] as const,
+  list: (recipeId: string) => [...versionKeys.all, 'list', recipeId] as const,
+  detail: (recipeId: string, versionId: string) => [...versionKeys.all, 'detail', recipeId, versionId] as const,
+  count: (recipeId: string) => [...versionKeys.all, 'count', recipeId] as const,
+};
+
+/**
+ * Fetch the current user's personal note for a recipe
+ */
+export function useRecipeNote(recipeId: string, enabled = true) {
+  return useQuery({
+    queryKey: noteKeys.detail(recipeId),
+    queryFn: () => api.getRecipeNote(recipeId),
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Update or create a personal note for a recipe
+ */
+export function useUpdateRecipeNote() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: ({ recipeId, noteText }: { recipeId: string; noteText: string }) =>
+      api.updateRecipeNote(recipeId, noteText),
+    onSuccess: (data, { recipeId }) => {
+      // Update the cache with the new note
+      queryClient.setQueryData(noteKeys.detail(recipeId), data);
+    },
+  });
+}
+
+/**
+ * Delete a personal note from a recipe
+ */
+export function useDeleteRecipeNote() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (recipeId: string) => api.deleteRecipeNote(recipeId),
+    onSuccess: (_, recipeId) => {
+      // Set the cache to null (no note)
+      queryClient.setQueryData(noteKeys.detail(recipeId), null);
+    },
+  });
+}
+
+// ============================================================
+// Recipe Version History
+// ============================================================
+
+/**
+ * Fetch all versions of a recipe
+ */
+export function useRecipeVersions(recipeId: string, enabled = true) {
+  return useQuery({
+    queryKey: versionKeys.list(recipeId),
+    queryFn: () => api.getRecipeVersions(recipeId),
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Fetch details of a specific version
+ */
+export function useRecipeVersionDetail(recipeId: string, versionId: string, enabled = true) {
+  return useQuery({
+    queryKey: versionKeys.detail(recipeId, versionId),
+    queryFn: () => api.getRecipeVersionDetail(recipeId, versionId),
+    enabled: enabled && !!versionId,
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Fetch version count for a recipe
+ */
+export function useRecipeVersionCount(recipeId: string, enabled = true) {
+  return useQuery({
+    queryKey: versionKeys.count(recipeId),
+    queryFn: () => api.getRecipeVersionCount(recipeId),
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Restore a recipe to a specific version
+ */
+export function useRestoreRecipeVersion() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: ({ recipeId, versionId }: { recipeId: string; versionId: string }) =>
+      api.restoreRecipeVersion(recipeId, versionId),
+    onSuccess: (_, { recipeId }) => {
+      // Invalidate recipe detail to get updated data
+      queryClient.invalidateQueries({ queryKey: recipeKeys.detail(recipeId) });
+      // Invalidate versions list (new version was created)
+      queryClient.invalidateQueries({ queryKey: versionKeys.list(recipeId) });
+      queryClient.invalidateQueries({ queryKey: versionKeys.count(recipeId) });
+    },
+  });
+}

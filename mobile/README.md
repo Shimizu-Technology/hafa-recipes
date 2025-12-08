@@ -57,12 +57,17 @@ const USE_LOCAL_API = true;  // false for production
 ### Organization
 - **Collections** - Group recipes into custom folders
 - **Grocery List** - Add ingredients, check off while shopping
+  - Items grouped by recipe with collapsible sections
+  - "Other Items" section for manual additions
+  - Collapse state persists between sessions
 - **Search** - Find by title, tags, or ingredients
 
 ### Editing
 - **Edit Recipes** - Modify any recipe you own
-- **Re-extract** - Re-run AI extraction with latest model
+- **Re-extract** - Re-run AI extraction with latest model (owners & admins)
+- **Version History** - View all changes, restore any previous version
 - **Restore Original** - Revert to original AI extraction
+- **Personal Notes** - Add private notes to your recipes
 - **Manual Entry** - Add your own recipes with photo upload
 
 ## Project Structure

@@ -1,13 +1,13 @@
 /**
  * Grocery List Screen
  * 
- * Shows the user's grocery list with ability to check off items.
+ * Shows the user's grocery list grouped by recipe with collapsible sections.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   StyleSheet,
-  FlatList,
+  SectionList,
   TouchableOpacity,
   RefreshControl,
   View as RNView,
@@ -18,6 +18,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/clerk-expo';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { View, Text, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
@@ -37,20 +38,32 @@ import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
 import { AnimatedListItem, ScalePressable } from '@/components/Animated';
 
+const COLLAPSED_SECTIONS_KEY = 'grocery_collapsed_sections';
+const OTHER_ITEMS_KEY = 'Other Items';
+
+interface GrocerySection {
+  title: string;
+  recipeId: string | null;
+  data: GroceryItem[];
+  checkedCount: number;
+  totalCount: number;
+}
+
 function GroceryItemRow({
   item,
   colors,
   onToggle,
   onDelete,
   onEdit,
+  showRecipeLabel = false,
 }: {
   item: GroceryItem;
   colors: ReturnType<typeof useColors>;
   onToggle: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  showRecipeLabel?: boolean;
 }) {
-  // The entire row is tappable to toggle for easier interaction
   return (
     <ScalePressable 
       style={[
@@ -87,7 +100,7 @@ function GroceryItemRow({
           {item.unit && item.unit !== 'null' && `${item.unit} `}
           {item.name}
         </Text>
-        {item.recipe_title && (
+        {showRecipeLabel && item.recipe_title && (
           <Text style={[styles.recipeLabel, { color: colors.textMuted }]} numberOfLines={1}>
             from {item.recipe_title}
           </Text>
@@ -99,7 +112,7 @@ function GroceryItemRow({
         )}
       </RNView>
 
-      {/* Edit button - stop propagation */}
+      {/* Edit button */}
       <TouchableOpacity 
         onPress={(e) => {
           e.stopPropagation?.();
@@ -111,7 +124,7 @@ function GroceryItemRow({
         <Ionicons name="pencil-outline" size={18} color={colors.textMuted} />
       </TouchableOpacity>
 
-      {/* Delete button - stop propagation */}
+      {/* Delete button */}
       <TouchableOpacity 
         onPress={(e) => {
           e.stopPropagation?.();
@@ -126,16 +139,56 @@ function GroceryItemRow({
   );
 }
 
+function SectionHeader({
+  section,
+  isCollapsed,
+  onToggle,
+  colors,
+}: {
+  section: GrocerySection;
+  isCollapsed: boolean;
+  onToggle: () => void;
+  colors: ReturnType<typeof useColors>;
+}) {
+  const isOther = section.title === OTHER_ITEMS_KEY;
+  const icon = isOther ? 'list-outline' : 'restaurant-outline';
+  
+  return (
+    <TouchableOpacity
+      style={[styles.sectionHeader, { backgroundColor: colors.backgroundSecondary }]}
+      onPress={onToggle}
+      activeOpacity={0.7}
+    >
+      <RNView style={styles.sectionHeaderLeft}>
+        <Ionicons name={icon} size={18} color={colors.tint} style={styles.sectionIcon} />
+        <Text style={[styles.sectionTitle, { color: colors.text }]} numberOfLines={1}>
+          {section.title}
+        </Text>
+        <RNView style={[styles.sectionBadge, { backgroundColor: colors.tint + '20' }]}>
+          <Text style={[styles.sectionBadgeText, { color: colors.tint }]}>
+            {section.checkedCount}/{section.totalCount}
+          </Text>
+        </RNView>
+      </RNView>
+      <Ionicons
+        name={isCollapsed ? 'chevron-down' : 'chevron-up'}
+        size={20}
+        color={colors.textMuted}
+      />
+    </TouchableOpacity>
+  );
+}
+
 export default function GroceryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { isSignedIn } = useAuth();
   
-  // All hooks must be called unconditionally
   const [newItemName, setNewItemName] = useState('');
   const [showChecked, setShowChecked] = useState(true);
   const [editingItem, setEditingItem] = useState<GroceryItem | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
 
   const { data: groceryItems, isLoading, refetch, isRefetching } = useGroceryList(showChecked);
   const { data: countData } = useGroceryCount();
@@ -144,6 +197,94 @@ export default function GroceryScreen() {
   const clearCheckedMutation = useClearCheckedItems();
   const clearAllMutation = useClearAllItems();
   const addItemMutation = useAddGroceryItem();
+
+  // Load collapsed sections from AsyncStorage on mount
+  useEffect(() => {
+    const loadCollapsedSections = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(COLLAPSED_SECTIONS_KEY);
+        if (stored) {
+          setCollapsedSections(new Set(JSON.parse(stored)));
+        }
+      } catch (error) {
+        console.warn('Failed to load collapsed sections:', error);
+      }
+    };
+    loadCollapsedSections();
+  }, []);
+
+  // Save collapsed sections to AsyncStorage
+  const saveCollapsedSections = async (sections: Set<string>) => {
+    try {
+      await AsyncStorage.setItem(COLLAPSED_SECTIONS_KEY, JSON.stringify([...sections]));
+    } catch (error) {
+      console.warn('Failed to save collapsed sections:', error);
+    }
+  };
+
+  // Group items by recipe into sections
+  const sections = useMemo((): GrocerySection[] => {
+    if (!groceryItems || groceryItems.length === 0) return [];
+
+    const byRecipe: { [key: string]: GroceryItem[] } = {};
+    const otherItems: GroceryItem[] = [];
+
+    groceryItems.forEach(item => {
+      if (item.recipe_title) {
+        const key = item.recipe_title;
+        if (!byRecipe[key]) {
+          byRecipe[key] = [];
+        }
+        byRecipe[key].push(item);
+      } else {
+        otherItems.push(item);
+      }
+    });
+
+    const result: GrocerySection[] = [];
+
+    // Add recipe sections (sorted alphabetically)
+    Object.entries(byRecipe)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .forEach(([title, items]) => {
+        const checkedCount = items.filter(i => i.checked).length;
+        result.push({
+          title,
+          recipeId: items[0]?.recipe_id || null,
+          data: items,
+          checkedCount,
+          totalCount: items.length,
+        });
+      });
+
+    // Add "Other Items" section at the end
+    if (otherItems.length > 0) {
+      const checkedCount = otherItems.filter(i => i.checked).length;
+      result.push({
+        title: OTHER_ITEMS_KEY,
+        recipeId: null,
+        data: otherItems,
+        checkedCount,
+        totalCount: otherItems.length,
+      });
+    }
+
+    return result;
+  }, [groceryItems]);
+
+  const toggleSection = (title: string) => {
+    haptics.light();
+    setCollapsedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(title)) {
+        next.delete(title);
+      } else {
+        next.add(title);
+      }
+      saveCollapsedSections(next);
+      return next;
+    });
+  };
 
   const handleRefresh = useCallback(() => {
     refetch();
@@ -242,24 +383,25 @@ export default function GroceryScreen() {
       return `${marker} ${qtyUnit}${item.name}${notes}`;
     };
 
-    // Add items without recipe first
+    // Add items grouped by recipe first
+    Object.entries(byRecipe)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .forEach(([recipeName, items], index) => {
+        if (index > 0) text += '\n';
+        text += `📖 ${recipeName}\n`;
+        items.forEach(item => {
+          text += formatItem(item) + '\n';
+        });
+      });
+
+    // Add items without recipe last
     if (noRecipe.length > 0) {
+      if (Object.keys(byRecipe).length > 0) text += '\n';
+      text += `📝 Other Items\n`;
       noRecipe.forEach(item => {
         text += formatItem(item) + '\n';
       });
-      if (Object.keys(byRecipe).length > 0) {
-        text += '\n';
-      }
     }
-
-    // Add items grouped by recipe
-    Object.entries(byRecipe).forEach(([recipeName, items], index) => {
-      if (index > 0 || noRecipe.length > 0) text += '\n';
-      text += `📖 ${recipeName}\n`;
-      items.forEach(item => {
-        text += formatItem(item) + '\n';
-      });
-    });
 
     return text.trim();
   };
@@ -305,16 +447,33 @@ export default function GroceryScreen() {
     }
   };
 
-  const renderItem = ({ item, index }: { item: GroceryItem; index: number }) => (
-    <AnimatedListItem index={index} delay={30}>
-      <GroceryItemRow
-        item={item}
-        colors={colors}
-        onToggle={() => handleToggle(item.id)}
-        onDelete={() => handleDelete(item.id, item.name)}
-        onEdit={() => handleEdit(item)}
-      />
-    </AnimatedListItem>
+  const renderItem = ({ item, index, section }: { item: GroceryItem; index: number; section: GrocerySection }) => {
+    // Don't render if section is collapsed
+    if (collapsedSections.has(section.title)) {
+      return null;
+    }
+
+    return (
+      <AnimatedListItem index={index} delay={30}>
+        <GroceryItemRow
+          item={item}
+          colors={colors}
+          onToggle={() => handleToggle(item.id)}
+          onDelete={() => handleDelete(item.id, item.name)}
+          onEdit={() => handleEdit(item)}
+          showRecipeLabel={false}
+        />
+      </AnimatedListItem>
+    );
+  };
+
+  const renderSectionHeader = ({ section }: { section: GrocerySection }) => (
+    <SectionHeader
+      section={section}
+      isCollapsed={collapsedSections.has(section.title)}
+      onToggle={() => toggleSection(section.title)}
+      colors={colors}
+    />
   );
 
   const ListEmpty = () => (
@@ -331,7 +490,7 @@ export default function GroceryScreen() {
 
   return (
     <RNView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Fixed header with input - outside FlatList to prevent focus loss */}
+      {/* Fixed header with input */}
       <RNView style={styles.header}>
         {/* Title row */}
         <RNView style={styles.titleRow}>
@@ -410,13 +569,15 @@ export default function GroceryScreen() {
         )}
       </RNView>
 
-      <FlatList
-        data={groceryItems}
+      <SectionList
+        sections={sections}
         renderItem={renderItem}
+        renderSectionHeader={renderSectionHeader}
         keyExtractor={(item) => item.id}
         ListEmptyComponent={!isLoading ? ListEmpty : null}
         contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom, 80) + spacing.xl + (isSignedIn ? 0 : 100) }]}
         showsVerticalScrollIndicator={false}
+        stickySectionHeadersEnabled={false}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -528,6 +689,41 @@ const styles = StyleSheet.create({
   clearText: {
     fontSize: fontSize.sm,
   },
+  // Section header styles
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+    borderRadius: radius.md,
+  },
+  sectionHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  sectionIcon: {
+    marginRight: spacing.sm,
+  },
+  sectionTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+    flex: 1,
+  },
+  sectionBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+    marginLeft: spacing.sm,
+  },
+  sectionBadgeText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+  },
+  // Item styles
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -581,4 +777,3 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
 });
-

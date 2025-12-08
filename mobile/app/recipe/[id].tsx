@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   ScrollView,
@@ -11,6 +11,9 @@ import {
   ActivityIndicator,
   ActionSheetIOS,
   Platform,
+  TextInput,
+  KeyboardAvoidingView,
+  Keyboard,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,6 +23,7 @@ import { Text, View, Card, Chip, Divider, useColors } from '@/components/Themed'
 import AddIngredientsModal from '@/components/AddIngredientsModal';
 import RecipeChatModal from '@/components/RecipeChatModal';
 import AddToCollectionModal from '@/components/AddToCollectionModal';
+import VersionHistoryModal from '@/components/VersionHistoryModal';
 import { 
   useRecipe, 
   useDeleteRecipe, 
@@ -28,6 +32,8 @@ import {
   useSaveRecipe,
   useUnsaveRecipe,
   useAsyncExtraction,
+  useRecipeNote,
+  useUpdateRecipeNote,
 } from '@/hooks/useRecipes';
 import { useAddFromRecipe } from '@/hooks/useGrocery';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
@@ -53,6 +59,12 @@ export default function RecipeDetailScreen() {
   const [showIngredientPicker, setShowIngredientPicker] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
   const [showCollectionModal, setShowCollectionModal] = useState(false);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [isEditingNote, setIsEditingNote] = useState(false);
+  const [noteText, setNoteText] = useState('');
+  const scrollViewRef = useRef<ScrollView>(null);
+  const notesInputRef = useRef<TextInput>(null);
+  const [notesSectionY, setNotesSectionY] = useState(0);
   const { userId } = useAuth();
   const { user } = useUser();
   
@@ -66,6 +78,36 @@ export default function RecipeDetailScreen() {
   const isSaved = savedStatus?.is_saved ?? false;
   const isSavePending = saveMutation.isPending || unsaveMutation.isPending;
   
+  // Personal notes
+  const { data: personalNote, isLoading: isNoteLoading } = useRecipeNote(id, !!userId);
+  const updateNoteMutation = useUpdateRecipeNote();
+  
+  // Sync noteText with fetched note
+  useEffect(() => {
+    if (personalNote?.note_text !== undefined) {
+      setNoteText(personalNote.note_text);
+    }
+  }, [personalNote?.note_text]);
+
+  const handleSaveNote = () => {
+    if (!noteText.trim()) {
+      setIsEditingNote(false);
+      return;
+    }
+    
+    updateNoteMutation.mutate(
+      { recipeId: id, noteText: noteText.trim() },
+      {
+        onSuccess: () => {
+          setIsEditingNote(false);
+        },
+        onError: () => {
+          Alert.alert('Error', 'Failed to save note');
+        },
+      }
+    );
+  };
+
   // Check if the current user owns this recipe
   const isOwner = recipe?.user_id === userId;
   
@@ -184,15 +226,15 @@ export default function RecipeDetailScreen() {
     
     if (Platform.OS === 'ios') {
       if (isOwner) {
-        // Owner options: Add to Collection, Edit, Re-extract (if applicable), Delete
-        const options = ['Cancel', 'Add to Collection', 'Edit Recipe'];
+        // Owner options: Add to Collection, Edit, Version History, Re-extract (if applicable), Delete
+        const options = ['Cancel', 'Add to Collection', 'Edit Recipe', 'Version History'];
         let reExtractIndex = -1;
-        let deleteIndex = 3;
+        let deleteIndex = 4;
         
         if (canReExtract) {
           options.push('Re-extract with AI');
-          reExtractIndex = 3;
-          deleteIndex = 4;
+          reExtractIndex = 4;
+          deleteIndex = 5;
         }
         options.push('Delete Recipe');
         
@@ -207,6 +249,8 @@ export default function RecipeDetailScreen() {
               setShowCollectionModal(true);
             } else if (buttonIndex === 2) {
               router.push(`/edit-recipe/${id}`);
+            } else if (buttonIndex === 3) {
+              setShowVersionHistory(true);
             } else if (buttonIndex === reExtractIndex) {
               handleReExtract();
             } else if (buttonIndex === deleteIndex) {
@@ -247,6 +291,7 @@ export default function RecipeDetailScreen() {
         const options: any[] = [
           { text: 'Add to Collection', onPress: () => setShowCollectionModal(true) },
           { text: 'Edit Recipe', onPress: () => router.push(`/edit-recipe/${id}`) },
+          { text: 'Version History', onPress: () => setShowVersionHistory(true) },
         ];
         if (canReExtract) {
           options.push({ text: 'Re-extract with AI', onPress: handleReExtract });
@@ -507,10 +552,16 @@ export default function RecipeDetailScreen() {
         }} 
       />
       
-      <View style={styles.container}>
+      <KeyboardAvoidingView 
+          style={styles.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
+        >
         <ScrollView 
+          ref={scrollViewRef}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl + 100 }]}
+          keyboardShouldPersistTaps="handled"
         >
           {/* Hero Image */}
           {recipe.thumbnail_url && !imageError ? (
@@ -606,16 +657,111 @@ export default function RecipeDetailScreen() {
               </RNView>
             )}
 
-            {/* Notes Section */}
+            {/* Recipe Notes (from creator/extraction) */}
             {extracted.notes && extracted.notes !== 'null' && (
               <RNView style={[styles.notesSection, { backgroundColor: colors.backgroundSecondary }]}>
                 <RNView style={styles.notesTitleRow}>
                   <Ionicons name="document-text-outline" size={18} color={colors.tint} />
-                  <Text style={[styles.notesTitle, { color: colors.text }]}>Notes</Text>
+                  <Text style={[styles.notesTitle, { color: colors.text }]}>Recipe Notes</Text>
                 </RNView>
                 <Text style={[styles.notesText, { color: colors.textSecondary }]}>
                   {extracted.notes}
                 </Text>
+              </RNView>
+            )}
+
+            {/* Personal Notes Section - only show when logged in */}
+            {userId && (
+              <RNView 
+                style={[styles.personalNotesSection, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
+                onLayout={(event) => {
+                  const { y } = event.nativeEvent.layout;
+                  setNotesSectionY(y);
+                }}
+              >
+                <RNView style={styles.personalNotesTitleRow}>
+                  <RNView style={styles.personalNotesTitleLeft}>
+                    <Ionicons name="pencil-outline" size={18} color={colors.accent} />
+                    <Text style={[styles.notesTitle, { color: colors.text }]}>My Notes</Text>
+                    <Text style={[styles.personalNotesPrivate, { color: colors.textMuted }]}>(Private)</Text>
+                  </RNView>
+                  {!isEditingNote && (
+                    <TouchableOpacity 
+                      onPress={() => {
+                        setIsEditingNote(true);
+                        // Scroll to notes section after a brief delay for keyboard
+                        setTimeout(() => {
+                          scrollViewRef.current?.scrollTo({ y: notesSectionY - 100, animated: true });
+                        }, 300);
+                      }}
+                      style={[styles.editNoteButton, { backgroundColor: colors.tint + '15' }]}
+                    >
+                      <Text style={[styles.editNoteButtonText, { color: colors.tint }]}>
+                        {personalNote?.note_text ? 'Edit' : 'Add Note'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </RNView>
+                
+                {isEditingNote ? (
+                  <RNView style={styles.noteEditContainer}>
+                    <TextInput
+                      ref={notesInputRef}
+                      style={[
+                        styles.noteInput, 
+                        { 
+                          color: colors.text, 
+                          backgroundColor: colors.background,
+                          borderColor: colors.border,
+                        }
+                      ]}
+                      placeholder="Add your personal notes here..."
+                      placeholderTextColor={colors.textMuted}
+                      value={noteText}
+                      onChangeText={setNoteText}
+                      multiline
+                      numberOfLines={4}
+                      textAlignVertical="top"
+                      autoFocus
+                      onFocus={() => {
+                        // Scroll to keep input visible when focused
+                        setTimeout(() => {
+                          scrollViewRef.current?.scrollTo({ y: notesSectionY - 50, animated: true });
+                        }, 100);
+                      }}
+                    />
+                    <RNView style={styles.noteButtonRow}>
+                      <TouchableOpacity 
+                        style={[styles.noteCancelButton, { borderColor: colors.border }]}
+                        onPress={() => {
+                          setNoteText(personalNote?.note_text || '');
+                          setIsEditingNote(false);
+                        }}
+                      >
+                        <Text style={[styles.noteCancelButtonText, { color: colors.textMuted }]}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={[styles.noteSaveButton, { backgroundColor: colors.tint }]}
+                        onPress={handleSaveNote}
+                        disabled={updateNoteMutation.isPending}
+                      >
+                        <Text style={styles.noteSaveButtonText}>
+                          {updateNoteMutation.isPending ? 'Saving...' : 'Save'}
+                        </Text>
+                      </TouchableOpacity>
+                    </RNView>
+                  </RNView>
+                ) : (
+                  personalNote?.note_text ? (
+                    <Text style={[styles.notesText, { color: colors.textSecondary }]}>
+                      {personalNote.note_text}
+                    </Text>
+                  ) : (
+                    <Text style={[styles.noNotesText, { color: colors.textMuted }]}>
+                      Tap "Add Note" to add your personal notes
+                    </Text>
+                  )
+                )}
               </RNView>
             )}
 
@@ -947,7 +1093,7 @@ export default function RecipeDetailScreen() {
             </RNView>
           </RNView>
         </ScrollView>
-      </View>
+      </KeyboardAvoidingView>
 
       {/* Add Ingredients Modal */}
       {recipe && (
@@ -977,6 +1123,16 @@ export default function RecipeDetailScreen() {
           onClose={() => setShowCollectionModal(false)}
           recipeId={id}
           recipeTitle={extracted?.title || 'Recipe'}
+        />
+      )}
+
+      {/* Version History Modal */}
+      {recipe && (
+        <VersionHistoryModal
+          visible={showVersionHistory}
+          onClose={() => setShowVersionHistory(false)}
+          recipeId={id}
+          currentTitle={extracted?.title}
         />
       )}
     </>
@@ -1108,6 +1264,79 @@ const styles = StyleSheet.create({
   notesText: {
     fontSize: fontSize.md,
     lineHeight: 22,
+  },
+  // Personal notes styles
+  personalNotesSection: {
+    padding: spacing.md,
+    borderRadius: radius.md,
+    marginBottom: spacing.lg,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+  },
+  personalNotesTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  personalNotesTitleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  personalNotesPrivate: {
+    fontSize: fontSize.xs,
+    fontStyle: 'italic',
+  },
+  editNoteButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
+  },
+  editNoteButtonText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+  },
+  noteEditContainer: {
+    marginTop: spacing.xs,
+  },
+  noteInput: {
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    fontSize: fontSize.md,
+    minHeight: 100,
+    lineHeight: 22,
+  },
+  noteButtonRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  noteCancelButton: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  noteCancelButtonText: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
+  noteSaveButton: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+  },
+  noteSaveButtonText: {
+    color: '#FFFFFF',
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+  },
+  noNotesText: {
+    fontSize: fontSize.sm,
+    fontStyle: 'italic',
   },
   qualityBadge: {
     paddingHorizontal: spacing.md,

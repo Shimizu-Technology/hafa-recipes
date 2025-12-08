@@ -112,8 +112,16 @@ class ApiClient {
       (error) => {
         // Don't log 401 errors - they're expected when signed out
         const status = error.response?.status;
-        if (status !== 401) {
-          console.error('API Error:', error.response?.data || error.message);
+        const isNetworkError = !error.response && error.message === 'Network Error';
+        
+        // Silently handle network errors and 401s
+        // Use console.warn instead of console.error to avoid red popup
+        if (!isNetworkError && status !== 401) {
+          console.warn('API Error:', error.response?.data || error.message);
+        }
+        // Network errors are logged quietly for debugging
+        if (isNetworkError && __DEV__) {
+          console.log('Network connection issue - API unreachable');
         }
         return Promise.reject(error);
       }
@@ -588,6 +596,82 @@ class ApiClient {
 
   async getSavedRecipesCount(): Promise<{ count: number }> {
     const { data } = await this.client.get('/api/recipes/saved/count');
+    return data;
+  }
+
+  // ============================================================
+  // Personal Recipe Notes
+  // ============================================================
+
+  async getRecipeNote(recipeId: string): Promise<{
+    id: string;
+    recipe_id: string;
+    note_text: string;
+    created_at: string | null;
+    updated_at: string | null;
+  } | null> {
+    const { data } = await this.client.get(`/api/recipes/${recipeId}/notes`);
+    return data;
+  }
+
+  async updateRecipeNote(recipeId: string, noteText: string): Promise<{
+    id: string;
+    recipe_id: string;
+    note_text: string;
+    created_at: string | null;
+    updated_at: string | null;
+  }> {
+    const { data } = await this.client.put(`/api/recipes/${recipeId}/notes`, {
+      note_text: noteText,
+    });
+    return data;
+  }
+
+  async deleteRecipeNote(recipeId: string): Promise<{ deleted: boolean; message: string }> {
+    const { data } = await this.client.delete(`/api/recipes/${recipeId}/notes`);
+    return data;
+  }
+
+  // ============================================================
+  // Recipe Version History
+  // ============================================================
+
+  async getRecipeVersions(recipeId: string): Promise<{
+    id: string;
+    recipe_id: string;
+    version_number: number;
+    change_type: string;
+    change_summary: string | null;
+    created_by: string | null;
+    created_at: string | null;
+    title: string | null;
+  }[]> {
+    const { data } = await this.client.get(`/api/recipes/${recipeId}/versions`);
+    return data;
+  }
+
+  async getRecipeVersionDetail(recipeId: string, versionId: string): Promise<{
+    id: string;
+    recipe_id: string;
+    version_number: number;
+    extracted: any;
+    thumbnail_url: string | null;
+    change_type: string;
+    change_summary: string | null;
+    created_by: string | null;
+    created_at: string | null;
+  }> {
+    const { data } = await this.client.get(`/api/recipes/${recipeId}/versions/${versionId}`);
+    return data;
+  }
+
+  async restoreRecipeVersion(recipeId: string, versionId: string): Promise<any> {
+    const { data } = await this.client.post(`/api/recipes/${recipeId}/versions/${versionId}/restore`);
+    return data;
+  }
+
+  async getRecipeVersionCount(recipeId: string): Promise<{ count: number }> {
+    const { data } = await this.client.get(`/api/recipes/${recipeId}/versions/count`);
     return data;
   }
 

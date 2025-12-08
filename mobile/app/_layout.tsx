@@ -116,8 +116,9 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
     if (isSignedIn) {
       // Pass the getToken function - it will be called on each request
       // to get a fresh token (Clerk tokens expire in ~60 seconds)
+      // Use our custom JWT template that includes public_metadata (for admin role)
       api.setTokenGetter(async () => {
-        return await getToken();
+        return await getToken({ template: "recipe-extractor-public-metadata" });
       });
     } else {
       api.setTokenGetter(null);
