@@ -2,8 +2,8 @@
  * ExtractionProgress component - shows real-time extraction progress
  */
 
-import React from 'react';
-import { View, StyleSheet, ActivityIndicator } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, StyleSheet, ActivityIndicator, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from './Themed';
 import Colors from '@/constants/Colors';
@@ -34,6 +34,24 @@ const STEP_CONFIG: Record<string, { label: string; order: number }> = {
 // Main steps to display
 const STEPS = ['downloading', 'transcribing', 'extracting', 'saving'];
 
+/**
+ * Animated text that displays a smoothly changing number
+ */
+function AnimatedProgressText({ value, color }: { value: Animated.Value; color: string }) {
+  const [displayValue, setDisplayValue] = React.useState(0);
+  
+  useEffect(() => {
+    const listener = value.addListener(({ value: v }) => {
+      setDisplayValue(Math.round(v));
+    });
+    return () => value.removeListener(listener);
+  }, [value]);
+  
+  return (
+    <Text style={[styles.progressText, { color }]}>{displayValue}%</Text>
+  );
+}
+
 function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
@@ -58,6 +76,28 @@ export default function ExtractionProgress({
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const currentStepOrder = STEP_CONFIG[currentStep]?.order ?? 0;
+  
+  // Animated progress value for smooth transitions
+  const animatedProgress = useRef(new Animated.Value(0)).current;
+  const displayProgress = useRef(new Animated.Value(0)).current;
+  
+  // Animate progress smoothly when it changes
+  useEffect(() => {
+    Animated.parallel([
+      // Animate the progress bar fill
+      Animated.timing(animatedProgress, {
+        toValue: progress,
+        duration: 800,
+        useNativeDriver: false, // Width animation can't use native driver
+      }),
+      // Animate the displayed number
+      Animated.timing(displayProgress, {
+        toValue: progress,
+        duration: 800,
+        useNativeDriver: false,
+      }),
+    ]).start();
+  }, [progress]);
 
   if (error) {
     return (
@@ -116,18 +156,20 @@ export default function ExtractionProgress({
       {/* Progress bar */}
       <View style={styles.progressContainer}>
         <View style={[styles.progressTrack, { backgroundColor: colors.border }]}>
-          <View
+          <Animated.View
             style={[
               styles.progressFill,
               { 
-                backgroundColor: colors.accent, 
-                flex: progress / 100,
+                backgroundColor: colors.accent,
+                width: animatedProgress.interpolate({
+                  inputRange: [0, 100],
+                  outputRange: ['0%', '100%'],
+                }),
               },
             ]}
           />
-          <View style={{ flex: (100 - progress) / 100 }} />
         </View>
-        <Text style={[styles.progressText, { color: colors.text }]}>{progress}%</Text>
+        <AnimatedProgressText value={displayProgress} color={colors.text} />
       </View>
 
       {/* Time info */}
@@ -201,12 +243,10 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     overflow: 'hidden',
-    flexDirection: 'row',
   },
   progressFill: {
     height: '100%',
-    borderTopLeftRadius: 4,
-    borderBottomLeftRadius: 4,
+    borderRadius: 4,
   },
   progressText: {
     marginLeft: 12,

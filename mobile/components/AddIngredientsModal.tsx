@@ -158,7 +158,7 @@ export default function AddIngredientsModal({
                     </Text>
                   )}
                 </RNView>
-                {ingredient.estimatedCost && (
+                {ingredient.estimatedCost != null && ingredient.estimatedCost > 0 && (
                   <Text style={[styles.ingredientCost, { color: colors.textMuted }]}>
                     ${ingredient.estimatedCost.toFixed(2)}
                   </Text>

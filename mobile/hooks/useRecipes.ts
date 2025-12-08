@@ -263,6 +263,10 @@ export function useAsyncExtraction() {
   const startPolling = useCallback((id: string, start: number) => {
     setIsPolling(true);
     setElapsedTime(Math.floor((Date.now() - start) / 1000));
+    
+    // Track consecutive auth errors
+    let consecutiveAuthErrors = 0;
+    const maxAuthErrors = 5;
 
     // Update elapsed time every second
     timerIntervalRef.current = setInterval(() => {
@@ -274,6 +278,7 @@ export function useAsyncExtraction() {
       try {
         const status = await api.getJobStatus(id);
         setJobStatus(status);
+        consecutiveAuthErrors = 0; // Reset on successful request
 
         if (status.status === 'completed' || status.status === 'failed') {
           // Stop polling
@@ -283,24 +288,45 @@ export function useAsyncExtraction() {
           await clearActiveJob();
 
           if (status.status === 'completed') {
-            // Invalidate queries to show new recipe
+            // Invalidate queries to show new/updated recipe
             queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
             queryClient.invalidateQueries({ queryKey: recipeKeys.recent() });
             queryClient.invalidateQueries({ queryKey: recipeKeys.count() });
+            // Also invalidate the specific recipe (important for re-extraction)
+            if (status.recipe_id) {
+              queryClient.invalidateQueries({ queryKey: recipeKeys.detail(status.recipe_id) });
+            }
           } else if (status.status === 'failed') {
             setError(status.error_message || 'Extraction failed');
           }
         }
       } catch (e: any) {
-        console.error('Poll error:', e);
-        // Don't stop polling on network errors - job may still be running
+        const status = e?.response?.status;
+        
+        if (status === 401) {
+          consecutiveAuthErrors++;
+          console.warn(`Poll auth error ${consecutiveAuthErrors}/${maxAuthErrors} - network might be slow`);
+          
+          if (consecutiveAuthErrors >= maxAuthErrors) {
+            // Stop polling after too many auth failures
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+            setIsPolling(false);
+            setError('Connection issue. The extraction may still complete - check your recipes later.');
+            console.error('Stopped polling due to repeated auth errors');
+            return;
+          }
+        } else {
+          console.error('Poll error:', e?.message || e);
+        }
+        // Continue polling for non-fatal errors - job may still be running
       }
     };
 
     // Poll immediately
     poll();
-    // Then poll every 2 seconds
-    pollIntervalRef.current = setInterval(poll, 2000);
+    // Then poll every 2 seconds (slightly longer to be more forgiving on slow networks)
+    pollIntervalRef.current = setInterval(poll, 2500);
   }, [queryClient]);
 
   // Start a new extraction
@@ -339,6 +365,37 @@ export function useAsyncExtraction() {
     }
   };
 
+  // Start re-extraction for an existing recipe
+  const startReExtraction = async (recipeId: string, location: string = 'Guam') => {
+    setError(null);
+    setJobStatus(null);
+
+    try {
+      const result = await api.startReExtraction(recipeId, location);
+
+      if (!result.job_id) {
+        throw new Error('Failed to start re-extraction');
+      }
+
+      // Job started
+      const start = Date.now();
+      setJobId(result.job_id);
+      setStartTime(start);
+      await saveActiveJob(result.job_id, start);
+      startPolling(result.job_id, start);
+
+      return {
+        status: 'processing' as const,
+        jobId: result.job_id,
+        recipeId: result.recipe_id,
+      };
+    } catch (e: any) {
+      const errorMsg = e.response?.data?.detail || e.message || 'Failed to start re-extraction';
+      setError(errorMsg);
+      throw new Error(errorMsg);
+    }
+  };
+
   // Cancel/reset state
   const reset = async () => {
     if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
@@ -369,6 +426,7 @@ export function useAsyncExtraction() {
     message: jobStatus?.message || '',
     // Actions
     startExtraction,
+    startReExtraction,
     reset,
   };
 }
@@ -388,6 +446,25 @@ export function useDeleteRecipe() {
       queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
       queryClient.invalidateQueries({ queryKey: recipeKeys.recent() });
       queryClient.invalidateQueries({ queryKey: recipeKeys.count() });
+    },
+  });
+}
+
+/**
+ * Re-extract a recipe from its source URL
+ */
+export function useReExtractRecipe() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, location = "Guam" }: { id: string; location?: string }) =>
+      api.reExtractRecipe(id, location),
+    onSuccess: (updatedRecipe) => {
+      // Update the detail cache
+      queryClient.setQueryData(recipeKeys.detail(updatedRecipe.id), updatedRecipe);
+      // Invalidate lists to show updated data
+      queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: recipeKeys.discover() });
     },
   });
 }

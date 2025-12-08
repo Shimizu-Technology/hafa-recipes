@@ -6,12 +6,14 @@ import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useLayoutEffect } from 'react';
+import { View } from 'react-native';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { queryClient } from '@/lib/queryClient';
 import { tokenCache, CLERK_PUBLISHABLE_KEY } from '@/lib/auth';
 import { api } from '@/lib/api';
+import { AppLoadingSkeleton } from '@/components/Skeleton';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -39,12 +41,18 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (loaded) {
+      // Hide splash screen quickly - we'll show our own skeleton
       SplashScreen.hideAsync();
     }
   }, [loaded]);
 
+  // Show skeleton loading instead of blank/splash screen
   if (!loaded) {
-    return null;
+    return (
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
+        <AppLoadingSkeleton />
+      </View>
+    );
   }
 
   return (

@@ -157,14 +157,71 @@ export function useToggleGroceryItem() {
 
 /**
  * Delete a grocery item
+ * 
+ * Uses optimistic updates for instant feedback.
+ * Item is removed immediately, API call happens in background.
  */
 export function useDeleteGroceryItem() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (id: string) => api.deleteGroceryItem(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: groceryKeys.list() });
+    onMutate: async (id) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: groceryKeys.list() });
+      await queryClient.cancelQueries({ queryKey: groceryKeys.count() });
+
+      // Get all grocery list queries
+      const queries = queryClient.getQueriesData({ queryKey: groceryKeys.list() });
+      
+      // Store previous values for rollback
+      const previousData: Array<{ queryKey: any; data: any }> = [];
+      let deletedItem: any = null;
+      
+      // Optimistically remove from ALL grocery list queries
+      queries.forEach(([queryKey, data]) => {
+        if (data && Array.isArray(data)) {
+          previousData.push({ queryKey, data });
+          
+          // Find the item we're deleting
+          if (!deletedItem) {
+            deletedItem = data.find((item: any) => item.id === id);
+          }
+          
+          queryClient.setQueryData(queryKey, (old: any) => {
+            if (!old || !Array.isArray(old)) return old;
+            return old.filter((item: any) => item.id !== id);
+          });
+        }
+      });
+
+      // Also update the count optimistically
+      const countData = queryClient.getQueryData(groceryKeys.count()) as any;
+      if (countData && deletedItem) {
+        queryClient.setQueryData(groceryKeys.count(), {
+          ...countData,
+          total: countData.total - 1,
+          checked: deletedItem.checked ? countData.checked - 1 : countData.checked,
+          unchecked: deletedItem.checked ? countData.unchecked : countData.unchecked - 1,
+        });
+      }
+
+      return { previousData, previousCount: countData };
+    },
+    onError: (err, id, context) => {
+      // Roll back all queries on error
+      if (context?.previousData) {
+        context.previousData.forEach(({ queryKey, data }) => {
+          queryClient.setQueryData(queryKey, data);
+        });
+      }
+      if (context?.previousCount) {
+        queryClient.setQueryData(groceryKeys.count(), context.previousCount);
+      }
+    },
+    // No need to invalidate on success - optimistic update is enough
+    onSettled: () => {
+      // Only invalidate count to keep it accurate
       queryClient.invalidateQueries({ queryKey: groceryKeys.count() });
     },
   });

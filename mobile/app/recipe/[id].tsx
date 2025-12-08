@@ -27,10 +27,11 @@ import {
   useIsRecipeSaved,
   useSaveRecipe,
   useUnsaveRecipe,
+  useAsyncExtraction,
 } from '@/hooks/useRecipes';
 import { useAddFromRecipe } from '@/hooks/useGrocery';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
-import { useAuth } from '@clerk/clerk-expo';
+import { useAuth, useUser } from '@clerk/clerk-expo';
 import { Ingredient } from '@/types/recipe';
 
 type TabType = 'ingredients' | 'steps' | 'nutrition' | 'cost';
@@ -43,15 +44,20 @@ export default function RecipeDetailScreen() {
   const [activeTab, setActiveTab] = useState<TabType>('ingredients');
   const [scaledServings, setScaledServings] = useState<number | null>(null);
   
-  const { data: recipe, isLoading, error } = useRecipe(id);
+  const { data: recipe, isLoading, error, refetch } = useRecipe(id);
   const deleteMutation = useDeleteRecipe();
   const toggleSharingMutation = useToggleRecipeSharing();
   const addToGroceryMutation = useAddFromRecipe();
+  const extraction = useAsyncExtraction();
   const [imageError, setImageError] = useState(false);
   const [showIngredientPicker, setShowIngredientPicker] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
   const [showCollectionModal, setShowCollectionModal] = useState(false);
   const { userId } = useAuth();
+  const { user } = useUser();
+  
+  // Check if user is admin (from Clerk public metadata)
+  const isAdmin = (user?.publicMetadata as any)?.role === 'admin';
   
   // Save/bookmark functionality
   const { data: savedStatus } = useIsRecipeSaved(id);
@@ -62,6 +68,36 @@ export default function RecipeDetailScreen() {
   
   // Check if the current user owns this recipe
   const isOwner = recipe?.user_id === userId;
+  
+  // Check if recipe can be re-extracted (has a valid source URL, not manual)
+  const canReExtract = recipe?.source_url && !recipe.source_url.startsWith('manual://');
+
+  const handleReExtract = () => {
+    if (!recipe || !canReExtract) return;
+    
+    Alert.alert(
+      'Re-extract Recipe',
+      'This will re-run the AI extraction with the latest model. Your current recipe will be updated, but the original will be preserved.\n\nYou can leave this screen - the extraction will continue in the background.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Re-extract',
+          onPress: async () => {
+            try {
+              // Get the location from the recipe's cost data or default to Guam
+              const location = recipe.extracted?.cost?.location || 'Guam';
+              await extraction.startReExtraction(id, location);
+              // Navigate to home tab where the progress UI will show
+              router.replace('/(tabs)');
+            } catch (error: any) {
+              const message = error?.message || 'Failed to start re-extraction';
+              Alert.alert('Error', message);
+            }
+          },
+        },
+      ]
+    );
+  };
   
   // Get all ingredients from all components
   const allIngredients = recipe?.extracted.components.flatMap(
@@ -143,13 +179,27 @@ export default function RecipeDetailScreen() {
   };
 
   const handleMoreOptions = () => {
+    // Admin can re-extract any recipe, owner can re-extract their own
+    const canShowReExtract = canReExtract && (isOwner || isAdmin);
+    
     if (Platform.OS === 'ios') {
       if (isOwner) {
-        // Owner options: Add to Collection, Edit, Delete
+        // Owner options: Add to Collection, Edit, Re-extract (if applicable), Delete
+        const options = ['Cancel', 'Add to Collection', 'Edit Recipe'];
+        let reExtractIndex = -1;
+        let deleteIndex = 3;
+        
+        if (canReExtract) {
+          options.push('Re-extract with AI');
+          reExtractIndex = 3;
+          deleteIndex = 4;
+        }
+        options.push('Delete Recipe');
+        
         ActionSheetIOS.showActionSheetWithOptions(
           {
-            options: ['Cancel', 'Add to Collection', 'Edit Recipe', 'Delete Recipe'],
-            destructiveButtonIndex: 3,
+            options,
+            destructiveButtonIndex: deleteIndex,
             cancelButtonIndex: 0,
           },
           (buttonIndex) => {
@@ -157,17 +207,27 @@ export default function RecipeDetailScreen() {
               setShowCollectionModal(true);
             } else if (buttonIndex === 2) {
               router.push(`/edit-recipe/${id}`);
-            } else if (buttonIndex === 3) {
+            } else if (buttonIndex === reExtractIndex) {
+              handleReExtract();
+            } else if (buttonIndex === deleteIndex) {
               handleDelete();
             }
           }
         );
       } else {
-        // Non-owner options: Save/Unsave, Add to Collection
+        // Non-owner options: Save/Unsave, Add to Collection, Re-extract (admin only)
         const saveText = isSaved ? 'Remove from Saved' : 'Save to My Recipes';
+        const options = ['Cancel', saveText, 'Add to Collection'];
+        let reExtractIndex = -1;
+        
+        if (canShowReExtract) {
+          options.push('Re-extract with AI');
+          reExtractIndex = 3;
+        }
+        
         ActionSheetIOS.showActionSheetWithOptions(
           {
-            options: ['Cancel', saveText, 'Add to Collection'],
+            options,
             cancelButtonIndex: 0,
           },
           (buttonIndex) => {
@@ -175,6 +235,8 @@ export default function RecipeDetailScreen() {
               handleSaveToggle();
             } else if (buttonIndex === 2) {
               setShowCollectionModal(true);
+            } else if (buttonIndex === reExtractIndex) {
+              handleReExtract();
             }
           }
         );
@@ -182,27 +244,30 @@ export default function RecipeDetailScreen() {
     } else {
       // Android fallback using Alert
       if (isOwner) {
-        Alert.alert(
-          'Recipe Options',
-          '',
-          [
-            { text: 'Add to Collection', onPress: () => setShowCollectionModal(true) },
-            { text: 'Edit Recipe', onPress: () => router.push(`/edit-recipe/${id}`) },
-            { text: 'Delete Recipe', style: 'destructive', onPress: handleDelete },
-            { text: 'Cancel', style: 'cancel' },
-          ]
-        );
+        const options: any[] = [
+          { text: 'Add to Collection', onPress: () => setShowCollectionModal(true) },
+          { text: 'Edit Recipe', onPress: () => router.push(`/edit-recipe/${id}`) },
+        ];
+        if (canReExtract) {
+          options.push({ text: 'Re-extract with AI', onPress: handleReExtract });
+        }
+        options.push({ text: 'Delete Recipe', style: 'destructive', onPress: handleDelete });
+        options.push({ text: 'Cancel', style: 'cancel' });
+        
+        Alert.alert('Recipe Options', '', options);
       } else {
+        // Non-owner options
         const saveText = isSaved ? 'Remove from Saved' : 'Save to My Recipes';
-        Alert.alert(
-          'Recipe Options',
-          '',
-          [
-            { text: saveText, onPress: handleSaveToggle },
-            { text: 'Add to Collection', onPress: () => setShowCollectionModal(true) },
-            { text: 'Cancel', style: 'cancel' },
-          ]
-        );
+        const options: any[] = [
+          { text: saveText, onPress: handleSaveToggle },
+          { text: 'Add to Collection', onPress: () => setShowCollectionModal(true) },
+        ];
+        if (canShowReExtract) {
+          options.push({ text: 'Re-extract with AI', onPress: handleReExtract });
+        }
+        options.push({ text: 'Cancel', style: 'cancel' });
+        
+        Alert.alert('Recipe Options', '', options);
       }
     }
   };

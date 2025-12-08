@@ -72,13 +72,33 @@ class ApiClient {
     this.client.interceptors.request.use(
       async (config) => {
         if (this.getTokenFn) {
-          try {
-            const token = await this.getTokenFn();
-            if (token) {
-              config.headers.Authorization = `Bearer ${token}`;
+          // Try to get token with retry on slow networks
+          let token: string | null = null;
+          let attempts = 0;
+          const maxAttempts = 2;
+          
+          while (!token && attempts < maxAttempts) {
+            try {
+              token = await Promise.race([
+                this.getTokenFn(),
+                // Timeout after 5 seconds per attempt
+                new Promise<null>((_, reject) => 
+                  setTimeout(() => reject(new Error('Token fetch timeout')), 5000)
+                )
+              ]);
+            } catch (e) {
+              attempts++;
+              if (attempts < maxAttempts) {
+                console.warn(`Token fetch attempt ${attempts} failed, retrying...`);
+                await new Promise(r => setTimeout(r, 500)); // Brief delay before retry
+              } else {
+                console.warn('Failed to get auth token after retries:', e);
+              }
             }
-          } catch (e) {
-            console.warn('Failed to get auth token:', e);
+          }
+          
+          if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
           }
         }
         return config;
@@ -202,6 +222,21 @@ class ApiClient {
 
   async toggleRecipeSharing(id: string): Promise<{ is_public: boolean; message: string }> {
     const { data } = await this.client.post(`/api/recipes/${id}/share`);
+    return data;
+  }
+
+  async reExtractRecipe(id: string, location: string = "Guam"): Promise<Recipe> {
+    const { data } = await this.client.post(`/api/recipes/${id}/re-extract`, { location });
+    return data;
+  }
+
+  async startReExtraction(recipeId: string, location: string = "Guam"): Promise<{
+    job_id: string | null;
+    status: string;
+    message: string;
+    recipe_id: string;
+  }> {
+    const { data } = await this.client.post(`/api/re-extract/${recipeId}/async`, { location });
     return data;
   }
 

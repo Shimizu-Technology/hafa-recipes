@@ -139,6 +139,95 @@ export function SkeletonRecipeList({ count = 4 }: { count?: number }) {
 }
 
 /**
+ * Simple skeleton element for initial app loading (no theme dependency)
+ */
+function SimpleShimmer({ 
+  width = '100%', 
+  height = 20, 
+  borderRadius: br = radius.sm,
+  style,
+}: SkeletonProps) {
+  const shimmerAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmerAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(shimmerAnim, {
+          toValue: 0,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [shimmerAnim]);
+
+  const opacity = shimmerAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.15, 0.3],
+  });
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width: width as any,
+          height,
+          borderRadius: br,
+          backgroundColor: '#666',
+          opacity,
+        },
+        style,
+      ]}
+    />
+  );
+}
+
+/**
+ * Full-page app loading skeleton - shows instead of splash screen
+ * Uses simple styling without theme hooks (works during initial load)
+ */
+export function AppLoadingSkeleton() {
+  return (
+    <View style={styles.appLoadingContainer}>
+      {/* Header area */}
+      <View style={styles.appLoadingHeader}>
+        <SimpleShimmer width={180} height={28} style={{ marginBottom: spacing.sm }} />
+        <SimpleShimmer width={220} height={16} />
+      </View>
+      
+      {/* Search bar skeleton */}
+      <View style={styles.appLoadingSearch}>
+        <SimpleShimmer width="100%" height={44} borderRadius={radius.lg} />
+      </View>
+      
+      {/* Recipe card skeletons */}
+      <View style={styles.list}>
+        {[1, 2, 3, 4].map((i) => (
+          <View key={i} style={styles.simpleCard}>
+            <SimpleShimmer width={100} height={120} borderRadius={0} />
+            <View style={styles.cardContent}>
+              <SimpleShimmer width="85%" height={18} style={{ marginBottom: spacing.xs }} />
+              <SimpleShimmer width="60%" height={18} />
+              <View style={styles.metaRow}>
+                <SimpleShimmer width={50} height={14} />
+                <SimpleShimmer width={40} height={14} />
+              </View>
+            </View>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/**
  * Horizontal list of skeleton collection cards
  */
 export function SkeletonCollectionList({ count = 3 }: { count?: number }) {
@@ -193,6 +282,28 @@ const styles = StyleSheet.create({
   collectionList: {
     flexDirection: 'row',
     paddingRight: spacing.lg,
+  },
+  appLoadingContainer: {
+    flex: 1,
+    paddingTop: 60, // Account for status bar
+    backgroundColor: '#000', // Dark mode default for cleaner loading
+  },
+  appLoadingHeader: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+  },
+  appLoadingSearch: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+  },
+  simpleCard: {
+    flexDirection: 'row',
+    borderRadius: radius.lg,
+    marginBottom: spacing.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#222',
+    backgroundColor: '#111',
   },
 });
 
