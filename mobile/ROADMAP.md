@@ -10,19 +10,14 @@ Planned features and improvements for Recipe Extractor.
 - [ ] Create your own version of a saved recipe
 - [ ] Edit without affecting the original
 
-### Photo-to-Recipe (OCR)
-- [ ] Scan handwritten or printed recipes
-- [ ] Camera capture or photo library
-- [ ] AI extracts text and structures the recipe
-
----
-
-## 📸 Future Features
-
 ### iOS Home Screen Widget
 - [ ] Grocery list count widget
 - [ ] Recent recipes widget
 - [ ] Requires native Swift development
+
+---
+
+## 📸 Future Features
 
 ### AI Chat → Recipe Updates
 - [ ] Chat suggestions can update the recipe directly
@@ -68,21 +63,27 @@ Planned features and improvements for Recipe Extractor.
 ## ✅ Recently Completed
 
 ### v1.2.0
+- [x] **Photo-to-Recipe (OCR)** - Scan handwritten/printed recipes
+  - Camera + gallery image selection
+  - Multi-image support (up to 10 pages)
+  - Page ordering for multi-page recipes
+  - Review & edit before saving
+  - Gemini 2.0 Flash Vision + GPT-4o Vision fallback
+  - High-quality capture (95%, no forced crop)
 - [x] Personal notes on any recipe (private to you)
 - [x] Version tracking (view history, restore any version)
 - [x] Detailed change summaries (see exactly what changed)
-- [x] Admin re-extraction permissions fix (JWT template)
 - [x] Grocery list grouped by recipe (collapsible sections)
 - [x] "Other Items" section for non-recipe grocery items
 - [x] Collapse state persists via AsyncStorage
-
-### v1.1.1
-- [x] Re-extract recipes with latest AI
+- [x] Consolidated Extract tab (Video, OCR, Manual entry)
+- [x] Re-extract recipes with latest AI (owners + admins)
 - [x] Admin role support (via Clerk public metadata)
-- [x] Skeleton loading UI
-- [x] Smooth animated progress
+- [x] Skeleton loading UI (replaces blank splash)
+- [x] Smooth animated extraction progress
 - [x] Network resilience improvements
 - [x] Optimistic grocery updates
+- [x] 40% faster extraction (Gemini 2.0 Flash)
 
 ### v1.1.0
 - [x] Search & filter

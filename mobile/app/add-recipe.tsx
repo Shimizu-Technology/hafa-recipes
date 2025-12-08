@@ -4,7 +4,7 @@
  * Allows users to manually create a recipe with optional image upload.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   StyleSheet,
   ScrollView,
@@ -17,7 +17,7 @@ import {
   View as RNView,
   ActivityIndicator,
 } from 'react-native';
-import { useRouter, Stack } from 'expo-router';
+import { useRouter, Stack, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -67,6 +67,16 @@ export default function AddRecipeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
+  
+  // Get initial data from route params (for OCR pre-fill)
+  const { initialData, isPublic: initialIsPublic, fromOcr } = useLocalSearchParams<{
+    initialData?: string;
+    isPublic?: string;
+    fromOcr?: string;
+  }>();
+  
+  // Track if this recipe originated from OCR
+  const isFromOcr = fromOcr === 'true';
 
   // Form state
   const [title, setTitle] = useState('');
@@ -86,6 +96,85 @@ export default function AddRecipeScreen() {
   const [steps, setSteps] = useState<StepInput[]>([
     { id: '1', text: '' },
   ]);
+  
+  // Pre-fill form from OCR data if provided
+  useEffect(() => {
+    if (initialData) {
+      try {
+        const data = JSON.parse(initialData);
+        
+        // Basic fields
+        if (data.title) setTitle(data.title);
+        if (data.servings) setServings(String(data.servings));
+        if (data.times?.prep) setPrepTime(data.times.prep);
+        if (data.times?.cook) setCookTime(data.times.cook);
+        if (data.times?.total) setTotalTime(data.times.total);
+        if (data.notes) setNotes(data.notes);
+        if (data.tags?.length) setTags(data.tags.join(', '));
+        
+        // Set public/private from params
+        if (initialIsPublic !== undefined) {
+          setIsPublic(initialIsPublic === 'true');
+        }
+        
+        // Ingredients - flatten from components
+        const allIngredients: IngredientInput[] = [];
+        if (data.components) {
+          data.components.forEach((comp: any) => {
+            comp.ingredients?.forEach((ing: any, idx: number) => {
+              allIngredients.push({
+                id: `${allIngredients.length + 1}`,
+                name: ing.name || '',
+                quantity: ing.quantity || '',
+                unit: ing.unit || '',
+                notes: ing.notes || '',
+              });
+            });
+          });
+        } else if (data.ingredients) {
+          data.ingredients.forEach((ing: any, idx: number) => {
+            allIngredients.push({
+              id: `${idx + 1}`,
+              name: ing.name || '',
+              quantity: ing.quantity || '',
+              unit: ing.unit || '',
+              notes: ing.notes || '',
+            });
+          });
+        }
+        if (allIngredients.length > 0) {
+          setIngredients(allIngredients);
+        }
+        
+        // Steps - flatten from components
+        const allSteps: StepInput[] = [];
+        if (data.components) {
+          data.components.forEach((comp: any) => {
+            comp.steps?.forEach((step: string) => {
+              allSteps.push({
+                id: `${allSteps.length + 1}`,
+                text: step,
+              });
+            });
+          });
+        } else if (data.steps) {
+          data.steps.forEach((step: string, idx: number) => {
+            allSteps.push({
+              id: `${idx + 1}`,
+              text: step,
+            });
+          });
+        }
+        if (allSteps.length > 0) {
+          setSteps(allSteps);
+        }
+        
+        console.log('📝 Pre-filled form from OCR data');
+      } catch (e) {
+        console.error('Failed to parse initial data:', e);
+      }
+    }
+  }, [initialData, initialIsPublic]);
   
   // AI feature states
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
@@ -139,6 +228,7 @@ export default function AddRecipeScreen() {
           tags: tagList.length > 0 ? tagList : null,
           is_public: isPublic,
           nutrition: estimatedNutrition,
+          source_type: isFromOcr ? 'photo' : 'manual', // Preserve OCR origin
         },
         imageUri
       );
@@ -307,7 +397,7 @@ export default function AddRecipeScreen() {
     <>
       <Stack.Screen
         options={{
-          headerTitle: 'Add Recipe',
+          headerTitle: initialData ? 'Edit Recipe' : 'Add Recipe',
           headerRight: () => (
             <TouchableOpacity
               onPress={handleSubmit}

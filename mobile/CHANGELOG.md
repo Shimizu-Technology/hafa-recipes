@@ -2,27 +2,43 @@
 
 All notable changes to Recipe Extractor.
 
-## [1.1.1] - December 2025
+## [1.2.0] - December 2025
 
 ### Added
+- **Photo-to-Recipe (OCR)** - Scan handwritten or printed recipe cards
+  - Camera capture or select from photo library
+  - Multi-image support for multi-page recipes (up to 10)
+  - AI reads and structures your recipes
+  - Review and edit screen before saving
+- **Personal Notes** - Add private notes to any recipe you own
+- **Version History** - View all changes to a recipe, restore any version
+- **Grocery Grouping** - Items grouped by recipe with collapsible sections
 - **Re-extract Recipes** - Re-run AI extraction with the latest model (owners + admins)
 - **Skeleton Loading** - Smooth app startup with skeleton UI instead of blank splash
 - **Animated Progress** - Extraction progress animates smoothly
-- **Optimistic Updates** - Grocery list feels instant when deleting items
 - **Admin Support** - Admins can re-extract any recipe via Clerk metadata
+- **Consolidated Extract Tab** - Video, OCR, and Manual entry all in one place
 
 ### Improved
+- **40% Faster Extraction** - Switched to Gemini 2.0 Flash (~80% cheaper too)
+- **Detailed Change Summaries** - Version history shows exactly what changed
+- **Higher Quality Photos** - 95% quality capture, no forced square crop
+- **Page Ordering** - Multi-page recipes maintain correct step order
 - **Network Resilience** - Token retry logic for slow connections
 - **Polling Stability** - Graceful handling of network failures during extraction
+- **Optimistic Updates** - Grocery list feels instant when deleting items
 
 ### Fixed
 - Grocery modal $0 cost display bug
 - Nutrition values now properly rounded to integers
+- Admin re-extraction permissions (JWT template fix)
 
 ### Backend
-- Switched to Gemini 2.0 Flash for extraction (~40% faster, ~80% cheaper)
-- Added GPT-4o-mini fallback if Gemini fails
-- New async re-extraction endpoint
+- Gemini 2.0 Flash for video extraction (GPT-4o-mini fallback)
+- Gemini 2.0 Flash Vision for OCR (GPT-4o Vision fallback)
+- New OCR endpoints (single + multi-image)
+- Personal notes and version history APIs
+- Async re-extraction endpoint
 
 ---
 
@@ -56,4 +72,3 @@ All notable changes to Recipe Extractor.
 - Nutrition information
 - Apple, Google, and Email sign-in
 - Public recipe sharing (Discover)
-

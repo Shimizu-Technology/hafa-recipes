@@ -43,13 +43,17 @@ const USE_LOCAL_API = true;  // false for production
 ## Features
 
 ### Core
-- **Extract Recipes** - Paste a video URL, get a structured recipe
+- **Extract from Video** - Paste a video URL, get a structured recipe
+- **Scan Recipe Card** - Take a photo of handwritten/printed recipes (OCR)
+  - Multi-image support for multi-page recipes
+  - Review & edit before saving
 - **My Recipes** - Personal collection with search & filter
 - **Discover** - Browse public recipes from all users
 - **Save/Bookmark** - Save others' recipes to your collection
 
 ### AI-Powered
-- **Smart Extraction** - Gemini 2.0 Flash extracts ingredients, steps, nutrition, costs
+- **Video Extraction** - Gemini 2.0 Flash extracts from cooking videos
+- **Photo OCR** - Gemini 2.0 Flash Vision reads handwritten/printed recipes
 - **Recipe Chat** - Ask questions, get substitutions, scaling tips (GPT-4o)
 - **Auto Tags** - AI-suggested tags for manual recipes
 - **Nutrition Estimation** - AI estimates nutrition for manual recipes
@@ -76,12 +80,14 @@ const USE_LOCAL_API = true;  // false for production
 app/                    # Expo Router screens
 ├── (auth)/             # Sign-in, sign-up
 ├── (tabs)/             # Main tab navigation
-│   ├── index.tsx       # Extract tab (home)
+│   ├── index.tsx       # Extract tab (video URL, OCR, manual)
 │   ├── recipes.tsx     # My Recipes
 │   ├── discover.tsx    # Public recipes
 │   ├── grocery.tsx     # Grocery list
 │   └── settings.tsx    # Settings & profile
 ├── recipe/[id].tsx     # Recipe detail
+├── ocr-review.tsx      # OCR extraction review
+├── add-recipe.tsx      # Manual recipe entry
 └── _layout.tsx         # Root layout + auth
 
 components/             # Reusable UI

@@ -640,7 +640,8 @@ export default function HistoryScreen() {
           style={[styles.fab, { backgroundColor: colors.tint }]}
           onPress={() => {
             haptics.medium();
-            router.push('/add-recipe');
+            // Navigate to Extract tab (index 0) - the central place for adding recipes
+            router.push('/(tabs)');
           }}
           scaleValue={0.9}
         >

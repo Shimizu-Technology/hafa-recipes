@@ -2,7 +2,7 @@
   "expo": {
     "name": "Recipe Extractor",
     "slug": "recipe-extractor",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "recipeextractor",
@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.shimizutechnology.recipeextractor",
-      "buildNumber": "13",
+      "buildNumber": "15",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Recipe Extractor needs access to your camera to take photos of your recipes. For example, you can photograph a handwritten family recipe or a dish you've prepared to add as a recipe image.",

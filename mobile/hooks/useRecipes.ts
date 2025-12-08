@@ -767,6 +767,29 @@ export function useUnsaveRecipe() {
 }
 
 // ============================================================
+// OCR Recipe Saving
+// ============================================================
+
+export function useSaveOcrRecipe() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { extracted: any; is_public?: boolean }) => 
+      api.saveOcrRecipe(params),
+    onSuccess: (data) => {
+      // Invalidate recipe list queries to include the new recipe
+      queryClient.invalidateQueries({ queryKey: ['recipes'] });
+      queryClient.invalidateQueries({ queryKey: ['myRecipes'] });
+      console.log('✅ OCR recipe saved successfully:', data.id);
+    },
+    onError: (error) => {
+      console.error('❌ Failed to save OCR recipe:', error);
+    },
+  });
+}
+
+
+// ============================================================
 // Client-Side Filtering Utilities
 // ============================================================
 

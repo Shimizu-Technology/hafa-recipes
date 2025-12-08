@@ -271,6 +271,7 @@ class ApiClient {
         carbs?: number;
         fat?: number;
       } | null;
+      source_type?: 'manual' | 'photo'; // 'photo' for edited OCR recipes
     },
     imageUri?: string | null
   ): Promise<Recipe> {
@@ -382,8 +383,106 @@ class ApiClient {
     return data;
   }
 
+  /**
+   * Extract recipe from an image using OCR (Vision AI).
+   * Supports handwritten and printed recipes.
+   */
+  async extractRecipeFromImage(
+    imageUri: string,
+    location: string = 'Guam'
+  ): Promise<{
+    success: boolean;
+    recipe?: any;
+    error?: string;
+    model_used?: string;
+    latency_seconds?: number;
+  }> {
+    // Create form data with the image
+    const formData = new FormData();
+    
+    // Get the file name and type from the URI
+    const fileName = imageUri.split('/').pop() || 'photo.jpg';
+    const fileType = fileName.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+    
+    // Append the image as a file
+    formData.append('image', {
+      uri: imageUri,
+      name: fileName,
+      type: fileType,
+    } as any);
+    
+    formData.append('location', location);
+    
+    const { data } = await this.client.post('/api/extract/ocr', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 90000, // 90 seconds for OCR
+    });
+    
+    return data;
+  }
+
+  /**
+   * Extract recipe from multiple images using OCR (Vision AI).
+   * Use for multi-page recipes, front/back recipe cards, etc.
+   */
+  async extractRecipeFromMultipleImages(
+    imageUris: string[],
+    location: string = 'Guam'
+  ): Promise<{
+    success: boolean;
+    recipe?: any;
+    error?: string;
+    model_used?: string;
+    latency_seconds?: number;
+  }> {
+    // Create form data with all images
+    const formData = new FormData();
+    
+    // Append each image
+    imageUris.forEach((uri, index) => {
+      const fileName = uri.split('/').pop() || `photo_${index}.jpg`;
+      const fileType = fileName.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+      
+      formData.append('images', {
+        uri: uri,
+        name: fileName,
+        type: fileType,
+      } as any);
+    });
+    
+    formData.append('location', location);
+    
+    // Increase timeout for multiple images (90s base + 30s per additional image)
+    const timeout = 90000 + (imageUris.length - 1) * 30000;
+    
+    const { data } = await this.client.post('/api/extract/ocr/multi', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout,
+    });
+    
+    return data;
+  }
+
   async getJobStatus(jobId: string): Promise<JobStatus> {
     const { data } = await this.client.get(`/api/jobs/${jobId}`);
+    return data;
+  }
+
+  /**
+   * Save a recipe extracted via OCR (photo scanning).
+   */
+  async saveOcrRecipe(params: {
+    extracted: any;
+    is_public?: boolean;
+  }): Promise<Recipe> {
+    const { data } = await this.client.post('/api/recipes/from-ocr', {
+      extracted: params.extracted,
+      is_public: params.is_public ?? true,
+    });
     return data;
   }
 
