@@ -127,7 +127,7 @@ export default function RecipeDetailScreen() {
           onPress: async () => {
             try {
               // Get the location from the recipe's cost data or default to Guam
-              const location = recipe.extracted?.cost?.location || 'Guam';
+              const location = recipe.extracted?.costLocation || 'Guam';
               await extraction.startReExtraction(id, location);
               // Navigate to home tab where the progress UI will show
               router.replace('/(tabs)');
@@ -198,13 +198,15 @@ export default function RecipeDetailScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteMutation.mutateAsync(id);
-              router.back();
-            } catch (error) {
-              Alert.alert('Error', 'Failed to delete recipe');
-            }
+          onPress: () => {
+            // Navigate back immediately (optimistic) - don't wait for server
+            router.back();
+            // Fire delete in background
+            deleteMutation.mutate(id, {
+              onError: () => {
+                Alert.alert('Error', 'Failed to delete recipe. Please try again.');
+              },
+            });
           },
         },
       ]

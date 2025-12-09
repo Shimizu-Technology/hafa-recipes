@@ -565,7 +565,7 @@ export default function HistoryScreen() {
         )}
         
         {/* Search loading indicator - shows when server is fetching more results */}
-        {hasActiveFilters && isSearchFetching && searchResults && searchResults.length > 0 && (
+        {hasActiveFilters && isSearchFetching && (
           <RNView style={styles.searchLoadingRow}>
             <ActivityIndicator size="small" color={colors.tint} />
             <Text style={[styles.searchLoadingText, { color: colors.textMuted }]}>

@@ -491,7 +491,7 @@ export default function DiscoverScreen() {
         )}
         
         {/* Search loading indicator - shows when server is fetching more results */}
-        {hasActiveFilters && isDiscoverSearchFetching && searchResults && searchResults.length > 0 && (
+        {hasActiveFilters && isDiscoverSearchFetching && (
           <RNView style={styles.searchLoadingRow}>
             <ActivityIndicator size="small" color={colors.tint} />
             <Text style={[styles.searchLoadingText, { color: colors.textMuted }]}>
