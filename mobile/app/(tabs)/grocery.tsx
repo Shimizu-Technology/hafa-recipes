@@ -31,7 +31,9 @@ import {
   useClearCheckedItems,
   useClearAllItems,
   useAddGroceryItem,
+  useGrocerySync,
 } from '@/hooks/useGrocery';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { api } from '@/lib/api';
 import { GroceryItem } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
@@ -183,12 +185,16 @@ export default function GroceryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { isSignedIn } = useAuth();
+  const { isOnline } = useNetworkStatus();
   
   const [newItemName, setNewItemName] = useState('');
   const [showChecked, setShowChecked] = useState(true);
   const [editingItem, setEditingItem] = useState<GroceryItem | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+
+  // Set up offline sync
+  useGrocerySync();
 
   const { data: groceryItems, isLoading, refetch, isRefetching } = useGroceryList(showChecked);
   const { data: countData } = useGroceryCount();
@@ -490,6 +496,16 @@ export default function GroceryScreen() {
 
   return (
     <RNView style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Offline indicator banner */}
+      {!isOnline && (
+        <RNView style={[styles.offlineBanner, { backgroundColor: colors.warning }]}>
+          <Ionicons name="cloud-offline-outline" size={16} color="#FFFFFF" />
+          <Text style={styles.offlineBannerText}>
+            You're offline. Changes will sync when you reconnect.
+          </Text>
+        </RNView>
+      )}
+
       {/* Fixed header with input */}
       <RNView style={styles.header}>
         {/* Title row */}
@@ -606,6 +622,19 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     overflow: 'hidden',
+  },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    gap: spacing.sm,
+  },
+  offlineBannerText: {
+    color: '#FFFFFF',
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
   },
   listContent: {
     paddingHorizontal: spacing.lg,
