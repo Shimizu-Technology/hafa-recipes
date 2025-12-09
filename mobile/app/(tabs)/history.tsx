@@ -268,6 +268,7 @@ export default function HistoryScreen() {
     fetchNextPage: fetchNextSearchResults,
     hasNextPage: hasMoreSearchResults,
     isFetchingNextPage: isFetchingNextSearchResults,
+    isFetching: isSearchFetching,
   } = useSearchRecipes({
     query: searchQuery,
     sourceType: sourceTypeParam,
@@ -563,6 +564,16 @@ export default function HistoryScreen() {
           </RNView>
         )}
         
+        {/* Search loading indicator - shows when server is fetching more results */}
+        {hasActiveFilters && isSearchFetching && searchResults && searchResults.length > 0 && (
+          <RNView style={styles.searchLoadingRow}>
+            <ActivityIndicator size="small" color={colors.tint} />
+            <Text style={[styles.searchLoadingText, { color: colors.textMuted }]}>
+              Finding more recipes...
+            </Text>
+          </RNView>
+        )}
+        
         {/* Collections row */}
         {collections && collections.length > 0 && (
           <RNView style={styles.collectionsSection}>
@@ -738,6 +749,15 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     fontWeight: fontWeight.medium,
     marginLeft: spacing.xs,
+  },
+  searchLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.sm,
+    gap: spacing.xs,
+  },
+  searchLoadingText: {
+    fontSize: fontSize.xs,
   },
   tagContainer: {
     flexDirection: 'row',

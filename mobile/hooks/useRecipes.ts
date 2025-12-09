@@ -432,21 +432,58 @@ export function useAsyncExtraction() {
 }
 
 /**
- * Delete a recipe
+ * Delete a recipe with optimistic update
  */
 export function useDeleteRecipe() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (id: string) => api.deleteRecipe(id),
+    
+    // Optimistic update - remove immediately from UI
+    onMutate: async (deletedId) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: recipeKeys.all });
+      
+      // Snapshot previous data for rollback
+      const previousInfiniteQueries = queryClient.getQueriesData({ queryKey: recipeKeys.all });
+      
+      // Optimistically remove from all infinite queries
+      queryClient.setQueriesData(
+        { queryKey: recipeKeys.all },
+        (old: any) => {
+          if (!old?.pages) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page: any) => ({
+              ...page,
+              items: page.items?.filter((item: any) => item.id !== deletedId) || [],
+              total: Math.max(0, (page.total || 0) - 1),
+            })),
+          };
+        }
+      );
+      
+      return { previousInfiniteQueries };
+    },
+    
+    // On error, roll back
+    onError: (err, deletedId, context) => {
+      if (context?.previousInfiniteQueries) {
+        context.previousInfiniteQueries.forEach(([queryKey, data]) => {
+          queryClient.setQueryData(queryKey, data);
+        });
+      }
+    },
+    
     onSuccess: (_, deletedId) => {
-      // Remove from cache
+      // Remove detail from cache
       queryClient.removeQueries({ queryKey: recipeKeys.detail(deletedId) });
-      // Invalidate lists
-      queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: recipeKeys.recent() });
+      // Invalidate counts to get accurate numbers
       queryClient.invalidateQueries({ queryKey: recipeKeys.count() });
     },
+    
+    // No need to invalidate lists - optimistic update handles it
   });
 }
 

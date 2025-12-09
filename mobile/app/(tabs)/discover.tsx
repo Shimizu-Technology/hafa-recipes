@@ -261,6 +261,7 @@ export default function DiscoverScreen() {
     fetchNextPage: fetchNextSearchResults,
     hasNextPage: hasMoreSearchResults,
     isFetchingNextPage: isFetchingNextSearchResults,
+    isFetching: isDiscoverSearchFetching,
   } = useSearchPublicRecipes({
     query: searchQuery,
     sourceType: sourceTypeParam,
@@ -488,6 +489,16 @@ export default function DiscoverScreen() {
             </TouchableOpacity>
           </RNView>
         )}
+        
+        {/* Search loading indicator - shows when server is fetching more results */}
+        {hasActiveFilters && isDiscoverSearchFetching && searchResults && searchResults.length > 0 && (
+          <RNView style={styles.searchLoadingRow}>
+            <ActivityIndicator size="small" color={colors.tint} />
+            <Text style={[styles.searchLoadingText, { color: colors.textMuted }]}>
+              Finding more recipes...
+            </Text>
+          </RNView>
+        )}
       </RNView>
       
       {isLoading && !displayRecipes?.length ? (
@@ -593,6 +604,15 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     fontWeight: fontWeight.medium,
     marginLeft: spacing.xs,
+  },
+  searchLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.sm,
+    gap: spacing.xs,
+  },
+  searchLoadingText: {
+    fontSize: fontSize.xs,
   },
   countBadge: {
     marginLeft: spacing.sm,
