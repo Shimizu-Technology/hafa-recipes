@@ -396,7 +396,7 @@ export default function RecipeDetailScreen() {
     // Source
     text += '\n' + '━'.repeat(30) + '\n';
     text += `📺 Source: ${recipe.source_url}\n`;
-    text += `Extracted with Recipe Extractor 🧑‍🍳`;
+    text += `Extracted with Håfa Recipes 🧑‍🍳`;
     
     return text;
   };
@@ -656,6 +656,20 @@ export default function RecipeDetailScreen() {
                 ))}
               </RNView>
             )}
+
+            {/* Start Cooking Button */}
+            <TouchableOpacity
+              style={[styles.startCookingButton, { backgroundColor: colors.tint }]}
+              onPress={() => router.push(`/cook-mode/${id}` as any)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="restaurant" size={24} color="#FFFFFF" />
+              <RNView style={styles.startCookingTextContainer}>
+                <Text style={styles.startCookingText}>Start Cooking</Text>
+                <Text style={styles.startCookingSubtext}>Step-by-step mode</Text>
+              </RNView>
+              <Ionicons name="chevron-forward" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
 
             {/* Recipe Notes (from creator/extraction) */}
             {extracted.notes && extracted.notes !== 'null' && (
@@ -1353,6 +1367,29 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.sm,
     marginBottom: spacing.lg,
+  },
+  startCookingButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.lg,
+    marginBottom: spacing.lg,
+  },
+  startCookingTextContainer: {
+    flex: 1,
+    marginLeft: spacing.md,
+  },
+  startCookingText: {
+    color: '#FFFFFF',
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+  },
+  startCookingSubtext: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: fontSize.sm,
+    marginTop: 2,
   },
   sourceButton: {
     flexDirection: 'row',

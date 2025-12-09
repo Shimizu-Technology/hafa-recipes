@@ -11,8 +11,10 @@ import { useRecipeCount } from '@/hooks/useRecipes';
 import { API_BASE_URL } from '@/lib/api';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
-// TODO: Update with real App Store ID once approved
-const APP_STORE_URL = 'https://apps.apple.com/app/recipe-extractor/id123456789';
+const APP_STORE_URL = 'https://apps.apple.com/us/app/recipe-extractor-gu/id6755892896';
+const WEBSITE_URL = 'https://hafa-recipes.com';
+const PRIVACY_URL = 'https://hafa-recipes.com/privacy';
+const SUPPORT_URL = 'https://hafa-recipes.com/support';
 
 interface MenuItemProps {
   icon: string;
@@ -152,7 +154,7 @@ export default function SettingsScreen() {
   const handleShareApp = async () => {
     try {
       await Share.share({
-        message: `🍳 Check out Recipe Extractor!\n\nTransform cooking videos from TikTok, YouTube, and Instagram into detailed recipes using AI.\n\nDownload it here: ${APP_STORE_URL}`,
+        message: `🍳 Check out Håfa Recipes!\n\nTransform cooking videos from TikTok, YouTube, and Instagram into detailed recipes using AI.\n\nDownload it here: ${APP_STORE_URL}`,
       });
     } catch (error) {
       console.error('Share error:', error);
@@ -252,10 +254,10 @@ export default function SettingsScreen() {
               <Text style={styles.aboutEmoji}>🍳</Text>
               <RNView>
                 <Text style={[styles.aboutTitle, { color: colors.text }]}>
-                  Recipe Extractor
+                  Håfa Recipes
                 </Text>
                 <Text style={[styles.aboutVersion, { color: colors.textMuted }]}>
-                  Version 1.1.0
+                  Version 1.2.0
                 </Text>
               </RNView>
             </RNView>
@@ -287,6 +289,33 @@ export default function SettingsScreen() {
               </Text>
             </RNView>
           </Card>
+        </RNView>
+
+        {/* Legal Section */}
+        <RNView style={styles.section}>
+          <SectionHeader title="Legal" />
+          <RNView style={styles.menuGroup}>
+            <MenuItem 
+              icon="📜" 
+              label="Privacy Policy" 
+              onPress={() => Linking.openURL(PRIVACY_URL)}
+              colors={colors}
+            />
+            <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+            <MenuItem 
+              icon="💬" 
+              label="Support" 
+              onPress={() => Linking.openURL(SUPPORT_URL)}
+              colors={colors}
+            />
+            <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+            <MenuItem 
+              icon="🌐" 
+              label="Website" 
+              onPress={() => Linking.openURL(WEBSITE_URL)}
+              colors={colors}
+            />
+          </RNView>
         </RNView>
 
         {/* Share App */}

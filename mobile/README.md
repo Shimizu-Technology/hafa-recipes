@@ -74,6 +74,16 @@ const USE_LOCAL_API = true;  // false for production
 - **Personal Notes** - Add private notes to your recipes
 - **Manual Entry** - Add your own recipes with photo upload
 
+### Cook Mode 🍳
+- **Step-by-Step View** - Focus on one step at a time with large text
+- **Screen Stays On** - No more tapping to keep the screen awake
+- **Built-in Timers** - Auto-detects times in steps, tap to start
+  - Pause, resume, reset, stop controls
+  - Vibration alert when timer completes
+- **Ingredients Reference** - Quick slide-up view of all ingredients
+- **Swipe Navigation** - Swipe or tap to move between steps
+- **Completion Celebration** - 🎉 when you finish the recipe
+
 ## Project Structure
 
 ```
@@ -86,6 +96,7 @@ app/                    # Expo Router screens
 │   ├── grocery.tsx     # Grocery list
 │   └── settings.tsx    # Settings & profile
 ├── recipe/[id].tsx     # Recipe detail
+├── cook-mode/[id].tsx  # Step-by-step cooking view
 ├── ocr-review.tsx      # OCR extraction review
 ├── add-recipe.tsx      # Manual recipe entry
 └── _layout.tsx         # Root layout + auth

@@ -6,18 +6,40 @@ Planned features and improvements for Recipe Extractor.
 
 ## 🚀 Up Next (v1.3.0)
 
-### Fork Recipe
-- [ ] Create your own version of a saved recipe
-- [ ] Edit without affecting the original
+### 🐛 Bug Fixes (Priority)
+- [ ] Delete recipe not refreshing list
+- [ ] Search loading indicator missing
+
+### 🔧 UX Improvements
+- [ ] Optimistic updates audit
+- [ ] Recipe attribution on Discover (who extracted, when)
+- [ ] Filter own recipes from Discover
+- [ ] Dark/Light mode toggle
+
+### 📱 Platform Expansion
+- [ ] Android deployment (Google Play Store)
+
+### 📶 Offline Support
+- [ ] Offline grocery list (Tier 1 - use while shopping!)
+- [ ] Offline My Recipes (Tier 2)
+
+### 🍽️ New Features
+- [ ] Meal Plan Generator (AI-powered weekly planning)
+- [ ] Fork recipe (copy & edit saved recipes)
+
+### 🧪 Quality
+- [ ] Unit tests for backend
+- [ ] E2E tests for mobile
+- [ ] AI extraction evals
+
+---
+
+## 📸 Future Features
 
 ### iOS Home Screen Widget
 - [ ] Grocery list count widget
 - [ ] Recent recipes widget
 - [ ] Requires native Swift development
-
----
-
-## 📸 Future Features
 
 ### AI Chat → Recipe Updates
 - [ ] Chat suggestions can update the recipe directly

@@ -458,7 +458,7 @@ export default function ExtractScreen() {
           <RNView style={styles.hero}>
             <Text style={[styles.heroEmoji]}>🍳</Text>
             <Text style={[styles.heroTitle, { color: colors.text }]}>
-              Recipe Extractor
+              Håfa Recipes
             </Text>
             <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
               Paste a video URL to extract the recipe automatically.

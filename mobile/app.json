@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Recipe Extractor",
-    "slug": "recipe-extractor",
+    "name": "Håfa Recipes",
+    "slug": "hafa-recipes",
     "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "recipeextractor",
+    "scheme": "hafarecipes",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -19,8 +19,8 @@
       "buildNumber": "15",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "Recipe Extractor needs access to your camera to take photos of your recipes. For example, you can photograph a handwritten family recipe or a dish you've prepared to add as a recipe image.",
-        "NSPhotoLibraryUsageDescription": "Recipe Extractor needs access to your photo library to select images for your recipes. For example, you can choose a photo of a finished dish to use as the recipe thumbnail."
+        "NSCameraUsageDescription": "Håfa Recipes needs access to your camera to take photos of your recipes. For example, you can photograph a handwritten family recipe or a dish you've prepared to add as a recipe image.",
+        "NSPhotoLibraryUsageDescription": "Håfa Recipes needs access to your photo library to select images for your recipes. For example, you can choose a photo of a finished dish to use as the recipe thumbnail."
       }
     },
     "android": {
@@ -44,8 +44,8 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Recipe Extractor needs access to your camera to take photos of your recipes. For example, you can photograph a handwritten family recipe or a dish you've prepared to add as a recipe image.",
-          "photosPermission": "Recipe Extractor needs access to your photo library to select images for your recipes. For example, you can choose a photo of a finished dish to use as the recipe thumbnail."
+          "cameraPermission": "Håfa Recipes needs access to your camera to take photos of your recipes. For example, you can photograph a handwritten family recipe or a dish you've prepared to add as a recipe image.",
+          "photosPermission": "Håfa Recipes needs access to your photo library to select images for your recipes. For example, you can choose a photo of a finished dish to use as the recipe thumbnail."
         }
       ]
     ],
