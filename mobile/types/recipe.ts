@@ -202,3 +202,45 @@ export interface CollectionRecipe {
   added_at: string;
 }
 
+// ============================================================
+// Meal Planning Types
+// ============================================================
+
+export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+
+export interface MealPlanEntry {
+  id: string;
+  date: string; // ISO date string (YYYY-MM-DD)
+  meal_type: MealType;
+  recipe_id: string;
+  recipe_title: string;
+  recipe_thumbnail: string | null;
+  notes: string | null;
+  servings: string | null;
+  created_at: string;
+}
+
+export interface MealPlanEntryCreate {
+  date: string;
+  meal_type: MealType;
+  recipe_id: string;
+  recipe_title: string;
+  recipe_thumbnail?: string | null;
+  notes?: string | null;
+  servings?: string | null;
+}
+
+export interface DayMeals {
+  date: string;
+  breakfast: MealPlanEntry[];
+  lunch: MealPlanEntry[];
+  dinner: MealPlanEntry[];
+  snack: MealPlanEntry[];
+}
+
+export interface WeekPlan {
+  week_start: string;
+  week_end: string;
+  days: DayMeals[];
+}
+

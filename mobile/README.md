@@ -64,6 +64,12 @@ const USE_LOCAL_API = true;  // false for production
   - Items grouped by recipe with collapsible sections
   - "Other Items" section for manual additions
   - Collapse state persists between sessions
+- **Meal Planner** - Plan your weekly meals
+  - Add recipes to Breakfast, Lunch, Dinner, Snack slots
+  - Browse My Recipes, Saved, or Discover to add meals
+  - Quick filters by cook time and tags
+  - Add entire week's ingredients to grocery list
+  - Navigate between weeks
 - **Search** - Find by title, tags, or ingredients
 
 ### Editing
@@ -91,8 +97,9 @@ app/                    # Expo Router screens
 ├── (auth)/             # Sign-in, sign-up
 ├── (tabs)/             # Main tab navigation
 │   ├── index.tsx       # Extract tab (video URL, OCR, manual)
-│   ├── recipes.tsx     # My Recipes
+│   ├── history.tsx     # My Recipes
 │   ├── discover.tsx    # Public recipes
+│   ├── planner.tsx     # Meal planner (weekly view)
 │   ├── grocery.tsx     # Grocery list
 │   └── settings.tsx    # Settings & profile
 ├── recipe/[id].tsx     # Recipe detail
@@ -111,7 +118,8 @@ components/             # Reusable UI
 hooks/                  # React Query hooks
 ├── useRecipes.ts       # Recipe CRUD + extraction
 ├── useGrocery.ts       # Grocery list
-└── useCollections.ts   # Collections
+├── useCollections.ts   # Collections
+└── useMealPlan.ts      # Meal planning
 
 lib/
 ├── api.ts              # API client (axios)

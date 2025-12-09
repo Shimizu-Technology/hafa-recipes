@@ -121,6 +121,20 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="planner"
+        options={{
+          title: 'Planner',
+          headerTitle: 'Meal Planner',
+          tabBarIcon: ({ focused, color, size }) => (
+            <Ionicons 
+              name={focused ? 'calendar' : 'calendar-outline'} 
+              size={24} 
+              color={color} 
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="grocery"
         options={{
           title: 'Grocery',

@@ -18,6 +18,10 @@ import {
   ChatResponse,
   Collection,
   CollectionRecipe,
+  MealPlanEntry,
+  MealPlanEntryCreate,
+  DayMeals,
+  WeekPlan,
 } from '../types/recipe';
 
 // Configure base URL based on environment
@@ -812,6 +816,64 @@ class ApiClient {
 
   async getRecipeCollections(recipeId: string): Promise<string[]> {
     const { data } = await this.client.get(`/api/collections/recipe/${recipeId}/collections`);
+    return data;
+  }
+
+  // ============================================================
+  // Meal Planning
+  // ============================================================
+
+  async getMealPlanWeek(weekOf?: string): Promise<WeekPlan> {
+    const { data } = await this.client.get('/api/meal-plans/week', {
+      params: weekOf ? { week_of: weekOf } : undefined,
+    });
+    return data;
+  }
+
+  async getMealPlanDay(targetDate?: string): Promise<DayMeals> {
+    const { data } = await this.client.get('/api/meal-plans/day', {
+      params: targetDate ? { target_date: targetDate } : undefined,
+    });
+    return data;
+  }
+
+  async addMealPlanEntry(entry: MealPlanEntryCreate): Promise<MealPlanEntry> {
+    const { data } = await this.client.post('/api/meal-plans/', entry);
+    return data;
+  }
+
+  async updateMealPlanEntry(
+    entryId: string,
+    update: { meal_type?: string; date?: string; notes?: string; servings?: string }
+  ): Promise<MealPlanEntry> {
+    const { data } = await this.client.put(`/api/meal-plans/${entryId}`, update);
+    return data;
+  }
+
+  async deleteMealPlanEntry(entryId: string): Promise<{ message: string; id: string }> {
+    const { data } = await this.client.delete(`/api/meal-plans/${entryId}`);
+    return data;
+  }
+
+  async clearMealPlanDay(targetDate: string, mealType?: string): Promise<{ message: string; count: number }> {
+    const { data } = await this.client.delete(`/api/meal-plans/day/${targetDate}`, {
+      params: mealType ? { meal_type: mealType } : undefined,
+    });
+    return data;
+  }
+
+  async addMealPlanToGrocery(startDate: string, endDate: string): Promise<{ message: string; items_added: number }> {
+    const { data } = await this.client.post('/api/meal-plans/to-grocery', {
+      start_date: startDate,
+      end_date: endDate,
+    });
+    return data;
+  }
+
+  async copyMealPlanWeek(sourceWeek: string, targetWeek: string): Promise<{ message: string; entries_copied: number }> {
+    const { data } = await this.client.post('/api/meal-plans/copy-week', null, {
+      params: { source_week: sourceWeek, target_week: targetWeek },
+    });
     return data;
   }
 
