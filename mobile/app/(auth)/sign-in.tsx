@@ -33,13 +33,18 @@ export default function SignInScreen() {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Clear error when user starts typing
+  const clearError = () => setErrorMessage(null);
 
   // Email/password sign in
   const handleEmailSignIn = async () => {
     if (!isLoaded) return;
+    setErrorMessage(null);
     
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Missing Fields', 'Please enter your email and password.');
+      setErrorMessage('Please enter your email and password.');
       return;
     }
 
@@ -55,14 +60,29 @@ export default function SignInScreen() {
         router.replace('/(tabs)');
       } else {
         console.log('Sign in result:', result);
-        Alert.alert('Error', 'Could not complete sign in. Please try again.');
+        setErrorMessage('Could not complete sign in. Please try again.');
       }
     } catch (error: any) {
       console.error('Sign in error:', error);
-      Alert.alert(
-        'Sign In Failed',
-        error.errors?.[0]?.message || 'Invalid email or password. Please try again.'
-      );
+      // Extract user-friendly error message from Clerk
+      const clerkError = error.errors?.[0];
+      if (clerkError) {
+        switch (clerkError.code) {
+          case 'form_identifier_not_found':
+            setErrorMessage('No account found with this email. Check your email or sign up.');
+            break;
+          case 'form_password_incorrect':
+            setErrorMessage('Incorrect password. Please try again or reset your password.');
+            break;
+          case 'strategy_for_user_invalid':
+            setErrorMessage('This account uses a different sign-in method (Apple/Google). Try those instead.');
+            break;
+          default:
+            setErrorMessage(clerkError.longMessage || clerkError.message || 'Invalid email or password.');
+        }
+      } else {
+        setErrorMessage('Could not sign in. Please check your connection and try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -71,6 +91,7 @@ export default function SignInScreen() {
   // OAuth sign in (Apple/Google)
   const handleOAuthSignIn = useCallback(async (strategy: 'oauth_apple' | 'oauth_google') => {
     if (!isLoaded) return;
+    setErrorMessage(null);
     
     setIsLoading(true);
     try {
@@ -85,10 +106,8 @@ export default function SignInScreen() {
       }
     } catch (error: any) {
       console.error('OAuth error:', error);
-      Alert.alert(
-        'Sign In Failed',
-        error.errors?.[0]?.message || 'Could not sign in. Please try again.'
-      );
+      const clerkError = error.errors?.[0];
+      setErrorMessage(clerkError?.longMessage || clerkError?.message || 'Could not sign in. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -163,13 +182,21 @@ export default function SignInScreen() {
             <RNView style={[styles.dividerLine, { backgroundColor: colors.border }]} />
           </RNView>
 
+          {/* Error Banner */}
+          {errorMessage && (
+            <RNView style={[styles.errorBanner, { backgroundColor: colors.error + '15', borderColor: colors.error }]}>
+              <Ionicons name="alert-circle" size={20} color={colors.error} />
+              <Text style={[styles.errorText, { color: colors.error }]}>{errorMessage}</Text>
+            </RNView>
+          )}
+
           {/* Email Form */}
           <RNView style={styles.form}>
             <RNView style={styles.inputGroup}>
               <Text style={[styles.label, { color: colors.textSecondary }]}>Email</Text>
               <Input
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(text) => { setEmail(text); clearError(); }}
                 placeholder="you@example.com"
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -179,11 +206,18 @@ export default function SignInScreen() {
             </RNView>
 
             <RNView style={styles.inputGroup}>
+              <RNView style={styles.labelRow}>
               <Text style={[styles.label, { color: colors.textSecondary }]}>Password</Text>
+                <Link href={'/(auth)/forgot-password' as any} asChild>
+                  <TouchableOpacity disabled={isLoading}>
+                    <Text style={[styles.forgotLink, { color: colors.tint }]}>Forgot password?</Text>
+                  </TouchableOpacity>
+                </Link>
+              </RNView>
               <RNView style={styles.passwordContainer}>
                 <Input
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={(text) => { setPassword(text); clearError(); }}
                   placeholder="••••••••"
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
@@ -310,6 +344,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     fontSize: fontSize.sm,
   },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginBottom: spacing.lg,
+  },
+  errorText: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+  },
   form: {
     gap: spacing.lg,
     marginBottom: spacing.xl,
@@ -317,7 +365,16 @@ const styles = StyleSheet.create({
   inputGroup: {
     gap: spacing.xs,
   },
+  labelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   label: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+  },
+  forgotLink: {
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },

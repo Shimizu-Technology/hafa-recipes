@@ -112,7 +112,7 @@ export function useDeleteCollection() {
 }
 
 /**
- * Add a recipe to a collection
+ * Add a recipe to a collection with optimistic update
  */
 export function useAddToCollection() {
   const queryClient = useQueryClient();
@@ -120,19 +120,50 @@ export function useAddToCollection() {
   return useMutation({
     mutationFn: ({ collectionId, recipeId }: { collectionId: string; recipeId: string }) =>
       api.addRecipeToCollection(collectionId, recipeId),
-    onSuccess: (_, { collectionId, recipeId }) => {
-      // Invalidate the collection's recipes list
+    // Optimistic update - show in collection immediately
+    onMutate: async ({ collectionId, recipeId }) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: collectionKeys.recipeCollections(recipeId) });
+
+      // Snapshot the previous value
+      const previousCollections = queryClient.getQueryData<Collection[]>(
+        collectionKeys.recipeCollections(recipeId)
+      );
+
+      // Get the collection being added to
+      const allCollections = queryClient.getQueryData<Collection[]>(collectionKeys.list());
+      const addedCollection = allCollections?.find(c => c.id === collectionId);
+
+      // Optimistically add to the recipe's collections
+      if (addedCollection) {
+        queryClient.setQueryData<Collection[]>(
+          collectionKeys.recipeCollections(recipeId),
+          (old) => old ? [...old, addedCollection] : [addedCollection]
+        );
+      }
+
+      return { previousCollections };
+    },
+    onError: (err, { recipeId }, context) => {
+      // Rollback on error
+      if (context?.previousCollections) {
+        queryClient.setQueryData(
+          collectionKeys.recipeCollections(recipeId),
+          context.previousCollections
+        );
+      }
+    },
+    onSettled: (_, __, { collectionId, recipeId }) => {
+      // Sync with server
       queryClient.invalidateQueries({ queryKey: collectionKeys.recipes(collectionId) });
-      // Invalidate the collections list (to update recipe counts)
       queryClient.invalidateQueries({ queryKey: collectionKeys.list() });
-      // Invalidate which collections this recipe is in
       queryClient.invalidateQueries({ queryKey: collectionKeys.recipeCollections(recipeId) });
     },
   });
 }
 
 /**
- * Remove a recipe from a collection
+ * Remove a recipe from a collection with optimistic update
  */
 export function useRemoveFromCollection() {
   const queryClient = useQueryClient();
@@ -140,12 +171,53 @@ export function useRemoveFromCollection() {
   return useMutation({
     mutationFn: ({ collectionId, recipeId }: { collectionId: string; recipeId: string }) =>
       api.removeRecipeFromCollection(collectionId, recipeId),
-    onSuccess: (_, { collectionId, recipeId }) => {
-      // Invalidate the collection's recipes list
+    // Optimistic update - remove from collection immediately
+    onMutate: async ({ collectionId, recipeId }) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: collectionKeys.recipeCollections(recipeId) });
+      await queryClient.cancelQueries({ queryKey: collectionKeys.recipes(collectionId) });
+
+      // Snapshot the previous values
+      const previousCollections = queryClient.getQueryData<Collection[]>(
+        collectionKeys.recipeCollections(recipeId)
+      );
+      const previousRecipes = queryClient.getQueryData<CollectionRecipe[]>(
+        collectionKeys.recipes(collectionId)
+      );
+
+      // Optimistically remove from the recipe's collections
+      queryClient.setQueryData<Collection[]>(
+        collectionKeys.recipeCollections(recipeId),
+        (old) => old?.filter(c => c.id !== collectionId) ?? []
+      );
+
+      // Optimistically remove from the collection's recipes
+      queryClient.setQueryData<CollectionRecipe[]>(
+        collectionKeys.recipes(collectionId),
+        (old) => old?.filter(r => r.recipe_id !== recipeId) ?? []
+      );
+
+      return { previousCollections, previousRecipes };
+    },
+    onError: (err, { collectionId, recipeId }, context) => {
+      // Rollback on error
+      if (context?.previousCollections) {
+        queryClient.setQueryData(
+          collectionKeys.recipeCollections(recipeId),
+          context.previousCollections
+        );
+      }
+      if (context?.previousRecipes) {
+        queryClient.setQueryData(
+          collectionKeys.recipes(collectionId),
+          context.previousRecipes
+        );
+      }
+    },
+    onSettled: (_, __, { collectionId, recipeId }) => {
+      // Sync with server
       queryClient.invalidateQueries({ queryKey: collectionKeys.recipes(collectionId) });
-      // Invalidate the collections list (to update recipe counts)
       queryClient.invalidateQueries({ queryKey: collectionKeys.list() });
-      // Invalidate which collections this recipe is in
       queryClient.invalidateQueries({ queryKey: collectionKeys.recipeCollections(recipeId) });
     },
   });

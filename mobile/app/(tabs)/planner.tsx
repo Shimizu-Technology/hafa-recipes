@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/clerk-expo';
 
@@ -240,6 +241,15 @@ export default function PlannerScreen() {
   const deleteMeal = useDeleteMeal();
   const addToGrocery = useAddPlanToGrocery();
 
+  // Refetch when tab gains focus (handles cache cleared on user change)
+  useFocusEffect(
+    useCallback(() => {
+      if (isSignedIn) {
+        refetch();
+      }
+    }, [isSignedIn, refetch])
+  );
+
   // Get week dates for the day strip
   const weekDates = useMemo(() => {
     const dates: Date[] = [];
@@ -396,10 +406,7 @@ export default function PlannerScreen() {
   if (isLoaded && !isSignedIn) {
     return (
       <View style={styles.container}>
-        <SignInBanner 
-          message="Sign in to plan your meals for the week!" 
-          colors={colors}
-        />
+        <SignInBanner message="Sign in to plan your meals for the week!" />
       </View>
     );
   }

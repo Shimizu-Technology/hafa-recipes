@@ -25,9 +25,12 @@ Scan QR with Expo Go, or press `i` for iOS simulator.
 ```bash
 # Clerk Auth (required)
 EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+
+# Sentry Error Monitoring (optional but recommended for production)
+EXPO_PUBLIC_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
 ```
 
-For production builds, set this in **Expo Dashboard → Environment variables**.
+For production builds, set these in **Expo Dashboard → Environment variables**.
 
 ## API Configuration
 
@@ -151,6 +154,7 @@ eas submit --platform android --latest
 - **Navigation:** Expo Router (file-based)
 - **State:** React Query (TanStack Query)
 - **Auth:** Clerk (Apple, Google, Email)
+- **Error Monitoring:** Sentry (crash reporting, performance tracking)
 - **Animations:** react-native-reanimated
 - **UI:** Custom themed components
 

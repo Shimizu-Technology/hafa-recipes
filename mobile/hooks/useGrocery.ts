@@ -38,21 +38,21 @@ export const groceryKeys = {
 /**
  * Fetch the grocery list with offline support
  */
-export function useGroceryList(includeChecked = true) {
+export function useGroceryList(includeChecked = true, isSignedIn = true) {
   const { isOnline } = useNetworkStatus();
   const queryClient = useQueryClient();
 
   return useQuery({
     queryKey: [...groceryKeys.list(), includeChecked],
     queryFn: async () => {
-      // If offline, return cached data
+      // If offline, try cache first, then return empty if no cache
       if (!isOnline) {
         const cached = await getCachedGroceryList();
         if (cached) {
-          // Filter based on includeChecked parameter
           return includeChecked ? cached : cached.filter(item => !item.checked);
         }
-        throw new Error('No cached data available offline');
+        // Return empty array instead of throwing - we'll fetch when online
+        return [];
       }
 
       // Online: fetch from server
@@ -67,33 +67,38 @@ export function useGroceryList(includeChecked = true) {
     },
     // Use cached data as placeholder while fetching
     placeholderData: () => {
-      // Try to get from React Query cache first
       const cached = queryClient.getQueryData([...groceryKeys.list(), true]) as GroceryItem[] | undefined;
       if (cached) {
         return includeChecked ? cached : cached.filter(item => !item.checked);
       }
       return undefined;
     },
-    // Stay fresh but don't throw immediately if offline
-    staleTime: 30 * 1000, // 30 seconds
-    retry: isOnline ? 3 : 0, // Don't retry when offline
+    // Only run query when user is signed in
+    enabled: isSignedIn,
+    staleTime: 30 * 1000,
+    retry: 3,
+    // Refetch when network comes back online
+    refetchOnReconnect: true,
   });
 }
 
 /**
  * Get grocery item counts with offline support
  */
-export function useGroceryCount() {
+export function useGroceryCount(isSignedIn = true) {
   const { isOnline } = useNetworkStatus();
 
   return useQuery({
     queryKey: groceryKeys.count(),
     queryFn: async () => {
-      // If offline, return cached count
+      // If offline, try cache first
       if (!isOnline) {
         const cached = await getCachedGroceryCount();
-        if (cached) return cached;
-        throw new Error('No cached count available offline');
+        if (cached) {
+          return cached;
+        }
+        // Return default instead of throwing
+        return { total: 0, checked: 0, unchecked: 0 };
       }
 
       // Online: fetch from server
@@ -101,8 +106,11 @@ export function useGroceryCount() {
       await cacheGroceryCount(data);
       return data;
     },
+    // Only run query when user is signed in
+    enabled: isSignedIn,
     staleTime: 30 * 1000,
-    retry: isOnline ? 3 : 0,
+    retry: 3,
+    refetchOnReconnect: true,
   });
 }
 

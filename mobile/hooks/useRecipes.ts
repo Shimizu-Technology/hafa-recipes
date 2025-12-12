@@ -650,15 +650,38 @@ export function usePopularTags(scope: 'user' | 'public' = 'user', enabled = true
 }
 
 /**
- * Toggle recipe sharing (public/private)
+ * Toggle recipe sharing (public/private) with optimistic update
  */
 export function useToggleRecipeSharing() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (id: string) => api.toggleRecipeSharing(id),
-    onSuccess: (data, id) => {
-      // Invalidate the recipe detail to refresh is_public
+    // Optimistic update - toggle immediately in UI
+    onMutate: async (id) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: recipeKeys.detail(id) });
+
+      // Snapshot the previous value
+      const previousRecipe = queryClient.getQueryData(recipeKeys.detail(id));
+
+      // Optimistically update the recipe detail
+      queryClient.setQueryData(recipeKeys.detail(id), (old: any) => {
+        if (!old) return old;
+        return { ...old, is_public: !old.is_public };
+      });
+
+      // Return context with the snapshotted value
+      return { previousRecipe };
+    },
+    onError: (err, id, context) => {
+      // Rollback on error
+      if (context?.previousRecipe) {
+        queryClient.setQueryData(recipeKeys.detail(id), context.previousRecipe);
+      }
+    },
+    onSettled: (data, error, id) => {
+      // Sync with server state
       queryClient.invalidateQueries({ queryKey: recipeKeys.detail(id) });
       // Invalidate discover lists as the recipe may now be visible/hidden
       queryClient.invalidateQueries({ queryKey: recipeKeys.discover() });

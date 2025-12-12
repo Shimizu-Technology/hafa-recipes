@@ -1,19 +1,25 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-navigation/native';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { ClerkProvider, ClerkLoaded, useAuth } from '@clerk/clerk-expo';
+import { ClerkProvider, ClerkLoaded, useAuth, useUser } from '@clerk/clerk-expo';
 import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useLayoutEffect } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { View } from 'react-native';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
+import { ThemeProvider } from '@/contexts/ThemeContext';
 import { queryClient } from '@/lib/queryClient';
 import { tokenCache, CLERK_PUBLISHABLE_KEY } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { AppLoadingSkeleton } from '@/components/Skeleton';
+import { OfflineBanner } from '@/components/OfflineBanner';
+import { initSentry, setSentryUser, addBreadcrumb, withSentry } from '@/lib/sentry';
+
+// Initialize Sentry as early as possible
+initSentry();
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -28,7 +34,7 @@ export const unstable_settings = {
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
-export default function RootLayout() {
+function RootLayout() {
   const [loaded, error] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     ...FontAwesome.font,
@@ -43,6 +49,7 @@ export default function RootLayout() {
     if (loaded) {
       // Hide splash screen quickly - we'll show our own skeleton
       SplashScreen.hideAsync();
+      addBreadcrumb('navigation', 'App loaded, splash screen hidden');
     }
   }, [loaded]);
 
@@ -56,6 +63,7 @@ export default function RootLayout() {
   }
 
   return (
+    <ThemeProvider>
     <ClerkProvider 
       publishableKey={CLERK_PUBLISHABLE_KEY} 
       tokenCache={tokenCache}
@@ -64,8 +72,12 @@ export default function RootLayout() {
         <RootLayoutNav />
       </ClerkLoaded>
     </ClerkProvider>
+    </ThemeProvider>
   );
 }
+
+// Wrap with Sentry for error boundary and performance tracking
+export default withSentry(RootLayout);
 
 /**
  * Handles auth-based routing.
@@ -104,9 +116,17 @@ function AuthProtection({ children }: { children: React.ReactNode }) {
 /**
  * Component that syncs auth token with API client.
  * Passes a token getter function so fresh tokens are fetched on each request.
+ * Also syncs user context with Sentry for error attribution.
+ * 
+ * IMPORTANT: Clears the query cache when the user changes to prevent
+ * stale data from a previous user showing to a new user.
  */
 function AuthTokenSync({ children }: { children: React.ReactNode }) {
   const { getToken, isSignedIn, isLoaded } = useAuth();
+  const { user } = useUser();
+  
+  // Track the previous user ID to detect user changes
+  const previousUserIdRef = useRef<string | null>(null);
 
   // Use useLayoutEffect to set token getter BEFORE children render/effects run
   // This ensures token is available before any API calls
@@ -125,6 +145,47 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
     }
   }, [isSignedIn, isLoaded, getToken]);
 
+  // CRITICAL: Clear cache when user changes to prevent data leakage
+  // This handles the case where someone signs out and a different user signs in
+  useEffect(() => {
+    if (!isLoaded) return;
+    
+    const currentUserId = user?.id ?? null;
+    const previousUserId = previousUserIdRef.current;
+    
+    // If user changed (including sign out -> sign in as different user)
+    if (previousUserId !== null && currentUserId !== null && previousUserId !== currentUserId) {
+      console.log('👤 User changed, clearing cached data');
+      queryClient.clear();
+      addBreadcrumb('auth', 'Query cache cleared due to user change', {
+        previousUserId,
+        newUserId: currentUserId,
+      });
+    }
+    
+    // Update the ref for next comparison
+    previousUserIdRef.current = currentUserId;
+  }, [user?.id, isLoaded]);
+
+  // Sync user context with Sentry
+  useEffect(() => {
+    if (!isLoaded) return;
+    
+    if (isSignedIn && user) {
+      setSentryUser({
+        id: user.id,
+        email: user.primaryEmailAddress?.emailAddress,
+        username: user.username,
+      });
+      addBreadcrumb('auth', 'User signed in', { userId: user.id });
+    } else {
+      setSentryUser(null);
+      if (isLoaded) {
+        addBreadcrumb('auth', 'User signed out or not authenticated');
+      }
+    }
+  }, [isSignedIn, isLoaded, user]);
+
   return <>{children}</>;
 }
 
@@ -136,9 +197,11 @@ function RootLayoutNav() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <NavigationThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <AuthTokenSync>
           <AuthProtection>
+            {/* Global offline indicator */}
+            <OfflineBanner />
             <Stack
               screenOptions={{
                 headerStyle: { backgroundColor: colors.background },
@@ -167,7 +230,7 @@ function RootLayoutNav() {
             </Stack>
           </AuthProtection>
         </AuthTokenSync>
-      </ThemeProvider>
+      </NavigationThemeProvider>
     </QueryClientProvider>
   );
 }

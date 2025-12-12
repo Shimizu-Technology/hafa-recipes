@@ -71,6 +71,7 @@ export interface Recipe {
   has_audio_transcript: boolean;
   created_at: string;
   user_id: string | null;
+  extractor_display_name: string | null;
   is_public: boolean;
 }
 
@@ -87,6 +88,7 @@ export interface RecipeListItem {
   total_time: string | null;
   created_at: string;
   user_id: string | null;
+  extractor_display_name: string | null;
   is_public: boolean;
 }
 

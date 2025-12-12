@@ -27,6 +27,7 @@ export default function SignUpScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   
+  const [firstName, setFirstName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -34,31 +35,38 @@ export default function SignUpScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [pendingVerification, setPendingVerification] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Clear error when user starts typing
+  const clearError = () => setErrorMessage(null);
 
   // Email/password sign up
   const handleEmailSignUp = async () => {
     if (!isLoaded) return;
+    setErrorMessage(null);
     
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Missing Fields', 'Please enter your email and password.');
+      setErrorMessage('Please enter your email and password.');
       return;
     }
 
     if (password !== confirmPassword) {
-      Alert.alert('Password Mismatch', 'Passwords do not match.');
+      setErrorMessage('Passwords do not match.');
       return;
     }
 
     if (password.length < 8) {
-      Alert.alert('Weak Password', 'Password must be at least 8 characters.');
+      setErrorMessage('Password must be at least 8 characters.');
       return;
     }
 
     setIsLoading(true);
     try {
+      // Create signup with optional first name
       await signUp.create({
         emailAddress: email.trim(),
         password: password,
+        firstName: firstName.trim() || undefined,
       });
 
       // Send email verification code
@@ -66,10 +74,26 @@ export default function SignUpScreen() {
       setPendingVerification(true);
     } catch (error: any) {
       console.error('Sign up error:', error);
-      Alert.alert(
-        'Sign Up Failed',
-        error.errors?.[0]?.message || 'Could not create account. Please try again.'
-      );
+      // Extract user-friendly error message from Clerk
+      const clerkError = error.errors?.[0];
+      if (clerkError) {
+        // Common Clerk error codes and their friendly messages
+        switch (clerkError.code) {
+          case 'form_identifier_exists':
+            setErrorMessage('This email is already registered. Try signing in instead.');
+            break;
+          case 'form_password_pwned':
+            setErrorMessage('This password has been compromised in a data breach. Please choose a different password.');
+            break;
+          case 'form_password_length_too_short':
+            setErrorMessage('Password must be at least 8 characters.');
+            break;
+          default:
+            setErrorMessage(clerkError.longMessage || clerkError.message || 'Could not create account. Please try again.');
+        }
+      } else {
+        setErrorMessage('Could not create account. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -78,6 +102,7 @@ export default function SignUpScreen() {
   // Verify email code
   const handleVerifyEmail = async () => {
     if (!isLoaded) return;
+    setErrorMessage(null);
 
     setIsLoading(true);
     try {
@@ -90,14 +115,12 @@ export default function SignUpScreen() {
         router.replace('/(tabs)');
       } else {
         console.log('Verification result:', result);
-        Alert.alert('Error', 'Could not complete verification.');
+        setErrorMessage('Could not complete verification. Please try again.');
       }
     } catch (error: any) {
       console.error('Verification error:', error);
-      Alert.alert(
-        'Verification Failed',
-        error.errors?.[0]?.message || 'Invalid code. Please try again.'
-      );
+      const clerkError = error.errors?.[0];
+      setErrorMessage(clerkError?.longMessage || clerkError?.message || 'Invalid code. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -106,6 +129,7 @@ export default function SignUpScreen() {
   // OAuth sign up (Apple/Google)
   const handleOAuthSignUp = useCallback(async (strategy: 'oauth_apple' | 'oauth_google') => {
     if (!isLoaded) return;
+    setErrorMessage(null);
     
     setIsLoading(true);
     try {
@@ -120,10 +144,8 @@ export default function SignUpScreen() {
       }
     } catch (error: any) {
       console.error('OAuth error:', error);
-      Alert.alert(
-        'Sign Up Failed',
-        error.errors?.[0]?.message || 'Could not sign up. Please try again.'
-      );
+      const clerkError = error.errors?.[0];
+      setErrorMessage(clerkError?.longMessage || clerkError?.message || 'Could not sign up. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -161,12 +183,20 @@ export default function SignUpScreen() {
             </Text>
           </RNView>
 
+          {/* Error Banner */}
+          {errorMessage && (
+            <RNView style={[styles.errorBanner, { backgroundColor: colors.error + '15', borderColor: colors.error }]}>
+              <Ionicons name="alert-circle" size={20} color={colors.error} />
+              <Text style={[styles.errorText, { color: colors.error }]}>{errorMessage}</Text>
+            </RNView>
+          )}
+
           <RNView style={styles.form}>
             <RNView style={styles.inputGroup}>
               <Text style={[styles.label, { color: colors.textSecondary }]}>Verification Code</Text>
               <Input
                 value={verificationCode}
-                onChangeText={setVerificationCode}
+                onChangeText={(text) => { setVerificationCode(text); clearError(); }}
                 placeholder="Enter 6-digit code"
                 keyboardType="number-pad"
                 autoCapitalize="none"
@@ -258,13 +288,33 @@ export default function SignUpScreen() {
             <RNView style={[styles.dividerLine, { backgroundColor: colors.border }]} />
           </RNView>
 
+          {/* Error Banner */}
+          {errorMessage && (
+            <RNView style={[styles.errorBanner, { backgroundColor: colors.error + '15', borderColor: colors.error }]}>
+              <Ionicons name="alert-circle" size={20} color={colors.error} />
+              <Text style={[styles.errorText, { color: colors.error }]}>{errorMessage}</Text>
+            </RNView>
+          )}
+
           {/* Email Form */}
           <RNView style={styles.form}>
+            <RNView style={styles.inputGroup}>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>First Name (optional)</Text>
+              <Input
+                value={firstName}
+                onChangeText={(text) => { setFirstName(text); clearError(); }}
+                placeholder="Your name"
+                autoCapitalize="words"
+                autoCorrect={false}
+                editable={!isLoading}
+              />
+            </RNView>
+
             <RNView style={styles.inputGroup}>
               <Text style={[styles.label, { color: colors.textSecondary }]}>Email</Text>
               <Input
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(text) => { setEmail(text); clearError(); }}
                 placeholder="you@example.com"
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -278,7 +328,7 @@ export default function SignUpScreen() {
               <RNView style={styles.passwordContainer}>
                 <Input
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={(text) => { setPassword(text); clearError(); }}
                   placeholder="••••••••"
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
@@ -303,7 +353,7 @@ export default function SignUpScreen() {
               <Text style={[styles.label, { color: colors.textSecondary }]}>Confirm Password</Text>
               <Input
                 value={confirmPassword}
-                onChangeText={setConfirmPassword}
+                onChangeText={(text) => { setConfirmPassword(text); clearError(); }}
                 placeholder="••••••••"
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
@@ -417,6 +467,20 @@ const styles = StyleSheet.create({
   dividerText: {
     paddingHorizontal: spacing.md,
     fontSize: fontSize.sm,
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginBottom: spacing.lg,
+  },
+  errorText: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
   },
   form: {
     gap: spacing.lg,

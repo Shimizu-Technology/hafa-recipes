@@ -9,12 +9,16 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { View, Text, Card, SectionHeader, Divider, useColors } from '@/components/Themed';
 import { useRecipeCount } from '@/hooks/useRecipes';
 import { API_BASE_URL } from '@/lib/api';
+import { captureMessage, captureError } from '@/lib/sentry';
+import { useTheme, ThemePreference } from '@/contexts/ThemeContext';
+import { clearAllOfflineGroceryData } from '@/lib/offlineStorage';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
 const APP_STORE_URL = 'https://apps.apple.com/us/app/recipe-extractor-gu/id6755892896';
 const WEBSITE_URL = 'https://hafa-recipes.com';
 const PRIVACY_URL = 'https://hafa-recipes.com/privacy';
 const SUPPORT_URL = 'https://hafa-recipes.com/support';
+const DEVELOPER_URL = 'https://shimizu-technology.com';
 
 interface MenuItemProps {
   icon: string;
@@ -68,6 +72,7 @@ export default function SettingsScreen() {
   const { signOut } = useClerk();
   const [isDeleting, setIsDeleting] = useState(false);
   const { api } = require('@/lib/api');
+  const { themePreference, setThemePreference } = useTheme();
 
   const handleClearCache = () => {
     Alert.alert(
@@ -97,8 +102,17 @@ export default function SettingsScreen() {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
-            queryClient.clear();
+            // IMPORTANT: Remove token getter FIRST to prevent new authenticated requests
             api.setTokenGetter(null);
+            
+            // Cancel all in-flight queries to prevent 401 errors
+            await queryClient.cancelQueries();
+            
+            // Clear all cached data to prevent stale data for next user
+            queryClient.clear();
+            await clearAllOfflineGroceryData();
+            
+            // Now sign out from Clerk
             await signOut();
           },
         },
@@ -128,8 +142,17 @@ export default function SettingsScreen() {
                     setIsDeleting(true);
                     try {
                       await api.deleteAccount();
-                      queryClient.clear();
+                      
+                      // Remove token getter FIRST
                       api.setTokenGetter(null);
+                      
+                      // Cancel all in-flight queries
+                      await queryClient.cancelQueries();
+                      
+                      // Clear all cached data
+                      queryClient.clear();
+                      await clearAllOfflineGroceryData();
+                      
                       await signOut();
                     } catch (error) {
                       console.error('Delete account error:', error);
@@ -226,6 +249,72 @@ export default function SettingsScreen() {
           />
         </RNView>
 
+        {/* Appearance Section */}
+        <RNView style={styles.section}>
+          <SectionHeader title="Appearance" />
+          <RNView style={styles.menuGroup}>
+            <TouchableOpacity 
+              onPress={() => setThemePreference('system')}
+              activeOpacity={0.7}
+            >
+              <RNView 
+                style={[
+                  styles.menuItem, 
+                  { backgroundColor: colors.backgroundSecondary }
+                ]}
+              >
+                <RNView style={styles.menuItemLeft}>
+                  <Text style={styles.menuIcon}>📱</Text>
+                  <Text style={[styles.menuLabel, { color: colors.text }]}>System</Text>
+                </RNView>
+                {themePreference === 'system' && (
+                  <Ionicons name="checkmark" size={20} color={colors.tint} />
+                )}
+              </RNView>
+            </TouchableOpacity>
+            <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+            <TouchableOpacity 
+              onPress={() => setThemePreference('light')}
+              activeOpacity={0.7}
+            >
+              <RNView 
+                style={[
+                  styles.menuItem, 
+                  { backgroundColor: colors.backgroundSecondary }
+                ]}
+              >
+                <RNView style={styles.menuItemLeft}>
+                  <Text style={styles.menuIcon}>☀️</Text>
+                  <Text style={[styles.menuLabel, { color: colors.text }]}>Light</Text>
+                </RNView>
+                {themePreference === 'light' && (
+                  <Ionicons name="checkmark" size={20} color={colors.tint} />
+                )}
+              </RNView>
+            </TouchableOpacity>
+            <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+            <TouchableOpacity 
+              onPress={() => setThemePreference('dark')}
+              activeOpacity={0.7}
+            >
+              <RNView 
+                style={[
+                  styles.menuItem, 
+                  { backgroundColor: colors.backgroundSecondary }
+                ]}
+              >
+                <RNView style={styles.menuItemLeft}>
+                  <Text style={styles.menuIcon}>🌙</Text>
+                  <Text style={[styles.menuLabel, { color: colors.text }]}>Dark</Text>
+                </RNView>
+                {themePreference === 'dark' && (
+                  <Ionicons name="checkmark" size={20} color={colors.tint} />
+                )}
+              </RNView>
+            </TouchableOpacity>
+          </RNView>
+        </RNView>
+
         {/* Developer Section */}
         <RNView style={styles.section}>
           <SectionHeader title="Developer" />
@@ -243,6 +332,19 @@ export default function SettingsScreen() {
               value={API_BASE_URL.replace('http://', '').replace('https://', '')}
               colors={colors}
             />
+            <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+            <MenuItem 
+              icon="🐛" 
+              label="Test Sentry Error Reporting" 
+              onPress={() => {
+                captureMessage('Test from Håfa Recipes Settings!', 'info', {
+                  tags: { screen: 'settings', test: 'true' },
+                  extra: { user: user?.primaryEmailAddress?.emailAddress || 'not signed in' },
+                });
+                Alert.alert('Sent!', 'Test event sent to Sentry. Check your dashboard!');
+              }}
+              colors={colors}
+            />
           </RNView>
         </RNView>
 
@@ -257,7 +359,7 @@ export default function SettingsScreen() {
                   Håfa Recipes
                 </Text>
                 <Text style={[styles.aboutVersion, { color: colors.textMuted }]}>
-                  Version 1.2.0
+                  Version 1.3.0
                 </Text>
               </RNView>
             </RNView>
@@ -370,6 +472,31 @@ export default function SettingsScreen() {
             </RNView>
           </RNView>
         )}
+
+        {/* Developer Attribution Footer */}
+        <TouchableOpacity
+          style={styles.developerFooter}
+          onPress={async () => {
+            try {
+              const canOpen = await Linking.canOpenURL(DEVELOPER_URL);
+              if (canOpen) {
+                await Linking.openURL(DEVELOPER_URL);
+              } else {
+                Alert.alert('Unable to Open', `Visit ${DEVELOPER_URL} in your browser.`);
+              }
+            } catch (error) {
+              Alert.alert('Unable to Open', `Visit ${DEVELOPER_URL} in your browser.`);
+            }
+          }}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.developerText, { color: colors.textMuted }]}>
+            Made in Guam 🇬🇺 by{' '}
+            <Text style={[styles.developerLink, { color: colors.tint }]}>
+              Shimizu Technology
+            </Text>
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
     </View>
   );
@@ -532,5 +659,16 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
     color: '#FFFFFF',
+  },
+  developerFooter: {
+    alignItems: 'center',
+    paddingVertical: spacing.lg,
+    marginTop: spacing.md,
+  },
+  developerText: {
+    fontSize: fontSize.sm,
+  },
+  developerLink: {
+    fontWeight: fontWeight.medium,
   },
 });

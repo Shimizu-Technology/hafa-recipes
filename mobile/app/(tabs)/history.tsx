@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Input, Chip, Button, useColors } from '@/components/Themed';
@@ -298,6 +299,15 @@ export default function HistoryScreen() {
     refetchRecipes();
     if (includeSaved) refetchSaved();
   }, [refetchRecipes, refetchSaved, includeSaved]);
+
+  // Refetch when tab gains focus (handles cache cleared on user change)
+  useFocusEffect(
+    useCallback(() => {
+      if (isAuthenticated) {
+        refetchRecipes();
+      }
+    }, [isAuthenticated, refetchRecipes])
+  );
 
   // Handle filter apply
   const handleApplyFilters = useCallback((filters: FilterState) => {

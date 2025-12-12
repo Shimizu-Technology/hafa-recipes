@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/clerk-expo';
 
@@ -108,6 +109,28 @@ function SaveButton({
   );
 }
 
+// Helper to format relative time
+function formatRelativeTime(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  
+  if (diffDays === 0) return 'today';
+  if (diffDays === 1) return 'yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 30) {
+    const weeks = Math.floor(diffDays / 7);
+    return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
+  }
+  if (diffDays < 365) {
+    const months = Math.floor(diffDays / 30);
+    return months === 1 ? '1 month ago' : `${months} months ago`;
+  }
+  const years = Math.floor(diffDays / 365);
+  return years === 1 ? '1 year ago' : `${years} years ago`;
+}
+
 function RecipeCard({ 
   recipe, 
   onPress,
@@ -133,6 +156,15 @@ function RecipeCard({
 
   const showPlaceholder = !recipe.thumbnail_url || imageError;
   const isOwner = recipe.user_id === currentUserId;
+  
+  // Format attribution text
+  const relativeTime = formatRelativeTime(recipe.created_at);
+  const extractorName = isOwner 
+    ? 'you' 
+    : recipe.extractor_display_name || null;
+  const attributionText = extractorName 
+    ? `by ${extractorName} • ${relativeTime}` 
+    : relativeTime;
 
   return (
     <ScalePressable 
@@ -196,10 +228,15 @@ function RecipeCard({
         
         {/* Footer */}
         <RNView style={styles.cardFooter}>
+          <RNView style={styles.footerLeft}>
           <RNView style={styles.sourceRow}>
             <Ionicons name={sourceIcon as any} size={14} color={colors.textMuted} />
             <Text style={[styles.sourceText, { color: colors.textMuted }]}>
               {recipe.source_type}
+              </Text>
+            </RNView>
+            <Text style={[styles.attributionText, { color: colors.textMuted }]}>
+              {attributionText}
             </Text>
           </RNView>
           {recipe.has_audio_transcript && (
@@ -226,6 +263,7 @@ export default function DiscoverScreen() {
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [hideMyRecipes, setHideMyRecipes] = useState(false);
   
   // Pass source filter to server-side queries
   const sourceTypeParam = sourceFilter === 'all' ? undefined : sourceFilter;
@@ -293,10 +331,17 @@ export default function DiscoverScreen() {
   // Optimistic filtering: filter locally while server request is in flight
   // Use server search results if available, otherwise filter cached data locally
   const filteredRecipes = useMemo(() => {
-    if (!hasActiveFilters) return recipes;
-    // If search results are back, use them; otherwise filter cached data locally
-    return searchResults?.length ? searchResults : filterRecipesLocally(recipes, currentFilters);
-  }, [hasActiveFilters, recipes, searchResults, currentFilters]);
+    let result = hasActiveFilters 
+      ? (searchResults?.length ? searchResults : filterRecipesLocally(recipes, currentFilters))
+      : recipes;
+    
+    // Filter out user's own recipes if toggle is on
+    if (hideMyRecipes && userId && result) {
+      result = result.filter(recipe => recipe.user_id !== userId);
+    }
+    
+    return result;
+  }, [hasActiveFilters, recipes, searchResults, currentFilters, hideMyRecipes, userId]);
 
   const displayRecipes = filteredRecipes?.slice(0, displayCount);
   
@@ -310,6 +355,13 @@ export default function DiscoverScreen() {
     setDisplayCount(ITEMS_PER_PAGE);
     refetch();
   }, [refetch]);
+
+  // Refetch when tab gains focus (handles cache cleared on user change)
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+    }, [refetch])
+  );
 
   const handleLoadMore = () => {
     if (hasMoreLocal) {
@@ -499,6 +551,38 @@ export default function DiscoverScreen() {
             </Text>
           </RNView>
         )}
+        
+        {/* Hide my recipes toggle - only show for signed in users */}
+        {isSignedIn && (
+          <TouchableOpacity
+            style={[
+              styles.hideMyRecipesToggle,
+              { 
+                backgroundColor: hideMyRecipes ? colors.tint + '20' : colors.backgroundSecondary,
+                borderColor: hideMyRecipes ? colors.tint : colors.border,
+              },
+            ]}
+            onPress={() => {
+              haptics.light();
+              setHideMyRecipes(!hideMyRecipes);
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={hideMyRecipes ? "eye-off" : "eye-off-outline"}
+              size={16}
+              color={hideMyRecipes ? colors.tint : colors.textMuted}
+            />
+            <Text 
+              style={[
+                styles.hideMyRecipesText, 
+                { color: hideMyRecipes ? colors.tint : colors.textMuted }
+              ]}
+            >
+              Hide my recipes
+            </Text>
+          </TouchableOpacity>
+        )}
       </RNView>
       
       {isLoading && !displayRecipes?.length ? (
@@ -614,6 +698,21 @@ const styles = StyleSheet.create({
   searchLoadingText: {
     fontSize: fontSize.xs,
   },
+  hideMyRecipesToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+    gap: spacing.xs,
+  },
+  hideMyRecipesText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+  },
   countBadge: {
     marginLeft: spacing.sm,
     paddingHorizontal: spacing.sm,
@@ -686,10 +785,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: spacing.sm,
   },
+  footerLeft: {
+    flex: 1,
+    gap: 2,
+  },
   sourceRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+  },
+  attributionText: {
+    fontSize: fontSize.xs,
   },
   sourceText: {
     fontSize: fontSize.xs,

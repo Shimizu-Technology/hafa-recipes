@@ -3,6 +3,7 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
+import { captureError, captureMessage, addBreadcrumb } from './sentry';
 import {
   Recipe,
   RecipeListItem,
@@ -94,9 +95,20 @@ class ApiClient {
               attempts++;
               if (attempts < maxAttempts) {
                 console.warn(`Token fetch attempt ${attempts} failed, retrying...`);
+                addBreadcrumb('auth', `Token fetch attempt ${attempts} failed, retrying`, {
+                  error: e instanceof Error ? e.message : 'Unknown error',
+                }, 'warning');
                 await new Promise(r => setTimeout(r, 500)); // Brief delay before retry
               } else {
                 console.warn('Failed to get auth token after retries:', e);
+                // Report persistent token failures to Sentry
+                captureMessage('Token fetch failed after retries', 'error', {
+                  tags: { endpoint: config.url || 'unknown' },
+                  extra: { 
+                    attempts: maxAttempts,
+                    lastError: e instanceof Error ? e.message : 'Unknown error',
+                  },
+                });
               }
             }
           }
@@ -110,23 +122,81 @@ class ApiClient {
       (error) => Promise.reject(error)
     );
 
-    // Add response interceptor for error handling
+    // Add response interceptor for error handling and Sentry reporting
     this.client.interceptors.response.use(
-      (response) => response,
+      (response) => {
+        // Add breadcrumb for successful API calls
+        addBreadcrumb('api', `${response.config.method?.toUpperCase()} ${response.config.url}`, {
+          status: response.status,
+        }, 'info');
+        return response;
+      },
       (error) => {
-        // Don't log 401 errors - they're expected when signed out
         const status = error.response?.status;
         const isNetworkError = !error.response && error.message === 'Network Error';
+        const isTimeout = error.code === 'ECONNABORTED' || error.message?.includes('timeout');
+        const endpoint = error.config?.url || 'unknown';
+        const method = error.config?.method?.toUpperCase() || 'UNKNOWN';
         
-        // Silently handle network errors and 401s
-        // Use console.warn instead of console.error to avoid red popup
+        // Add breadcrumb for all API errors (helps debug)
+        addBreadcrumb('api', `${method} ${endpoint} failed`, {
+          status,
+          error: error.message,
+          isNetworkError,
+          isTimeout,
+        }, 'error');
+        
+        // Report to Sentry based on error type
+        if (isNetworkError) {
+          // Network error - user might be offline, or backend unreachable
+          captureMessage('API network error', 'warning', {
+            tags: { endpoint, method },
+            extra: { 
+              message: error.message,
+              hasTokenGetter: !!this.getTokenFn,
+            },
+          });
+        } else if (isTimeout) {
+          // Timeout - could indicate backend issues
+          captureMessage('API request timeout', 'warning', {
+            tags: { endpoint, method },
+            extra: {
+              timeout: error.config?.timeout,
+            },
+          });
+        } else if (status === 401 && this.getTokenFn) {
+          // 401 with a token = auth issue (token expired/invalid)
+          captureMessage('Auth token rejected by server', 'warning', {
+            tags: { endpoint, method },
+            extra: { status },
+          });
+        } else if (status && status >= 500) {
+          // Server errors - definitely want to track these
+          captureError(error, {
+            tags: { endpoint, method, status: String(status) },
+            extra: {
+              responseData: error.response?.data,
+            },
+          });
+        } else if (status !== 401 && status !== 404) {
+          // Other client errors (except 401/404 which are often expected)
+          captureMessage(`API error: ${status}`, 'error', {
+            tags: { endpoint, method },
+            extra: {
+              status,
+              responseData: error.response?.data,
+            },
+          });
+        }
+        
+        // Console logging for development
         if (!isNetworkError && status !== 401) {
           console.warn('API Error:', error.response?.data || error.message);
         }
-        // Network errors are logged quietly for debugging
         if (isNetworkError && __DEV__) {
           console.log('Network connection issue - API unreachable');
         }
+        
         return Promise.reject(error);
       }
     );

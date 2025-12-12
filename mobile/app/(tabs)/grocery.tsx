@@ -16,6 +16,7 @@ import {
   Share,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/clerk-expo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -33,7 +34,6 @@ import {
   useAddGroceryItem,
   useGrocerySync,
 } from '@/hooks/useGrocery';
-import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { api } from '@/lib/api';
 import { GroceryItem } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
@@ -185,7 +185,6 @@ export default function GroceryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { isSignedIn } = useAuth();
-  const { isOnline } = useNetworkStatus();
   
   const [newItemName, setNewItemName] = useState('');
   const [showChecked, setShowChecked] = useState(true);
@@ -193,11 +192,23 @@ export default function GroceryScreen() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
 
-  // Set up offline sync
+  // Set up offline sync (syncs pending changes when back online)
   useGrocerySync();
 
-  const { data: groceryItems, isLoading, refetch, isRefetching } = useGroceryList(showChecked);
-  const { data: countData } = useGroceryCount();
+  // Pass isSignedIn to prevent queries from running when not authenticated
+  const { data: groceryItems, isLoading, refetch, isRefetching } = useGroceryList(showChecked, isSignedIn);
+  const { data: countData, refetch: refetchCount } = useGroceryCount(isSignedIn);
+
+  // Refetch when tab gains focus (handles cache cleared on user change, 
+  // and updates from other tabs like meal planner)
+  useFocusEffect(
+    useCallback(() => {
+      if (isSignedIn) {
+        refetch();
+        refetchCount();
+      }
+    }, [isSignedIn, refetch, refetchCount])
+  );
   const toggleMutation = useToggleGroceryItem();
   const deleteMutation = useDeleteGroceryItem();
   const clearCheckedMutation = useClearCheckedItems();
@@ -331,11 +342,13 @@ export default function GroceryScreen() {
   };
 
   const handleClearAll = () => {
-    if (!countData || countData.total === 0) return;
+    const totalItems = countData?.total ?? groceryItems?.length ?? 0;
+    
+    if (totalItems === 0) return;
     
     Alert.alert(
       'Clear All Items',
-      `Remove all ${countData.total} item${countData.total !== 1 ? 's' : ''} from your grocery list? This cannot be undone.`,
+      `Remove all ${totalItems} item${totalItems !== 1 ? 's' : ''} from your grocery list? This cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -496,16 +509,6 @@ export default function GroceryScreen() {
 
   return (
     <RNView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Offline indicator banner */}
-      {!isOnline && (
-        <RNView style={[styles.offlineBanner, { backgroundColor: colors.warning }]}>
-          <Ionicons name="cloud-offline-outline" size={16} color="#FFFFFF" />
-          <Text style={styles.offlineBannerText}>
-            You're offline. Changes will sync when you reconnect.
-          </Text>
-        </RNView>
-      )}
-
       {/* Fixed header with input */}
       <RNView style={styles.header}>
         {/* Title row */}
@@ -548,8 +551,8 @@ export default function GroceryScreen() {
           </TouchableOpacity>
         </RNView>
 
-        {/* Filter/action row */}
-        {countData && countData.total > 0 && (
+        {/* Filter/action row - show if we have items OR count data indicates items */}
+        {((countData && countData.total > 0) || (groceryItems && groceryItems.length > 0)) && (
           <RNView style={styles.actionRow}>
             <TouchableOpacity
               onPress={() => setShowChecked(!showChecked)}
@@ -566,7 +569,7 @@ export default function GroceryScreen() {
             </TouchableOpacity>
 
             <RNView style={styles.clearButtons}>
-              {countData.checked > 0 && (
+              {((countData?.checked ?? 0) > 0 || groceryItems?.some(item => item.checked)) && (
                 <TouchableOpacity onPress={handleClearChecked} style={styles.clearButton}>
                   <Ionicons name="checkmark-done-outline" size={16} color={colors.textMuted} />
                   <Text style={[styles.clearText, { color: colors.textMuted }]}>
@@ -622,19 +625,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     overflow: 'hidden',
-  },
-  offlineBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    gap: spacing.sm,
-  },
-  offlineBannerText: {
-    color: '#FFFFFF',
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
   },
   listContent: {
     paddingHorizontal: spacing.lg,
