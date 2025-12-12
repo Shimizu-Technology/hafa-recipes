@@ -58,13 +58,16 @@ export default function SignInScreen() {
       if (result.status === 'complete') {
         await setActive({ session: result.createdSessionId });
         router.replace('/(tabs)');
+      } else if (result.status === 'needs_second_factor') {
+        // 2FA is enabled on this account - not currently supported in app
+        console.log('Sign in requires 2FA:', result);
+        setErrorMessage('This account has two-factor authentication enabled. Please disable 2FA in your account settings or use Apple/Google sign-in.');
       } else {
         console.log('Sign in result:', result);
         setErrorMessage('Could not complete sign in. Please try again.');
       }
     } catch (error: any) {
-      console.error('Sign in error:', error);
-      // Extract user-friendly error message from Clerk
+      // Extract user-friendly error message from Clerk (don't console.error - it's noisy)
       const clerkError = error.errors?.[0];
       if (clerkError) {
         switch (clerkError.code) {
@@ -105,7 +108,7 @@ export default function SignInScreen() {
         router.replace('/(tabs)');
       }
     } catch (error: any) {
-      console.error('OAuth error:', error);
+      // Extract user-friendly error message from Clerk
       const clerkError = error.errors?.[0];
       setErrorMessage(clerkError?.longMessage || clerkError?.message || 'Could not sign in. Please try again.');
     } finally {

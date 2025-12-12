@@ -73,7 +73,6 @@ export default function SignUpScreen() {
       await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
       setPendingVerification(true);
     } catch (error: any) {
-      console.error('Sign up error:', error);
       // Extract user-friendly error message from Clerk
       const clerkError = error.errors?.[0];
       if (clerkError) {
@@ -118,7 +117,6 @@ export default function SignUpScreen() {
         setErrorMessage('Could not complete verification. Please try again.');
       }
     } catch (error: any) {
-      console.error('Verification error:', error);
       const clerkError = error.errors?.[0];
       setErrorMessage(clerkError?.longMessage || clerkError?.message || 'Invalid code. Please try again.');
     } finally {
@@ -143,7 +141,6 @@ export default function SignUpScreen() {
         router.replace('/(tabs)');
       }
     } catch (error: any) {
-      console.error('OAuth error:', error);
       const clerkError = error.errors?.[0];
       setErrorMessage(clerkError?.longMessage || clerkError?.message || 'Could not sign up. Please try again.');
     } finally {

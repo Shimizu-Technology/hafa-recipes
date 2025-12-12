@@ -56,7 +56,7 @@ export default function ForgotPasswordScreen() {
       setSuccessMessage('Check your email for a verification code.');
       setStep('code');
     } catch (error: any) {
-      console.error('Password reset error:', error);
+      // Password reset error - handled via inline error message
       const clerkError = error.errors?.[0];
       if (clerkError?.code === 'form_identifier_not_found') {
         setErrorMessage('No account found with this email address.');
@@ -104,7 +104,7 @@ export default function ForgotPasswordScreen() {
         setErrorMessage('Could not reset password. Please try again.');
       }
     } catch (error: any) {
-      console.error('Password reset error:', error);
+      // Password reset error - handled via inline error message
       const clerkError = error.errors?.[0];
       if (clerkError?.code === 'form_code_incorrect') {
         setErrorMessage('Invalid verification code. Please check and try again.');
