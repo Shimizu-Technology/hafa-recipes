@@ -52,6 +52,7 @@ export interface RecipeExtracted {
   steps: string[];
   equipment: string[] | null;
   notes?: string | null;
+  mealTypes?: string[];
   tags: string[];
   media: Media;
   totalEstimatedCost: number | null;
@@ -84,6 +85,7 @@ export interface RecipeListItem {
   extraction_quality: string | null;
   has_audio_transcript: boolean;
   tags: string[];
+  meal_types?: string[];
   servings: number | null;
   total_time: string | null;
   created_at: string;

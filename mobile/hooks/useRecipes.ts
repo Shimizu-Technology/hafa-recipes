@@ -540,13 +540,19 @@ export function useCheckDuplicate() {
 // Discover (Public Recipes) Hooks
 // ============================================================
 
+export type DiscoverSort = 'recent' | 'random' | 'popular';
+
 /**
  * Fetch public recipes with infinite scroll pagination
  */
-export function useInfiniteDiscoverRecipes(sourceType?: string, enabled = true) {
+export function useInfiniteDiscoverRecipes(
+  sourceType?: string, 
+  enabled = true,
+  sort: DiscoverSort = 'recent'
+) {
   return useInfiniteQuery({
-    queryKey: recipeKeys.discoverInfinite(sourceType),
-    queryFn: ({ pageParam = 0 }) => api.getPublicRecipes(PAGE_SIZE, pageParam, sourceType),
+    queryKey: [...recipeKeys.discoverInfinite(sourceType), sort],
+    queryFn: ({ pageParam = 0 }) => api.getPublicRecipes(PAGE_SIZE, pageParam, sourceType, sort),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {
       if (!lastPage.has_more) return undefined;
@@ -560,8 +566,12 @@ export function useInfiniteDiscoverRecipes(sourceType?: string, enabled = true) 
 /**
  * Helper hook that flattens discover results into a single array
  */
-export function useDiscoverRecipes(sourceType?: string, enabled = true) {
-  const query = useInfiniteDiscoverRecipes(sourceType, enabled);
+export function useDiscoverRecipes(
+  sourceType?: string, 
+  enabled = true,
+  sort: DiscoverSort = 'recent'
+) {
+  const query = useInfiniteDiscoverRecipes(sourceType, enabled, sort);
   
   const recipes = useMemo(() => {
     if (!query.data?.pages) return [];

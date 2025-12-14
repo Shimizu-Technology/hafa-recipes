@@ -389,9 +389,14 @@ class ApiClient {
   // Discover (public recipes)
   // ============================================================
 
-  async getPublicRecipes(limit = 20, offset = 0, sourceType?: string): Promise<PaginatedRecipes> {
+  async getPublicRecipes(
+    limit = 20, 
+    offset = 0, 
+    sourceType?: string,
+    sort: 'recent' | 'random' | 'popular' = 'recent'
+  ): Promise<PaginatedRecipes> {
     const { data } = await this.client.get('/api/recipes/discover', {
-      params: { limit, offset, source_type: sourceType || undefined },
+      params: { limit, offset, source_type: sourceType || undefined, sort },
     });
     return data;
   }

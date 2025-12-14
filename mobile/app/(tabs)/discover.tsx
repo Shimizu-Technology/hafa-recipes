@@ -27,6 +27,7 @@ import {
   usePopularTags,
   filterRecipesLocally,
   SearchFilters,
+  DiscoverSort,
 } from '@/hooks/useRecipes';
 import { RecipeListItem } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
@@ -264,6 +265,7 @@ export default function DiscoverScreen() {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [hideMyRecipes, setHideMyRecipes] = useState(false);
+  const [sortOrder, setSortOrder] = useState<DiscoverSort>('recent');
   
   // Pass source filter to server-side queries
   const sourceTypeParam = sourceFilter === 'all' ? undefined : sourceFilter;
@@ -291,7 +293,7 @@ export default function DiscoverScreen() {
     fetchNextPage,
     hasNextPage: hasMoreRecipes,
     isFetchingNextPage,
-  } = useDiscoverRecipes(sourceTypeParam, isAuthenticated);
+  } = useDiscoverRecipes(sourceTypeParam, isAuthenticated, sortOrder);
   
   // Search/filter results (when filters are active)
   const { 
@@ -552,6 +554,45 @@ export default function DiscoverScreen() {
           </RNView>
         )}
         
+        {/* Sort selector */}
+        <RNView style={styles.sortRow}>
+          <Text style={[styles.sortLabel, { color: colors.textMuted }]}>Sort:</Text>
+          {(['recent', 'popular', 'random'] as DiscoverSort[]).map((sort) => (
+            <TouchableOpacity
+              key={sort}
+              style={[
+                styles.sortChip,
+                { 
+                  backgroundColor: sortOrder === sort ? colors.tint : colors.backgroundSecondary,
+                  borderColor: sortOrder === sort ? colors.tint : colors.border,
+                },
+              ]}
+              onPress={() => {
+                if (sortOrder !== sort) {
+                  haptics.light();
+                  setSortOrder(sort);
+                  setDisplayCount(ITEMS_PER_PAGE); // Reset pagination
+                }
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={sort === 'recent' ? 'time-outline' : sort === 'popular' ? 'heart-outline' : 'shuffle-outline'}
+                size={14}
+                color={sortOrder === sort ? '#ffffff' : colors.textMuted}
+              />
+              <Text 
+                style={[
+                  styles.sortChipText, 
+                  { color: sortOrder === sort ? '#ffffff' : colors.textMuted }
+                ]}
+              >
+                {sort.charAt(0).toUpperCase() + sort.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </RNView>
+
         {/* Hide my recipes toggle - only show for signed in users */}
         {isSignedIn && (
           <TouchableOpacity
@@ -697,6 +738,29 @@ const styles = StyleSheet.create({
   },
   searchLoadingText: {
     fontSize: fontSize.xs,
+  },
+  sortRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.sm,
+    gap: spacing.sm,
+  },
+  sortLabel: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+  },
+  sortChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    gap: 4,
+  },
+  sortChipText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
   },
   hideMyRecipesToggle: {
     flexDirection: 'row',
