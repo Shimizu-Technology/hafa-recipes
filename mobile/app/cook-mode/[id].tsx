@@ -78,8 +78,12 @@ export default function CookModeScreen() {
   const [activeTimers, setActiveTimers] = useState<Map<number, TimerState>>(new Map());
   const [showComplete, setShowComplete] = useState(false);
   const [showIngredients, setShowIngredients] = useState(false);
+  const [showCustomTimer, setShowCustomTimer] = useState(false);
   const [gestureX, setGestureX] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
+  
+  // Timer presets in minutes
+  const TIMER_PRESETS = [1, 5, 10, 15, 20, 30, 45, 60];
   
   const slideAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(1)).current;
@@ -287,6 +291,17 @@ export default function CookModeScreen() {
     }
   };
 
+  const startCustomTimer = (minutes: number) => {
+    mediumHaptic();
+    const totalSeconds = minutes * 60;
+    setActiveTimers(prev => {
+      const newTimers = new Map(prev);
+      newTimers.set(currentStepIndex, { remaining: totalSeconds, total: totalSeconds, isPaused: false });
+      return newTimers;
+    });
+    setShowCustomTimer(false);
+  };
+
   const togglePauseTimer = () => {
     if (currentTimer && currentTimer.remaining > 0) {
       lightHaptic();
@@ -428,69 +443,72 @@ export default function CookModeScreen() {
         </ScrollView>
 
         {/* Timer Section */}
-        {detectedTime && (
-          <RNView style={styles.timerSection}>
-            {currentTimer ? (
-              <RNView style={styles.timerCard}>
-                {/* Timer Display */}
-                <RNView style={styles.timerDisplay}>
-                  <Ionicons 
-                    name={currentTimer.remaining === 0 ? "checkmark-circle" : (currentTimer.isPaused ? "pause-circle" : "time")} 
-                    size={28} 
-                    color={currentTimer.remaining === 0 ? "#4CAF50" : "#FF6B35"} 
-                  />
-                  <Text style={[
-                    styles.timerText,
-                    currentTimer.remaining === 0 && styles.timerComplete
-                  ]}>
-                    {currentTimer.remaining === 0 ? "Timer Done!" : formatTime(currentTimer.remaining)}
-                  </Text>
-                </RNView>
-                
-                {/* Progress Bar */}
-                <RNView style={styles.timerProgress}>
-                  <RNView 
-                    style={[
-                      styles.timerProgressFill, 
-                      { width: `${((currentTimer.total - currentTimer.remaining) / currentTimer.total) * 100}%` }
-                    ]} 
-                  />
-                </RNView>
-
-                {/* Timer Controls */}
-                <RNView style={styles.timerControls}>
-                  {currentTimer.remaining > 0 ? (
-                    <>
-                      <TouchableOpacity onPress={togglePauseTimer} style={styles.timerControlButton}>
-                        <Ionicons 
-                          name={currentTimer.isPaused ? "play" : "pause"} 
-                          size={22} 
-                          color="#ffffff" 
-                        />
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={resetTimer} style={styles.timerControlButton}>
-                        <Ionicons name="refresh" size={22} color="#ffffff" />
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={stopTimer} style={styles.timerControlButton}>
-                        <Ionicons name="stop" size={22} color="#ffffff" />
-                      </TouchableOpacity>
-                    </>
-                  ) : (
-                    <TouchableOpacity onPress={resetTimer} style={styles.timerRestartButton}>
-                      <Ionicons name="refresh" size={20} color="#ffffff" />
-                      <Text style={styles.timerRestartText}>Restart Timer</Text>
-                    </TouchableOpacity>
-                  )}
-                </RNView>
+        <RNView style={styles.timerSection}>
+          {currentTimer ? (
+            <RNView style={styles.timerCard}>
+              {/* Timer Display */}
+              <RNView style={styles.timerDisplay}>
+                <Ionicons 
+                  name={currentTimer.remaining === 0 ? "checkmark-circle" : (currentTimer.isPaused ? "pause-circle" : "time")} 
+                  size={28} 
+                  color={currentTimer.remaining === 0 ? "#4CAF50" : "#FF6B35"} 
+                />
+                <Text style={[
+                  styles.timerText,
+                  currentTimer.remaining === 0 && styles.timerComplete
+                ]}>
+                  {currentTimer.remaining === 0 ? "Timer Done!" : formatTime(currentTimer.remaining)}
+                </Text>
               </RNView>
-            ) : (
-              <TouchableOpacity onPress={startTimer} style={styles.timerButton}>
-                <Ionicons name="timer-outline" size={22} color="#ffffff" />
-                <Text style={styles.timerButtonText}>Start {detectedTime.display} timer</Text>
-              </TouchableOpacity>
-            )}
-          </RNView>
-        )}
+              
+              {/* Progress Bar */}
+              <RNView style={styles.timerProgress}>
+                <RNView 
+                  style={[
+                    styles.timerProgressFill, 
+                    { width: `${((currentTimer.total - currentTimer.remaining) / currentTimer.total) * 100}%` }
+                  ]} 
+                />
+              </RNView>
+
+              {/* Timer Controls */}
+              <RNView style={styles.timerControls}>
+                {currentTimer.remaining > 0 ? (
+                  <>
+                    <TouchableOpacity onPress={togglePauseTimer} style={styles.timerControlButton}>
+                      <Ionicons 
+                        name={currentTimer.isPaused ? "play" : "pause"} 
+                        size={22} 
+                        color="#ffffff" 
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={resetTimer} style={styles.timerControlButton}>
+                      <Ionicons name="refresh" size={22} color="#ffffff" />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={stopTimer} style={styles.timerControlButton}>
+                      <Ionicons name="stop" size={22} color="#ffffff" />
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <TouchableOpacity onPress={resetTimer} style={styles.timerRestartButton}>
+                    <Ionicons name="refresh" size={20} color="#ffffff" />
+                    <Text style={styles.timerRestartText}>Restart Timer</Text>
+                  </TouchableOpacity>
+                )}
+              </RNView>
+            </RNView>
+          ) : detectedTime ? (
+            <TouchableOpacity onPress={startTimer} style={styles.timerButton}>
+              <Ionicons name="timer-outline" size={22} color="#ffffff" />
+              <Text style={styles.timerButtonText}>Start {detectedTime.display} timer</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity onPress={() => setShowCustomTimer(true)} style={styles.addTimerButton}>
+              <Ionicons name="add-circle-outline" size={22} color="#888" />
+              <Text style={styles.addTimerButtonText}>Add Timer</Text>
+            </TouchableOpacity>
+          )}
+        </RNView>
       </Animated.View>
 
       {/* Navigation */}
@@ -584,6 +602,48 @@ export default function CookModeScreen() {
             </ScrollView>
           </RNView>
         </RNView>
+      </Modal>
+
+      {/* Custom Timer Modal */}
+      <Modal
+        visible={showCustomTimer}
+        animationType="fade"
+        transparent={true}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setShowCustomTimer(false)}
+        >
+          <RNView style={styles.customTimerCard}>
+            <Text style={styles.customTimerTitle}>Set Timer</Text>
+            <Text style={styles.customTimerSubtitle}>Choose a duration</Text>
+            
+            <RNView style={styles.timerPresetGrid}>
+              {TIMER_PRESETS.map((minutes) => (
+                <TouchableOpacity
+                  key={minutes}
+                  style={styles.timerPresetButton}
+                  onPress={() => startCustomTimer(minutes)}
+                >
+                  <Text style={styles.timerPresetValue}>
+                    {minutes >= 60 ? `${minutes / 60}` : minutes}
+                  </Text>
+                  <Text style={styles.timerPresetUnit}>
+                    {minutes >= 60 ? 'hour' : 'min'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </RNView>
+
+            <TouchableOpacity 
+              style={styles.customTimerCancel} 
+              onPress={() => setShowCustomTimer(false)}
+            >
+              <Text style={styles.customTimerCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </RNView>
+        </TouchableOpacity>
       </Modal>
     </View>
   );
@@ -944,5 +1004,81 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: fontSize.md,
     flex: 1,
+  },
+  // Add Timer Button (when no detected time)
+  addTimerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#333',
+    borderStyle: 'dashed',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.lg,
+    gap: spacing.sm,
+  },
+  addTimerButtonText: {
+    color: '#888',
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
+  // Custom Timer Modal
+  customTimerCard: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: radius.xl,
+    padding: spacing.xl,
+    marginHorizontal: spacing.lg,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    alignItems: 'center',
+  },
+  customTimerTitle: {
+    color: '#ffffff',
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.bold,
+    marginBottom: spacing.xs,
+  },
+  customTimerSubtitle: {
+    color: '#888',
+    fontSize: fontSize.sm,
+    marginBottom: spacing.lg,
+  },
+  timerPresetGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  timerPresetButton: {
+    width: 70,
+    height: 70,
+    borderRadius: radius.lg,
+    backgroundColor: '#2a2a2a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  timerPresetValue: {
+    color: '#FF6B35',
+    fontSize: 24,
+    fontWeight: fontWeight.bold,
+  },
+  timerPresetUnit: {
+    color: '#888',
+    fontSize: fontSize.xs,
+    marginTop: 2,
+  },
+  customTimerCancel: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+  },
+  customTimerCancelText: {
+    color: '#888',
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
   },
 });

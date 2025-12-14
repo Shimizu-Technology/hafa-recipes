@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/clerk-expo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -33,6 +34,7 @@ import {
   useClearAllItems,
   useAddGroceryItem,
   useGrocerySync,
+  groceryKeys,
 } from '@/hooks/useGrocery';
 import { api } from '@/lib/api';
 import { GroceryItem } from '@/types/recipe';
@@ -145,39 +147,53 @@ function SectionHeader({
   section,
   isCollapsed,
   onToggle,
+  onClearSection,
   colors,
 }: {
   section: GrocerySection;
   isCollapsed: boolean;
   onToggle: () => void;
+  onClearSection?: () => void;
   colors: ReturnType<typeof useColors>;
 }) {
   const isOther = section.title === OTHER_ITEMS_KEY;
   const icon = isOther ? 'list-outline' : 'restaurant-outline';
+  const canClear = section.recipeId !== null; // Only recipe sections can be cleared
   
   return (
-    <TouchableOpacity
-      style={[styles.sectionHeader, { backgroundColor: colors.backgroundSecondary }]}
-      onPress={onToggle}
-      activeOpacity={0.7}
-    >
-      <RNView style={styles.sectionHeaderLeft}>
-        <Ionicons name={icon} size={18} color={colors.tint} style={styles.sectionIcon} />
-        <Text style={[styles.sectionTitle, { color: colors.text }]} numberOfLines={1}>
-          {section.title}
-        </Text>
-        <RNView style={[styles.sectionBadge, { backgroundColor: colors.tint + '20' }]}>
-          <Text style={[styles.sectionBadgeText, { color: colors.tint }]}>
-            {section.checkedCount}/{section.totalCount}
+    <RNView style={[styles.sectionHeader, { backgroundColor: colors.backgroundSecondary }]}>
+      <TouchableOpacity
+        style={styles.sectionHeaderMain}
+        onPress={onToggle}
+        activeOpacity={0.7}
+      >
+        <RNView style={styles.sectionHeaderLeft}>
+          <Ionicons name={icon} size={18} color={colors.tint} style={styles.sectionIcon} />
+          <Text style={[styles.sectionTitle, { color: colors.text }]} numberOfLines={1}>
+            {section.title}
           </Text>
+          <RNView style={[styles.sectionBadge, { backgroundColor: colors.tint + '20' }]}>
+            <Text style={[styles.sectionBadgeText, { color: colors.tint }]}>
+              {section.checkedCount}/{section.totalCount}
+            </Text>
+          </RNView>
         </RNView>
-      </RNView>
-      <Ionicons
-        name={isCollapsed ? 'chevron-down' : 'chevron-up'}
-        size={20}
-        color={colors.textMuted}
-      />
-    </TouchableOpacity>
+        <Ionicons
+          name={isCollapsed ? 'chevron-down' : 'chevron-up'}
+          size={20}
+          color={colors.textMuted}
+        />
+      </TouchableOpacity>
+      {canClear && onClearSection && (
+        <TouchableOpacity
+          style={styles.sectionClearButton}
+          onPress={onClearSection}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="close-circle-outline" size={20} color={colors.error} />
+        </TouchableOpacity>
+      )}
+    </RNView>
   );
 }
 
@@ -185,6 +201,7 @@ export default function GroceryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { isSignedIn } = useAuth();
+  const queryClient = useQueryClient();
   
   const [newItemName, setNewItemName] = useState('');
   const [showChecked, setShowChecked] = useState(true);
@@ -360,6 +377,66 @@ export default function GroceryScreen() {
     );
   };
 
+  const handleClearRecipeSection = (section: GrocerySection) => {
+    if (!section.recipeId) return;
+    
+    Alert.alert(
+      'Clear Recipe Items',
+      `Remove all ${section.totalCount} item${section.totalCount !== 1 ? 's' : ''} from "${section.title}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            haptics.medium();
+            
+            // Optimistic update: immediately remove items from cache
+            // Get all list queries (there might be variations with includeChecked param)
+            const listQueries = queryClient.getQueriesData<GroceryItem[]>({ queryKey: groceryKeys.list() });
+            const previousCount = queryClient.getQueryData(groceryKeys.count());
+            
+            // Update all grocery list caches
+            listQueries.forEach(([queryKey]) => {
+              queryClient.setQueryData<GroceryItem[]>(queryKey, (old) => {
+                if (!old) return old;
+                return old.filter(item => item.recipe_id !== section.recipeId);
+              });
+            });
+            
+            // Update count cache
+            queryClient.setQueryData(groceryKeys.count(), (old: any) => {
+              if (!old) return old;
+              const removedCount = section.totalCount;
+              const removedChecked = section.checkedCount;
+              return {
+                total: Math.max(0, old.total - removedCount),
+                unchecked: Math.max(0, old.unchecked - (removedCount - removedChecked)),
+                checked: Math.max(0, old.checked - removedChecked),
+              };
+            });
+            
+            try {
+              await api.clearRecipeGroceryItems(section.recipeId!);
+              // Success - cache is already updated
+            } catch {
+              // Revert optimistic update on error
+              listQueries.forEach(([queryKey, data]) => {
+                if (data) {
+                  queryClient.setQueryData(queryKey, data);
+                }
+              });
+              if (previousCount) {
+                queryClient.setQueryData(groceryKeys.count(), previousCount);
+              }
+              Alert.alert('Error', 'Failed to clear recipe items');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleAddItem = () => {
     if (!newItemName.trim()) return;
     
@@ -491,6 +568,7 @@ export default function GroceryScreen() {
       section={section}
       isCollapsed={collapsedSections.has(section.title)}
       onToggle={() => toggleSection(section.title)}
+      onClearSection={section.recipeId ? () => handleClearRecipeSection(section) : undefined}
       colors={colors}
     />
   );
@@ -712,17 +790,26 @@ const styles = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     marginTop: spacing.md,
     marginBottom: spacing.sm,
     borderRadius: radius.md,
   },
+  sectionHeaderMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flex: 1,
+  },
   sectionHeaderLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+  },
+  sectionClearButton: {
+    padding: spacing.xs,
+    marginLeft: spacing.sm,
   },
   sectionIcon: {
     marginRight: spacing.sm,

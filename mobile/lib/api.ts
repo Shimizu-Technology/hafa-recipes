@@ -627,6 +627,11 @@ class ApiClient {
     return data;
   }
 
+  async clearRecipeGroceryItems(recipeId: string): Promise<{ message: string; count: number; recipe_id: string }> {
+    const { data } = await this.client.delete(`/api/grocery/clear/recipe/${recipeId}`);
+    return data;
+  }
+
   // ============================================================
   // Recipe Chat
   // ============================================================
