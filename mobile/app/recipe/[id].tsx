@@ -417,8 +417,8 @@ export default function RecipeDetailScreen() {
               await Share.share({
                 message: formatRecipeAsText(),
               });
-            } catch (error) {
-              console.error('Share error:', error);
+            } catch {
+              // Share cancelled by user - not an error
             }
           },
         },
@@ -431,8 +431,8 @@ export default function RecipeDetailScreen() {
                 message: `Check out this recipe: ${recipe.extracted.title}\n\n${recipe.source_url}`,
                 url: recipe.source_url,
               });
-            } catch (error) {
-              console.error('Share error:', error);
+            } catch {
+              // Share cancelled by user - not an error
             }
           },
         },

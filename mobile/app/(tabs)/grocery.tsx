@@ -437,8 +437,8 @@ export default function GroceryScreen() {
       await Share.share({
         message: listText,
       });
-    } catch (error) {
-      console.error('Share error:', error);
+    } catch {
+      // Share cancelled by user - not an error
     }
   };
 

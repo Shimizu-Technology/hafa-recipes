@@ -102,8 +102,8 @@ export default function ExtractScreen() {
         setSelectedImages(allImages);
         setShowImageGallery(true);
       }
-    } catch (error: any) {
-      console.error('Image picker error:', error);
+    } catch {
+      // User-facing alert is sufficient
       Alert.alert('Error', 'Failed to pick image. Please try again.');
     }
   };
@@ -155,7 +155,7 @@ export default function ExtractScreen() {
         setShowImageGallery(true); // Show gallery again to retry
       }
     } catch (error: any) {
-      console.error('OCR extraction error:', error);
+      // User-facing alert is sufficient
       Alert.alert(
         'Extraction Failed',
         error.message || 'Something went wrong. Please try again.'
@@ -482,6 +482,9 @@ export default function ExtractScreen() {
             <Text style={[styles.hint, { color: colors.textMuted }]}>
               Supports TikTok, YouTube, and Instagram
             </Text>
+            <Text style={[styles.tip, { color: colors.textMuted }]}>
+              💡 Works best when the recipe is spoken aloud or in the video description
+            </Text>
           </RNView>
 
           {/* Location Selector */}
@@ -666,6 +669,11 @@ const styles = StyleSheet.create({
   hint: {
     fontSize: fontSize.xs,
     marginTop: spacing.sm,
+  },
+  tip: {
+    fontSize: fontSize.xs,
+    marginTop: spacing.xs,
+    fontStyle: 'italic',
   },
   locationScroll: {
     gap: spacing.sm,

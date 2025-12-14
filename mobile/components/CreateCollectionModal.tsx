@@ -81,8 +81,8 @@ export default function CreateCollectionModal({
         });
       }
       onClose();
-    } catch (error) {
-      console.error('Failed to save collection:', error);
+    } catch {
+      // Mutation error handled by React Query
     }
   };
   
@@ -104,8 +104,8 @@ export default function CreateCollectionModal({
               onClose();
               // Navigate back after deletion (if callback provided)
               onDeleted?.();
-            } catch (error) {
-              console.error('Failed to delete collection:', error);
+            } catch {
+              // Mutation error handled by React Query
             }
           },
         },

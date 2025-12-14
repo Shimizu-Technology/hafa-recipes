@@ -170,8 +170,8 @@ export default function AddRecipeScreen() {
         }
         
         console.log('📝 Pre-filled form from OCR data');
-      } catch (e) {
-        console.error('Failed to parse initial data:', e);
+      } catch {
+        // Non-critical: form will be empty, user can fill manually
       }
     }
   }, [initialData, initialIsPublic]);

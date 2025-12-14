@@ -236,8 +236,8 @@ export function useAsyncExtraction() {
         // Start polling for this job
         startPolling(storedJobId, storedStartTime);
       }
-    } catch (e) {
-      console.error('Failed to load active job:', e);
+    } catch {
+      // Non-critical: active job will restart on next extraction
     }
   };
 
@@ -245,8 +245,8 @@ export function useAsyncExtraction() {
   const saveActiveJob = async (id: string, start: number) => {
     try {
       await AsyncStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify({ jobId: id, startTime: start }));
-    } catch (e) {
-      console.error('Failed to save active job:', e);
+    } catch {
+      // Non-critical: job will still complete, just won't persist across app restart
     }
   };
 
@@ -254,8 +254,8 @@ export function useAsyncExtraction() {
   const clearActiveJob = async () => {
     try {
       await AsyncStorage.removeItem(ACTIVE_JOB_KEY);
-    } catch (e) {
-      console.error('Failed to clear active job:', e);
+    } catch {
+      // Non-critical: stale job entry will be overwritten on next extraction
     }
   };
 
@@ -313,11 +313,8 @@ export function useAsyncExtraction() {
             if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
             setIsPolling(false);
             setError('Connection issue. The extraction may still complete - check your recipes later.');
-            console.error('Stopped polling due to repeated auth errors');
             return;
           }
-        } else {
-          console.error('Poll error:', e?.message || e);
         }
         // Continue polling for non-fatal errors - job may still be running
       }
@@ -842,8 +839,8 @@ export function useSaveOcrRecipe() {
       queryClient.invalidateQueries({ queryKey: ['myRecipes'] });
       console.log('✅ OCR recipe saved successfully:', data.id);
     },
-    onError: (error) => {
-      console.error('❌ Failed to save OCR recipe:', error);
+    onError: () => {
+      // Error handled by caller with Alert
     },
   });
 }

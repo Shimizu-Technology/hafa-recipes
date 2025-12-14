@@ -42,8 +42,8 @@ export default function OCRReviewScreen() {
       try {
         const parsed = JSON.parse(recipeParam);
         setRecipe(parsed);
-      } catch (e) {
-        console.error('Failed to parse recipe:', e);
+      } catch {
+        // User-facing alert is sufficient
         Alert.alert('Error', 'Failed to load recipe data');
         router.back();
       }
@@ -75,7 +75,7 @@ export default function OCRReviewScreen() {
         );
       }
     } catch (error: any) {
-      console.error('Save error:', error);
+      // User-facing alert is sufficient
       Alert.alert(
         'Save Failed',
         error.message || 'Failed to save recipe. Please try again.'

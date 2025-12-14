@@ -140,8 +140,8 @@ export default function AddToCollectionModal({
         setShowCreateNew(false);
         setJustCreated(false);
       }, 800);
-    } catch (error) {
-      console.error('Failed to create collection:', error);
+    } catch {
+      // Mutation error handled by React Query
     }
   };
   

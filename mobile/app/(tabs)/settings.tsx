@@ -154,8 +154,8 @@ export default function SettingsScreen() {
                       await clearAllOfflineGroceryData();
                       
                       await signOut();
-                    } catch (error) {
-                      console.error('Delete account error:', error);
+                    } catch (error: any) {
+                      // User-facing alert is sufficient - Sentry will capture if critical
                       Alert.alert('Error', 'Failed to delete account. Please try again.');
                     } finally {
                       setIsDeleting(false);
@@ -179,8 +179,8 @@ export default function SettingsScreen() {
       await Share.share({
         message: `🍳 Check out Håfa Recipes!\n\nTransform cooking videos from TikTok, YouTube, and Instagram into detailed recipes using AI.\n\nDownload it here: ${APP_STORE_URL}`,
       });
-    } catch (error) {
-      console.error('Share error:', error);
+    } catch {
+      // Share cancelled by user - not an error
     }
   };
 

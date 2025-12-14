@@ -318,8 +318,8 @@ export default function PlannerScreen() {
           recipe_thumbnail: recipe.thumbnail_url,
         });
         successHaptic();
-      } catch (error) {
-        console.error('Failed to add meal:', error);
+      } catch {
+        // User-facing alert is sufficient
         Alert.alert('Error', 'Failed to add recipe to meal plan');
       }
     },
@@ -338,8 +338,8 @@ export default function PlannerScreen() {
             try {
               await deleteMeal.mutateAsync(entryId);
               successHaptic();
-            } catch (error) {
-              console.error('Failed to remove meal:', error);
+            } catch {
+              // Silent fail - optimistic update already reverted
             }
           },
         },
@@ -374,8 +374,8 @@ export default function PlannerScreen() {
           },
         ]
       );
-    } catch (error) {
-      console.error('Failed to add to grocery:', error);
+    } catch {
+      // User-facing alert is sufficient
       Alert.alert('Error', 'Failed to add ingredients to grocery list');
     }
   }, [addToGrocery, currentWeekStart, router]);

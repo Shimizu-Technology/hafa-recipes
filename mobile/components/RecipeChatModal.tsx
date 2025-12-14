@@ -82,8 +82,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
       } else {
         setMessages([]);
       }
-    } catch (error) {
-      console.error('Failed to load chat history:', error);
+    } catch {
+      // Non-critical: chat will start fresh
       setMessages([]);
     } finally {
       setIsLoadingHistory(false);
@@ -94,8 +94,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const saveChatHistory = useCallback(async (newMessages: ChatMessage[]) => {
     try {
       await AsyncStorage.setItem(storageKey, JSON.stringify(newMessages));
-    } catch (error) {
-      console.error('Failed to save chat history:', error);
+    } catch {
+      // Non-critical: chat history won't persist, but conversation continues
     }
   }, [storageKey]);
 
@@ -112,8 +112,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
             setMessages([]);
             try {
               await AsyncStorage.removeItem(storageKey);
-            } catch (error) {
-              console.error('Failed to clear chat history:', error);
+            } catch {
+              // Non-critical: stale history will be overwritten on next save
             }
           },
         },
@@ -156,9 +156,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
       
       // Save to AsyncStorage
       await saveChatHistory(finalMessages);
-    } catch (error) {
-      console.error('Chat error:', error);
-      // Add error message
+    } catch {
+      // Add error message to conversation
       const errorMessage: ChatMessage = {
         role: 'assistant',
         content: "Sorry, I couldn't process that request. Please try again.",
