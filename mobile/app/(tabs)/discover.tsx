@@ -398,19 +398,36 @@ export default function DiscoverScreen() {
   // Memoize header to prevent re-render on search change
   const ListHeaderTitle = useCallback(() => (
     <RNView style={styles.titleRow}>
-      <Text style={[styles.headerTitle, { color: colors.text }]}>
-        Discover
-      </Text>
-      {countData && (
-        <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
-          <Text style={styles.countText}>{countData.count}</Text>
-        </RNView>
-      )}
-      {isRefetching && (
-        <ActivityIndicator size="small" color={colors.tint} style={{ marginLeft: spacing.sm }} />
-      )}
+      <RNView style={styles.titleLeft}>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>
+          Discover
+        </Text>
+        {countData && (
+          <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
+            <Text style={styles.countText}>{countData.count}</Text>
+          </RNView>
+        )}
+        {isRefetching && (
+          <ActivityIndicator size="small" color={colors.tint} style={{ marginLeft: spacing.sm }} />
+        )}
+      </RNView>
+      
+      {/* What can I make button */}
+      <TouchableOpacity
+        style={[styles.ingredientSearchButton, { backgroundColor: colors.tint + '15' }]}
+        onPress={() => {
+          haptics.light();
+          router.push('/ingredient-search');
+        }}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="nutrition-outline" size={18} color={colors.tint} />
+        <Text style={[styles.ingredientSearchText, { color: colors.tint }]}>
+          What can I make?
+        </Text>
+      </TouchableOpacity>
     </RNView>
-  ), [colors.text, colors.tint, countData, isRefetching]);
+  ), [colors.text, colors.tint, countData, isRefetching, router]);
 
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
@@ -669,7 +686,24 @@ const styles = StyleSheet.create({
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: spacing.xs,
+  },
+  titleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  ingredientSearchButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    gap: 4,
+  },
+  ingredientSearchText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
   },
   headerTitle: {
     fontSize: fontSize.xxl,
@@ -759,6 +793,24 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   sortChipText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+  },
+  actionButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.sm,
+    gap: spacing.sm,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    gap: 4,
+  },
+  actionButtonText: {
     fontSize: fontSize.xs,
     fontWeight: fontWeight.medium,
   },

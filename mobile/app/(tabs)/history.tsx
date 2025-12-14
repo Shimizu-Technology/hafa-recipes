@@ -32,8 +32,8 @@ import {
 import { useCollections } from '@/hooks/useCollections';
 import { RecipeListItem, Collection } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
-import { useAuth } from '@clerk/clerk-expo';
 import { haptics } from '@/utils/haptics';
+import { useAuth } from '@clerk/clerk-expo';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -408,19 +408,36 @@ export default function HistoryScreen() {
   // Memoize header to prevent re-render on search change
   const ListHeaderTitle = useCallback(() => (
     <RNView style={styles.titleRow}>
-      <Text style={[styles.headerTitle, { color: colors.text }]}>
-        My Recipes
-      </Text>
-      {totalCount !== undefined && (
-        <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
-          <Text style={styles.countText}>{totalCount}</Text>
-        </RNView>
-      )}
-      {isRefetching && (
-        <ActivityIndicator size="small" color={colors.tint} style={{ marginLeft: spacing.sm }} />
-      )}
+      <RNView style={styles.titleLeft}>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>
+          My Recipes
+        </Text>
+        {totalCount !== undefined && (
+          <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
+            <Text style={styles.countText}>{totalCount}</Text>
+          </RNView>
+        )}
+        {isRefetching && (
+          <ActivityIndicator size="small" color={colors.tint} style={{ marginLeft: spacing.sm }} />
+        )}
+      </RNView>
+      
+      {/* Ingredient search button */}
+      <TouchableOpacity
+        style={[styles.ingredientSearchButton, { backgroundColor: colors.tint + '15' }]}
+        onPress={() => {
+          haptics.light();
+          router.push('/ingredient-search');
+        }}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="nutrition-outline" size={18} color={colors.tint} />
+        <Text style={[styles.ingredientSearchText, { color: colors.tint }]}>
+          What can I make?
+        </Text>
+      </TouchableOpacity>
     </RNView>
-  ), [colors.text, colors.tint, totalCount, isRefetching]);
+  ), [colors.text, colors.tint, totalCount, isRefetching, router]);
 
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
@@ -692,7 +709,24 @@ const styles = StyleSheet.create({
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: spacing.md,
+  },
+  titleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  ingredientSearchButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    gap: 4,
+  },
+  ingredientSearchText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
   },
   headerTitle: {
     fontSize: fontSize.xxl,

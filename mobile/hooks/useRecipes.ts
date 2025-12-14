@@ -46,6 +46,9 @@ export const recipeKeys = {
   discoverInfiniteSearch: (filters: SearchFilters) => [...recipeKeys.discover(), 'infiniteSearch', filters] as const,
   discoverSearch: (filters: SearchFilters) => [...recipeKeys.discover(), 'search', filters] as const,
   discoverCount: (sourceType?: string) => [...recipeKeys.discover(), 'count', sourceType] as const,
+  // Ingredient search
+  byIngredients: (ingredients: string[], includeSaved: boolean, includePublic: boolean) => 
+    [...recipeKeys.all, 'byIngredients', ingredients.join(','), includeSaved, includePublic] as const,
 };
 
 // ============================================================
@@ -155,6 +158,23 @@ export function useSearchRecipes(filters: SearchFilters, enabled = true) {
     total,
     hasMore: infiniteQuery.hasNextPage,
   };
+}
+
+/**
+ * Search recipes by ingredients ("What can I make with...?")
+ */
+export function useSearchByIngredients(
+  ingredients: string[],
+  includeSaved = true,
+  includePublic = true,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: recipeKeys.byIngredients(ingredients, includeSaved, includePublic),
+    queryFn: () => api.searchByIngredients(ingredients, includeSaved, includePublic),
+    enabled: enabled && ingredients.length > 0,
+    staleTime: 30_000,
+  });
 }
 
 /**

@@ -102,6 +102,25 @@ export interface PaginatedRecipes {
   has_more: boolean;
 }
 
+// ============================================================
+// Ingredient Search Types
+// ============================================================
+
+export interface IngredientMatchResult {
+  recipe: RecipeListItem;
+  matched_ingredients: string[];
+  total_ingredients: number;
+  match_count: number;
+  match_percentage: number;
+  missing_ingredients: string[];
+}
+
+export interface IngredientSearchResponse {
+  results: IngredientMatchResult[];
+  query_ingredients: string[];
+  total: number;
+}
+
 export interface ExtractRequest {
   url: string;
   location?: string;

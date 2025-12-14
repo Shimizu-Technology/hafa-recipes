@@ -8,6 +8,7 @@ import {
   Recipe,
   RecipeListItem,
   PaginatedRecipes,
+  IngredientSearchResponse,
   ExtractRequest,
   ExtractResponse,
   JobStatus,
@@ -258,6 +259,23 @@ class ApiClient {
         source_type: sourceType || undefined,
         time_filter: timeFilter || undefined,
         tags: tags?.join(',') || undefined,
+      },
+    });
+    return data;
+  }
+
+  async searchByIngredients(
+    ingredients: string[],
+    includeSaved = true,
+    includePublic = true,
+    limit = 20,
+  ): Promise<IngredientSearchResponse> {
+    const { data } = await this.client.get('/api/recipes/search/by-ingredients', {
+      params: { 
+        ingredients: ingredients.join(','),
+        include_saved: includeSaved,
+        include_public: includePublic,
+        limit,
       },
     });
     return data;
