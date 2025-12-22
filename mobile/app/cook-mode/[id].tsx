@@ -443,72 +443,72 @@ export default function CookModeScreen() {
         </ScrollView>
 
         {/* Timer Section */}
-        <RNView style={styles.timerSection}>
-          {currentTimer ? (
-            <RNView style={styles.timerCard}>
-              {/* Timer Display */}
-              <RNView style={styles.timerDisplay}>
-                <Ionicons 
-                  name={currentTimer.remaining === 0 ? "checkmark-circle" : (currentTimer.isPaused ? "pause-circle" : "time")} 
-                  size={28} 
-                  color={currentTimer.remaining === 0 ? "#4CAF50" : "#FF6B35"} 
-                />
-                <Text style={[
-                  styles.timerText,
-                  currentTimer.remaining === 0 && styles.timerComplete
-                ]}>
-                  {currentTimer.remaining === 0 ? "Timer Done!" : formatTime(currentTimer.remaining)}
-                </Text>
-              </RNView>
-              
-              {/* Progress Bar */}
-              <RNView style={styles.timerProgress}>
-                <RNView 
-                  style={[
-                    styles.timerProgressFill, 
-                    { width: `${((currentTimer.total - currentTimer.remaining) / currentTimer.total) * 100}%` }
-                  ]} 
-                />
-              </RNView>
+          <RNView style={styles.timerSection}>
+            {currentTimer ? (
+              <RNView style={styles.timerCard}>
+                {/* Timer Display */}
+                <RNView style={styles.timerDisplay}>
+                  <Ionicons 
+                    name={currentTimer.remaining === 0 ? "checkmark-circle" : (currentTimer.isPaused ? "pause-circle" : "time")} 
+                    size={28} 
+                    color={currentTimer.remaining === 0 ? "#4CAF50" : "#FF6B35"} 
+                  />
+                  <Text style={[
+                    styles.timerText,
+                    currentTimer.remaining === 0 && styles.timerComplete
+                  ]}>
+                    {currentTimer.remaining === 0 ? "Timer Done!" : formatTime(currentTimer.remaining)}
+                  </Text>
+                </RNView>
+                
+                {/* Progress Bar */}
+                <RNView style={styles.timerProgress}>
+                  <RNView 
+                    style={[
+                      styles.timerProgressFill, 
+                      { width: `${((currentTimer.total - currentTimer.remaining) / currentTimer.total) * 100}%` }
+                    ]} 
+                  />
+                </RNView>
 
-              {/* Timer Controls */}
-              <RNView style={styles.timerControls}>
-                {currentTimer.remaining > 0 ? (
-                  <>
-                    <TouchableOpacity onPress={togglePauseTimer} style={styles.timerControlButton}>
-                      <Ionicons 
-                        name={currentTimer.isPaused ? "play" : "pause"} 
-                        size={22} 
-                        color="#ffffff" 
-                      />
+                {/* Timer Controls */}
+                <RNView style={styles.timerControls}>
+                  {currentTimer.remaining > 0 ? (
+                    <>
+                      <TouchableOpacity onPress={togglePauseTimer} style={styles.timerControlButton}>
+                        <Ionicons 
+                          name={currentTimer.isPaused ? "play" : "pause"} 
+                          size={22} 
+                          color="#ffffff" 
+                        />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={resetTimer} style={styles.timerControlButton}>
+                        <Ionicons name="refresh" size={22} color="#ffffff" />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={stopTimer} style={styles.timerControlButton}>
+                        <Ionicons name="stop" size={22} color="#ffffff" />
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <TouchableOpacity onPress={resetTimer} style={styles.timerRestartButton}>
+                      <Ionicons name="refresh" size={20} color="#ffffff" />
+                      <Text style={styles.timerRestartText}>Restart Timer</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={resetTimer} style={styles.timerControlButton}>
-                      <Ionicons name="refresh" size={22} color="#ffffff" />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={stopTimer} style={styles.timerControlButton}>
-                      <Ionicons name="stop" size={22} color="#ffffff" />
-                    </TouchableOpacity>
-                  </>
-                ) : (
-                  <TouchableOpacity onPress={resetTimer} style={styles.timerRestartButton}>
-                    <Ionicons name="refresh" size={20} color="#ffffff" />
-                    <Text style={styles.timerRestartText}>Restart Timer</Text>
-                  </TouchableOpacity>
-                )}
+                  )}
+                </RNView>
               </RNView>
-            </RNView>
           ) : detectedTime ? (
-            <TouchableOpacity onPress={startTimer} style={styles.timerButton}>
-              <Ionicons name="timer-outline" size={22} color="#ffffff" />
-              <Text style={styles.timerButtonText}>Start {detectedTime.display} timer</Text>
-            </TouchableOpacity>
+              <TouchableOpacity onPress={startTimer} style={styles.timerButton}>
+                <Ionicons name="timer-outline" size={22} color="#ffffff" />
+                <Text style={styles.timerButtonText}>Start {detectedTime.display} timer</Text>
+              </TouchableOpacity>
           ) : (
             <TouchableOpacity onPress={() => setShowCustomTimer(true)} style={styles.addTimerButton}>
               <Ionicons name="add-circle-outline" size={22} color="#888" />
               <Text style={styles.addTimerButtonText}>Add Timer</Text>
             </TouchableOpacity>
-          )}
-        </RNView>
+            )}
+          </RNView>
       </Animated.View>
 
       {/* Navigation */}

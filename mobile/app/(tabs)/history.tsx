@@ -409,18 +409,18 @@ export default function HistoryScreen() {
   const ListHeaderTitle = useCallback(() => (
     <RNView style={styles.titleRow}>
       <RNView style={styles.titleLeft}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>
-          My Recipes
-        </Text>
-        {totalCount !== undefined && (
-          <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
-            <Text style={styles.countText}>{totalCount}</Text>
-          </RNView>
-        )}
-        {isRefetching && (
-          <ActivityIndicator size="small" color={colors.tint} style={{ marginLeft: spacing.sm }} />
-        )}
-      </RNView>
+      <Text style={[styles.headerTitle, { color: colors.text }]}>
+        My Recipes
+      </Text>
+      {totalCount !== undefined && (
+        <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
+          <Text style={styles.countText}>{totalCount}</Text>
+        </RNView>
+      )}
+      {isRefetching && (
+        <ActivityIndicator size="small" color={colors.tint} style={{ marginLeft: spacing.sm }} />
+      )}
+    </RNView>
       
       {/* Ingredient search button */}
       <TouchableOpacity

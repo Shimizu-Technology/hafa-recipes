@@ -39,14 +39,21 @@ export default function AddIngredientsModal({
   
   // Track which ingredients are selected (all selected by default)
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  
+  // Track if we've already initialized for this modal open
+  const [initialized, setInitialized] = useState(false);
 
-  // Reset selection when modal opens
+  // Reset selection ONLY when modal opens (not when ingredients reference changes)
   useEffect(() => {
-    if (visible) {
-      // Select all by default
+    if (visible && !initialized) {
+      // Select all by default when modal first opens
       setSelected(new Set(ingredients.map((_, index) => index)));
+      setInitialized(true);
+    } else if (!visible) {
+      // Reset initialization flag when modal closes
+      setInitialized(false);
     }
-  }, [visible, ingredients]);
+  }, [visible, initialized, ingredients.length]);
 
   const toggleItem = (index: number) => {
     setSelected((prev) => {
