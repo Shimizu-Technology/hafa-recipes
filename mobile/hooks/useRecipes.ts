@@ -595,7 +595,14 @@ export function useDiscoverRecipes(
   
   const recipes = useMemo(() => {
     if (!query.data?.pages) return [];
-    return query.data.pages.flatMap(page => page.items);
+    const allItems = query.data.pages.flatMap(page => page.items);
+    // Deduplicate by ID (needed for random sort where items may repeat across pages)
+    const seen = new Set<string>();
+    return allItems.filter(item => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
   }, [query.data?.pages]);
   
   const total = query.data?.pages[0]?.total ?? 0;
@@ -640,7 +647,14 @@ export function useSearchPublicRecipes(filters: SearchFilters, enabled = true) {
   
   const recipes = useMemo(() => {
     if (!infiniteQuery.data?.pages) return [];
-    return infiniteQuery.data.pages.flatMap(page => page.items);
+    const allItems = infiniteQuery.data.pages.flatMap(page => page.items);
+    // Deduplicate by ID
+    const seen = new Set<string>();
+    return allItems.filter(item => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
   }, [infiniteQuery.data?.pages]);
   
   const total = infiniteQuery.data?.pages[0]?.total ?? 0;
