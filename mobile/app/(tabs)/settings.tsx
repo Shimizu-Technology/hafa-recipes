@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Image, Share, ActivityIndicator } from 'react-native';
+import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Image, Share, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser, useClerk, useAuth } from '@clerk/clerk-expo';
@@ -73,6 +73,12 @@ export default function SettingsScreen() {
   const [isDeleting, setIsDeleting] = useState(false);
   const { api } = require('@/lib/api');
   const { themePreference, setThemePreference } = useTheme();
+  
+  // Profile editing state
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [firstName, setFirstName] = useState(user?.firstName || '');
+  const [lastName, setLastName] = useState(user?.lastName || '');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   const handleClearCache = () => {
     Alert.alert(
@@ -184,6 +190,31 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleSaveProfile = async () => {
+    if (!user) return;
+    
+    setIsSavingProfile(true);
+    try {
+      await user.update({
+        firstName: firstName.trim() || undefined,
+        lastName: lastName.trim() || undefined,
+      });
+      setShowProfileModal(false);
+      Alert.alert('Success', 'Your profile has been updated! Your name will appear on recipes you share.');
+    } catch (error: any) {
+      Alert.alert('Error', 'Failed to update profile. Please try again.');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const handleOpenProfileModal = () => {
+    // Reset to current values when opening
+    setFirstName(user?.firstName || '');
+    setLastName(user?.lastName || '');
+    setShowProfileModal(true);
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView 
@@ -194,9 +225,8 @@ export default function SettingsScreen() {
         <RNView style={styles.section}>
           <SectionHeader title="Account" />
           <TouchableOpacity 
-            activeOpacity={isSignedIn ? 1 : 0.7}
-            onPress={isSignedIn ? undefined : () => router.push('/(auth)/sign-in')}
-            disabled={isSignedIn}
+            activeOpacity={0.7}
+            onPress={isSignedIn ? handleOpenProfileModal : () => router.push('/(auth)/sign-in')}
           >
             <Card>
               <RNView style={styles.userCard}>
@@ -218,10 +248,13 @@ export default function SettingsScreen() {
                       ? user?.emailAddresses[0]?.emailAddress
                       : 'Tap to sign in →'}
                   </Text>
+                  {isSignedIn && !user?.firstName && (
+                    <Text style={[styles.userHint, { color: colors.tint }]}>
+                      Tap to add your name for recipe attribution
+                    </Text>
+                  )}
                 </RNView>
-                {!isSignedIn && (
-                  <Ionicons name="chevron-forward" size={20} color={colors.tint} />
-                )}
+                <Ionicons name="chevron-forward" size={20} color={isSignedIn ? colors.textMuted : colors.tint} />
               </RNView>
             </Card>
           </TouchableOpacity>
@@ -359,7 +392,7 @@ export default function SettingsScreen() {
                   Håfa Recipes
                 </Text>
                 <Text style={[styles.aboutVersion, { color: colors.textMuted }]}>
-                  Version 1.3.0
+                  Version 1.4.0
                 </Text>
               </RNView>
             </RNView>
@@ -498,6 +531,78 @@ export default function SettingsScreen() {
           </Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Edit Profile Modal */}
+      <Modal
+        visible={showProfileModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowProfileModal(false)}
+      >
+        <KeyboardAvoidingView 
+          style={[styles.modalContainer, { backgroundColor: colors.background }]}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          {/* Modal Header */}
+          <RNView style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+            <TouchableOpacity onPress={() => setShowProfileModal(false)}>
+              <Text style={[styles.modalCancel, { color: colors.tint }]}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Edit Profile</Text>
+            <TouchableOpacity 
+              onPress={handleSaveProfile}
+              disabled={isSavingProfile}
+            >
+              {isSavingProfile ? (
+                <ActivityIndicator size="small" color={colors.tint} />
+              ) : (
+                <Text style={[styles.modalSave, { color: colors.tint }]}>Save</Text>
+              )}
+            </TouchableOpacity>
+          </RNView>
+
+          {/* Form */}
+          <RNView style={styles.modalContent}>
+            <RNView style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: colors.textMuted }]}>First Name</Text>
+              <TextInput
+                style={[styles.textInput, { 
+                  backgroundColor: colors.backgroundSecondary,
+                  color: colors.text,
+                  borderColor: colors.border,
+                }]}
+                value={firstName}
+                onChangeText={setFirstName}
+                placeholder="Enter your first name"
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="words"
+                autoCorrect={false}
+              />
+            </RNView>
+
+            <RNView style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Last Name</Text>
+              <TextInput
+                style={[styles.textInput, { 
+                  backgroundColor: colors.backgroundSecondary,
+                  color: colors.text,
+                  borderColor: colors.border,
+                }]}
+                value={lastName}
+                onChangeText={setLastName}
+                placeholder="Enter your last name"
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="words"
+                autoCorrect={false}
+              />
+            </RNView>
+
+            <Text style={[styles.profileHint, { color: colors.textSecondary }]}>
+              Your name will appear on recipes you share publicly in Discover (e.g., "by {firstName || 'Your Name'}").
+            </Text>
+          </RNView>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -670,5 +775,55 @@ const styles = StyleSheet.create({
   },
   developerLink: {
     fontWeight: fontWeight.medium,
+  },
+  userHint: {
+    fontSize: fontSize.xs,
+    marginTop: spacing.xs,
+  },
+  // Modal styles
+  modalContainer: {
+    flex: 1,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: spacing.md,
+    borderBottomWidth: 1,
+  },
+  modalCancel: {
+    fontSize: fontSize.md,
+  },
+  modalTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.semibold,
+  },
+  modalSave: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+  },
+  modalContent: {
+    padding: spacing.lg,
+  },
+  inputGroup: {
+    marginBottom: spacing.lg,
+  },
+  inputLabel: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+    marginBottom: spacing.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  textInput: {
+    fontSize: fontSize.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  profileHint: {
+    fontSize: fontSize.sm,
+    lineHeight: 20,
+    marginTop: spacing.md,
   },
 });
