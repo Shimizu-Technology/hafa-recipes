@@ -10,6 +10,7 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
 import Colors, { spacing, radius, fontSize, fontWeight } from '@/constants/Colors';
 import { useColorScheme } from './useColorScheme';
@@ -101,6 +102,10 @@ interface InputProps {
   secureTextEntry?: boolean;
   maxLength?: number;
   style?: object;
+  showClearButton?: boolean;
+  autoFocus?: boolean;
+  onSubmitEditing?: () => void;
+  returnKeyType?: 'done' | 'go' | 'next' | 'search' | 'send';
 }
 
 export function Input({
@@ -116,38 +121,76 @@ export function Input({
   secureTextEntry = false,
   maxLength,
   style,
+  showClearButton = true,
+  autoFocus,
+  onSubmitEditing,
+  returnKeyType,
 }: InputProps) {
   const colors = useColors();
+  const showClear = showClearButton && value.length > 0 && editable && !multiline;
 
   return (
-    <DefaultTextInput
-      value={value}
-      onChangeText={onChangeText}
-      placeholder={placeholder}
-      placeholderTextColor={colors.textMuted}
-      multiline={multiline}
-      numberOfLines={numberOfLines}
-      editable={editable}
-      keyboardType={keyboardType}
-      autoCapitalize={autoCapitalize}
-      autoCorrect={autoCorrect}
-      secureTextEntry={secureTextEntry}
-      maxLength={maxLength}
-      style={[
-        {
-          backgroundColor: colors.backgroundSecondary,
-          borderRadius: radius.md,
-          padding: spacing.md,
-          fontSize: fontSize.md,
-          color: colors.text,
-          borderWidth: 1,
-          borderColor: colors.border,
-          minHeight: multiline ? 100 : undefined,
-          textAlignVertical: multiline ? 'top' : 'center',
-        },
-        style,
-      ]}
-    />
+    <DefaultView style={{ position: 'relative' }}>
+      <DefaultTextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={colors.textMuted}
+        multiline={multiline}
+        numberOfLines={numberOfLines}
+        editable={editable}
+        keyboardType={keyboardType}
+        autoCapitalize={autoCapitalize}
+        autoCorrect={autoCorrect}
+        secureTextEntry={secureTextEntry}
+        maxLength={maxLength}
+        autoFocus={autoFocus}
+        onSubmitEditing={onSubmitEditing}
+        returnKeyType={returnKeyType}
+        style={[
+          {
+            backgroundColor: colors.backgroundSecondary,
+            borderRadius: radius.md,
+            padding: spacing.md,
+            paddingRight: showClear ? 40 : spacing.md,
+            fontSize: fontSize.md,
+            color: colors.text,
+            borderWidth: 1,
+            borderColor: colors.border,
+            minHeight: multiline ? 100 : undefined,
+            textAlignVertical: multiline ? 'top' : 'center',
+          },
+          style,
+        ]}
+      />
+      {showClear && (
+        <TouchableOpacity
+          onPress={() => onChangeText('')}
+          style={{
+            position: 'absolute',
+            right: spacing.sm,
+            top: 0,
+            bottom: 0,
+            justifyContent: 'center',
+            paddingHorizontal: spacing.xs,
+          }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <DefaultView
+            style={{
+              backgroundColor: colors.textMuted,
+              borderRadius: 10,
+              width: 20,
+              height: 20,
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+          >
+            <Ionicons name="close" size={14} color={colors.background} />
+          </DefaultView>
+        </TouchableOpacity>
+      )}
+    </DefaultView>
   );
 }
 

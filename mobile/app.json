@@ -20,7 +20,9 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Håfa Recipes needs access to your camera to take photos of your recipes. For example, you can photograph a handwritten family recipe or a dish you've prepared to add as a recipe image.",
-        "NSPhotoLibraryUsageDescription": "Håfa Recipes needs access to your photo library to select images for your recipes. For example, you can choose a photo of a finished dish to use as the recipe thumbnail."
+        "NSPhotoLibraryUsageDescription": "Håfa Recipes needs access to your photo library to select images for your recipes. For example, you can choose a photo of a finished dish to use as the recipe thumbnail.",
+        "NSSpeechRecognitionUsageDescription": "Håfa Recipes uses speech recognition to let you ask questions about recipes using your voice.",
+        "NSMicrophoneUsageDescription": "Håfa Recipes needs access to your microphone to convert your voice to text when asking questions about recipes."
       }
     },
     "android": {
@@ -46,6 +48,13 @@
         {
           "cameraPermission": "Håfa Recipes needs access to your camera to take photos of your recipes. For example, you can photograph a handwritten family recipe or a dish you've prepared to add as a recipe image.",
           "photosPermission": "Håfa Recipes needs access to your photo library to select images for your recipes. For example, you can choose a photo of a finished dish to use as the recipe thumbnail."
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Håfa Recipes needs access to your microphone to convert your voice to text when asking questions about recipes.",
+          "speechRecognitionPermission": "Håfa Recipes uses speech recognition to let you ask questions about recipes using your voice."
         }
       ],
       [

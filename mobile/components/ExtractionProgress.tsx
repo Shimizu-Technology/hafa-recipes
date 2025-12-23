@@ -15,24 +15,36 @@ interface ExtractionProgressProps {
   message: string;
   elapsedTime: number; // seconds
   error?: string | null;
+  isWebsite?: boolean; // true for website extraction, false for video
 }
 
-// Map backend step names to display info
-const STEP_CONFIG: Record<string, { label: string; order: number }> = {
+// Map backend step names to display info - VIDEO extraction
+const VIDEO_STEP_CONFIG: Record<string, { label: string; order: number }> = {
   initializing: { label: 'Starting...', order: 0 },
   detecting: { label: 'Detecting platform', order: 1 },
   metadata: { label: 'Fetching video info', order: 2 },
   downloading: { label: 'Downloading audio', order: 3 },
   transcribing: { label: 'Transcribing with AI', order: 4 },
-  metadata_fallback: { label: 'Fetching metadata', order: 4 }, // Same order as transcribing (alternate path)
+  metadata_fallback: { label: 'Fetching metadata', order: 4 },
   extracting: { label: 'Extracting recipe', order: 5 },
   saving: { label: 'Saving thumbnail', order: 6 },
   complete: { label: 'Complete!', order: 7 },
   error: { label: 'Error', order: -1 },
 };
 
+// Map backend step names to display info - WEBSITE extraction
+const WEBSITE_STEP_CONFIG: Record<string, { label: string; order: number }> = {
+  initializing: { label: 'Starting...', order: 0 },
+  fetching: { label: 'Fetching webpage', order: 1 },
+  extracting: { label: 'Extracting recipe', order: 2 },
+  saving: { label: 'Saving thumbnail', order: 3 },
+  complete: { label: 'Complete!', order: 4 },
+  error: { label: 'Error', order: -1 },
+};
+
 // Main steps to display
-const STEPS = ['downloading', 'transcribing', 'extracting', 'saving'];
+const VIDEO_STEPS = ['downloading', 'transcribing', 'extracting', 'saving'];
+const WEBSITE_STEPS = ['fetching', 'extracting', 'saving'];
 
 /**
  * Animated text that displays a smoothly changing number
@@ -72,9 +84,14 @@ export default function ExtractionProgress({
   message,
   elapsedTime,
   error,
+  isWebsite = false,
 }: ExtractionProgressProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  
+  // Use website or video step config based on extraction type
+  const STEP_CONFIG = isWebsite ? WEBSITE_STEP_CONFIG : VIDEO_STEP_CONFIG;
+  const STEPS = isWebsite ? WEBSITE_STEPS : VIDEO_STEPS;
   const currentStepOrder = STEP_CONFIG[currentStep]?.order ?? 0;
   
   // Animated progress value for smooth transitions

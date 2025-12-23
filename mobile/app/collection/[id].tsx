@@ -44,6 +44,8 @@ function RecipeCard({
       ? 'logo-youtube'
       : recipe.source_type === 'instagram'
         ? 'logo-instagram'
+        : recipe.source_type === 'website'
+          ? 'globe-outline'
         : recipe.source_type === 'manual'
           ? 'create-outline'
           : 'globe-outline';

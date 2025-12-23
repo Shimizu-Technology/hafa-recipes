@@ -7,6 +7,9 @@ import {
   RefreshControl,
   View as RNView,
   ActivityIndicator,
+  Keyboard,
+  TouchableWithoutFeedback,
+  ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,6 +28,7 @@ import {
   useSaveRecipe,
   useUnsaveRecipe,
   usePopularTags,
+  useTopContributors,
   filterRecipesLocally,
   SearchFilters,
   DiscoverSort,
@@ -135,11 +139,13 @@ function formatRelativeTime(dateString: string): string {
 function RecipeCard({ 
   recipe, 
   onPress,
+  onUserPress,
   colors,
   currentUserId,
 }: { 
   recipe: RecipeListItem; 
   onPress: () => void;
+  onUserPress?: (userId: string, userName: string) => void;
   colors: ReturnType<typeof useColors>;
   currentUserId?: string | null;
 }) {
@@ -150,7 +156,9 @@ function RecipeCard({
     : recipe.source_type === 'youtube' 
       ? 'logo-youtube' 
       : recipe.source_type === 'instagram' 
-        ? 'logo-instagram' 
+        ? 'logo-instagram'
+        : recipe.source_type === 'website'
+          ? 'globe-outline' 
         : recipe.source_type === 'manual'
           ? 'create-outline'
           : 'globe-outline';
@@ -163,9 +171,7 @@ function RecipeCard({
   const extractorName = isOwner 
     ? 'you' 
     : recipe.extractor_display_name || null;
-  const attributionText = extractorName 
-    ? `by ${extractorName} • ${relativeTime}` 
-    : relativeTime;
+  const canFilterByUser = !isOwner && recipe.extractor_display_name && recipe.user_id;
 
   return (
     <ScalePressable 
@@ -236,9 +242,29 @@ function RecipeCard({
               {recipe.source_type}
               </Text>
             </RNView>
-            <Text style={[styles.attributionText, { color: colors.textMuted }]}>
-              {attributionText}
-            </Text>
+            <RNView style={styles.attributionRow}>
+              {canFilterByUser && onUserPress ? (
+                <>
+                  <Text style={[styles.attributionText, { color: colors.textMuted }]}>by </Text>
+                  <TouchableOpacity 
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      onUserPress(recipe.user_id!, recipe.extractor_display_name!);
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                  >
+                    <Text style={[styles.attributionText, { color: colors.tint, textDecorationLine: 'underline' }]}>
+                      {extractorName}
+                    </Text>
+                  </TouchableOpacity>
+                  <Text style={[styles.attributionText, { color: colors.textMuted }]}> • {relativeTime}</Text>
+                </>
+              ) : (
+                <Text style={[styles.attributionText, { color: colors.textMuted }]}>
+                  {extractorName ? `by ${extractorName} • ${relativeTime}` : relativeTime}
+                </Text>
+              )}
+            </RNView>
           </RNView>
           {recipe.has_audio_transcript && (
             <RNView style={[styles.hdBadge, { backgroundColor: colors.success + '20' }]}>
@@ -260,6 +286,9 @@ export default function DiscoverScreen() {
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
   const [showFilterModal, setShowFilterModal] = useState(false);
   
+  // User filter state (for "recipes by user" feature)
+  const [selectedExtractor, setSelectedExtractor] = useState<{ id: string; name: string } | null>(null);
+  
   // Filter state
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
@@ -275,10 +304,11 @@ export default function DiscoverScreen() {
   const activeFilterCount = 
     (sourceFilter !== 'all' ? 1 : 0) + 
     (timeFilter !== 'all' ? 1 : 0) + 
-    selectedTags.length;
+    selectedTags.length +
+    (selectedExtractor ? 1 : 0);
   
   // Check if search or filters are active
-  const hasActiveFilters = searchQuery.length > 0 || activeFilterCount > 0;
+  const hasActiveFilters = searchQuery.length > 0 || activeFilterCount > 0 || !!selectedExtractor;
   
   // Only fetch when authenticated
   const isAuthenticated = !!isSignedIn;
@@ -298,6 +328,7 @@ export default function DiscoverScreen() {
   // Search/filter results (when filters are active)
   const { 
     recipes: searchResults,
+    total: searchTotal,
     fetchNextPage: fetchNextSearchResults,
     hasNextPage: hasMoreSearchResults,
     isFetchingNextPage: isFetchingNextSearchResults,
@@ -307,6 +338,8 @@ export default function DiscoverScreen() {
     sourceType: sourceTypeParam,
     timeFilter: timeFilterParam,
     tags: selectedTags.length > 0 ? selectedTags : undefined,
+    extractorId: selectedExtractor?.id,
+    extractorName: selectedExtractor?.name,
   }, isAuthenticated);
   
   const { data: countData } = usePublicRecipeCount(sourceTypeParam, isAuthenticated);
@@ -314,11 +347,16 @@ export default function DiscoverScreen() {
   // Popular tags from all public recipes
   const { data: popularTags } = usePopularTags('public', isAuthenticated);
   
+  // Top contributors (users with most public recipes)
+  const { data: topContributors } = useTopContributors(isAuthenticated);
+  
   // Handle filter apply
   const handleApplyFilters = useCallback((filters: FilterState) => {
     setSourceFilter(filters.sourceFilter);
     setTimeFilter(filters.timeFilter);
     setSelectedTags(filters.selectedTags);
+    if (filters.sortOrder) setSortOrder(filters.sortOrder);
+    if (filters.hideMyRecipes !== undefined) setHideMyRecipes(filters.hideMyRecipes);
     setDisplayCount(ITEMS_PER_PAGE);
   }, []);
 
@@ -328,14 +366,28 @@ export default function DiscoverScreen() {
     sourceType: sourceTypeParam,
     timeFilter: timeFilterParam,
     tags: selectedTags.length > 0 ? selectedTags : undefined,
-  }), [searchQuery, sourceTypeParam, timeFilterParam, selectedTags]);
+    extractorId: selectedExtractor?.id,
+    extractorName: selectedExtractor?.name,
+  }), [searchQuery, sourceTypeParam, timeFilterParam, selectedTags, selectedExtractor]);
 
-  // Optimistic filtering: filter locally while server request is in flight
-  // Use server search results if available, otherwise filter cached data locally
+  // Determine what to display:
+  // - For text search: ONLY use server results (local can't search ingredients)
+  // - For other filters: use optimistic local filtering while server loads
+  const hasTextSearch = !!searchQuery?.trim();
+  
   const filteredRecipes = useMemo(() => {
-    let result = hasActiveFilters 
-      ? (searchResults?.length ? searchResults : filterRecipesLocally(recipes, currentFilters))
-      : recipes;
+    let result: RecipeListItem[] | undefined;
+    
+    if (hasTextSearch) {
+      // Text search MUST use server results - local filter can't search ingredients
+      result = searchResults;
+    } else if (hasActiveFilters) {
+      // For non-text filters, use server results if available, otherwise filter locally
+      result = searchResults?.length ? searchResults : filterRecipesLocally(recipes, currentFilters);
+    } else {
+      // No filters - use the discover results
+      result = recipes;
+    }
     
     // Filter out user's own recipes if toggle is on
     if (hideMyRecipes && userId && result) {
@@ -343,7 +395,7 @@ export default function DiscoverScreen() {
     }
     
     return result;
-  }, [hasActiveFilters, recipes, searchResults, currentFilters, hideMyRecipes, userId]);
+  }, [hasTextSearch, hasActiveFilters, recipes, searchResults, currentFilters, hideMyRecipes, userId]);
 
   const displayRecipes = filteredRecipes?.slice(0, displayCount);
   
@@ -381,6 +433,18 @@ export default function DiscoverScreen() {
     }
   };
 
+  // Handle user press to filter by extractor
+  const handleUserPress = useCallback((extractorId: string, extractorName: string) => {
+    haptics.light();
+    setSelectedExtractor({ id: extractorId, name: extractorName });
+    setDisplayCount(ITEMS_PER_PAGE); // Reset pagination
+  }, []);
+  
+  const clearExtractorFilter = useCallback(() => {
+    setSelectedExtractor(null);
+    setDisplayCount(ITEMS_PER_PAGE);
+  }, []);
+
   const renderItem = ({ item, index }: { item: RecipeListItem; index: number }) => (
     <AnimatedListItem index={index} delay={40}>
       <RecipeCard
@@ -390,6 +454,7 @@ export default function DiscoverScreen() {
           haptics.light();
           router.push(`/recipe/${item.id}`);
         }}
+        onUserPress={handleUserPress}
         currentUserId={userId}
       />
     </AnimatedListItem>
@@ -404,7 +469,11 @@ export default function DiscoverScreen() {
         </Text>
         {countData && (
           <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
-            <Text style={styles.countText}>{countData.count}</Text>
+            <Text style={styles.countText}>
+              {hasActiveFilters && searchTotal > 0
+                ? `${searchTotal} of ${countData.count}`
+                : countData.count}
+            </Text>
           </RNView>
         )}
         {isRefetching && (
@@ -427,7 +496,7 @@ export default function DiscoverScreen() {
         </Text>
       </TouchableOpacity>
     </RNView>
-  ), [colors.text, colors.tint, countData, isRefetching, router]);
+  ), [colors.text, colors.tint, countData, isRefetching, router, hasActiveFilters, searchTotal]);
 
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
@@ -472,14 +541,17 @@ export default function DiscoverScreen() {
   };
 
   return (
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
     <View style={styles.container}>
       {/* Filter Bottom Sheet */}
       <FilterBottomSheet
         visible={showFilterModal}
         onClose={() => setShowFilterModal(false)}
         onApply={handleApplyFilters}
-        initialFilters={{ sourceFilter, timeFilter, selectedTags }}
+        initialFilters={{ sourceFilter, timeFilter, selectedTags, sortOrder, hideMyRecipes }}
         popularTags={popularTags}
+        showSortOption
+        showHideMyRecipes={!!isSignedIn}
       />
       
       {/* Fixed header with search - outside FlatList to prevent focus loss */}
@@ -526,6 +598,17 @@ export default function DiscoverScreen() {
         {/* Active filters summary */}
         {activeFilterCount > 0 && (
           <RNView style={styles.activeFiltersRow}>
+            {selectedExtractor && (
+              <TouchableOpacity 
+                style={[styles.activeFilterChip, styles.extractorFilterChip, { backgroundColor: colors.tint }]}
+                onPress={clearExtractorFilter}
+              >
+                <Text style={[styles.activeFilterText, { color: '#FFFFFF' }]}>
+                  by {selectedExtractor.name}
+                </Text>
+                <Ionicons name="close" size={14} color="#FFFFFF" style={{ marginLeft: 4 }} />
+              </TouchableOpacity>
+            )}
             {sourceFilter !== 'all' && (
               <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
                 <Text style={[styles.activeFilterText, { color: colors.tint }]}>
@@ -552,98 +635,94 @@ export default function DiscoverScreen() {
                 setSourceFilter('all');
                 setTimeFilter('all');
                 setSelectedTags([]);
+                setSelectedExtractor(null);
               }}
             >
               <Text style={[styles.clearFiltersText, { color: colors.textMuted }]}>
-                Clear
+                Clear all
               </Text>
             </TouchableOpacity>
           </RNView>
         )}
         
         {/* Search loading indicator - shows when server is fetching more results */}
-        {hasActiveFilters && isDiscoverSearchFetching && (
+        {hasTextSearch && isDiscoverSearchFetching && (
           <RNView style={styles.searchLoadingRow}>
             <ActivityIndicator size="small" color={colors.tint} />
             <Text style={[styles.searchLoadingText, { color: colors.textMuted }]}>
-              Finding more recipes...
+              Searching...
             </Text>
           </RNView>
         )}
         
-        {/* Sort selector */}
-        <RNView style={styles.sortRow}>
-          <Text style={[styles.sortLabel, { color: colors.textMuted }]}>Sort:</Text>
-          {(['recent', 'popular', 'random'] as DiscoverSort[]).map((sort) => (
-            <TouchableOpacity
-              key={sort}
-              style={[
-                styles.sortChip,
-                { 
-                  backgroundColor: sortOrder === sort ? colors.tint : colors.backgroundSecondary,
-                  borderColor: sortOrder === sort ? colors.tint : colors.border,
-                },
-              ]}
-              onPress={() => {
-                if (sortOrder !== sort) {
-                  haptics.light();
-                  setSortOrder(sort);
-                  setDisplayCount(ITEMS_PER_PAGE); // Reset pagination
-                }
-              }}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name={sort === 'recent' ? 'time-outline' : sort === 'popular' ? 'heart-outline' : 'shuffle-outline'}
-                size={14}
-                color={sortOrder === sort ? '#ffffff' : colors.textMuted}
-              />
-              <Text 
-                style={[
-                  styles.sortChipText, 
-                  { color: sortOrder === sort ? '#ffffff' : colors.textMuted }
-                ]}
-              >
-                {sort.charAt(0).toUpperCase() + sort.slice(1)}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </RNView>
-
-        {/* Hide my recipes toggle - only show for signed in users */}
-        {isSignedIn && (
-          <TouchableOpacity
-            style={[
-              styles.hideMyRecipesToggle,
-              { 
-                backgroundColor: hideMyRecipes ? colors.tint + '20' : colors.backgroundSecondary,
-                borderColor: hideMyRecipes ? colors.tint : colors.border,
-              },
-            ]}
-            onPress={() => {
-              haptics.light();
-              setHideMyRecipes(!hideMyRecipes);
-            }}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name={hideMyRecipes ? "eye-off" : "eye-off-outline"}
-              size={16}
-              color={hideMyRecipes ? colors.tint : colors.textMuted}
-            />
-            <Text 
-              style={[
-                styles.hideMyRecipesText, 
-                { color: hideMyRecipes ? colors.tint : colors.textMuted }
-              ]}
-            >
-              Hide my recipes
+        {/* Top Contributors - hide when searching to reduce clutter */}
+        {!hasTextSearch && topContributors && topContributors.length > 0 && (
+          <RNView style={styles.contributorsSection}>
+            <Text style={[styles.contributorsSectionTitle, { color: colors.textMuted }]}>
+              Top Contributors
             </Text>
-          </TouchableOpacity>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.contributorsScroll}
+              keyboardShouldPersistTaps="handled"
+            >
+              {topContributors.map((contributor: { user_id: string; display_name: string; recipe_count: number }) => {
+                const isSelected = selectedExtractor?.id === contributor.user_id;
+                return (
+                  <TouchableOpacity
+                    key={contributor.user_id}
+                    style={[
+                      styles.contributorChip,
+                      { 
+                        backgroundColor: isSelected ? colors.tint : colors.backgroundSecondary, 
+                        borderColor: isSelected ? colors.tint : colors.border 
+                      }
+                    ]}
+                    onPress={() => {
+                      haptics.light();
+                      if (isSelected) {
+                        clearExtractorFilter();
+                      } else {
+                        setSelectedExtractor({ id: contributor.user_id, name: contributor.display_name });
+                        setDisplayCount(ITEMS_PER_PAGE);
+                      }
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons 
+                      name="person-circle-outline" 
+                      size={18} 
+                      color={isSelected ? '#FFFFFF' : colors.textSecondary} 
+                    />
+                    <RNView style={styles.contributorInfo}>
+                      <Text 
+                        style={[
+                          styles.contributorName, 
+                          { color: isSelected ? '#FFFFFF' : colors.text }
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {contributor.display_name}
+                      </Text>
+                      <Text 
+                        style={[
+                          styles.contributorCount, 
+                          { color: isSelected ? 'rgba(255,255,255,0.8)' : colors.textMuted }
+                        ]}
+                      >
+                        {contributor.recipe_count} recipes
+                      </Text>
+                    </RNView>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </RNView>
         )}
       </RNView>
       
-      {isLoading && !displayRecipes?.length ? (
+      {(isLoading || (hasTextSearch && isDiscoverSearchFetching)) && !displayRecipes?.length ? (
         <SkeletonRecipeList count={5} />
       ) : (
         <FlatList
@@ -654,6 +733,8 @@ export default function DiscoverScreen() {
           ListFooterComponent={ListFooter}
           contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.xl + (isSignedIn ? 0 : 100) }]}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onScrollBeginDrag={Keyboard.dismiss}
           refreshControl={
             <RefreshControl 
               refreshing={isRefetching} 
@@ -667,6 +748,7 @@ export default function DiscoverScreen() {
       {/* Sign In Banner for guests - shows save prompt */}
       {!isSignedIn && <SignInBanner message="Sign in to save recipes" />}
     </View>
+    </TouchableWithoutFeedback>
   );
 }
 
@@ -755,6 +837,10 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     borderRadius: radius.full,
   },
+  extractorFilterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   activeFilterText: {
     fontSize: fontSize.xs,
     fontWeight: fontWeight.medium,
@@ -828,6 +914,39 @@ const styles = StyleSheet.create({
   hideMyRecipesText: {
     fontSize: fontSize.xs,
     fontWeight: fontWeight.medium,
+  },
+  contributorsSection: {
+    marginTop: spacing.md,
+  },
+  contributorsSectionTitle: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.semibold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.sm,
+  },
+  contributorsScroll: {
+    gap: spacing.sm,
+    paddingRight: spacing.lg,
+  },
+  contributorChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.xs,
+  },
+  contributorInfo: {
+    maxWidth: 100,
+  },
+  contributorName: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+  },
+  contributorCount: {
+    fontSize: 10,
   },
   countBadge: {
     marginLeft: spacing.sm,
@@ -909,6 +1028,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+  },
+  attributionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
   },
   attributionText: {
     fontSize: fontSize.xs,

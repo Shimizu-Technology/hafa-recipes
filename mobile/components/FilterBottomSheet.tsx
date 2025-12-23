@@ -19,6 +19,7 @@ const SOURCE_FILTERS = [
   { key: 'tiktok', label: 'TikTok', icon: 'logo-tiktok' },
   { key: 'youtube', label: 'YouTube', icon: 'logo-youtube' },
   { key: 'instagram', label: 'Instagram', icon: 'logo-instagram' },
+  { key: 'website', label: 'Website', icon: 'globe-outline' },
   { key: 'manual', label: 'Manual', icon: 'create-outline' },
 ] as const;
 
@@ -29,13 +30,22 @@ const TIME_FILTERS = [
   { key: 'long', label: 'Over 60 min', icon: 'hourglass-outline' },
 ] as const;
 
+const SORT_OPTIONS = [
+  { key: 'recent', label: 'Recent', icon: 'time-outline' },
+  { key: 'popular', label: 'Popular', icon: 'heart-outline' },
+  { key: 'random', label: 'Random', icon: 'shuffle-outline' },
+] as const;
+
 export type SourceFilter = typeof SOURCE_FILTERS[number]['key'];
 export type TimeFilter = typeof TIME_FILTERS[number]['key'];
+export type SortOption = typeof SORT_OPTIONS[number]['key'];
 
 export interface FilterState {
   sourceFilter: SourceFilter;
   timeFilter: TimeFilter;
   selectedTags: string[];
+  sortOrder?: SortOption;
+  hideMyRecipes?: boolean;
 }
 
 interface FilterBottomSheetProps {
@@ -47,6 +57,9 @@ interface FilterBottomSheetProps {
   showIncludeSaved?: boolean;
   includeSaved?: boolean;
   onIncludeSavedChange?: (value: boolean) => void;
+  // Discover-specific options
+  showSortOption?: boolean;
+  showHideMyRecipes?: boolean;
 }
 
 export default function FilterBottomSheet({
@@ -58,6 +71,8 @@ export default function FilterBottomSheet({
   showIncludeSaved = false,
   includeSaved = true,
   onIncludeSavedChange,
+  showSortOption = false,
+  showHideMyRecipes = false,
 }: FilterBottomSheetProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -66,6 +81,8 @@ export default function FilterBottomSheet({
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>(initialFilters.sourceFilter);
   const [timeFilter, setTimeFilter] = useState<TimeFilter>(initialFilters.timeFilter);
   const [selectedTags, setSelectedTags] = useState<string[]>(initialFilters.selectedTags);
+  const [sortOrder, setSortOrder] = useState<SortOption>(initialFilters.sortOrder || 'recent');
+  const [hideMyRecipes, setHideMyRecipes] = useState<boolean>(initialFilters.hideMyRecipes || false);
   
   // Reset local state when modal opens
   useEffect(() => {
@@ -73,6 +90,8 @@ export default function FilterBottomSheet({
       setSourceFilter(initialFilters.sourceFilter);
       setTimeFilter(initialFilters.timeFilter);
       setSelectedTags(initialFilters.selectedTags);
+      setSortOrder(initialFilters.sortOrder || 'recent');
+      setHideMyRecipes(initialFilters.hideMyRecipes || false);
     }
   }, [visible, initialFilters]);
   
@@ -83,7 +102,7 @@ export default function FilterBottomSheet({
   };
   
   const handleApply = () => {
-    onApply({ sourceFilter, timeFilter, selectedTags });
+    onApply({ sourceFilter, timeFilter, selectedTags, sortOrder, hideMyRecipes });
     onClose();
   };
   
@@ -91,12 +110,15 @@ export default function FilterBottomSheet({
     setSourceFilter('all');
     setTimeFilter('all');
     setSelectedTags([]);
+    setSortOrder('recent');
+    setHideMyRecipes(false);
   };
   
   const activeFilterCount = 
     (sourceFilter !== 'all' ? 1 : 0) + 
     (timeFilter !== 'all' ? 1 : 0) + 
-    selectedTags.length;
+    selectedTags.length +
+    (hideMyRecipes ? 1 : 0);
   
   return (
     <Modal
@@ -243,6 +265,72 @@ export default function FilterBottomSheet({
                     </TouchableOpacity>
                   ))}
                 </RNView>
+              </RNView>
+            )}
+            
+            {/* Sort Option (for Discover) */}
+            {showSortOption && (
+              <RNView style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>Sort By</Text>
+                <RNView style={styles.chipContainer}>
+                  {SORT_OPTIONS.map((option) => (
+                    <TouchableOpacity
+                      key={option.key}
+                      onPress={() => setSortOrder(option.key)}
+                      style={[
+                        styles.chip,
+                        {
+                          backgroundColor: sortOrder === option.key 
+                            ? colors.tint 
+                            : colors.backgroundSecondary,
+                          borderColor: sortOrder === option.key 
+                            ? colors.tint 
+                            : colors.border,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={option.icon as any}
+                        size={16}
+                        color={sortOrder === option.key ? '#FFFFFF' : colors.textMuted}
+                      />
+                      <Text
+                        style={[
+                          styles.chipText,
+                          { color: sortOrder === option.key ? '#FFFFFF' : colors.text },
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </RNView>
+              </RNView>
+            )}
+            
+            {/* Hide My Recipes Toggle (for Discover) */}
+            {showHideMyRecipes && (
+              <RNView style={styles.section}>
+                <TouchableOpacity
+                  style={[styles.toggleRow, { borderColor: colors.border }]}
+                  onPress={() => setHideMyRecipes(!hideMyRecipes)}
+                >
+                  <RNView style={styles.toggleLabel}>
+                    <Ionicons 
+                      name={hideMyRecipes ? "eye-off" : "eye-off-outline"}
+                      size={20} 
+                      color={hideMyRecipes ? colors.tint : colors.textMuted} 
+                    />
+                    <Text style={[styles.toggleText, { color: colors.text }]}>
+                      Hide My Recipes
+                    </Text>
+                  </RNView>
+                  <Ionicons 
+                    name={hideMyRecipes ? "checkbox" : "square-outline"} 
+                    size={24} 
+                    color={hideMyRecipes ? colors.tint : colors.textMuted} 
+                  />
+                </TouchableOpacity>
               </RNView>
             )}
             

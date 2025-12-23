@@ -8,6 +8,8 @@ import {
   View as RNView,
   ActivityIndicator,
   ScrollView,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -55,7 +57,9 @@ function RecipeCard({
     : recipe.source_type === 'youtube' 
       ? 'logo-youtube' 
       : recipe.source_type === 'instagram' 
-        ? 'logo-instagram' 
+        ? 'logo-instagram'
+        : recipe.source_type === 'website'
+          ? 'globe-outline' 
         : recipe.source_type === 'manual'
           ? 'create-outline'
           : 'globe-outline';
@@ -414,7 +418,11 @@ export default function HistoryScreen() {
       </Text>
       {totalCount !== undefined && (
         <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
-          <Text style={styles.countText}>{totalCount}</Text>
+          <Text style={styles.countText}>
+            {hasActiveFilters && combinedRecipes 
+              ? `${combinedRecipes.length} of ${totalCount}`
+              : totalCount}
+          </Text>
         </RNView>
       )}
       {isRefetching && (
@@ -437,7 +445,7 @@ export default function HistoryScreen() {
         </Text>
       </TouchableOpacity>
     </RNView>
-  ), [colors.text, colors.tint, totalCount, isRefetching, router]);
+  ), [colors.text, colors.tint, totalCount, isRefetching, router, hasActiveFilters, combinedRecipes]);
 
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
@@ -488,6 +496,7 @@ export default function HistoryScreen() {
   };
 
   return (
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
     <View style={styles.container}>
       {/* Filter Bottom Sheet */}
       <FilterBottomSheet
@@ -662,6 +671,8 @@ export default function HistoryScreen() {
           ListFooterComponent={ListFooter}
           contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.xl + 80 }]}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onScrollBeginDrag={Keyboard.dismiss}
           refreshControl={
             <RefreshControl 
               refreshing={isRefetching} 
@@ -690,6 +701,7 @@ export default function HistoryScreen() {
       {/* Sign In Banner for guests */}
       {!isSignedIn && <SignInBanner message="Sign in to save your recipes" />}
     </View>
+    </TouchableWithoutFeedback>
   );
 }
 

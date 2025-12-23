@@ -38,6 +38,7 @@ export default function ExtractScreen() {
   const [isChecking, setIsChecking] = useState(false);
   const [isOcrExtracting, setIsOcrExtracting] = useState(false);
   const [ocrProgress, setOcrProgress] = useState('');
+  const [extractingAsWebsite, setExtractingAsWebsite] = useState(false); // Track extraction type to prevent flicker
   const [selectedImages, setSelectedImages] = useState<string[]>([]); // Multi-image support
   const [showImageGallery, setShowImageGallery] = useState(false);
   
@@ -176,6 +177,7 @@ export default function ExtractScreen() {
         setUrl('');
         setNotes('');
         setIsPublic(true);
+        setExtractingAsWebsite(false);
       }, 1000);
       return () => clearTimeout(timer);
     }
@@ -184,6 +186,14 @@ export default function ExtractScreen() {
   // Proceed with extraction (called after duplicate check or when user chooses "Extract Anyway")
   const proceedWithExtraction = async () => {
     try {
+      // Determine extraction type BEFORE starting (to prevent UI flicker)
+      const trimmedUrl = url.trim().toLowerCase();
+      const isWebsiteUrl = !trimmedUrl.includes('tiktok.com') && 
+                           !trimmedUrl.includes('youtube.com') && 
+                           !trimmedUrl.includes('youtu.be') && 
+                           !trimmedUrl.includes('instagram.com');
+      setExtractingAsWebsite(isWebsiteUrl);
+      
       const result = await extraction.startExtraction({
         url: url.trim(),
         location: selectedLocation,
@@ -219,11 +229,15 @@ export default function ExtractScreen() {
         !urlLower.includes('youtube.com') && 
         !urlLower.includes('youtu.be') &&
         !urlLower.includes('instagram.com')) {
-      Alert.alert(
-        'Invalid URL', 
-        'Please enter a valid TikTok, YouTube, or Instagram video URL.'
-      );
-      return;
+      // For non-video URLs, we still allow them (website extraction)
+      // Just make sure it's a valid URL format
+      if (!urlLower.startsWith('http://') && !urlLower.startsWith('https://')) {
+        Alert.alert(
+          'Invalid URL', 
+          'Please enter a valid URL starting with http:// or https://'
+        );
+        return;
+      }
     }
 
     try {
@@ -285,12 +299,23 @@ export default function ExtractScreen() {
   const handleCancel = () => {
     Alert.alert(
       'Cancel Extraction?',
-      'The extraction will continue in the background. You can check your history for the result.',
+      'What would you like to do?',
       [
         { text: 'Keep Waiting', style: 'cancel' },
         { 
-          text: 'Go to History', 
+          text: 'Stop Extraction', 
+          style: 'destructive',
+          onPress: async () => {
+            // Cancel the backend job (prevents recipe from being saved)
+            await extraction.cancel();
+            setUrl('');
+            setExtractingAsWebsite(false);
+          }
+        },
+        { 
+          text: 'Check Later', 
           onPress: () => {
+            // Just navigate away - extraction continues in background
             router.push('/history');
           }
         },
@@ -300,6 +325,7 @@ export default function ExtractScreen() {
 
   const handleRetry = () => {
     extraction.reset();
+    setExtractingAsWebsite(false);
   };
 
   const isLoading = isChecking || extraction.isExtracting || isOcrExtracting;
@@ -411,6 +437,7 @@ export default function ExtractScreen() {
             message={extraction.message}
             elapsedTime={extraction.elapsedTime}
             error={extraction.error}
+            isWebsite={extraction.sourceUrl ? extraction.isWebsiteExtraction : extractingAsWebsite}
           />
 
           {extraction.isFailed ? (
@@ -457,9 +484,14 @@ export default function ExtractScreen() {
           {/* Hero Section */}
           <RNView style={styles.hero}>
             <Text style={[styles.heroEmoji]}>🍳</Text>
-            <Text style={[styles.heroTitle, { color: colors.text }]}>
-              Håfa Recipes
-            </Text>
+            <RNView style={styles.heroTitleRow}>
+              <Text style={[styles.heroTitle, { color: colors.text }]}>
+                Håfa Recipes
+              </Text>
+              <RNView style={[styles.betaBadge, { backgroundColor: colors.tint }]}>
+                <Text style={styles.betaBadgeText}>BETA</Text>
+              </RNView>
+            </RNView>
             <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
               Paste a video URL to extract the recipe automatically.
             </Text>
@@ -480,11 +512,17 @@ export default function ExtractScreen() {
               editable={!isLoading}
             />
             <Text style={[styles.hint, { color: colors.textMuted }]}>
-              Supports TikTok, YouTube, and Instagram
+              Supports TikTok, YouTube, Instagram, and recipe websites
             </Text>
             <Text style={[styles.tip, { color: colors.textMuted }]}>
-              💡 Works best when the recipe is spoken aloud or in the video description
+              💡 Videos: Works best when recipe is spoken or in description{'\n'}
+              🌐 Websites: Works with most recipe blogs (AllRecipes, etc.)
             </Text>
+            <RNView style={[styles.betaNote, { backgroundColor: colors.tint + '10', borderColor: colors.tint + '30' }]}>
+              <Text style={[styles.betaNoteText, { color: colors.textSecondary }]}>
+                ✨ Free during beta • Paid plans coming soon to cover AI costs
+              </Text>
+            </RNView>
           </RNView>
 
           {/* Location Selector */}
@@ -648,10 +686,25 @@ const styles = StyleSheet.create({
     fontSize: 40,
     marginBottom: spacing.sm,
   },
+  heroTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
   heroTitle: {
     fontSize: fontSize.xl,
     fontWeight: fontWeight.bold,
-    marginBottom: spacing.xs,
+  },
+  betaBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+  },
+  betaBadgeText: {
+    color: '#FFFFFF',
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
   },
   heroSubtitle: {
     fontSize: fontSize.sm,
@@ -674,6 +727,17 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     marginTop: spacing.xs,
     fontStyle: 'italic',
+  },
+  betaNote: {
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  betaNoteText: {
+    fontSize: fontSize.xs,
+    textAlign: 'center',
   },
   locationScroll: {
     gap: spacing.sm,

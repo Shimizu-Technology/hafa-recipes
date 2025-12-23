@@ -146,6 +146,14 @@ export default function RecipeDetailScreen() {
     (component) => component.ingredients
   ) || [];
 
+  // Check if there's actual nutrition data (not just empty objects)
+  const hasNutritionData = recipe?.extracted.nutrition?.perServing && (
+    recipe.extracted.nutrition.perServing.calories ||
+    recipe.extracted.nutrition.perServing.protein ||
+    recipe.extracted.nutrition.perServing.carbs ||
+    recipe.extracted.nutrition.perServing.fat
+  );
+
   const handleAddToGrocery = () => {
     if (!recipe) return;
     
@@ -329,7 +337,7 @@ export default function RecipeDetailScreen() {
     // Meta info
     const metaParts: string[] = [];
     if (extracted.servings) metaParts.push(`👥 ${extracted.servings} servings`);
-    if (extracted.times.total) metaParts.push(`⏱️ ${extracted.times.total}`);
+    if (extracted.times?.total) metaParts.push(`⏱️ ${extracted.times.total}`);
     if (extracted.totalEstimatedCost) metaParts.push(`💰 $${extracted.totalEstimatedCost.toFixed(2)}`);
     if (metaParts.length > 0) {
       text += metaParts.join('  •  ') + '\n\n';
@@ -487,7 +495,9 @@ export default function RecipeDetailScreen() {
     : recipe.source_type === 'youtube' 
       ? 'logo-youtube' 
       : recipe.source_type === 'instagram' 
-        ? 'logo-instagram' 
+        ? 'logo-instagram'
+        : recipe.source_type === 'website'
+          ? 'globe-outline' 
         : 'globe-outline';
   
   const sourceLabel = recipe.source_type === 'tiktok' 
@@ -496,7 +506,9 @@ export default function RecipeDetailScreen() {
       ? 'YouTube' 
       : recipe.source_type === 'instagram' 
         ? 'Instagram' 
-        : 'Video';
+        : recipe.source_type === 'website'
+          ? 'Website'
+          : 'Source';
 
   const tabs: { key: TabType; label: string }[] = [
     { key: 'ingredients', label: 'Ingredients' },
@@ -623,7 +635,7 @@ export default function RecipeDetailScreen() {
                   )}
                 </RNView>
               )}
-              {extracted.times.total && (
+              {extracted.times?.total && (
                 <RNView style={[styles.metaItem, { backgroundColor: colors.backgroundSecondary }]}>
                   <Text style={styles.metaIcon}>⏱️</Text>
                   <Text style={[styles.metaValue, { color: colors.text }]}>
@@ -950,8 +962,21 @@ export default function RecipeDetailScreen() {
 
               {activeTab === 'nutrition' && (
                 <>
+                  {/* Empty state for no nutrition data */}
+                  {!hasNutritionData && (
+                    <RNView style={styles.emptyNutritionState}>
+                      <Text style={[styles.emptyNutritionIcon]}>🥗</Text>
+                      <Text style={[styles.emptyNutritionTitle, { color: colors.text }]}>
+                        No Nutrition Data
+                      </Text>
+                      <Text style={[styles.emptyNutritionText, { color: colors.textMuted }]}>
+                        Nutrition information wasn't available for this recipe.
+                      </Text>
+                    </RNView>
+                  )}
+
                   {/* Per Serving */}
-                  {extracted.nutrition?.perServing && (
+                  {hasNutritionData && extracted.nutrition?.perServing && (
                     <RNView style={styles.nutritionSection}>
                       <Text style={[styles.nutritionTitle, { color: colors.text }]}>
                         Per Serving
@@ -1523,6 +1548,24 @@ const styles = StyleSheet.create({
   },
   nutritionSection: {
     marginBottom: spacing.xl,
+  },
+  emptyNutritionState: {
+    alignItems: 'center',
+    paddingVertical: spacing.xxl,
+    paddingHorizontal: spacing.lg,
+  },
+  emptyNutritionIcon: {
+    fontSize: 48,
+    marginBottom: spacing.md,
+  },
+  emptyNutritionTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.semibold,
+    marginBottom: spacing.sm,
+  },
+  emptyNutritionText: {
+    fontSize: fontSize.md,
+    textAlign: 'center',
   },
   nutritionTitle: {
     fontSize: fontSize.lg,

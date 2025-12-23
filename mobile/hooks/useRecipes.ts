@@ -20,6 +20,8 @@ export type SearchFilters = {
   sourceType?: string;
   timeFilter?: string;
   tags?: string[];
+  extractorId?: string;
+  extractorName?: string; // For display purposes
 };
 
 export const recipeKeys = {
@@ -46,6 +48,7 @@ export const recipeKeys = {
   discoverInfiniteSearch: (filters: SearchFilters) => [...recipeKeys.discover(), 'infiniteSearch', filters] as const,
   discoverSearch: (filters: SearchFilters) => [...recipeKeys.discover(), 'search', filters] as const,
   discoverCount: (sourceType?: string) => [...recipeKeys.discover(), 'count', sourceType] as const,
+  topContributors: () => [...recipeKeys.discover(), 'topContributors'] as const,
   // Ingredient search
   byIngredients: (ingredients: string[], includeSaved: boolean, includePublic: boolean) => 
     [...recipeKeys.all, 'byIngredients', ingredients.join(','), includeSaved, includePublic] as const,
@@ -229,6 +232,7 @@ export function useAsyncExtraction() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const [isPolling, setIsPolling] = useState(false);
+  const [isStarting, setIsStarting] = useState(false); // Immediate loading state
   const [error, setError] = useState<string | null>(null);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -251,6 +255,17 @@ export function useAsyncExtraction() {
       const stored = await AsyncStorage.getItem(ACTIVE_JOB_KEY);
       if (stored) {
         const { jobId: storedJobId, startTime: storedStartTime } = JSON.parse(stored);
+        
+        // Don't try to resume jobs older than 10 minutes - they're likely stale
+        const MAX_JOB_AGE_MS = 10 * 60 * 1000; // 10 minutes
+        const jobAge = Date.now() - storedStartTime;
+        
+        if (jobAge > MAX_JOB_AGE_MS) {
+          console.warn(`Stale job found (${Math.round(jobAge / 1000 / 60)} min old) - clearing`);
+          await clearActiveJob();
+          return;
+        }
+        
         setJobId(storedJobId);
         setStartTime(storedStartTime);
         // Start polling for this job
@@ -323,6 +338,18 @@ export function useAsyncExtraction() {
       } catch (e: any) {
         const status = e?.response?.status;
         
+        // Handle 404 - job doesn't exist (was cancelled, server restarted, etc.)
+        if (status === 404) {
+          console.warn('Job not found (404) - stopping polling');
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+          setIsPolling(false);
+          setIsStarting(false);
+          await clearActiveJob();
+          // Don't show an error - user likely cancelled or can just try again
+          return;
+        }
+        
         if (status === 401) {
           consecutiveAuthErrors++;
           console.warn(`Poll auth error ${consecutiveAuthErrors}/${maxAuthErrors} - network might be slow`);
@@ -350,12 +377,14 @@ export function useAsyncExtraction() {
   const startExtraction = async (request: ExtractRequest) => {
     setError(null);
     setJobStatus(null);
+    setIsStarting(true); // Show loading immediately
 
     try {
       const result = await api.startAsyncExtraction(request);
 
       // If recipe already exists, return immediately
       if (result.status === 'completed' && !result.job_id) {
+        setIsStarting(false);
         return {
           status: 'completed' as const,
           recipeId: (result as any).recipe_id,
@@ -367,8 +396,11 @@ export function useAsyncExtraction() {
       const start = Date.now();
       setJobId(result.job_id);
       setStartTime(start);
-      await saveActiveJob(result.job_id, start);
+      // Start polling FIRST, then clear isStarting to avoid flicker
+      // (ensures isPolling=true before isStarting=false)
       startPolling(result.job_id, start);
+      setIsStarting(false);
+      await saveActiveJob(result.job_id, start);
 
       return {
         status: 'processing' as const,
@@ -376,6 +408,7 @@ export function useAsyncExtraction() {
         isExisting: false,
       };
     } catch (e: any) {
+      setIsStarting(false); // Clear on error
       const errorMsg = e.response?.data?.detail || e.message || 'Failed to start extraction';
       setError(errorMsg);
       throw new Error(errorMsg);
@@ -413,38 +446,68 @@ export function useAsyncExtraction() {
     }
   };
 
-  // Cancel/reset state
+  // Reset state without cancelling the backend job
   const reset = async () => {
     if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     setJobId(null);
     setJobStatus(null);
     setIsPolling(false);
+    setIsStarting(false);
     setError(null);
     setStartTime(null);
     setElapsedTime(0);
     await clearActiveJob();
   };
 
+  // Cancel the backend job AND reset state
+  const cancel = async () => {
+    // Try to cancel the backend job
+    if (jobId) {
+      try {
+        await api.cancelJob(jobId);
+        console.log('Job cancelled on backend');
+      } catch (error: any) {
+        // Job might already be completed or not found - that's okay
+        console.log('Could not cancel job:', error.response?.status === 404 ? 'not found' : error.message);
+      }
+    }
+    // Reset frontend state
+    await reset();
+  };
+
+  // Determine if this is a website extraction based on URL
+  const sourceUrl = jobStatus?.url || '';
+  const isWebsiteExtraction = sourceUrl ? (
+    !sourceUrl.toLowerCase().includes('tiktok.com') &&
+    !sourceUrl.toLowerCase().includes('youtube.com') &&
+    !sourceUrl.toLowerCase().includes('youtu.be') &&
+    !sourceUrl.toLowerCase().includes('instagram.com')
+  ) : false;
+
   return {
     // State
     jobId,
     jobStatus,
     isPolling,
+    isStarting,
     error,
     elapsedTime,
     // Computed
-    isExtracting: isPolling,
+    isExtracting: isPolling || isStarting, // Show progress UI immediately when starting
     isComplete: jobStatus?.status === 'completed',
     isFailed: jobStatus?.status === 'failed',
     recipeId: jobStatus?.recipe_id,
     progress: jobStatus?.progress || 0,
     currentStep: jobStatus?.current_step || '',
     message: jobStatus?.message || '',
+    sourceUrl, // The URL being extracted (useful for re-extractions)
+    isWebsiteExtraction, // true for website, false for video (TikTok/YouTube/Instagram)
     // Actions
     startExtraction,
     startReExtraction,
     reset,
+    cancel, // New: actually cancels the backend job
   };
 }
 
@@ -619,13 +682,13 @@ export function useDiscoverRecipes(
  * Search and filter public recipes with infinite scroll
  */
 export function useInfiniteSearchPublicRecipes(filters: SearchFilters, enabled = true) {
-  const { query, sourceType, timeFilter, tags } = filters;
-  const hasFilters = query || sourceType || timeFilter || (tags && tags.length > 0);
+  const { query, sourceType, timeFilter, tags, extractorId } = filters;
+  const hasFilters = query || sourceType || timeFilter || (tags && tags.length > 0) || extractorId;
   
   return useInfiniteQuery({
     queryKey: recipeKeys.discoverInfiniteSearch(filters),
     queryFn: ({ pageParam = 0 }) => 
-      api.searchPublicRecipes(query || '', PAGE_SIZE, pageParam, sourceType, timeFilter, tags),
+      api.searchPublicRecipes(query || '', PAGE_SIZE, pageParam, sourceType, timeFilter, tags, extractorId),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {
       if (!lastPage.has_more) return undefined;
@@ -640,8 +703,8 @@ export function useInfiniteSearchPublicRecipes(filters: SearchFilters, enabled =
  * Helper hook that flattens public search results into a single array
  */
 export function useSearchPublicRecipes(filters: SearchFilters, enabled = true) {
-  const { query, sourceType, timeFilter, tags } = filters;
-  const hasFilters = query || sourceType || timeFilter || (tags && tags.length > 0);
+  const { query, sourceType, timeFilter, tags, extractorId } = filters;
+  const hasFilters = query || sourceType || timeFilter || (tags && tags.length > 0) || extractorId;
   
   const infiniteQuery = useInfiniteSearchPublicRecipes(filters, enabled);
   
@@ -687,6 +750,20 @@ export function usePopularTags(scope: 'user' | 'public' = 'user', enabled = true
     queryKey: recipeKeys.popularTags(scope),
     queryFn: () => api.getPopularTags(scope),
     enabled,
+  });
+}
+
+/**
+ * Get top contributors (users with most public recipes)
+ */
+export type Contributor = { user_id: string; display_name: string; recipe_count: number };
+
+export function useTopContributors(enabled = true) {
+  return useQuery<Contributor[]>({
+    queryKey: recipeKeys.topContributors(),
+    queryFn: () => api.getTopContributors(),
+    enabled,
+    staleTime: 60_000, // Cache for 1 minute
   });
 }
 

@@ -27,6 +27,21 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+// Speech recognition - conditionally import to avoid crashes in Expo Go
+let ExpoSpeechRecognitionModule: any = null;
+let useSpeechRecognitionEvent: any = () => {}; // no-op hook
+let speechRecognitionAvailable = false;
+
+try {
+  const speechModule = require('expo-speech-recognition');
+  ExpoSpeechRecognitionModule = speechModule.ExpoSpeechRecognitionModule;
+  useSpeechRecognitionEvent = speechModule.useSpeechRecognitionEvent;
+  speechRecognitionAvailable = !!ExpoSpeechRecognitionModule;
+} catch {
+  // Speech recognition not available (Expo Go or module not linked)
+  console.log('Speech recognition not available - requires development build');
+}
+
 import { View, Text, useColors } from '@/components/Themed';
 import { Recipe, ChatMessage } from '@/types/recipe';
 import { useChatWithRecipe } from '@/hooks/useChat';
@@ -59,8 +74,74 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [isListening, setIsListening] = useState(false);
   
   const chatMutation = useChatWithRecipe();
+  
+  // Speech recognition event handlers
+  useSpeechRecognitionEvent('start', () => {
+    setIsListening(true);
+  });
+  
+  useSpeechRecognitionEvent('end', () => {
+    setIsListening(false);
+  });
+  
+  useSpeechRecognitionEvent('result', (event) => {
+    // Get the best result from the transcription
+    if (event.results && event.results.length > 0) {
+      const transcript = event.results[0]?.transcript || '';
+      if (transcript) {
+        setInputText(prev => prev + (prev ? ' ' : '') + transcript);
+      }
+    }
+  });
+  
+  useSpeechRecognitionEvent('error', (event) => {
+    console.log('Speech recognition error:', event.error);
+    setIsListening(false);
+    if (event.error === 'not-allowed') {
+      Alert.alert(
+        'Microphone Permission Required',
+        'Please enable microphone access in Settings to use voice input.',
+        [{ text: 'OK' }]
+      );
+    }
+  });
+  
+  const handleMicPress = async () => {
+    if (!speechRecognitionAvailable || !ExpoSpeechRecognitionModule) {
+      Alert.alert(
+        'Not Available',
+        'Voice input requires a development build. It is not available in Expo Go.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    if (isListening) {
+      // Stop listening
+      await ExpoSpeechRecognitionModule.stop();
+    } else {
+      // Request permission and start listening
+      const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!result.granted) {
+        Alert.alert(
+          'Permission Required',
+          'Microphone and speech recognition permissions are needed for voice input.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      
+      // Start speech recognition
+      await ExpoSpeechRecognitionModule.start({
+        lang: 'en-US',
+        interimResults: false,
+        maxAlternatives: 1,
+      });
+    }
+  };
   
   const storageKey = `${CHAT_STORAGE_KEY_PREFIX}${recipe.id}`;
 
@@ -345,18 +426,37 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
             },
           ]}
         >
+          {/* Microphone button */}
+          <TouchableOpacity
+            onPress={handleMicPress}
+            disabled={chatMutation.isPending}
+            style={[
+              styles.micButton,
+              {
+                backgroundColor: isListening ? colors.error : colors.backgroundSecondary,
+                borderColor: isListening ? colors.error : colors.border,
+              },
+            ]}
+          >
+            <Ionicons
+              name={isListening ? 'mic' : 'mic-outline'}
+              size={22}
+              color={isListening ? '#FFFFFF' : colors.textSecondary}
+            />
+          </TouchableOpacity>
+          
           <TextInput
             value={inputText}
             onChangeText={setInputText}
-            placeholder="Ask about this recipe..."
-            placeholderTextColor={colors.textMuted}
+            placeholder={isListening ? 'Listening...' : 'Ask about this recipe...'}
+            placeholderTextColor={isListening ? colors.error : colors.textMuted}
             multiline
             maxLength={500}
             style={[
               styles.input,
               {
                 backgroundColor: colors.backgroundSecondary,
-                borderColor: colors.border,
+                borderColor: isListening ? colors.error : colors.border,
                 color: colors.text,
               },
             ]}
@@ -546,6 +646,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  micButton: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
   },
 });
 

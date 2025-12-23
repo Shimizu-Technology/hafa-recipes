@@ -411,10 +411,17 @@ class ApiClient {
     limit = 20, 
     offset = 0, 
     sourceType?: string,
-    sort: 'recent' | 'random' | 'popular' = 'recent'
+    sort: 'recent' | 'random' | 'popular' = 'recent',
+    extractorId?: string,
   ): Promise<PaginatedRecipes> {
     const { data } = await this.client.get('/api/recipes/discover', {
-      params: { limit, offset, source_type: sourceType || undefined, sort },
+      params: { 
+        limit, 
+        offset, 
+        source_type: sourceType || undefined, 
+        sort,
+        extractor_id: extractorId || undefined,
+      },
     });
     return data;
   }
@@ -426,6 +433,7 @@ class ApiClient {
     sourceType?: string,
     timeFilter?: string,
     tags?: string[],
+    extractorId?: string,
   ): Promise<PaginatedRecipes> {
     const { data } = await this.client.get('/api/recipes/discover/search', {
       params: { 
@@ -435,6 +443,7 @@ class ApiClient {
         source_type: sourceType || undefined,
         time_filter: timeFilter || undefined,
         tags: tags?.join(',') || undefined,
+        extractor_id: extractorId || undefined,
       },
     });
     return data;
@@ -450,6 +459,13 @@ class ApiClient {
   async getPopularTags(scope: 'user' | 'public' = 'user', limit = 10): Promise<{ tag: string; count: number }[]> {
     const { data } = await this.client.get('/api/recipes/tags/popular', {
       params: { scope, limit },
+    });
+    return data;
+  }
+
+  async getTopContributors(limit = 8): Promise<{ user_id: string; display_name: string; recipe_count: number }[]> {
+    const { data } = await this.client.get('/api/recipes/discover/contributors', {
+      params: { limit },
     });
     return data;
   }
@@ -566,6 +582,14 @@ class ApiClient {
 
   async getJobStatus(jobId: string): Promise<JobStatus> {
     const { data } = await this.client.get(`/api/jobs/${jobId}`);
+    return data;
+  }
+
+  /**
+   * Cancel an extraction job.
+   */
+  async cancelJob(jobId: string): Promise<{ message: string; job_id: string }> {
+    const { data } = await this.client.delete(`/api/jobs/${jobId}`);
     return data;
   }
 
