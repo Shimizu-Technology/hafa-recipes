@@ -291,6 +291,13 @@ a:hover {
   background: var(--background-secondary);
 }
 
+.cta-note {
+  font-size: 0.9375rem;
+  opacity: 0.8;
+  margin-top: 20px;
+  margin-bottom: 0;
+}
+
 /* Footer */
 .footer {
   padding: 60px 0 40px;

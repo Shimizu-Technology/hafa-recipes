@@ -7,7 +7,7 @@ export default function Home() {
           <img src="/icon.png" alt="Håfa Recipes" className="hero-icon" />
           <h1>Håfa Recipes</h1>
           <p className="hero-tagline">
-            Transform cooking videos from TikTok, YouTube, and Instagram into detailed, structured recipes using AI.
+            Transform cooking videos and recipe websites into detailed, structured recipes using AI. Extract from TikTok, YouTube, Instagram, or any recipe blog.
           </p>
           <div className="hero-buttons">
             <a
@@ -46,6 +46,46 @@ export default function Home() {
             </div>
 
             <div className="feature-card">
+              <div className="feature-icon">🌐</div>
+              <h3>Website Import</h3>
+              <p>
+                Import recipes from any recipe website. Works with AllRecipes, Budget Bytes, Half Baked Harvest, and hundreds more.
+              </p>
+            </div>
+
+            <div className="feature-card">
+              <div className="feature-icon">👨‍🍳</div>
+              <h3>Cook Mode</h3>
+              <p>
+                Step-by-step cooking with large text, screen stays on, built-in timers, and quick ingredient reference.
+              </p>
+            </div>
+
+            <div className="feature-card">
+              <div className="feature-icon">📅</div>
+              <h3>Meal Planner</h3>
+              <p>
+                Plan your week with breakfast, lunch, dinner, and snack slots. Add entire week's ingredients to grocery list at once.
+              </p>
+            </div>
+
+            <div className="feature-card">
+              <div className="feature-icon">🔍</div>
+              <h3>What Can I Make?</h3>
+              <p>
+                Enter ingredients you have on hand and find matching recipes. See match percentage and missing ingredients.
+              </p>
+            </div>
+
+            <div className="feature-card">
+              <div className="feature-icon">🌍</div>
+              <h3>Discover Community</h3>
+              <p>
+                Browse recipes shared by the community. Save favorites, filter by top contributors, and find inspiration.
+              </p>
+            </div>
+
+            <div className="feature-card">
               <div className="feature-icon">📸</div>
               <h3>Photo Scanning</h3>
               <p>
@@ -57,7 +97,7 @@ export default function Home() {
               <div className="feature-icon">💬</div>
               <h3>AI Recipe Chat</h3>
               <p>
-                Ask questions about any recipe. Get substitutions, cooking tips, and help with troubleshooting.
+                Ask questions about any recipe with text or voice. Get substitutions, cooking tips, and troubleshooting help.
               </p>
             </div>
 
@@ -65,7 +105,7 @@ export default function Home() {
               <div className="feature-icon">🛒</div>
               <h3>Smart Grocery List</h3>
               <p>
-                Add ingredients from recipes to your grocery list. Items grouped by recipe with collapsible sections.
+                Add ingredients from recipes to your grocery list. Clear by recipe, works offline, and syncs automatically.
               </p>
             </div>
 
@@ -74,6 +114,14 @@ export default function Home() {
               <h3>Collections</h3>
               <p>
                 Organize recipes into custom folders like "Weeknight Dinners" or "Holiday Favorites".
+              </p>
+            </div>
+
+            <div className="feature-card">
+              <div className="feature-icon">⚖️</div>
+              <h3>Recipe Scaling</h3>
+              <p>
+                Adjust servings up or down. Ingredients and costs automatically scale to match.
               </p>
             </div>
 
@@ -99,20 +147,20 @@ export default function Home() {
           <div className="steps">
             <div className="step">
               <div className="step-number">1</div>
-              <h3>Paste a Video URL</h3>
-              <p>Copy a cooking video link from TikTok, YouTube, or Instagram.</p>
+              <h3>Paste a URL</h3>
+              <p>Copy a video link from TikTok, YouTube, Instagram, or any recipe website.</p>
             </div>
 
             <div className="step">
               <div className="step-number">2</div>
               <h3>AI Extracts Recipe</h3>
-              <p>Our AI analyzes the video and extracts all the recipe details.</p>
+              <p>Our AI analyzes the content and extracts all the recipe details automatically.</p>
             </div>
 
             <div className="step">
               <div className="step-number">3</div>
-              <h3>Cook & Enjoy!</h3>
-              <p>Save, organize, and cook your recipes anytime.</p>
+              <h3>Plan, Shop & Cook!</h3>
+              <p>Add to meal planner, build your grocery list, and use Cook Mode for hands-free cooking.</p>
             </div>
           </div>
         </div>
@@ -122,7 +170,7 @@ export default function Home() {
       <section className="cta">
         <div className="container">
           <h2>Ready to Start Cooking?</h2>
-          <p>Download Håfa Recipes free today and transform your cooking experience.</p>
+          <p>Download Håfa Recipes today - free during beta! Extract unlimited recipes from videos and websites.</p>
           <a
             href="https://apps.apple.com/us/app/recipe-extractor-gu/id6755892896"
             target="_blank"
@@ -131,6 +179,7 @@ export default function Home() {
           >
             Download Free on App Store
           </a>
+          <p className="cta-note">✨ All features free during beta • Paid plans coming soon</p>
         </div>
       </section>
     </>
