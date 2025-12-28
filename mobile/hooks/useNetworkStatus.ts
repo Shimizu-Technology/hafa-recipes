@@ -29,7 +29,8 @@ function getApiBaseUrl(): string {
 
 const API_URL = getApiBaseUrl();
 const HEALTH_CHECK_INTERVAL = 30000; // 30 seconds
-const HEALTH_CHECK_TIMEOUT = 5000; // 5 second timeout
+const HEALTH_CHECK_TIMEOUT = 8000; // 8 second timeout (more forgiving for slow connections)
+const CONSECUTIVE_FAILURES_BEFORE_OFFLINE = 2; // Require 2 consecutive failures before marking offline
 
 export interface NetworkStatus {
   isConnected: boolean | null;
@@ -71,18 +72,34 @@ export function useNetworkStatus() {
   
   const healthCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isMountedRef = useRef(true);
+  const consecutiveFailuresRef = useRef(0);
 
-  // Check API health and update state
+  // Check API health and update state (with debouncing for failures)
   const performHealthCheck = useCallback(async () => {
     if (!isMountedRef.current) return;
     
     const isReachable = await checkApiHealth();
     
-    if (isMountedRef.current) {
+    if (!isMountedRef.current) return;
+    
+    if (isReachable) {
+      // Success - reset failure count and mark as reachable
+      consecutiveFailuresRef.current = 0;
       setNetworkStatus(prev => ({
         ...prev,
-        isApiReachable: isReachable,
+        isApiReachable: true,
       }));
+    } else {
+      // Failure - increment count and only mark offline after threshold
+      consecutiveFailuresRef.current += 1;
+      
+      if (consecutiveFailuresRef.current >= CONSECUTIVE_FAILURES_BEFORE_OFFLINE) {
+        setNetworkStatus(prev => ({
+          ...prev,
+          isApiReachable: false,
+        }));
+      }
+      // If under threshold, keep previous state (don't flash the banner)
     }
   }, []);
 
@@ -140,11 +157,13 @@ export function useNetworkStatus() {
       }));
       
       if (state.isConnected) {
-        // Network came back - check API immediately
+        // Network came back - reset failure count and check API immediately
+        consecutiveFailuresRef.current = 0;
         startHealthChecks();
       } else {
         // Network gone - stop checking and mark API as unreachable
         stopHealthChecks();
+        consecutiveFailuresRef.current = CONSECUTIVE_FAILURES_BEFORE_OFFLINE; // Ensure we show offline
         setNetworkStatus(prev => ({
           ...prev,
           isApiReachable: false,

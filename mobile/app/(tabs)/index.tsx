@@ -11,7 +11,7 @@ import {
   ActivityIndicator,
   Image,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/clerk-expo';
@@ -29,6 +29,7 @@ export default function ExtractScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { isSignedIn } = useAuth();
+  const { sharedUrl } = useLocalSearchParams<{ sharedUrl?: string }>();
   
   // All hooks must be called unconditionally
   const [url, setUrl] = useState('');
@@ -45,6 +46,16 @@ export default function ExtractScreen() {
   const { data: locationsData } = useLocations();
   const extraction = useAsyncExtraction();
   const checkDuplicate = useCheckDuplicate();
+  
+  // Handle shared URL from iOS Share Extension
+  useEffect(() => {
+    if (sharedUrl && sharedUrl !== url) {
+      console.log('📥 Setting shared URL:', sharedUrl);
+      setUrl(sharedUrl);
+      // Clear the param by navigating to same screen without params
+      router.setParams({ sharedUrl: undefined });
+    }
+  }, [sharedUrl]);
 
   // Handle photo selection/capture for OCR
   const handleScanRecipe = async () => {
@@ -171,17 +182,37 @@ export default function ExtractScreen() {
   // Navigate to recipe when extraction completes
   useEffect(() => {
     if (extraction.isComplete && extraction.recipeId) {
-      const timer = setTimeout(() => {
+      const navigateToRecipe = () => {
         router.push(`/recipe/${extraction.recipeId}`);
         extraction.reset();
         setUrl('');
         setNotes('');
         setIsPublic(true);
         setExtractingAsWebsite(false);
-      }, 1000);
-      return () => clearTimeout(timer);
+      };
+
+      // Show warning if low confidence extraction
+      if (extraction.lowConfidence && extraction.confidenceWarning) {
+        const timer = setTimeout(() => {
+          Alert.alert(
+            "Recipe May Need Review",
+            extraction.confidenceWarning + "\n\nYou can edit the recipe to fix any issues.",
+            [
+              {
+                text: "Review Recipe",
+                onPress: navigateToRecipe,
+              }
+            ]
+          );
+        }, 500);
+        return () => clearTimeout(timer);
+      } else {
+        // Normal flow - navigate after brief delay
+        const timer = setTimeout(navigateToRecipe, 1000);
+        return () => clearTimeout(timer);
+      }
     }
-  }, [extraction.isComplete, extraction.recipeId]);
+  }, [extraction.isComplete, extraction.recipeId, extraction.lowConfidence, extraction.confidenceWarning]);
   
   // Proceed with extraction (called after duplicate check or when user chooses "Extract Anyway")
   const proceedWithExtraction = async () => {
@@ -232,11 +263,11 @@ export default function ExtractScreen() {
       // For non-video URLs, we still allow them (website extraction)
       // Just make sure it's a valid URL format
       if (!urlLower.startsWith('http://') && !urlLower.startsWith('https://')) {
-        Alert.alert(
-          'Invalid URL', 
+      Alert.alert(
+        'Invalid URL', 
           'Please enter a valid URL starting with http:// or https://'
-        );
-        return;
+      );
+      return;
       }
     }
 
@@ -438,6 +469,8 @@ export default function ExtractScreen() {
             elapsedTime={extraction.elapsedTime}
             error={extraction.error}
             isWebsite={extraction.sourceUrl ? extraction.isWebsiteExtraction : extractingAsWebsite}
+            lowConfidence={extraction.lowConfidence}
+            confidenceWarning={extraction.confidenceWarning}
           />
 
           {extraction.isFailed ? (
@@ -485,9 +518,9 @@ export default function ExtractScreen() {
           <RNView style={styles.hero}>
             <Text style={[styles.heroEmoji]}>🍳</Text>
             <RNView style={styles.heroTitleRow}>
-              <Text style={[styles.heroTitle, { color: colors.text }]}>
-                Håfa Recipes
-              </Text>
+            <Text style={[styles.heroTitle, { color: colors.text }]}>
+              Håfa Recipes
+            </Text>
               <RNView style={[styles.betaBadge, { backgroundColor: colors.tint }]}>
                 <Text style={styles.betaBadgeText}>BETA</Text>
               </RNView>
@@ -521,7 +554,7 @@ export default function ExtractScreen() {
             <RNView style={[styles.betaNote, { backgroundColor: colors.tint + '10', borderColor: colors.tint + '30' }]}>
               <Text style={[styles.betaNoteText, { color: colors.textSecondary }]}>
                 ✨ Free during beta • Paid plans coming soon to cover AI costs
-              </Text>
+            </Text>
             </RNView>
           </RNView>
 

@@ -16,6 +16,8 @@ interface ExtractionProgressProps {
   elapsedTime: number; // seconds
   error?: string | null;
   isWebsite?: boolean; // true for website extraction, false for video
+  lowConfidence?: boolean; // true if extraction quality is uncertain
+  confidenceWarning?: string | null; // Warning message for user
 }
 
 // Map backend step names to display info - VIDEO extraction
@@ -85,6 +87,8 @@ export default function ExtractionProgress({
   elapsedTime,
   error,
   isWebsite = false,
+  lowConfidence = false,
+  confidenceWarning,
 }: ExtractionProgressProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -128,9 +132,23 @@ export default function ExtractionProgress({
     );
   }
 
+  // Determine title based on state
+  const isComplete = currentStep === 'complete';
+  const title = isComplete 
+    ? (lowConfidence ? 'Recipe Extracted - Please Review' : 'Recipe Extracted!')
+    : 'Extracting Recipe';
+
   return (
     <View style={[styles.container, { backgroundColor: colors.cardBackground }]}>
-      <Text style={[styles.title, { color: colors.text }]}>Extracting Recipe</Text>
+      <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
+      
+      {/* Show warning banner for low confidence extractions */}
+      {isComplete && lowConfidence && confidenceWarning && (
+        <View style={[styles.warningBanner, { backgroundColor: '#fef3c7' }]}>
+          <Ionicons name="warning" size={20} color="#d97706" style={{ marginRight: 8 }} />
+          <Text style={styles.warningText}>{confidenceWarning}</Text>
+        </View>
+      )}
       
       {/* Steps list */}
       <View style={styles.stepsContainer}>
@@ -299,6 +317,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  warningBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  warningText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#92400e',
+    lineHeight: 18,
   },
 });
 

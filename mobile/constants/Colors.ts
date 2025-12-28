@@ -108,3 +108,36 @@ export const fontWeight = {
   semibold: '600' as const,
   bold: '700' as const,
 };
+
+// Font family (Inter)
+export const fontFamily = {
+  regular: 'Inter_400Regular',
+  medium: 'Inter_500Medium',
+  semibold: 'Inter_600SemiBold',
+  bold: 'Inter_700Bold',
+};
+
+// Shadow presets for cards and elevated surfaces
+export const shadows = {
+  // Subtle shadow for cards
+  card: {
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  // Medium shadow for modals, floating buttons
+  medium: {
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  // Strong shadow for popovers, dropdowns
+  strong: {
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+};

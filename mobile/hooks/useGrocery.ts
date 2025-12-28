@@ -6,7 +6,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient, useIsFetching } from '@tanstack/react-query';
-import { useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
 import { GroceryItem, GroceryItemCreate, Ingredient } from '../types/recipe';
 import { useNetworkStatus, useOnlineCallback } from './useNetworkStatus';
@@ -115,7 +115,7 @@ export function useGroceryCount(isSignedIn = true) {
 }
 
 /**
- * Add a single grocery item with offline support
+ * Add a single grocery item with offline support and optimistic updates
  */
 export function useAddGroceryItem() {
   const queryClient = useQueryClient();
@@ -123,14 +123,11 @@ export function useAddGroceryItem() {
 
   return useMutation({
     mutationFn: async (item: GroceryItemCreate) => {
-      const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
       if (!isOnline) {
-        // Offline: apply locally and queue for sync
+        const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         await applyLocalAdd(item, tempId);
         await addToSyncQueue({ type: 'ADD_ITEM', payload: { ...item, tempId } });
         
-        // Return a fake response
         return {
           id: tempId,
           ...item,
@@ -139,12 +136,79 @@ export function useAddGroceryItem() {
         } as GroceryItem;
       }
 
-      // Online: send to server
       return api.addGroceryItem(item);
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: groceryKeys.list() });
-      queryClient.invalidateQueries({ queryKey: groceryKeys.count() });
+    onMutate: async (newItem) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: groceryKeys.list() });
+      await queryClient.cancelQueries({ queryKey: groceryKeys.count() });
+
+      // Snapshot previous data
+      const previousListTrue = queryClient.getQueryData<GroceryItem[]>([...groceryKeys.list(), true]);
+      const previousListFalse = queryClient.getQueryData<GroceryItem[]>([...groceryKeys.list(), false]);
+      const previousCount = queryClient.getQueryData<{ total: number; checked: number; unchecked: number }>(groceryKeys.count());
+
+      // Create optimistic item
+      const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const optimisticItem: GroceryItem = {
+        id: tempId,
+        name: newItem.name,
+        quantity: newItem.quantity ?? null,
+        unit: newItem.unit ?? null,
+        notes: newItem.notes ?? null,
+        checked: false,
+        recipe_id: newItem.recipe_id ?? null,
+        recipe_title: newItem.recipe_title ?? null,
+        added_by_name: null,
+        created_at: new Date().toISOString(),
+      };
+
+      // Update list cache - add to TOP of list
+      if (previousListTrue) {
+        queryClient.setQueryData<GroceryItem[]>([...groceryKeys.list(), true], [optimisticItem, ...previousListTrue]);
+      } else {
+        queryClient.setQueryData<GroceryItem[]>([...groceryKeys.list(), true], [optimisticItem]);
+      }
+
+      if (previousListFalse) {
+        queryClient.setQueryData<GroceryItem[]>([...groceryKeys.list(), false], [optimisticItem, ...previousListFalse]);
+      }
+
+      // Update count cache
+      if (previousCount) {
+        queryClient.setQueryData(groceryKeys.count(), {
+          total: previousCount.total + 1,
+          checked: previousCount.checked,
+          unchecked: previousCount.unchecked + 1,
+        });
+      }
+
+      return { previousListTrue, previousListFalse, previousCount, tempId };
+    },
+    onSuccess: (serverItem, variables, context) => {
+      // Replace temp item with real server item
+      if (context?.tempId && serverItem) {
+        queryClient.setQueryData<GroceryItem[]>([...groceryKeys.list(), true], (old) => {
+          if (!old) return [serverItem];
+          return old.map(item => item.id === context.tempId ? serverItem : item);
+        });
+        queryClient.setQueryData<GroceryItem[]>([...groceryKeys.list(), false], (old) => {
+          if (!old) return undefined;
+          return old.map(item => item.id === context.tempId ? serverItem : item);
+        });
+      }
+    },
+    onError: (err, newItem, context) => {
+      // Rollback on error
+      if (context?.previousListTrue !== undefined) {
+        queryClient.setQueryData([...groceryKeys.list(), true], context.previousListTrue);
+      }
+      if (context?.previousListFalse !== undefined) {
+        queryClient.setQueryData([...groceryKeys.list(), false], context.previousListFalse);
+      }
+      if (context?.previousCount) {
+        queryClient.setQueryData(groceryKeys.count(), context.previousCount);
+      }
     },
   });
 }
@@ -402,17 +466,29 @@ export function useClearAllItems() {
 }
 
 /**
+ * Result of a sync operation
+ */
+export interface SyncResult {
+  synced: number;
+  failed: number;
+  failedItems: string[];
+}
+
+/**
  * Hook to sync pending changes when coming back online
  */
 export function useGrocerySync() {
   const queryClient = useQueryClient();
   const { isOnline } = useNetworkStatus();
+  const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
 
-  const syncPendingChanges = useCallback(async () => {
-    if (!isOnline) return;
+  const syncPendingChanges = useCallback(async (): Promise<SyncResult> => {
+    const result: SyncResult = { synced: 0, failed: 0, failedItems: [] };
+    
+    if (!isOnline) return result;
 
     const queue = await getPendingSyncQueue();
-    if (queue.length === 0) return;
+    if (queue.length === 0) return result;
 
     console.log(`[Grocery Sync] Syncing ${queue.length} pending changes...`);
 
@@ -434,9 +510,9 @@ export function useGrocerySync() {
 
           case 'ADD_ITEM': {
             const { tempId, ...itemData } = item.action.payload;
-            const result = await api.addGroceryItem(itemData);
+            const addResult = await api.addGroceryItem(itemData);
             // Replace temp ID with real ID in cache
-            await replaceTempId(tempId, result.id);
+            await replaceTempId(tempId, addResult.id);
             break;
           }
 
@@ -465,16 +541,30 @@ export function useGrocerySync() {
 
         // Remove from queue after successful sync
         await removeFromSyncQueue(item.id);
+        result.synced++;
         console.log(`[Grocery Sync] Synced: ${item.action.type}`);
-      } catch (error) {
+      } catch (error: any) {
         console.warn(`[Grocery Sync] Failed to sync ${item.action.type}:`, error);
-        // Keep in queue for next sync attempt
+        result.failed++;
+        result.failedItems.push(item.action.type);
+        
+        // For 404 errors (item not found), remove from queue - the item no longer exists
+        if (error?.response?.status === 404) {
+          await removeFromSyncQueue(item.id);
+          console.log(`[Grocery Sync] Removed stale item from queue: ${item.action.type}`);
+        }
+        // Keep other errors in queue for next sync attempt
       }
     }
 
     // After syncing, refresh from server to get latest state
     await queryClient.invalidateQueries({ queryKey: groceryKeys.all });
-    console.log('[Grocery Sync] Complete');
+    
+    // Store the result
+    setLastSyncResult(result);
+    
+    console.log(`[Grocery Sync] Complete: ${result.synced} synced, ${result.failed} failed`);
+    return result;
   }, [isOnline, queryClient]);
 
   // Sync when coming back online
@@ -491,7 +581,11 @@ export function useGrocerySync() {
     }
   }, [isOnline, syncPendingChanges]);
 
-  return { syncPendingChanges };
+  return { 
+    syncPendingChanges,
+    lastSyncResult,
+    clearSyncResult: () => setLastSyncResult(null),
+  };
 }
 
 /**
@@ -506,5 +600,87 @@ export function usePendingGrocerySync() {
     // Only check when offline
     enabled: !isOnline,
     refetchInterval: !isOnline ? 5000 : false, // Check every 5s when offline
+  });
+}
+
+// ============================================================
+// Shared Grocery List Hooks
+// ============================================================
+
+/**
+ * Get info about the user's grocery list (members, shared status)
+ */
+export function useGroceryListInfo(isSignedIn = true) {
+  return useQuery({
+    queryKey: [...groceryKeys.all, 'listInfo'],
+    queryFn: () => api.getGroceryListInfo(),
+    enabled: isSignedIn,
+    staleTime: 30 * 1000,
+  });
+}
+
+/**
+ * Create an invite link for sharing the grocery list
+ */
+export function useCreateGroceryInvite() {
+  return useMutation({
+    mutationFn: () => api.createGroceryInvite(),
+  });
+}
+
+/**
+ * Get preview of an invite (for join confirmation screen)
+ */
+export function useInvitePreview(code: string, enabled = true) {
+  return useQuery({
+    queryKey: ['grocery', 'invite', code],
+    queryFn: () => api.getInvitePreview(code),
+    enabled: enabled && !!code,
+    staleTime: 60 * 1000,
+  });
+}
+
+/**
+ * Join a shared grocery list via invite code
+ */
+export function useJoinGroceryList() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (code: string) => api.joinGroceryList(code),
+    onSuccess: () => {
+      // Invalidate all grocery queries to refresh with new list
+      queryClient.invalidateQueries({ queryKey: groceryKeys.all });
+    },
+  });
+}
+
+/**
+ * Leave a shared grocery list
+ */
+export function useLeaveGroceryList() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: () => api.leaveGroceryList(),
+    onSuccess: () => {
+      // Invalidate all grocery queries to refresh with personal list
+      queryClient.invalidateQueries({ queryKey: groceryKeys.all });
+    },
+  });
+}
+
+/**
+ * Remove a member from the grocery list
+ */
+export function useRemoveGroceryMember() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (userId: string) => api.removeGroceryListMember(userId),
+    onSuccess: () => {
+      // Refresh list info to update members
+      queryClient.invalidateQueries({ queryKey: [...groceryKeys.all, 'listInfo'] });
+    },
   });
 }

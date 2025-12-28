@@ -10,7 +10,9 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
   ScrollView,
+  Dimensions,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -20,6 +22,7 @@ import { useAuth } from '@clerk/clerk-expo';
 import { View, Text, Input, Chip, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
 import FilterBottomSheet, { FilterState, SourceFilter, TimeFilter } from '@/components/FilterBottomSheet';
+import AllContributorsModal from '@/components/AllContributorsModal';
 import { 
   useDiscoverRecipes, 
   useSearchPublicRecipes, 
@@ -34,8 +37,14 @@ import {
   DiscoverSort,
 } from '@/hooks/useRecipes';
 import { RecipeListItem } from '@/types/recipe';
-import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const GRID_PADDING = spacing.lg; // 24px on each side
+const GRID_GAP = spacing.sm; // Gap between cards
+const GRID_CARD_WIDTH = (SCREEN_WIDTH - (GRID_PADDING * 2) - GRID_GAP) / 2;
+import { useViewPreference } from '@/hooks/useViewPreference';
 import { SkeletonRecipeList } from '@/components/Skeleton';
 import { AnimatedListItem, ScalePressable } from '@/components/Animated';
 import Animated, {
@@ -178,18 +187,25 @@ function RecipeCard({
       style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]} 
       onPress={onPress}
     >
-      {/* Thumbnail */}
-      <RNView>
+      {/* Thumbnail with gradient overlay */}
+      <RNView style={styles.thumbnailContainer}>
         {showPlaceholder ? (
           <RNView style={[styles.placeholderThumbnail, { backgroundColor: colors.tint + '15' }]}>
             <Ionicons name="restaurant-outline" size={32} color={colors.tint} />
           </RNView>
         ) : (
-          <Image 
-            source={{ uri: recipe.thumbnail_url! }} 
-            style={styles.thumbnail}
-            onError={() => setImageError(true)}
-          />
+          <>
+            <Image 
+              source={{ uri: recipe.thumbnail_url! }} 
+              style={styles.thumbnail}
+              onError={() => setImageError(true)}
+            />
+            {/* Subtle gradient for depth */}
+            <LinearGradient
+              colors={['transparent', 'rgba(0,0,0,0.3)']}
+              style={styles.thumbnailOverlay}
+            />
+          </>
         )}
         {/* Save button overlay */}
         {currentUserId && (
@@ -277,6 +293,68 @@ function RecipeCard({
   );
 }
 
+// Grid recipe card - square image with title overlay
+function GridRecipeCard({ 
+  recipe, 
+  onPress,
+  colors,
+}: { 
+  recipe: RecipeListItem; 
+  onPress: () => void;
+  colors: ReturnType<typeof useColors>;
+}) {
+  const [imageError, setImageError] = useState(false);
+  const showPlaceholder = !recipe.thumbnail_url || imageError;
+
+  return (
+    <ScalePressable 
+      style={[styles.gridCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]} 
+      onPress={onPress}
+    >
+      {/* Full card is the image with overlay */}
+      <RNView style={styles.gridThumbnailContainer}>
+        {showPlaceholder ? (
+          <RNView style={[styles.gridPlaceholder, { backgroundColor: colors.tint + '15' }]}>
+            <Ionicons name="restaurant-outline" size={40} color={colors.tint} />
+          </RNView>
+        ) : (
+          <Image 
+            source={{ uri: recipe.thumbnail_url! }} 
+            style={styles.gridThumbnail}
+            onError={() => setImageError(true)}
+          />
+        )}
+        
+        {/* Cook time badge - top left */}
+        {recipe.total_time && (
+          <RNView style={[styles.gridTimeBadge, { backgroundColor: 'rgba(0,0,0,0.7)' }]}>
+            <Ionicons name="time-outline" size={10} color="#FFFFFF" />
+            <Text style={styles.gridTimeText}>{recipe.total_time}</Text>
+          </RNView>
+        )}
+        
+        {/* Subtle gradient overlay at bottom for text readability */}
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.7)']}
+          style={styles.gridOverlay}
+        />
+        
+        {/* Title and author overlaid on image */}
+        <RNView style={styles.gridCardContent}>
+          <Text style={styles.gridCardTitle} numberOfLines={2}>
+            {recipe.title}
+          </Text>
+          {recipe.extractor_display_name && (
+            <Text style={styles.gridCardAuthor} numberOfLines={1}>
+              by {recipe.extractor_display_name}
+            </Text>
+          )}
+        </RNView>
+      </RNView>
+    </ScalePressable>
+  );
+}
+
 export default function DiscoverScreen() {
   const router = useRouter();
   const colors = useColors();
@@ -285,9 +363,22 @@ export default function DiscoverScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
   const [showFilterModal, setShowFilterModal] = useState(false);
+  const [showAllContributors, setShowAllContributors] = useState(false);
+  
+  // View preference (grid or list)
+  const { viewMode, toggleViewMode, isGrid } = useViewPreference();
   
   // User filter state (for "recipes by user" feature)
   const [selectedExtractor, setSelectedExtractor] = useState<{ id: string; name: string } | null>(null);
+  
+  // @username search pattern detection
+  const usernameSearchMatch = useMemo(() => {
+    const match = searchQuery.match(/^@(.+)/);
+    if (match) {
+      return match[1].toLowerCase().trim();
+    }
+    return null;
+  }, [searchQuery]);
   
   // Filter state
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
@@ -349,6 +440,14 @@ export default function DiscoverScreen() {
   
   // Top contributors (users with most public recipes)
   const { data: topContributors } = useTopContributors(isAuthenticated);
+  
+  // Filter contributors based on @username search
+  const matchingContributors = useMemo(() => {
+    if (!usernameSearchMatch || !topContributors) return [];
+    return topContributors.filter(c => 
+      c.display_name.toLowerCase().includes(usernameSearchMatch)
+    ).slice(0, 5); // Limit to 5 suggestions
+  }, [usernameSearchMatch, topContributors]);
   
   // Handle filter apply
   const handleApplyFilters = useCallback((filters: FilterState) => {
@@ -445,20 +544,36 @@ export default function DiscoverScreen() {
     setDisplayCount(ITEMS_PER_PAGE);
   }, []);
 
-  const renderItem = ({ item, index }: { item: RecipeListItem; index: number }) => (
-    <AnimatedListItem index={index} delay={40}>
-      <RecipeCard
-        recipe={item}
-        colors={colors}
-        onPress={() => {
-          haptics.light();
-          router.push(`/recipe/${item.id}`);
-        }}
-        onUserPress={handleUserPress}
-        currentUserId={userId}
-      />
-    </AnimatedListItem>
-  );
+  const renderItem = ({ item, index }: { item: RecipeListItem; index: number }) => {
+    if (isGrid) {
+      return (
+        <AnimatedListItem index={index} delay={40}>
+          <GridRecipeCard
+            recipe={item}
+            colors={colors}
+            onPress={() => {
+              haptics.light();
+              router.push(`/recipe/${item.id}`);
+            }}
+          />
+        </AnimatedListItem>
+      );
+    }
+    return (
+      <AnimatedListItem index={index} delay={40}>
+        <RecipeCard
+          recipe={item}
+          colors={colors}
+          onPress={() => {
+            haptics.light();
+            router.push(`/recipe/${item.id}`);
+          }}
+          onUserPress={handleUserPress}
+          currentUserId={userId}
+        />
+      </AnimatedListItem>
+    );
+  };
 
   // Memoize header to prevent re-render on search change
   const ListHeaderTitle = useCallback(() => (
@@ -471,7 +586,7 @@ export default function DiscoverScreen() {
           <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
             <Text style={styles.countText}>
               {hasActiveFilters && searchTotal > 0
-                ? `${searchTotal} of ${countData.count}`
+                ? searchTotal  // Just show the filtered count, not "X of Y"
                 : countData.count}
             </Text>
           </RNView>
@@ -481,31 +596,53 @@ export default function DiscoverScreen() {
         )}
       </RNView>
       
-      {/* What can I make button */}
-      <TouchableOpacity
-        style={[styles.ingredientSearchButton, { backgroundColor: colors.tint + '15' }]}
-        onPress={() => {
-          haptics.light();
-          router.push('/ingredient-search');
-        }}
-        activeOpacity={0.7}
-      >
-        <Ionicons name="nutrition-outline" size={18} color={colors.tint} />
-        <Text style={[styles.ingredientSearchText, { color: colors.tint }]}>
-          What can I make?
-        </Text>
-      </TouchableOpacity>
+      <RNView style={styles.headerActions}>
+        {/* View toggle button */}
+        <TouchableOpacity
+          style={[styles.viewToggleButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
+          onPress={() => {
+            haptics.light();
+            toggleViewMode();
+          }}
+          activeOpacity={0.7}
+        >
+          <Ionicons 
+            name={isGrid ? 'list-outline' : 'grid-outline'} 
+            size={18} 
+            color={colors.tint} 
+          />
+        </TouchableOpacity>
+        
+        {/* What can I make button */}
+        <TouchableOpacity
+          style={[styles.ingredientSearchButton, { backgroundColor: colors.tint + '15' }]}
+          onPress={() => {
+            haptics.light();
+            router.push('/ingredient-search');
+          }}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="nutrition-outline" size={18} color={colors.tint} />
+          <Text style={[styles.ingredientSearchText, { color: colors.tint }]}>
+            What can I make?
+          </Text>
+        </TouchableOpacity>
+      </RNView>
     </RNView>
-  ), [colors.text, colors.tint, countData, isRefetching, router, hasActiveFilters, searchTotal]);
+  ), [colors.text, colors.tint, countData, isRefetching, router, hasActiveFilters, searchTotal, isGrid, toggleViewMode]);
 
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
-      <Ionicons name="globe-outline" size={64} color={colors.textMuted} />
+      <RNView style={[styles.emptyIconContainer, { backgroundColor: colors.tint + '15' }]}>
+        <Text style={styles.emptyEmoji}>🌍</Text>
+      </RNView>
       <Text style={[styles.emptyTitle, { color: colors.text }]}>
-        No public recipes yet
+        No recipes found
       </Text>
       <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-        Share your recipes to see them here!
+        {hasActiveFilters 
+          ? 'Try adjusting your filters or search term'
+          : 'Be the first to share a recipe with the community!'}
       </Text>
     </RNView>
   );
@@ -567,7 +704,7 @@ export default function DiscoverScreen() {
             <Input
               value={searchQuery}
               onChangeText={setSearchQuery}
-              placeholder="Search recipes..."
+              placeholder="Search recipes or @username..."
             />
           </RNView>
           <TouchableOpacity
@@ -595,6 +732,37 @@ export default function DiscoverScreen() {
           </TouchableOpacity>
         </RNView>
         
+        {/* @username search suggestions */}
+        {usernameSearchMatch && matchingContributors.length > 0 && (
+          <RNView style={[styles.usernameSuggestions, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
+            <Text style={[styles.usernameSuggestionsHint, { color: colors.textMuted }]}>
+              Filter by contributor:
+            </Text>
+            {matchingContributors.map((contributor) => (
+              <TouchableOpacity
+                key={contributor.user_id}
+                style={[styles.usernameSuggestionItem, { borderColor: colors.border }]}
+                onPress={() => {
+                  haptics.light();
+                  setSelectedExtractor({ id: contributor.user_id, name: contributor.display_name });
+                  setSearchQuery('');
+                  setDisplayCount(ITEMS_PER_PAGE);
+                }}
+              >
+                <Ionicons name="person-circle-outline" size={20} color={colors.tint} />
+                <RNView style={styles.usernameSuggestionInfo}>
+                  <Text style={[styles.usernameSuggestionName, { color: colors.text }]}>
+                    {contributor.display_name}
+                  </Text>
+                  <Text style={[styles.usernameSuggestionCount, { color: colors.textMuted }]}>
+                    {contributor.recipe_count} recipes
+                  </Text>
+                </RNView>
+              </TouchableOpacity>
+            ))}
+          </RNView>
+        )}
+        
         {/* Active filters summary */}
         {activeFilterCount > 0 && (
           <RNView style={styles.activeFiltersRow}>
@@ -604,7 +772,7 @@ export default function DiscoverScreen() {
                 onPress={clearExtractorFilter}
               >
                 <Text style={[styles.activeFilterText, { color: '#FFFFFF' }]}>
-                  by {selectedExtractor.name}
+                  by {selectedExtractor.name}{searchTotal > 0 ? ` (${searchTotal})` : ''}
                 </Text>
                 <Ionicons name="close" size={14} color="#FFFFFF" style={{ marginLeft: 4 }} />
               </TouchableOpacity>
@@ -658,9 +826,20 @@ export default function DiscoverScreen() {
         {/* Top Contributors - hide when searching to reduce clutter */}
         {!hasTextSearch && topContributors && topContributors.length > 0 && (
           <RNView style={styles.contributorsSection}>
-            <Text style={[styles.contributorsSectionTitle, { color: colors.textMuted }]}>
-              Top Contributors
-            </Text>
+            <RNView style={styles.contributorsHeader}>
+              <Text style={[styles.contributorsSectionTitle, { color: colors.textMuted }]}>
+                Top Contributors
+              </Text>
+              <TouchableOpacity 
+                onPress={() => {
+                  haptics.light();
+                  setShowAllContributors(true);
+                }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Text style={[styles.seeAllText, { color: colors.tint }]}>See All</Text>
+              </TouchableOpacity>
+            </RNView>
             <ScrollView 
               horizontal 
               showsHorizontalScrollIndicator={false}
@@ -726,9 +905,12 @@ export default function DiscoverScreen() {
         <SkeletonRecipeList count={5} />
       ) : (
         <FlatList
+          key={isGrid ? 'grid' : 'list'} // Force re-render when changing layout
           data={displayRecipes}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
+          numColumns={isGrid ? 2 : 1}
+          columnWrapperStyle={isGrid ? styles.gridRow : undefined}
           ListEmptyComponent={ListEmpty}
           ListFooterComponent={ListFooter}
           contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.xl + (isSignedIn ? 0 : 100) }]}
@@ -747,6 +929,17 @@ export default function DiscoverScreen() {
       
       {/* Sign In Banner for guests - shows save prompt */}
       {!isSignedIn && <SignInBanner message="Sign in to save recipes" />}
+      
+      {/* All Contributors Modal */}
+      <AllContributorsModal
+        visible={showAllContributors}
+        onClose={() => setShowAllContributors(false)}
+        onSelectContributor={(contributor) => {
+          setSelectedExtractor({ id: contributor.user_id, name: contributor.display_name });
+          setDisplayCount(ITEMS_PER_PAGE);
+        }}
+        selectedContributorId={selectedExtractor?.id}
+      />
     </View>
     </TouchableWithoutFeedback>
   );
@@ -789,7 +982,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: fontSize.xxl,
-    fontWeight: fontWeight.bold,
+    fontFamily: fontFamily.bold,
   },
   subtitle: {
     fontSize: fontSize.sm,
@@ -918,12 +1111,50 @@ const styles = StyleSheet.create({
   contributorsSection: {
     marginTop: spacing.md,
   },
+  contributorsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
   contributorsSectionTitle: {
     fontSize: fontSize.xs,
     fontWeight: fontWeight.semibold,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: spacing.sm,
+  },
+  seeAllText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+  },
+  // @username suggestions
+  usernameSuggestions: {
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+  },
+  usernameSuggestionsHint: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+    marginBottom: spacing.xs,
+  },
+  usernameSuggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    gap: spacing.sm,
+    borderTopWidth: 1,
+  },
+  usernameSuggestionInfo: {
+    flex: 1,
+  },
+  usernameSuggestionName: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+  },
+  usernameSuggestionCount: {
+    fontSize: fontSize.xs,
   },
   contributorsScroll: {
     gap: spacing.sm,
@@ -965,14 +1196,117 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     overflow: 'hidden',
     borderWidth: 1,
+    // Subtle shadow for depth
+    ...shadows.card,
+  },
+  // Grid view styles
+  gridRow: {
+    justifyContent: 'space-between',
+    gap: GRID_GAP,
+  },
+  gridCard: {
+    width: GRID_CARD_WIDTH,
+    borderRadius: radius.md,
+    marginBottom: spacing.sm,
+    overflow: 'hidden',
+    borderWidth: 1,
+    ...shadows.card,
+  },
+  gridThumbnailContainer: {
+    width: '100%',
+    aspectRatio: 0.85, // Taller cards for overlay text
+    position: 'relative',
+  },
+  gridOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: '45%', // Shorter, more subtle
+  },
+  gridThumbnail: {
+    width: '100%',
+    height: '100%',
+  },
+  gridPlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  gridTimeBadge: {
+    position: 'absolute',
+    bottom: spacing.xs,
+    left: spacing.xs,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  gridTimeText: {
+    color: '#FFFFFF',
+    fontSize: fontSize.xs,
+    fontFamily: fontFamily.medium,
+  },
+  gridCardContent: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: spacing.sm,
+    paddingTop: spacing.lg,
+  },
+  gridCardTitle: {
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.semibold,
+    lineHeight: 18,
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  gridCardAuthor: {
+    fontSize: fontSize.xs,
+    marginTop: 4,
+    color: 'rgba(255, 255, 255, 0.85)',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  // Header action buttons
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  viewToggleButton: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  thumbnailContainer: {
+    position: 'relative',
+    overflow: 'hidden',
   },
   thumbnail: {
-    width: 100,
-    height: 120,
+    width: 110,
+    height: 130,
+  },
+  thumbnailOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: '40%',
   },
   placeholderThumbnail: {
-    width: 100,
-    height: 120,
+    width: 110,
+    height: 130,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -993,7 +1327,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     fontSize: fontSize.md,
-    fontWeight: fontWeight.semibold,
+    fontFamily: fontFamily.semibold,
     lineHeight: 20,
   },
   metaRow: {
@@ -1053,12 +1387,23 @@ const styles = StyleSheet.create({
   emptyContainer: {
     alignItems: 'center',
     paddingVertical: spacing.xxl,
+    paddingHorizontal: spacing.xl,
+  },
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  emptyEmoji: {
+    fontSize: 48,
   },
   emptyTitle: {
     fontSize: fontSize.xl,
-    fontWeight: fontWeight.semibold,
+    fontFamily: fontFamily.semibold,
     marginBottom: spacing.sm,
-    marginTop: spacing.md,
   },
   emptySubtitle: {
     fontSize: fontSize.md,

@@ -18,9 +18,11 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, useColors } from '@/components/Themed';
 import { useRecipe } from '@/hooks/useRecipes';
+import { useTimerSoundPreference, getTimerSoundFile } from '@/hooks/useTimerSound';
 import { lightHaptic, mediumHaptic, successHaptic, heavyHaptic } from '@/utils/haptics';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { RecipeComponent, Ingredient } from '@/types/recipe';
+import { scaleQuantity } from '@/hooks/useScaledServings';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.2;
@@ -67,12 +69,21 @@ function extractTimeFromStep(step: string): { time: number; unit: string; displa
 }
 
 export default function CookModeScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, scaleFactor: scaleFactorParam, servings: servingsParam } = useLocalSearchParams<{ 
+    id: string; 
+    scaleFactor?: string;
+    servings?: string;
+  }>();
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
   
   const { data: recipe, isLoading, error } = useRecipe(id);
+  
+  // Parse scaling params
+  const scaleFactor = scaleFactorParam ? parseFloat(scaleFactorParam) : 1;
+  const currentServings = servingsParam ? parseInt(servingsParam, 10) : null;
+  const isScaled = scaleFactor !== 1 && currentServings !== null;
   
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [activeTimers, setActiveTimers] = useState<Map<number, TimerState>>(new Map());
@@ -88,6 +99,9 @@ export default function CookModeScreen() {
   const slideAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const soundRef = useRef<Audio.Sound | null>(null);
+  
+  // Timer sound preference
+  const { soundPreference } = useTimerSoundPreference();
 
   // Get all steps from recipe
   const getAllSteps = useCallback((): CookingStep[] => {
@@ -146,17 +160,26 @@ export default function CookModeScreen() {
     };
   }, []);
 
-  // Load completion sound
+  // Load completion sound based on preference
   useEffect(() => {
     const loadSound = async () => {
+      // Unload previous sound if any
+      if (soundRef.current) {
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
+      }
+      
+      // Get sound file based on preference
+      const soundFile = getTimerSoundFile(soundPreference);
+      if (!soundFile) return; // 'none' preference
+      
       try {
         const { sound } = await Audio.Sound.createAsync(
-          require('@/assets/sounds/timer-complete.mp3'),
+          soundFile,
           { shouldPlay: false }
         );
         soundRef.current = sound;
       } catch (e) {
-        // Sound file may not exist, that's ok
         console.log('Timer sound not available');
       }
     };
@@ -165,7 +188,7 @@ export default function CookModeScreen() {
     return () => {
       soundRef.current?.unloadAsync();
     };
-  }, []);
+  }, [soundPreference]);
 
   // Timer countdown effect
   useEffect(() => {
@@ -585,20 +608,28 @@ export default function CookModeScreen() {
         <RNView style={styles.modalOverlay}>
           <RNView style={[styles.ingredientsCard, { paddingBottom: insets.bottom + spacing.lg }]}>
             <RNView style={styles.ingredientsHeader}>
-              <Text style={styles.ingredientsTitle}>Ingredients</Text>
+              <RNView>
+                <Text style={styles.ingredientsTitle}>Ingredients</Text>
+                {isScaled && currentServings && (
+                  <Text style={styles.ingredientsSubtitle}>{currentServings} servings (scaled)</Text>
+                )}
+              </RNView>
               <TouchableOpacity onPress={() => setShowIngredients(false)} style={styles.closeIngredients}>
                 <Ionicons name="close" size={28} color="#ffffff" />
               </TouchableOpacity>
             </RNView>
             <ScrollView style={styles.ingredientsList} showsVerticalScrollIndicator={false}>
-              {allIngredients.map((ing: Ingredient, index: number) => (
-                <RNView key={index} style={styles.ingredientRow}>
-                  <Text style={styles.ingredientQuantity}>
-                    {ing.quantity ? `${ing.quantity}${ing.unit ? ` ${ing.unit}` : ''}` : '•'}
-                  </Text>
-                  <Text style={styles.ingredientName}>{ing.name}</Text>
-                </RNView>
-              ))}
+              {allIngredients.map((ing: Ingredient, index: number) => {
+                const scaledQty = scaleQuantity(ing.quantity ?? null, scaleFactor);
+                return (
+                  <RNView key={index} style={styles.ingredientRow}>
+                    <Text style={[styles.ingredientQuantity, isScaled && styles.ingredientQuantityScaled]}>
+                      {scaledQty ? `${scaledQty}${ing.unit ? ` ${ing.unit}` : ''}` : '•'}
+                    </Text>
+                    <Text style={styles.ingredientName}>{ing.name}</Text>
+                  </RNView>
+                );
+              })}
             </ScrollView>
           </RNView>
         </RNView>
@@ -979,6 +1010,11 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xl,
     fontWeight: fontWeight.bold,
   },
+  ingredientsSubtitle: {
+    color: '#4ECDC4',
+    fontSize: fontSize.sm,
+    marginTop: 2,
+  },
   closeIngredients: {
     width: 40,
     height: 40,
@@ -999,6 +1035,9 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
     width: 100,
+  },
+  ingredientQuantityScaled: {
+    color: '#4ECDC4', // Teal to indicate scaled
   },
   ingredientName: {
     color: '#ffffff',

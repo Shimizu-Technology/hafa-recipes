@@ -16,6 +16,9 @@ import {
   GroceryItem,
   GroceryItemCreate,
   GroceryCount,
+  GroceryListInfo,
+  GroceryInvite,
+  InvitePreview,
   ChatMessage,
   ChatResponse,
   Collection,
@@ -470,6 +473,20 @@ class ApiClient {
     return data;
   }
 
+  async getAllContributors(): Promise<{ user_id: string; display_name: string; recipe_count: number }[]> {
+    const { data } = await this.client.get('/api/recipes/discover/contributors', {
+      params: { limit: 100 },
+    });
+    return data;
+  }
+
+  async getSimilarRecipes(recipeId: string, limit = 6): Promise<RecipeListItem[]> {
+    const { data } = await this.client.get(`/api/recipes/similar/${recipeId}`, {
+      params: { limit },
+    });
+    return data;
+  }
+
   // ============================================================
   // Extraction
   // ============================================================
@@ -680,17 +697,53 @@ class ApiClient {
   }
 
   // ============================================================
+  // Shared Grocery List
+  // ============================================================
+
+  async getGroceryListInfo(): Promise<GroceryListInfo> {
+    const { data } = await this.client.get('/api/grocery/list');
+    return data;
+  }
+
+  async createGroceryInvite(): Promise<GroceryInvite> {
+    const { data } = await this.client.post('/api/grocery/list/invite');
+    return data;
+  }
+
+  async getInvitePreview(code: string): Promise<InvitePreview> {
+    const { data } = await this.client.get(`/api/grocery/list/invite/${code}`);
+    return data;
+  }
+
+  async joinGroceryList(code: string): Promise<{ message: string }> {
+    const { data } = await this.client.post(`/api/grocery/list/join/${code}`);
+    return data;
+  }
+
+  async leaveGroceryList(): Promise<{ message: string }> {
+    const { data } = await this.client.delete('/api/grocery/list/leave');
+    return data;
+  }
+
+  async removeGroceryListMember(userId: string): Promise<{ message: string }> {
+    const { data } = await this.client.delete(`/api/grocery/list/members/${userId}`);
+    return data;
+  }
+
+  // ============================================================
   // Recipe Chat
   // ============================================================
 
   async chatAboutRecipe(
     recipeId: string,
     message: string,
-    history: ChatMessage[] = []
+    history: ChatMessage[] = [],
+    imageBase64?: string
   ): Promise<ChatResponse> {
     const { data } = await this.client.post(`/api/recipes/${recipeId}/chat`, {
       message,
       history,
+      image_base64: imageBase64,
     });
     return data;
   }
@@ -996,6 +1049,27 @@ class ApiClient {
     const { data } = await this.client.post('/api/meal-plans/copy-week', null, {
       params: { source_week: sourceWeek, target_week: targetWeek },
     });
+    return data;
+  }
+
+  // ============================================================
+  // Text-to-Speech
+  // ============================================================
+
+  async generateTTS(text: string, voice: string = 'nova'): Promise<Blob> {
+    const response = await this.client.post(
+      '/api/tts',
+      { text, voice },
+      { responseType: 'blob' }
+    );
+    return response.data;
+  }
+
+  async getTTSVoices(): Promise<{
+    voices: { id: string; name: string; description: string }[];
+    default: string;
+  }> {
+    const { data } = await this.client.get('/api/tts/voices');
     return data;
   }
 

@@ -10,6 +10,7 @@ interface ChatMutationVariables {
   recipeId: string;
   message: string;
   history: ChatMessage[];
+  imageBase64?: string;  // Optional image for vision
 }
 
 /**
@@ -18,8 +19,8 @@ interface ChatMutationVariables {
  */
 export function useChatWithRecipe() {
   return useMutation<ChatResponse, Error, ChatMutationVariables>({
-    mutationFn: ({ recipeId, message, history }) =>
-      api.chatAboutRecipe(recipeId, message, history),
+    mutationFn: ({ recipeId, message, history, imageBase64 }) =>
+      api.chatAboutRecipe(recipeId, message, history, imageBase64),
   });
 }
 

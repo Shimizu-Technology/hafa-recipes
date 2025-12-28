@@ -9,7 +9,7 @@
  */
 
 import React, { useState } from 'react';
-import { Text, StyleSheet, Animated } from 'react-native';
+import { Text, StyleSheet, Animated, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
@@ -18,13 +18,19 @@ import { useEffect, useRef } from 'react';
 
 // Delay before showing offline banner on app start (ms)
 // This prevents flashing while network status initializes
-const INITIAL_DELAY_MS = 2000;
+const INITIAL_DELAY_MS = 3000;
+
+// Auto-hide the banner after this duration (user can tap to retry)
+const AUTO_HIDE_DELAY_MS = 10000;
 
 export function OfflineBanner() {
-  const { isOnline, isApiReachable, isConnected } = useNetworkStatus();
+  const { isOnline, isApiReachable, isConnected, recheckApiHealth } = useNetworkStatus();
   const insets = useSafeAreaInsets();
   const slideAnim = useRef(new Animated.Value(-100)).current;
   const [hasInitialized, setHasInitialized] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [userDismissed, setUserDismissed] = useState(false);
+  const autoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // After initial delay, we're ready to show the banner if needed
   useEffect(() => {
@@ -43,11 +49,40 @@ export function OfflineBanner() {
     }
   }, [isOnline, isApiReachable]);
 
+  // Reset user dismissal when we come back online (so it can show again next time)
+  useEffect(() => {
+    if (isOnline) {
+      setUserDismissed(false);
+    }
+  }, [isOnline]);
+
   // Only show banner if:
   // 1. We've finished initializing (either via delay or positive detection)
   // 2. AND we've positively determined we're offline (not just null/unknown)
+  // 3. AND user hasn't dismissed it
   const isDefinitelyOffline = isConnected === false || isApiReachable === false;
-  const showBanner = hasInitialized && isDefinitelyOffline;
+  const showBanner = hasInitialized && isDefinitelyOffline && !userDismissed;
+
+  // Auto-hide after delay
+  useEffect(() => {
+    if (showBanner) {
+      // Clear any existing timer
+      if (autoHideTimerRef.current) {
+        clearTimeout(autoHideTimerRef.current);
+      }
+      
+      // Set auto-hide timer
+      autoHideTimerRef.current = setTimeout(() => {
+        setUserDismissed(true);
+      }, AUTO_HIDE_DELAY_MS);
+    }
+    
+    return () => {
+      if (autoHideTimerRef.current) {
+        clearTimeout(autoHideTimerRef.current);
+      }
+    };
+  }, [showBanner]);
 
   useEffect(() => {
     Animated.timing(slideAnim, {
@@ -57,26 +92,44 @@ export function OfflineBanner() {
     }).start();
   }, [showBanner, slideAnim]);
 
+  const handleRetry = async () => {
+    setIsRetrying(true);
+    await recheckApiHealth();
+    // Small delay to show the spinner
+    setTimeout(() => {
+      setIsRetrying(false);
+    }, 1000);
+  };
+
   // Don't render at all when online (after animation completes)
   if (!showBanner) {
     return null;
   }
 
   return (
-    <Animated.View 
-      style={[
-        styles.banner,
-        { 
-          paddingTop: insets.top + spacing.xs,
-          transform: [{ translateY: slideAnim }],
-        }
-      ]}
+    <TouchableOpacity 
+      activeOpacity={0.8}
+      onPress={handleRetry}
     >
-      <Ionicons name="cloud-offline-outline" size={16} color="#FFFFFF" />
-      <Text style={styles.bannerText}>
-        You're offline • Changes will sync when reconnected
-      </Text>
-    </Animated.View>
+      <Animated.View 
+        style={[
+          styles.banner,
+          { 
+            paddingTop: insets.top + spacing.xs,
+            transform: [{ translateY: slideAnim }],
+          }
+        ]}
+      >
+        {isRetrying ? (
+          <ActivityIndicator size="small" color="#FFFFFF" />
+        ) : (
+          <Ionicons name="cloud-offline-outline" size={16} color="#FFFFFF" />
+        )}
+        <Text style={styles.bannerText}>
+          {isRetrying ? 'Checking connection...' : 'You\'re offline • Tap to retry'}
+        </Text>
+      </Animated.View>
+    </TouchableOpacity>
   );
 }
 

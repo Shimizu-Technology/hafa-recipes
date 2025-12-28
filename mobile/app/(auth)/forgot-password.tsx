@@ -227,6 +227,7 @@ export default function ForgotPasswordScreen() {
                     autoCorrect={false}
                     editable={!isLoading}
                     style={styles.passwordInput}
+                    showClearButton={false}
                   />
                   <TouchableOpacity
                     style={styles.passwordToggle}
@@ -251,6 +252,7 @@ export default function ForgotPasswordScreen() {
                   autoCapitalize="none"
                   autoCorrect={false}
                   editable={!isLoading}
+                  showClearButton={false}
                 />
               </RNView>
 

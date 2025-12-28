@@ -29,6 +29,10 @@
       "ios": {
         "appleId": "shimizutechnology@gmail.com",
         "appleTeamId": "4T358A5S74"
+      },
+      "android": {
+        "serviceAccountKeyPath": "./google-play-service-account.json",
+        "track": "production"
       }
     }
   }

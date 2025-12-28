@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Image, Share, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,6 +12,8 @@ import { API_BASE_URL } from '@/lib/api';
 import { captureMessage, captureError } from '@/lib/sentry';
 import { useTheme, ThemePreference } from '@/contexts/ThemeContext';
 import { clearAllOfflineGroceryData } from '@/lib/offlineStorage';
+import { useTimerSoundPreference, TIMER_SOUNDS, TimerSoundOption, playTimerSoundPreview } from '@/hooks/useTimerSound';
+import { useTTSVoice, TTS_VOICES, TTSVoice } from '@/hooks/useTTS';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
 const APP_STORE_URL = 'https://apps.apple.com/us/app/recipe-extractor-gu/id6755892896';
@@ -73,6 +75,8 @@ export default function SettingsScreen() {
   const [isDeleting, setIsDeleting] = useState(false);
   const { api } = require('@/lib/api');
   const { themePreference, setThemePreference } = useTheme();
+  const { soundPreference, setTimerSound } = useTimerSoundPreference();
+  const { voice: ttsVoice, setVoice: setTTSVoice } = useTTSVoice();
   
   // Profile editing state
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -346,6 +350,89 @@ export default function SettingsScreen() {
               </RNView>
             </TouchableOpacity>
           </RNView>
+        </RNView>
+
+        {/* Timer Sound Section */}
+        <RNView style={styles.section}>
+          <SectionHeader title="Cook Mode" />
+          <RNView style={styles.menuGroup}>
+            {TIMER_SOUNDS.map((sound, index) => (
+              <React.Fragment key={sound.id}>
+                {index > 0 && (
+                  <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+                )}
+                <TouchableOpacity
+                  onPress={() => {
+                    setTimerSound(sound.id);
+                    // Play preview when selecting
+                    if (sound.id !== 'none') {
+                      playTimerSoundPreview(sound.id);
+                    }
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <RNView 
+                    style={[
+                      styles.menuItem, 
+                      { backgroundColor: colors.backgroundSecondary }
+                    ]}
+                  >
+                    <RNView style={styles.menuItemLeft}>
+                      <Text style={styles.menuIcon}>
+                        {sound.id === 'none' ? '🔇' : sound.id === 'alarm' ? '⏰' : '🔔'}
+                      </Text>
+                      <RNView>
+                        <Text style={[styles.menuLabel, { color: colors.text }]}>{sound.label}</Text>
+                        <Text style={[styles.menuSubLabel, { color: colors.textMuted }]}>{sound.description}</Text>
+                      </RNView>
+                    </RNView>
+                    {soundPreference === sound.id && (
+                      <Ionicons name="checkmark" size={20} color={colors.tint} />
+                    )}
+                  </RNView>
+                </TouchableOpacity>
+              </React.Fragment>
+            ))}
+          </RNView>
+        </RNView>
+
+        {/* AI Voice Section */}
+        <RNView style={styles.section}>
+          <SectionHeader title="AI Voice" />
+          <RNView style={styles.menuGroup}>
+            {TTS_VOICES.map((voiceOption, index) => (
+              <React.Fragment key={voiceOption.id}>
+                {index > 0 && (
+                  <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+                )}
+                <TouchableOpacity
+                  onPress={() => setTTSVoice(voiceOption.id)}
+                  activeOpacity={0.7}
+                >
+                  <RNView 
+                    style={[
+                      styles.menuItem, 
+                      { backgroundColor: colors.backgroundSecondary }
+                    ]}
+                  >
+                    <RNView style={styles.menuItemLeft}>
+                      <Text style={styles.menuIcon}>🗣️</Text>
+                      <RNView>
+                        <Text style={[styles.menuLabel, { color: colors.text }]}>{voiceOption.name}</Text>
+                        <Text style={[styles.menuSubLabel, { color: colors.textMuted }]}>{voiceOption.description}</Text>
+                      </RNView>
+                    </RNView>
+                    {ttsVoice === voiceOption.id && (
+                      <Ionicons name="checkmark" size={20} color={colors.tint} />
+                    )}
+                  </RNView>
+                </TouchableOpacity>
+              </React.Fragment>
+            ))}
+          </RNView>
+          <Text style={[styles.sectionFooter, { color: colors.textMuted }]}>
+            Voice used when reading AI chat responses aloud
+          </Text>
         </RNView>
 
         {/* Developer Section */}
@@ -655,6 +742,15 @@ const styles = StyleSheet.create({
   },
   menuLabel: {
     fontSize: fontSize.md,
+  },
+  menuSubLabel: {
+    fontSize: fontSize.xs,
+    marginTop: 2,
+  },
+  sectionFooter: {
+    fontSize: fontSize.xs,
+    marginTop: spacing.sm,
+    marginHorizontal: spacing.sm,
   },
   menuValue: {
     fontSize: fontSize.sm,

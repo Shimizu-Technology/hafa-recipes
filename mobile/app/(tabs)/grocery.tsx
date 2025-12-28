@@ -25,6 +25,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { View, Text, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
 import EditGroceryItemModal from '@/components/EditGroceryItemModal';
+import GroceryListSettingsModal from '@/components/GroceryListSettingsModal';
 import {
   useGroceryList,
   useGroceryCount,
@@ -34,6 +35,7 @@ import {
   useClearAllItems,
   useAddGroceryItem,
   useGrocerySync,
+  useGroceryListInfo,
   groceryKeys,
 } from '@/hooks/useGrocery';
 import { api } from '@/lib/api';
@@ -60,6 +62,7 @@ function GroceryItemRow({
   onDelete,
   onEdit,
   showRecipeLabel = false,
+  isSharedList = false,
 }: {
   item: GroceryItem;
   colors: ReturnType<typeof useColors>;
@@ -67,6 +70,7 @@ function GroceryItemRow({
   onDelete: () => void;
   onEdit: () => void;
   showRecipeLabel?: boolean;
+  isSharedList?: boolean;
 }) {
   return (
     <ScalePressable 
@@ -92,18 +96,25 @@ function GroceryItemRow({
 
       {/* Item details */}
       <RNView style={styles.itemContent}>
-        <Text
-          style={[
-            styles.itemName,
-            { color: item.checked ? colors.textMuted : colors.text },
-            item.checked && styles.itemNameChecked,
-          ]}
-          numberOfLines={1}
-        >
-          {item.quantity && item.quantity !== 'null' && `${item.quantity} `}
-          {item.unit && item.unit !== 'null' && `${item.unit} `}
-          {item.name}
-        </Text>
+        <RNView style={styles.itemNameRow}>
+          <Text
+            style={[
+              styles.itemName,
+              { color: item.checked ? colors.textMuted : colors.text },
+              item.checked && styles.itemNameChecked,
+            ]}
+            numberOfLines={1}
+          >
+            {item.quantity && item.quantity !== 'null' && `${item.quantity} `}
+            {item.unit && item.unit !== 'null' && `${item.unit} `}
+            {item.name}
+          </Text>
+          {isSharedList && item.added_by_name && (
+            <Text style={[styles.addedByLabel, { color: colors.textMuted }]}>
+              ({item.added_by_name})
+            </Text>
+          )}
+        </RNView>
         {showRecipeLabel && item.recipe_title && (
           <Text style={[styles.recipeLabel, { color: colors.textMuted }]} numberOfLines={1}>
             from {item.recipe_title}
@@ -208,9 +219,26 @@ export default function GroceryScreen() {
   const [editingItem, setEditingItem] = useState<GroceryItem | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [showSettings, setShowSettings] = useState(false);
 
   // Set up offline sync (syncs pending changes when back online)
-  useGrocerySync();
+  const { lastSyncResult, clearSyncResult } = useGrocerySync();
+  
+  // Show alert when sync has failures
+  useEffect(() => {
+    if (lastSyncResult && lastSyncResult.failed > 0) {
+      Alert.alert(
+        "Sync Notice",
+        `Some changes couldn't be synced (${lastSyncResult.failed} item${lastSyncResult.failed > 1 ? 's' : ''}). The list has been refreshed with the latest data.`,
+        [
+          { text: "OK", onPress: clearSyncResult }
+        ]
+      );
+    }
+  }, [lastSyncResult, clearSyncResult]);
+  
+  // Get list info for shared status
+  const { data: listInfo } = useGroceryListInfo(!!isSignedIn);
 
   // Pass isSignedIn to prevent queries from running when not authenticated
   const { data: groceryItems, isLoading, refetch, isRefetching } = useGroceryList(showChecked, isSignedIn);
@@ -441,6 +469,17 @@ export default function GroceryScreen() {
     if (!newItemName.trim()) return;
     
     haptics.success();
+    
+    // Auto-expand "Other Items" section since that's where new items go
+    if (collapsedSections.has(OTHER_ITEMS_KEY)) {
+      setCollapsedSections(prev => {
+        const next = new Set(prev);
+        next.delete(OTHER_ITEMS_KEY);
+        saveCollapsedSections(next);
+        return next;
+      });
+    }
+    
     addItemMutation.mutate(
       { name: newItemName.trim() },
       {
@@ -558,6 +597,7 @@ export default function GroceryScreen() {
           onDelete={() => handleDelete(item.id, item.name)}
           onEdit={() => handleEdit(item)}
           showRecipeLabel={false}
+          isSharedList={listInfo?.is_shared ?? false}
         />
       </AnimatedListItem>
     );
@@ -593,17 +633,30 @@ export default function GroceryScreen() {
         <RNView style={styles.titleRow}>
           <RNView style={styles.titleLeft}>
             <Text style={[styles.headerTitle, { color: colors.text }]}>Grocery List</Text>
+            {listInfo?.is_shared && (
+              <RNView style={[styles.sharedBadge, { backgroundColor: colors.success + '20' }]}>
+                <Ionicons name="people" size={12} color={colors.success} />
+                <Text style={[styles.sharedBadgeText, { color: colors.success }]}>
+                  Shared
+                </Text>
+              </RNView>
+            )}
             {countData && countData.unchecked > 0 && (
               <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
                 <Text style={styles.countText}>{countData.unchecked}</Text>
               </RNView>
             )}
           </RNView>
-          {countData && countData.total > 0 && (
-            <TouchableOpacity onPress={handleExportList} style={styles.exportButton}>
-              <Ionicons name="share-outline" size={22} color={colors.tint} />
+          <RNView style={styles.headerButtons}>
+            {countData && countData.total > 0 && (
+              <TouchableOpacity onPress={handleExportList} style={styles.exportButton}>
+                <Ionicons name="download-outline" size={22} color={colors.tint} />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity onPress={() => setShowSettings(true)} style={styles.settingsButton}>
+              <Ionicons name="people-outline" size={22} color={colors.tint} />
             </TouchableOpacity>
-          )}
+          </RNView>
         </RNView>
 
         {/* Add item input */}
@@ -692,6 +745,12 @@ export default function GroceryScreen() {
         item={editingItem}
         isLoading={isUpdating}
       />
+
+      {/* Settings Modal */}
+      <GroceryListSettingsModal
+        isVisible={showSettings}
+        onClose={() => setShowSettings(false)}
+      />
       
       {/* Sign In Banner for guests */}
       {!isSignedIn && <SignInBanner message="Sign in to create grocery lists" />}
@@ -735,6 +794,26 @@ const styles = StyleSheet.create({
   },
   exportButton: {
     padding: spacing.sm,
+  },
+  settingsButton: {
+    padding: spacing.sm,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sharedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginLeft: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+  },
+  sharedBadgeText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
   },
   countText: {
     color: '#FFFFFF',
@@ -847,9 +926,19 @@ const styles = StyleSheet.create({
   itemName: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
+    flex: 1,
+  },
+  itemNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   itemNameChecked: {
     textDecorationLine: 'line-through',
+  },
+  addedByLabel: {
+    fontSize: fontSize.xs,
+    fontStyle: 'italic',
   },
   recipeLabel: {
     fontSize: fontSize.xs,

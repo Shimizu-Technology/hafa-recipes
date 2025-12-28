@@ -227,6 +227,7 @@ export default function SignInScreen() {
                   autoCorrect={false}
                   editable={!isLoading}
                   style={styles.passwordInput}
+                  showClearButton={false}
                 />
                 <TouchableOpacity
                   style={styles.passwordToggle}

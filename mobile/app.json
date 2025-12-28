@@ -2,7 +2,7 @@
   "expo": {
     "name": "Håfa Recipes",
     "slug": "recipe-extractor",
-    "version": "1.4.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "hafarecipes",
@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.shimizutechnology.recipeextractor",
-      "buildNumber": "17",
+      "buildNumber": "23",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Håfa Recipes needs access to your camera to take photos of your recipes. For example, you can photograph a handwritten family recipe or a dish you've prepared to add as a recipe image.",
@@ -43,6 +43,14 @@
       "expo-router",
       "expo-secure-store",
       "expo-web-browser",
+      [
+        "expo-share-intent",
+        {
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1
+          }
+        }
+      ],
       [
         "expo-image-picker",
         {

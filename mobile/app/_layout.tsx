@@ -3,11 +3,18 @@ import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } fro
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ClerkProvider, ClerkLoaded, useAuth, useUser } from '@clerk/clerk-expo';
 import { useFonts } from 'expo-font';
+import {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+} from '@expo-google-fonts/inter';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { View } from 'react-native';
 import 'react-native-reanimated';
+import { ShareIntentProvider } from 'expo-share-intent';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { ThemeProvider } from '@/contexts/ThemeContext';
@@ -17,6 +24,7 @@ import { api } from '@/lib/api';
 import { AppLoadingSkeleton } from '@/components/Skeleton';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { initSentry, setSentryUser, addBreadcrumb, withSentry } from '@/lib/sentry';
+import { useHandleShareIntent } from '@/hooks/useShareIntent';
 
 // Initialize Sentry as early as possible
 initSentry();
@@ -38,6 +46,11 @@ function RootLayout() {
   const [loaded, error] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     ...FontAwesome.font,
+    // Inter font family for clean, modern typography
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
   });
 
   // Expo Router uses Error Boundaries to catch errors in the navigation tree.
@@ -64,14 +77,16 @@ function RootLayout() {
 
   return (
     <ThemeProvider>
-    <ClerkProvider 
-      publishableKey={CLERK_PUBLISHABLE_KEY} 
-      tokenCache={tokenCache}
-    >
-      <ClerkLoaded>
-        <RootLayoutNav />
-      </ClerkLoaded>
-    </ClerkProvider>
+      <ShareIntentProvider>
+        <ClerkProvider 
+          publishableKey={CLERK_PUBLISHABLE_KEY} 
+          tokenCache={tokenCache}
+        >
+          <ClerkLoaded>
+            <RootLayoutNav />
+          </ClerkLoaded>
+        </ClerkProvider>
+      </ShareIntentProvider>
     </ThemeProvider>
   );
 }
@@ -189,6 +204,15 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * Component that handles incoming share intents.
+ * Must be rendered within ShareIntentProvider and after navigation is ready.
+ */
+function ShareIntentHandler({ children }: { children: React.ReactNode }) {
+  useHandleShareIntent();
+  return <>{children}</>;
+}
+
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const colors = colorScheme === 'dark' 
@@ -200,6 +224,7 @@ function RootLayoutNav() {
       <NavigationThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <AuthTokenSync>
           <AuthProtection>
+            <ShareIntentHandler>
             {/* Global offline indicator */}
             <OfflineBanner />
             <Stack
@@ -228,6 +253,7 @@ function RootLayoutNav() {
               />
               <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
             </Stack>
+            </ShareIntentHandler>
           </AuthProtection>
         </AuthTokenSync>
       </NavigationThemeProvider>

@@ -478,7 +478,10 @@ export function useAsyncExtraction() {
 
   // Determine if this is a website extraction based on URL
   const sourceUrl = jobStatus?.url || '';
-  const isWebsiteExtraction = sourceUrl ? (
+  // Re-extraction jobs use "re-extract:{recipe_id}" format - these are always video extractions
+  // (since re-extraction is primarily used for video recipes)
+  const isReExtraction = sourceUrl.startsWith('re-extract:');
+  const isWebsiteExtraction = sourceUrl && !isReExtraction ? (
     !sourceUrl.toLowerCase().includes('tiktok.com') &&
     !sourceUrl.toLowerCase().includes('youtube.com') &&
     !sourceUrl.toLowerCase().includes('youtu.be') &&
@@ -503,6 +506,9 @@ export function useAsyncExtraction() {
     message: jobStatus?.message || '',
     sourceUrl, // The URL being extracted (useful for re-extractions)
     isWebsiteExtraction, // true for website, false for video (TikTok/YouTube/Instagram)
+    // Confidence info
+    lowConfidence: jobStatus?.low_confidence || false,
+    confidenceWarning: jobStatus?.confidence_warning || null,
     // Actions
     startExtraction,
     startReExtraction,
@@ -763,7 +769,28 @@ export function useTopContributors(enabled = true) {
     queryKey: recipeKeys.topContributors(),
     queryFn: () => api.getTopContributors(),
     enabled,
-    staleTime: 60_000, // Cache for 1 minute
+    staleTime: 15_000, // Cache for 15 seconds - keeps counts fresh
+  });
+}
+
+export function useAllContributors(enabled = true) {
+  return useQuery<Contributor[]>({
+    queryKey: ['allContributors'],
+    queryFn: () => api.getAllContributors(),
+    enabled,
+    staleTime: 15_000, // Cache for 15 seconds - keeps counts fresh
+  });
+}
+
+/**
+ * Fetch similar recipes based on tags
+ */
+export function useSimilarRecipes(recipeId: string | undefined, enabled = true) {
+  return useQuery<RecipeListItem[]>({
+    queryKey: ['similarRecipes', recipeId],
+    queryFn: () => api.getSimilarRecipes(recipeId!),
+    enabled: enabled && !!recipeId,
+    staleTime: 5 * 60_000, // Cache for 5 minutes
   });
 }
 

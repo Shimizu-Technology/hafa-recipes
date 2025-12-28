@@ -10,7 +10,9 @@ import {
   ScrollView,
   Keyboard,
   TouchableWithoutFeedback,
+  Dimensions,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -33,9 +35,16 @@ import {
 } from '@/hooks/useRecipes';
 import { useCollections } from '@/hooks/useCollections';
 import { RecipeListItem, Collection } from '@/types/recipe';
-import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
+import Colors from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const GRID_PADDING = spacing.lg; // 24px on each side
+const GRID_GAP = spacing.sm; // Gap between cards
+const GRID_CARD_WIDTH = (SCREEN_WIDTH - (GRID_PADDING * 2) - GRID_GAP) / 2;
 import { useAuth } from '@clerk/clerk-expo';
+import { useViewPreference } from '@/hooks/useViewPreference';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -71,18 +80,25 @@ function RecipeCard({
       style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]} 
       onPress={onPress}
     >
-      {/* Thumbnail */}
-      <RNView>
+      {/* Thumbnail with gradient overlay */}
+      <RNView style={styles.thumbnailContainer}>
         {showPlaceholder ? (
           <RNView style={[styles.placeholderThumbnail, { backgroundColor: colors.tint + '15' }]}>
             <Ionicons name="restaurant-outline" size={32} color={colors.tint} />
           </RNView>
         ) : (
-          <Image 
-            source={{ uri: recipe.thumbnail_url! }} 
-            style={styles.thumbnail}
-            onError={() => setImageError(true)}
-          />
+          <>
+            <Image 
+              source={{ uri: recipe.thumbnail_url! }} 
+              style={styles.thumbnail}
+              onError={() => setImageError(true)}
+            />
+            {/* Subtle gradient for depth */}
+            <LinearGradient
+              colors={['transparent', 'rgba(0,0,0,0.3)']}
+              style={styles.thumbnailOverlay}
+            />
+          </>
         )}
         {/* Saved badge */}
         {isSavedRecipe && (
@@ -139,6 +155,70 @@ function RecipeCard({
               <Text style={[styles.hdText, { color: colors.success }]}>HD</Text>
             </RNView>
           )}
+        </RNView>
+      </RNView>
+    </ScalePressable>
+  );
+}
+
+// Grid recipe card - square image with title overlay
+function GridRecipeCard({ 
+  recipe, 
+  onPress,
+  colors,
+  isSavedRecipe,
+}: { 
+  recipe: RecipeListItem; 
+  onPress: () => void;
+  colors: ReturnType<typeof useColors>;
+  isSavedRecipe?: boolean;
+}) {
+  const [imageError, setImageError] = useState(false);
+  const showPlaceholder = !recipe.thumbnail_url || imageError;
+
+  return (
+    <ScalePressable 
+      style={[styles.gridCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]} 
+      onPress={onPress}
+    >
+      {/* Full card is the image with overlay */}
+      <RNView style={styles.gridThumbnailContainer}>
+        {showPlaceholder ? (
+          <RNView style={[styles.gridPlaceholder, { backgroundColor: colors.tint + '15' }]}>
+            <Ionicons name="restaurant-outline" size={40} color={colors.tint} />
+          </RNView>
+        ) : (
+          <Image 
+            source={{ uri: recipe.thumbnail_url! }} 
+            style={styles.gridThumbnail}
+            onError={() => setImageError(true)}
+          />
+        )}
+        {/* Saved badge */}
+        {isSavedRecipe && (
+          <RNView style={[styles.gridSavedBadge, { backgroundColor: colors.error }]}>
+            <Ionicons name="heart" size={12} color="#FFFFFF" />
+          </RNView>
+        )}
+        {/* Cook time badge */}
+        {recipe.total_time && (
+          <RNView style={[styles.gridTimeBadge, { backgroundColor: 'rgba(0,0,0,0.7)' }]}>
+            <Ionicons name="time-outline" size={10} color="#FFFFFF" />
+            <Text style={styles.gridTimeText}>{recipe.total_time}</Text>
+          </RNView>
+        )}
+        
+        {/* Subtle gradient overlay at bottom for text readability */}
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.7)']}
+          style={styles.gridOverlay}
+        />
+        
+        {/* Title overlaid on image */}
+        <RNView style={styles.gridCardContent}>
+          <Text style={styles.gridCardTitle} numberOfLines={2}>
+            {recipe.title}
+          </Text>
         </RNView>
       </RNView>
     </ScalePressable>
@@ -228,6 +308,9 @@ export default function HistoryScreen() {
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showCreateCollectionModal, setShowCreateCollectionModal] = useState(false);
+  
+  // View preference (grid or list)
+  const { viewMode, toggleViewMode, isGrid } = useViewPreference();
   
   // Filter state
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
@@ -395,19 +478,22 @@ export default function HistoryScreen() {
     }
   };
 
-  const renderItem = ({ item, index }: { item: RecipeListItem; index: number }) => (
-    <AnimatedListItem index={index} delay={40}>
-      <RecipeCard
-        recipe={item}
-        colors={colors}
-        onPress={() => {
-          haptics.light();
-          router.push(`/recipe/${item.id}`);
-        }}
-        isSavedRecipe={item.user_id !== userId}
-      />
-    </AnimatedListItem>
-  );
+  const renderItem = ({ item, index }: { item: RecipeListItem; index: number }) => {
+    const CardComponent = isGrid ? GridRecipeCard : RecipeCard;
+    return (
+      <AnimatedListItem index={index} delay={40}>
+        <CardComponent
+          recipe={item}
+          colors={colors}
+          onPress={() => {
+            haptics.light();
+            router.push(`/recipe/${item.id}`);
+          }}
+          isSavedRecipe={item.user_id !== userId}
+        />
+      </AnimatedListItem>
+    );
+  };
 
   // Memoize header to prevent re-render on search change
   const ListHeaderTitle = useCallback(() => (
@@ -430,36 +516,60 @@ export default function HistoryScreen() {
       )}
     </RNView>
       
-      {/* Ingredient search button */}
-      <TouchableOpacity
-        style={[styles.ingredientSearchButton, { backgroundColor: colors.tint + '15' }]}
-        onPress={() => {
-          haptics.light();
-          router.push('/ingredient-search');
-        }}
-        activeOpacity={0.7}
-      >
-        <Ionicons name="nutrition-outline" size={18} color={colors.tint} />
-        <Text style={[styles.ingredientSearchText, { color: colors.tint }]}>
-          What can I make?
-        </Text>
-      </TouchableOpacity>
+      <RNView style={styles.headerActions}>
+        {/* View toggle button */}
+        <TouchableOpacity
+          style={[styles.viewToggleButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
+          onPress={() => {
+            haptics.light();
+            toggleViewMode();
+          }}
+          activeOpacity={0.7}
+        >
+          <Ionicons 
+            name={isGrid ? 'list-outline' : 'grid-outline'} 
+            size={18} 
+            color={colors.tint} 
+          />
+        </TouchableOpacity>
+        
+        {/* Ingredient search button */}
+        <TouchableOpacity
+          style={[styles.ingredientSearchButton, { backgroundColor: colors.tint + '15' }]}
+          onPress={() => {
+            haptics.light();
+            router.push('/ingredient-search');
+          }}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="nutrition-outline" size={18} color={colors.tint} />
+          <Text style={[styles.ingredientSearchText, { color: colors.tint }]}>
+            What can I make?
+          </Text>
+        </TouchableOpacity>
+      </RNView>
     </RNView>
-  ), [colors.text, colors.tint, totalCount, isRefetching, router, hasActiveFilters, combinedRecipes]);
+  ), [colors.text, colors.tint, totalCount, isRefetching, router, hasActiveFilters, combinedRecipes, isGrid, toggleViewMode]);
 
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
-      <Ionicons 
-        name="restaurant-outline"
-        size={64} 
-        color={colors.textMuted} 
-      />
+      <RNView style={[styles.emptyIconContainer, { backgroundColor: colors.tint + '15' }]}>
+        <Text style={styles.emptyEmoji}>🍳</Text>
+      </RNView>
       <Text style={[styles.emptyTitle, { color: colors.text }]}>
         No recipes yet
       </Text>
       <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-        Extract your first recipe from the home screen!
+        Start building your recipe collection!
       </Text>
+      <TouchableOpacity
+        style={[styles.emptyButton, { backgroundColor: colors.tint }]}
+        onPress={() => router.push('/(tabs)')}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
+        <Text style={styles.emptyButtonText}>Add Your First Recipe</Text>
+      </TouchableOpacity>
     </RNView>
   );
 
@@ -664,9 +774,12 @@ export default function HistoryScreen() {
         <SkeletonRecipeList count={4} />
       ) : (
         <FlatList
+          key={isGrid ? 'grid' : 'list'} // Force re-render when changing layout
           data={displayRecipes}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
+          numColumns={isGrid ? 2 : 1}
+          columnWrapperStyle={isGrid ? styles.gridRow : undefined}
           ListEmptyComponent={ListEmpty}
           ListFooterComponent={ListFooter}
           contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.xl + 80 }]}
@@ -742,7 +855,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: fontSize.xxl,
-    fontWeight: fontWeight.bold,
+    fontFamily: fontFamily.bold,
   },
   countBadge: {
     marginLeft: spacing.sm,
@@ -838,14 +951,27 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     overflow: 'hidden',
     borderWidth: 1,
+    // Subtle shadow for depth
+    ...shadows.card,
+  },
+  thumbnailContainer: {
+    position: 'relative',
+    overflow: 'hidden',
   },
   thumbnail: {
-    width: 100,
-    height: 120,
+    width: 110,
+    height: 130,
+  },
+  thumbnailOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: '40%',
   },
   placeholderThumbnail: {
-    width: 100,
-    height: 120,
+    width: 110,
+    height: 130,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -855,6 +981,95 @@ const styles = StyleSheet.create({
     left: spacing.xs,
     borderRadius: radius.full,
     padding: 4,
+  },
+  // Grid view styles
+  gridRow: {
+    justifyContent: 'space-between',
+    gap: GRID_GAP,
+  },
+  gridCard: {
+    width: GRID_CARD_WIDTH,
+    borderRadius: radius.md,
+    marginBottom: spacing.sm,
+    overflow: 'hidden',
+    borderWidth: 1,
+    ...shadows.card,
+  },
+  gridThumbnailContainer: {
+    width: '100%',
+    aspectRatio: 0.85, // Taller cards for overlay text
+    position: 'relative',
+  },
+  gridOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: '40%', // Shorter, more subtle (no author line)
+  },
+  gridThumbnail: {
+    width: '100%',
+    height: '100%',
+  },
+  gridPlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  gridSavedBadge: {
+    position: 'absolute',
+    top: spacing.xs,
+    left: spacing.xs,
+    borderRadius: radius.full,
+    padding: 5,
+  },
+  gridTimeBadge: {
+    position: 'absolute',
+    bottom: spacing.xs,
+    left: spacing.xs,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  gridTimeText: {
+    color: '#FFFFFF',
+    fontSize: fontSize.xs,
+    fontFamily: fontFamily.medium,
+  },
+  gridCardContent: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: spacing.sm,
+    paddingTop: spacing.md,
+  },
+  gridCardTitle: {
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.semibold,
+    lineHeight: 18,
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  // Header action buttons
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  viewToggleButton: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   placeholderEmoji: {
     fontSize: 32,
@@ -866,7 +1081,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     fontSize: fontSize.md,
-    fontWeight: fontWeight.semibold,
+    fontFamily: fontFamily.semibold,
     lineHeight: 20,
   },
   metaRow: {
@@ -914,16 +1129,42 @@ const styles = StyleSheet.create({
   emptyContainer: {
     alignItems: 'center',
     paddingVertical: spacing.xxl,
+    paddingHorizontal: spacing.xl,
+  },
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  emptyEmoji: {
+    fontSize: 48,
   },
   emptyTitle: {
     fontSize: fontSize.xl,
-    fontWeight: fontWeight.semibold,
+    fontFamily: fontFamily.semibold,
     marginBottom: spacing.sm,
-    marginTop: spacing.md,
   },
   emptySubtitle: {
     fontSize: fontSize.md,
     textAlign: 'center',
+    marginBottom: spacing.lg,
+  },
+  emptyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    borderRadius: radius.lg,
+    ...shadows.card,
+  },
+  emptyButtonText: {
+    color: '#FFFFFF',
+    fontSize: fontSize.md,
+    fontFamily: fontFamily.semibold,
   },
   footerContainer: {
     paddingVertical: spacing.md,

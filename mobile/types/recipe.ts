@@ -58,6 +58,9 @@ export interface RecipeExtracted {
   totalEstimatedCost: number | null;
   costLocation: string;
   nutrition: Nutrition;
+  // Confidence info (set when extraction quality is uncertain)
+  lowConfidence?: boolean;
+  confidenceWarning?: string | null;
 }
 
 export interface Recipe {
@@ -143,6 +146,8 @@ export interface JobStatus {
   message: string;
   recipe_id: string | null;
   error_message: string | null;
+  low_confidence?: boolean;  // True if extraction quality is uncertain
+  confidence_warning?: string | null;  // Warning message for user
 }
 
 export interface Location {
@@ -164,6 +169,7 @@ export interface GroceryItem {
   checked: boolean;
   recipe_id: string | null;
   recipe_title: string | null;
+  added_by_name: string | null;  // Who added this item (for shared lists)
   created_at: string;
 }
 
@@ -183,17 +189,54 @@ export interface GroceryCount {
 }
 
 // ============================================================
+// Shared Grocery List Types
+// ============================================================
+
+export interface GroceryListMember {
+  user_id: string;
+  display_name: string | null;
+  joined_at: string;
+  is_you: boolean;
+}
+
+export interface GroceryListInfo {
+  id: string;
+  name: string;
+  is_shared: boolean;
+  members: GroceryListMember[];
+  created_at: string;
+}
+
+export interface GroceryInvite {
+  invite_code: string;
+  deep_link: string;
+  list_name: string;
+  created_by_name: string | null;
+}
+
+export interface InvitePreview {
+  list_name: string;
+  member_count: number;
+  members: string[];
+  created_by_name: string | null;
+  is_valid: boolean;
+  already_member: boolean;
+}
+
+// ============================================================
 // Chat Types
 // ============================================================
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  image_url?: string;  // Optional image URL for vision
 }
 
 export interface ChatRequest {
   message: string;
   history?: ChatMessage[];
+  image_base64?: string;  // Optional base64 image for vision
 }
 
 export interface ChatResponse {

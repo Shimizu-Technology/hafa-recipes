@@ -22,10 +22,12 @@ import {
   Alert,
   View as RNView,
   TextInput,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as ImagePicker from 'expo-image-picker';
 
 // Speech recognition - conditionally import to avoid crashes in Expo Go
 let ExpoSpeechRecognitionModule: any = null;
@@ -45,6 +47,7 @@ try {
 import { View, Text, useColors } from '@/components/Themed';
 import { Recipe, ChatMessage } from '@/types/recipe';
 import { useChatWithRecipe } from '@/hooks/useChat';
+import { useTTS } from '@/hooks/useTTS';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import Markdown from 'react-native-markdown-display';
 
@@ -75,8 +78,12 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const [inputText, setInputText] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isListening, setIsListening] = useState(false);
+  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
+  const [attachedImage, setAttachedImage] = useState<string | null>(null);  // Base64 image
+  const [attachedImageUri, setAttachedImageUri] = useState<string | null>(null);  // For preview
   
   const chatMutation = useChatWithRecipe();
+  const { speak, stop, isPlaying, isLoading: ttsLoading } = useTTS();
   
   // Speech recognition event handlers
   useSpeechRecognitionEvent('start', () => {
@@ -211,23 +218,107 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     }
   }, [messages]);
 
+  const handlePickImage = async () => {
+    try {
+      // Request permission
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please allow access to your photos to attach images.');
+        return;
+      }
+
+      // Launch image picker - no cropping, full image
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        if (asset.base64) {
+          setAttachedImage(asset.base64);
+          setAttachedImageUri(asset.uri);
+        }
+      }
+    } catch (error) {
+      console.log('Image picker error:', error);
+      Alert.alert('Error', 'Failed to pick image');
+    }
+  };
+
+  const handleTakePhoto = async () => {
+    try {
+      // Request camera permission
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please allow access to your camera to take photos.');
+        return;
+      }
+
+      // Launch camera - no cropping, full image
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: false,
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        if (asset.base64) {
+          setAttachedImage(asset.base64);
+          setAttachedImageUri(asset.uri);
+        }
+      }
+    } catch (error) {
+      console.log('Camera error:', error);
+      Alert.alert('Error', 'Failed to take photo');
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setAttachedImage(null);
+    setAttachedImageUri(null);
+  };
+
   const handleSend = async (text?: string) => {
     const messageText = text || inputText.trim();
-    if (!messageText) return;
+    if (!messageText && !attachedImage) return;
 
-    // Add user message to chat
-    const userMessage: ChatMessage = { role: 'user', content: messageText };
+    // Create data URL for display in chat history
+    const imageDataUrl = attachedImage 
+      ? `data:image/jpeg;base64,${attachedImage.substring(0, 100)}...` // Truncated for storage
+      : undefined;
+
+    // Capture image before clearing
+    const imageToSend = attachedImage;
+    const imageUriForDisplay = attachedImageUri;
+    const hadImage = !!imageToSend;
+    
+    // Add user message to chat (with image preview if attached)
+    const userMessage: ChatMessage = { 
+      role: 'user', 
+      content: hadImage 
+        ? (messageText ? `📷 ${messageText}` : '📷 [Photo attached]')
+        : messageText,
+      image_url: imageUriForDisplay || undefined,  // Use URI for display (current session only)
+    };
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
     setInputText('');
+    setAttachedImage(null);
+    setAttachedImageUri(null);
+    
     Keyboard.dismiss();
 
     try {
-      // Send to API
+      // Send to API (with image if attached)
       const response = await chatMutation.mutateAsync({
         recipeId: recipe.id,
-        message: messageText,
+        message: messageText || 'What do you see in this image? How does it relate to this recipe?',
         history: messages, // Send previous messages for context
+        imageBase64: imageToSend || undefined,
       });
 
       // Add assistant response
@@ -235,8 +326,13 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
       const finalMessages = [...updatedMessages, assistantMessage];
       setMessages(finalMessages);
       
-      // Save to AsyncStorage
-      await saveChatHistory(finalMessages);
+      // Save to AsyncStorage (strip image_url since local URIs don't persist)
+      const messagesForStorage = finalMessages.map(m => ({
+        role: m.role,
+        content: m.content,
+        // Don't save image_url - local URIs are temporary
+      }));
+      await saveChatHistory(messagesForStorage as ChatMessage[]);
     } catch {
       // Add error message to conversation
       const errorMessage: ChatMessage = {
@@ -252,6 +348,26 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const handleSuggestionPress = (suggestion: string) => {
     handleSend(suggestion);
   };
+
+  const handleSpeakPress = async (text: string, index: number) => {
+    if (speakingIndex === index && isPlaying) {
+      // Stop if already playing this message
+      await stop();
+      setSpeakingIndex(null);
+    } else {
+      // Stop any current playback and start new
+      await stop();
+      setSpeakingIndex(index);
+      await speak(text);
+    }
+  };
+
+  // Reset speaking index when playback stops
+  useEffect(() => {
+    if (!isPlaying && !ttsLoading) {
+      setSpeakingIndex(null);
+    }
+  }, [isPlaying, ttsLoading]);
 
   return (
     <Modal
@@ -366,17 +482,55 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
               ]}
             >
               {msg.role === 'assistant' && (
-                <Ionicons
-                  name="sparkles"
-                  size={16}
-                  color={colors.tint}
-                  style={styles.assistantIcon}
-                />
+                <RNView style={styles.assistantHeader}>
+                  <RNView style={styles.assistantHeaderLeft}>
+                    <Ionicons
+                      name="sparkles"
+                      size={16}
+                      color={colors.tint}
+                    />
+                  </RNView>
+                  <TouchableOpacity
+                    onPress={() => handleSpeakPress(msg.content, index)}
+                    disabled={ttsLoading && speakingIndex === index}
+                    style={[
+                      styles.speakerButton,
+                      { 
+                        backgroundColor: speakingIndex === index ? colors.tint + '20' : 'transparent',
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  >
+                    {ttsLoading && speakingIndex === index ? (
+                      <ActivityIndicator size={14} color={colors.tint} />
+                    ) : (
+                      <Ionicons
+                        name={speakingIndex === index && isPlaying ? 'stop' : 'volume-high'}
+                        size={16}
+                        color={speakingIndex === index && isPlaying ? colors.error : colors.tint}
+                      />
+                    )}
+                  </TouchableOpacity>
+                </RNView>
               )}
               {msg.role === 'user' ? (
-                <Text style={[styles.messageText, { color: '#FFFFFF' }]}>
-                  {msg.content}
-                </Text>
+                <>
+                  {msg.image_url && (
+                    <RNView style={styles.messageImageContainer}>
+                      <Image 
+                        source={{ uri: msg.image_url }} 
+                        style={styles.messageImage}
+                        resizeMode="cover"
+                        onError={() => {
+                          // Image failed to load (stale URI) - will show placeholder
+                        }}
+                      />
+                    </RNView>
+                  )}
+                  <Text style={[styles.messageText, { color: '#FFFFFF' }]}>
+                    {msg.content}
+                  </Text>
+                </>
               ) : (
                 <Markdown
                   style={{
@@ -414,6 +568,22 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           )}
         </ScrollView>
 
+        {/* Attached Image Preview */}
+        {attachedImageUri && (
+          <RNView style={[styles.attachedImageContainer, { backgroundColor: colors.backgroundSecondary, borderTopColor: colors.border }]}>
+            <Image source={{ uri: attachedImageUri }} style={styles.attachedImagePreview} />
+            <TouchableOpacity 
+              style={[styles.removeImageButton, { backgroundColor: colors.error }]} 
+              onPress={handleRemoveImage}
+            >
+              <Ionicons name="close" size={16} color="#FFFFFF" />
+            </TouchableOpacity>
+            <Text style={[styles.attachedImageHint, { color: colors.textMuted }]}>
+              Photo attached - add a message or send
+            </Text>
+          </RNView>
+        )}
+
         {/* Input area */}
         <RNView
           style={[
@@ -426,6 +596,30 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
             },
           ]}
         >
+          {/* Camera button */}
+          <TouchableOpacity
+            onPress={handleTakePhoto}
+            disabled={chatMutation.isPending}
+            style={[
+              styles.imageButton,
+              { backgroundColor: colors.backgroundSecondary, borderColor: colors.border },
+            ]}
+          >
+            <Ionicons name="camera-outline" size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+
+          {/* Photo library button */}
+          <TouchableOpacity
+            onPress={handlePickImage}
+            disabled={chatMutation.isPending}
+            style={[
+              styles.imageButton,
+              { backgroundColor: colors.backgroundSecondary, borderColor: colors.border },
+            ]}
+          >
+            <Ionicons name="image-outline" size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+
           {/* Microphone button */}
           <TouchableOpacity
             onPress={handleMicPress}
@@ -440,7 +634,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           >
             <Ionicons
               name={isListening ? 'mic' : 'mic-outline'}
-              size={22}
+              size={20}
               color={isListening ? '#FFFFFF' : colors.textSecondary}
             />
           </TouchableOpacity>
@@ -448,7 +642,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           <TextInput
             value={inputText}
             onChangeText={setInputText}
-            placeholder={isListening ? 'Listening...' : 'Ask about this recipe...'}
+            placeholder={attachedImage ? 'Add a message (optional)...' : (isListening ? 'Listening...' : 'Ask about this recipe...')}
             placeholderTextColor={isListening ? colors.error : colors.textMuted}
             multiline
             maxLength={500}
@@ -466,18 +660,18 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           />
           <TouchableOpacity
             onPress={() => handleSend()}
-            disabled={!inputText.trim() || chatMutation.isPending}
+            disabled={(!inputText.trim() && !attachedImage) || chatMutation.isPending}
             style={[
               styles.sendButton,
               {
-                backgroundColor: inputText.trim() ? colors.tint : colors.border,
+                backgroundColor: (inputText.trim() || attachedImage) ? colors.tint : colors.border,
               },
             ]}
           >
             <Ionicons
               name="send"
               size={20}
-              color={inputText.trim() ? '#FFFFFF' : colors.textMuted}
+              color={(inputText.trim() || attachedImage) ? '#FFFFFF' : colors.textMuted}
             />
           </TouchableOpacity>
         </RNView>
@@ -602,8 +796,23 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     borderBottomLeftRadius: radius.sm,
   },
-  assistantIcon: {
+  assistantHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: spacing.xs,
+  },
+  assistantHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  speakerButton: {
+    width: 28,
+    height: 28,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
   },
   messageText: {
     fontSize: fontSize.md,
@@ -648,12 +857,57 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   micButton: {
-    width: 40,
-    height: 40,
+    width: 36,
+    height: 36,
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
+  },
+  imageButton: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  attachedImageContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.sm,
+    borderTopWidth: 1,
+    gap: spacing.sm,
+  },
+  attachedImagePreview: {
+    width: 60,
+    height: 60,
+    borderRadius: radius.md,
+  },
+  removeImageButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'absolute',
+    top: spacing.xs,
+    left: spacing.sm + 48,
+  },
+  attachedImageHint: {
+    fontSize: fontSize.xs,
+    flex: 1,
+    marginLeft: spacing.sm,
+  },
+  messageImageContainer: {
+    marginBottom: spacing.xs,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+  },
+  messageImage: {
+    width: '100%',
+    height: 150,
+    borderRadius: radius.md,
   },
 });
 

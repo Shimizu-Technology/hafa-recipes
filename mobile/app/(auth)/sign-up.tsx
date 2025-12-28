@@ -332,6 +332,7 @@ export default function SignUpScreen() {
                   autoCorrect={false}
                   editable={!isLoading}
                   style={styles.passwordInput}
+                  showClearButton={false}
                 />
                 <TouchableOpacity
                   style={styles.passwordToggle}
@@ -356,6 +357,7 @@ export default function SignUpScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={!isLoading}
+                showClearButton={false}
               />
             </RNView>
 

@@ -16,6 +16,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text, View, useColors } from './Themed';
 import { Ingredient } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { scaleQuantity } from '@/hooks/useScaledServings';
 
 interface AddIngredientsModalProps {
   visible: boolean;
@@ -24,6 +25,9 @@ interface AddIngredientsModalProps {
   ingredients: Ingredient[];
   recipeTitle: string;
   isLoading?: boolean;
+  scaleFactor?: number;
+  currentServings?: number;
+  originalServings?: number;
 }
 
 export default function AddIngredientsModal({
@@ -33,6 +37,9 @@ export default function AddIngredientsModal({
   ingredients,
   recipeTitle,
   isLoading = false,
+  scaleFactor = 1,
+  currentServings,
+  originalServings,
 }: AddIngredientsModalProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -76,9 +83,20 @@ export default function AddIngredientsModal({
   };
 
   const handleConfirm = () => {
-    const selectedIngredients = ingredients.filter((_, index) => selected.has(index));
+    // Filter selected ingredients and apply scaling
+    const selectedIngredients = ingredients
+      .filter((_, index) => selected.has(index))
+      .map((ing) => ({
+        ...ing,
+        // Scale quantity for grocery list
+        quantity: scaleQuantity(ing.quantity ?? null, scaleFactor),
+        // Scale cost estimate
+        estimatedCost: ing.estimatedCost ? ing.estimatedCost * scaleFactor : ing.estimatedCost,
+      }));
     onConfirm(selectedIngredients);
   };
+  
+  const isScaled = scaleFactor !== 1;
 
   const selectedCount = selected.size;
   const allSelected = selectedCount === ingredients.length;
@@ -99,7 +117,7 @@ export default function AddIngredientsModal({
           <RNView style={styles.headerTitleContainer}>
             <Text style={[styles.headerTitle, { color: colors.text }]}>Add Ingredients</Text>
             <Text style={[styles.headerSubtitle, { color: colors.textMuted }]} numberOfLines={1}>
-              {recipeTitle}
+              {recipeTitle}{isScaled && currentServings ? ` (${currentServings} servings)` : ''}
             </Text>
           </RNView>
           <TouchableOpacity 
@@ -155,7 +173,11 @@ export default function AddIngredientsModal({
                 />
                 <RNView style={styles.ingredientContent}>
                   <Text style={[styles.ingredientName, { color: colors.text }]}>
-                    {ingredient.quantity && ingredient.quantity !== 'null' && `${ingredient.quantity} `}
+                    {ingredient.quantity && ingredient.quantity !== 'null' && (
+                      <Text style={isScaled ? { color: colors.tint, fontWeight: fontWeight.semibold } : {}}>
+                        {scaleQuantity(ingredient.quantity, scaleFactor)}{' '}
+                      </Text>
+                    )}
                     {ingredient.unit && ingredient.unit !== 'null' && `${ingredient.unit} `}
                     {ingredient.name}
                   </Text>
@@ -166,8 +188,8 @@ export default function AddIngredientsModal({
                   )}
                 </RNView>
                 {ingredient.estimatedCost != null && ingredient.estimatedCost > 0 && (
-                  <Text style={[styles.ingredientCost, { color: colors.textMuted }]}>
-                    ${ingredient.estimatedCost.toFixed(2)}
+                  <Text style={[styles.ingredientCost, { color: isScaled ? colors.tint : colors.textMuted }]}>
+                    ${(ingredient.estimatedCost * scaleFactor).toFixed(2)}
                   </Text>
                 )}
               </TouchableOpacity>

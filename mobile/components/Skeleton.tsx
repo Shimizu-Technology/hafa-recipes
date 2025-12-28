@@ -240,6 +240,40 @@ export function SkeletonCollectionList({ count = 3 }: { count?: number }) {
   );
 }
 
+/**
+ * Skeleton for similar recipe card (horizontal scroll)
+ */
+export function SkeletonSimilarRecipeCard() {
+  const colors = useColors();
+
+  return (
+    <View style={[styles.similarCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+      {/* Image skeleton */}
+      <Skeleton width={160} height={100} borderRadius={0} />
+      
+      {/* Content skeleton */}
+      <View style={styles.similarCardContent}>
+        <Skeleton width="90%" height={14} style={{ marginBottom: 4 }} />
+        <Skeleton width="60%" height={14} />
+        <Skeleton width={50} height={12} style={{ marginTop: spacing.xs }} />
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Horizontal list of skeleton similar recipe cards
+ */
+export function SkeletonSimilarRecipes({ count = 3 }: { count?: number }) {
+  return (
+    <View style={styles.similarList}>
+      {Array.from({ length: count }).map((_, i) => (
+        <SkeletonSimilarRecipeCard key={i} />
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
@@ -304,6 +338,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#222',
     backgroundColor: '#111',
+  },
+  similarCard: {
+    width: 160,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    overflow: 'hidden',
+    marginRight: spacing.sm,
+  },
+  similarCardContent: {
+    padding: spacing.sm,
+  },
+  similarList: {
+    flexDirection: 'row',
+    paddingRight: spacing.md,
   },
 });
 

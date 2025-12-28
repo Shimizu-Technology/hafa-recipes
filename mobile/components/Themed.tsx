@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import Colors, { spacing, radius, fontSize, fontWeight } from '@/constants/Colors';
+import Colors, { spacing, radius, fontSize, fontWeight, fontFamily, shadows } from '@/constants/Colors';
 import { useColorScheme } from './useColorScheme';
 
 type ThemeProps = {
@@ -44,12 +44,12 @@ export function useColors() {
   return Colors[theme];
 }
 
-// Basic Text component
+// Basic Text component with Inter font
 export function Text(props: TextProps) {
   const { style, lightColor, darkColor, ...otherProps } = props;
   const color = useThemeColor({ light: lightColor, dark: darkColor }, 'text');
 
-  return <DefaultText style={[{ color }, style]} {...otherProps} />;
+  return <DefaultText style={[{ color, fontFamily: fontFamily.regular }, style]} {...otherProps} />;
 }
 
 // Basic View component
@@ -60,14 +60,16 @@ export function View(props: ViewProps) {
   return <DefaultView style={[{ backgroundColor }, style]} {...otherProps} />;
 }
 
-// Card component
+// Card component with subtle shadow
 interface CardProps extends ViewProps {
   children: React.ReactNode;
   noPadding?: boolean;
+  elevated?: boolean; // Use stronger shadow
 }
 
-export function Card({ children, style, noPadding, ...props }: CardProps) {
+export function Card({ children, style, noPadding, elevated, ...props }: CardProps) {
   const colors = useColors();
+  const shadowStyle = elevated ? shadows.medium : shadows.card;
   
   return (
     <DefaultView
@@ -78,6 +80,9 @@ export function Card({ children, style, noPadding, ...props }: CardProps) {
           borderWidth: 1,
           borderColor: colors.cardBorder,
           padding: noPadding ? 0 : spacing.md,
+          // Subtle shadow for depth
+          shadowColor: colors.shadowColor,
+          ...shadowStyle,
         },
         style,
       ]}
@@ -276,7 +281,7 @@ export function Button({
         style={{
           color: getTextColor(),
           fontSize: size === 'lg' ? fontSize.lg : fontSize.md,
-          fontWeight: fontWeight.semibold,
+          fontFamily: fontFamily.semibold,
         }}
       >
         {title}

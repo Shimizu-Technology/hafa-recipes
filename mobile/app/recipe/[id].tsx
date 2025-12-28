@@ -34,13 +34,66 @@ import {
   useAsyncExtraction,
   useRecipeNote,
   useUpdateRecipeNote,
+  useSimilarRecipes,
 } from '@/hooks/useRecipes';
+import { RecipeListItem } from '@/types/recipe';
 import { useAddFromRecipe } from '@/hooks/useGrocery';
-import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { SkeletonSimilarRecipes } from '@/components/Skeleton';
+import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import { Ingredient } from '@/types/recipe';
+import { useScaledServings, scaleQuantity, scaleIngredient } from '@/hooks/useScaledServings';
 
 type TabType = 'ingredients' | 'steps' | 'nutrition' | 'cost';
+
+/**
+ * Similar Recipe Card with proper image error handling
+ */
+function SimilarRecipeCard({ 
+  item, 
+  onPress,
+  colors,
+}: { 
+  item: RecipeListItem; 
+  onPress: () => void;
+  colors: ReturnType<typeof useColors>;
+}) {
+  const [imageError, setImageError] = useState(false);
+  const showPlaceholder = !item.thumbnail_url || imageError;
+
+  return (
+    <TouchableOpacity
+      style={[styles.similarCard, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      {showPlaceholder ? (
+        <RNView style={[styles.similarImagePlaceholder, { backgroundColor: colors.tint + '15' }]}>
+          <Ionicons name="restaurant-outline" size={32} color={colors.tint} />
+        </RNView>
+      ) : (
+        <Image 
+          source={{ uri: item.thumbnail_url! }} 
+          style={styles.similarImage}
+          onError={() => setImageError(true)}
+        />
+      )}
+      <RNView style={styles.similarCardContent}>
+        <Text 
+          style={[styles.similarCardTitle, { color: colors.text }]} 
+          numberOfLines={2}
+        >
+          {item.title}
+        </Text>
+        {item.total_time && (
+          <Text style={[styles.similarCardMeta, { color: colors.textMuted }]}>
+            {item.total_time}
+          </Text>
+        )}
+      </RNView>
+    </TouchableOpacity>
+  );
+}
 
 export default function RecipeDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -48,7 +101,6 @@ export default function RecipeDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<TabType>('ingredients');
-  const [scaledServings, setScaledServings] = useState<number | null>(null);
   
   const { data: recipe, isLoading, error, refetch } = useRecipe(id);
   const deleteMutation = useDeleteRecipe();
@@ -61,6 +113,7 @@ export default function RecipeDetailScreen() {
   const [showCollectionModal, setShowCollectionModal] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [isEditingNote, setIsEditingNote] = useState(false);
+  const [showIngredientsRef, setShowIngredientsRef] = useState(false); // Collapsed by default
   const [noteText, setNoteText] = useState('');
   const scrollViewRef = useRef<ScrollView>(null);
   const notesInputRef = useRef<TextInput>(null);
@@ -81,6 +134,21 @@ export default function RecipeDetailScreen() {
   // Personal notes
   const { data: personalNote, isLoading: isNoteLoading } = useRecipeNote(id, !!userId);
   const updateNoteMutation = useUpdateRecipeNote();
+  
+  // Similar recipes
+  const { data: similarRecipes, isLoading: isSimilarLoading } = useSimilarRecipes(id, !!recipe);
+  
+  // Scaled servings hook - must be called before any early returns
+  // Uses default of 1 when recipe isn't loaded yet
+  const originalServings = recipe?.extracted?.servings || 1;
+  const {
+    scaledServings,
+    setScaledServings,
+    resetServings,
+    currentServings,
+    scaleFactor,
+    isScaled,
+  } = useScaledServings(id, originalServings);
   
   // Sync noteText with fetched note
   useEffect(() => {
@@ -490,12 +558,13 @@ export default function RecipeDetailScreen() {
   }
 
   const { extracted } = recipe;
+  
   const sourceIcon = recipe.source_type === 'tiktok' 
     ? 'logo-tiktok' 
     : recipe.source_type === 'youtube' 
       ? 'logo-youtube' 
       : recipe.source_type === 'instagram' 
-        ? 'logo-instagram'
+        ? 'logo-instagram' 
         : recipe.source_type === 'website'
           ? 'globe-outline' 
         : 'globe-outline';
@@ -517,33 +586,8 @@ export default function RecipeDetailScreen() {
     ...(extracted.totalEstimatedCost ? [{ key: 'cost' as TabType, label: 'Cost' }] : []),
   ];
 
-  // Recipe scaling logic
-  const originalServings = extracted.servings || 1;
-  const currentServings = scaledServings ?? originalServings;
-  const scaleFactor = currentServings / originalServings;
-  const isScaled = scaledServings !== null && scaledServings !== originalServings;
-
-  // Helper to scale ingredient quantities
-  const scaleQuantity = (quantity: string | null): string | null => {
-    if (!quantity || scaleFactor === 1) return quantity;
-    
-    // Try to parse the quantity as a number or fraction
-    const parsed = parseFloat(quantity);
-    if (!isNaN(parsed)) {
-      const scaled = parsed * scaleFactor;
-      // Format nicely: show fractions for small numbers, decimals for larger
-      if (scaled < 1) {
-        // Convert to common fractions
-        const fractions: Record<string, string> = {
-          '0.25': '¼', '0.33': '⅓', '0.5': '½', '0.67': '⅔', '0.75': '¾',
-        };
-        const key = scaled.toFixed(2);
-        return fractions[key] || scaled.toFixed(1);
-      }
-      return scaled % 1 === 0 ? scaled.toString() : scaled.toFixed(1);
-    }
-    return quantity; // Return original if can't parse
-  };
+  // Recipe scaling logic - now using the shared scaleQuantity utility from useScaledServings
+  // scaleFactor, currentServings, isScaled are provided by useScaledServings hook above
 
   return (
     <>
@@ -627,7 +671,7 @@ export default function RecipeDetailScreen() {
                   {isScaled && (
                     <TouchableOpacity 
                       style={styles.resetButton}
-                      onPress={() => setScaledServings(null)}
+                      onPress={resetServings}
                       activeOpacity={0.7}
                     >
                       <Ionicons name="refresh" size={14} color={colors.textMuted} />
@@ -653,11 +697,17 @@ export default function RecipeDetailScreen() {
               )}
             </RNView>
 
-            {/* Quality Badge */}
-            {recipe.has_audio_transcript && (
+            {/* Quality Badge - show warning if low confidence, otherwise show quality */}
+            {extracted.lowConfidence ? (
+              <RNView style={[styles.qualityBadge, { backgroundColor: '#fef3c7' }]}>
+                <Text style={[styles.qualityText, { color: '#92400e' }]}>
+                  ⚠️ Needs Review · Some details may be inaccurate
+                </Text>
+              </RNView>
+            ) : recipe.has_audio_transcript && (
               <RNView style={[styles.qualityBadge, { backgroundColor: colors.success + '15' }]}>
                 <Text style={[styles.qualityText, { color: colors.success }]}>
-                  🎤 High Quality · Audio Transcribed
+                  🔬 High Quality · Audio Transcribed
                 </Text>
               </RNView>
             )}
@@ -670,20 +720,6 @@ export default function RecipeDetailScreen() {
                 ))}
               </RNView>
             )}
-
-            {/* Start Cooking Button */}
-            <TouchableOpacity
-              style={[styles.startCookingButton, { backgroundColor: colors.tint }]}
-              onPress={() => router.push(`/cook-mode/${id}` as any)}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="restaurant" size={24} color="#FFFFFF" />
-              <RNView style={styles.startCookingTextContainer}>
-                <Text style={styles.startCookingText}>Start Cooking</Text>
-                <Text style={styles.startCookingSubtext}>Step-by-step mode</Text>
-              </RNView>
-              <Ionicons name="chevron-forward" size={24} color="#FFFFFF" />
-            </TouchableOpacity>
 
             {/* Recipe Notes (from creator/extraction) */}
             {extracted.notes && extracted.notes !== 'null' && (
@@ -892,7 +928,7 @@ export default function RecipeDetailScreen() {
                       {component.ingredients.map((ing, ingIndex) => {
                         // Build the quantity/unit string safely (with scaling)
                         const originalQty = ing.quantity && ing.quantity !== 'null' ? ing.quantity : '';
-                        const scaledQty = scaleQuantity(originalQty);
+                        const scaledQty = scaleQuantity(originalQty, scaleFactor);
                         const unit = ing.unit && ing.unit !== 'null' ? ing.unit : '';
                         const qtyUnit = scaledQty ? `${scaledQty}${unit ? ` ${unit}` : ''} ` : '';
                         const notes = ing.notes && ing.notes !== 'null' ? ing.notes : '';
@@ -938,6 +974,61 @@ export default function RecipeDetailScreen() {
 
               {activeTab === 'steps' && (
                 <>
+                  {/* Quick Reference: Ingredients */}
+                  <TouchableOpacity
+                    style={[styles.ingredientsRefHeader, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
+                    onPress={() => setShowIngredientsRef(!showIngredientsRef)}
+                    activeOpacity={0.7}
+                  >
+                    <RNView style={styles.ingredientsRefTitleRow}>
+                      <Ionicons name="list-outline" size={18} color={colors.tint} />
+                      <Text style={[styles.ingredientsRefTitle, { color: colors.text }]}>
+                        Quick Reference: Ingredients
+                      </Text>
+                      {isScaled && (
+                        <RNView style={[styles.scaledBadge, { backgroundColor: colors.tint + '20' }]}>
+                          <Text style={[styles.scaledBadgeText, { color: colors.tint }]}>
+                            {currentServings} servings
+                          </Text>
+                        </RNView>
+                      )}
+                    </RNView>
+                    <Ionicons 
+                      name={showIngredientsRef ? 'chevron-up' : 'chevron-down'} 
+                      size={20} 
+                      color={colors.textMuted} 
+                    />
+                  </TouchableOpacity>
+                  
+                  {showIngredientsRef && (
+                    <RNView style={[styles.ingredientsRefContent, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
+                      {extracted.components.map((component, compIndex) => (
+                        <RNView key={compIndex}>
+                          {extracted.components.length > 1 && (
+                            <Text style={[styles.ingredientsRefCompTitle, { color: colors.tint }]}>
+                              {component.name}
+                            </Text>
+                          )}
+                          {component.ingredients.map((ing, ingIndex) => {
+                            const scaledQty = scaleQuantity(ing.quantity ?? null, scaleFactor);
+                            const unit = ing.unit && ing.unit !== 'null' ? ing.unit : '';
+                            return (
+                              <RNView key={ingIndex} style={styles.ingredientsRefItem}>
+                                <Text style={[styles.ingredientsRefQty, isScaled && { color: colors.tint }]}>
+                                  {scaledQty || '•'}{unit ? ` ${unit}` : ''}
+                                </Text>
+                                <Text style={[styles.ingredientsRefName, { color: colors.text }]}>
+                                  {ing.name}
+                                </Text>
+                              </RNView>
+                            );
+                          })}
+                        </RNView>
+                      ))}
+                    </RNView>
+                  )}
+
+                  {/* Steps */}
                   {extracted.components.map((component, compIndex) => (
                     <RNView key={compIndex} style={styles.componentSection}>
                       {extracted.components.length > 1 && (
@@ -1102,7 +1193,7 @@ export default function RecipeDetailScreen() {
                           .map((ing, ingIndex) => {
                             const scaledCost = (ing.estimatedCost || 0) * scaleFactor;
                             const originalQty = ing.quantity && ing.quantity !== 'null' ? ing.quantity : '';
-                            const scaledQty = scaleQuantity(originalQty);
+                            const scaledQty = scaleQuantity(originalQty, scaleFactor);
                             const unit = ing.unit && ing.unit !== 'null' ? ing.unit : '';
                             
                             return (
@@ -1133,7 +1224,56 @@ export default function RecipeDetailScreen() {
               )}
             </RNView>
           </RNView>
+          
+          {/* Similar Recipes Section */}
+          {(isSimilarLoading || (similarRecipes && similarRecipes.length > 0)) && (
+            <RNView style={styles.similarSection}>
+              <Text style={[styles.similarTitle, { color: colors.text }]}>
+                You May Also Like
+              </Text>
+              {isSimilarLoading ? (
+                <SkeletonSimilarRecipes count={3} />
+              ) : (
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.similarScroll}
+              >
+                {similarRecipes?.map((item: RecipeListItem) => (
+                  <SimilarRecipeCard
+                    key={item.id}
+                    item={item}
+                    onPress={() => router.push(`/recipe/${item.id}`)}
+                    colors={colors}
+                  />
+                ))}
         </ScrollView>
+              )}
+            </RNView>
+          )}
+        </ScrollView>
+        
+        {/* Floating Start Cooking Button */}
+        <RNView style={[
+          styles.floatingButtonContainer,
+          { 
+            backgroundColor: colors.background,
+            borderTopColor: colors.border,
+            paddingBottom: insets.bottom + spacing.sm,
+          }
+        ]}>
+          <TouchableOpacity
+            style={[styles.floatingCookButton, { backgroundColor: colors.tint }]}
+            onPress={() => router.push({
+              pathname: `/cook-mode/${id}` as any,
+              params: isScaled ? { scaleFactor: scaleFactor.toString(), servings: currentServings.toString() } : {},
+            })}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="restaurant" size={22} color="#FFFFFF" />
+            <Text style={styles.floatingCookButtonText}>Start Cooking</Text>
+          </TouchableOpacity>
+        </RNView>
       </KeyboardAvoidingView>
 
       {/* Add Ingredients Modal */}
@@ -1145,6 +1285,9 @@ export default function RecipeDetailScreen() {
           ingredients={allIngredients}
           recipeTitle={recipe.extracted.title}
           isLoading={addToGroceryMutation.isPending}
+          scaleFactor={scaleFactor}
+          currentServings={currentServings}
+          originalServings={originalServings}
         />
       )}
 
@@ -1185,7 +1328,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: spacing.xxl,
+    paddingBottom: 100, // Extra padding for floating button
   },
   centerContainer: {
     flex: 1,
@@ -1219,7 +1362,7 @@ const styles = StyleSheet.create({
   },
   heroImage: {
     width: '100%',
-    height: 250,
+    height: 300,
   },
   placeholderHero: {
     width: '100%',
@@ -1232,7 +1375,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: fontSize.xxl,
-    fontWeight: fontWeight.bold,
+    fontFamily: fontFamily.bold,
     lineHeight: 34,
     marginBottom: spacing.md,
   },
@@ -1411,12 +1554,38 @@ const styles = StyleSheet.create({
   startCookingText: {
     color: '#FFFFFF',
     fontSize: fontSize.lg,
-    fontWeight: fontWeight.bold,
+    fontFamily: fontFamily.bold,
   },
   startCookingSubtext: {
     color: 'rgba(255,255,255,0.8)',
     fontSize: fontSize.sm,
     marginTop: 2,
+  },
+  // Floating button styles
+  floatingButtonContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    ...shadows.medium,
+  },
+  floatingCookButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    borderRadius: radius.lg,
+    ...shadows.card,
+  },
+  floatingCookButtonText: {
+    color: '#FFFFFF',
+    fontSize: fontSize.lg,
+    fontFamily: fontFamily.semibold,
   },
   sourceButton: {
     flexDirection: 'row',
@@ -1545,6 +1714,61 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: fontSize.md,
     lineHeight: 24,
+  },
+  ingredientsRefHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
+  },
+  ingredientsRefTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flex: 1,
+  },
+  ingredientsRefTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+  },
+  scaledBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    marginLeft: spacing.sm,
+  },
+  scaledBadgeText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+  },
+  ingredientsRefContent: {
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginBottom: spacing.lg,
+  },
+  ingredientsRefCompTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    marginBottom: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  ingredientsRefItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 4,
+  },
+  ingredientsRefQty: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+    width: 80,
+  },
+  ingredientsRefName: {
+    fontSize: fontSize.sm,
+    flex: 1,
   },
   nutritionSection: {
     marginBottom: spacing.xl,
@@ -1694,5 +1918,48 @@ const styles = StyleSheet.create({
   costItemPrice: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
+  },
+  // Similar Recipes Section
+  similarSection: {
+    marginTop: spacing.xl,
+    paddingHorizontal: spacing.md,
+  },
+  similarTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    marginBottom: spacing.md,
+  },
+  similarScroll: {
+    paddingRight: spacing.md,
+    gap: spacing.sm,
+  },
+  similarCard: {
+    width: 160,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  similarImage: {
+    width: '100%',
+    height: 100,
+    resizeMode: 'cover',
+  },
+  similarImagePlaceholder: {
+    width: '100%',
+    height: 100,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  similarCardContent: {
+    padding: spacing.sm,
+  },
+  similarCardTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    lineHeight: fontSize.sm * 1.3,
+  },
+  similarCardMeta: {
+    fontSize: fontSize.xs,
+    marginTop: spacing.xs,
   },
 });
