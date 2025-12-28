@@ -56,17 +56,18 @@ export function useHandleShareIntent() {
       if (sharedUrl) {
         console.log('📥 Share Intent received:', sharedUrl);
         
-        // Navigate to the extract tab with the URL
-        // We use a small delay to ensure the app is ready
+        // Navigate to the extract tab (index) with the URL
+        // We use replace to avoid having a weird back stack
+        // Small delay ensures the navigation stack is ready
         setTimeout(() => {
-          router.push({
-            pathname: '/(tabs)',
+          router.replace({
+            pathname: '/',
             params: { sharedUrl: sharedUrl }
           });
           
           resetShareIntent();
           setIsProcessing(false);
-        }, 500);
+        }, 300);
       } else {
         console.log('⚠️ Share Intent received but no URL found:', shareIntent);
         resetShareIntent();
