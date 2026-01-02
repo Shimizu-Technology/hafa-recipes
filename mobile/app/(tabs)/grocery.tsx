@@ -4,7 +4,7 @@
  * Shows the user's grocery list grouped by recipe with collapsible sections.
  */
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   SectionList,
@@ -14,6 +14,7 @@ import {
   Alert,
   TextInput,
   Share,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -102,15 +103,21 @@ function GroceryItemRow({
               styles.itemName,
               { color: item.checked ? colors.textMuted : colors.text },
               item.checked && styles.itemNameChecked,
+              // Allow name to shrink when added_by label is present
+              isSharedList && item.added_by_name && styles.itemNameWithLabel,
             ]}
-            numberOfLines={1}
+            numberOfLines={2}
+            ellipsizeMode="tail"
           >
             {item.quantity && item.quantity !== 'null' && `${item.quantity} `}
             {item.unit && item.unit !== 'null' && `${item.unit} `}
             {item.name}
           </Text>
           {isSharedList && item.added_by_name && (
-            <Text style={[styles.addedByLabel, { color: colors.textMuted }]}>
+            <Text 
+              style={[styles.addedByLabel, { color: colors.textMuted }]}
+              numberOfLines={1}
+            >
               ({item.added_by_name})
             </Text>
           )}
@@ -214,6 +221,9 @@ export default function GroceryScreen() {
   const { isSignedIn } = useAuth();
   const queryClient = useQueryClient();
   
+  // Ref for the add item input to maintain focus
+  const addItemInputRef = useRef<TextInput>(null);
+  
   const [newItemName, setNewItemName] = useState('');
   const [showChecked, setShowChecked] = useState(true);
   const [editingItem, setEditingItem] = useState<GroceryItem | null>(null);
@@ -244,11 +254,13 @@ export default function GroceryScreen() {
   const { data: groceryItems, isLoading, refetch, isRefetching } = useGroceryList(showChecked, isSignedIn);
   const { data: countData, refetch: refetchCount } = useGroceryCount(isSignedIn);
 
-  // Refetch when tab gains focus (handles cache cleared on user change, 
-  // and updates from other tabs like meal planner)
+  // Refetch when tab gains focus to ensure we always have fresh data
+  // This is critical for shared lists where others may have made changes
   useFocusEffect(
     useCallback(() => {
       if (isSignedIn) {
+        // Force refetch to get the latest data from server
+        // This ensures we don't show stale cache data
         refetch();
         refetchCount();
       }
@@ -483,7 +495,13 @@ export default function GroceryScreen() {
     addItemMutation.mutate(
       { name: newItemName.trim() },
       {
-        onSuccess: () => setNewItemName(''),
+        onSuccess: () => {
+          setNewItemName('');
+          // Keep focus on input so user can quickly add more items
+          setTimeout(() => {
+            addItemInputRef.current?.focus();
+          }, 100);
+        },
       }
     );
   };
@@ -613,17 +631,31 @@ export default function GroceryScreen() {
     />
   );
 
-  const ListEmpty = () => (
-    <RNView style={styles.emptyContainer}>
-      <Ionicons name="cart-outline" size={64} color={colors.textMuted} />
-      <Text style={[styles.emptyTitle, { color: colors.text }]}>
-        Your grocery list is empty
-      </Text>
-      <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-        Add items manually above, or add ingredients from a recipe
-      </Text>
-    </RNView>
-  );
+  const ListEmpty = () => {
+    // Show loading indicator if data is being fetched
+    if (isLoading) {
+      return (
+        <RNView style={styles.emptyContainer}>
+          <ActivityIndicator size="large" color={colors.tint} />
+          <Text style={[styles.emptySubtitle, { color: colors.textSecondary, marginTop: spacing.md }]}>
+            Loading your grocery list...
+          </Text>
+        </RNView>
+      );
+    }
+    
+    return (
+      <RNView style={styles.emptyContainer}>
+        <Ionicons name="cart-outline" size={64} color={colors.textMuted} />
+        <Text style={[styles.emptyTitle, { color: colors.text }]}>
+          Your grocery list is empty
+        </Text>
+        <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+          Add items manually above, or add ingredients from a recipe
+        </Text>
+      </RNView>
+    );
+  };
 
   return (
     <RNView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -662,6 +694,7 @@ export default function GroceryScreen() {
         {/* Add item input */}
         <RNView style={[styles.addItemRow, { borderColor: colors.border }]}>
           <TextInput
+            ref={addItemInputRef}
             style={[styles.addItemInput, { color: colors.text }]}
             placeholder="Add an item..."
             placeholderTextColor={colors.textMuted}
@@ -669,6 +702,7 @@ export default function GroceryScreen() {
             onChangeText={setNewItemName}
             onSubmitEditing={handleAddItem}
             returnKeyType="done"
+            blurOnSubmit={false}
           />
           <TouchableOpacity
             onPress={handleAddItem}
@@ -724,7 +758,7 @@ export default function GroceryScreen() {
         renderItem={renderItem}
         renderSectionHeader={renderSectionHeader}
         keyExtractor={(item) => item.id}
-        ListEmptyComponent={!isLoading ? ListEmpty : null}
+        ListEmptyComponent={ListEmpty}
         contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom, 80) + spacing.xl + (isSignedIn ? 0 : 100) }]}
         showsVerticalScrollIndicator={false}
         stickySectionHeadersEnabled={false}
@@ -927,11 +961,18 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
     flex: 1,
+    flexShrink: 1,
+  },
+  itemNameWithLabel: {
+    flex: 1,
+    flexShrink: 1,
+    maxWidth: '70%',
   },
   itemNameRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: spacing.xs,
+    flexWrap: 'wrap',
   },
   itemNameChecked: {
     textDecorationLine: 'line-through',
@@ -939,6 +980,8 @@ const styles = StyleSheet.create({
   addedByLabel: {
     fontSize: fontSize.xs,
     fontStyle: 'italic',
+    flexShrink: 0,
+    maxWidth: '30%',
   },
   recipeLabel: {
     fontSize: fontSize.xs,

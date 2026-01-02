@@ -9,6 +9,8 @@ import {
   Animated,
   Modal,
   Vibration,
+  AppState,
+  AppStateStatus,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,6 +21,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { View, Text, useColors } from '@/components/Themed';
 import { useRecipe } from '@/hooks/useRecipes';
 import { useTimerSoundPreference, getTimerSoundFile } from '@/hooks/useTimerSound';
+import { useBackgroundTimer } from '@/hooks/useBackgroundTimer';
 import { lightHaptic, mediumHaptic, successHaptic, heavyHaptic } from '@/utils/haptics';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { RecipeComponent, Ingredient } from '@/types/recipe';
@@ -38,6 +41,7 @@ interface TimerState {
   remaining: number;
   total: number;
   isPaused: boolean;
+  endTime: number; // Unix timestamp when timer will complete
 }
 
 // Extract time patterns from step text
@@ -102,6 +106,19 @@ export default function CookModeScreen() {
   
   // Timer sound preference
   const { soundPreference } = useTimerSoundPreference();
+  
+  // Background timer notifications
+  const {
+    scheduleTimerNotification,
+    cancelTimerNotification,
+    cancelAllTimerNotifications,
+    pauseTimerNotification,
+    resumeTimerNotification,
+    getRemainingTime,
+  } = useBackgroundTimer();
+  
+  // Track app state for syncing timers
+  const appState = useRef<AppStateStatus>(AppState.currentState);
 
   // Get all steps from recipe
   const getAllSteps = useCallback((): CookingStep[] => {
@@ -190,7 +207,53 @@ export default function CookModeScreen() {
     };
   }, [soundPreference]);
 
-  // Timer countdown effect
+  // Handle app state changes - sync timers when coming back from background
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        // App has come to foreground - sync timer remaining times
+        console.log('📱 App foregrounded - syncing timers');
+        setActiveTimers(prev => {
+          const newTimers = new Map(prev);
+          let changed = false;
+          
+          newTimers.forEach((timer, stepIndex) => {
+            if (!timer.isPaused && timer.remaining > 0) {
+              // Calculate actual remaining time based on endTime
+              const now = Date.now();
+              const actualRemaining = Math.max(0, Math.floor((timer.endTime - now) / 1000));
+              
+              if (actualRemaining !== timer.remaining) {
+                newTimers.set(stepIndex, { ...timer, remaining: actualRemaining });
+                changed = true;
+                console.log(`⏱️ Synced step ${stepIndex}: ${timer.remaining}s → ${actualRemaining}s`);
+              }
+              
+              // If timer completed while in background
+              if (actualRemaining === 0 && timer.remaining > 0) {
+                // Play sound and vibrate
+                heavyHaptic();
+                Vibration.vibrate([0, 500, 200, 500, 200, 500]);
+                soundRef.current?.replayAsync().catch(() => {});
+              }
+            }
+          });
+          
+          return changed ? newTimers : prev;
+        });
+      }
+      appState.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  // Timer countdown effect - uses endTime for accurate tracking
   useEffect(() => {
     const interval = setInterval(() => {
       setActiveTimers(prev => {
@@ -200,12 +263,17 @@ export default function CookModeScreen() {
         
         newTimers.forEach((timer, stepIndex) => {
           if (timer.remaining > 0 && !timer.isPaused) {
-            const newRemaining = timer.remaining - 1;
-            newTimers.set(stepIndex, { ...timer, remaining: newRemaining });
-            changed = true;
+            // Calculate remaining based on endTime for accuracy
+            const now = Date.now();
+            const newRemaining = Math.max(0, Math.floor((timer.endTime - now) / 1000));
             
-            if (newRemaining === 0) {
-              timerJustCompleted = true;
+            if (newRemaining !== timer.remaining) {
+              newTimers.set(stepIndex, { ...timer, remaining: newRemaining });
+              changed = true;
+              
+              if (newRemaining === 0) {
+                timerJustCompleted = true;
+              }
             }
           }
         });
@@ -298,57 +366,134 @@ export default function CookModeScreen() {
     }
   };
 
-  // Timer controls
-  const startTimer = () => {
+  // Timer controls - with background notification support
+  const startTimer = async () => {
     if (detectedTime && !currentTimer) {
       mediumHaptic();
       const totalSeconds = detectedTime.unit === 'seconds' 
         ? detectedTime.time 
         : detectedTime.time * 60;
       
+      const endTime = Date.now() + (totalSeconds * 1000);
+      
       setActiveTimers(prev => {
         const newTimers = new Map(prev);
-        newTimers.set(currentStepIndex, { remaining: totalSeconds, total: totalSeconds, isPaused: false });
+        newTimers.set(currentStepIndex, { 
+          remaining: totalSeconds, 
+          total: totalSeconds, 
+          isPaused: false,
+          endTime,
+        });
         return newTimers;
       });
+      
+      // Schedule background notification
+      await scheduleTimerNotification(
+        currentStepIndex,
+        totalSeconds,
+        currentStep?.step || 'Timer complete!',
+        soundPreference
+      );
     }
   };
 
-  const startCustomTimer = (minutes: number) => {
+  const startCustomTimer = async (minutes: number) => {
     mediumHaptic();
     const totalSeconds = minutes * 60;
+    const endTime = Date.now() + (totalSeconds * 1000);
+    
     setActiveTimers(prev => {
       const newTimers = new Map(prev);
-      newTimers.set(currentStepIndex, { remaining: totalSeconds, total: totalSeconds, isPaused: false });
+      newTimers.set(currentStepIndex, { 
+        remaining: totalSeconds, 
+        total: totalSeconds, 
+        isPaused: false,
+        endTime,
+      });
       return newTimers;
     });
     setShowCustomTimer(false);
+    
+    // Schedule background notification
+    await scheduleTimerNotification(
+      currentStepIndex,
+      totalSeconds,
+      currentStep?.step || 'Timer complete!',
+      soundPreference
+    );
   };
 
-  const togglePauseTimer = () => {
+  const togglePauseTimer = async () => {
     if (currentTimer && currentTimer.remaining > 0) {
       lightHaptic();
-      setActiveTimers(prev => {
-        const newTimers = new Map(prev);
-        newTimers.set(currentStepIndex, { ...currentTimer, isPaused: !currentTimer.isPaused });
-        return newTimers;
-      });
+      const nowPaused = !currentTimer.isPaused;
+      
+      if (nowPaused) {
+        // Pausing - cancel the notification
+        await pauseTimerNotification(currentStepIndex);
+        setActiveTimers(prev => {
+          const newTimers = new Map(prev);
+          newTimers.set(currentStepIndex, { 
+            ...currentTimer, 
+            isPaused: true,
+            // Keep remaining time as-is (will resume from here)
+          });
+          return newTimers;
+        });
+      } else {
+        // Resuming - reschedule notification with remaining time
+        const newEndTime = Date.now() + (currentTimer.remaining * 1000);
+        setActiveTimers(prev => {
+          const newTimers = new Map(prev);
+          newTimers.set(currentStepIndex, { 
+            ...currentTimer, 
+            isPaused: false,
+            endTime: newEndTime,
+          });
+          return newTimers;
+        });
+        await resumeTimerNotification(
+          currentStepIndex,
+          currentTimer.remaining,
+          currentStep?.step || 'Timer complete!',
+          soundPreference
+        );
+      }
     }
   };
 
-  const resetTimer = () => {
+  const resetTimer = async () => {
     if (currentTimer) {
       mediumHaptic();
+      const newEndTime = Date.now() + (currentTimer.total * 1000);
+      
       setActiveTimers(prev => {
         const newTimers = new Map(prev);
-        newTimers.set(currentStepIndex, { remaining: currentTimer.total, total: currentTimer.total, isPaused: false });
+        newTimers.set(currentStepIndex, { 
+          remaining: currentTimer.total, 
+          total: currentTimer.total, 
+          isPaused: false,
+          endTime: newEndTime,
+        });
         return newTimers;
       });
+      
+      // Reschedule notification with full time
+      await scheduleTimerNotification(
+        currentStepIndex,
+        currentTimer.total,
+        currentStep?.step || 'Timer complete!',
+        soundPreference
+      );
     }
   };
 
-  const stopTimer = () => {
+  const stopTimer = async () => {
     lightHaptic();
+    
+    // Cancel the notification
+    await cancelTimerNotification(currentStepIndex);
+    
     setActiveTimers(prev => {
       const newTimers = new Map(prev);
       newTimers.delete(currentStepIndex);

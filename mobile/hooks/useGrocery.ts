@@ -39,46 +39,62 @@ export const groceryKeys = {
  * Fetch the grocery list with offline support
  */
 export function useGroceryList(includeChecked = true, isSignedIn = true) {
-  const { isOnline } = useNetworkStatus();
+  const { isApiReachable } = useNetworkStatus();
   const queryClient = useQueryClient();
 
   return useQuery({
     queryKey: [...groceryKeys.list(), includeChecked],
     queryFn: async () => {
-      // If offline, try cache first, then return empty if no cache
-      if (!isOnline) {
+      // IMPORTANT: Only use offline mode if we've CONFIRMED we're offline
+      // (isApiReachable === false, not null which means "unknown")
+      const confirmedOffline = isApiReachable === false;
+      
+      if (confirmedOffline) {
+        // Confirmed offline - use cache
+        console.log('📴 Offline mode: using cached grocery list');
         const cached = await getCachedGroceryList();
         if (cached) {
           return includeChecked ? cached : cached.filter(item => !item.checked);
         }
-        // Return empty array instead of throwing - we'll fetch when online
         return [];
       }
 
-      // Online: fetch from server
-      const data = await api.getGroceryList(includeChecked);
-      
-      // Cache the full list (always with checked items for consistency)
-      if (includeChecked) {
-        await cacheGroceryList(data);
+      // Online or status unknown - ALWAYS try to fetch fresh data from server
+      try {
+        const data = await api.getGroceryList(includeChecked);
+        
+        // Cache the full list for offline use
+        if (includeChecked) {
+          await cacheGroceryList(data);
+        }
+        
+        return data;
+      } catch (error) {
+        // If API fails (timeout, server error, etc.), fall back to cache
+        // This prevents showing an error screen when we have usable cached data
+        console.log('📥 API fetch failed, trying cache fallback');
+        const cached = await getCachedGroceryList();
+        if (cached && cached.length > 0) {
+          console.log(`📦 Using cached data (${cached.length} items)`);
+          return includeChecked ? cached : cached.filter(item => !item.checked);
+        }
+        // No cache available - re-throw the error
+        throw error;
       }
-      
-      return data;
     },
-    // Use cached data as placeholder while fetching
-    placeholderData: () => {
-      const cached = queryClient.getQueryData([...groceryKeys.list(), true]) as GroceryItem[] | undefined;
-      if (cached) {
-        return includeChecked ? cached : cached.filter(item => !item.checked);
-      }
-      return undefined;
-    },
+    // DON'T use placeholderData - it can show stale cache while fetching
+    // Instead, just show loading state until we have fresh data
+    // This prevents the "partial data" issue where cache shows incomplete list
+    
     // Only run query when user is signed in
     enabled: isSignedIn,
-    staleTime: 30 * 1000,
+    // Reduce staleTime to ensure fresher data
+    staleTime: 10 * 1000, // 10 seconds instead of 30
     retry: 3,
     // Refetch when network comes back online
     refetchOnReconnect: true,
+    // Retry on mount to ensure fresh data
+    refetchOnMount: 'always',
   });
 }
 
@@ -86,31 +102,43 @@ export function useGroceryList(includeChecked = true, isSignedIn = true) {
  * Get grocery item counts with offline support
  */
 export function useGroceryCount(isSignedIn = true) {
-  const { isOnline } = useNetworkStatus();
+  const { isApiReachable } = useNetworkStatus();
 
   return useQuery({
     queryKey: groceryKeys.count(),
     queryFn: async () => {
-      // If offline, try cache first
-      if (!isOnline) {
+      // IMPORTANT: Only use offline mode if we've CONFIRMED we're offline
+      const confirmedOffline = isApiReachable === false;
+      
+      if (confirmedOffline) {
+        console.log('📴 Offline mode: using cached grocery count');
         const cached = await getCachedGroceryCount();
         if (cached) {
           return cached;
         }
-        // Return default instead of throwing
         return { total: 0, checked: 0, unchecked: 0 };
       }
 
-      // Online: fetch from server
-      const data = await api.getGroceryCount();
-      await cacheGroceryCount(data);
-      return data;
+      // Online or status unknown - ALWAYS fetch fresh data
+      try {
+        const data = await api.getGroceryCount();
+        await cacheGroceryCount(data);
+        return data;
+      } catch (error) {
+        // Fall back to cache if API fails
+        const cached = await getCachedGroceryCount();
+        if (cached) {
+          return cached;
+        }
+        throw error;
+      }
     },
     // Only run query when user is signed in
     enabled: isSignedIn,
-    staleTime: 30 * 1000,
+    staleTime: 10 * 1000, // 10 seconds
     retry: 3,
     refetchOnReconnect: true,
+    refetchOnMount: 'always',
   });
 }
 
@@ -126,7 +154,16 @@ export function useAddGroceryItem() {
       if (!isOnline) {
         const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         await applyLocalAdd(item, tempId);
-        await addToSyncQueue({ type: 'ADD_ITEM', payload: { ...item, tempId } });
+        // Convert null to undefined for sync queue type compatibility
+        await addToSyncQueue({ 
+          type: 'ADD_ITEM', 
+          payload: { 
+            ...item, 
+            tempId,
+            recipe_id: item.recipe_id ?? undefined,
+            recipe_title: item.recipe_title ?? undefined,
+          } 
+        });
         
         return {
           id: tempId,
@@ -333,8 +370,12 @@ export function useToggleGroceryItem() {
         queryClient.setQueryData(groceryKeys.count(), context.previousCount);
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: groceryKeys.count() });
+    onSuccess: (data, id, context) => {
+      // Don't invalidate immediately - the optimistic update is already correct
+      // Only sync count after a small delay to avoid flashing
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: groceryKeys.count() });
+      }, 500);
     },
   });
 }
