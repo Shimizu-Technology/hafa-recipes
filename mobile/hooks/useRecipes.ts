@@ -528,35 +528,51 @@ export function useDeleteRecipe() {
     
     // Optimistic update - remove immediately from UI
     onMutate: async (deletedId) => {
-      // Cancel any outgoing refetches
+      // Cancel any outgoing refetches for both My Recipes and Discover
       await queryClient.cancelQueries({ queryKey: recipeKeys.all });
+      await queryClient.cancelQueries({ queryKey: recipeKeys.discover() });
       
       // Snapshot previous data for rollback
-      const previousInfiniteQueries = queryClient.getQueriesData({ queryKey: recipeKeys.all });
+      const previousRecipeQueries = queryClient.getQueriesData({ queryKey: recipeKeys.all });
+      const previousDiscoverQueries = queryClient.getQueriesData({ queryKey: recipeKeys.discover() });
       
-      // Optimistically remove from all infinite queries
+      // Helper function to remove recipe from paginated data
+      const removeFromPages = (old: any) => {
+        if (!old?.pages) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page: any) => ({
+            ...page,
+            items: page.items?.filter((item: any) => item.id !== deletedId) || [],
+            total: Math.max(0, (page.total || 0) - 1),
+          })),
+        };
+      };
+      
+      // Optimistically remove from My Recipes queries
       queryClient.setQueriesData(
         { queryKey: recipeKeys.all },
-        (old: any) => {
-          if (!old?.pages) return old;
-          return {
-            ...old,
-            pages: old.pages.map((page: any) => ({
-              ...page,
-              items: page.items?.filter((item: any) => item.id !== deletedId) || [],
-              total: Math.max(0, (page.total || 0) - 1),
-            })),
-          };
-        }
+        removeFromPages
       );
       
-      return { previousInfiniteQueries };
+      // Optimistically remove from Discover queries
+      queryClient.setQueriesData(
+        { queryKey: recipeKeys.discover() },
+        removeFromPages
+      );
+      
+      return { previousRecipeQueries, previousDiscoverQueries };
     },
     
-    // On error, roll back
+    // On error, roll back both
     onError: (err, deletedId, context) => {
-      if (context?.previousInfiniteQueries) {
-        context.previousInfiniteQueries.forEach(([queryKey, data]) => {
+      if (context?.previousRecipeQueries) {
+        context.previousRecipeQueries.forEach(([queryKey, data]) => {
+          queryClient.setQueryData(queryKey, data);
+        });
+      }
+      if (context?.previousDiscoverQueries) {
+        context.previousDiscoverQueries.forEach(([queryKey, data]) => {
           queryClient.setQueryData(queryKey, data);
         });
       }
@@ -565,8 +581,9 @@ export function useDeleteRecipe() {
     onSuccess: (_, deletedId) => {
       // Remove detail from cache
       queryClient.removeQueries({ queryKey: recipeKeys.detail(deletedId) });
-      // Invalidate counts to get accurate numbers
+      // Invalidate counts to get accurate numbers (both My Recipes and Discover)
       queryClient.invalidateQueries({ queryKey: recipeKeys.count() });
+      queryClient.invalidateQueries({ queryKey: recipeKeys.discoverCount() });
     },
     
     // No need to invalidate lists - optimistic update handles it

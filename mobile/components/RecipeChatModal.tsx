@@ -24,6 +24,8 @@ import {
   TextInput,
   Image,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -50,6 +52,7 @@ import { useChatWithRecipe } from '@/hooks/useChat';
 import { useTTS } from '@/hooks/useTTS';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import Markdown from 'react-native-markdown-display';
+import api from '@/lib/api';
 
 // Storage key prefix for chat history
 const CHAT_STORAGE_KEY_PREFIX = 'recipe_chat_';
@@ -79,6 +82,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isListening, setIsListening] = useState(false);
   const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);  // Track which message was just copied
   const [attachedImage, setAttachedImage] = useState<string | null>(null);  // Base64 image
   const [attachedImageUri, setAttachedImageUri] = useState<string | null>(null);  // For preview
   
@@ -286,51 +290,77 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     const messageText = text || inputText.trim();
     if (!messageText && !attachedImage) return;
 
-    // Create data URL for display in chat history
-    const imageDataUrl = attachedImage 
-      ? `data:image/jpeg;base64,${attachedImage.substring(0, 100)}...` // Truncated for storage
-      : undefined;
-
     // Capture image before clearing
     const imageToSend = attachedImage;
     const imageUriForDisplay = attachedImageUri;
     const hadImage = !!imageToSend;
     
-    // Add user message to chat (with image preview if attached)
+    // Clear inputs immediately for better UX
+    setInputText('');
+    setAttachedImage(null);
+    setAttachedImageUri(null);
+    Keyboard.dismiss();
+    
+    // For immediate display, show local URI (will be replaced with S3 URL)
     const userMessage: ChatMessage = { 
       role: 'user', 
       content: hadImage 
         ? (messageText ? `📷 ${messageText}` : '📷 [Photo attached]')
         : messageText,
-      image_url: imageUriForDisplay || undefined,  // Use URI for display (current session only)
+      image_url: imageUriForDisplay || undefined,
     };
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
-    setInputText('');
-    setAttachedImage(null);
-    setAttachedImageUri(null);
-    
-    Keyboard.dismiss();
 
     try {
-      // Send to API (with image if attached)
+      // If there's an image, upload to S3 first for persistent storage
+      let s3ImageUrl: string | undefined;
+      if (imageToSend) {
+        try {
+          const uploadResult = await api.uploadChatImage(imageToSend);
+          s3ImageUrl = uploadResult.image_url;
+          
+          // Update the message with the S3 URL (replaces local URI)
+          userMessage.image_url = s3ImageUrl;
+          setMessages([...messages, userMessage]);
+        } catch (uploadError) {
+          console.log('Failed to upload image to S3, continuing without persistent URL');
+          // Continue anyway - the current message will still work via base64
+        }
+      }
+
+      // Prepare history for API - include S3 URLs but filter out local file:// URIs
+      const historyForApi = messages.map(m => ({
+        role: m.role,
+        content: m.content,
+        // Only include image_url if it's an S3 URL (starts with https://)
+        image_url: m.image_url?.startsWith('https://') ? m.image_url : undefined,
+      }));
+      
       const response = await chatMutation.mutateAsync({
         recipeId: recipe.id,
         message: messageText || 'What do you see in this image? How does it relate to this recipe?',
-        history: messages, // Send previous messages for context
+        history: historyForApi,
         imageBase64: imageToSend || undefined,
       });
 
       // Add assistant response
       const assistantMessage: ChatMessage = { role: 'assistant', content: response.response };
-      const finalMessages = [...updatedMessages, assistantMessage];
+      
+      // Use the S3 URL (if available) for the final message
+      const finalUserMessage: ChatMessage = {
+        ...userMessage,
+        image_url: s3ImageUrl || userMessage.image_url,
+      };
+      const finalMessages = [...messages, finalUserMessage, assistantMessage];
       setMessages(finalMessages);
       
-      // Save to AsyncStorage (strip image_url since local URIs don't persist)
+      // Save to AsyncStorage - include S3 URLs (they persist), exclude local URIs
       const messagesForStorage = finalMessages.map(m => ({
         role: m.role,
         content: m.content,
-        // Don't save image_url - local URIs are temporary
+        // Only save image_url if it's an S3 URL
+        image_url: m.image_url?.startsWith('https://') ? m.image_url : undefined,
       }));
       await saveChatHistory(messagesForStorage as ChatMessage[]);
     } catch {
@@ -347,6 +377,20 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
 
   const handleSuggestionPress = (suggestion: string) => {
     handleSend(suggestion);
+  };
+
+  const handleCopyMessage = async (text: string, index: number) => {
+    try {
+      await Clipboard.setStringAsync(text);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setCopiedIndex(index);
+      // Reset after 2 seconds
+      setTimeout(() => {
+        setCopiedIndex(null);
+      }, 2000);
+    } catch {
+      Alert.alert('Error', 'Failed to copy message');
+    }
   };
 
   const handleSpeakPress = async (text: string, index: number) => {
@@ -473,87 +517,104 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
             <RNView
               key={index}
               style={[
-                styles.messageBubble,
-                msg.role === 'user' ? styles.userBubble : styles.assistantBubble,
-                {
-                  backgroundColor: msg.role === 'user' ? colors.tint : colors.card,
-                  borderColor: msg.role === 'user' ? colors.tint : colors.border,
-                },
+                styles.messageWrapper,
+                msg.role === 'user' ? styles.userWrapper : styles.assistantWrapper,
               ]}
             >
-              {msg.role === 'assistant' && (
-                <RNView style={styles.assistantHeader}>
-                  <RNView style={styles.assistantHeaderLeft}>
-                    <Ionicons
-                      name="sparkles"
-                      size={16}
-                      color={colors.tint}
-                    />
-                  </RNView>
+              {/* Message Bubble */}
+              <RNView
+                style={[
+                  styles.messageBubble,
+                  msg.role === 'user' ? styles.userBubble : styles.assistantBubble,
+                  {
+                    backgroundColor: msg.role === 'user' ? colors.tint : colors.card,
+                    borderColor: msg.role === 'user' ? colors.tint : colors.border,
+                  },
+                ]}
+              >
+                {msg.role === 'user' ? (
+                  <>
+                    {msg.image_url && (
+                      <RNView style={styles.messageImageContainer}>
+                        <Image 
+                          source={{ uri: msg.image_url }} 
+                          style={styles.messageImage}
+                          resizeMode="cover"
+                          onError={() => {
+                            // Image failed to load (stale URI) - will show placeholder
+                          }}
+                        />
+                      </RNView>
+                    )}
+                    <Text style={[styles.messageText, { color: '#FFFFFF' }]}>
+                      {msg.content}
+                    </Text>
+                  </>
+                ) : (
+                  <Markdown
+                    style={{
+                      body: { color: colors.text, fontSize: fontSize.md, lineHeight: 24 },
+                      paragraph: { marginVertical: 4 },
+                      strong: { fontWeight: '700', color: colors.text },
+                      em: { fontStyle: 'italic' },
+                      bullet_list: { marginVertical: 4 },
+                      ordered_list: { marginVertical: 4 },
+                      list_item: { marginVertical: 2 },
+                      bullet_list_icon: { color: colors.tint, fontSize: 8, marginRight: 8 },
+                      ordered_list_icon: { color: colors.tint, fontWeight: '600' },
+                      heading1: { fontSize: fontSize.xl, fontWeight: '700', color: colors.text, marginVertical: 8 },
+                      heading2: { fontSize: fontSize.lg, fontWeight: '600', color: colors.text, marginVertical: 6 },
+                      heading3: { fontSize: fontSize.md, fontWeight: '600', color: colors.text, marginVertical: 4 },
+                      code_inline: { backgroundColor: colors.backgroundSecondary, paddingHorizontal: 4, borderRadius: 4, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+                      fence: { backgroundColor: colors.backgroundSecondary, padding: 8, borderRadius: 8, marginVertical: 4 },
+                      link: { color: colors.tint },
+                    }}
+                  >
+                    {msg.content}
+                  </Markdown>
+                )}
+              </RNView>
+
+              {/* Action Bar - Below Bubble */}
+              <RNView 
+                style={[
+                  styles.actionBar,
+                  msg.role === 'user' ? styles.actionBarRight : styles.actionBarLeft,
+                ]}
+              >
+                {/* Copy button */}
+                <TouchableOpacity
+                  onPress={() => handleCopyMessage(msg.content, index)}
+                  style={styles.actionBarButton}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons
+                    name={copiedIndex === index ? "checkmark" : "copy-outline"}
+                    size={14}
+                    color={copiedIndex === index ? colors.tint : colors.textMuted}
+                  />
+                </TouchableOpacity>
+
+                {/* Speak button - only for assistant */}
+                {msg.role === 'assistant' && (
                   <TouchableOpacity
                     onPress={() => handleSpeakPress(msg.content, index)}
                     disabled={ttsLoading && speakingIndex === index}
-                    style={[
-                      styles.speakerButton,
-                      { 
-                        backgroundColor: speakingIndex === index ? colors.tint + '20' : 'transparent',
-                        borderColor: colors.border,
-                      },
-                    ]}
+                    style={styles.actionBarButton}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
                     {ttsLoading && speakingIndex === index ? (
-                      <ActivityIndicator size={14} color={colors.tint} />
+                      <ActivityIndicator size={12} color={colors.tint} />
                     ) : (
                       <Ionicons
                         name={speakingIndex === index && isPlaying ? 'stop' : 'volume-high'}
-                        size={16}
-                        color={speakingIndex === index && isPlaying ? colors.error : colors.tint}
+                        size={14}
+                        color={speakingIndex === index && isPlaying ? colors.error : colors.textMuted}
                       />
                     )}
                   </TouchableOpacity>
-                </RNView>
-              )}
-              {msg.role === 'user' ? (
-                <>
-                  {msg.image_url && (
-                    <RNView style={styles.messageImageContainer}>
-                      <Image 
-                        source={{ uri: msg.image_url }} 
-                        style={styles.messageImage}
-                        resizeMode="cover"
-                        onError={() => {
-                          // Image failed to load (stale URI) - will show placeholder
-                        }}
-                      />
-                    </RNView>
-                  )}
-                  <Text style={[styles.messageText, { color: '#FFFFFF' }]}>
-                    {msg.content}
-                  </Text>
-                </>
-              ) : (
-                <Markdown
-                  style={{
-                    body: { color: colors.text, fontSize: fontSize.md, lineHeight: 22 },
-                    paragraph: { marginVertical: 4 },
-                    strong: { fontWeight: '700', color: colors.text },
-                    em: { fontStyle: 'italic' },
-                    bullet_list: { marginVertical: 4 },
-                    ordered_list: { marginVertical: 4 },
-                    list_item: { marginVertical: 2 },
-                    bullet_list_icon: { color: colors.tint, fontSize: 8, marginRight: 8 },
-                    ordered_list_icon: { color: colors.tint, fontWeight: '600' },
-                    heading1: { fontSize: fontSize.xl, fontWeight: '700', color: colors.text, marginVertical: 8 },
-                    heading2: { fontSize: fontSize.lg, fontWeight: '600', color: colors.text, marginVertical: 6 },
-                    heading3: { fontSize: fontSize.md, fontWeight: '600', color: colors.text, marginVertical: 4 },
-                    code_inline: { backgroundColor: colors.backgroundSecondary, paddingHorizontal: 4, borderRadius: 4, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
-                    fence: { backgroundColor: colors.backgroundSecondary, padding: 8, borderRadius: 8, marginVertical: 4 },
-                    link: { color: colors.tint },
-                  }}
-                >
-                  {msg.content}
-                </Markdown>
-              )}
+                )}
+              </RNView>
             </RNView>
           ))}
 
@@ -781,38 +842,44 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },
+  messageWrapper: {
+    marginBottom: spacing.md,
+    maxWidth: '88%',
+  },
+  userWrapper: {
+    alignSelf: 'flex-end',
+  },
+  assistantWrapper: {
+    alignSelf: 'flex-start',
+  },
   messageBubble: {
     padding: spacing.md,
     borderRadius: radius.lg,
-    marginBottom: spacing.sm,
-    maxWidth: '85%',
     borderWidth: 1,
   },
   userBubble: {
-    alignSelf: 'flex-end',
-    borderBottomRightRadius: radius.sm,
+    borderBottomRightRadius: radius.xs,
   },
   assistantBubble: {
-    alignSelf: 'flex-start',
-    borderBottomLeftRadius: radius.sm,
+    borderBottomLeftRadius: radius.xs,
   },
-  assistantHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
-  },
-  assistantHeaderLeft: {
+  actionBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: spacing.xs,
+    gap: spacing.sm,
   },
-  speakerButton: {
-    width: 28,
-    height: 28,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
+  actionBarLeft: {
+    justifyContent: 'flex-start',
+    paddingLeft: spacing.xs,
+  },
+  actionBarRight: {
+    justifyContent: 'flex-end',
+    paddingRight: spacing.xs,
+  },
+  actionBarButton: {
+    padding: spacing.xs,
+    opacity: 0.6,
   },
   messageText: {
     fontSize: fontSize.md,

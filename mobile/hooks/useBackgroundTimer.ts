@@ -253,16 +253,16 @@ export function useAppStateSync(
 function getSoundFileName(preference: TimerSoundOption): string | undefined {
   switch (preference) {
     case 'default':
-      return 'timer-complete.mp3';
+      return 'timer_complete.mp3';
     case 'bell':
-      return 'timer-bell.mp3';
+      return 'timer_bell.mp3';
     case 'chime':
-      return 'timer-chime.mp3';
+      return 'timer_chime.mp3';
     case 'alarm':
-      return 'timer-alarm.mp3';
+      return 'timer_alarm.mp3';
     case 'none':
       return undefined;
     default:
-      return 'timer-complete.mp3';
+      return 'timer_complete.mp3';
   }
 }

@@ -1066,6 +1066,58 @@ export default function RecipeDetailScreen() {
                     </RNView>
                   )}
 
+                  {/* Full Recipe Total - Show scaled total (like cost tab) */}
+                  {hasNutritionData && extracted.nutrition?.perServing && (
+                    <RNView style={styles.nutritionTotalCard}>
+                      <RNView style={[styles.nutritionTotalBox, { backgroundColor: colors.tint }]}>
+                        <Text style={styles.nutritionTotalLabel}>
+                          Full Recipe {isScaled ? `(${currentServings} servings)` : `(${originalServings} servings)`}
+                        </Text>
+                        <Text style={styles.nutritionTotalValue}>
+                          {Math.round((extracted.nutrition.perServing.calories || 0) * currentServings)} cal
+                        </Text>
+                        {isScaled && (
+                          <Text style={styles.nutritionScaledNote}>
+                            scaled from {originalServings} servings
+                          </Text>
+                        )}
+                      </RNView>
+                      
+                      <RNView style={styles.nutritionTotalMetaRow}>
+                        {extracted.nutrition.perServing.protein && (
+                          <RNView style={[styles.nutritionTotalMetaItem, { backgroundColor: colors.backgroundSecondary }]}>
+                            <Text style={[styles.nutritionTotalMetaValue, { color: colors.text }]}>
+                              {Math.round((extracted.nutrition.perServing.protein || 0) * currentServings)}g
+                            </Text>
+                            <Text style={[styles.nutritionTotalMetaLabel, { color: colors.textMuted }]}>
+                              Protein
+                            </Text>
+                          </RNView>
+                        )}
+                        {extracted.nutrition.perServing.carbs && (
+                          <RNView style={[styles.nutritionTotalMetaItem, { backgroundColor: colors.backgroundSecondary }]}>
+                            <Text style={[styles.nutritionTotalMetaValue, { color: colors.text }]}>
+                              {Math.round((extracted.nutrition.perServing.carbs || 0) * currentServings)}g
+                            </Text>
+                            <Text style={[styles.nutritionTotalMetaLabel, { color: colors.textMuted }]}>
+                              Carbs
+                            </Text>
+                          </RNView>
+                        )}
+                        {extracted.nutrition.perServing.fat && (
+                          <RNView style={[styles.nutritionTotalMetaItem, { backgroundColor: colors.backgroundSecondary }]}>
+                            <Text style={[styles.nutritionTotalMetaValue, { color: colors.text }]}>
+                              {Math.round((extracted.nutrition.perServing.fat || 0) * currentServings)}g
+                            </Text>
+                            <Text style={[styles.nutritionTotalMetaLabel, { color: colors.textMuted }]}>
+                              Fat
+                            </Text>
+                          </RNView>
+                        )}
+                      </RNView>
+                    </RNView>
+                  )}
+
                   {/* Per Serving */}
                   {hasNutritionData && extracted.nutrition?.perServing && (
                     <RNView style={styles.nutritionSection}>
@@ -1844,6 +1896,50 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
+  },
+  // Nutrition total card styles (similar to cost card)
+  nutritionTotalCard: {
+    marginBottom: spacing.xl,
+  },
+  nutritionTotalBox: {
+    padding: spacing.xl,
+    borderRadius: radius.lg,
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  nutritionTotalLabel: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+    marginBottom: spacing.xs,
+  },
+  nutritionTotalValue: {
+    color: '#FFFFFF',
+    fontSize: 36,
+    fontWeight: fontWeight.bold,
+  },
+  nutritionScaledNote: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: fontSize.sm,
+    marginTop: spacing.xs,
+  },
+  nutritionTotalMetaRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  nutritionTotalMetaItem: {
+    flex: 1,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    alignItems: 'center',
+  },
+  nutritionTotalMetaValue: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.semibold,
+    marginBottom: spacing.xs,
+  },
+  nutritionTotalMetaLabel: {
+    fontSize: fontSize.sm,
   },
   // Cost tab styles
   costSummaryCard: {

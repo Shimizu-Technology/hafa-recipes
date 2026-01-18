@@ -2,7 +2,7 @@
   "expo": {
     "name": "Håfa Recipes",
     "slug": "recipe-extractor",
-    "version": "2.1.0",
+    "version": "2.1.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "hafarecipes",
@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.shimizutechnology.recipeextractor",
-      "buildNumber": "28",
+      "buildNumber": "30",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Håfa Recipes needs access to your camera to take photos of your recipes. For example, you can photograph a handwritten family recipe or a dish you've prepared to add as a recipe image.",
@@ -78,10 +78,10 @@
           "icon": "./assets/images/icon.png",
           "color": "#FF6B35",
           "sounds": [
-            "./assets/sounds/timer-complete.mp3",
-            "./assets/sounds/timer-bell.mp3",
-            "./assets/sounds/timer-chime.mp3",
-            "./assets/sounds/timer-alarm.mp3"
+            "./assets/sounds/timer_complete.mp3",
+            "./assets/sounds/timer_bell.mp3",
+            "./assets/sounds/timer_chime.mp3",
+            "./assets/sounds/timer_alarm.mp3"
           ]
         }
       ]

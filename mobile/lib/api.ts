@@ -748,6 +748,17 @@ class ApiClient {
     return data;
   }
 
+  /**
+   * Upload a chat image to S3 for persistent storage.
+   * Returns the S3 URL that can be used in chat history.
+   */
+  async uploadChatImage(imageBase64: string): Promise<{ image_url: string }> {
+    const { data } = await this.client.post('/api/recipes/ai/upload-chat-image', {
+      image_base64: imageBase64,
+    });
+    return data;
+  }
+
   async suggestTags(title: string, ingredients: string[]): Promise<{ tags: string[] }> {
     const { data } = await this.client.post('/api/recipes/ai/suggest-tags', {
       title,

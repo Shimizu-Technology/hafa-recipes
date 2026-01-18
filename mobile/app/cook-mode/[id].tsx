@@ -11,6 +11,9 @@ import {
   Vibration,
   AppState,
   AppStateStatus,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -46,29 +49,63 @@ interface TimerState {
 
 // Extract time patterns from step text
 function extractTimeFromStep(step: string): { time: number; unit: string; display: string } | null {
-  const patterns = [
-    /(\d+)\s*(?:to\s*\d+\s*)?hour(?:s)?/i,
-    /(\d+)\s*(?:to\s*\d+\s*)?minute(?:s)?/i,
-    /(\d+)\s*(?:to\s*\d+\s*)?min(?:s)?/i,
-    /(\d+)\s*(?:to\s*\d+\s*)?second(?:s)?/i,
-    /(\d+)\s*(?:to\s*\d+\s*)?sec(?:s)?/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = step.match(pattern);
-    if (match) {
-      const value = parseInt(match[1], 10);
-      const fullMatch = match[0].toLowerCase();
-      
-      if (fullMatch.includes('hour')) {
-        return { time: value * 60, unit: 'minutes', display: `${value} hour${value > 1 ? 's' : ''}` };
-      } else if (fullMatch.includes('min')) {
-        return { time: value, unit: 'minutes', display: `${value} min` };
-      } else if (fullMatch.includes('sec')) {
-        return { time: value, unit: 'seconds', display: `${value} sec` };
-      }
+  let totalMinutes = 0;
+  let totalSeconds = 0;
+  let displayParts: string[] = [];
+  
+  // Pattern for hours (handles "1 hour", "2 hours", "1-2 hours", "1 to 2 hours")
+  const hourPattern = /(\d+)\s*(?:[-–to]+\s*\d+\s*)?(?:hour|hr)s?/gi;
+  const hourMatches = step.matchAll(hourPattern);
+  for (const match of hourMatches) {
+    const hours = parseInt(match[1], 10);
+    totalMinutes += hours * 60;
+    displayParts.push(`${hours} hour${hours > 1 ? 's' : ''}`);
+  }
+  
+  // Pattern for minutes (handles "15 minutes", "30 min", "15-20 minutes")
+  const minutePattern = /(\d+)\s*(?:[-–to]+\s*\d+\s*)?(?:minute|min)s?/gi;
+  const minuteMatches = step.matchAll(minutePattern);
+  for (const match of minuteMatches) {
+    const minutes = parseInt(match[1], 10);
+    totalMinutes += minutes;
+    displayParts.push(`${minutes} min`);
+  }
+  
+  // Pattern for seconds (handles "30 seconds", "45 sec")
+  const secondPattern = /(\d+)\s*(?:[-–to]+\s*\d+\s*)?(?:second|sec)s?/gi;
+  const secondMatches = step.matchAll(secondPattern);
+  for (const match of secondMatches) {
+    const seconds = parseInt(match[1], 10);
+    totalSeconds += seconds;
+    displayParts.push(`${seconds} sec`);
+  }
+  
+  // If we found any time
+  if (totalMinutes > 0 || totalSeconds > 0) {
+    // Convert everything to the most appropriate unit
+    if (totalMinutes > 0 && totalSeconds > 0) {
+      // Both minutes and seconds - convert all to seconds
+      const totalInSeconds = (totalMinutes * 60) + totalSeconds;
+      return { 
+        time: totalInSeconds, 
+        unit: 'seconds', 
+        display: displayParts.join(' ') 
+      };
+    } else if (totalMinutes > 0) {
+      return { 
+        time: totalMinutes, 
+        unit: 'minutes', 
+        display: displayParts.join(' ') 
+      };
+    } else {
+      return { 
+        time: totalSeconds, 
+        unit: 'seconds', 
+        display: displayParts.join(' ') 
+      };
     }
   }
+  
   return null;
 }
 
@@ -94,6 +131,10 @@ export default function CookModeScreen() {
   const [showComplete, setShowComplete] = useState(false);
   const [showIngredients, setShowIngredients] = useState(false);
   const [showCustomTimer, setShowCustomTimer] = useState(false);
+  const [showEditTimer, setShowEditTimer] = useState(false);
+  const [customHours, setCustomHours] = useState('');
+  const [customMinutes, setCustomMinutes] = useState('');
+  const [customSeconds, setCustomSeconds] = useState('');
   const [gestureX, setGestureX] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
   
@@ -398,8 +439,13 @@ export default function CookModeScreen() {
   };
 
   const startCustomTimer = async (minutes: number) => {
+    await startTimerWithSeconds(minutes * 60);
+  };
+
+  const startTimerWithSeconds = async (totalSeconds: number) => {
+    if (totalSeconds <= 0) return;
+    
     mediumHaptic();
-    const totalSeconds = minutes * 60;
     const endTime = Date.now() + (totalSeconds * 1000);
     
     setActiveTimers(prev => {
@@ -413,6 +459,10 @@ export default function CookModeScreen() {
       return newTimers;
     });
     setShowCustomTimer(false);
+    setShowEditTimer(false);
+    setCustomHours('');
+    setCustomMinutes('');
+    setCustomSeconds('');
     
     // Schedule background notification
     await scheduleTimerNotification(
@@ -421,6 +471,34 @@ export default function CookModeScreen() {
       currentStep?.step || 'Timer complete!',
       soundPreference
     );
+  };
+
+  const handleStartCustomInput = async () => {
+    const hours = parseInt(customHours) || 0;
+    const minutes = parseInt(customMinutes) || 0;
+    const seconds = parseInt(customSeconds) || 0;
+    const totalSeconds = (hours * 3600) + (minutes * 60) + seconds;
+    
+    if (totalSeconds > 0) {
+      await startTimerWithSeconds(totalSeconds);
+    }
+  };
+
+  const openEditTimer = () => {
+    if (detectedTime) {
+      // Pre-fill with detected time
+      const totalMins = detectedTime.unit === 'seconds' 
+        ? Math.floor(detectedTime.time / 60) 
+        : detectedTime.time;
+      const hours = Math.floor(totalMins / 60);
+      const mins = totalMins % 60;
+      const secs = detectedTime.unit === 'seconds' ? detectedTime.time % 60 : 0;
+      
+      setCustomHours(hours > 0 ? hours.toString() : '');
+      setCustomMinutes(mins > 0 ? mins.toString() : '');
+      setCustomSeconds(secs > 0 ? secs.toString() : '');
+    }
+    setShowEditTimer(true);
   };
 
   const togglePauseTimer = async () => {
@@ -666,10 +744,15 @@ export default function CookModeScreen() {
                 </RNView>
               </RNView>
           ) : detectedTime ? (
-              <TouchableOpacity onPress={startTimer} style={styles.timerButton}>
-                <Ionicons name="timer-outline" size={22} color="#ffffff" />
-                <Text style={styles.timerButtonText}>Start {detectedTime.display} timer</Text>
-              </TouchableOpacity>
+              <RNView style={styles.detectedTimerRow}>
+                <TouchableOpacity onPress={startTimer} style={styles.timerButton}>
+                  <Ionicons name="timer-outline" size={22} color="#ffffff" />
+                  <Text style={styles.timerButtonText}>Start {detectedTime.display} timer</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={openEditTimer} style={styles.editTimerButton}>
+                  <Ionicons name="pencil" size={18} color="#ffffff" />
+                </TouchableOpacity>
+              </RNView>
           ) : (
             <TouchableOpacity onPress={() => setShowCustomTimer(true)} style={styles.addTimerButton}>
               <Ionicons name="add-circle-outline" size={22} color="#888" />
@@ -786,40 +869,195 @@ export default function CookModeScreen() {
         animationType="fade"
         transparent={true}
       >
-        <TouchableOpacity 
-          style={styles.modalOverlay} 
-          activeOpacity={1} 
-          onPress={() => setShowCustomTimer(false)}
+        <KeyboardAvoidingView 
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          <RNView style={styles.customTimerCard}>
-            <Text style={styles.customTimerTitle}>Set Timer</Text>
-            <Text style={styles.customTimerSubtitle}>Choose a duration</Text>
-            
-            <RNView style={styles.timerPresetGrid}>
-              {TIMER_PRESETS.map((minutes) => (
-                <TouchableOpacity
-                  key={minutes}
-                  style={styles.timerPresetButton}
-                  onPress={() => startCustomTimer(minutes)}
-                >
-                  <Text style={styles.timerPresetValue}>
-                    {minutes >= 60 ? `${minutes / 60}` : minutes}
-                  </Text>
-                  <Text style={styles.timerPresetUnit}>
-                    {minutes >= 60 ? 'hour' : 'min'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </RNView>
+          <TouchableOpacity 
+            style={styles.modalOverlayTouch} 
+            activeOpacity={1} 
+            onPress={() => setShowCustomTimer(false)}
+          >
+            <RNView style={styles.customTimerCard} onStartShouldSetResponder={() => true}>
+              <Text style={styles.customTimerTitle}>Set Timer</Text>
+              <Text style={styles.customTimerSubtitle}>Quick presets</Text>
+              
+              <RNView style={styles.timerPresetGrid}>
+                {TIMER_PRESETS.map((minutes) => (
+                  <TouchableOpacity
+                    key={minutes}
+                    style={styles.timerPresetButton}
+                    onPress={() => startCustomTimer(minutes)}
+                  >
+                    <Text style={styles.timerPresetValue}>
+                      {minutes >= 60 ? `${minutes / 60}` : minutes}
+                    </Text>
+                    <Text style={styles.timerPresetUnit}>
+                      {minutes >= 60 ? 'hour' : 'min'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </RNView>
 
-            <TouchableOpacity 
-              style={styles.customTimerCancel} 
-              onPress={() => setShowCustomTimer(false)}
-            >
-              <Text style={styles.customTimerCancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </RNView>
-        </TouchableOpacity>
+              {/* Custom Input Section */}
+              <Text style={[styles.customTimerSubtitle, { marginTop: spacing.lg }]}>Or enter custom time</Text>
+              <RNView style={styles.customInputRow}>
+                <RNView style={styles.customInputGroup}>
+                  <TextInput
+                    style={styles.customTimeInput}
+                    value={customHours}
+                    onChangeText={setCustomHours}
+                    keyboardType="number-pad"
+                    placeholder="0"
+                    placeholderTextColor="#666"
+                    maxLength={2}
+                  />
+                  <Text style={styles.customInputLabel}>hrs</Text>
+                </RNView>
+                <Text style={styles.customInputSeparator}>:</Text>
+                <RNView style={styles.customInputGroup}>
+                  <TextInput
+                    style={styles.customTimeInput}
+                    value={customMinutes}
+                    onChangeText={setCustomMinutes}
+                    keyboardType="number-pad"
+                    placeholder="0"
+                    placeholderTextColor="#666"
+                    maxLength={2}
+                  />
+                  <Text style={styles.customInputLabel}>min</Text>
+                </RNView>
+                <Text style={styles.customInputSeparator}>:</Text>
+                <RNView style={styles.customInputGroup}>
+                  <TextInput
+                    style={styles.customTimeInput}
+                    value={customSeconds}
+                    onChangeText={setCustomSeconds}
+                    keyboardType="number-pad"
+                    placeholder="0"
+                    placeholderTextColor="#666"
+                    maxLength={2}
+                  />
+                  <Text style={styles.customInputLabel}>sec</Text>
+                </RNView>
+              </RNView>
+              
+              <TouchableOpacity 
+                style={[
+                  styles.startCustomButton,
+                  (!customHours && !customMinutes && !customSeconds) && styles.startCustomButtonDisabled
+                ]} 
+                onPress={handleStartCustomInput}
+                disabled={!customHours && !customMinutes && !customSeconds}
+              >
+                <Ionicons name="play" size={18} color="#ffffff" />
+                <Text style={styles.startCustomButtonText}>Start Timer</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.customTimerCancel} 
+                onPress={() => {
+                  setShowCustomTimer(false);
+                  setCustomHours('');
+                  setCustomMinutes('');
+                  setCustomSeconds('');
+                }}
+              >
+                <Text style={styles.customTimerCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </RNView>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Edit Detected Timer Modal */}
+      <Modal
+        visible={showEditTimer}
+        animationType="fade"
+        transparent={true}
+      >
+        <KeyboardAvoidingView 
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <TouchableOpacity 
+            style={styles.modalOverlayTouch} 
+            activeOpacity={1} 
+            onPress={() => setShowEditTimer(false)}
+          >
+            <RNView style={styles.customTimerCard} onStartShouldSetResponder={() => true}>
+              <Text style={styles.customTimerTitle}>Edit Timer</Text>
+              <Text style={styles.customTimerSubtitle}>
+                {detectedTime ? `Detected: ${detectedTime.display}` : 'Set your preferred time'}
+              </Text>
+              
+              <RNView style={styles.customInputRow}>
+                <RNView style={styles.customInputGroup}>
+                  <TextInput
+                    style={styles.customTimeInput}
+                    value={customHours}
+                    onChangeText={setCustomHours}
+                    keyboardType="number-pad"
+                    placeholder="0"
+                    placeholderTextColor="#666"
+                    maxLength={2}
+                  />
+                  <Text style={styles.customInputLabel}>hrs</Text>
+                </RNView>
+                <Text style={styles.customInputSeparator}>:</Text>
+                <RNView style={styles.customInputGroup}>
+                  <TextInput
+                    style={styles.customTimeInput}
+                    value={customMinutes}
+                    onChangeText={setCustomMinutes}
+                    keyboardType="number-pad"
+                    placeholder="0"
+                    placeholderTextColor="#666"
+                    maxLength={2}
+                  />
+                  <Text style={styles.customInputLabel}>min</Text>
+                </RNView>
+                <Text style={styles.customInputSeparator}>:</Text>
+                <RNView style={styles.customInputGroup}>
+                  <TextInput
+                    style={styles.customTimeInput}
+                    value={customSeconds}
+                    onChangeText={setCustomSeconds}
+                    keyboardType="number-pad"
+                    placeholder="0"
+                    placeholderTextColor="#666"
+                    maxLength={2}
+                  />
+                  <Text style={styles.customInputLabel}>sec</Text>
+                </RNView>
+              </RNView>
+              
+              <TouchableOpacity 
+                style={[
+                  styles.startCustomButton,
+                  (!customHours && !customMinutes && !customSeconds) && styles.startCustomButtonDisabled
+                ]} 
+                onPress={handleStartCustomInput}
+                disabled={!customHours && !customMinutes && !customSeconds}
+              >
+                <Ionicons name="play" size={18} color="#ffffff" />
+                <Text style={styles.startCustomButtonText}>Start Timer</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.customTimerCancel} 
+                onPress={() => {
+                  setShowEditTimer(false);
+                  setCustomHours('');
+                  setCustomMinutes('');
+                  setCustomSeconds('');
+                }}
+              >
+                <Text style={styles.customTimerCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </RNView>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -963,11 +1201,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     borderRadius: radius.lg,
     gap: spacing.sm,
+    flex: 1,
   },
   timerButtonText: {
     color: '#ffffff',
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
+  },
+  detectedTimerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  editTimerButton: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.lg,
+    backgroundColor: '#2a2a2a',
+    borderWidth: 1,
+    borderColor: '#444',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   timerCard: {
     backgroundColor: '#1a1a1a',
@@ -1085,6 +1339,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.9)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  modalOverlayTouch: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
   },
   completeCard: {
     backgroundColor: '#1a1a1a',
@@ -1264,5 +1524,58 @@ const styles = StyleSheet.create({
     color: '#888',
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
+  },
+  customInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.md,
+    gap: spacing.xs,
+  },
+  customInputGroup: {
+    alignItems: 'center',
+  },
+  customTimeInput: {
+    width: 60,
+    height: 50,
+    backgroundColor: '#2a2a2a',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#444',
+    color: '#ffffff',
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.bold,
+    textAlign: 'center',
+  },
+  customInputLabel: {
+    color: '#888',
+    fontSize: fontSize.xs,
+    marginTop: spacing.xs,
+  },
+  customInputSeparator: {
+    color: '#666',
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.bold,
+    marginBottom: spacing.lg,
+  },
+  startCustomButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FF6B35',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    borderRadius: radius.lg,
+    marginTop: spacing.lg,
+    gap: spacing.sm,
+  },
+  startCustomButtonDisabled: {
+    backgroundColor: '#444',
+    opacity: 0.5,
+  },
+  startCustomButtonText: {
+    color: '#ffffff',
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
   },
 });

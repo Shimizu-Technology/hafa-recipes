@@ -20,10 +20,10 @@ export const TIMER_SOUNDS: { id: TimerSoundOption; label: string; description: s
 
 // Sound file mappings
 const SOUND_FILES: Record<Exclude<TimerSoundOption, 'none'>, any> = {
-  default: require('@/assets/sounds/timer-complete.mp3'),
-  bell: require('@/assets/sounds/timer-bell.mp3'),
-  chime: require('@/assets/sounds/timer-chime.mp3'),
-  alarm: require('@/assets/sounds/timer-alarm.mp3'),
+  default: require('@/assets/sounds/timer_complete.mp3'),
+  bell: require('@/assets/sounds/timer_bell.mp3'),
+  chime: require('@/assets/sounds/timer_chime.mp3'),
+  alarm: require('@/assets/sounds/timer_alarm.mp3'),
 };
 
 export function useTimerSoundPreference() {
