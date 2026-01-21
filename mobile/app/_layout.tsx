@@ -18,11 +18,14 @@ import { ShareIntentProvider } from 'expo-share-intent';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { ThemeProvider } from '@/contexts/ThemeContext';
+import { TimerProvider } from '@/contexts/TimerContext';
 import { queryClient } from '@/lib/queryClient';
 import { tokenCache, CLERK_PUBLISHABLE_KEY } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { AppLoadingSkeleton } from '@/components/Skeleton';
 import { OfflineBanner } from '@/components/OfflineBanner';
+import { FloatingTimerOverlay } from '@/components/FloatingTimerOverlay';
+import FloatingChatButton from '@/components/FloatingChatButton';
 import { initSentry, setSentryUser, addBreadcrumb, withSentry } from '@/lib/sentry';
 import { useHandleShareIntent } from '@/hooks/useShareIntent';
 
@@ -222,11 +225,16 @@ function RootLayoutNav() {
   return (
     <QueryClientProvider client={queryClient}>
       <NavigationThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <TimerProvider>
         <AuthTokenSync>
           <AuthProtection>
             <ShareIntentHandler>
             {/* Global offline indicator */}
             <OfflineBanner />
+            {/* Floating timer when leaving cook mode with active timers */}
+            <FloatingTimerOverlay />
+            {/* Floating chat button for cooking assistant */}
+            <FloatingChatButton />
             <Stack
               screenOptions={{
                 headerStyle: { backgroundColor: colors.background },
@@ -256,6 +264,7 @@ function RootLayoutNav() {
             </ShareIntentHandler>
           </AuthProtection>
         </AuthTokenSync>
+        </TimerProvider>
       </NavigationThemeProvider>
     </QueryClientProvider>
   );

@@ -40,6 +40,7 @@ import { RecipeListItem } from '@/types/recipe';
 import { useAddFromRecipe } from '@/hooks/useGrocery';
 import { SkeletonSimilarRecipes } from '@/components/Skeleton';
 import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
+import { useTextSize } from '@/hooks/useTextSize';
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import { Ingredient } from '@/types/recipe';
 import { useScaledServings, scaleQuantity, scaleIngredient } from '@/hooks/useScaledServings';
@@ -100,6 +101,7 @@ export default function RecipeDetailScreen() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { scaleFontSize } = useTextSize();
   const [activeTab, setActiveTab] = useState<TabType>('ingredients');
   
   const { data: recipe, isLoading, error, refetch } = useRecipe(id);
@@ -940,7 +942,7 @@ export default function RecipeDetailScreen() {
                           <RNView key={ingIndex} style={styles.ingredientRow}>
                             <RNView style={[styles.bullet, { backgroundColor: isScaled ? colors.tint : colors.tint }]} />
                             <RNView style={styles.ingredientContent}>
-                              <Text style={[styles.ingredientText, { color: colors.text }]}>
+                              <Text style={[styles.ingredientText, { color: colors.text, fontSize: scaleFontSize(fontSize.md), lineHeight: scaleFontSize(22) }]}>
                                 {qtyUnit ? (
                                   <Text style={[styles.ingredientQty, isScaled && { color: colors.tint }]}>
                                     {qtyUnit}
@@ -1041,7 +1043,7 @@ export default function RecipeDetailScreen() {
                           <RNView style={[styles.stepNumber, { backgroundColor: colors.tint }]}>
                             <Text style={styles.stepNumberText}>{stepIndex + 1}</Text>
                           </RNView>
-                          <Text style={[styles.stepText, { color: colors.text }]}>
+                          <Text style={[styles.stepText, { color: colors.text, fontSize: scaleFontSize(fontSize.md), lineHeight: scaleFontSize(24) }]}>
                             {step}
                           </Text>
                         </RNView>

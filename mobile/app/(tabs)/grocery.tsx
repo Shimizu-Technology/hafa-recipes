@@ -42,6 +42,7 @@ import {
 import { api } from '@/lib/api';
 import { GroceryItem } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { useTextSize } from '@/hooks/useTextSize';
 import { haptics } from '@/utils/haptics';
 import { AnimatedListItem, ScalePressable } from '@/components/Animated';
 
@@ -64,6 +65,7 @@ function GroceryItemRow({
   onEdit,
   showRecipeLabel = false,
   isSharedList = false,
+  scaleFontSize,
 }: {
   item: GroceryItem;
   colors: ReturnType<typeof useColors>;
@@ -72,6 +74,7 @@ function GroceryItemRow({
   onEdit: () => void;
   showRecipeLabel?: boolean;
   isSharedList?: boolean;
+  scaleFontSize: (size: number) => number;
 }) {
   return (
     <ScalePressable 
@@ -101,7 +104,7 @@ function GroceryItemRow({
           <Text
             style={[
               styles.itemName,
-              { color: item.checked ? colors.textMuted : colors.text },
+              { color: item.checked ? colors.textMuted : colors.text, fontSize: scaleFontSize(fontSize.md) },
               item.checked && styles.itemNameChecked,
               // Allow name to shrink when added_by label is present
               isSharedList && item.added_by_name && styles.itemNameWithLabel,
@@ -219,6 +222,7 @@ export default function GroceryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { isSignedIn } = useAuth();
+  const { scaleFontSize } = useTextSize();
   const queryClient = useQueryClient();
   
   // Ref for the add item input to maintain focus
@@ -616,6 +620,7 @@ export default function GroceryScreen() {
           onEdit={() => handleEdit(item)}
           showRecipeLabel={false}
           isSharedList={listInfo?.is_shared ?? false}
+          scaleFontSize={scaleFontSize}
         />
       </AnimatedListItem>
     );
@@ -657,39 +662,97 @@ export default function GroceryScreen() {
     );
   };
 
+  // Handle overflow menu actions
+  const handleShowOverflowMenu = () => {
+    haptics.light();
+    const hasCheckedItems = (countData?.checked ?? 0) > 0 || groceryItems?.some(item => item.checked);
+    const hasItems = (countData?.total ?? 0) > 0 || (groceryItems?.length ?? 0) > 0;
+    
+    const options: { text: string; style?: 'destructive' | 'cancel'; onPress?: () => void }[] = [];
+    
+    if (hasCheckedItems) {
+      options.push({
+        text: `Clear checked (${countData?.checked ?? 0})`,
+        onPress: handleClearChecked,
+      });
+    }
+    
+    if (hasItems) {
+      options.push({
+        text: 'Export list',
+        onPress: handleExportList,
+      });
+      options.push({
+        text: 'Clear all items',
+        style: 'destructive',
+        onPress: handleClearAll,
+      });
+    }
+    
+    options.push({ text: 'Cancel', style: 'cancel' });
+    
+    Alert.alert('Actions', undefined, options);
+  };
+
+  // Build subtitle text
+  const getSubtitleText = () => {
+    const itemCount = countData?.unchecked ?? 0;
+    const itemText = itemCount === 1 ? '1 item left' : `${itemCount} items left`;
+    
+    if (listInfo?.is_shared) {
+      return `Shared · ${itemText}`;
+    }
+    return itemText;
+  };
+
   return (
     <RNView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Fixed header with input */}
       <RNView style={styles.header}>
-        {/* Title row */}
+        {/* Title row - clean with just title and icons */}
         <RNView style={styles.titleRow}>
-          <RNView style={styles.titleLeft}>
-            <Text style={[styles.headerTitle, { color: colors.text }]}>Grocery List</Text>
-            {listInfo?.is_shared && (
-              <RNView style={[styles.sharedBadge, { backgroundColor: colors.success + '20' }]}>
-                <Ionicons name="people" size={12} color={colors.success} />
-                <Text style={[styles.sharedBadgeText, { color: colors.success }]}>
-                  Shared
-                </Text>
-              </RNView>
-            )}
-            {countData && countData.unchecked > 0 && (
-              <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
-                <Text style={styles.countText}>{countData.unchecked}</Text>
-              </RNView>
-            )}
-          </RNView>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Grocery List</Text>
           <RNView style={styles.headerButtons}>
-            {countData && countData.total > 0 && (
-              <TouchableOpacity onPress={handleExportList} style={styles.exportButton}>
-                <Ionicons name="download-outline" size={22} color={colors.tint} />
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity onPress={() => setShowSettings(true)} style={styles.settingsButton}>
-              <Ionicons name="people-outline" size={22} color={colors.tint} />
+            <TouchableOpacity 
+              onPress={() => {
+                haptics.light();
+                refetch();
+                refetchCount();
+              }} 
+              style={styles.headerIconButton}
+              disabled={isRefetching}
+            >
+              <Ionicons 
+                name="refresh-outline" 
+                size={22} 
+                color={isRefetching ? colors.textMuted : colors.tint} 
+              />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              onPress={() => setShowSettings(true)} 
+              style={styles.headerIconButton}
+            >
+              <Ionicons name="settings-outline" size={22} color={colors.tint} />
             </TouchableOpacity>
           </RNView>
         </RNView>
+
+        {/* Subtitle row - shared status + item count */}
+        <TouchableOpacity 
+          style={styles.subtitleRow}
+          onPress={listInfo?.is_shared ? () => setShowSettings(true) : undefined}
+          activeOpacity={listInfo?.is_shared ? 0.7 : 1}
+        >
+          {listInfo?.is_shared && (
+            <Ionicons name="people" size={14} color={colors.success} style={styles.subtitleIcon} />
+          )}
+          <Text style={[styles.subtitleText, { color: colors.textSecondary }]}>
+            {getSubtitleText()}
+          </Text>
+          {isRefetching && (
+            <ActivityIndicator size="small" color={colors.tint} style={styles.subtitleSpinner} />
+          )}
+        </TouchableOpacity>
 
         {/* Add item input */}
         <RNView style={[styles.addItemRow, { borderColor: colors.border }]}>
@@ -716,39 +779,30 @@ export default function GroceryScreen() {
           </TouchableOpacity>
         </RNView>
 
-        {/* Filter/action row - show if we have items OR count data indicates items */}
+        {/* Action row - simplified with toggle + overflow menu */}
         {((countData && countData.total > 0) || (groceryItems && groceryItems.length > 0)) && (
           <RNView style={styles.actionRow}>
             <TouchableOpacity
               onPress={() => setShowChecked(!showChecked)}
-              style={styles.filterButton}
+              style={styles.filterToggle}
             >
               <Ionicons
                 name={showChecked ? 'eye' : 'eye-off'}
-                size={18}
+                size={16}
                 color={colors.textMuted}
               />
-              <Text style={[styles.filterText, { color: colors.textMuted }]}>
+              <Text style={[styles.filterToggleText, { color: colors.textMuted }]}>
                 {showChecked ? 'Hide' : 'Show'} checked
+                {countData?.checked ? ` (${countData.checked})` : ''}
               </Text>
             </TouchableOpacity>
 
-            <RNView style={styles.clearButtons}>
-              {((countData?.checked ?? 0) > 0 || groceryItems?.some(item => item.checked)) && (
-                <TouchableOpacity onPress={handleClearChecked} style={styles.clearButton}>
-                  <Ionicons name="checkmark-done-outline" size={16} color={colors.textMuted} />
-                  <Text style={[styles.clearText, { color: colors.textMuted }]}>
-                    Clear done
-                  </Text>
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity onPress={handleClearAll} style={styles.clearButton}>
-                <Ionicons name="trash-outline" size={16} color={colors.error} />
-                <Text style={[styles.clearText, { color: colors.error }]}>
-                  Clear all
-                </Text>
-              </TouchableOpacity>
-            </RNView>
+            <TouchableOpacity
+              onPress={handleShowOverflowMenu}
+              style={[styles.overflowButton, { backgroundColor: colors.backgroundSecondary }]}
+            >
+              <Ionicons name="ellipsis-horizontal" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
           </RNView>
         )}
       </RNView>
@@ -810,49 +864,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.md,
-  },
-  titleLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
   },
   headerTitle: {
     fontSize: fontSize.xxl,
     fontWeight: fontWeight.bold,
   },
-  countBadge: {
-    marginLeft: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-  },
-  exportButton: {
-    padding: spacing.sm,
-  },
-  settingsButton: {
-    padding: spacing.sm,
-  },
   headerButtons: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  sharedBadge: {
+  headerIconButton: {
+    padding: spacing.sm,
+  },
+  subtitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    marginTop: spacing.xs,
+    marginBottom: spacing.md,
+  },
+  subtitleIcon: {
+    marginRight: spacing.xs,
+  },
+  subtitleText: {
+    fontSize: fontSize.sm,
+  },
+  subtitleSpinner: {
     marginLeft: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-  },
-  sharedBadgeText: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.medium,
-  },
-  countText: {
-    color: '#FFFFFF',
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.semibold,
   },
   addItemRow: {
     flexDirection: 'row',
@@ -878,26 +915,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  filterButton: {
+  filterToggle: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
   },
-  filterText: {
+  filterToggleText: {
     fontSize: fontSize.sm,
   },
-  clearButtons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  clearButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  clearText: {
-    fontSize: fontSize.sm,
+  overflowButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.md,
   },
   // Section header styles
   sectionHeader: {

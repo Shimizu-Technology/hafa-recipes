@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   View as RNView,
@@ -19,12 +19,15 @@ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { Audio } from 'expo-av';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, useColors } from '@/components/Themed';
 import { useRecipe } from '@/hooks/useRecipes';
 import { useTimerSoundPreference, getTimerSoundFile } from '@/hooks/useTimerSound';
 import { useBackgroundTimer } from '@/hooks/useBackgroundTimer';
+import { useTextSize } from '@/hooks/useTextSize';
+import { useTimerContext } from '@/contexts/TimerContext';
 import { lightHaptic, mediumHaptic, successHaptic, heavyHaptic } from '@/utils/haptics';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { RecipeComponent, Ingredient } from '@/types/recipe';
@@ -32,6 +35,9 @@ import { scaleQuantity } from '@/hooks/useScaledServings';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.2;
+
+// Key for persisting cook mode step progress
+const COOK_MODE_STEP_KEY = (recipeId: string) => `cook_mode_step_${recipeId}`;
 
 interface CookingStep {
   step: string;
@@ -148,6 +154,9 @@ export default function CookModeScreen() {
   // Timer sound preference
   const { soundPreference } = useTimerSoundPreference();
   
+  // Text size preference
+  const { scaleFontSize } = useTextSize();
+  
   // Background timer notifications
   const {
     scheduleTimerNotification,
@@ -160,9 +169,12 @@ export default function CookModeScreen() {
   
   // Track app state for syncing timers
   const appState = useRef<AppStateStatus>(AppState.currentState);
+  
+  // Global timer context for floating overlay when leaving cook mode
+  const timerContext = useTimerContext();
 
-  // Get all steps from recipe
-  const getAllSteps = useCallback((): CookingStep[] => {
+  // Get all steps from recipe - memoized to prevent recreating on every render
+  const steps = useMemo((): CookingStep[] => {
     if (!recipe?.extracted) return [];
     
     const { components, steps: legacySteps } = recipe.extracted;
@@ -198,8 +210,6 @@ export default function CookModeScreen() {
 
     return allSteps;
   }, [recipe]);
-
-  const steps = getAllSteps();
   const currentStep = steps[currentStepIndex];
   const detectedTime = currentStep ? extractTimeFromStep(currentStep.step) : null;
   const currentTimer = activeTimers.get(currentStepIndex);
@@ -217,6 +227,145 @@ export default function CookModeScreen() {
       deactivateKeepAwake('cook-mode');
     };
   }, []);
+
+  // Start cooking session in global context (for floating timer overlay)
+  // Only run once when recipe loads - not on every state change
+  useEffect(() => {
+    if (recipe?.extracted?.title && id && steps.length > 0) {
+      timerContext.startSession({
+        recipeId: id,
+        recipeTitle: recipe.extracted.title,
+        currentStep: 0,
+        totalSteps: steps.length,
+        scaleFactor: scaleFactor !== 1 ? scaleFactor : undefined,
+        servings: currentServings ?? undefined,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipe?.extracted?.title, id, steps.length]);
+
+  // Update session step when it changes
+  useEffect(() => {
+    timerContext.updateSession({ currentStep: currentStepIndex });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStepIndex]);
+
+  // Sync local timers to global context (for floating overlay)
+  // Use a ref to avoid dependency on context functions
+  const syncTimersRef = useRef(timerContext.syncTimers);
+  syncTimersRef.current = timerContext.syncTimers;
+  
+  // Track if we've restored timers from context (only do once)
+  const hasRestoredTimers = useRef(false);
+  
+  // Restore timers from context when returning to cook mode
+  useEffect(() => {
+    if (hasRestoredTimers.current) return;
+    if (!id || timerContext.session?.recipeId !== id) return;
+    
+    // Check if context has timers for this recipe
+    if (timerContext.timers.size > 0) {
+      const restoredTimers = new Map<number, TimerState>();
+      const now = Date.now();
+      
+      timerContext.timers.forEach((contextTimer, stepIndex) => {
+        // Calculate current remaining time based on endTime
+        let remaining = contextTimer.remaining;
+        let endTime = contextTimer.endTime;
+        
+        if (!contextTimer.isPaused && endTime > 0) {
+          // Timer was running - calculate actual remaining time
+          remaining = Math.max(0, Math.floor((endTime - now) / 1000));
+        } else if (contextTimer.isPaused) {
+          // Timer was paused - keep the remaining time, recalculate endTime for when resumed
+          endTime = now + (remaining * 1000);
+        }
+        
+        if (remaining > 0) {
+          restoredTimers.set(stepIndex, {
+            remaining,
+            total: contextTimer.total,
+            isPaused: contextTimer.isPaused,
+            endTime,
+          });
+        }
+      });
+      
+      if (restoredTimers.size > 0) {
+        console.log(`⏱️ Restored ${restoredTimers.size} timer(s) from previous session`);
+        setActiveTimers(restoredTimers);
+      }
+    }
+    
+    hasRestoredTimers.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, timerContext.session?.recipeId, timerContext.timers.size]);
+  
+  // Sync local timers to context (for floating overlay)
+  useEffect(() => {
+    // Convert local TimerState to context format and sync
+    const contextTimers = new Map<number, { remaining: number; total: number; isPaused: boolean; endTime: number; stepText: string }>();
+    
+    activeTimers.forEach((timer, stepIndex) => {
+      contextTimers.set(stepIndex, {
+        remaining: timer.remaining,
+        total: timer.total,
+        isPaused: timer.isPaused,
+        endTime: timer.endTime,
+        stepText: steps[stepIndex]?.step || '',
+      });
+    });
+    
+    syncTimersRef.current(contextTimers);
+  }, [activeTimers, steps]);
+
+  // Load saved step on mount (once recipe loads and we know the total steps)
+  useEffect(() => {
+    if (!id || steps.length === 0) return;
+    
+    const loadSavedStep = async () => {
+      try {
+        const savedStep = await AsyncStorage.getItem(COOK_MODE_STEP_KEY(id));
+        if (savedStep !== null) {
+          const stepIndex = parseInt(savedStep, 10);
+          // Only restore if valid and not the first step (no point restoring step 0)
+          if (!isNaN(stepIndex) && stepIndex > 0 && stepIndex < steps.length) {
+            console.log(`📍 Resuming cook mode at step ${stepIndex + 1}`);
+            setCurrentStepIndex(stepIndex);
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to load saved cook mode step:', error);
+      }
+    };
+    
+    loadSavedStep();
+  }, [id, steps.length]);
+
+  // Save step whenever it changes
+  useEffect(() => {
+    if (!id) return;
+    
+    const saveStep = async () => {
+      try {
+        await AsyncStorage.setItem(COOK_MODE_STEP_KEY(id), currentStepIndex.toString());
+      } catch (error) {
+        console.warn('Failed to save cook mode step:', error);
+      }
+    };
+    
+    saveStep();
+  }, [id, currentStepIndex]);
+
+  // Clear saved step when recipe is completed
+  const clearSavedStep = useCallback(async () => {
+    if (!id) return;
+    try {
+      await AsyncStorage.removeItem(COOK_MODE_STEP_KEY(id));
+    } catch (error) {
+      console.warn('Failed to clear saved cook mode step:', error);
+    }
+  }, [id]);
 
   // Load completion sound based on preference
   useEffect(() => {
@@ -592,6 +741,8 @@ export default function CookModeScreen() {
 
   const handleFinish = () => {
     successHaptic();
+    clearSavedStep(); // Clear progress when recipe is completed
+    timerContext.endSession(); // Clear floating timer overlay
     router.back();
   };
 
@@ -685,7 +836,9 @@ export default function CookModeScreen() {
           contentContainerStyle={styles.stepScrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.stepText}>{currentStep?.step}</Text>
+          <Text style={[styles.stepText, { fontSize: scaleFontSize(26), lineHeight: scaleFontSize(40) }]}>
+            {currentStep?.step}
+          </Text>
         </ScrollView>
 
         {/* Timer Section */}
@@ -833,8 +986,15 @@ export default function CookModeScreen() {
         animationType="slide"
         transparent={true}
       >
-        <RNView style={styles.modalOverlay}>
-          <RNView style={[styles.ingredientsCard, { paddingBottom: insets.bottom + spacing.lg }]}>
+        <TouchableOpacity 
+          style={styles.modalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setShowIngredients(false)}
+        >
+          <RNView 
+            style={[styles.ingredientsCard, { paddingBottom: insets.bottom + spacing.lg }]}
+            onStartShouldSetResponder={() => true}
+          >
             <RNView style={styles.ingredientsHeader}>
               <RNView>
                 <Text style={styles.ingredientsTitle}>Ingredients</Text>
@@ -851,16 +1011,16 @@ export default function CookModeScreen() {
                 const scaledQty = scaleQuantity(ing.quantity ?? null, scaleFactor);
                 return (
                   <RNView key={index} style={styles.ingredientRow}>
-                    <Text style={[styles.ingredientQuantity, isScaled && styles.ingredientQuantityScaled]}>
+                    <Text style={[styles.ingredientQuantity, isScaled && styles.ingredientQuantityScaled, { fontSize: scaleFontSize(fontSize.md) }]}>
                       {scaledQty ? `${scaledQty}${ing.unit ? ` ${ing.unit}` : ''}` : '•'}
                     </Text>
-                    <Text style={styles.ingredientName}>{ing.name}</Text>
+                    <Text style={[styles.ingredientName, { fontSize: scaleFontSize(fontSize.md) }]}>{ing.name}</Text>
                   </RNView>
                 );
               })}
             </ScrollView>
           </RNView>
-        </RNView>
+        </TouchableOpacity>
       </Modal>
 
       {/* Custom Timer Modal */}

@@ -14,6 +14,7 @@ import { useTheme, ThemePreference } from '@/contexts/ThemeContext';
 import { clearAllOfflineGroceryData } from '@/lib/offlineStorage';
 import { useTimerSoundPreference, TIMER_SOUNDS, TimerSoundOption, playTimerSoundPreview } from '@/hooks/useTimerSound';
 import { useTTSVoice, TTS_VOICES, TTSVoice } from '@/hooks/useTTS';
+import { useTextSize, TEXT_SIZE_LABELS, TextSizeOption } from '@/hooks/useTextSize';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
 const APP_STORE_URL = 'https://apps.apple.com/us/app/recipe-extractor-gu/id6755892896';
@@ -77,6 +78,12 @@ export default function SettingsScreen() {
   const { themePreference, setThemePreference } = useTheme();
   const { soundPreference, setTimerSound } = useTimerSoundPreference();
   const { voice: ttsVoice, setVoice: setTTSVoice } = useTTSVoice();
+  const { textSize, setTextSize } = useTextSize();
+  
+  // UI state for compact pickers
+  const [showTimerSoundPicker, setShowTimerSoundPicker] = useState(false);
+  const [showVoicePicker, setShowVoicePicker] = useState(false);
+  const [showDeveloper, setShowDeveloper] = useState(false);
   
   // Profile editing state
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -286,185 +293,262 @@ export default function SettingsScreen() {
           />
         </RNView>
 
-        {/* Appearance Section */}
+        {/* Appearance Section - Combined Theme + Text Size */}
         <RNView style={styles.section}>
           <SectionHeader title="Appearance" />
-          <RNView style={styles.menuGroup}>
+          <RNView style={[styles.compactCard, { backgroundColor: colors.backgroundSecondary }]}>
+            {/* Theme Row */}
+            <RNView style={styles.compactRow}>
+              <Text style={[styles.compactLabel, { color: colors.text }]}>Theme</Text>
+              <RNView style={[styles.segmentedControl, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                {([
+                  { key: 'system', label: 'Auto' },
+                  { key: 'light', label: 'Light' },
+                  { key: 'dark', label: 'Dark' },
+                ] as const).map((theme, index) => (
+                  <TouchableOpacity
+                    key={theme.key}
+                    onPress={() => setThemePreference(theme.key)}
+                    style={[
+                      styles.segmentedOption,
+                      themePreference === theme.key && { backgroundColor: colors.tint },
+                      index === 0 && styles.segmentedFirst,
+                      index === 2 && styles.segmentedLast,
+                    ]}
+                  >
+                    <Text style={[
+                      styles.segmentedText,
+                      { color: themePreference === theme.key ? '#FFFFFF' : colors.textSecondary },
+                    ]}>
+                      {theme.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </RNView>
+            </RNView>
+            
+            <RNView style={[styles.compactDivider, { backgroundColor: colors.border }]} />
+            
+            {/* Text Size Row */}
+            <RNView style={styles.compactRow}>
+              <Text style={[styles.compactLabel, { color: colors.text }]}>Text Size</Text>
+              <RNView style={[styles.segmentedControl, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                {([
+                  { key: 'small', label: 'S' },
+                  { key: 'medium', label: 'M' },
+                  { key: 'large', label: 'L' },
+                  { key: 'extra-large', label: 'XL' },
+                ] as const).map((size, index) => (
+                  <TouchableOpacity
+                    key={size.key}
+                    onPress={() => setTextSize(size.key)}
+                    style={[
+                      styles.segmentedOption,
+                      textSize === size.key && { backgroundColor: colors.tint },
+                      index === 0 && styles.segmentedFirst,
+                      index === 3 && styles.segmentedLast,
+                    ]}
+                  >
+                    <Text style={[
+                      styles.segmentedText,
+                      { color: textSize === size.key ? '#FFFFFF' : colors.textSecondary },
+                    ]}>
+                      {size.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </RNView>
+            </RNView>
+          </RNView>
+        </RNView>
+
+        {/* Sound & Voice Section - Compact Pickers */}
+        <RNView style={styles.section}>
+          <SectionHeader title="Sound & Voice" />
+          <RNView style={[styles.compactCard, { backgroundColor: colors.backgroundSecondary }]}>
+            {/* Timer Sound Picker */}
             <TouchableOpacity 
-              onPress={() => setThemePreference('system')}
+              style={styles.pickerRow}
+              onPress={() => setShowTimerSoundPicker(true)}
               activeOpacity={0.7}
             >
-              <RNView 
-                style={[
-                  styles.menuItem, 
-                  { backgroundColor: colors.backgroundSecondary }
-                ]}
-              >
-                <RNView style={styles.menuItemLeft}>
-                  <Text style={styles.menuIcon}>📱</Text>
-                  <Text style={[styles.menuLabel, { color: colors.text }]}>System</Text>
+              <RNView style={styles.pickerLeft}>
+                <Text style={styles.pickerIcon}>🔔</Text>
+                <RNView>
+                  <Text style={[styles.pickerLabel, { color: colors.text }]}>Timer Sound</Text>
+                  <Text style={[styles.pickerValue, { color: colors.textMuted }]}>
+                    {TIMER_SOUNDS.find(s => s.id === soundPreference)?.label || 'Default'}
+                  </Text>
                 </RNView>
-                {themePreference === 'system' && (
-                  <Ionicons name="checkmark" size={20} color={colors.tint} />
-                )}
               </RNView>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </TouchableOpacity>
-            <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+            
+            <RNView style={[styles.compactDivider, { backgroundColor: colors.border }]} />
+            
+            {/* AI Voice Picker */}
             <TouchableOpacity 
-              onPress={() => setThemePreference('light')}
+              style={styles.pickerRow}
+              onPress={() => setShowVoicePicker(true)}
               activeOpacity={0.7}
             >
-              <RNView 
-                style={[
-                  styles.menuItem, 
-                  { backgroundColor: colors.backgroundSecondary }
-                ]}
-              >
-                <RNView style={styles.menuItemLeft}>
-                  <Text style={styles.menuIcon}>☀️</Text>
-                  <Text style={[styles.menuLabel, { color: colors.text }]}>Light</Text>
+              <RNView style={styles.pickerLeft}>
+                <Text style={styles.pickerIcon}>🗣️</Text>
+                <RNView>
+                  <Text style={[styles.pickerLabel, { color: colors.text }]}>AI Voice</Text>
+                  <Text style={[styles.pickerValue, { color: colors.textMuted }]}>
+                    {TTS_VOICES.find(v => v.id === ttsVoice)?.name || 'Alloy'}
+                  </Text>
                 </RNView>
-                {themePreference === 'light' && (
-                  <Ionicons name="checkmark" size={20} color={colors.tint} />
-                )}
               </RNView>
-            </TouchableOpacity>
-            <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
-            <TouchableOpacity 
-              onPress={() => setThemePreference('dark')}
-              activeOpacity={0.7}
-            >
-              <RNView 
-                style={[
-                  styles.menuItem, 
-                  { backgroundColor: colors.backgroundSecondary }
-                ]}
-              >
-                <RNView style={styles.menuItemLeft}>
-                  <Text style={styles.menuIcon}>🌙</Text>
-                  <Text style={[styles.menuLabel, { color: colors.text }]}>Dark</Text>
-                </RNView>
-                {themePreference === 'dark' && (
-                  <Ionicons name="checkmark" size={20} color={colors.tint} />
-                )}
-              </RNView>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </TouchableOpacity>
           </RNView>
         </RNView>
 
-        {/* Timer Sound Section */}
-        <RNView style={styles.section}>
-          <SectionHeader title="Cook Mode" />
-          <RNView style={styles.menuGroup}>
-            {TIMER_SOUNDS.map((sound, index) => (
-              <React.Fragment key={sound.id}>
-                {index > 0 && (
-                  <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
-                )}
+        {/* Timer Sound Picker Modal */}
+        <Modal
+          visible={showTimerSoundPicker}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowTimerSoundPicker(false)}
+        >
+          <TouchableOpacity 
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowTimerSoundPicker(false)}
+          >
+            <RNView style={[styles.pickerModal, { backgroundColor: colors.card }]}>
+              <Text style={[styles.pickerModalTitle, { color: colors.text }]}>Timer Sound</Text>
+              {TIMER_SOUNDS.map((sound) => (
                 <TouchableOpacity
+                  key={sound.id}
+                  style={[
+                    styles.pickerOption,
+                    soundPreference === sound.id && { backgroundColor: colors.tint + '15' },
+                  ]}
                   onPress={() => {
                     setTimerSound(sound.id);
-                    // Play preview when selecting
                     if (sound.id !== 'none') {
                       playTimerSoundPreview(sound.id);
                     }
+                    setShowTimerSoundPicker(false);
                   }}
-                  activeOpacity={0.7}
                 >
-                  <RNView 
-                    style={[
-                      styles.menuItem, 
-                      { backgroundColor: colors.backgroundSecondary }
-                    ]}
-                  >
-                    <RNView style={styles.menuItemLeft}>
-                      <Text style={styles.menuIcon}>
-                        {sound.id === 'none' ? '🔇' : sound.id === 'alarm' ? '⏰' : '🔔'}
-                      </Text>
-                      <RNView>
-                        <Text style={[styles.menuLabel, { color: colors.text }]}>{sound.label}</Text>
-                        <Text style={[styles.menuSubLabel, { color: colors.textMuted }]}>{sound.description}</Text>
-                      </RNView>
+                  <RNView style={styles.pickerOptionLeft}>
+                    <Text style={styles.pickerOptionIcon}>
+                      {sound.id === 'none' ? '🔇' : sound.id === 'alarm' ? '⏰' : '🔔'}
+                    </Text>
+                    <RNView>
+                      <Text style={[styles.pickerOptionLabel, { color: colors.text }]}>{sound.label}</Text>
+                      <Text style={[styles.pickerOptionDesc, { color: colors.textMuted }]}>{sound.description}</Text>
                     </RNView>
-                    {soundPreference === sound.id && (
-                      <Ionicons name="checkmark" size={20} color={colors.tint} />
-                    )}
                   </RNView>
+                  {soundPreference === sound.id && (
+                    <Ionicons name="checkmark" size={20} color={colors.tint} />
+                  )}
                 </TouchableOpacity>
-              </React.Fragment>
-            ))}
-          </RNView>
-        </RNView>
+              ))}
+            </RNView>
+          </TouchableOpacity>
+        </Modal>
 
-        {/* AI Voice Section */}
-        <RNView style={styles.section}>
-          <SectionHeader title="AI Voice" />
-          <RNView style={styles.menuGroup}>
-            {TTS_VOICES.map((voiceOption, index) => (
-              <React.Fragment key={voiceOption.id}>
-                {index > 0 && (
-                  <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
-                )}
-                <TouchableOpacity
-                  onPress={() => setTTSVoice(voiceOption.id)}
-                  activeOpacity={0.7}
-                >
-                  <RNView 
+        {/* Voice Picker Modal */}
+        <Modal
+          visible={showVoicePicker}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowVoicePicker(false)}
+        >
+          <TouchableOpacity 
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowVoicePicker(false)}
+          >
+            <RNView style={[styles.pickerModal, { backgroundColor: colors.card }]}>
+              <Text style={[styles.pickerModalTitle, { color: colors.text }]}>AI Voice</Text>
+              <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
+                {TTS_VOICES.map((voiceOption) => (
+                  <TouchableOpacity
+                    key={voiceOption.id}
                     style={[
-                      styles.menuItem, 
-                      { backgroundColor: colors.backgroundSecondary }
+                      styles.pickerOption,
+                      ttsVoice === voiceOption.id && { backgroundColor: colors.tint + '15' },
                     ]}
+                    onPress={() => {
+                      setTTSVoice(voiceOption.id);
+                      setShowVoicePicker(false);
+                    }}
                   >
-                    <RNView style={styles.menuItemLeft}>
-                      <Text style={styles.menuIcon}>🗣️</Text>
+                    <RNView style={styles.pickerOptionLeft}>
+                      <Text style={styles.pickerOptionIcon}>🗣️</Text>
                       <RNView>
-                        <Text style={[styles.menuLabel, { color: colors.text }]}>{voiceOption.name}</Text>
-                        <Text style={[styles.menuSubLabel, { color: colors.textMuted }]}>{voiceOption.description}</Text>
+                        <Text style={[styles.pickerOptionLabel, { color: colors.text }]}>{voiceOption.name}</Text>
+                        <Text style={[styles.pickerOptionDesc, { color: colors.textMuted }]}>{voiceOption.description}</Text>
                       </RNView>
                     </RNView>
                     {ttsVoice === voiceOption.id && (
                       <Ionicons name="checkmark" size={20} color={colors.tint} />
                     )}
-                  </RNView>
-                </TouchableOpacity>
-              </React.Fragment>
-            ))}
-          </RNView>
-          <Text style={[styles.sectionFooter, { color: colors.textMuted }]}>
-            Voice used when reading AI chat responses aloud
-          </Text>
-        </RNView>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </RNView>
+          </TouchableOpacity>
+        </Modal>
 
-        {/* Developer Section */}
+        {/* Developer Section - Collapsible in Card */}
         <RNView style={styles.section}>
           <SectionHeader title="Developer" />
-          <RNView style={styles.menuGroup}>
-            <MenuItem 
-              icon="📚" 
-              label="API Documentation" 
-              onPress={handleOpenAPI}
-              colors={colors}
-            />
-            <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
-            <MenuItem 
-              icon="🔗" 
-              label="API URL" 
-              value={API_BASE_URL.replace('http://', '').replace('https://', '')}
-              colors={colors}
-            />
-            <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
-            <MenuItem 
-              icon="🐛" 
-              label="Test Sentry Error Reporting" 
-              onPress={() => {
-                captureMessage('Test from Håfa Recipes Settings!', 'info', {
-                  tags: { screen: 'settings', test: 'true' },
-                  extra: { user: user?.primaryEmailAddress?.emailAddress || 'not signed in' },
-                });
-                Alert.alert('Sent!', 'Test event sent to Sentry. Check your dashboard!');
-              }}
-              colors={colors}
-            />
+          <RNView style={[styles.menuGroup, { overflow: 'hidden' }]}>
+            <TouchableOpacity 
+              style={[styles.menuItem, { backgroundColor: colors.backgroundSecondary }]}
+              onPress={() => setShowDeveloper(!showDeveloper)}
+              activeOpacity={0.7}
+            >
+              <RNView style={styles.menuItemLeft}>
+                <Text style={styles.menuIcon}>🛠️</Text>
+                <Text style={[styles.menuLabel, { color: colors.text }]}>
+                  {showDeveloper ? 'Hide Developer Tools' : 'Show Developer Tools'}
+                </Text>
+              </RNView>
+              <Ionicons 
+                name={showDeveloper ? 'chevron-up' : 'chevron-down'} 
+                size={18} 
+                color={colors.textMuted} 
+              />
+            </TouchableOpacity>
+            {showDeveloper && (
+              <>
+                <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+                <MenuItem 
+                  icon="📚" 
+                  label="API Documentation" 
+                  onPress={handleOpenAPI}
+                  colors={colors}
+                />
+                <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+                <MenuItem 
+                  icon="🔗" 
+                  label="API URL" 
+                  value={API_BASE_URL.replace('http://', '').replace('https://', '')}
+                  colors={colors}
+                />
+                <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+                <MenuItem 
+                  icon="🐛" 
+                  label="Test Sentry Error Reporting" 
+                  onPress={() => {
+                    captureMessage('Test from Håfa Recipes Settings!', 'info', {
+                      tags: { screen: 'settings', test: 'true' },
+                      extra: { user: user?.primaryEmailAddress?.emailAddress || 'not signed in' },
+                    });
+                    Alert.alert('Sent!', 'Test event sent to Sentry. Check your dashboard!');
+                  }}
+                  colors={colors}
+                />
+              </>
+            )}
           </RNView>
         </RNView>
 
@@ -479,7 +563,7 @@ export default function SettingsScreen() {
                   Håfa Recipes
                 </Text>
                 <Text style={[styles.aboutVersion, { color: colors.textMuted }]}>
-                  Version 2.1.2
+                  Version 2.2.0
                 </Text>
               </RNView>
             </RNView>
@@ -921,5 +1005,121 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     lineHeight: 20,
     marginTop: spacing.md,
+  },
+  // Compact card styles for combined sections
+  compactCard: {
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    overflow: 'hidden',
+  },
+  compactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+  },
+  compactLabel: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
+  compactDivider: {
+    height: 1,
+    marginVertical: spacing.xs,
+  },
+  // Segmented control styles
+  segmentedControl: {
+    flexDirection: 'row',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  segmentedOption: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    minWidth: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segmentedFirst: {
+    borderTopLeftRadius: radius.md - 1,
+    borderBottomLeftRadius: radius.md - 1,
+  },
+  segmentedLast: {
+    borderTopRightRadius: radius.md - 1,
+    borderBottomRightRadius: radius.md - 1,
+  },
+  segmentedText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+  },
+  // Picker row styles
+  pickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+  },
+  pickerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  pickerIcon: {
+    fontSize: 24,
+  },
+  pickerLabel: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
+  pickerValue: {
+    fontSize: fontSize.sm,
+  },
+  // Picker modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  pickerModal: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    maxHeight: '70%',
+  },
+  pickerModalTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.semibold,
+    marginBottom: spacing.md,
+    textAlign: 'center',
+  },
+  pickerScroll: {
+    maxHeight: 300,
+  },
+  pickerOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.md,
+  },
+  pickerOptionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flex: 1,
+  },
+  pickerOptionIcon: {
+    fontSize: 24,
+  },
+  pickerOptionLabel: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
+  pickerOptionDesc: {
+    fontSize: fontSize.xs,
   },
 });

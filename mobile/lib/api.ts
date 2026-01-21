@@ -416,6 +416,7 @@ class ApiClient {
     sourceType?: string,
     sort: 'recent' | 'random' | 'popular' = 'recent',
     extractorId?: string,
+    mealType?: string,
   ): Promise<PaginatedRecipes> {
     const { data } = await this.client.get('/api/recipes/discover', {
       params: { 
@@ -424,6 +425,17 @@ class ApiClient {
         source_type: sourceType || undefined, 
         sort,
         extractor_id: extractorId || undefined,
+        meal_type: mealType || undefined,
+      },
+    });
+    return data;
+  }
+
+  async getRandomRecipe(mealType?: string, sourceType?: string): Promise<RecipeListItem> {
+    const { data } = await this.client.get('/api/recipes/discover/random', {
+      params: { 
+        meal_type: mealType || undefined,
+        source_type: sourceType || undefined,
       },
     });
     return data;
@@ -437,6 +449,7 @@ class ApiClient {
     timeFilter?: string,
     tags?: string[],
     extractorId?: string,
+    mealType?: string,
   ): Promise<PaginatedRecipes> {
     const { data } = await this.client.get('/api/recipes/discover/search', {
       params: { 
@@ -447,6 +460,7 @@ class ApiClient {
         time_filter: timeFilter || undefined,
         tags: tags?.join(',') || undefined,
         extractor_id: extractorId || undefined,
+        meal_type: mealType || undefined,
       },
     });
     return data;
@@ -741,6 +755,22 @@ class ApiClient {
     imageBase64?: string
   ): Promise<ChatResponse> {
     const { data } = await this.client.post(`/api/recipes/${recipeId}/chat`, {
+      message,
+      history,
+      image_base64: imageBase64,
+    });
+    return data;
+  }
+
+  /**
+   * General cooking chat assistant (not recipe-specific).
+   */
+  async chatCookingAssistant(
+    message: string,
+    history: ChatMessage[] = [],
+    imageBase64?: string
+  ): Promise<ChatResponse> {
+    const { data } = await this.client.post('/api/chat/cooking', {
       message,
       history,
       image_base64: imageBase64,

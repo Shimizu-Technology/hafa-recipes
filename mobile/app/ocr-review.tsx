@@ -50,7 +50,7 @@ export default function OCRReviewScreen() {
     }
   }, [recipeParam]);
 
-  const handleSave = async () => {
+  const doSave = async () => {
     if (!recipe) return;
 
     setIsSaving(true);
@@ -83,6 +83,37 @@ export default function OCRReviewScreen() {
     } finally {
       setIsSaving(false);
     }
+  };
+  
+  const handleSave = () => {
+    if (!recipe) return;
+    
+    // Check if OCR missed important AI-enhanced data
+    const hasIngredients = recipe.components?.some(c => c.ingredients?.length > 0);
+    const hasTags = recipe.tags && recipe.tags.length > 0;
+    const hasNutrition = recipe.nutrition && (
+      recipe.nutrition.calories || recipe.nutrition.protein || 
+      recipe.nutrition.carbs || recipe.nutrition.fat
+    );
+    
+    // If missing tags or nutrition, suggest editing to add AI info
+    if (hasIngredients && (!hasTags || !hasNutrition)) {
+      const missingItems = [];
+      if (!hasTags) missingItems.push('tags');
+      if (!hasNutrition) missingItems.push('nutrition');
+      
+      Alert.alert(
+        'Add More Info?',
+        `The scan didn't capture ${missingItems.join(' or ')}. Would you like to edit and use AI to add this info?`,
+        [
+          { text: 'Save Anyway', style: 'cancel', onPress: doSave },
+          { text: 'Edit Recipe', onPress: handleEdit },
+        ]
+      );
+      return;
+    }
+    
+    doSave();
   };
 
   const handleEdit = () => {

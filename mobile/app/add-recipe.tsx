@@ -335,6 +335,38 @@ export default function AddRecipeScreen() {
       Alert.alert('Missing Title', 'Please enter a recipe title.');
       return;
     }
+    
+    // Check if user has ingredients but no AI help yet
+    const validIngredients = ingredients.filter(i => i.name.trim());
+    const hasIngredients = validIngredients.length > 0;
+    const missingTags = !tags.trim();
+    const missingNutrition = !estimatedNutrition;
+    
+    // Prompt user if they have ingredients but haven't used AI features
+    if (hasIngredients && (missingTags || missingNutrition)) {
+      const missingItems = [];
+      if (missingTags) missingItems.push('tags');
+      if (missingNutrition) missingItems.push('nutrition');
+      
+      Alert.alert(
+        'Add AI-Powered Info?',
+        `Would you like AI to suggest ${missingItems.join(' and ')} for your recipe? This helps with search and discovery.`,
+        [
+          { text: 'Skip', style: 'cancel', onPress: () => createMutation.mutate() },
+          { 
+            text: 'Add AI Info', 
+            onPress: async () => {
+              // Run AI suggestions
+              if (missingTags) await handleSuggestTags();
+              if (missingNutrition) await handleEstimateNutrition();
+              // Don't auto-save - let user review the suggestions
+            }
+          },
+        ]
+      );
+      return;
+    }
+    
     createMutation.mutate();
   };
 
@@ -507,93 +539,88 @@ export default function AddRecipeScreen() {
               <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: spacing.sm }]}>Ingredients *</Text>
               
               {ingredients.map((ing, index) => (
-                <RNView key={ing.id} style={styles.ingredientRow}>
-                  <RNView style={styles.ingredientNumber}>
-                    <Text style={[styles.ingredientNumberText, { color: colors.textMuted }]}>
-                      {index + 1}
-                    </Text>
+                <RNView 
+                  key={ing.id} 
+                  style={[styles.ingredientCard, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
+                >
+                  {/* Header row with number and delete */}
+                  <RNView style={styles.ingredientHeader}>
+                    <RNView style={[styles.ingredientBadge, { backgroundColor: colors.tint + '20' }]}>
+                      <Text style={[styles.ingredientBadgeText, { color: colors.tint }]}>{index + 1}</Text>
+                    </RNView>
+                    {ingredients.length > 1 && (
+                      <TouchableOpacity
+                        onPress={() => removeIngredient(ing.id)}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Ionicons name="trash-outline" size={18} color={colors.error} />
+                      </TouchableOpacity>
+                    )}
                   </RNView>
-                  <RNView style={styles.ingredientInputs}>
-                    {/* Name first (primary field) */}
+                  
+                  {/* Name */}
+                  <TextInput
+                    style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                    placeholder="Ingredient name"
+                    placeholderTextColor={colors.textMuted}
+                    value={ing.name}
+                    onChangeText={(v) => updateIngredient(ing.id, 'name', v)}
+                  />
+                  
+                  {/* Qty + Unit row */}
+                  <RNView style={styles.qtyUnitRow}>
                     <TextInput
-                      style={[styles.input, { color: colors.text, borderColor: colors.border }]}
-                      placeholder="Ingredient name"
+                      style={[styles.input, styles.qtyInput, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                      placeholder="½"
                       placeholderTextColor={colors.textMuted}
-                      value={ing.name}
-                      onChangeText={(v) => updateIngredient(ing.id, 'name', v)}
+                      value={ing.quantity}
+                      onChangeText={(v) => updateIngredient(ing.id, 'quantity', v)}
                     />
-                    {/* Qty and Unit row */}
-                    <RNView style={styles.ingredientSecondRow}>
+                    <RNView style={[styles.unitPickerContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
                       <TextInput
-                        style={[styles.input, styles.qtyInput, { color: colors.text, borderColor: colors.border }]}
-                        placeholder="Qty"
+                        style={[styles.unitInput, { color: colors.text }]}
+                        value={ing.unit}
+                        onChangeText={(v) => updateIngredient(ing.id, 'unit', v)}
+                        placeholder="Unit"
                         placeholderTextColor={colors.textMuted}
-                        value={ing.quantity}
-                        onChangeText={(v) => updateIngredient(ing.id, 'quantity', v)}
                       />
                       <TouchableOpacity
-                        style={[styles.unitPicker, { borderColor: colors.border }]}
+                        style={styles.unitDropdownButton}
                         onPress={() => {
                           Alert.alert(
                             'Select Unit',
-                            'Choose a unit or enter custom',
+                            '',
                             [
                               ...UNIT_OPTIONS.filter(u => u).map(unit => ({
                                 text: unit,
                                 onPress: () => updateIngredient(ing.id, 'unit', unit),
                               })),
-                              {
-                                text: 'Custom...',
-                                onPress: () => {
-                                  Alert.prompt(
-                                    'Custom Unit',
-                                    'Enter a custom unit:',
-                                    (text) => {
-                                      if (text) updateIngredient(ing.id, 'unit', text);
-                                    },
-                                    'plain-text',
-                                    ing.unit
-                                  );
-                                },
-                              },
                               { text: 'Clear', onPress: () => updateIngredient(ing.id, 'unit', ''), style: 'destructive' },
                               { text: 'Cancel', style: 'cancel' },
                             ]
                           );
                         }}
                       >
-                        <Text style={[styles.unitPickerText, { color: ing.unit ? colors.text : colors.textMuted }]}>
-                          {ing.unit || 'Unit'}
-                        </Text>
                         <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
                       </TouchableOpacity>
-                      <TextInput
-                        style={[styles.input, styles.notesInputSmall, { color: colors.text, borderColor: colors.border }]}
-                        placeholder="Notes"
-                        placeholderTextColor={colors.textMuted}
-                        value={ing.notes}
-                        onChangeText={(v) => updateIngredient(ing.id, 'notes', v)}
-                      />
                     </RNView>
                   </RNView>
-                  <TouchableOpacity
-                    onPress={() => removeIngredient(ing.id)}
-                    style={styles.removeButton}
-                    disabled={ingredients.length === 1}
-                  >
-                    <Ionicons
-                      name="close-circle"
-                      size={24}
-                      color={ingredients.length === 1 ? colors.border : colors.error}
-                    />
-                  </TouchableOpacity>
+                  
+                  {/* Notes */}
+                  <TextInput
+                    style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                    placeholder="Notes (e.g., diced, room temp)"
+                    placeholderTextColor={colors.textMuted}
+                    value={ing.notes}
+                    onChangeText={(v) => updateIngredient(ing.id, 'notes', v)}
+                  />
                 </RNView>
               ))}
               
               {/* Add button at bottom */}
               <TouchableOpacity 
                 onPress={addIngredient} 
-                style={[styles.addButtonBottom, { borderColor: colors.border }]}
+                style={[styles.addButtonBottom, { borderColor: colors.tint }]}
               >
                 <Ionicons name="add-circle-outline" size={20} color={colors.tint} />
                 <Text style={[styles.addButtonText, { color: colors.tint }]}>Add Ingredient</Text>
@@ -648,14 +675,14 @@ export default function AddRecipeScreen() {
                 <TouchableOpacity
                   onPress={handleSuggestTags}
                   disabled={isGeneratingTags || ingredients.filter(i => i.name.trim()).length === 0}
-                  style={styles.aiButton}
+                  style={[styles.aiButton, { backgroundColor: colors.tint }]}
                 >
                   {isGeneratingTags ? (
-                    <ActivityIndicator size="small" color={colors.tint} />
+                    <ActivityIndicator size="small" color="#FFFFFF" />
                   ) : (
                     <>
-                      <Ionicons name="sparkles" size={14} color={colors.tint} />
-                      <Text style={[styles.aiButtonText, { color: colors.tint }]}>Suggest</Text>
+                      <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+                      <Text style={styles.aiButtonText}>Suggest</Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -689,14 +716,14 @@ export default function AddRecipeScreen() {
                 <TouchableOpacity
                   onPress={handleEstimateNutrition}
                   disabled={isEstimatingNutrition || ingredients.filter(i => i.name.trim()).length === 0}
-                  style={styles.aiButton}
+                  style={[styles.aiButton, { backgroundColor: colors.tint }]}
                 >
                   {isEstimatingNutrition ? (
-                    <ActivityIndicator size="small" color={colors.tint} />
+                    <ActivityIndicator size="small" color="#FFFFFF" />
                   ) : (
                     <>
-                      <Ionicons name="sparkles" size={14} color={colors.tint} />
-                      <Text style={[styles.aiButtonText, { color: colors.tint }]}>Estimate</Text>
+                      <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+                      <Text style={styles.aiButtonText}>Estimate</Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -868,48 +895,52 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
   },
-  ingredientRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+  ingredientCard: {
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
     marginBottom: spacing.md,
     gap: spacing.sm,
   },
-  ingredientNumber: {
-    width: 24,
-    paddingTop: spacing.md,
-  },
-  ingredientNumberText: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
-  },
-  ingredientInputs: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  ingredientSecondRow: {
+  ingredientHeader: {
     flexDirection: 'row',
-    gap: spacing.xs,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  ingredientBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  ingredientBadgeText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+  },
+  qtyUnitRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
   qtyInput: {
-    width: 60,
+    width: 80,
   },
-  unitPicker: {
-    width: 90,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    padding: spacing.md,
+  unitPickerContainer: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingRight: spacing.xs,
   },
-  unitPickerText: {
+  unitInput: {
+    flex: 1,
+    padding: spacing.sm,
     fontSize: fontSize.md,
   },
-  notesInputSmall: {
-    flex: 1,
-  },
-  removeButton: {
-    paddingTop: spacing.md,
+  unitDropdownButton: {
+    padding: spacing.xs,
   },
   stepRow: {
     flexDirection: 'row',
@@ -938,11 +969,13 @@ const styles = StyleSheet.create({
   aiButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: spacing.xs,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
+    borderRadius: radius.full,
   },
   aiButtonText: {
+    color: '#FFFFFF',
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },

@@ -36,9 +36,26 @@ const SORT_OPTIONS = [
   { key: 'random', label: 'Random', icon: 'shuffle-outline' },
 ] as const;
 
+const OWNERSHIP_FILTERS = [
+  { key: 'all', label: 'All', icon: 'albums-outline' },
+  { key: 'own', label: 'My Recipes', icon: 'person-outline' },
+  { key: 'saved', label: 'Saved', icon: 'heart' },
+] as const;
+
+const MEAL_TYPE_FILTERS = [
+  { key: 'all', label: 'All Meals', icon: 'restaurant-outline' },
+  { key: 'breakfast', label: 'Breakfast', icon: 'sunny-outline' },
+  { key: 'lunch', label: 'Lunch', icon: 'cafe-outline' },
+  { key: 'dinner', label: 'Dinner', icon: 'moon-outline' },
+  { key: 'snack', label: 'Snack', icon: 'nutrition-outline' },
+  { key: 'dessert', label: 'Dessert', icon: 'ice-cream-outline' },
+] as const;
+
 export type SourceFilter = typeof SOURCE_FILTERS[number]['key'];
 export type TimeFilter = typeof TIME_FILTERS[number]['key'];
 export type SortOption = typeof SORT_OPTIONS[number]['key'];
+export type OwnershipFilter = typeof OWNERSHIP_FILTERS[number]['key'];
+export type MealTypeFilter = typeof MEAL_TYPE_FILTERS[number]['key'];
 
 export interface FilterState {
   sourceFilter: SourceFilter;
@@ -46,6 +63,7 @@ export interface FilterState {
   selectedTags: string[];
   sortOrder?: SortOption;
   hideMyRecipes?: boolean;
+  mealTypeFilter?: MealTypeFilter;
 }
 
 interface FilterBottomSheetProps {
@@ -54,12 +72,15 @@ interface FilterBottomSheetProps {
   onApply: (filters: FilterState) => void;
   initialFilters: FilterState;
   popularTags?: { tag: string; count: number }[];
-  showIncludeSaved?: boolean;
-  includeSaved?: boolean;
-  onIncludeSavedChange?: (value: boolean) => void;
+  // Ownership filter (My Recipes page)
+  showOwnershipFilter?: boolean;
+  ownershipFilter?: OwnershipFilter;
+  onOwnershipFilterChange?: (value: OwnershipFilter) => void;
   // Discover-specific options
   showSortOption?: boolean;
   showHideMyRecipes?: boolean;
+  // Meal type filter
+  showMealTypeFilter?: boolean;
 }
 
 export default function FilterBottomSheet({
@@ -68,11 +89,12 @@ export default function FilterBottomSheet({
   onApply,
   initialFilters,
   popularTags = [],
-  showIncludeSaved = false,
-  includeSaved = true,
-  onIncludeSavedChange,
+  showOwnershipFilter = false,
+  ownershipFilter = 'all',
+  onOwnershipFilterChange,
   showSortOption = false,
   showHideMyRecipes = false,
+  showMealTypeFilter = false,
 }: FilterBottomSheetProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -83,6 +105,7 @@ export default function FilterBottomSheet({
   const [selectedTags, setSelectedTags] = useState<string[]>(initialFilters.selectedTags);
   const [sortOrder, setSortOrder] = useState<SortOption>(initialFilters.sortOrder || 'recent');
   const [hideMyRecipes, setHideMyRecipes] = useState<boolean>(initialFilters.hideMyRecipes || false);
+  const [mealTypeFilter, setMealTypeFilter] = useState<MealTypeFilter>(initialFilters.mealTypeFilter || 'all');
   
   // Reset local state when modal opens
   useEffect(() => {
@@ -92,6 +115,7 @@ export default function FilterBottomSheet({
       setSelectedTags(initialFilters.selectedTags);
       setSortOrder(initialFilters.sortOrder || 'recent');
       setHideMyRecipes(initialFilters.hideMyRecipes || false);
+      setMealTypeFilter(initialFilters.mealTypeFilter || 'all');
     }
   }, [visible, initialFilters]);
   
@@ -102,7 +126,7 @@ export default function FilterBottomSheet({
   };
   
   const handleApply = () => {
-    onApply({ sourceFilter, timeFilter, selectedTags, sortOrder, hideMyRecipes });
+    onApply({ sourceFilter, timeFilter, selectedTags, sortOrder, hideMyRecipes, mealTypeFilter });
     onClose();
   };
   
@@ -112,13 +136,15 @@ export default function FilterBottomSheet({
     setSelectedTags([]);
     setSortOrder('recent');
     setHideMyRecipes(false);
+    setMealTypeFilter('all');
   };
   
   const activeFilterCount = 
     (sourceFilter !== 'all' ? 1 : 0) + 
     (timeFilter !== 'all' ? 1 : 0) + 
     selectedTags.length +
-    (hideMyRecipes ? 1 : 0);
+    (hideMyRecipes ? 1 : 0) +
+    (mealTypeFilter !== 'all' ? 1 : 0);
   
   return (
     <Modal
@@ -231,6 +257,46 @@ export default function FilterBottomSheet({
               </RNView>
             </RNView>
             
+            {/* Meal Type Filter */}
+            {showMealTypeFilter && (
+              <RNView style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>Meal Type</Text>
+                <RNView style={styles.chipContainer}>
+                  {MEAL_TYPE_FILTERS.map((filter) => (
+                    <TouchableOpacity
+                      key={filter.key}
+                      onPress={() => setMealTypeFilter(filter.key)}
+                      style={[
+                        styles.chip,
+                        {
+                          backgroundColor: mealTypeFilter === filter.key 
+                            ? colors.warning 
+                            : colors.backgroundSecondary,
+                          borderColor: mealTypeFilter === filter.key 
+                            ? colors.warning 
+                            : colors.border,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={filter.icon as any}
+                        size={16}
+                        color={mealTypeFilter === filter.key ? '#FFFFFF' : colors.textMuted}
+                      />
+                      <Text
+                        style={[
+                          styles.chipText,
+                          { color: mealTypeFilter === filter.key ? '#FFFFFF' : colors.text },
+                        ]}
+                      >
+                        {filter.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </RNView>
+              </RNView>
+            )}
+            
             {/* Tags Filter */}
             {popularTags.length > 0 && (
               <RNView style={styles.section}>
@@ -334,29 +400,40 @@ export default function FilterBottomSheet({
               </RNView>
             )}
             
-            {/* Include Saved Toggle (for My Recipes) */}
-            {showIncludeSaved && (
+            {/* Ownership Filter (for My Recipes) */}
+            {showOwnershipFilter && (
               <RNView style={styles.section}>
-                <TouchableOpacity
-                  style={[styles.toggleRow, { borderColor: colors.border }]}
-                  onPress={() => onIncludeSavedChange?.(!includeSaved)}
-                >
-                  <RNView style={styles.toggleLabel}>
-                    <Ionicons 
-                      name="heart" 
-                      size={20} 
-                      color={includeSaved ? colors.error : colors.textMuted} 
-                    />
-                    <Text style={[styles.toggleText, { color: colors.text }]}>
-                      Include Saved Recipes
-                    </Text>
-                  </RNView>
-                  <Ionicons 
-                    name={includeSaved ? "checkbox" : "square-outline"} 
-                    size={24} 
-                    color={includeSaved ? colors.tint : colors.textMuted} 
-                  />
-                </TouchableOpacity>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>Show</Text>
+                <RNView style={styles.chipContainer}>
+                  {OWNERSHIP_FILTERS.map((filter) => {
+                    const isSelected = ownershipFilter === filter.key;
+                    return (
+                      <TouchableOpacity
+                        key={filter.key}
+                        style={[
+                          styles.chip,
+                          { 
+                            backgroundColor: isSelected ? colors.tint : colors.backgroundSecondary,
+                            borderColor: isSelected ? colors.tint : colors.border,
+                          }
+                        ]}
+                        onPress={() => onOwnershipFilterChange?.(filter.key)}
+                      >
+                        <Ionicons 
+                          name={filter.icon as any} 
+                          size={16} 
+                          color={isSelected ? '#FFFFFF' : colors.text} 
+                        />
+                        <Text style={[
+                          styles.chipText,
+                          { color: isSelected ? '#FFFFFF' : colors.text }
+                        ]}>
+                          {filter.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </RNView>
               </RNView>
             )}
           </ScrollView>

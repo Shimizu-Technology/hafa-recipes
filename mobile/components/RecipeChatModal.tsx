@@ -48,7 +48,7 @@ try {
 
 import { View, Text, useColors } from '@/components/Themed';
 import { Recipe, ChatMessage } from '@/types/recipe';
-import { useChatWithRecipe } from '@/hooks/useChat';
+import { useChatWithRecipe, useCookingChat } from '@/hooks/useChat';
 import { useTTS } from '@/hooks/useTTS';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import Markdown from 'react-native-markdown-display';
@@ -56,15 +56,16 @@ import api from '@/lib/api';
 
 // Storage key prefix for chat history
 const CHAT_STORAGE_KEY_PREFIX = 'recipe_chat_';
+const COOKING_CHAT_STORAGE_KEY = 'cooking_assistant_chat';
 
 interface RecipeChatModalProps {
   isVisible: boolean;
   onClose: () => void;
-  recipe: Recipe;
+  recipe?: Recipe;  // Optional - if not provided, it's general cooking mode
 }
 
-// Quick suggestion chips
-const QUICK_SUGGESTIONS = [
+// Quick suggestion chips for recipe-specific chat
+const RECIPE_SUGGESTIONS = [
   "What substitutions can I make?",
   "Make this dairy-free",
   "Scale for 8 servings",
@@ -72,10 +73,23 @@ const QUICK_SUGGESTIONS = [
   "Any tips for this recipe?",
 ];
 
+// Quick suggestions for general cooking chat
+const COOKING_SUGGESTIONS = [
+  "What can I make with chicken and rice?",
+  "How long does cooked rice last?",
+  "What's a good side for salmon?",
+  "Is it safe to eat expired eggs?",
+  "Difference between baking soda and powder?",
+];
+
 export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeChatModalProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const scrollViewRef = useRef<ScrollView>(null);
+  
+  // Determine mode: recipe-specific or general cooking
+  const isGeneralMode = !recipe;
+  const quickSuggestions = isGeneralMode ? COOKING_SUGGESTIONS : RECIPE_SUGGESTIONS;
   
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -86,7 +100,11 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const [attachedImage, setAttachedImage] = useState<string | null>(null);  // Base64 image
   const [attachedImageUri, setAttachedImageUri] = useState<string | null>(null);  // For preview
   
-  const chatMutation = useChatWithRecipe();
+  // Use appropriate mutation hook based on mode
+  const recipeChatMutation = useChatWithRecipe();
+  const cookingChatMutation = useCookingChat();
+  const chatMutation = isGeneralMode ? cookingChatMutation : recipeChatMutation;
+  
   const { speak, stop, isPlaying, isLoading: ttsLoading } = useTTS();
   
   // Speech recognition event handlers
@@ -154,7 +172,10 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     }
   };
   
-  const storageKey = `${CHAT_STORAGE_KEY_PREFIX}${recipe.id}`;
+  // Storage key differs based on mode
+  const storageKey = isGeneralMode 
+    ? COOKING_CHAT_STORAGE_KEY 
+    : `${CHAT_STORAGE_KEY_PREFIX}${recipe?.id}`;
 
   // Load chat history from AsyncStorage when modal opens
   useEffect(() => {
@@ -162,7 +183,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
       loadChatHistory();
       setInputText('');
     }
-  }, [isVisible, recipe.id]);
+  }, [isVisible, recipe?.id, isGeneralMode]);
 
   const loadChatHistory = useCallback(async () => {
     setIsLoadingHistory(true);
@@ -337,12 +358,23 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         image_url: m.image_url?.startsWith('https://') ? m.image_url : undefined,
       }));
       
-      const response = await chatMutation.mutateAsync({
-        recipeId: recipe.id,
-        message: messageText || 'What do you see in this image? How does it relate to this recipe?',
-        history: historyForApi,
-        imageBase64: imageToSend || undefined,
-      });
+      // Call the appropriate mutation based on mode
+      const defaultImageMessage = isGeneralMode 
+        ? 'What do you see in this image?' 
+        : 'What do you see in this image? How does it relate to this recipe?';
+      
+      const response = isGeneralMode
+        ? await cookingChatMutation.mutateAsync({
+            message: messageText || defaultImageMessage,
+            history: historyForApi,
+            imageBase64: imageToSend || undefined,
+          })
+        : await recipeChatMutation.mutateAsync({
+            recipeId: recipe!.id,
+            message: messageText || defaultImageMessage,
+            history: historyForApi,
+            imageBase64: imageToSend || undefined,
+          });
 
       // Add assistant response
       const assistantMessage: ChatMessage = { role: 'assistant', content: response.response };
@@ -428,14 +460,21 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         {/* Header */}
         <RNView style={[styles.header, { borderBottomColor: colors.border }]}>
           <RNView style={styles.headerContent}>
-            <Ionicons name="chatbubbles" size={24} color={colors.tint} />
+            <Ionicons name={isGeneralMode ? "restaurant" : "chatbubbles"} size={24} color={colors.tint} />
             <RNView style={styles.headerTextContainer}>
               <Text style={[styles.headerTitle, { color: colors.text }]}>
-                Recipe Assistant
+                {isGeneralMode ? "Cooking Assistant" : "Recipe Assistant"}
               </Text>
-              <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
-                {recipe.extracted.title}
-              </Text>
+              {!isGeneralMode && recipe && (
+                <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
+                  {recipe.extracted.title}
+                </Text>
+              )}
+              {isGeneralMode && (
+                <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
+                  Ask me anything about cooking!
+                </Text>
+              )}
             </RNView>
           </RNView>
           <RNView style={styles.headerButtons}>
@@ -472,10 +511,14 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
             <RNView style={styles.welcomeContainer}>
               <Ionicons name="sparkles" size={48} color={colors.tint} />
               <Text style={[styles.welcomeTitle, { color: colors.text }]}>
-                Ask me anything about this recipe!
+                {isGeneralMode 
+                  ? "Your personal cooking assistant!" 
+                  : "Ask me anything about this recipe!"}
               </Text>
               <Text style={[styles.welcomeSubtitle, { color: colors.textSecondary }]}>
-                I can help with substitutions, scaling, cooking tips, dietary modifications, and more.
+                {isGeneralMode
+                  ? "I can help with recipe ideas, cooking tips, food safety, ingredient substitutions, and more."
+                  : "I can help with substitutions, scaling, cooking tips, dietary modifications, and more."}
               </Text>
             </RNView>
           )}
@@ -487,7 +530,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                 Try asking:
               </Text>
               <RNView style={styles.suggestionsWrap}>
-                {QUICK_SUGGESTIONS.map((suggestion, index) => (
+                {quickSuggestions.map((suggestion, index) => (
                   <TouchableOpacity
                     key={index}
                     style={[styles.suggestionChip, { backgroundColor: colors.card, borderColor: colors.border }]}
@@ -553,15 +596,17 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                 ) : (
                   <Markdown
                     style={{
-                      body: { color: colors.text, fontSize: fontSize.md, lineHeight: 24 },
-                      paragraph: { marginVertical: 4 },
+                      body: { color: colors.text, fontSize: fontSize.md, lineHeight: 24, flexShrink: 1 },
+                      paragraph: { marginVertical: 4, flexShrink: 1 },
                       strong: { fontWeight: '700', color: colors.text },
                       em: { fontStyle: 'italic' },
                       bullet_list: { marginVertical: 4 },
                       ordered_list: { marginVertical: 4 },
-                      list_item: { marginVertical: 2 },
+                      list_item: { marginVertical: 2, flexShrink: 1, flexWrap: 'wrap' },
                       bullet_list_icon: { color: colors.tint, fontSize: 8, marginRight: 8 },
-                      ordered_list_icon: { color: colors.tint, fontWeight: '600' },
+                      ordered_list_icon: { color: colors.tint, fontWeight: '600', marginRight: 8 },
+                      bullet_list_content: { flexShrink: 1 },
+                      ordered_list_content: { flexShrink: 1 },
                       heading1: { fontSize: fontSize.xl, fontWeight: '700', color: colors.text, marginVertical: 8 },
                       heading2: { fontSize: fontSize.lg, fontWeight: '600', color: colors.text, marginVertical: 6 },
                       heading3: { fontSize: fontSize.md, fontWeight: '600', color: colors.text, marginVertical: 4 },
@@ -703,7 +748,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           <TextInput
             value={inputText}
             onChangeText={setInputText}
-            placeholder={attachedImage ? 'Add a message (optional)...' : (isListening ? 'Listening...' : 'Ask about this recipe...')}
+            placeholder={attachedImage ? 'Add a message (optional)...' : (isListening ? 'Listening...' : (isGeneralMode ? 'Ask anything about cooking...' : 'Ask about this recipe...'))}
             placeholderTextColor={isListening ? colors.error : colors.textMuted}
             multiline
             maxLength={500}

@@ -254,6 +254,27 @@ export default function ExtractScreen() {
       return;
     }
 
+    // Check if extraction is already in progress
+    if (extraction.isExtracting) {
+      Alert.alert(
+        'Extraction in Progress',
+        'An extraction is already running. What would you like to do?',
+        [
+          { text: 'Keep Current', style: 'cancel' },
+          { 
+            text: 'Start New', 
+            style: 'destructive',
+            onPress: async () => {
+              await extraction.cancel();
+              // Small delay to ensure state is reset
+              setTimeout(() => handleExtract(), 100);
+            }
+          },
+        ]
+      );
+      return;
+    }
+
     // Validate URL format
     const urlLower = url.toLowerCase();
     if (!urlLower.includes('tiktok.com') && 
@@ -455,7 +476,9 @@ export default function ExtractScreen() {
   }
 
   // Show progress UI when extracting
-  if (extraction.isExtracting || extraction.isFailed) {
+  // Only show failed state if there's an actual error message (prevents brief flash)
+  const showExtractionUI = extraction.isExtracting || (extraction.isFailed && extraction.error);
+  if (showExtractionUI) {
     return (
       <RNView style={[styles.container, { backgroundColor: colors.background }]}>
         <ScrollView 

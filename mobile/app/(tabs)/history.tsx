@@ -11,6 +11,7 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
   Dimensions,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -20,8 +21,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Input, Chip, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
-import FilterBottomSheet, { FilterState, SourceFilter, TimeFilter } from '@/components/FilterBottomSheet';
+import FilterBottomSheet, { FilterState, SourceFilter, TimeFilter, OwnershipFilter } from '@/components/FilterBottomSheet';
 import CreateCollectionModal from '@/components/CreateCollectionModal';
+import BulkAddToCollectionModal from '@/components/BulkAddToCollectionModal';
 import { SkeletonRecipeList, SkeletonCollectionList } from '@/components/Skeleton';
 import { AnimatedListItem, ScalePressable } from '@/components/Animated';
 import { 
@@ -309,6 +311,11 @@ export default function HistoryScreen() {
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showCreateCollectionModal, setShowCreateCollectionModal] = useState(false);
   
+  // Selection mode for bulk operations
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedRecipeIds, setSelectedRecipeIds] = useState<Set<string>>(new Set());
+  const [showBulkAddModal, setShowBulkAddModal] = useState(false);
+  
   // View preference (grid or list)
   const { viewMode, toggleViewMode, isGrid } = useViewPreference();
   
@@ -316,7 +323,7 @@ export default function HistoryScreen() {
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [includeSaved, setIncludeSaved] = useState(true); // Toggle for including saved recipes
+  const [ownershipFilter, setOwnershipFilter] = useState<OwnershipFilter>('all'); // all, own, or saved only
   
   // Collections
   const { data: collections, isLoading: isLoadingCollections } = useCollections(!!isSignedIn);
@@ -330,7 +337,11 @@ export default function HistoryScreen() {
     (sourceFilter !== 'all' ? 1 : 0) + 
     (timeFilter !== 'all' ? 1 : 0) + 
     selectedTags.length +
-    (!includeSaved ? 1 : 0); // Count "exclude saved" as a filter
+    (ownershipFilter !== 'all' ? 1 : 0); // Count ownership filter if not "all"
+  
+  // Derived booleans for ownership filter
+  const showSavedRecipes = ownershipFilter === 'all' || ownershipFilter === 'saved';
+  const showOwnRecipes = ownershipFilter === 'all' || ownershipFilter === 'own';
   
   // Check if search or filters are active
   const hasActiveFilters = searchQuery.length > 0 || sourceFilter !== 'all' || timeFilter !== 'all' || selectedTags.length > 0;
@@ -379,13 +390,13 @@ export default function HistoryScreen() {
     hasNextPage: hasMoreSaved,
   } = useSavedRecipes(isAuthenticated);
 
-  const isLoading = isLoadingRecipes || (includeSaved && isLoadingSaved);
-  const isRefetching = isRefetchingRecipes || (includeSaved && isRefetchingSaved);
+  const isLoading = (showOwnRecipes && isLoadingRecipes) || (showSavedRecipes && isLoadingSaved);
+  const isRefetching = (showOwnRecipes && isRefetchingRecipes) || (showSavedRecipes && isRefetchingSaved);
   
   const handleRefreshAll = useCallback(() => {
-    refetchRecipes();
-    if (includeSaved) refetchSaved();
-  }, [refetchRecipes, refetchSaved, includeSaved]);
+    if (showOwnRecipes) refetchRecipes();
+    if (showSavedRecipes) refetchSaved();
+  }, [refetchRecipes, refetchSaved, showOwnRecipes, showSavedRecipes]);
 
   // Refetch when tab gains focus (handles cache cleared on user change)
   useFocusEffect(
@@ -412,7 +423,7 @@ export default function HistoryScreen() {
     tags: selectedTags.length > 0 ? selectedTags : undefined,
   }), [searchQuery, sourceTypeParam, timeFilterParam, selectedTags]);
 
-  // Combine own recipes with saved recipes when toggle is on
+  // Combine own recipes with saved recipes based on ownership filter
   const combinedRecipes = useMemo(() => {
     // Optimistic filtering: filter locally while server request is in flight
     // Use server search results if available, otherwise filter locally
@@ -425,13 +436,23 @@ export default function HistoryScreen() {
       ownRecipes = recipes;
     }
     
+    // Handle "saved only" mode - only show saved recipes
+    if (ownershipFilter === 'saved') {
+      if (!savedRecipes) return undefined;
+      const filteredSaved = hasActiveFilters
+        ? filterRecipesLocally(savedRecipes, currentFilters)
+        : (sourceTypeParam ? savedRecipes.filter(r => r.source_type === sourceTypeParam) : savedRecipes);
+      return filteredSaved;
+    }
+    
     if (!ownRecipes) return undefined;
     
-    if (!includeSaved || !savedRecipes) {
+    // Handle "own only" mode - only show own recipes
+    if (ownershipFilter === 'own' || !savedRecipes) {
       return ownRecipes;
     }
     
-    // Combine and dedupe (in case a saved recipe somehow appears in both)
+    // "all" mode - combine own and saved
     const ownIds = new Set(ownRecipes.map(r => r.id));
     const uniqueSaved = savedRecipes.filter(r => !ownIds.has(r.id));
     
@@ -442,16 +463,35 @@ export default function HistoryScreen() {
     
     // Combine: own recipes first, then saved
     return [...ownRecipes, ...filteredSaved];
-  }, [recipes, searchResults, savedRecipes, includeSaved, hasActiveFilters, sourceTypeParam, currentFilters]);
+  }, [recipes, searchResults, savedRecipes, ownershipFilter, hasActiveFilters, sourceTypeParam, currentFilters]);
 
-  const totalCount = recipesTotal + (includeSaved && savedRecipes ? savedRecipes.length : 0);
+  // Calculate total count based on ownership filter
+  const totalCount = useMemo(() => {
+    if (ownershipFilter === 'saved') {
+      return savedRecipes?.length ?? 0;
+    } else if (ownershipFilter === 'own') {
+      return recipesTotal;
+    } else {
+      return recipesTotal + (savedRecipes?.length ?? 0);
+    }
+  }, [ownershipFilter, recipesTotal, savedRecipes]);
 
   // For display, slice to current page
   const displayRecipes = combinedRecipes?.slice(0, displayCount);
   
   // Determine if there's more to load - either from server or locally
   const hasMoreLocal = combinedRecipes && displayCount < combinedRecipes.length;
-  const hasMoreServer = hasActiveFilters ? hasMoreSearchResults : hasMoreRecipes;
+  // hasMoreServer depends on ownership filter
+  const hasMoreServer = useMemo(() => {
+    if (ownershipFilter === 'saved') {
+      return hasMoreSaved; // Only check saved when in "Saved Only" mode
+    } else if (ownershipFilter === 'own') {
+      return hasActiveFilters ? hasMoreSearchResults : hasMoreRecipes; // Only check own recipes
+    } else {
+      // "all" mode - check both
+      return (hasActiveFilters ? hasMoreSearchResults : hasMoreRecipes) || hasMoreSaved;
+    }
+  }, [ownershipFilter, hasMoreSaved, hasMoreRecipes, hasMoreSearchResults, hasActiveFilters]);
   const hasMore = hasMoreLocal || hasMoreServer;
 
   const handleRefresh = useCallback(() => {
@@ -470,7 +510,7 @@ export default function HistoryScreen() {
       } else if (hasMoreRecipes) {
         fetchNextRecipes();
       }
-      if (includeSaved && hasMoreSaved) {
+      if (showSavedRecipes && hasMoreSaved) {
         fetchNextSaved();
       }
       // Increase display count after fetch
@@ -478,62 +518,240 @@ export default function HistoryScreen() {
     }
   };
 
+  // Selection mode helpers
+  const toggleRecipeSelection = useCallback((recipeId: string) => {
+    setSelectedRecipeIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(recipeId)) {
+        newSet.delete(recipeId);
+      } else {
+        newSet.add(recipeId);
+      }
+      return newSet;
+    });
+    haptics.light();
+  }, []);
+
+  const selectAllRecipes = useCallback(() => {
+    if (displayRecipes) {
+      setSelectedRecipeIds(new Set(displayRecipes.map(r => r.id)));
+      haptics.medium();
+    }
+  }, [displayRecipes]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedRecipeIds(new Set());
+  }, []);
+
+  const exitSelectionMode = useCallback(() => {
+    setIsSelectionMode(false);
+    setSelectedRecipeIds(new Set());
+  }, []);
+
+  const enterSelectionMode = useCallback((initialRecipeId?: string) => {
+    setIsSelectionMode(true);
+    if (initialRecipeId) {
+      setSelectedRecipeIds(new Set([initialRecipeId]));
+    }
+    haptics.medium();
+  }, []);
+
+  const handleBulkAddComplete = useCallback(() => {
+    setShowBulkAddModal(false);
+    exitSelectionMode();
+    haptics.success();
+  }, [exitSelectionMode]);
+
   const renderItem = ({ item, index }: { item: RecipeListItem; index: number }) => {
     const CardComponent = isGrid ? GridRecipeCard : RecipeCard;
+    // Show heart badge for saved recipes:
+    // - In "saved" mode: ALL recipes are saved, show heart on all
+    // - In "all" mode: Show heart only for recipes from other users (saved ones)
+    // - In "own" mode: Never show heart (all are user's own)
+    const showSavedBadge = ownershipFilter === 'saved' || 
+      (ownershipFilter === 'all' && item.user_id !== userId);
+    
+    const isSelected = selectedRecipeIds.has(item.id);
+    
+    const handlePress = () => {
+      if (isSelectionMode) {
+        toggleRecipeSelection(item.id);
+      } else {
+        haptics.light();
+        router.push(`/recipe/${item.id}`);
+      }
+    };
+    
+    const handleLongPress = () => {
+      if (!isSelectionMode) {
+        enterSelectionMode(item.id);
+      }
+    };
+    
+    // Grid view: overlay checkbox on card
+    if (isGrid) {
+      return (
+        <AnimatedListItem index={index} delay={40}>
+          <TouchableOpacity
+            onPress={handlePress}
+            onLongPress={handleLongPress}
+            delayLongPress={400}
+            activeOpacity={0.9}
+            style={styles.gridCardWrapper}
+          >
+            <CardComponent
+              recipe={item}
+              colors={colors}
+              onPress={handlePress}
+              isSavedRecipe={showSavedBadge}
+            />
+            {isSelectionMode && (
+              <RNView 
+                style={[
+                  styles.gridSelectionCheckbox,
+                  isSelected && { backgroundColor: colors.tint, borderColor: colors.tint },
+                  !isSelected && { backgroundColor: 'rgba(0,0,0,0.5)', borderColor: 'rgba(255,255,255,0.5)' },
+                ]}
+              >
+                {isSelected && (
+                  <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                )}
+              </RNView>
+            )}
+          </TouchableOpacity>
+        </AnimatedListItem>
+      );
+    }
+    
+    // List view: checkbox beside card
     return (
       <AnimatedListItem index={index} delay={40}>
-        <CardComponent
-          recipe={item}
-          colors={colors}
-          onPress={() => {
-            haptics.light();
-            router.push(`/recipe/${item.id}`);
-          }}
-          isSavedRecipe={item.user_id !== userId}
-        />
+        <RNView style={styles.selectableCardContainer}>
+          {isSelectionMode && (
+            <TouchableOpacity
+              style={[
+                styles.selectionCheckbox,
+                isSelected && { backgroundColor: colors.tint, borderColor: colors.tint },
+                !isSelected && { backgroundColor: colors.backgroundSecondary, borderColor: colors.border },
+              ]}
+              onPress={() => toggleRecipeSelection(item.id)}
+              activeOpacity={0.7}
+            >
+              {isSelected && (
+                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+              )}
+            </TouchableOpacity>
+          )}
+          <RNView style={[styles.selectableCardWrapper, isSelectionMode && styles.selectableCardShifted]}>
+            <TouchableOpacity
+              onPress={handlePress}
+              onLongPress={handleLongPress}
+              delayLongPress={400}
+              activeOpacity={0.9}
+            >
+              <CardComponent
+                recipe={item}
+                colors={colors}
+                onPress={handlePress}
+                isSavedRecipe={showSavedBadge}
+              />
+            </TouchableOpacity>
+          </RNView>
+        </RNView>
       </AnimatedListItem>
     );
   };
 
-  // Memoize header to prevent re-render on search change
-  const ListHeaderTitle = useCallback(() => (
-    <RNView style={styles.titleRow}>
-      <RNView style={styles.titleLeft}>
-      <Text style={[styles.headerTitle, { color: colors.text }]}>
-        My Recipes
-      </Text>
-      {totalCount !== undefined && (
-        <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
-          <Text style={styles.countText}>
-            {hasActiveFilters && combinedRecipes 
-              ? `${combinedRecipes.length} of ${totalCount}`
-              : totalCount}
-          </Text>
-        </RNView>
-      )}
-      {isRefetching && (
-        <ActivityIndicator size="small" color={colors.tint} style={{ marginLeft: spacing.sm }} />
-      )}
-    </RNView>
-      
-      <RNView style={styles.headerActions}>
-        {/* View toggle button */}
-        <TouchableOpacity
-          style={[styles.viewToggleButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
-          onPress={() => {
+  // Header overflow menu handler
+  const handleShowHeaderMenu = useCallback(() => {
+    haptics.light();
+    Alert.alert(
+      'Options',
+      undefined,
+      [
+        {
+          text: isGrid ? 'Switch to List View' : 'Switch to Grid View',
+          onPress: () => {
             haptics.light();
             toggleViewMode();
-          }}
-          activeOpacity={0.7}
-        >
-          <Ionicons 
-            name={isGrid ? 'list-outline' : 'grid-outline'} 
-            size={18} 
-            color={colors.tint} 
-          />
-        </TouchableOpacity>
+          },
+        },
+        {
+          text: 'Select Recipes',
+          onPress: () => enterSelectionMode(),
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ]
+    );
+  }, [isGrid, toggleViewMode, enterSelectionMode]);
+
+  // Memoize header to prevent re-render on search change
+  const ListHeaderTitle = useCallback(() => {
+    // Selection mode header
+    if (isSelectionMode) {
+      return (
+        <RNView style={styles.titleRow}>
+          <RNView style={styles.titleLeft}>
+            <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelButton}>
+              <Text style={[styles.cancelButtonText, { color: colors.tint }]}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={[styles.selectionCount, { color: colors.text }]}>
+              {selectedRecipeIds.size} selected
+            </Text>
+          </RNView>
+          
+          <RNView style={styles.headerActions}>
+            <TouchableOpacity
+              style={[styles.selectAllButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
+              onPress={selectedRecipeIds.size === displayRecipes?.length ? clearSelection : selectAllRecipes}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.selectAllText, { color: colors.tint }]}>
+                {selectedRecipeIds.size === displayRecipes?.length ? 'Deselect All' : 'Select All'}
+              </Text>
+            </TouchableOpacity>
+          </RNView>
+        </RNView>
+      );
+    }
+    
+    // Normal header - clean two-row design
+    return (
+      <RNView>
+        {/* Title row */}
+        <RNView style={styles.titleRow}>
+          <RNView style={styles.titleLeft}>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>
+              My Recipes
+            </Text>
+            {totalCount !== undefined && (
+              <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
+                <Text style={styles.countText}>
+                  {hasActiveFilters && combinedRecipes 
+                    ? `${combinedRecipes.length} of ${totalCount}`
+                    : totalCount}
+                </Text>
+              </RNView>
+            )}
+            {isRefetching && (
+              <ActivityIndicator size="small" color={colors.tint} style={{ marginLeft: spacing.sm }} />
+            )}
+          </RNView>
+          
+          {/* Overflow menu */}
+          <TouchableOpacity
+            style={[styles.headerMenuButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
+            onPress={handleShowHeaderMenu}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="ellipsis-horizontal" size={18} color={colors.tint} />
+          </TouchableOpacity>
+        </RNView>
         
-        {/* Ingredient search button */}
+        {/* Subtitle row with "What can I make?" */}
         <TouchableOpacity
           style={[styles.ingredientSearchButton, { backgroundColor: colors.tint + '15' }]}
           onPress={() => {
@@ -548,8 +766,8 @@ export default function HistoryScreen() {
           </Text>
         </TouchableOpacity>
       </RNView>
-    </RNView>
-  ), [colors.text, colors.tint, totalCount, isRefetching, router, hasActiveFilters, combinedRecipes, isGrid, toggleViewMode]);
+    );
+  }, [colors, totalCount, isRefetching, router, hasActiveFilters, combinedRecipes, isSelectionMode, selectedRecipeIds.size, displayRecipes?.length, exitSelectionMode, selectAllRecipes, clearSelection, handleShowHeaderMenu]);
 
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
@@ -578,10 +796,6 @@ export default function HistoryScreen() {
   const ListFooter = () => {
     if (!hasMore) return null;
     
-    const remaining = hasMoreLocal && combinedRecipes 
-      ? combinedRecipes.length - displayCount 
-      : (hasMoreServer ? '...' : 0);
-    
     return (
       <RNView style={styles.footerContainer}>
         <TouchableOpacity 
@@ -595,7 +809,7 @@ export default function HistoryScreen() {
           ) : (
             <>
               <Text style={[styles.loadMoreText, { color: colors.text }]}>
-                Load More {typeof remaining === 'number' && remaining > 0 ? `(${remaining} remaining)` : ''}
+                Load More
               </Text>
               <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
             </>
@@ -615,15 +829,23 @@ export default function HistoryScreen() {
         onApply={handleApplyFilters}
         initialFilters={{ sourceFilter, timeFilter, selectedTags }}
         popularTags={popularTags}
-        showIncludeSaved
-        includeSaved={includeSaved}
-        onIncludeSavedChange={setIncludeSaved}
+        showOwnershipFilter
+        ownershipFilter={ownershipFilter}
+        onOwnershipFilterChange={setOwnershipFilter}
       />
       
       {/* Create Collection Modal */}
       <CreateCollectionModal
         visible={showCreateCollectionModal}
         onClose={() => setShowCreateCollectionModal(false)}
+      />
+      
+      {/* Bulk Add to Collection Modal */}
+      <BulkAddToCollectionModal
+        visible={showBulkAddModal}
+        onClose={() => setShowBulkAddModal(false)}
+        recipeIds={Array.from(selectedRecipeIds)}
+        onComplete={handleBulkAddComplete}
       />
       
       {/* Fixed header with search - outside FlatList to prevent focus loss */}
@@ -665,7 +887,7 @@ export default function HistoryScreen() {
         </RNView>
         
         {/* Active filters summary */}
-        {(activeFilterCount > 0 || !includeSaved) && (
+        {activeFilterCount > 0 && (
           <RNView style={styles.activeFiltersRow}>
             {sourceFilter !== 'all' && (
               <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
@@ -688,10 +910,17 @@ export default function HistoryScreen() {
                 </Text>
               </RNView>
             )}
-            {!includeSaved && (
+            {ownershipFilter === 'own' && (
+              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
+                <Text style={[styles.activeFilterText, { color: colors.tint }]}>
+                  My Recipes
+                </Text>
+              </RNView>
+            )}
+            {ownershipFilter === 'saved' && (
               <RNView style={[styles.activeFilterChip, { backgroundColor: colors.error + '20' }]}>
                 <Text style={[styles.activeFilterText, { color: colors.error }]}>
-                  Own only
+                  Saved Only
                 </Text>
               </RNView>
             )}
@@ -700,7 +929,7 @@ export default function HistoryScreen() {
                 setSourceFilter('all');
                 setTimeFilter('all');
                 setSelectedTags([]);
-                setIncludeSaved(true);
+                setOwnershipFilter('all');
               }}
             >
               <Text style={[styles.clearFiltersText, { color: colors.textMuted }]}>
@@ -720,8 +949,23 @@ export default function HistoryScreen() {
           </RNView>
         )}
         
-        {/* Collections row */}
-        {collections && collections.length > 0 && (
+        {/* Collections row - show skeleton while loading, or real content */}
+        {isLoadingCollections ? (
+          <RNView style={styles.collectionsSection}>
+            <RNView style={styles.collectionsSectionHeader}>
+              <Text style={[styles.collectionsSectionTitle, { color: colors.text }]}>
+                📁 Collections
+              </Text>
+            </RNView>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.collectionsRow}
+            >
+              <SkeletonCollectionList count={3} />
+            </ScrollView>
+          </RNView>
+        ) : collections && collections.length > 0 ? (
           <RNView style={styles.collectionsSection}>
             <RNView style={styles.collectionsSectionHeader}>
               <Text style={[styles.collectionsSectionTitle, { color: colors.text }]}>
@@ -753,7 +997,7 @@ export default function HistoryScreen() {
               />
             </ScrollView>
           </RNView>
-        )}
+        ) : null}
         
         {/* Show "Create first collection" prompt if no collections */}
         {collections && collections.length === 0 && !isLoadingCollections && (
@@ -796,23 +1040,32 @@ export default function HistoryScreen() {
         />
       )}
       
-      {/* Floating Action Button - Add Recipe (only for signed-in users) */}
-      {isSignedIn && (
-        <ScalePressable
-          style={[styles.fab, { backgroundColor: colors.tint }]}
-          onPress={() => {
-            haptics.medium();
-            // Navigate to Extract tab (index 0) - the central place for adding recipes
-            router.push('/(tabs)');
-          }}
-          scaleValue={0.9}
-        >
-          <Ionicons name="add" size={28} color="#FFFFFF" />
-        </ScalePressable>
-      )}
-      
       {/* Sign In Banner for guests */}
       {!isSignedIn && <SignInBanner message="Sign in to save your recipes" />}
+      
+      {/* Selection Action Bar */}
+      {isSelectionMode && (
+        <RNView style={[styles.selectionActionBar, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
+          <RNView style={styles.selectionActionContent}>
+            <Text style={[styles.selectionActionText, { color: colors.textSecondary }]}>
+              {selectedRecipeIds.size} recipe{selectedRecipeIds.size !== 1 ? 's' : ''} selected
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.addToCollectionButton,
+                { backgroundColor: colors.tint },
+                selectedRecipeIds.size === 0 && { opacity: 0.5 },
+              ]}
+              onPress={() => setShowBulkAddModal(true)}
+              disabled={selectedRecipeIds.size === 0}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="folder-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.addToCollectionButtonText}>Add to Collection</Text>
+            </TouchableOpacity>
+          </RNView>
+        </RNView>
+      )}
     </View>
     </TouchableWithoutFeedback>
   );
@@ -844,13 +1097,16 @@ const styles = StyleSheet.create({
   ingredientSearchButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-    gap: 4,
+    justifyContent: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.lg,
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
   },
   ingredientSearchText: {
-    fontSize: fontSize.xs,
+    fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },
   headerTitle: {
@@ -1182,21 +1438,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
   },
-  fab: {
-    position: 'absolute',
-    right: spacing.lg,
-    bottom: 16,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-  },
   // Collections styles
   collectionsSection: {
     marginTop: spacing.md,
@@ -1293,5 +1534,103 @@ const styles = StyleSheet.create({
   createFirstCollectionText: {
     flex: 1,
     fontSize: fontSize.sm,
+  },
+  // Header menu button
+  headerMenuButton: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Grid card wrapper for selection overlay
+  gridCardWrapper: {
+    position: 'relative',
+  },
+  gridSelectionCheckbox: {
+    position: 'absolute',
+    top: spacing.sm,
+    left: spacing.sm,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  // Selection mode styles
+  cancelButton: {
+    marginRight: spacing.sm,
+  },
+  cancelButtonText: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
+  selectionCount: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.semibold,
+  },
+  selectAllButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    borderWidth: 1,
+  },
+  selectAllText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+  },
+  selectableCardContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  selectionCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  selectableCardWrapper: {
+    flex: 1,
+  },
+  selectableCardShifted: {
+    // Card shrinks slightly when checkbox is visible
+  },
+  selectionActionBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderTopWidth: 1,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    paddingBottom: spacing.xl,
+  },
+  selectionActionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  selectionActionText: {
+    fontSize: fontSize.sm,
+  },
+  addToCollectionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+    gap: spacing.xs,
+  },
+  addToCollectionButtonText: {
+    color: '#FFFFFF',
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
   },
 });

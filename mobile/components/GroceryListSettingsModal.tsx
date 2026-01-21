@@ -62,8 +62,9 @@ export default function GroceryListSettingsModal({
       haptics.light();
       const invite = await createInviteMutation.mutateAsync();
       
+      // Keep it simple - make the code prominent and easy to copy
       await Share.share({
-        message: `Join my grocery list on Håfa Recipes!\n\nOpen this link to shop together:\n${invite.deep_link}\n\nOr enter this code in the app: ${invite.invite_code}`,
+        message: `Join my grocery list on Håfa Recipes!\n\nYour invite code:\n\n${invite.invite_code}\n\nOpen the app → Grocery → Settings → "Join a List" → Enter the code above`,
       });
     } catch (error) {
       console.error('Error creating invite:', error);

@@ -267,6 +267,38 @@ export default function EditRecipeScreen() {
       Alert.alert('Missing Title', 'Please enter a recipe title.');
       return;
     }
+    
+    // Check if user has ingredients but no AI help yet
+    const validIngredients = ingredients.filter(i => i.name.trim());
+    const hasIngredients = validIngredients.length > 0;
+    const missingTags = !tags.trim();
+    const missingNutrition = !estimatedNutrition;
+    
+    // Prompt user if they have ingredients but haven't used AI features
+    if (hasIngredients && (missingTags || missingNutrition)) {
+      const missingItems = [];
+      if (missingTags) missingItems.push('tags');
+      if (missingNutrition) missingItems.push('nutrition');
+      
+      Alert.alert(
+        'Add AI-Powered Info?',
+        `Would you like AI to suggest ${missingItems.join(' and ')} for your recipe? This helps with search and discovery.`,
+        [
+          { text: 'Skip', style: 'cancel', onPress: () => editMutation.mutate() },
+          { 
+            text: 'Add AI Info', 
+            onPress: async () => {
+              // Run AI suggestions
+              if (missingTags) await handleSuggestTags();
+              if (missingNutrition) await handleEstimateNutrition();
+              // Don't auto-save - let user review the suggestions
+            }
+          },
+        ]
+      );
+      return;
+    }
+    
     editMutation.mutate();
   };
 
@@ -561,64 +593,80 @@ export default function EditRecipeScreen() {
               </RNView>
               
               {ingredients.map((ingredient, index) => (
-                <RNView key={ingredient.id} style={[styles.ingredientRow, { borderColor: colors.border }]}>
-                  <RNView style={styles.ingredientInputs}>
-                    {/* Name - First */}
+                <RNView 
+                  key={ingredient.id} 
+                  style={[styles.ingredientCard, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
+                >
+                  {/* Header row with number and delete */}
+                  <RNView style={styles.ingredientHeader}>
+                    <RNView style={[styles.ingredientBadge, { backgroundColor: colors.tint + '20' }]}>
+                      <Text style={[styles.ingredientBadgeText, { color: colors.tint }]}>{index + 1}</Text>
+                    </RNView>
+                    {ingredients.length > 1 && (
+                      <TouchableOpacity
+                        onPress={() => removeIngredient(ingredient.id)}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Ionicons name="trash-outline" size={18} color={colors.error} />
+                      </TouchableOpacity>
+                    )}
+                  </RNView>
+                  
+                  {/* Name */}
+                  <TextInput
+                    style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                    value={ingredient.name}
+                    onChangeText={(v) => updateIngredient(ingredient.id, 'name', v)}
+                    placeholder="Ingredient name"
+                    placeholderTextColor={colors.textMuted}
+                  />
+                  
+                  {/* Qty + Unit row */}
+                  <RNView style={styles.qtyUnitRow}>
                     <TextInput
-                      style={[styles.input, styles.ingredientName, { backgroundColor: colors.backgroundSecondary, color: colors.text, borderColor: colors.border }]}
-                      value={ingredient.name}
-                      onChangeText={(v) => updateIngredient(ingredient.id, 'name', v)}
-                      placeholder="Ingredient name"
+                      style={[styles.input, styles.ingredientQty, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                      value={ingredient.quantity}
+                      onChangeText={(v) => updateIngredient(ingredient.id, 'quantity', v)}
+                      placeholder="½"
                       placeholderTextColor={colors.textMuted}
                     />
-                    <RNView style={styles.qtyUnitRow}>
-                      {/* Quantity */}
+                    <RNView style={[styles.unitPickerContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
                       <TextInput
-                        style={[styles.input, styles.ingredientQty, { backgroundColor: colors.backgroundSecondary, color: colors.text, borderColor: colors.border }]}
-                        value={ingredient.quantity}
-                        onChangeText={(v) => updateIngredient(ingredient.id, 'quantity', v)}
-                        placeholder="Qty"
+                        style={[styles.unitInput, { color: colors.text }]}
+                        value={ingredient.unit}
+                        onChangeText={(v) => updateIngredient(ingredient.id, 'unit', v)}
+                        placeholder="Unit"
                         placeholderTextColor={colors.textMuted}
-                        keyboardType="decimal-pad"
                       />
-                      {/* Unit - Now a dropdown/picker */}
-                      <RNView style={[styles.unitPickerContainer, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
-                        <TextInput
-                          style={[styles.unitInput, { color: colors.text }]}
-                          value={ingredient.unit}
-                          onChangeText={(v) => updateIngredient(ingredient.id, 'unit', v)}
-                          placeholder="Unit"
-                          placeholderTextColor={colors.textMuted}
-                        />
-                        <TouchableOpacity
-                          style={styles.unitDropdownButton}
-                          onPress={() => {
-                            Alert.alert(
-                              'Select Unit',
-                              '',
-                              [
-                                ...UNIT_OPTIONS.map(unit => ({
-                                  text: unit || '(custom)',
-                                  onPress: () => updateIngredient(ingredient.id, 'unit', unit),
-                                })),
-                                { text: 'Cancel', style: 'cancel' },
-                              ]
-                            );
-                          }}
-                        >
-                          <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
-                        </TouchableOpacity>
-                      </RNView>
+                      <TouchableOpacity
+                        style={styles.unitDropdownButton}
+                        onPress={() => {
+                          Alert.alert(
+                            'Select Unit',
+                            '',
+                            [
+                              ...UNIT_OPTIONS.map(unit => ({
+                                text: unit || '(custom)',
+                                onPress: () => updateIngredient(ingredient.id, 'unit', unit),
+                              })),
+                              { text: 'Cancel', style: 'cancel' },
+                            ]
+                          );
+                        }}
+                      >
+                        <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+                      </TouchableOpacity>
                     </RNView>
                   </RNView>
-                  {ingredients.length > 1 && (
-                    <TouchableOpacity
-                      onPress={() => removeIngredient(ingredient.id)}
-                      style={styles.removeButton}
-                    >
-                      <Ionicons name="close-circle" size={24} color={colors.error} />
-                    </TouchableOpacity>
-                  )}
+                  
+                  {/* Notes */}
+                  <TextInput
+                    style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                    value={ingredient.notes}
+                    onChangeText={(v) => updateIngredient(ingredient.id, 'notes', v)}
+                    placeholder="Notes (e.g., diced, room temp)"
+                    placeholderTextColor={colors.textMuted}
+                  />
                 </RNView>
               ))}
               
@@ -634,7 +682,7 @@ export default function EditRecipeScreen() {
             {/* Steps Section */}
             <RNView style={styles.section}>
               <RNView style={styles.sectionHeader}>
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Steps *</Text>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>Instructions *</Text>
               </RNView>
               
               {steps.map((step, index) => (
@@ -921,6 +969,30 @@ const styles = StyleSheet.create({
   metaItem: {
     flex: 1,
   },
+  ingredientCard: {
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  ingredientHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  ingredientBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  ingredientBadgeText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+  },
   ingredientRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -936,10 +1008,13 @@ const styles = StyleSheet.create({
   },
   qtyUnitRow: {
     flexDirection: 'row',
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
   ingredientQty: {
-    width: 60,
+    width: 80,
+  },
+  ingredientNotes: {
+    flex: 1,
   },
   unitPickerContainer: {
     flex: 1,

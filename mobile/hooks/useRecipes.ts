@@ -22,6 +22,7 @@ export type SearchFilters = {
   tags?: string[];
   extractorId?: string;
   extractorName?: string; // For display purposes
+  mealType?: string;
 };
 
 export const recipeKeys = {
@@ -375,8 +376,20 @@ export function useAsyncExtraction() {
 
   // Start a new extraction
   const startExtraction = async (request: ExtractRequest) => {
+    // If already extracting, cancel the current job first
+    if (isPolling || isStarting) {
+      console.log('Extraction already in progress - cancelling before starting new one');
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      // Try to cancel the backend job (don't await - best effort)
+      if (jobId) {
+        api.cancelJob(jobId).catch(() => {});
+      }
+    }
+    
     setError(null);
     setJobStatus(null);
+    setIsPolling(false); // Reset polling state before starting
     setIsStarting(true); // Show loading immediately
 
     try {
@@ -654,11 +667,12 @@ export type DiscoverSort = 'recent' | 'random' | 'popular';
 export function useInfiniteDiscoverRecipes(
   sourceType?: string, 
   enabled = true,
-  sort: DiscoverSort = 'recent'
+  sort: DiscoverSort = 'recent',
+  mealType?: string
 ) {
   return useInfiniteQuery({
-    queryKey: [...recipeKeys.discoverInfinite(sourceType), sort],
-    queryFn: ({ pageParam = 0 }) => api.getPublicRecipes(PAGE_SIZE, pageParam, sourceType, sort),
+    queryKey: [...recipeKeys.discoverInfinite(sourceType), sort, mealType],
+    queryFn: ({ pageParam = 0 }) => api.getPublicRecipes(PAGE_SIZE, pageParam, sourceType, sort, undefined, mealType),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {
       if (!lastPage.has_more) return undefined;
@@ -675,9 +689,10 @@ export function useInfiniteDiscoverRecipes(
 export function useDiscoverRecipes(
   sourceType?: string, 
   enabled = true,
-  sort: DiscoverSort = 'recent'
+  sort: DiscoverSort = 'recent',
+  mealType?: string
 ) {
-  const query = useInfiniteDiscoverRecipes(sourceType, enabled, sort);
+  const query = useInfiniteDiscoverRecipes(sourceType, enabled, sort, mealType);
   
   const recipes = useMemo(() => {
     if (!query.data?.pages) return [];
@@ -705,13 +720,13 @@ export function useDiscoverRecipes(
  * Search and filter public recipes with infinite scroll
  */
 export function useInfiniteSearchPublicRecipes(filters: SearchFilters, enabled = true) {
-  const { query, sourceType, timeFilter, tags, extractorId } = filters;
-  const hasFilters = query || sourceType || timeFilter || (tags && tags.length > 0) || extractorId;
+  const { query, sourceType, timeFilter, tags, extractorId, mealType } = filters;
+  const hasFilters = query || sourceType || timeFilter || (tags && tags.length > 0) || extractorId || mealType;
   
   return useInfiniteQuery({
     queryKey: recipeKeys.discoverInfiniteSearch(filters),
     queryFn: ({ pageParam = 0 }) => 
-      api.searchPublicRecipes(query || '', PAGE_SIZE, pageParam, sourceType, timeFilter, tags, extractorId),
+      api.searchPublicRecipes(query || '', PAGE_SIZE, pageParam, sourceType, timeFilter, tags, extractorId, mealType),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {
       if (!lastPage.has_more) return undefined;
@@ -726,8 +741,8 @@ export function useInfiniteSearchPublicRecipes(filters: SearchFilters, enabled =
  * Helper hook that flattens public search results into a single array
  */
 export function useSearchPublicRecipes(filters: SearchFilters, enabled = true) {
-  const { query, sourceType, timeFilter, tags, extractorId } = filters;
-  const hasFilters = query || sourceType || timeFilter || (tags && tags.length > 0) || extractorId;
+  const { query, sourceType, timeFilter, tags, extractorId, mealType } = filters;
+  const hasFilters = query || sourceType || timeFilter || (tags && tags.length > 0) || extractorId || mealType;
   
   const infiniteQuery = useInfiniteSearchPublicRecipes(filters, enabled);
   
@@ -787,6 +802,8 @@ export function useTopContributors(enabled = true) {
     queryFn: () => api.getTopContributors(),
     enabled,
     staleTime: 15_000, // Cache for 15 seconds - keeps counts fresh
+    refetchOnMount: 'always', // Always refetch when component mounts
+    refetchOnWindowFocus: true, // Refetch when app comes to foreground
   });
 }
 
@@ -796,6 +813,8 @@ export function useAllContributors(enabled = true) {
     queryFn: () => api.getAllContributors(),
     enabled,
     staleTime: 15_000, // Cache for 15 seconds - keeps counts fresh
+    refetchOnMount: 'always', // Always refetch when component mounts
+    refetchOnWindowFocus: true, // Refetch when app comes to foreground
   });
 }
 

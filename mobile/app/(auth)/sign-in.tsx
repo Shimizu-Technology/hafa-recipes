@@ -100,7 +100,7 @@ export default function SignInScreen() {
     try {
       const { createdSessionId, setActive: ssoSetActive } = await startSSOFlow({
         strategy,
-        redirectUrl: 'recipeextractor://oauth-callback',
+        redirectUrl: 'hafarecipes://oauth-callback',
       });
 
       if (createdSessionId) {

@@ -121,18 +121,19 @@ export function useAddToCollection() {
     mutationFn: ({ collectionId, recipeId }: { collectionId: string; recipeId: string }) =>
       api.addRecipeToCollection(collectionId, recipeId),
     // Optimistic update - show in collection immediately
-    onMutate: async ({ collectionId, recipeId }) => {
-      // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: collectionKeys.recipeCollections(recipeId) });
+    onMutate: ({ collectionId, recipeId }) => {
+      // Cancel queries without awaiting (fire-and-forget for speed)
+      queryClient.cancelQueries({ queryKey: collectionKeys.recipeCollections(recipeId) });
+      queryClient.cancelQueries({ queryKey: collectionKeys.list() });
 
-      // Snapshot the previous value
-      const previousCollections = queryClient.getQueryData<Collection[]>(
+      // Snapshot the previous values
+      const previousRecipeCollections = queryClient.getQueryData<Collection[]>(
         collectionKeys.recipeCollections(recipeId)
       );
+      const previousCollectionList = queryClient.getQueryData<Collection[]>(collectionKeys.list());
 
       // Get the collection being added to
-      const allCollections = queryClient.getQueryData<Collection[]>(collectionKeys.list());
-      const addedCollection = allCollections?.find(c => c.id === collectionId);
+      const addedCollection = previousCollectionList?.find(c => c.id === collectionId);
 
       // Optimistically add to the recipe's collections
       if (addedCollection) {
@@ -142,22 +143,37 @@ export function useAddToCollection() {
         );
       }
 
-      return { previousCollections };
+      // Optimistically update the collection's recipe_count
+      queryClient.setQueryData<Collection[]>(
+        collectionKeys.list(),
+        (old) => old?.map(c => 
+          c.id === collectionId 
+            ? { ...c, recipe_count: (c.recipe_count || 0) + 1 }
+            : c
+        ) ?? []
+      );
+
+      return { previousRecipeCollections, previousCollectionList };
     },
     onError: (err, { recipeId }, context) => {
       // Rollback on error
-      if (context?.previousCollections) {
+      if (context?.previousRecipeCollections) {
         queryClient.setQueryData(
           collectionKeys.recipeCollections(recipeId),
-          context.previousCollections
+          context.previousRecipeCollections
+        );
+      }
+      if (context?.previousCollectionList) {
+        queryClient.setQueryData(
+          collectionKeys.list(),
+          context.previousCollectionList
         );
       }
     },
-    onSettled: (_, __, { collectionId, recipeId }) => {
-      // Sync with server
+    onSettled: (_, __, { collectionId }) => {
+      // Only invalidate the collection's recipes (for cover image updates)
+      // Skip invalidating recipeCollections and list - optimistic update is sufficient
       queryClient.invalidateQueries({ queryKey: collectionKeys.recipes(collectionId) });
-      queryClient.invalidateQueries({ queryKey: collectionKeys.list() });
-      queryClient.invalidateQueries({ queryKey: collectionKeys.recipeCollections(recipeId) });
     },
   });
 }
@@ -172,18 +188,20 @@ export function useRemoveFromCollection() {
     mutationFn: ({ collectionId, recipeId }: { collectionId: string; recipeId: string }) =>
       api.removeRecipeFromCollection(collectionId, recipeId),
     // Optimistic update - remove from collection immediately
-    onMutate: async ({ collectionId, recipeId }) => {
-      // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: collectionKeys.recipeCollections(recipeId) });
-      await queryClient.cancelQueries({ queryKey: collectionKeys.recipes(collectionId) });
+    onMutate: ({ collectionId, recipeId }) => {
+      // Cancel queries without awaiting (fire-and-forget for speed)
+      queryClient.cancelQueries({ queryKey: collectionKeys.recipeCollections(recipeId) });
+      queryClient.cancelQueries({ queryKey: collectionKeys.recipes(collectionId) });
+      queryClient.cancelQueries({ queryKey: collectionKeys.list() });
 
       // Snapshot the previous values
-      const previousCollections = queryClient.getQueryData<Collection[]>(
+      const previousRecipeCollections = queryClient.getQueryData<Collection[]>(
         collectionKeys.recipeCollections(recipeId)
       );
-      const previousRecipes = queryClient.getQueryData<CollectionRecipe[]>(
+      const previousCollectionRecipes = queryClient.getQueryData<CollectionRecipe[]>(
         collectionKeys.recipes(collectionId)
       );
+      const previousCollectionList = queryClient.getQueryData<Collection[]>(collectionKeys.list());
 
       // Optimistically remove from the recipe's collections
       queryClient.setQueryData<Collection[]>(
@@ -192,33 +210,48 @@ export function useRemoveFromCollection() {
       );
 
       // Optimistically remove from the collection's recipes
+      // Note: CollectionRecipe.id is the recipe ID, not recipe_id
       queryClient.setQueryData<CollectionRecipe[]>(
         collectionKeys.recipes(collectionId),
-        (old) => old?.filter(r => r.recipe_id !== recipeId) ?? []
+        (old) => old?.filter(r => r.id !== recipeId) ?? []
       );
 
-      return { previousCollections, previousRecipes };
+      // Optimistically update the collection's recipe_count
+      queryClient.setQueryData<Collection[]>(
+        collectionKeys.list(),
+        (old) => old?.map(c => 
+          c.id === collectionId 
+            ? { ...c, recipe_count: Math.max(0, (c.recipe_count || 0) - 1) }
+            : c
+        ) ?? []
+      );
+
+      return { previousRecipeCollections, previousCollectionRecipes, previousCollectionList };
     },
     onError: (err, { collectionId, recipeId }, context) => {
       // Rollback on error
-      if (context?.previousCollections) {
+      if (context?.previousRecipeCollections) {
         queryClient.setQueryData(
           collectionKeys.recipeCollections(recipeId),
-          context.previousCollections
+          context.previousRecipeCollections
         );
       }
-      if (context?.previousRecipes) {
+      if (context?.previousCollectionRecipes) {
         queryClient.setQueryData(
           collectionKeys.recipes(collectionId),
-          context.previousRecipes
+          context.previousCollectionRecipes
+        );
+      }
+      if (context?.previousCollectionList) {
+        queryClient.setQueryData(
+          collectionKeys.list(),
+          context.previousCollectionList
         );
       }
     },
-    onSettled: (_, __, { collectionId, recipeId }) => {
-      // Sync with server
-      queryClient.invalidateQueries({ queryKey: collectionKeys.recipes(collectionId) });
-      queryClient.invalidateQueries({ queryKey: collectionKeys.list() });
-      queryClient.invalidateQueries({ queryKey: collectionKeys.recipeCollections(recipeId) });
+    onSettled: () => {
+      // Skip invalidations - optimistic updates are sufficient
+      // Server will be in sync, and next navigation will refetch if stale
     },
   });
 }
