@@ -71,7 +71,9 @@ export default function AddToCollectionModal({
   // Initialize selected IDs from server data
   useEffect(() => {
     if (recipeCollectionIds) {
-      setSelectedIds(new Set(recipeCollectionIds));
+      // Ensure we only have strings (guard against corrupted cache data)
+      const validIds = recipeCollectionIds.filter((id): id is string => typeof id === 'string');
+      setSelectedIds(new Set(validIds));
     }
   }, [recipeCollectionIds]);
   

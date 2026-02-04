@@ -21,7 +21,6 @@ import Animated, {
   withSequence,
   withRepeat,
   FadeIn,
-  FadeOut,
 } from 'react-native-reanimated';
 
 import { Text, useColors } from '@/components/Themed';
@@ -76,6 +75,9 @@ export function FloatingTimerOverlay() {
   }));
   
   // Don't show if in cook mode, no active timers, or no session
+  // Note: We avoid using exiting animations here due to a race condition bug
+  // with React Native's New Architecture (Fabric) on Android that causes crashes
+  // when views with exit animations are removed during navigation transitions
   if (isInCookMode || !hasActiveTimers || !session || sortedTimers.length === 0) {
     return null;
   }
@@ -110,7 +112,6 @@ export function FloatingTimerOverlay() {
   return (
     <Animated.View
       entering={FadeIn.duration(200)}
-      exiting={FadeOut.duration(200)}
       style={[
         styles.container,
         { top: topPosition },

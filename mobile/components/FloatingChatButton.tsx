@@ -12,15 +12,10 @@ import { usePathname } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { 
-  FadeIn, 
-  FadeOut,
+  FadeIn,
   useAnimatedStyle,
   withSpring,
   useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming,
-  Easing,
 } from 'react-native-reanimated';
 
 import { Text, useColors } from '@/components/Themed';
@@ -92,6 +87,10 @@ export default function FloatingChatButton() {
     setShowChat(true);
   };
 
+  // Don't render anything if we shouldn't show
+  // Note: We avoid using exiting animations here due to a race condition bug
+  // with React Native's New Architecture (Fabric) on Android that causes crashes
+  // when views with exit animations are removed during navigation transitions
   if (!shouldShow) {
     return null;
   }
@@ -100,7 +99,6 @@ export default function FloatingChatButton() {
     <>
       <Animated.View
         entering={FadeIn.duration(300).springify()}
-        exiting={FadeOut.duration(150)}
         style={[
           styles.container,
           {

@@ -766,6 +766,7 @@ export default function GroceryScreen() {
             onSubmitEditing={handleAddItem}
             returnKeyType="done"
             blurOnSubmit={false}
+            maxLength={255}
           />
           <TouchableOpacity
             onPress={handleAddItem}

@@ -17,6 +17,16 @@
         "simulator": false
       }
     },
+    "android-debug": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      },
+      "env": {
+        "SENTRY_ALLOW_FAILURE": "true"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "env": {

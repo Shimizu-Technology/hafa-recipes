@@ -45,6 +45,7 @@ export function useCollectionRecipes(collectionId: string, enabled = true) {
 
 /**
  * Get which collections a recipe belongs to
+ * Returns an array of collection IDs (strings)
  */
 export function useRecipeCollections(recipeId: string, enabled = true) {
   return useQuery({
@@ -127,21 +128,22 @@ export function useAddToCollection() {
       queryClient.cancelQueries({ queryKey: collectionKeys.list() });
 
       // Snapshot the previous values
-      const previousRecipeCollections = queryClient.getQueryData<Collection[]>(
+      // Note: recipeCollections returns string[] (collection IDs), NOT Collection[]
+      const previousRecipeCollections = queryClient.getQueryData<string[]>(
         collectionKeys.recipeCollections(recipeId)
       );
       const previousCollectionList = queryClient.getQueryData<Collection[]>(collectionKeys.list());
 
-      // Get the collection being added to
-      const addedCollection = previousCollectionList?.find(c => c.id === collectionId);
-
-      // Optimistically add to the recipe's collections
-      if (addedCollection) {
-        queryClient.setQueryData<Collection[]>(
-          collectionKeys.recipeCollections(recipeId),
-          (old) => old ? [...old, addedCollection] : [addedCollection]
-        );
+      // Check if already in collection (prevent duplicates)
+      if (previousRecipeCollections?.includes(collectionId)) {
+        return { previousRecipeCollections, previousCollectionList, alreadyInCollection: true };
       }
+
+      // Optimistically add to the recipe's collections (as a string ID, not Collection object!)
+      queryClient.setQueryData<string[]>(
+        collectionKeys.recipeCollections(recipeId),
+        (old) => old ? [...old, collectionId] : [collectionId]
+      );
 
       // Optimistically update the collection's recipe_count
       queryClient.setQueryData<Collection[]>(
@@ -153,7 +155,7 @@ export function useAddToCollection() {
         ) ?? []
       );
 
-      return { previousRecipeCollections, previousCollectionList };
+      return { previousRecipeCollections, previousCollectionList, alreadyInCollection: false };
     },
     onError: (err, { recipeId }, context) => {
       // Rollback on error
@@ -170,10 +172,10 @@ export function useAddToCollection() {
         );
       }
     },
-    onSettled: (_, __, { collectionId }) => {
-      // Only invalidate the collection's recipes (for cover image updates)
-      // Skip invalidating recipeCollections and list - optimistic update is sufficient
+    onSettled: (_, __, { collectionId, recipeId }) => {
+      // Invalidate to ensure we're in sync with server
       queryClient.invalidateQueries({ queryKey: collectionKeys.recipes(collectionId) });
+      queryClient.invalidateQueries({ queryKey: collectionKeys.recipeCollections(recipeId) });
     },
   });
 }
@@ -195,7 +197,8 @@ export function useRemoveFromCollection() {
       queryClient.cancelQueries({ queryKey: collectionKeys.list() });
 
       // Snapshot the previous values
-      const previousRecipeCollections = queryClient.getQueryData<Collection[]>(
+      // Note: recipeCollections returns string[] (collection IDs), NOT Collection[]
+      const previousRecipeCollections = queryClient.getQueryData<string[]>(
         collectionKeys.recipeCollections(recipeId)
       );
       const previousCollectionRecipes = queryClient.getQueryData<CollectionRecipe[]>(
@@ -203,10 +206,10 @@ export function useRemoveFromCollection() {
       );
       const previousCollectionList = queryClient.getQueryData<Collection[]>(collectionKeys.list());
 
-      // Optimistically remove from the recipe's collections
-      queryClient.setQueryData<Collection[]>(
+      // Optimistically remove from the recipe's collections (filter by string ID)
+      queryClient.setQueryData<string[]>(
         collectionKeys.recipeCollections(recipeId),
-        (old) => old?.filter(c => c.id !== collectionId) ?? []
+        (old) => old?.filter(id => id !== collectionId) ?? []
       );
 
       // Optimistically remove from the collection's recipes
@@ -249,9 +252,9 @@ export function useRemoveFromCollection() {
         );
       }
     },
-    onSettled: () => {
-      // Skip invalidations - optimistic updates are sufficient
-      // Server will be in sync, and next navigation will refetch if stale
+    onSettled: (_, __, { recipeId }) => {
+      // Invalidate to ensure we're in sync with server
+      queryClient.invalidateQueries({ queryKey: collectionKeys.recipeCollections(recipeId) });
     },
   });
 }

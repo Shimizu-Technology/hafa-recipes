@@ -563,7 +563,7 @@ export default function SettingsScreen() {
                   Håfa Recipes
                 </Text>
                 <Text style={[styles.aboutVersion, { color: colors.textMuted }]}>
-                  Version 2.2.0
+                  Version 2.2.1
                 </Text>
               </RNView>
             </RNView>

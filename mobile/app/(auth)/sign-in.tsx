@@ -10,21 +10,27 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { useSignIn, useSSO } from '@clerk/clerk-expo';
+import { useSignIn, useSSO, useClerk } from '@clerk/clerk-expo';
 import { useRouter, Link } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Input, Button, useColors } from '@/components/Themed';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
-// Required for OAuth to work properly
+// Required for OAuth to work properly (for Apple Sign-In)
 WebBrowser.maybeCompleteAuthSession();
+
+// NOTE: Native Google Sign-In disabled for now due to crashes
+// Using web-based OAuth flow instead for better stability
+// TODO: Re-enable native Google Sign-In once the root cause is identified
 
 export default function SignInScreen() {
   const { signIn, setActive, isLoaded } = useSignIn();
   const { startSSOFlow } = useSSO();
+  const clerk = useClerk();
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -91,26 +97,75 @@ export default function SignInScreen() {
     }
   };
 
-  // OAuth sign in (Apple/Google)
-  const handleOAuthSignIn = useCallback(async (strategy: 'oauth_apple' | 'oauth_google') => {
+  // Apple Sign-In (uses web-based SSO flow - works on both platforms)
+  const handleAppleSignIn = useCallback(async () => {
     if (!isLoaded) return;
     setErrorMessage(null);
     
     setIsLoading(true);
     try {
-      const { createdSessionId, setActive: ssoSetActive } = await startSSOFlow({
-        strategy,
-        redirectUrl: 'hafarecipes://oauth-callback',
+      const redirectUrl = Linking.createURL('oauth-callback');
+      
+      const { createdSessionId, setActive: ssoSetActive, signIn: ssoSignIn, signUp } = await startSSOFlow({
+        strategy: 'oauth_apple',
+        redirectUrl,
       });
 
       if (createdSessionId) {
         await ssoSetActive!({ session: createdSessionId });
         router.replace('/(tabs)');
+      } else if (ssoSignIn?.firstFactorVerification?.status === 'transferable') {
+        console.log('User signed in with transferable session');
+      } else if (signUp?.verifications?.externalAccount?.status === 'transferable') {
+        setErrorMessage('An account with this email already exists. Try signing in with a different method.');
       }
     } catch (error: any) {
-      // Extract user-friendly error message from Clerk
+      console.log('Apple OAuth error:', error);
       const clerkError = error.errors?.[0];
-      setErrorMessage(clerkError?.longMessage || clerkError?.message || 'Could not sign in. Please try again.');
+      if (clerkError?.code === 'session_exists') {
+        router.replace('/(tabs)');
+        return;
+      }
+      setErrorMessage(clerkError?.longMessage || clerkError?.message || 'Could not sign in with Apple. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isLoaded, startSSOFlow, router]);
+
+  // Google Sign-In - uses web-based SSO flow on all platforms
+  // NOTE: Native Google Sign-In was causing crashes, using web flow for stability
+  const handleGoogleSignIn = useCallback(async () => {
+    if (!isLoaded) return;
+    setErrorMessage(null);
+    
+    setIsLoading(true);
+    try {
+      // Use web-based SSO on all platforms
+      const redirectUrl = Linking.createURL('oauth-callback');
+      
+      const { createdSessionId, setActive: ssoSetActive, signIn: ssoSignIn, signUp } = await startSSOFlow({
+        strategy: 'oauth_google',
+        redirectUrl,
+      });
+
+      if (createdSessionId) {
+        await ssoSetActive!({ session: createdSessionId });
+        router.replace('/(tabs)');
+      } else if (ssoSignIn?.firstFactorVerification?.status === 'transferable') {
+        console.log('User signed in with transferable session');
+      } else if (signUp?.verifications?.externalAccount?.status === 'transferable') {
+        setErrorMessage('An account with this email already exists. Try signing in with a different method.');
+      }
+    } catch (error: any) {
+      console.log('Google Sign-In error:', error);
+      
+      // Handle Clerk errors
+      const clerkError = error.errors?.[0];
+      if (clerkError?.code === 'session_exists') {
+        router.replace('/(tabs)');
+        return;
+      }
+      setErrorMessage(clerkError?.longMessage || clerkError?.message || error.message || 'Could not sign in with Google. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -155,7 +210,7 @@ export default function SignInScreen() {
           <RNView style={styles.oauthContainer}>
             <TouchableOpacity
               style={[styles.oauthButton, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
-              onPress={() => handleOAuthSignIn('oauth_apple')}
+              onPress={handleAppleSignIn}
               disabled={isLoading}
               activeOpacity={0.7}
             >
@@ -167,7 +222,7 @@ export default function SignInScreen() {
 
             <TouchableOpacity
               style={[styles.oauthButton, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
-              onPress={() => handleOAuthSignIn('oauth_google')}
+              onPress={handleGoogleSignIn}
               disabled={isLoading}
               activeOpacity={0.7}
             >
