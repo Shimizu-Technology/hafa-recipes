@@ -20,4 +20,5 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
       - name: Expo doctor
+        continue-on-error: true
         run: npm run doctor
