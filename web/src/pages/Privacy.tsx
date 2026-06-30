@@ -3,7 +3,7 @@ export default function Privacy() {
     <div className="page">
       <div className="container">
         <h1>Privacy Policy</h1>
-        <p><em>Last updated: December 2025</em></p>
+        <p><em>Last updated: June 30, 2026</em></p>
 
         <h2>Overview</h2>
         <p>
@@ -17,8 +17,8 @@ export default function Privacy() {
         <ul>
           <li><strong>Account Information:</strong> Email address and authentication data (managed securely by Clerk)</li>
           <li><strong>Recipe Data:</strong> Recipes you extract, create, or save, including ingredients, steps, and images</li>
-          <li><strong>Grocery Lists:</strong> Items you add to your grocery list</li>
-          <li><strong>Usage Data:</strong> How you interact with the app to improve our service</li>
+          <li><strong>Grocery Lists and Meal Plans:</strong> Items you add to grocery lists and meal plans you create</li>
+          <li><strong>Support and Diagnostics:</strong> Basic device, usage, and error information used to keep the app reliable</li>
         </ul>
 
         <h2>How We Use Your Information</h2>
@@ -35,10 +35,11 @@ export default function Privacy() {
         <p>We use the following third-party services:</p>
         <ul>
           <li><strong>Clerk:</strong> For secure authentication (email, Google, Apple sign-in)</li>
-          <li><strong>OpenAI:</strong> For AI-powered recipe extraction and chat features</li>
-          <li><strong>Google (Gemini):</strong> For AI-powered recipe extraction</li>
-          <li><strong>Amazon S3:</strong> For secure storage of recipe images</li>
-          <li><strong>Render:</strong> For hosting our backend API</li>
+          <li><strong>OpenAI:</strong> For AI-powered recipe extraction, nutrition estimates, text-to-speech, and chat features</li>
+          <li><strong>OpenRouter / Google Gemini:</strong> For AI-powered recipe extraction and photo scanning</li>
+          <li><strong>Amazon S3:</strong> For secure storage of recipe and chat images</li>
+          <li><strong>Render and Neon:</strong> For hosting our backend API and database</li>
+          <li><strong>Sentry:</strong> For crash reporting and diagnostics</li>
         </ul>
         <p>
           These services have their own privacy policies. We recommend reviewing them for more information.
@@ -46,7 +47,7 @@ export default function Privacy() {
 
         <h2>Data Storage & Security</h2>
         <p>
-          Your data is stored securely on our servers hosted by Render. We use industry-standard encryption for data transmission (HTTPS/TLS). Recipe images are stored securely in Amazon S3.
+          Your data is stored securely on our hosted backend and database. We use industry-standard encryption for data transmission (HTTPS/TLS). Recipe and chat images are stored securely in Amazon S3.
         </p>
         <p>
           We retain your data for as long as your account is active. You can delete your account at any time through the app's Settings, which will remove all your personal data from our servers.
