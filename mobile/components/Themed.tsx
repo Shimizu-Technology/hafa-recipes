@@ -279,7 +279,8 @@ export function Button({
           gap: spacing.sm,
         },
         getPadding(),
-        (variant === 'secondary' || variant === 'outline') && { borderWidth: 1, borderColor: colors.border },
+        variant === 'secondary' && { borderWidth: 1, borderColor: colors.border },
+        variant === 'outline' && { borderWidth: 1, borderColor: colors.tint },
         style,
       ]}
     >
