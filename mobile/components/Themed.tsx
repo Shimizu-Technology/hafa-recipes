@@ -10,6 +10,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   type StyleProp,
+  type TextStyle,
   type ViewStyle,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -108,7 +109,7 @@ interface InputProps {
   autoCorrect?: boolean;
   secureTextEntry?: boolean;
   maxLength?: number;
-  style?: object;
+  style?: StyleProp<TextStyle>;
   showClearButton?: boolean;
   autoFocus?: boolean;
   onSubmitEditing?: () => void;
