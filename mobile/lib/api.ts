@@ -1118,7 +1118,7 @@ class ApiClient {
   // User Account
   // ============================================================
 
-  async deleteAccount(): Promise<{ message: string }> {
+  async deleteAccount(): Promise<{ message: string; clerk_deleted?: boolean }> {
     const { data } = await this.client.delete('/api/users/me');
     return data;
   }
@@ -1129,3 +1129,6 @@ export const api = new ApiClient();
 
 // Export base URL for debugging
 export { API_BASE_URL };
+
+// Backward-compatible default export for older components
+export default api;

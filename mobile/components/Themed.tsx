@@ -205,8 +205,9 @@ interface ButtonProps {
   onPress: () => void;
   disabled?: boolean;
   loading?: boolean;
-  variant?: 'primary' | 'secondary' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'ghost' | 'outline';
   size?: 'sm' | 'md' | 'lg';
+  style?: object;
 }
 
 export function Button({
@@ -216,6 +217,7 @@ export function Button({
   loading,
   variant = 'primary',
   size = 'md',
+  style,
 }: ButtonProps) {
   const colors = useColors();
 
@@ -227,6 +229,7 @@ export function Button({
       case 'secondary':
         return colors.backgroundSecondary;
       case 'ghost':
+      case 'outline':
         return 'transparent';
       default:
         return colors.tint;
@@ -241,6 +244,7 @@ export function Button({
       case 'secondary':
         return colors.text;
       case 'ghost':
+      case 'outline':
         return colors.tint;
       default:
         return '#FFFFFF';
@@ -273,7 +277,8 @@ export function Button({
           gap: spacing.sm,
         },
         getPadding(),
-        variant === 'secondary' && { borderWidth: 1, borderColor: colors.border },
+        (variant === 'secondary' || variant === 'outline') && { borderWidth: 1, borderColor: colors.border },
+        style,
       ]}
     >
       {loading && <ActivityIndicator color={getTextColor()} size="small" />}

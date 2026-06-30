@@ -89,7 +89,7 @@ export default function OCRReviewScreen() {
     if (!recipe) return;
     
     // Check if OCR missed important AI-enhanced data
-    const hasIngredients = recipe.components?.some(c => c.ingredients?.length > 0);
+    const hasIngredients = recipe.components?.some((c: any) => c.ingredients?.length > 0);
     const hasTags = recipe.tags && recipe.tags.length > 0;
     const hasNutrition = recipe.nutrition && (
       recipe.nutrition.calories || recipe.nutrition.protein || 

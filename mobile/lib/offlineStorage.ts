@@ -212,6 +212,7 @@ export async function applyLocalAdd(item: GroceryItemCreate, tempId: string): Pr
     checked: false,
     recipe_id: item.recipe_id || null,
     recipe_title: item.recipe_title || null,
+    added_by_name: null,
     created_at: new Date().toISOString(),
   };
   

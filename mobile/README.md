@@ -1,8 +1,8 @@
 # Recipe Extractor
 
-React Native app that transforms cooking videos into structured recipes using AI.
+React Native app that transforms cooking videos, recipe websites, and recipe photos into structured recipes using AI.
 
-**Supported Platforms:** TikTok, YouTube, Instagram
+**Supported Sources:** TikTok, YouTube, Instagram, recipe websites, handwritten/printed recipe cards
 
 ## Quick Start
 
@@ -16,6 +16,10 @@ cp .env.example .env
 
 # Start Expo dev server
 npx expo start
+
+# Checks
+npm run typecheck
+npm run doctor
 ```
 
 Scan QR with Expo Go, or press `i` for iOS simulator.
@@ -83,7 +87,7 @@ const USE_LOCAL_API = true;  // false for production
 - **Personal Notes** - Add private notes to your recipes
 - **Manual Entry** - Add your own recipes with photo upload
 
-### Cook Mode 🍳
+### Cook Mode
 - **Step-by-Step View** - Focus on one step at a time with large text
 - **Screen Stays On** - No more tapping to keep the screen awake
 - **Built-in Timers** - Auto-detects times in steps, tap to start
@@ -91,7 +95,7 @@ const USE_LOCAL_API = true;  // false for production
   - Vibration alert when timer completes
 - **Ingredients Reference** - Quick slide-up view of all ingredients
 - **Swipe Navigation** - Swipe or tap to move between steps
-- **Completion Celebration** - 🎉 when you finish the recipe
+- **Completion State** - Clear finish screen when you complete the recipe
 
 ## Project Structure
 

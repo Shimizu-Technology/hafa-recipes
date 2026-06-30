@@ -116,7 +116,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     setIsListening(false);
   });
   
-  useSpeechRecognitionEvent('result', (event) => {
+  useSpeechRecognitionEvent('result', (event: any) => {
     // Get the best result from the transcription
     if (event.results && event.results.length > 0) {
       const transcript = event.results[0]?.transcript || '';
@@ -126,7 +126,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     }
   });
   
-  useSpeechRecognitionEvent('error', (event) => {
+  useSpeechRecognitionEvent('error', (event: any) => {
     console.log('Speech recognition error:', event.error);
     setIsListening(false);
     if (event.error === 'not-allowed') {
