@@ -13,7 +13,7 @@ export default function Footer() {
               <span>Håfa Recipes</span>
             </div>
             <p className="footer-description">
-              Transform cooking videos from TikTok, YouTube, and Instagram into detailed recipes using AI. Proudly made in Guam. 🌴
+              Transform cooking videos, recipe websites, and family recipe cards into organized recipes using AI. Proudly made in Guam.
             </p>
           </div>
 
@@ -41,7 +41,7 @@ export default function Footer() {
 
         <div className="footer-bottom">
           <span>© {currentYear} <a href="https://shimizu-technology.com" target="_blank" rel="noopener noreferrer">Shimizu Technology</a>. All rights reserved.</span>
-          <span>Made with ❤️ in Guam</span>
+          <span>Made in Guam</span>
         </div>
       </div>
     </footer>

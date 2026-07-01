@@ -3,93 +3,57 @@ import type { ReactElement } from 'react';
 type FeatureIconName =
   | 'video'
   | 'website'
+  | 'photo'
   | 'cook'
   | 'calendar'
-  | 'search'
-  | 'discover'
-  | 'photo'
-  | 'chat'
   | 'grocery'
+  | 'chat'
+  | 'search'
   | 'collections'
-  | 'scaling'
-  | 'cost';
+  | 'spark';
 
 const features: Array<{
   icon: FeatureIconName;
   title: string;
   description: string;
+  featured?: boolean;
 }> = [
   {
     icon: 'video',
-    title: 'Video Extraction',
+    title: 'Extract from social video',
     description:
-      'Paste a TikTok, YouTube, or Instagram URL and let AI extract the complete recipe with ingredients, steps, and nutrition info.',
-  },
-  {
-    icon: 'website',
-    title: 'Website Import',
-    description:
-      'Import recipes from any recipe website. Works with AllRecipes, Budget Bytes, Half Baked Harvest, and hundreds more.',
-  },
-  {
-    icon: 'cook',
-    title: 'Cook Mode',
-    description:
-      'Step-by-step cooking with large text, screen stays on, built-in timers, and quick ingredient reference.',
-  },
-  {
-    icon: 'calendar',
-    title: 'Meal Planner',
-    description:
-      "Plan your week with breakfast, lunch, dinner, and snack slots. Add an entire week's ingredients to your grocery list at once.",
-  },
-  {
-    icon: 'search',
-    title: 'What Can I Make?',
-    description:
-      'Enter ingredients you have on hand and find matching recipes. See match percentage and missing ingredients.',
-  },
-  {
-    icon: 'discover',
-    title: 'Discover Community',
-    description:
-      'Browse recipes shared by the community. Save favorites, filter by top contributors, and find inspiration.',
+      'Paste TikTok, YouTube, or Instagram links and Håfa Recipes turns the video into ingredients, steps, timing, and notes.',
+    featured: true,
   },
   {
     icon: 'photo',
-    title: 'Photo Scanning',
+    title: 'Scan recipe cards',
     description:
-      'Scan handwritten or printed recipe cards with your camera. Support for multi-page recipes up to 10 images.',
+      'Capture handwritten or printed recipes with multi-page photo scanning for family favorites and cookbook clippings.',
   },
   {
-    icon: 'chat',
-    title: 'AI Recipe Chat',
+    icon: 'cook',
+    title: 'Cook mode',
     description:
-      'Ask questions about any recipe with text or voice. Get substitutions, cooking tips, and troubleshooting help.',
+      'Large step-by-step instructions, timers, and quick ingredient reference while you cook.',
+  },
+  {
+    icon: 'calendar',
+    title: 'Plan the week',
+    description:
+      'Build breakfast, lunch, dinner, and snack plans, then send ingredients to your grocery list.',
   },
   {
     icon: 'grocery',
-    title: 'Smart Grocery List',
+    title: 'Smart grocery lists',
     description:
-      'Add ingredients from recipes to your grocery list. Clear by recipe, works offline, and syncs automatically.',
+      'Group ingredients by recipe, use lists offline, and sync automatically when your connection returns.',
   },
   {
-    icon: 'collections',
-    title: 'Collections',
+    icon: 'chat',
+    title: 'Ask while cooking',
     description:
-      'Organize recipes into custom folders like "Weeknight Dinners" or "Holiday Favorites".',
-  },
-  {
-    icon: 'scaling',
-    title: 'Recipe Scaling',
-    description:
-      'Adjust servings up or down. Ingredients and costs automatically scale to match.',
-  },
-  {
-    icon: 'cost',
-    title: 'Cost Estimates',
-    description:
-      'See estimated costs per recipe with support for regional pricing (Guam, Hawaii, US, and more).',
+      'Use AI chat for substitutions, troubleshooting, scaling, and quick cooking guidance.',
   },
 ];
 
@@ -119,6 +83,12 @@ function FeatureIcon({ name }: { name: FeatureIconName }) {
         <path d="M3.6 9h16.8M3.6 15h16.8M12 3c2.2 2.4 3.3 5.4 3.3 9s-1.1 6.6-3.3 9M12 3C9.8 5.4 8.7 8.4 8.7 12s1.1 6.6 3.3 9" />
       </svg>
     ),
+    photo: (
+      <svg {...commonProps}>
+        <path d="M4 8.5A2.5 2.5 0 0 1 6.5 6H8l1.5-2h5L16 6h1.5A2.5 2.5 0 0 1 20 8.5v8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-8Z" />
+        <circle cx="12" cy="12.5" r="3" />
+      </svg>
+    ),
     cook: (
       <svg {...commonProps}>
         <path d="M6 10.5h12l-1 9H7l-1-9Z" />
@@ -133,22 +103,11 @@ function FeatureIcon({ name }: { name: FeatureIconName }) {
         <path d="M8 14h2M12 14h2M16 14h2M8 17h2M12 17h2" />
       </svg>
     ),
-    search: (
+    grocery: (
       <svg {...commonProps}>
-        <circle cx="10.5" cy="10.5" r="6.5" />
-        <path d="m16 16 4 4" />
-      </svg>
-    ),
-    discover: (
-      <svg {...commonProps}>
-        <circle cx="12" cy="12" r="9" />
-        <path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8 4.8-2.2Z" />
-      </svg>
-    ),
-    photo: (
-      <svg {...commonProps}>
-        <path d="M4 8.5A2.5 2.5 0 0 1 6.5 6H8l1.5-2h5L16 6h1.5A2.5 2.5 0 0 1 20 8.5v8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-8Z" />
-        <circle cx="12" cy="12.5" r="3" />
+        <path d="M4 5h2l2 10h9l2-7H7" />
+        <circle cx="10" cy="19" r="1.5" />
+        <circle cx="17" cy="19" r="1.5" />
       </svg>
     ),
     chat: (
@@ -157,11 +116,10 @@ function FeatureIcon({ name }: { name: FeatureIconName }) {
         <path d="M8 8h8M8 11h5" />
       </svg>
     ),
-    grocery: (
+    search: (
       <svg {...commonProps}>
-        <path d="M4 5h2l2 10h9l2-7H7" />
-        <circle cx="10" cy="19" r="1.5" />
-        <circle cx="17" cy="19" r="1.5" />
+        <circle cx="10.5" cy="10.5" r="6.5" />
+        <path d="m16 16 4 4" />
       </svg>
     ),
     collections: (
@@ -169,16 +127,9 @@ function FeatureIcon({ name }: { name: FeatureIconName }) {
         <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2h7.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9Z" />
       </svg>
     ),
-    scaling: (
+    spark: (
       <svg {...commonProps}>
-        <path d="M12 4v16M6 7h12" />
-        <path d="M7 7 4 14h6L7 7ZM17 7l-3 7h6l-3-7Z" />
-      </svg>
-    ),
-    cost: (
-      <svg {...commonProps}>
-        <circle cx="12" cy="12" r="9" />
-        <path d="M14.5 8.5A3 3 0 0 0 12 7.5c-1.7 0-3 .8-3 2s1.1 1.9 3 2.3c1.9.4 3 1.1 3 2.4s-1.3 2.3-3 2.3a4 4 0 0 1-3.3-1.4M12 6v12" />
+        <path d="M12 2v5M12 17v5M4.2 4.2l3.5 3.5M16.3 16.3l3.5 3.5M2 12h5M17 12h5M4.2 19.8l3.5-3.5M16.3 7.7l3.5-3.5" />
       </svg>
     ),
   };
@@ -186,100 +137,156 @@ function FeatureIcon({ name }: { name: FeatureIconName }) {
   return <div className="feature-icon">{paths[name]}</div>;
 }
 
+function AppStoreIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
+    </svg>
+  );
+}
+
 export default function Home() {
   return (
     <>
-      {/* Hero Section */}
       <section className="hero">
-        <div className="container">
-          <img src="/icon.png" alt="Håfa Recipes" className="hero-icon" />
-          <h1>Håfa Recipes</h1>
-          <p className="hero-tagline">
-            Transform cooking videos and recipe websites into detailed, structured recipes using AI. Extract from TikTok, YouTube, Instagram, or any recipe blog.
-          </p>
-          <div className="hero-buttons">
-            <a
-              href="https://apps.apple.com/us/app/recipe-extractor-gu/id6755892896"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn btn-primary"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
-              </svg>
-              Download on App Store
-            </a>
-            <a href="#features" className="btn btn-secondary">
-              Learn More
-            </a>
+        <div className="container hero-layout">
+          <div className="hero-copy">
+            <div className="eyebrow">Built in Guam for modern home cooks</div>
+            <h1>Recipes from videos, websites, and family cards — organized beautifully.</h1>
+            <p className="hero-tagline">
+              Håfa Recipes uses AI to turn scattered cooking inspiration into clean recipes you can save, plan, shop from, and cook step by step.
+            </p>
+            <div className="hero-buttons">
+              <a
+                href="https://apps.apple.com/us/app/recipe-extractor-gu/id6755892896"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-primary"
+              >
+                <AppStoreIcon />
+                Download on App Store
+              </a>
+              <a href="#features" className="btn btn-secondary">
+                See what it does
+              </a>
+            </div>
+            <dl className="hero-stats" aria-label="Håfa Recipes highlights">
+              <div>
+                <dt>10</dt>
+                <dd>photo pages per scan</dd>
+              </div>
+              <div>
+                <dt>4</dt>
+                <dd>ways to add recipes</dd>
+              </div>
+              <div>
+                <dt>Beta</dt>
+                <dd>free while we tune AI costs</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div className="hero-visual" aria-hidden="true">
+            <div className="phone-shell">
+              <div className="phone-topbar" />
+              <div className="phone-card primary-card">
+                <img src="/brand-mark.svg" alt="" />
+                <span>AI recipe extraction</span>
+                <strong>Paste a cooking link</strong>
+                <p>TikTok, YouTube, Instagram, and recipe websites.</p>
+              </div>
+              <div className="phone-card recipe-card-preview">
+                <span className="mini-label">Cook mode</span>
+                <strong>Caramel Apple Dump Cake</strong>
+                <p>12 servings · 75 min · step-by-step timers</p>
+              </div>
+              <div className="phone-card grocery-card-preview">
+                <span className="mini-label">Grocery list</span>
+                <strong>Grouped by recipe</strong>
+                <p>Works offline and syncs automatically.</p>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Features Section */}
       <section className="features" id="features">
         <div className="container">
-          <h2 className="section-title">Everything You Need</h2>
-          <p className="section-subtitle">
-            Håfa Recipes is the all-in-one solution for extracting, organizing, and cooking recipes from your favorite videos.
-          </p>
+          <div className="section-heading split-heading">
+            <div>
+              <div className="eyebrow">One library for every recipe source</div>
+              <h2>From inspiration to dinner plan.</h2>
+            </div>
+            <p>
+              Save the recipe before it disappears in a feed. Then organize it into meals, groceries, collections, and cooking mode.
+            </p>
+          </div>
 
-          <div className="features-grid">
+          <div className="bento-grid">
             {features.map((feature) => (
-              <div className="feature-card" key={feature.title}>
+              <article className={feature.featured ? 'feature-card feature-card-large' : 'feature-card'} key={feature.title}>
                 <FeatureIcon name={feature.icon} />
                 <h3>{feature.title}</h3>
                 <p>{feature.description}</p>
-              </div>
+              </article>
             ))}
           </div>
         </div>
       </section>
 
-      {/* How It Works */}
-      <section className="how-it-works">
+      <section className="flow-section">
         <div className="container">
-          <h2 className="section-title">How It Works</h2>
-          <p className="section-subtitle">
-            Extract recipes in seconds with just a few taps.
-          </p>
+          <div className="section-heading centered">
+            <div className="eyebrow">How it works</div>
+            <h2>Three taps from link to usable recipe.</h2>
+          </div>
 
           <div className="steps">
             <div className="step">
-              <div className="step-number">1</div>
-              <h3>Paste a URL</h3>
-              <p>Copy a video link from TikTok, YouTube, Instagram, or any recipe website.</p>
+              <span className="step-number">01</span>
+              <h3>Capture</h3>
+              <p>Paste a link, scan a recipe card, import a website, or type a recipe manually.</p>
             </div>
-
             <div className="step">
-              <div className="step-number">2</div>
-              <h3>AI Extracts Recipe</h3>
-              <p>Our AI analyzes the content and extracts all the recipe details automatically.</p>
+              <span className="step-number">02</span>
+              <h3>Clean up</h3>
+              <p>AI extracts ingredients, steps, timing, nutrition estimates, costs, and notes into one consistent format.</p>
             </div>
-
             <div className="step">
-              <div className="step-number">3</div>
-              <h3>Plan, Shop & Cook</h3>
-              <p>Add to meal planner, build your grocery list, and use Cook Mode for hands-free cooking.</p>
+              <span className="step-number">03</span>
+              <h3>Cook</h3>
+              <p>Save it, plan the week, build your grocery list, and cook with guided steps and timers.</p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* CTA Section */}
+      <section className="island-section">
+        <div className="container island-card">
+          <div>
+            <div className="eyebrow">A Guam-rooted recipe app</div>
+            <h2>Made for social recipes and family traditions.</h2>
+          </div>
+          <p>
+            Håfa comes from Håfa Adai — a welcome. The brand mark is inspired by the Chamorro latte stone, pairing local identity with a warm, practical cooking tool for everyday kitchens.
+          </p>
+        </div>
+      </section>
+
       <section className="cta">
-        <div className="container">
-          <h2>Ready to Start Cooking?</h2>
-          <p>Download Håfa Recipes today — free during beta. Extract unlimited recipes from videos and websites.</p>
+        <div className="container cta-card">
+          <FeatureIcon name="spark" />
+          <h2>Ready to build your recipe library?</h2>
+          <p>Download Håfa Recipes today. All features are free during beta while we improve extraction quality and prepare paid plans to cover AI costs.</p>
           <a
             href="https://apps.apple.com/us/app/recipe-extractor-gu/id6755892896"
             target="_blank"
             rel="noopener noreferrer"
             className="btn btn-primary"
           >
+            <AppStoreIcon />
             Download Free on App Store
           </a>
-          <p className="cta-note">All features free during beta. Paid plans coming soon.</p>
         </div>
       </section>
     </>
