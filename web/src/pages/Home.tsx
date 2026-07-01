@@ -2,14 +2,11 @@ import type { ReactElement } from 'react';
 
 type FeatureIconName =
   | 'video'
-  | 'website'
   | 'photo'
   | 'cook'
   | 'calendar'
   | 'grocery'
   | 'chat'
-  | 'search'
-  | 'collections'
   | 'spark';
 
 const features: Array<{
@@ -20,9 +17,9 @@ const features: Array<{
 }> = [
   {
     icon: 'video',
-    title: 'Extract from social video',
+    title: 'Extract from cooking links',
     description:
-      'Paste TikTok, YouTube, or Instagram links and Håfa Recipes turns the video into ingredients, steps, timing, and notes.',
+      'Paste TikTok, YouTube, Instagram, or recipe website links and Håfa Recipes turns them into ingredients, steps, timing, and notes.',
     featured: true,
   },
   {
@@ -36,6 +33,7 @@ const features: Array<{
     title: 'Cook mode',
     description:
       'Large step-by-step instructions, timers, and quick ingredient reference while you cook.',
+    featured: true,
   },
   {
     icon: 'calendar',
@@ -48,6 +46,7 @@ const features: Array<{
     title: 'Smart grocery lists',
     description:
       'Group ingredients by recipe, use lists offline, and sync automatically when your connection returns.',
+    featured: true,
   },
   {
     icon: 'chat',
@@ -75,12 +74,6 @@ function FeatureIcon({ name }: { name: FeatureIconName }) {
       <svg {...commonProps}>
         <rect x="3" y="5" width="18" height="14" rx="3" />
         <path d="M10 9.5v5l4.5-2.5L10 9.5Z" fill="currentColor" stroke="none" />
-      </svg>
-    ),
-    website: (
-      <svg {...commonProps}>
-        <circle cx="12" cy="12" r="9" />
-        <path d="M3.6 9h16.8M3.6 15h16.8M12 3c2.2 2.4 3.3 5.4 3.3 9s-1.1 6.6-3.3 9M12 3C9.8 5.4 8.7 8.4 8.7 12s1.1 6.6 3.3 9" />
       </svg>
     ),
     photo: (
@@ -114,17 +107,6 @@ function FeatureIcon({ name }: { name: FeatureIconName }) {
       <svg {...commonProps}>
         <path d="M5 6.5A4.5 4.5 0 0 1 9.5 2h5A4.5 4.5 0 0 1 19 6.5v3A4.5 4.5 0 0 1 14.5 14H11l-4.5 4v-4A4.5 4.5 0 0 1 2 9.5v-3Z" />
         <path d="M8 8h8M8 11h5" />
-      </svg>
-    ),
-    search: (
-      <svg {...commonProps}>
-        <circle cx="10.5" cy="10.5" r="6.5" />
-        <path d="m16 16 4 4" />
-      </svg>
-    ),
-    collections: (
-      <svg {...commonProps}>
-        <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2h7.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9Z" />
       </svg>
     ),
     spark: (

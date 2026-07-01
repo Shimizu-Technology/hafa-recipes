@@ -616,7 +616,7 @@ svg {
   }
 
   .feature-card-large {
-    grid-column: span 2;
+    grid-column: span 1;
   }
 }
 
