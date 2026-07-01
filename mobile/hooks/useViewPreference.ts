@@ -9,7 +9,7 @@ export type ViewMode = 'list' | 'grid';
 const VIEW_PREFERENCE_KEY = '@recipe_view_preference';
 
 export function useViewPreference() {
-  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [isLoaded, setIsLoaded] = useState(false);
 
   // Load preference from storage

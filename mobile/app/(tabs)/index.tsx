@@ -3,6 +3,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
+  Linking,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -32,6 +33,10 @@ export default function ExtractScreen() {
   const insets = useSafeAreaInsets();
   const { isSignedIn } = useAuth();
   const { sharedUrl } = useLocalSearchParams<{ sharedUrl?: string }>();
+
+  const handleWebsiteSupportPress = () => {
+    Linking.openURL('mailto:shimizutechnology@gmail.com?subject=H%C3%A5fa%20Recipes%20website%20extraction%20issue');
+  };
 
   // All hooks must be called unconditionally
   const [url, setUrl] = useState('');
@@ -553,9 +558,9 @@ export default function ExtractScreen() {
               </RNView>
             </RNView>
             <Text style={[styles.heroEyebrow, { color: colors.tint }]}>AI recipe extraction</Text>
-            <Text style={[styles.heroTitle, { color: colors.text }]}>Turn cooking videos into real recipes.</Text>
+            <Text style={[styles.heroTitle, { color: colors.text }]}>Turn cooking links into real recipes.</Text>
             <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
-              Paste a link, scan a recipe card, or add your own family recipe. Håfa Recipes organizes the ingredients, steps, costs, and cook mode for you.
+              Paste a social video, import a recipe website, scan a recipe card, or add your own family recipe. Håfa Recipes organizes the ingredients, steps, costs, and cook mode for you.
             </Text>
             <RNView style={styles.sourcePills}>
               <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
@@ -565,6 +570,10 @@ export default function ExtractScreen() {
               <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
                 <Ionicons name="logo-youtube" size={14} color={colors.tint} />
                 <Text style={[styles.sourcePillText, { color: colors.textSecondary }]}>YouTube</Text>
+              </RNView>
+              <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
+                <Ionicons name="logo-instagram" size={14} color={colors.tint} />
+                <Text style={[styles.sourcePillText, { color: colors.textSecondary }]}>Instagram</Text>
               </RNView>
               <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
                 <Ionicons name="globe-outline" size={14} color={colors.accent} />
@@ -581,7 +590,7 @@ export default function ExtractScreen() {
             <Input
               value={url}
               onChangeText={setUrl}
-              placeholder="https://www.tiktok.com/..."
+              placeholder="TikTok, Instagram, YouTube, or recipe website link"
               keyboardType="url"
               autoCapitalize="none"
               autoCorrect={false}
@@ -595,6 +604,16 @@ export default function ExtractScreen() {
               <RNView style={styles.helpRow}>
                 <Ionicons name="newspaper-outline" size={15} color={colors.accent} />
                 <Text style={[styles.hint, { color: colors.textMuted }]}>Recipe websites work with most popular blogs and publishers.</Text>
+              </RNView>
+              <RNView style={styles.helpRow}>
+                <Ionicons name="mail-outline" size={15} color={colors.accent} />
+                <Text style={[styles.hint, { color: colors.textMuted }]}>
+                  If a website does not import cleanly, email{' '}
+                  <Text style={[styles.hintLink, { color: colors.tint }]} onPress={handleWebsiteSupportPress}>
+                    shimizutechnology@gmail.com
+                  </Text>
+                  {' '}so we can tune support for it.
+                </Text>
               </RNView>
             </RNView>
             <RNView style={[styles.betaNote, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
@@ -839,6 +858,11 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: fontSize.xs,
     lineHeight: 18,
+  },
+  hintLink: {
+    fontSize: fontSize.xs,
+    fontFamily: fontFamily.semibold,
+    textDecorationLine: 'underline',
   },
   betaNote: {
     flexDirection: 'row',

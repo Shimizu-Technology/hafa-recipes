@@ -42,7 +42,7 @@ import {
   parseDateFromApi,
 } from '@/hooks/useMealPlan';
 import { MealPlanEntry, MealType, RecipeListItem } from '@/types/recipe';
-import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import { haptics, lightHaptic, successHaptic } from '@/utils/haptics';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -687,7 +687,7 @@ const styles = StyleSheet.create({
   },
   signedOutTitle: {
     fontSize: fontSize.xxxl,
-    fontWeight: fontWeight.bold,
+    fontFamily: fontFamily.display,
     lineHeight: 42,
     marginBottom: spacing.md,
   },
@@ -715,7 +715,7 @@ const styles = StyleSheet.create({
   },
   previewPlannerTitle: {
     fontSize: fontSize.xl,
-    fontWeight: fontWeight.bold,
+    fontFamily: fontFamily.displaySemibold,
   },
   previewTodayBadge: {
     paddingHorizontal: spacing.md,
