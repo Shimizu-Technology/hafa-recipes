@@ -30,7 +30,9 @@
     "production": {
       "autoIncrement": true,
       "env": {
-        "SENTRY_ALLOW_FAILURE": "true"
+        "SENTRY_ALLOW_FAILURE": "true",
+        "USE_CCACHE": "0",
+        "CCACHE_DISABLE": "1"
       }
     }
   },

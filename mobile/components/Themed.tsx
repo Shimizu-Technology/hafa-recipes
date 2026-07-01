@@ -9,6 +9,9 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  type StyleProp,
+  type TextStyle,
+  type ViewStyle,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -106,7 +109,7 @@ interface InputProps {
   autoCorrect?: boolean;
   secureTextEntry?: boolean;
   maxLength?: number;
-  style?: object;
+  style?: StyleProp<TextStyle>;
   showClearButton?: boolean;
   autoFocus?: boolean;
   onSubmitEditing?: () => void;
@@ -205,8 +208,9 @@ interface ButtonProps {
   onPress: () => void;
   disabled?: boolean;
   loading?: boolean;
-  variant?: 'primary' | 'secondary' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'ghost' | 'outline';
   size?: 'sm' | 'md' | 'lg';
+  style?: StyleProp<ViewStyle>;
 }
 
 export function Button({
@@ -216,6 +220,7 @@ export function Button({
   loading,
   variant = 'primary',
   size = 'md',
+  style,
 }: ButtonProps) {
   const colors = useColors();
 
@@ -227,6 +232,7 @@ export function Button({
       case 'secondary':
         return colors.backgroundSecondary;
       case 'ghost':
+      case 'outline':
         return 'transparent';
       default:
         return colors.tint;
@@ -241,6 +247,7 @@ export function Button({
       case 'secondary':
         return colors.text;
       case 'ghost':
+      case 'outline':
         return colors.tint;
       default:
         return '#FFFFFF';
@@ -274,6 +281,8 @@ export function Button({
         },
         getPadding(),
         variant === 'secondary' && { borderWidth: 1, borderColor: colors.border },
+        variant === 'outline' && { borderWidth: 1, borderColor: colors.tint },
+        style,
       ]}
     >
       {loading && <ActivityIndicator color={getTextColor()} size="small" />}

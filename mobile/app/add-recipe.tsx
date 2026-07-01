@@ -919,6 +919,9 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
   },
+  removeButton: {
+    padding: spacing.xs,
+  },
   qtyUnitRow: {
     flexDirection: 'row',
     gap: spacing.sm,
