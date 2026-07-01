@@ -22,6 +22,94 @@ All notable changes to Recipe Extractor.
 
 ---
 
+## [2.2.1] - February 2026
+
+### Fixed
+- Collection selection and add-to-collection reliability.
+- Android build/runtime compatibility issues in the release configuration.
+- Auth screen and floating action UI polish.
+
+---
+
+## [2.2.0] - January 2026
+
+### Added
+- Floating timer overlay for active cooking timers across the app.
+- Floating cooking assistant entry point for quick recipe questions.
+- Bulk add-to-collection flow.
+- Text size preferences for more comfortable reading.
+
+### Improved
+- Discover filters, history, grocery, settings, edit recipe, and OCR review flows.
+- Collection and recipe chat handling.
+
+---
+
+## [2.1.2] - January 2026
+
+### Fixed
+- Timer sound asset names for Android compatibility.
+- Cook mode timer behavior and recipe chat presentation.
+- Supporting API/client updates for recipe flows.
+
+---
+
+## [2.1.0] - January 2026
+
+### Added
+- Background timer notifications for cook mode.
+
+### Fixed
+- Grocery list reliability and offline cache fallback behavior.
+- Timer restore, cancellation, and background handling.
+
+---
+
+## [2.0.0] - December 2025
+
+### Added
+- Shared grocery list invites and grocery list settings.
+- Share intent handling for incoming recipe links.
+- Timer sound preferences and text-to-speech support.
+- Scaled servings controls and supporting recipe utilities.
+- Contributor browsing improvements for Discover.
+
+### Improved
+- Major refreshes across Discover, History, Grocery, Settings, Recipe Detail, Cook Mode, and extraction progress.
+- Network/offline handling and skeleton loading states.
+
+---
+
+## [1.4.0] - December 2025
+
+### Added
+- **What Can I Make?** ingredient-based recipe search.
+- Top Contributors and contributor filtering in Discover.
+- Website recipe import with structured-data parsing and AI fallback.
+- Custom timers in Cook Mode.
+- Voice input for AI recipe chat.
+- Meal type tagging during extraction.
+
+### Improved
+- Discover sorting, server-side search, search result counts, and source/time/tag filters.
+- Grocery recipe-section clearing and recipe attribution display.
+
+---
+
+## [1.3.0] - December 2025
+
+### Added
+- Forgot password flow.
+- Profile editing for recipe attribution.
+- Offline/network status banner and improved connectivity handling.
+- Sentry error monitoring integration.
+- Theme preference context.
+
+### Improved
+- Auth screens, settings, collections, grocery, planner, and Discover polish.
+
+---
+
 ## [1.2.0] - December 2025
 
 ### Added
