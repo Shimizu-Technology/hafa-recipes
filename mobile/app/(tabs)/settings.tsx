@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser, useClerk, useAuth } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import Constants from 'expo-constants';
 
 import { View, Text, Card, SectionHeader, Divider, useColors } from '@/components/Themed';
 import { BrandMark } from '@/components/BrandMark';
@@ -23,6 +24,7 @@ const WEBSITE_URL = 'https://hafa-recipes.com';
 const PRIVACY_URL = 'https://hafa-recipes.com/privacy';
 const SUPPORT_URL = 'https://hafa-recipes.com/support';
 const DEVELOPER_URL = 'https://shimizu-technology.com';
+const APP_VERSION = Constants.expoConfig?.version ?? '2.3.0';
 
 interface MenuItemProps {
   icon: keyof typeof Ionicons.glyphMap;
@@ -571,7 +573,7 @@ export default function SettingsScreen() {
                   Håfa Recipes
                 </Text>
                 <Text style={[styles.aboutVersion, { color: colors.textMuted }]}>
-                  Version 2.2.1
+                  Version {APP_VERSION}
                 </Text>
               </RNView>
             </RNView>
@@ -579,7 +581,7 @@ export default function SettingsScreen() {
             <Divider />
 
             <Text style={[styles.aboutDescription, { color: colors.textSecondary }]}>
-              Transform cooking videos from TikTok, YouTube, and Instagram into
+              Transform cooking videos, recipe websites, and family recipe cards into
               detailed, structured recipes using AI.
             </Text>
 

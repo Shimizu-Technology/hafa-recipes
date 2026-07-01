@@ -2,6 +2,114 @@
 
 All notable changes to Recipe Extractor.
 
+## [2.3.0] - July 2026
+
+### Added
+- **Håfa Recipes brand refresh** with a new island-modern palette, app icon, splash artwork, and brand mark.
+- **Signed-out previews** for Discover and Meal Planner so new users can understand the app before creating an account.
+- **Public Discover browsing for guests** with save actions still gated behind sign-in.
+
+### Improved
+- Default Discover view is now the visual grid layout.
+- Extract screen copy now clearly supports TikTok, YouTube, Instagram, recipe websites, OCR scans, and manual family recipes.
+- Website extraction guidance now includes a support email when a recipe site does not import cleanly.
+- Typography updated to DM Sans and Fraunces for a warmer editorial recipe feel.
+- Emoji UI was replaced with Ionicons and brand assets throughout the app.
+
+### Fixed
+- App icon now uses a full-bleed background so iOS no longer shows dark corners around the icon mask.
+- Discover now shows a real API error state instead of looking like an empty community library when loading fails.
+
+---
+
+## [2.2.1] - February 2026
+
+### Fixed
+- Collection selection and add-to-collection reliability.
+- Android build/runtime compatibility issues in the release configuration.
+- Auth screen and floating action UI polish.
+
+---
+
+## [2.2.0] - January 2026
+
+### Added
+- Floating timer overlay for active cooking timers across the app.
+- Floating cooking assistant entry point for quick recipe questions.
+- Bulk add-to-collection flow.
+- Text size preferences for more comfortable reading.
+
+### Improved
+- Discover filters, history, grocery, settings, edit recipe, and OCR review flows.
+- Collection and recipe chat handling.
+
+---
+
+## [2.1.2] - January 2026
+
+### Fixed
+- Timer sound asset names for Android compatibility.
+- Cook mode timer behavior and recipe chat presentation.
+- Supporting API/client updates for recipe flows.
+
+---
+
+## [2.1.0] - January 2026
+
+### Added
+- Background timer notifications for cook mode.
+
+### Fixed
+- Grocery list reliability and offline cache fallback behavior.
+- Timer restore, cancellation, and background handling.
+
+---
+
+## [2.0.0] - December 2025
+
+### Added
+- Shared grocery list invites and grocery list settings.
+- Share intent handling for incoming recipe links.
+- Timer sound preferences and text-to-speech support.
+- Scaled servings controls and supporting recipe utilities.
+- Contributor browsing improvements for Discover.
+
+### Improved
+- Major refreshes across Discover, History, Grocery, Settings, Recipe Detail, Cook Mode, and extraction progress.
+- Network/offline handling and skeleton loading states.
+
+---
+
+## [1.4.0] - December 2025
+
+### Added
+- **What Can I Make?** ingredient-based recipe search.
+- Top Contributors and contributor filtering in Discover.
+- Website recipe import with structured-data parsing and AI fallback.
+- Custom timers in Cook Mode.
+- Voice input for AI recipe chat.
+- Meal type tagging during extraction.
+
+### Improved
+- Discover sorting, server-side search, search result counts, and source/time/tag filters.
+- Grocery recipe-section clearing and recipe attribution display.
+
+---
+
+## [1.3.0] - December 2025
+
+### Added
+- Forgot password flow.
+- Profile editing for recipe attribution.
+- Offline/network status banner and improved connectivity handling.
+- Sentry error monitoring integration.
+- Theme preference context.
+
+### Improved
+- Auth screens, settings, collections, grocery, planner, and Discover polish.
+
+---
+
 ## [1.2.0] - December 2025
 
 ### Added
