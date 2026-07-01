@@ -11,24 +11,15 @@ import {
   View as RNView,
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
   Alert,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Input, Button, useColors } from '@/components/Themed';
-import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import { useCreateCollection, useUpdateCollection, useDeleteCollection } from '@/hooks/useCollections';
 import { Collection } from '@/types/recipe';
 import { haptics } from '@/utils/haptics';
-
-// Common emoji options for collections
-const EMOJI_OPTIONS = [
-  '📁', '🍽️', '🥗', '🍕', '🍔', '🌮', '🍜', '🍣',
-  '🥘', '🍲', '🥧', '🎂', '🍪', '🥤', '☕', '🍷',
-  '🌱', '🥬', '🥩', '🐔', '🐟', '🦐', '🥚', '🧀',
-  '🏠', '❤️', '⭐', '🔥', '⏱️', '💪', '👨‍👩‍👧‍👦', '🎉',
-];
 
 interface CreateCollectionModalProps {
   visible: boolean;
@@ -45,39 +36,35 @@ export default function CreateCollectionModal({
 }: CreateCollectionModalProps) {
   const colors = useColors();
   const [name, setName] = useState('');
-  const [selectedEmoji, setSelectedEmoji] = useState<string | null>(null);
-  
+
   const createMutation = useCreateCollection();
   const updateMutation = useUpdateCollection();
   const deleteMutation = useDeleteCollection();
-  
+
   const isEditing = !!editingCollection;
   const isPending = createMutation.isPending || updateMutation.isPending;
-  
+
   // Pre-fill form when editing
   useEffect(() => {
     if (editingCollection) {
       setName(editingCollection.name);
-      setSelectedEmoji(editingCollection.emoji);
     } else {
       setName('');
-      setSelectedEmoji(null);
     }
   }, [editingCollection, visible]);
-  
+
   const handleSave = async () => {
     if (!name.trim()) return;
-    
+
     try {
       if (isEditing && editingCollection) {
         await updateMutation.mutateAsync({
           collectionId: editingCollection.id,
-          updates: { name: name.trim(), emoji: selectedEmoji || undefined },
+          updates: { name: name.trim() },
         });
       } else {
         await createMutation.mutateAsync({
           name: name.trim(),
-          emoji: selectedEmoji || undefined,
         });
       }
       onClose();
@@ -85,10 +72,10 @@ export default function CreateCollectionModal({
       // Mutation error handled by React Query
     }
   };
-  
+
   const handleDelete = () => {
     if (!editingCollection) return;
-    
+
     haptics.warning();
     Alert.alert(
       'Delete Collection',
@@ -112,7 +99,7 @@ export default function CreateCollectionModal({
       ]
     );
   };
-  
+
   return (
     <Modal
       visible={visible}
@@ -137,7 +124,7 @@ export default function CreateCollectionModal({
                     <Ionicons name="close" size={24} color={colors.textMuted} />
                   </TouchableOpacity>
                 </RNView>
-                
+
                 {/* Name input */}
                 <RNView style={styles.field}>
                   <Text style={[styles.label, { color: colors.textSecondary }]}>Name</Text>
@@ -148,56 +135,20 @@ export default function CreateCollectionModal({
                     autoFocus
                   />
                 </RNView>
-                
-                {/* Emoji picker */}
-                <RNView style={styles.field}>
-                  <Text style={[styles.label, { color: colors.textSecondary }]}>Icon (optional)</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <RNView style={styles.emojiRow}>
-                      {/* None option */}
-                      <TouchableOpacity
-                        style={[
-                          styles.emojiOption,
-                          { 
-                            backgroundColor: selectedEmoji === null ? colors.tint + '20' : colors.backgroundSecondary,
-                            borderColor: selectedEmoji === null ? colors.tint : colors.border,
-                          },
-                        ]}
-                        onPress={() => setSelectedEmoji(null)}
-                      >
-                        <Ionicons name="close-outline" size={20} color={colors.textMuted} />
-                      </TouchableOpacity>
-                      
-                      {EMOJI_OPTIONS.map((emoji) => (
-                        <TouchableOpacity
-                          key={emoji}
-                          style={[
-                            styles.emojiOption,
-                            { 
-                              backgroundColor: selectedEmoji === emoji ? colors.tint + '20' : colors.backgroundSecondary,
-                              borderColor: selectedEmoji === emoji ? colors.tint : colors.border,
-                            },
-                          ]}
-                          onPress={() => setSelectedEmoji(emoji)}
-                        >
-                          <Text style={styles.emoji}>{emoji}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </RNView>
-                  </ScrollView>
-                </RNView>
-                
+
                 {/* Preview */}
                 <RNView style={styles.preview}>
-                  <Text style={[styles.previewLabel, { color: colors.textMuted }]}>Preview:</Text>
+                  <Text style={[styles.previewLabel, { color: colors.textMuted }]}>Preview</Text>
                   <RNView style={[styles.previewCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-                    <Text style={styles.previewEmoji}>{selectedEmoji || '📁'}</Text>
+                    <RNView style={[styles.previewIcon, { backgroundColor: colors.tint + '15' }]}>
+                      <Ionicons name="folder-open-outline" size={22} color={colors.tint} />
+                    </RNView>
                     <Text style={[styles.previewName, { color: colors.text }]} numberOfLines={1}>
                       {name || 'Collection Name'}
                     </Text>
                   </RNView>
                 </RNView>
-                
+
                 {/* Actions */}
                 <RNView style={styles.actions}>
                   {isEditing && (
@@ -263,7 +214,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: fontSize.xl,
-    fontWeight: fontWeight.bold,
+    fontFamily: fontFamily.displaySemibold,
   },
   field: {
     marginBottom: spacing.md,
@@ -272,22 +223,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
     marginBottom: spacing.xs,
-  },
-  emojiRow: {
-    flexDirection: 'row',
-    gap: spacing.xs,
-    paddingVertical: spacing.xs,
-  },
-  emojiOption: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
-    borderWidth: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emoji: {
-    fontSize: 22,
   },
   preview: {
     marginTop: spacing.sm,
@@ -305,12 +240,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: spacing.sm,
   },
-  previewEmoji: {
-    fontSize: 24,
+  previewIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   previewName: {
     fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
+    fontFamily: fontFamily.semibold,
     flex: 1,
   },
   actions: {

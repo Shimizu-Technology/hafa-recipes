@@ -1,73 +1,99 @@
 /**
- * Clean, minimal color palette for Recipe Extractor
+ * Håfa Recipes brand system.
+ *
+ * Direction: island-modern pantry — warm food neutrals, terracotta heat,
+ * reef-green freshness, and a softer dark mode that avoids pure black/white.
  */
 
-// Accent color - a warm, appetizing orange
-const tintColorLight = '#FF6B35';
-const tintColorDark = '#FF8F5C';
+export const brand = {
+  cream: '#FFF7EC',
+  bone: '#F8EFE3',
+  parchment: '#F3E4D2',
+  ink: '#17120E',
+  charcoal: '#27211B',
+
+  terracotta: '#E65F2E',
+  coral: '#FF8A5B',
+  clay: '#B94722',
+
+  reef: '#168A80',
+  reefLight: '#DDF5F1',
+
+  herb: '#4F7A41',
+  banana: '#F2B84B',
+
+  border: '#E8D8C8',
+} as const;
+
+const tintColorLight = brand.terracotta;
+const tintColorDark = brand.coral;
 
 export default {
   light: {
     // Base colors
-    text: '#1A1A1A',
-    textSecondary: '#6B6B6B',
-    textMuted: '#999999',
-    background: '#FFFFFF',
-    backgroundSecondary: '#F8F8F8',
-    
+    text: brand.ink,
+    textSecondary: '#6D5D50',
+    textMuted: '#9A8978',
+    background: brand.cream,
+    backgroundSecondary: brand.bone,
+    backgroundElevated: '#FFFCF7',
+
     // UI elements
     tint: tintColorLight,
-    accent: tintColorLight, // Alias for tint
-    border: '#E8E8E8',
-    borderLight: '#F0F0F0',
-    
+    accent: brand.reef,
+    accentSoft: brand.reefLight,
+    border: brand.border,
+    borderLight: '#F1E4D7',
+
     // Tab bar
-    tabIconDefault: '#B0B0B0',
+    tabIconDefault: '#A69280',
     tabIconSelected: tintColorLight,
-    
+
     // Cards and surfaces
-    card: '#FFFFFF',
-    cardBackground: '#FFFFFF', // Alias for card
-    cardBorder: '#F0F0F0',
-    
+    card: '#FFFCF7',
+    cardBackground: '#FFFCF7',
+    cardBorder: '#EAD9C7',
+
     // Status colors
-    success: '#34C759',
-    warning: '#FF9500',
-    error: '#FF3B30',
-    
+    success: brand.herb,
+    warning: brand.banana,
+    error: '#C43C2E',
+
     // Shadows
-    shadowColor: '#000',
+    shadowColor: '#8A3B1F',
   },
   dark: {
     // Base colors
-    text: '#FFFFFF',
-    textSecondary: '#A0A0A0',
-    textMuted: '#6B6B6B',
-    background: '#000000',
-    backgroundSecondary: '#1C1C1E',
-    
+    text: '#F8F0E7',
+    textSecondary: '#B8AEA2',
+    textMuted: '#82786E',
+    background: '#101411',
+    backgroundSecondary: '#171D1A',
+    backgroundElevated: '#202820',
+
     // UI elements
     tint: tintColorDark,
-    accent: tintColorDark, // Alias for tint
-    border: '#2C2C2E',
-    borderLight: '#1C1C1E',
-    
+    accent: '#45B7A7',
+    accentSoft: 'rgba(69, 183, 167, 0.16)',
+    border: '#2D352F',
+    borderLight: '#222A25',
+
     // Tab bar
-    tabIconDefault: '#6B6B6B',
+    tabIconDefault: '#746A60',
     tabIconSelected: tintColorDark,
-    
+
     // Cards and surfaces
-    card: '#1C1C1E',
-    cardBackground: '#1C1C1E', // Alias for card
-    cardBorder: '#2C2C2E',
-    
+    card: '#1E2520',
+    cardBackground: '#1E2520',
+    cardBorder: '#2D352F',
+
     // Status colors
-    success: '#30D158',
-    warning: '#FF9F0A',
-    error: '#FF453A',
-    
+    success: '#86B875',
+    warning: '#F2B84B',
+    error: '#F07167',
+
     // Shadows
-    shadowColor: '#000',
+    shadowColor: '#000000',
   },
 };
 
@@ -83,11 +109,12 @@ export const spacing = {
 
 // Border radius scale
 export const radius = {
-  xs: 4,
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 24,
+  xs: 5,
+  sm: 10,
+  md: 14,
+  lg: 20,
+  xl: 28,
+  xxl: 36,
   full: 9999,
 };
 
@@ -98,8 +125,8 @@ export const fontSize = {
   md: 15,
   lg: 17,
   xl: 20,
-  xxl: 28,
-  xxxl: 34,
+  xxl: 30,
+  xxxl: 38,
 };
 
 // Font weights
@@ -110,35 +137,34 @@ export const fontWeight = {
   bold: '700' as const,
 };
 
-// Font family (Inter)
+// Font families
 export const fontFamily = {
-  regular: 'Inter_400Regular',
-  medium: 'Inter_500Medium',
-  semibold: 'Inter_600SemiBold',
-  bold: 'Inter_700Bold',
+  regular: 'DMSans_400Regular',
+  medium: 'DMSans_500Medium',
+  semibold: 'DMSans_600SemiBold',
+  bold: 'DMSans_700Bold',
+  display: 'Fraunces_700Bold',
+  displaySemibold: 'Fraunces_600SemiBold',
 };
 
 // Shadow presets for cards and elevated surfaces
 export const shadows = {
-  // Subtle shadow for cards
   card: {
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.08,
-    shadowRadius: 8,
+    shadowRadius: 18,
     elevation: 3,
   },
-  // Medium shadow for modals, floating buttons
   medium: {
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  // Strong shadow for popovers, dropdowns
-  strong: {
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.16,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.14,
     shadowRadius: 24,
-    elevation: 12,
+    elevation: 8,
+  },
+  strong: {
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.18,
+    shadowRadius: 34,
+    elevation: 14,
   },
 };

@@ -298,7 +298,7 @@ export default function OCRReviewScreen() {
 
         {/* Hint */}
         <Text style={[styles.hint, { color: colors.textMuted }]}>
-          💡 Tap "Edit" to make changes before saving
+          Tip: tap "Edit" to make changes before saving
         </Text>
       </ScrollView>
 

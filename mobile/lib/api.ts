@@ -55,7 +55,7 @@ function getApiBaseUrl(): string {
   }
   
   // Fallback to production if we can't detect local IP
-  console.log('⚠️ Could not detect local IP, using production API');
+  console.log('Could not detect local IP, using production API');
   return 'https://recipe-api-x5na.onrender.com';
 }
 

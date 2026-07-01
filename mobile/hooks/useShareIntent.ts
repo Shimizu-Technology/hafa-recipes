@@ -69,7 +69,7 @@ export function useHandleShareIntent() {
           setIsProcessing(false);
         }, 300);
       } else {
-        console.log('⚠️ Share Intent received but no URL found:', shareIntent);
+        console.log('Share Intent received but no URL found:', shareIntent);
         resetShareIntent();
         setIsProcessing(false);
       }

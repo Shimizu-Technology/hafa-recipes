@@ -16,12 +16,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/clerk-expo';
 import * as ImagePicker from 'expo-image-picker';
+import { LinearGradient } from 'expo-linear-gradient';
 
-import { View, Text, Input, Button, Chip, Card, useColors } from '@/components/Themed';
+import { View, Text, Input, Button, Chip, useColors } from '@/components/Themed';
 import ExtractionProgress from '@/components/ExtractionProgress';
 import { SignInBanner } from '@/components/SignInBanner';
 import { useAsyncExtraction, useLocations, useCheckDuplicate } from '@/hooks/useRecipes';
-import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { BrandMark } from '@/components/BrandMark';
+import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import { api } from '@/lib/api';
 
 export default function ExtractScreen() {
@@ -30,7 +32,7 @@ export default function ExtractScreen() {
   const insets = useSafeAreaInsets();
   const { isSignedIn } = useAuth();
   const { sharedUrl } = useLocalSearchParams<{ sharedUrl?: string }>();
-  
+
   // All hooks must be called unconditionally
   const [url, setUrl] = useState('');
   const [notes, setNotes] = useState('');
@@ -42,11 +44,11 @@ export default function ExtractScreen() {
   const [extractingAsWebsite, setExtractingAsWebsite] = useState(false); // Track extraction type to prevent flicker
   const [selectedImages, setSelectedImages] = useState<string[]>([]); // Multi-image support
   const [showImageGallery, setShowImageGallery] = useState(false);
-  
+
   const { data: locationsData } = useLocations();
   const extraction = useAsyncExtraction();
   const checkDuplicate = useCheckDuplicate();
-  
+
   // Handle shared URL from iOS Share Extension
   useEffect(() => {
     if (sharedUrl && sharedUrl !== url) {
@@ -131,25 +133,25 @@ export default function ExtractScreen() {
 
   const extractFromImages = async () => {
     if (selectedImages.length === 0) return;
-    
+
     setIsOcrExtracting(true);
     setShowImageGallery(false);
-    
+
     const imageCount = selectedImages.length;
     setOcrProgress(`Analyzing ${imageCount} image${imageCount > 1 ? 's' : ''}...`);
 
     try {
       setOcrProgress(`Extracting recipe with AI vision...`);
-      
+
       // Use single or multi-image API based on count
       const result = imageCount === 1
         ? await api.extractRecipeFromImage(selectedImages[0], selectedLocation)
         : await api.extractRecipeFromMultipleImages(selectedImages, selectedLocation);
-      
+
       if (result.success && result.recipe) {
         setOcrProgress('Recipe extracted!');
         setSelectedImages([]); // Clear images after success
-        
+
         // Navigate to review screen with the extracted recipe
         router.push({
           pathname: '/ocr-review',
@@ -213,18 +215,18 @@ export default function ExtractScreen() {
       }
     }
   }, [extraction.isComplete, extraction.recipeId, extraction.lowConfidence, extraction.confidenceWarning]);
-  
+
   // Proceed with extraction (called after duplicate check or when user chooses "Extract Anyway")
   const proceedWithExtraction = async () => {
     try {
       // Determine extraction type BEFORE starting (to prevent UI flicker)
       const trimmedUrl = url.trim().toLowerCase();
-      const isWebsiteUrl = !trimmedUrl.includes('tiktok.com') && 
-                           !trimmedUrl.includes('youtube.com') && 
-                           !trimmedUrl.includes('youtu.be') && 
+      const isWebsiteUrl = !trimmedUrl.includes('tiktok.com') &&
+                           !trimmedUrl.includes('youtube.com') &&
+                           !trimmedUrl.includes('youtu.be') &&
                            !trimmedUrl.includes('instagram.com');
       setExtractingAsWebsite(isWebsiteUrl);
-      
+
       const result = await extraction.startExtraction({
         url: url.trim(),
         location: selectedLocation,
@@ -261,8 +263,8 @@ export default function ExtractScreen() {
         'An extraction is already running. What would you like to do?',
         [
           { text: 'Keep Current', style: 'cancel' },
-          { 
-            text: 'Start New', 
+          {
+            text: 'Start New',
             style: 'destructive',
             onPress: async () => {
               await extraction.cancel();
@@ -277,15 +279,15 @@ export default function ExtractScreen() {
 
     // Validate URL format
     const urlLower = url.toLowerCase();
-    if (!urlLower.includes('tiktok.com') && 
-        !urlLower.includes('youtube.com') && 
+    if (!urlLower.includes('tiktok.com') &&
+        !urlLower.includes('youtube.com') &&
         !urlLower.includes('youtu.be') &&
         !urlLower.includes('instagram.com')) {
       // For non-video URLs, we still allow them (website extraction)
       // Just make sure it's a valid URL format
       if (!urlLower.startsWith('http://') && !urlLower.startsWith('https://')) {
       Alert.alert(
-        'Invalid URL', 
+        'Invalid URL',
           'Please enter a valid URL starting with http:// or https://'
       );
       return;
@@ -294,15 +296,15 @@ export default function ExtractScreen() {
 
     try {
       setIsChecking(true);
-      
+
       // Check for duplicate first (both user's own and public recipes)
       console.log('Checking duplicate for URL:', url.trim());
       const duplicate = await checkDuplicate.mutateAsync(url.trim());
       console.log('Duplicate check result:', JSON.stringify(duplicate));
-      
+
       if (duplicate.exists && duplicate.recipe_id) {
         setIsChecking(false);
-        
+
         if (duplicate.owned_by_user) {
           // User already has this recipe
           Alert.alert(
@@ -319,13 +321,13 @@ export default function ExtractScreen() {
             'Recipe Already Extracted! 🎉',
             `"${duplicate.title}" is already in our library. View it instantly instead of waiting for extraction!`,
             [
-              { 
-                text: 'View Recipe', 
+              {
+                text: 'View Recipe',
                 onPress: () => router.push(`/recipe/${duplicate.recipe_id}`),
                 style: 'default',
               },
-              { 
-                text: 'Extract Anyway', 
+              {
+                text: 'Extract Anyway',
                 onPress: () => proceedWithExtraction(),
                 style: 'destructive',
               },
@@ -338,7 +340,7 @@ export default function ExtractScreen() {
 
       setIsChecking(false);
       await proceedWithExtraction();
-      
+
     } catch (error: any) {
       setIsChecking(false);
       Alert.alert(
@@ -354,8 +356,8 @@ export default function ExtractScreen() {
       'What would you like to do?',
       [
         { text: 'Keep Waiting', style: 'cancel' },
-        { 
-          text: 'Stop Extraction', 
+        {
+          text: 'Stop Extraction',
           style: 'destructive',
           onPress: async () => {
             // Cancel the backend job (prevents recipe from being saved)
@@ -364,8 +366,8 @@ export default function ExtractScreen() {
             setExtractingAsWebsite(false);
           }
         },
-        { 
-          text: 'Check Later', 
+        {
+          text: 'Check Later',
           onPress: () => {
             // Just navigate away - extraction continues in background
             router.push('/history');
@@ -397,7 +399,7 @@ export default function ExtractScreen() {
             </Text>
             <ActivityIndicator size="large" color={colors.tint} style={styles.ocrSpinner} />
             <Text style={[styles.ocrProgressHint, { color: colors.textMuted }]}>
-              {selectedImages.length > 1 
+              {selectedImages.length > 1
                 ? `Processing ${selectedImages.length} images may take longer...`
                 : 'This may take 10-30 seconds depending on the image'}
             </Text>
@@ -424,7 +426,7 @@ export default function ExtractScreen() {
           </RNView>
 
           {/* Image Grid */}
-          <ScrollView 
+          <ScrollView
             contentContainerStyle={styles.galleryGrid}
             showsVerticalScrollIndicator={false}
           >
@@ -442,7 +444,7 @@ export default function ExtractScreen() {
                 </RNView>
               </RNView>
             ))}
-            
+
             {/* Add More Button */}
             {selectedImages.length < 10 && (
               <TouchableOpacity
@@ -457,8 +459,8 @@ export default function ExtractScreen() {
 
           {/* Info Text */}
           <Text style={[styles.galleryHint, { color: colors.textMuted }]}>
-            {selectedImages.length === 1 
-              ? '💡 Add more images for multi-page recipes'
+            {selectedImages.length === 1
+              ? 'Add more images for multi-page recipes'
               : `📄 ${selectedImages.length} pages will be combined into one recipe`}
           </Text>
 
@@ -481,7 +483,7 @@ export default function ExtractScreen() {
   if (showExtractionUI) {
     return (
       <RNView style={[styles.container, { backgroundColor: colors.background }]}>
-        <ScrollView 
+        <ScrollView
           contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 80) + spacing.xl }]}
           showsVerticalScrollIndicator={false}
         >
@@ -516,7 +518,7 @@ export default function ExtractScreen() {
           )}
 
           <Text style={[styles.backgroundHint, { color: colors.textMuted }]}>
-            💡 You can leave this screen - extraction continues in the background
+            You can leave this screen — extraction continues in the background
           </Text>
         </ScrollView>
       </RNView>
@@ -525,38 +527,56 @@ export default function ExtractScreen() {
 
   return (
     <RNView style={[styles.container, { backgroundColor: colors.background }]}>
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <ScrollView 
+        <ScrollView
           contentContainerStyle={[
-            styles.scrollContent, 
+            styles.scrollContent,
             { paddingBottom: Math.max(insets.bottom, 80) + spacing.xl + (isSignedIn ? 0 : 100) }
           ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
           {/* Hero Section */}
-          <RNView style={styles.hero}>
-            <Text style={[styles.heroEmoji]}>🍳</Text>
-            <RNView style={styles.heroTitleRow}>
-            <Text style={[styles.heroTitle, { color: colors.text }]}>
-              Håfa Recipes
-            </Text>
-              <RNView style={[styles.betaBadge, { backgroundColor: colors.tint }]}>
-                <Text style={styles.betaBadgeText}>BETA</Text>
+          <LinearGradient
+            colors={[colors.backgroundElevated, colors.backgroundSecondary]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.heroCard, { borderColor: colors.border }]}
+          >
+            <RNView style={styles.heroTopRow}>
+              <BrandMark size={70} />
+              <RNView style={[styles.betaBadge, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
+                <Text style={[styles.betaBadgeText, { color: colors.accent }]}>BETA</Text>
               </RNView>
             </RNView>
+            <Text style={[styles.heroEyebrow, { color: colors.tint }]}>AI recipe extraction</Text>
+            <Text style={[styles.heroTitle, { color: colors.text }]}>Turn cooking videos into real recipes.</Text>
             <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
-              Paste a video URL to extract the recipe automatically.
+              Paste a link, scan a recipe card, or add your own family recipe. Håfa Recipes organizes the ingredients, steps, costs, and cook mode for you.
             </Text>
-          </RNView>
+            <RNView style={styles.sourcePills}>
+              <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
+                <Ionicons name="logo-tiktok" size={14} color={colors.tint} />
+                <Text style={[styles.sourcePillText, { color: colors.textSecondary }]}>TikTok</Text>
+              </RNView>
+              <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
+                <Ionicons name="logo-youtube" size={14} color={colors.tint} />
+                <Text style={[styles.sourcePillText, { color: colors.textSecondary }]}>YouTube</Text>
+              </RNView>
+              <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
+                <Ionicons name="globe-outline" size={14} color={colors.accent} />
+                <Text style={[styles.sourcePillText, { color: colors.textSecondary }]}>Websites</Text>
+              </RNView>
+            </RNView>
+          </LinearGradient>
 
           {/* URL Input - Primary Action */}
           <RNView style={styles.section}>
             <Text style={[styles.label, { color: colors.textSecondary }]}>
-              Video URL
+              Recipe link
             </Text>
             <Input
               value={url}
@@ -567,17 +587,21 @@ export default function ExtractScreen() {
               autoCorrect={false}
               editable={!isLoading}
             />
-            <Text style={[styles.hint, { color: colors.textMuted }]}>
-              Supports TikTok, YouTube, Instagram, and recipe websites
-            </Text>
-            <Text style={[styles.tip, { color: colors.textMuted }]}>
-              💡 Videos: Works best when recipe is spoken or in description{'\n'}
-              🌐 Websites: Works with most recipe blogs (AllRecipes, etc.)
-            </Text>
-            <RNView style={[styles.betaNote, { backgroundColor: colors.tint + '10', borderColor: colors.tint + '30' }]}>
+            <RNView style={styles.helpStack}>
+              <RNView style={styles.helpRow}>
+                <Ionicons name="videocam-outline" size={15} color={colors.tint} />
+                <Text style={[styles.hint, { color: colors.textMuted }]}>Videos work best when the recipe is spoken or written in the caption.</Text>
+              </RNView>
+              <RNView style={styles.helpRow}>
+                <Ionicons name="newspaper-outline" size={15} color={colors.accent} />
+                <Text style={[styles.hint, { color: colors.textMuted }]}>Recipe websites work with most popular blogs and publishers.</Text>
+              </RNView>
+            </RNView>
+            <RNView style={[styles.betaNote, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
+              <Ionicons name="sparkles-outline" size={16} color={colors.accent} />
               <Text style={[styles.betaNoteText, { color: colors.textSecondary }]}>
-                ✨ Free during beta • Paid plans coming soon to cover AI costs
-            </Text>
+                Free during beta while we tune extraction quality and AI costs.
+              </Text>
             </RNView>
           </RNView>
 
@@ -586,8 +610,8 @@ export default function ExtractScreen() {
             <Text style={[styles.label, { color: colors.textSecondary }]}>
               Location for cost estimates
             </Text>
-            <ScrollView 
-              horizontal 
+            <ScrollView
+              horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.locationScroll}
             >
@@ -611,10 +635,10 @@ export default function ExtractScreen() {
           </RNView>
 
           {/* Share Toggle */}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[
-              styles.shareToggle, 
-              { 
+              styles.shareToggle,
+              {
                 backgroundColor: isPublic ? colors.tint + '15' : colors.backgroundSecondary,
                 borderColor: isPublic ? colors.tint : colors.border,
               }
@@ -624,10 +648,10 @@ export default function ExtractScreen() {
             disabled={isLoading}
           >
             <RNView style={styles.shareToggleContent}>
-              <Ionicons 
-                name={isPublic ? 'globe' : 'lock-closed'} 
-                size={20} 
-                color={isPublic ? colors.tint : colors.textMuted} 
+              <Ionicons
+                name={isPublic ? 'globe' : 'lock-closed'}
+                size={20}
+                color={isPublic ? colors.tint : colors.textMuted}
               />
               <RNView style={styles.shareToggleText}>
                 <Text style={[styles.shareToggleTitle, { color: colors.text }]}>
@@ -715,7 +739,7 @@ export default function ExtractScreen() {
           </RNView>
         </ScrollView>
       </KeyboardAvoidingView>
-      
+
       {/* Sign In Banner for guests */}
       {!isSignedIn && <SignInBanner message="Sign in to extract recipes" />}
     </RNView>
@@ -734,66 +758,102 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingBottom: spacing.xxl,
   },
-  hero: {
-    alignItems: 'center',
-    paddingVertical: spacing.md,
+  heroCard: {
+    borderWidth: 1,
+    borderRadius: radius.xxl,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+    overflow: 'hidden',
   },
-  heroEmoji: {
-    fontSize: 40,
+  heroTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  heroEyebrow: {
+    fontSize: fontSize.xs,
+    fontFamily: fontFamily.semibold,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
     marginBottom: spacing.sm,
   },
-  heroTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.xs,
-  },
   heroTitle: {
-    fontSize: fontSize.xl,
-    fontWeight: fontWeight.bold,
+    fontSize: fontSize.xxxl,
+    fontFamily: fontFamily.display,
+    lineHeight: 42,
+    marginBottom: spacing.sm,
   },
   betaBadge: {
     paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: radius.sm,
+    paddingVertical: 4,
+    borderRadius: radius.full,
+    borderWidth: 1,
   },
   betaBadgeText: {
-    color: '#FFFFFF',
     fontSize: fontSize.xs,
-    fontWeight: fontWeight.bold,
+    fontFamily: fontFamily.bold,
+    letterSpacing: 0.8,
   },
   heroSubtitle: {
-    fontSize: fontSize.sm,
-    textAlign: 'center',
-    lineHeight: 20,
+    fontSize: fontSize.md,
+    lineHeight: 23,
+  },
+  sourcePills: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  sourcePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: radius.full,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  sourcePillText: {
+    fontSize: fontSize.xs,
+    fontFamily: fontFamily.semibold,
   },
   section: {
     marginBottom: spacing.lg,
   },
   label: {
     fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
+    fontFamily: fontFamily.semibold,
     marginBottom: spacing.sm,
   },
-  hint: {
-    fontSize: fontSize.xs,
+  helpStack: {
+    gap: spacing.xs,
     marginTop: spacing.sm,
   },
-  tip: {
+  helpRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.xs,
+  },
+  hint: {
+    flex: 1,
     fontSize: fontSize.xs,
-    marginTop: spacing.xs,
-    fontStyle: 'italic',
+    lineHeight: 18,
   },
   betaNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
     marginTop: spacing.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
   },
   betaNoteText: {
+    flex: 1,
     fontSize: fontSize.xs,
-    textAlign: 'center',
+    lineHeight: 18,
   },
   locationScroll: {
     gap: spacing.sm,
@@ -820,7 +880,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: spacing.md,
-    borderRadius: radius.lg,
+    borderRadius: radius.xl,
     borderWidth: 1,
     marginBottom: spacing.lg,
   },
@@ -846,7 +906,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: spacing.md,
-    borderRadius: radius.lg,
+    borderRadius: radius.xl,
     borderWidth: 1,
     marginBottom: spacing.lg,
   },

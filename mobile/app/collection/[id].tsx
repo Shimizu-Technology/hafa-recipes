@@ -37,7 +37,7 @@ function RecipeCard({
   colors: ReturnType<typeof useColors>;
 }) {
   const [imageError, setImageError] = useState(false);
-  
+
   const sourceIcon = recipe.source_type === 'tiktok'
     ? 'logo-tiktok'
     : recipe.source_type === 'youtube'
@@ -79,14 +79,16 @@ function RecipeCard({
         {/* Meta info */}
         <RNView style={styles.metaRow}>
           {recipe.total_time && (
-            <Text style={[styles.metaText, { color: colors.textSecondary }]}>
-              ⏱️ {recipe.total_time}
-            </Text>
+            <RNView style={styles.metaItem}>
+              <Ionicons name="time-outline" size={13} color={colors.textSecondary} />
+              <Text style={[styles.metaText, { color: colors.textSecondary }]}>{recipe.total_time}</Text>
+            </RNView>
           )}
           {recipe.servings && (
-            <Text style={[styles.metaText, { color: colors.textSecondary }]}>
-              👥 {recipe.servings}
-            </Text>
+            <RNView style={styles.metaItem}>
+              <Ionicons name="people-outline" size={13} color={colors.textSecondary} />
+              <Text style={[styles.metaText, { color: colors.textSecondary }]}>{recipe.servings}</Text>
+            </RNView>
           )}
         </RNView>
 
@@ -98,7 +100,7 @@ function RecipeCard({
               {recipe.source_type}
             </Text>
           </RNView>
-          
+
           {/* Remove button */}
           <TouchableOpacity
             style={[styles.removeButton, { backgroundColor: colors.error + '15' }]}
@@ -121,23 +123,23 @@ export default function CollectionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  
+
   const [showEditModal, setShowEditModal] = useState(false);
-  
+
   // Get collection details
   const { data: collections } = useCollections();
   const collection = collections?.find(c => c.id === id);
-  
+
   // Get recipes in collection
-  const { 
-    data: recipes, 
-    isLoading, 
-    refetch, 
-    isRefetching 
+  const {
+    data: recipes,
+    isLoading,
+    refetch,
+    isRefetching
   } = useCollectionRecipes(id || '');
-  
+
   const removeFromCollection = useRemoveFromCollection();
-  
+
   const handleRemoveRecipe = useCallback((recipeId: string, recipeTitle: string) => {
     Alert.alert(
       'Remove from Collection',
@@ -154,7 +156,7 @@ export default function CollectionDetailScreen() {
       ]
     );
   }, [id, removeFromCollection]);
-  
+
   const renderItem = ({ item, index }: { item: CollectionRecipe; index: number }) => (
     <AnimatedListItem index={index} delay={40}>
       <RecipeCard
@@ -171,7 +173,7 @@ export default function CollectionDetailScreen() {
       />
     </AnimatedListItem>
   );
-  
+
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
       <Ionicons name="folder-open-outline" size={64} color={colors.textMuted} />
@@ -183,7 +185,7 @@ export default function CollectionDetailScreen() {
       </Text>
     </RNView>
   );
-  
+
   if (!collection) {
     return (
       <View style={styles.container}>
@@ -199,7 +201,7 @@ export default function CollectionDetailScreen() {
     <View style={styles.container}>
       <Stack.Screen
         options={{
-          headerTitle: `${collection.emoji || '📁'} ${collection.name}`,
+          headerTitle: collection.name,
           headerRight: () => (
             <TouchableOpacity
               onPress={() => setShowEditModal(true)}
@@ -210,7 +212,7 @@ export default function CollectionDetailScreen() {
           ),
         }}
       />
-      
+
       {/* Edit Collection Modal */}
       <CreateCollectionModal
         visible={showEditModal}
@@ -218,14 +220,14 @@ export default function CollectionDetailScreen() {
         editingCollection={collection}
         onDeleted={() => router.back()}
       />
-      
+
       {/* Recipe count header */}
       <RNView style={styles.header}>
         <Text style={[styles.countText, { color: colors.textSecondary }]}>
           {recipes?.length || 0} recipe{(recipes?.length || 0) !== 1 ? 's' : ''}
         </Text>
       </RNView>
-      
+
       <FlatList
         data={recipes}
         renderItem={renderItem}
@@ -296,6 +298,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.md,
     marginTop: spacing.xs,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   metaText: {
     fontSize: fontSize.xs,

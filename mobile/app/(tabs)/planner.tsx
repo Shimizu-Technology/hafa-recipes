@@ -1,6 +1,6 @@
 /**
  * Meal Planner Screen
- * 
+ *
  * Shows a weekly meal plan with breakfast, lunch, dinner, and snack slots.
  * Users can add recipes to slots, navigate between weeks, and add all
  * ingredients to their grocery list.
@@ -48,11 +48,13 @@ import { haptics, lightHaptic, successHaptic } from '@/utils/haptics';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DAY_WIDTH = (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm * 6) / 7;
 
-const MEAL_TYPES: { type: MealType; emoji: string; label: string }[] = [
-  { type: 'breakfast', emoji: '🌅', label: 'Breakfast' },
-  { type: 'lunch', emoji: '🌞', label: 'Lunch' },
-  { type: 'dinner', emoji: '🌙', label: 'Dinner' },
-  { type: 'snack', emoji: '🍿', label: 'Snack' },
+type MealTypeMeta = { type: MealType; icon: keyof typeof Ionicons.glyphMap; label: string };
+
+const MEAL_TYPES: MealTypeMeta[] = [
+  { type: 'breakfast', icon: 'sunny-outline', label: 'Breakfast' },
+  { type: 'lunch', icon: 'cafe-outline', label: 'Lunch' },
+  { type: 'dinner', icon: 'restaurant-outline', label: 'Dinner' },
+  { type: 'snack', icon: 'nutrition-outline', label: 'Snack' },
 ];
 
 // Day selector pill component
@@ -119,7 +121,7 @@ function MealSlot({
   onRemove,
   onViewRecipe,
 }: {
-  mealType: { type: MealType; emoji: string; label: string };
+  mealType: MealTypeMeta;
   entries: MealPlanEntry[];
   colors: ReturnType<typeof useColors>;
   onAdd: () => void;
@@ -129,7 +131,9 @@ function MealSlot({
   return (
     <RNView style={styles.mealSlot}>
       <RNView style={styles.mealSlotHeader}>
-        <Text style={styles.mealEmoji}>{mealType.emoji}</Text>
+        <RNView style={[styles.mealIcon, { backgroundColor: colors.tint + '15' }]}>
+          <Ionicons name={mealType.icon} size={18} color={colors.tint} />
+        </RNView>
         <Text style={[styles.mealLabel, { color: colors.text }]}>
           {mealType.label}
         </Text>
@@ -621,8 +625,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.sm,
   },
-  mealEmoji: {
-    fontSize: 20,
+  mealIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginRight: spacing.xs,
   },
   mealLabel: {

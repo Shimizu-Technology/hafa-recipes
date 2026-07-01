@@ -169,7 +169,7 @@ export default function AddRecipeScreen() {
           setSteps(allSteps);
         }
         
-        console.log('📝 Pre-filled form from OCR data');
+        console.log('Pre-filled form from OCR data');
       } catch {
         // Non-critical: form will be empty, user can fill manually
       }
@@ -758,7 +758,7 @@ export default function AddRecipeScreen() {
                     </RNView>
                   </RNView>
                   <Text style={[styles.nutritionDisclaimer, { color: colors.textMuted }]}>
-                    ✨ AI estimated • Values are approximate
+                    AI estimated • Values are approximate
                   </Text>
                 </RNView>
               ) : (

@@ -1,6 +1,6 @@
 /**
  * Recipe Picker Modal
- * 
+ *
  * A modal for selecting a recipe from the user's recipes, saved recipes, or discover.
  * Used in meal planning to add a recipe to a meal slot.
  * Includes quick filters for cook time and tags.
@@ -50,31 +50,31 @@ const TIME_FILTERS = [
 function parseTimeToMinutes(timeStr: string | null): number | null {
   if (!timeStr) return null;
   const lower = timeStr.toLowerCase();
-  
+
   // Parse "X hours Y min" format
   const hoursMatch = lower.match(/(\d+)\s*(?:hour|hr)/);
   const minsMatch = lower.match(/(\d+)\s*(?:min|minute)/);
-  
+
   let totalMinutes = 0;
   if (hoursMatch) totalMinutes += parseInt(hoursMatch[1]) * 60;
   if (minsMatch) totalMinutes += parseInt(minsMatch[1]);
-  
+
   // If no match but has a number, assume minutes
   if (!hoursMatch && !minsMatch) {
     const numMatch = lower.match(/(\d+)/);
     if (numMatch) totalMinutes = parseInt(numMatch[1]);
   }
-  
+
   return totalMinutes > 0 ? totalMinutes : null;
 }
 
 // Filter recipe by time
 function matchesTimeFilter(recipe: RecipeListItem, filter: string | null): boolean {
   if (!filter) return true;
-  
+
   const minutes = parseTimeToMinutes(recipe.total_time);
   if (minutes === null) return filter === null; // No time info, show only for "All"
-  
+
   switch (filter) {
     case 'quick': return minutes < 30;
     case 'medium': return minutes >= 30 && minutes <= 60;
@@ -227,14 +227,16 @@ export default function RecipePickerModal({
           </Text>
           <RNView style={styles.recipeMeta}>
             {item.total_time && (
-              <Text style={[styles.metaText, { color: colors.textMuted }]}>
-                ⏱️ {item.total_time}
-              </Text>
+              <RNView style={styles.metaItem}>
+                <Ionicons name="time-outline" size={12} color={colors.textMuted} />
+                <Text style={[styles.metaText, { color: colors.textMuted }]}>{item.total_time}</Text>
+              </RNView>
             )}
             {item.servings && (
-              <Text style={[styles.metaText, { color: colors.textMuted }]}>
-                👥 {item.servings}
-              </Text>
+              <RNView style={styles.metaItem}>
+                <Ionicons name="people-outline" size={12} color={colors.textMuted} />
+                <Text style={[styles.metaText, { color: colors.textMuted }]}>{item.servings}</Text>
+              </RNView>
             )}
           </RNView>
         </RNView>
@@ -628,6 +630,11 @@ const styles = StyleSheet.create({
   recipeMeta: {
     flexDirection: 'row',
     gap: spacing.sm,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
   },
   metaText: {
     fontSize: fontSize.xs,

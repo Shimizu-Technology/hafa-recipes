@@ -4,11 +4,15 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { ClerkProvider, ClerkLoaded, useAuth, useUser } from '@clerk/clerk-expo';
 import { useFonts } from 'expo-font';
 import {
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-} from '@expo-google-fonts/inter';
+  DMSans_400Regular,
+  DMSans_500Medium,
+  DMSans_600SemiBold,
+  DMSans_700Bold,
+} from '@expo-google-fonts/dm-sans';
+import {
+  Fraunces_600SemiBold,
+  Fraunces_700Bold,
+} from '@expo-google-fonts/fraunces';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useLayoutEffect, useRef } from 'react';
@@ -16,6 +20,7 @@ import { View } from 'react-native';
 import 'react-native-reanimated';
 import { ShareIntentProvider } from 'expo-share-intent';
 
+import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { TimerProvider } from '@/contexts/TimerContext';
@@ -49,11 +54,13 @@ function RootLayout() {
   const [loaded, error] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     ...FontAwesome.font,
-    // Inter font family for clean, modern typography
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
+    // Håfa Recipes brand typography
+    DMSans_400Regular,
+    DMSans_500Medium,
+    DMSans_600SemiBold,
+    DMSans_700Bold,
+    Fraunces_600SemiBold,
+    Fraunces_700Bold,
   });
 
   // Expo Router uses Error Boundaries to catch errors in the navigation tree.
@@ -72,7 +79,7 @@ function RootLayout() {
   // Show skeleton loading instead of blank/splash screen
   if (!loaded) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#000' }}>
+      <View style={{ flex: 1, backgroundColor: '#101411' }}>
         <AppLoadingSkeleton />
       </View>
     );
@@ -173,7 +180,7 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
     
     // If user changed (including sign out -> sign in as different user)
     if (previousUserId !== null && currentUserId !== null && previousUserId !== currentUserId) {
-      console.log('👤 User changed, clearing cached data');
+      console.log('User changed, clearing cached data');
       queryClient.clear();
       addBreadcrumb('auth', 'Query cache cleared due to user change', {
         previousUserId,
@@ -218,9 +225,7 @@ function ShareIntentHandler({ children }: { children: React.ReactNode }) {
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
-  const colors = colorScheme === 'dark' 
-    ? { background: '#000', tint: '#FF6B35', text: '#fff' }
-    : { background: '#fff', tint: '#FF6B35', text: '#000' };
+  const colors = Colors[colorScheme ?? 'light'];
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -239,7 +244,7 @@ function RootLayoutNav() {
               screenOptions={{
                 headerStyle: { backgroundColor: colors.background },
                 headerTintColor: colors.tint,
-                headerTitleStyle: { color: colors.text, fontWeight: '600' },
+                headerTitleStyle: { color: colors.text, fontWeight: '600', fontFamily: 'DMSans_600SemiBold' },
                 headerShadowVisible: false,
                 headerBackTitle: 'Back',
               }}

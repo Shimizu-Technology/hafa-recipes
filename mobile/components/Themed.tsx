@@ -63,7 +63,7 @@ export function View(props: ViewProps) {
   return <DefaultView style={[{ backgroundColor }, style]} {...otherProps} />;
 }
 
-// Card component with subtle shadow
+// Card component with warm, tactile surface styling
 interface CardProps extends ViewProps {
   children: React.ReactNode;
   noPadding?: boolean;
@@ -79,11 +79,10 @@ export function Card({ children, style, noPadding, elevated, ...props }: CardPro
       style={[
         {
           backgroundColor: colors.card,
-          borderRadius: radius.lg,
+          borderRadius: radius.xl,
           borderWidth: 1,
           borderColor: colors.cardBorder,
-          padding: noPadding ? 0 : spacing.md,
-          // Subtle shadow for depth
+          padding: noPadding ? 0 : spacing.lg,
           shadowColor: colors.shadowColor,
           ...shadowStyle,
         },
@@ -157,12 +156,13 @@ export function Input({
         returnKeyType={returnKeyType}
         style={[
           {
-            backgroundColor: colors.backgroundSecondary,
-            borderRadius: radius.md,
+            backgroundColor: colors.backgroundElevated,
+            borderRadius: radius.lg,
             padding: spacing.md,
             paddingRight: showClear ? 40 : spacing.md,
             fontSize: fontSize.md,
             color: colors.text,
+            fontFamily: fontFamily.medium,
             borderWidth: 1,
             borderColor: colors.border,
             minHeight: multiline ? 100 : undefined,
@@ -273,7 +273,7 @@ export function Button({
       style={[
         {
           backgroundColor: getBackgroundColor(),
-          borderRadius: radius.md,
+          borderRadius: radius.full,
           alignItems: 'center',
           justifyContent: 'center',
           flexDirection: 'row',
@@ -282,6 +282,7 @@ export function Button({
         getPadding(),
         variant === 'secondary' && { borderWidth: 1, borderColor: colors.border },
         variant === 'outline' && { borderWidth: 1, borderColor: colors.tint },
+        variant === 'primary' && { shadowColor: colors.tint, ...shadows.card },
         style,
       ]}
     >
@@ -327,7 +328,7 @@ export function Chip({ label, selected, onPress, size = 'md' }: ChipProps) {
         style={{
           color: selected ? '#FFFFFF' : colors.text,
           fontSize: size === 'sm' ? fontSize.xs : fontSize.sm,
-          fontWeight: selected ? fontWeight.semibold : fontWeight.normal,
+          fontFamily: selected ? fontFamily.semibold : fontFamily.medium,
         }}
       >
         {label}

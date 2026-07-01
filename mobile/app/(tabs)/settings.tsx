@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Card, SectionHeader, Divider, useColors } from '@/components/Themed';
+import { BrandMark } from '@/components/BrandMark';
 import { useRecipeCount } from '@/hooks/useRecipes';
 import { API_BASE_URL } from '@/lib/api';
 import { captureMessage, captureError } from '@/lib/sentry';
@@ -24,7 +25,7 @@ const SUPPORT_URL = 'https://hafa-recipes.com/support';
 const DEVELOPER_URL = 'https://shimizu-technology.com';
 
 interface MenuItemProps {
-  icon: string;
+  icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value?: string;
   onPress?: () => void;
@@ -33,14 +34,16 @@ interface MenuItemProps {
 
 function MenuItem({ icon, label, value, onPress, colors }: MenuItemProps) {
   const content = (
-    <RNView 
+    <RNView
       style={[
-        styles.menuItem, 
+        styles.menuItem,
         { backgroundColor: colors.backgroundSecondary }
       ]}
     >
       <RNView style={styles.menuItemLeft}>
-        <Text style={styles.menuIcon}>{icon}</Text>
+        <RNView style={[styles.menuIconCircle, { backgroundColor: colors.tint + '15' }]}>
+          <Ionicons name={icon} size={18} color={colors.tint} />
+        </RNView>
         <Text style={[styles.menuLabel, { color: colors.text }]}>{label}</Text>
       </RNView>
       {value ? (
@@ -79,12 +82,12 @@ export default function SettingsScreen() {
   const { soundPreference, setTimerSound } = useTimerSoundPreference();
   const { voice: ttsVoice, setVoice: setTTSVoice } = useTTSVoice();
   const { textSize, setTextSize } = useTextSize();
-  
+
   // UI state for compact pickers
   const [showTimerSoundPicker, setShowTimerSoundPicker] = useState(false);
   const [showVoicePicker, setShowVoicePicker] = useState(false);
   const [showDeveloper, setShowDeveloper] = useState(false);
-  
+
   // Profile editing state
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [firstName, setFirstName] = useState(user?.firstName || '');
@@ -121,14 +124,14 @@ export default function SettingsScreen() {
           onPress: async () => {
             // IMPORTANT: Remove token getter FIRST to prevent new authenticated requests
             api.setTokenGetter(null);
-            
+
             // Cancel all in-flight queries to prevent 401 errors
             await queryClient.cancelQueries();
-            
+
             // Clear all cached data to prevent stale data for next user
             queryClient.clear();
             await clearAllOfflineGroceryData();
-            
+
             // Now sign out from Clerk
             await signOut();
           },
@@ -159,17 +162,17 @@ export default function SettingsScreen() {
                     setIsDeleting(true);
                     try {
                       await api.deleteAccount();
-                      
+
                       // Remove token getter FIRST
                       api.setTokenGetter(null);
-                      
+
                       // Cancel all in-flight queries
                       await queryClient.cancelQueries();
-                      
+
                       // Clear all cached data
                       queryClient.clear();
                       await clearAllOfflineGroceryData();
-                      
+
                       await signOut();
                     } catch (error: any) {
                       // User-facing alert is sufficient - Sentry will capture if critical
@@ -194,7 +197,7 @@ export default function SettingsScreen() {
   const handleShareApp = async () => {
     try {
       await Share.share({
-        message: `🍳 Check out Håfa Recipes!\n\nTransform cooking videos from TikTok, YouTube, and Instagram into detailed recipes using AI.\n\nDownload it here: ${APP_STORE_URL}`,
+        message: `Check out Håfa Recipes!\n\nTransform cooking videos from TikTok, YouTube, and Instagram into detailed recipes using AI.\n\nDownload it here: ${APP_STORE_URL}`,
       });
     } catch {
       // Share cancelled by user - not an error
@@ -203,7 +206,7 @@ export default function SettingsScreen() {
 
   const handleSaveProfile = async () => {
     if (!user) return;
-    
+
     setIsSavingProfile(true);
     try {
       await user.update({
@@ -228,14 +231,14 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView 
+      <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
       >
         {/* User Profile Card */}
         <RNView style={styles.section}>
           <SectionHeader title="Account" />
-          <TouchableOpacity 
+          <TouchableOpacity
             activeOpacity={0.7}
             onPress={isSignedIn ? handleOpenProfileModal : () => router.push('/(auth)/sign-in')}
           >
@@ -250,12 +253,12 @@ export default function SettingsScreen() {
                 )}
                 <RNView style={styles.userInfo}>
                   <Text style={[styles.userName, { color: colors.text }]}>
-                    {isSignedIn 
+                    {isSignedIn
                       ? (user?.firstName || user?.emailAddresses[0]?.emailAddress?.split('@')[0] || 'User')
                       : 'Guest User'}
                   </Text>
                   <Text style={[styles.userEmail, { color: isSignedIn ? colors.textMuted : colors.tint }]}>
-                    {isSignedIn 
+                    {isSignedIn
                       ? user?.emailAddresses[0]?.emailAddress
                       : 'Tap to sign in →'}
                   </Text>
@@ -285,9 +288,9 @@ export default function SettingsScreen() {
         {/* Data Section */}
         <RNView style={styles.section}>
           <SectionHeader title="Data" />
-          <MenuItem 
-            icon="🗑️" 
-            label="Clear Cache" 
+          <MenuItem
+            icon="trash-outline"
+            label="Clear Cache"
             onPress={handleClearCache}
             colors={colors}
           />
@@ -326,9 +329,9 @@ export default function SettingsScreen() {
                 ))}
               </RNView>
             </RNView>
-            
+
             <RNView style={[styles.compactDivider, { backgroundColor: colors.border }]} />
-            
+
             {/* Text Size Row */}
             <RNView style={styles.compactRow}>
               <Text style={[styles.compactLabel, { color: colors.text }]}>Text Size</Text>
@@ -367,13 +370,13 @@ export default function SettingsScreen() {
           <SectionHeader title="Sound & Voice" />
           <RNView style={[styles.compactCard, { backgroundColor: colors.backgroundSecondary }]}>
             {/* Timer Sound Picker */}
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.pickerRow}
               onPress={() => setShowTimerSoundPicker(true)}
               activeOpacity={0.7}
             >
               <RNView style={styles.pickerLeft}>
-                <Text style={styles.pickerIcon}>🔔</Text>
+                <Ionicons name="notifications-outline" size={20} color={colors.tint} style={styles.pickerIcon} />
                 <RNView>
                   <Text style={[styles.pickerLabel, { color: colors.text }]}>Timer Sound</Text>
                   <Text style={[styles.pickerValue, { color: colors.textMuted }]}>
@@ -383,17 +386,17 @@ export default function SettingsScreen() {
               </RNView>
               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </TouchableOpacity>
-            
+
             <RNView style={[styles.compactDivider, { backgroundColor: colors.border }]} />
-            
+
             {/* AI Voice Picker */}
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.pickerRow}
               onPress={() => setShowVoicePicker(true)}
               activeOpacity={0.7}
             >
               <RNView style={styles.pickerLeft}>
-                <Text style={styles.pickerIcon}>🗣️</Text>
+                <Ionicons name="mic-outline" size={20} color={colors.tint} style={styles.pickerIcon} />
                 <RNView>
                   <Text style={[styles.pickerLabel, { color: colors.text }]}>AI Voice</Text>
                   <Text style={[styles.pickerValue, { color: colors.textMuted }]}>
@@ -413,7 +416,7 @@ export default function SettingsScreen() {
           animationType="fade"
           onRequestClose={() => setShowTimerSoundPicker(false)}
         >
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.modalOverlay}
             activeOpacity={1}
             onPress={() => setShowTimerSoundPicker(false)}
@@ -436,9 +439,12 @@ export default function SettingsScreen() {
                   }}
                 >
                   <RNView style={styles.pickerOptionLeft}>
-                    <Text style={styles.pickerOptionIcon}>
-                      {sound.id === 'none' ? '🔇' : sound.id === 'alarm' ? '⏰' : '🔔'}
-                    </Text>
+                    <Ionicons
+                      name={sound.id === 'none' ? 'volume-mute-outline' : sound.id === 'alarm' ? 'alarm-outline' : 'notifications-outline'}
+                      size={20}
+                      color={colors.tint}
+                      style={styles.pickerOptionIcon}
+                    />
                     <RNView>
                       <Text style={[styles.pickerOptionLabel, { color: colors.text }]}>{sound.label}</Text>
                       <Text style={[styles.pickerOptionDesc, { color: colors.textMuted }]}>{sound.description}</Text>
@@ -460,7 +466,7 @@ export default function SettingsScreen() {
           animationType="fade"
           onRequestClose={() => setShowVoicePicker(false)}
         >
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.modalOverlay}
             activeOpacity={1}
             onPress={() => setShowVoicePicker(false)}
@@ -481,7 +487,7 @@ export default function SettingsScreen() {
                     }}
                   >
                     <RNView style={styles.pickerOptionLeft}>
-                      <Text style={styles.pickerOptionIcon}>🗣️</Text>
+                      <Ionicons name="mic-outline" size={20} color={colors.tint} style={styles.pickerOptionIcon} />
                       <RNView>
                         <Text style={[styles.pickerOptionLabel, { color: colors.text }]}>{voiceOption.name}</Text>
                         <Text style={[styles.pickerOptionDesc, { color: colors.textMuted }]}>{voiceOption.description}</Text>
@@ -501,43 +507,45 @@ export default function SettingsScreen() {
         <RNView style={styles.section}>
           <SectionHeader title="Developer" />
           <RNView style={[styles.menuGroup, { overflow: 'hidden' }]}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.menuItem, { backgroundColor: colors.backgroundSecondary }]}
               onPress={() => setShowDeveloper(!showDeveloper)}
               activeOpacity={0.7}
             >
               <RNView style={styles.menuItemLeft}>
-                <Text style={styles.menuIcon}>🛠️</Text>
+                <RNView style={[styles.menuIconCircle, { backgroundColor: colors.tint + '15' }]}>
+                  <Ionicons name="construct-outline" size={18} color={colors.tint} />
+                </RNView>
                 <Text style={[styles.menuLabel, { color: colors.text }]}>
                   {showDeveloper ? 'Hide Developer Tools' : 'Show Developer Tools'}
                 </Text>
               </RNView>
-              <Ionicons 
-                name={showDeveloper ? 'chevron-up' : 'chevron-down'} 
-                size={18} 
-                color={colors.textMuted} 
+              <Ionicons
+                name={showDeveloper ? 'chevron-up' : 'chevron-down'}
+                size={18}
+                color={colors.textMuted}
               />
             </TouchableOpacity>
             {showDeveloper && (
               <>
                 <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
-                <MenuItem 
-                  icon="📚" 
-                  label="API Documentation" 
+                <MenuItem
+                  icon="library-outline"
+                  label="API Documentation"
                   onPress={handleOpenAPI}
                   colors={colors}
                 />
                 <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
-                <MenuItem 
-                  icon="🔗" 
-                  label="API URL" 
+                <MenuItem
+                  icon="link-outline"
+                  label="API URL"
                   value={API_BASE_URL.replace('http://', '').replace('https://', '')}
                   colors={colors}
                 />
                 <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
-                <MenuItem 
-                  icon="🐛" 
-                  label="Test Sentry Error Reporting" 
+                <MenuItem
+                  icon="bug-outline"
+                  label="Test Sentry Error Reporting"
                   onPress={() => {
                     captureMessage('Test from Håfa Recipes Settings!', 'info', {
                       tags: { screen: 'settings', test: 'true' },
@@ -557,7 +565,7 @@ export default function SettingsScreen() {
           <SectionHeader title="About" />
           <Card>
             <RNView style={styles.aboutHeader}>
-              <Text style={styles.aboutEmoji}>🍳</Text>
+              <BrandMark size={58} style={{ backgroundColor: colors.backgroundSecondary }} />
               <RNView>
                 <Text style={[styles.aboutTitle, { color: colors.text }]}>
                   Håfa Recipes
@@ -567,16 +575,16 @@ export default function SettingsScreen() {
                 </Text>
               </RNView>
             </RNView>
-            
+
             <Divider />
-            
+
             <Text style={[styles.aboutDescription, { color: colors.textSecondary }]}>
-              Transform cooking videos from TikTok, YouTube, and Instagram into 
+              Transform cooking videos from TikTok, YouTube, and Instagram into
               detailed, structured recipes using AI.
             </Text>
-            
+
             <Divider />
-            
+
             <Text style={[styles.techLabel, { color: colors.textMuted }]}>
               Powered by
             </Text>
@@ -601,23 +609,23 @@ export default function SettingsScreen() {
         <RNView style={styles.section}>
           <SectionHeader title="Legal" />
           <RNView style={styles.menuGroup}>
-            <MenuItem 
-              icon="📜" 
-              label="Privacy Policy" 
+            <MenuItem
+              icon="document-text-outline"
+              label="Privacy Policy"
               onPress={() => Linking.openURL(PRIVACY_URL)}
               colors={colors}
             />
             <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
-            <MenuItem 
-              icon="💬" 
-              label="Support" 
+            <MenuItem
+              icon="chatbubble-ellipses-outline"
+              label="Support"
               onPress={() => Linking.openURL(SUPPORT_URL)}
               colors={colors}
             />
             <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
-            <MenuItem 
-              icon="🌐" 
-              label="Website" 
+            <MenuItem
+              icon="globe-outline"
+              label="Website"
               onPress={() => Linking.openURL(WEBSITE_URL)}
               colors={colors}
             />
@@ -652,9 +660,9 @@ export default function SettingsScreen() {
                 </RNView>
                 <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
               </TouchableOpacity>
-              
+
               <RNView style={[styles.accountDivider, { backgroundColor: colors.border }]} />
-              
+
               <TouchableOpacity
                 style={styles.accountActionRow}
                 onPress={handleDeleteAccount}
@@ -710,7 +718,7 @@ export default function SettingsScreen() {
         presentationStyle="pageSheet"
         onRequestClose={() => setShowProfileModal(false)}
       >
-        <KeyboardAvoidingView 
+        <KeyboardAvoidingView
           style={[styles.modalContainer, { backgroundColor: colors.background }]}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
@@ -720,7 +728,7 @@ export default function SettingsScreen() {
               <Text style={[styles.modalCancel, { color: colors.tint }]}>Cancel</Text>
             </TouchableOpacity>
             <Text style={[styles.modalTitle, { color: colors.text }]}>Edit Profile</Text>
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={handleSaveProfile}
               disabled={isSavingProfile}
             >
@@ -737,7 +745,7 @@ export default function SettingsScreen() {
             <RNView style={styles.inputGroup}>
               <Text style={[styles.inputLabel, { color: colors.textMuted }]}>First Name</Text>
               <TextInput
-                style={[styles.textInput, { 
+                style={[styles.textInput, {
                   backgroundColor: colors.backgroundSecondary,
                   color: colors.text,
                   borderColor: colors.border,
@@ -754,7 +762,7 @@ export default function SettingsScreen() {
             <RNView style={styles.inputGroup}>
               <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Last Name</Text>
               <TextInput
-                style={[styles.textInput, { 
+                style={[styles.textInput, {
                   backgroundColor: colors.backgroundSecondary,
                   color: colors.text,
                   borderColor: colors.border,
@@ -821,8 +829,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
   },
-  menuIcon: {
-    fontSize: 18,
+  menuIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   menuLabel: {
     fontSize: fontSize.md,
@@ -853,9 +865,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
   },
-  aboutEmoji: {
-    fontSize: 40,
-  },
+
   aboutTitle: {
     fontSize: fontSize.lg,
     fontWeight: fontWeight.semibold,

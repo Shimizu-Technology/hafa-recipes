@@ -26,9 +26,9 @@ import { View, Text, Input, Chip, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
 import FilterBottomSheet, { FilterState, SourceFilter, TimeFilter, MealTypeFilter } from '@/components/FilterBottomSheet';
 import AllContributorsModal from '@/components/AllContributorsModal';
-import { 
-  useDiscoverRecipes, 
-  useSearchPublicRecipes, 
+import {
+  useDiscoverRecipes,
+  useSearchPublicRecipes,
   usePublicRecipeCount,
   useIsRecipeSaved,
   useSaveRecipe,
@@ -61,12 +61,12 @@ import Animated, {
 const ITEMS_PER_PAGE = 20;
 
 // Save/Bookmark button component with heart pulse animation
-function SaveButton({ 
-  recipeId, 
+function SaveButton({
+  recipeId,
   colors,
   isOwner,
-}: { 
-  recipeId: string; 
+}: {
+  recipeId: string;
   colors: ReturnType<typeof useColors>;
   isOwner: boolean;
 }) {
@@ -74,34 +74,34 @@ function SaveButton({
   const saveMutation = useSaveRecipe();
   const unsaveMutation = useUnsaveRecipe();
   const scale = useSharedValue(1);
-  
+
   // Don't show save button for own recipes
   if (isOwner) return null;
-  
+
   const isSaved = savedStatus?.is_saved ?? false;
   const isPending = saveMutation.isPending || unsaveMutation.isPending;
-  
+
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
-  
+
   const handlePress = () => {
     if (isPending) return;
     haptics.medium();
-    
+
     // Pulse animation
     scale.value = withSequence(
       withSpring(1.4, { damping: 8, stiffness: 400 }),
       withSpring(1, { damping: 8, stiffness: 400 })
     );
-    
+
     if (isSaved) {
       unsaveMutation.mutate(recipeId);
     } else {
       saveMutation.mutate(recipeId);
     }
   };
-  
+
   if (isLoading) {
     return (
       <RNView style={styles.saveButton}>
@@ -109,18 +109,18 @@ function SaveButton({
       </RNView>
     );
   }
-  
+
   return (
-    <TouchableOpacity 
-      style={styles.saveButton} 
+    <TouchableOpacity
+      style={styles.saveButton}
       onPress={handlePress}
       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
     >
       <Animated.View style={animatedStyle}>
-        <Ionicons 
-          name={isSaved ? "heart" : "heart-outline"} 
-          size={22} 
-          color={isSaved ? colors.error : colors.textMuted} 
+        <Ionicons
+          name={isSaved ? "heart" : "heart-outline"}
+          size={22}
+          color={isSaved ? colors.error : colors.textMuted}
         />
       </Animated.View>
     </TouchableOpacity>
@@ -133,7 +133,7 @@ function formatRelativeTime(dateString: string): string {
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  
+
   if (diffDays === 0) return 'today';
   if (diffDays === 1) return 'yesterday';
   if (diffDays < 7) return `${diffDays} days ago`;
@@ -149,46 +149,46 @@ function formatRelativeTime(dateString: string): string {
   return years === 1 ? '1 year ago' : `${years} years ago`;
 }
 
-function RecipeCard({ 
-  recipe, 
+function RecipeCard({
+  recipe,
   onPress,
   onUserPress,
   colors,
   currentUserId,
-}: { 
-  recipe: RecipeListItem; 
+}: {
+  recipe: RecipeListItem;
   onPress: () => void;
   onUserPress?: (userId: string, userName: string) => void;
   colors: ReturnType<typeof useColors>;
   currentUserId?: string | null;
 }) {
   const [imageError, setImageError] = useState(false);
-  
-  const sourceIcon = recipe.source_type === 'tiktok' 
-    ? 'logo-tiktok' 
-    : recipe.source_type === 'youtube' 
-      ? 'logo-youtube' 
-      : recipe.source_type === 'instagram' 
+
+  const sourceIcon = recipe.source_type === 'tiktok'
+    ? 'logo-tiktok'
+    : recipe.source_type === 'youtube'
+      ? 'logo-youtube'
+      : recipe.source_type === 'instagram'
         ? 'logo-instagram'
         : recipe.source_type === 'website'
-          ? 'globe-outline' 
+          ? 'globe-outline'
         : recipe.source_type === 'manual'
           ? 'create-outline'
           : 'globe-outline';
 
   const showPlaceholder = !recipe.thumbnail_url || imageError;
   const isOwner = recipe.user_id === currentUserId;
-  
+
   // Format attribution text
   const relativeTime = formatRelativeTime(recipe.created_at);
-  const extractorName = isOwner 
-    ? 'you' 
+  const extractorName = isOwner
+    ? 'you'
     : recipe.extractor_display_name || null;
   const canFilterByUser = !isOwner && recipe.extractor_display_name && recipe.user_id;
 
   return (
-    <ScalePressable 
-      style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]} 
+    <ScalePressable
+      style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
       onPress={onPress}
     >
       {/* Thumbnail with gradient overlay */}
@@ -199,8 +199,8 @@ function RecipeCard({
           </RNView>
         ) : (
           <>
-            <Image 
-              source={{ uri: recipe.thumbnail_url! }} 
+            <Image
+              source={{ uri: recipe.thumbnail_url! }}
               style={styles.thumbnail}
               onError={() => setImageError(true)}
             />
@@ -218,27 +218,29 @@ function RecipeCard({
           </RNView>
         )}
       </RNView>
-      
+
       {/* Content */}
       <RNView style={styles.cardContent}>
         <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
           {recipe.title}
         </Text>
-        
+
         {/* Meta info */}
         <RNView style={styles.metaRow}>
           {recipe.total_time && (
-            <Text style={[styles.metaText, { color: colors.textSecondary }]}>
-              ⏱️ {recipe.total_time}
-            </Text>
+            <RNView style={styles.metaItem}>
+              <Ionicons name="time-outline" size={13} color={colors.textSecondary} />
+              <Text style={[styles.metaText, { color: colors.textSecondary }]}>{recipe.total_time}</Text>
+            </RNView>
           )}
           {recipe.servings && (
-            <Text style={[styles.metaText, { color: colors.textSecondary }]}>
-              👥 {recipe.servings}
-            </Text>
+            <RNView style={styles.metaItem}>
+              <Ionicons name="people-outline" size={13} color={colors.textSecondary} />
+              <Text style={[styles.metaText, { color: colors.textSecondary }]}>{recipe.servings}</Text>
+            </RNView>
           )}
         </RNView>
-        
+
         {/* Tags */}
         {recipe.tags.length > 0 && (
           <RNView style={styles.tagRow}>
@@ -252,7 +254,7 @@ function RecipeCard({
             )}
           </RNView>
         )}
-        
+
         {/* Footer */}
         <RNView style={styles.cardFooter}>
           <RNView style={styles.footerLeft}>
@@ -266,7 +268,7 @@ function RecipeCard({
               {canFilterByUser && onUserPress ? (
                 <>
                   <Text style={[styles.attributionText, { color: colors.textMuted }]}>by </Text>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     onPress={(e) => {
                       e.stopPropagation?.();
                       onUserPress(recipe.user_id!, recipe.extractor_display_name!);
@@ -298,14 +300,14 @@ function RecipeCard({
 }
 
 // Grid recipe card - square image with title overlay
-function GridRecipeCard({ 
-  recipe, 
+function GridRecipeCard({
+  recipe,
   onPress,
   onUserPress,
   colors,
   currentUserId,
-}: { 
-  recipe: RecipeListItem; 
+}: {
+  recipe: RecipeListItem;
   onPress: () => void;
   onUserPress?: (userId: string, userName: string) => void;
   colors: ReturnType<typeof useColors>;
@@ -313,14 +315,14 @@ function GridRecipeCard({
 }) {
   const [imageError, setImageError] = useState(false);
   const showPlaceholder = !recipe.thumbnail_url || imageError;
-  
+
   // Can filter by this user if they have a user_id and display name, and it's not the current user
   const canFilterByUser = recipe.user_id && recipe.extractor_display_name && recipe.user_id !== currentUserId;
   const isOwner = recipe.user_id === currentUserId;
 
   return (
-    <ScalePressable 
-      style={[styles.gridCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]} 
+    <ScalePressable
+      style={[styles.gridCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
       onPress={onPress}
     >
       {/* Full card is the image with overlay */}
@@ -330,13 +332,13 @@ function GridRecipeCard({
             <Ionicons name="restaurant-outline" size={40} color={colors.tint} />
           </RNView>
         ) : (
-          <Image 
-            source={{ uri: recipe.thumbnail_url! }} 
+          <Image
+            source={{ uri: recipe.thumbnail_url! }}
             style={styles.gridThumbnail}
             onError={() => setImageError(true)}
           />
         )}
-        
+
         {/* Cook time badge - top left */}
         {recipe.total_time && (
           <RNView style={[styles.gridTimeBadge, { backgroundColor: 'rgba(0,0,0,0.7)' }]}>
@@ -344,20 +346,20 @@ function GridRecipeCard({
             <Text style={styles.gridTimeText}>{recipe.total_time}</Text>
           </RNView>
         )}
-        
+
         {/* Save button - top right */}
         {currentUserId && (
           <RNView style={styles.gridSaveButtonContainer}>
             <SaveButton recipeId={recipe.id} colors={colors} isOwner={isOwner} />
           </RNView>
         )}
-        
+
         {/* Subtle gradient overlay at bottom for text readability */}
         <LinearGradient
           colors={['transparent', 'rgba(0,0,0,0.7)']}
           style={styles.gridOverlay}
         />
-        
+
         {/* Title and author overlaid on image */}
         <RNView style={styles.gridCardContent}>
           <Text style={styles.gridCardTitle} numberOfLines={2}>
@@ -365,7 +367,7 @@ function GridRecipeCard({
           </Text>
           {recipe.extractor_display_name && (
             canFilterByUser && onUserPress ? (
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={(e) => {
                   e.stopPropagation?.();
                   haptics.light();
@@ -400,13 +402,13 @@ export default function DiscoverScreen() {
   const [showAllContributors, setShowAllContributors] = useState(false);
   const [isRandomLoading, setIsRandomLoading] = useState(false);
   const [showSurpriseModal, setShowSurpriseModal] = useState(false);
-  
+
   // View preference (grid or list)
   const { viewMode, toggleViewMode, isGrid } = useViewPreference();
-  
+
   // User filter state (for "recipes by user" feature)
   const [selectedExtractor, setSelectedExtractor] = useState<{ id: string; name: string } | null>(null);
-  
+
   // @username search pattern detection
   const usernameSearchMatch = useMemo(() => {
     const match = searchQuery.match(/^@(.+)/);
@@ -415,7 +417,7 @@ export default function DiscoverScreen() {
     }
     return null;
   }, [searchQuery]);
-  
+
   // Filter state
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
@@ -423,40 +425,40 @@ export default function DiscoverScreen() {
   const [hideMyRecipes, setHideMyRecipes] = useState(false);
   const [sortOrder, setSortOrder] = useState<DiscoverSort>('recent');
   const [mealTypeFilter, setMealTypeFilter] = useState<MealTypeFilter>('all');
-  
+
   // Pass source filter to server-side queries
   const sourceTypeParam = sourceFilter === 'all' ? undefined : sourceFilter;
   const timeFilterParam = timeFilter === 'all' ? undefined : timeFilter;
   const mealTypeParam = mealTypeFilter === 'all' ? undefined : mealTypeFilter;
-  
+
   // Check if any filters are active (excluding search)
-  const activeFilterCount = 
-    (sourceFilter !== 'all' ? 1 : 0) + 
-    (timeFilter !== 'all' ? 1 : 0) + 
+  const activeFilterCount =
+    (sourceFilter !== 'all' ? 1 : 0) +
+    (timeFilter !== 'all' ? 1 : 0) +
     (mealTypeFilter !== 'all' ? 1 : 0) +
     selectedTags.length +
     (selectedExtractor ? 1 : 0);
-  
+
   // Check if search or filters are active
   const hasActiveFilters = searchQuery.length > 0 || activeFilterCount > 0 || !!selectedExtractor;
-  
+
   // Only fetch when authenticated
   const isAuthenticated = !!isSignedIn;
-  
+
   // Discover recipes with infinite scroll
-  const { 
-    recipes, 
+  const {
+    recipes,
     total: recipesTotal,
-    isLoading, 
-    refetch, 
+    isLoading,
+    refetch,
     isRefetching,
     fetchNextPage,
     hasNextPage: hasMoreRecipes,
     isFetchingNextPage,
   } = useDiscoverRecipes(sourceTypeParam, isAuthenticated, sortOrder, mealTypeParam);
-  
+
   // Search/filter results (when filters are active)
-  const { 
+  const {
     recipes: searchResults,
     total: searchTotal,
     fetchNextPage: fetchNextSearchResults,
@@ -472,23 +474,23 @@ export default function DiscoverScreen() {
     extractorName: selectedExtractor?.name,
     mealType: mealTypeParam,
   }, isAuthenticated);
-  
+
   const { data: countData } = usePublicRecipeCount(sourceTypeParam, isAuthenticated);
-  
+
   // Popular tags from all public recipes
   const { data: popularTags } = usePopularTags('public', isAuthenticated);
-  
+
   // Top contributors (users with most public recipes)
   const { data: topContributors } = useTopContributors(isAuthenticated);
-  
+
   // Filter contributors based on @username search
   const matchingContributors = useMemo(() => {
     if (!usernameSearchMatch || !topContributors) return [];
-    return topContributors.filter(c => 
+    return topContributors.filter(c =>
       c.display_name.toLowerCase().includes(usernameSearchMatch)
     ).slice(0, 5); // Limit to 5 suggestions
   }, [usernameSearchMatch, topContributors]);
-  
+
   // Handle filter apply
   const handleApplyFilters = useCallback((filters: FilterState) => {
     setSourceFilter(filters.sourceFilter);
@@ -515,10 +517,10 @@ export default function DiscoverScreen() {
   // - For text search: ONLY use server results (local can't search ingredients)
   // - For other filters: use optimistic local filtering while server loads
   const hasTextSearch = !!searchQuery?.trim();
-  
+
   const filteredRecipes = useMemo(() => {
     let result: RecipeListItem[] | undefined;
-    
+
     if (hasTextSearch) {
       // Text search MUST use server results - local filter can't search ingredients
       result = searchResults;
@@ -529,17 +531,17 @@ export default function DiscoverScreen() {
       // No filters - use the discover results
       result = recipes;
     }
-    
+
     // Filter out user's own recipes if toggle is on
     if (hideMyRecipes && userId && result) {
       result = result.filter(recipe => recipe.user_id !== userId);
     }
-    
+
     return result;
   }, [hasTextSearch, hasActiveFilters, recipes, searchResults, currentFilters, hideMyRecipes, userId]);
 
   const displayRecipes = filteredRecipes?.slice(0, displayCount);
-  
+
   // Determine if there's more to load - either from server or locally
   const hasMoreLocal = filteredRecipes && displayCount < filteredRecipes.length;
   const hasMoreServer = hasActiveFilters ? hasMoreSearchResults : hasMoreRecipes;
@@ -580,7 +582,7 @@ export default function DiscoverScreen() {
     setSelectedExtractor({ id: extractorId, name: extractorName });
     setDisplayCount(ITEMS_PER_PAGE); // Reset pagination
   }, []);
-  
+
   const clearExtractorFilter = useCallback(() => {
     setSelectedExtractor(null);
     setDisplayCount(ITEMS_PER_PAGE);
@@ -659,7 +661,7 @@ export default function DiscoverScreen() {
           <ActivityIndicator size="small" color={colors.tint} style={{ marginLeft: spacing.sm }} />
         )}
       </RNView>
-      
+
       {/* View toggle button */}
       <TouchableOpacity
         style={[styles.viewToggleButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
@@ -669,10 +671,10 @@ export default function DiscoverScreen() {
         }}
         activeOpacity={0.7}
       >
-        <Ionicons 
-          name={isGrid ? 'list-outline' : 'grid-outline'} 
-          size={18} 
-          color={colors.tint} 
+        <Ionicons
+          name={isGrid ? 'list-outline' : 'grid-outline'}
+          size={18}
+          color={colors.tint}
         />
       </TouchableOpacity>
     </RNView>
@@ -681,13 +683,13 @@ export default function DiscoverScreen() {
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
       <RNView style={[styles.emptyIconContainer, { backgroundColor: colors.tint + '15' }]}>
-        <Text style={styles.emptyEmoji}>🌍</Text>
+        <Ionicons name="globe-outline" size={46} color={colors.tint} />
       </RNView>
       <Text style={[styles.emptyTitle, { color: colors.text }]}>
         No recipes found
       </Text>
       <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-        {hasActiveFilters 
+        {hasActiveFilters
           ? 'Try adjusting your filters or search term'
           : 'Be the first to share a recipe with the community!'}
       </Text>
@@ -696,14 +698,14 @@ export default function DiscoverScreen() {
 
   const ListFooter = () => {
     if (!hasMore) return null;
-    
-    const remaining = hasMoreLocal && filteredRecipes 
-      ? filteredRecipes.length - displayCount 
+
+    const remaining = hasMoreLocal && filteredRecipes
+      ? filteredRecipes.length - displayCount
       : (hasMoreServer ? '...' : 0);
-    
+
     return (
       <RNView style={styles.footerContainer}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.loadMoreButton, { borderColor: colors.border }]}
           onPress={handleLoadMore}
           activeOpacity={0.7}
@@ -738,7 +740,7 @@ export default function DiscoverScreen() {
         showHideMyRecipes={!!isSignedIn}
         showMealTypeFilter
       />
-      
+
       {/* Surprise Me Modal */}
       <Modal
         visible={showSurpriseModal}
@@ -746,11 +748,11 @@ export default function DiscoverScreen() {
         animationType="fade"
         onRequestClose={() => setShowSurpriseModal(false)}
       >
-        <Pressable 
+        <Pressable
           style={styles.surpriseModalOverlay}
           onPress={() => setShowSurpriseModal(false)}
         >
-          <Pressable 
+          <Pressable
             style={[styles.surpriseModalContent, { backgroundColor: colors.card }]}
             onPress={(e) => e.stopPropagation()}
           >
@@ -760,71 +762,71 @@ export default function DiscoverScreen() {
                 Surprise Me With...
               </Text>
             </RNView>
-            
+
             <RNView style={styles.surpriseModalOptions}>
               <TouchableOpacity
                 style={[styles.surpriseOption, { backgroundColor: colors.warning + '15' }]}
                 onPress={() => handleRandomRecipe(undefined)}
               >
-                <Text style={styles.surpriseOptionEmoji}>🎲</Text>
+                <Ionicons name="shuffle" size={24} color={colors.warning} style={styles.surpriseOptionIcon} />
                 <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
                   Anything! (Fully Random)
                 </Text>
               </TouchableOpacity>
-              
+
               <RNView style={[styles.surpriseDivider, { backgroundColor: colors.border }]} />
-              
+
               <TouchableOpacity
                 style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
                 onPress={() => handleRandomRecipe('breakfast')}
               >
-                <Text style={styles.surpriseOptionEmoji}>🌅</Text>
+                <Ionicons name="sunny-outline" size={24} color={colors.tint} style={styles.surpriseOptionIcon} />
                 <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
                   Random Breakfast
                 </Text>
               </TouchableOpacity>
-              
+
               <TouchableOpacity
                 style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
                 onPress={() => handleRandomRecipe('lunch')}
               >
-                <Text style={styles.surpriseOptionEmoji}>🥪</Text>
+                <Ionicons name="cafe-outline" size={24} color={colors.tint} style={styles.surpriseOptionIcon} />
                 <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
                   Random Lunch
                 </Text>
               </TouchableOpacity>
-              
+
               <TouchableOpacity
                 style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
                 onPress={() => handleRandomRecipe('dinner')}
               >
-                <Text style={styles.surpriseOptionEmoji}>🍽️</Text>
+                <Ionicons name="restaurant-outline" size={24} color={colors.tint} style={styles.surpriseOptionIcon} />
                 <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
                   Random Dinner
                 </Text>
               </TouchableOpacity>
-              
+
               <TouchableOpacity
                 style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
                 onPress={() => handleRandomRecipe('snack')}
               >
-                <Text style={styles.surpriseOptionEmoji}>🍿</Text>
+                <Ionicons name="nutrition-outline" size={24} color={colors.tint} style={styles.surpriseOptionIcon} />
                 <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
                   Random Snack
                 </Text>
               </TouchableOpacity>
-              
+
               <TouchableOpacity
                 style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
                 onPress={() => handleRandomRecipe('dessert')}
               >
-                <Text style={styles.surpriseOptionEmoji}>🍰</Text>
+                <Ionicons name="ice-cream-outline" size={24} color={colors.tint} style={styles.surpriseOptionIcon} />
                 <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
                   Random Dessert
                 </Text>
               </TouchableOpacity>
             </RNView>
-            
+
             <TouchableOpacity
               style={[styles.surpriseCancelButton, { borderColor: colors.border }]}
               onPress={() => setShowSurpriseModal(false)}
@@ -836,14 +838,14 @@ export default function DiscoverScreen() {
           </Pressable>
         </Pressable>
       </Modal>
-      
+
       {/* Fixed header with search - outside FlatList to prevent focus loss */}
       <RNView style={styles.header}>
         <ListHeaderTitle />
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
           Browse recipes shared by the community
         </Text>
-        
+
         {/* Search + Filter row */}
         <RNView style={styles.searchRow}>
           <RNView style={styles.searchInputContainer}>
@@ -877,7 +879,7 @@ export default function DiscoverScreen() {
             )}
           </TouchableOpacity>
         </RNView>
-        
+
         {/* Discovery Actions Row */}
         <RNView style={styles.discoveryRow}>
           <TouchableOpacity
@@ -900,7 +902,7 @@ export default function DiscoverScreen() {
               </>
             )}
           </TouchableOpacity>
-          
+
           <TouchableOpacity
             style={[styles.discoveryButton, { backgroundColor: colors.tint + '15' }]}
             onPress={() => {
@@ -915,7 +917,7 @@ export default function DiscoverScreen() {
             </Text>
           </TouchableOpacity>
         </RNView>
-        
+
         {/* @username search suggestions */}
         {usernameSearchMatch && matchingContributors.length > 0 && (
           <RNView style={[styles.usernameSuggestions, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
@@ -946,12 +948,12 @@ export default function DiscoverScreen() {
             ))}
           </RNView>
         )}
-        
+
         {/* Active filters summary */}
         {activeFilterCount > 0 && (
           <RNView style={styles.activeFiltersRow}>
             {selectedExtractor && (
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.activeFilterChip, styles.extractorFilterChip, { backgroundColor: colors.tint }]}
                 onPress={clearExtractorFilter}
               >
@@ -996,7 +998,7 @@ export default function DiscoverScreen() {
             </TouchableOpacity>
           </RNView>
         )}
-        
+
         {/* Search loading indicator - shows when server is fetching more results */}
         {hasTextSearch && isDiscoverSearchFetching && (
           <RNView style={styles.searchLoadingRow}>
@@ -1006,7 +1008,7 @@ export default function DiscoverScreen() {
             </Text>
           </RNView>
         )}
-        
+
         {/* Top Contributors - hide when searching to reduce clutter */}
         {!hasTextSearch && topContributors && topContributors.length > 0 && (
           <RNView style={styles.contributorsSection}>
@@ -1014,7 +1016,7 @@ export default function DiscoverScreen() {
               <Text style={[styles.contributorsSectionTitle, { color: colors.textMuted }]}>
                 Top Contributors
               </Text>
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={() => {
                   haptics.light();
                   setShowAllContributors(true);
@@ -1024,8 +1026,8 @@ export default function DiscoverScreen() {
                 <Text style={[styles.seeAllText, { color: colors.tint }]}>See All</Text>
               </TouchableOpacity>
             </RNView>
-            <ScrollView 
-              horizontal 
+            <ScrollView
+              horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.contributorsScroll}
               keyboardShouldPersistTaps="handled"
@@ -1037,9 +1039,9 @@ export default function DiscoverScreen() {
                     key={contributor.user_id}
                     style={[
                       styles.contributorChip,
-                      { 
-                        backgroundColor: isSelected ? colors.tint : colors.backgroundSecondary, 
-                        borderColor: isSelected ? colors.tint : colors.border 
+                      {
+                        backgroundColor: isSelected ? colors.tint : colors.backgroundSecondary,
+                        borderColor: isSelected ? colors.tint : colors.border
                       }
                     ]}
                     onPress={() => {
@@ -1053,24 +1055,24 @@ export default function DiscoverScreen() {
                     }}
                     activeOpacity={0.7}
                   >
-                    <Ionicons 
-                      name="person-circle-outline" 
-                      size={18} 
-                      color={isSelected ? '#FFFFFF' : colors.textSecondary} 
+                    <Ionicons
+                      name="person-circle-outline"
+                      size={18}
+                      color={isSelected ? '#FFFFFF' : colors.textSecondary}
                     />
                     <RNView style={styles.contributorInfo}>
-                      <Text 
+                      <Text
                         style={[
-                          styles.contributorName, 
+                          styles.contributorName,
                           { color: isSelected ? '#FFFFFF' : colors.text }
                         ]}
                         numberOfLines={1}
                       >
                         {contributor.display_name}
                       </Text>
-                      <Text 
+                      <Text
                         style={[
-                          styles.contributorCount, 
+                          styles.contributorCount,
                           { color: isSelected ? 'rgba(255,255,255,0.8)' : colors.textMuted }
                         ]}
                       >
@@ -1084,7 +1086,7 @@ export default function DiscoverScreen() {
           </RNView>
         )}
       </RNView>
-      
+
       {(isLoading || (hasTextSearch && isDiscoverSearchFetching)) && !displayRecipes?.length ? (
         <SkeletonRecipeList count={5} />
       ) : (
@@ -1102,18 +1104,18 @@ export default function DiscoverScreen() {
           keyboardShouldPersistTaps="handled"
           onScrollBeginDrag={Keyboard.dismiss}
           refreshControl={
-            <RefreshControl 
-              refreshing={isRefetching} 
+            <RefreshControl
+              refreshing={isRefetching}
               onRefresh={handleRefresh}
               tintColor={colors.tint}
             />
           }
         />
       )}
-      
+
       {/* Sign In Banner for guests - shows save prompt */}
       {!isSignedIn && <SignInBanner message="Sign in to save recipes" />}
-      
+
       {/* All Contributors Modal */}
       <AllContributorsModal
         visible={showAllContributors}
@@ -1528,8 +1530,14 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     marginTop: spacing.xs,
   },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   metaText: {
     fontSize: fontSize.xs,
+    fontFamily: fontFamily.medium,
   },
   tagRow: {
     flexDirection: 'row',
@@ -1654,8 +1662,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     gap: spacing.md,
   },
-  surpriseOptionEmoji: {
-    fontSize: 24,
+  surpriseOptionIcon: {
     width: 32,
     textAlign: 'center',
   },

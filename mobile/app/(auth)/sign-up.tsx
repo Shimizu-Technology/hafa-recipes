@@ -16,7 +16,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Input, Button, useColors } from '@/components/Themed';
-import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { BrandMark } from '@/components/BrandMark';
+import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 
 // Required for OAuth to work properly (for Apple Sign-In)
 WebBrowser.maybeCompleteAuthSession();
@@ -33,7 +34,7 @@ export default function SignUpScreen() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  
+
   const [firstName, setFirstName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -51,7 +52,7 @@ export default function SignUpScreen() {
   const handleEmailSignUp = async () => {
     if (!isLoaded) return;
     setErrorMessage(null);
-    
+
     if (!email.trim() || !password.trim()) {
       setErrorMessage('Please enter your email and password.');
       return;
@@ -135,11 +136,11 @@ export default function SignUpScreen() {
   const handleAppleSignUp = useCallback(async () => {
     if (!isLoaded) return;
     setErrorMessage(null);
-    
+
     setIsLoading(true);
     try {
       const redirectUrl = Linking.createURL('oauth-callback');
-      
+
       const { createdSessionId, setActive: ssoSetActive, signIn: ssoSignIn, signUp: ssoSignUp } = await startSSOFlow({
         strategy: 'oauth_apple',
         redirectUrl,
@@ -171,12 +172,12 @@ export default function SignUpScreen() {
   const handleGoogleSignUp = useCallback(async () => {
     if (!isLoaded) return;
     setErrorMessage(null);
-    
+
     setIsLoading(true);
     try {
       // Use web-based SSO on all platforms
       const redirectUrl = Linking.createURL('oauth-callback');
-      
+
       const { createdSessionId, setActive: ssoSetActive, signIn: ssoSignIn, signUp: ssoSignUp } = await startSSOFlow({
         strategy: 'oauth_google',
         redirectUrl,
@@ -192,7 +193,7 @@ export default function SignUpScreen() {
       }
     } catch (error: any) {
       console.log('Google Sign-Up error:', error);
-      
+
       // Handle Clerk errors
       const clerkError = error.errors?.[0];
       if (clerkError?.code === 'session_exists') {
@@ -228,10 +229,11 @@ export default function SignUpScreen() {
           </TouchableOpacity>
 
           <RNView style={styles.header}>
-            <RNView style={[styles.logoContainer, { backgroundColor: colors.tint + '15' }]}>
-              <Ionicons name="mail-outline" size={40} color={colors.tint} />
+            <RNView style={[styles.logoContainer, { backgroundColor: colors.accentSoft }]}>
+              <Ionicons name="mail-outline" size={38} color={colors.accent} />
             </RNView>
-            <Text style={[styles.title, { color: colors.text }]}>Check Your Email</Text>
+            <Text style={[styles.eyebrow, { color: colors.tint }]}>Almost there</Text>
+            <Text style={[styles.title, { color: colors.text }]}>Check your email</Text>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
               We sent a verification code to {email}
             </Text>
@@ -299,12 +301,11 @@ export default function SignUpScreen() {
 
           {/* Logo / Header */}
           <RNView style={styles.header}>
-            <RNView style={[styles.logoContainer, { backgroundColor: colors.tint + '15' }]}>
-              <Text style={styles.logoEmoji}>🍳</Text>
-            </RNView>
-            <Text style={[styles.title, { color: colors.text }]}>Create Account</Text>
+            <BrandMark size={86} style={{ backgroundColor: colors.backgroundSecondary }} />
+            <Text style={[styles.eyebrow, { color: colors.tint }]}>Håfa Recipes</Text>
+            <Text style={[styles.title, { color: colors.text }]}>Create account</Text>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-              Start extracting recipes from videos
+              Build a smarter recipe library from videos, websites, photos, and family favorites.
             </Text>
           </RNView>
 
@@ -477,17 +478,22 @@ const styles = StyleSheet.create({
   logoContainer: {
     width: 80,
     height: 80,
-    borderRadius: 20,
+    borderRadius: radius.xl,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: spacing.lg,
   },
-  logoEmoji: {
-    fontSize: 40,
+  eyebrow: {
+    fontSize: fontSize.xs,
+    fontFamily: fontFamily.semibold,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginTop: spacing.lg,
+    marginBottom: spacing.xs,
   },
   title: {
-    fontSize: fontSize.xxl,
-    fontWeight: fontWeight.bold,
+    fontSize: fontSize.xxxl,
+    fontFamily: fontFamily.display,
     marginBottom: spacing.xs,
   },
   subtitle: {
@@ -504,7 +510,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
     paddingVertical: spacing.md,
-    borderRadius: radius.md,
+    borderRadius: radius.full,
     borderWidth: 1,
   },
   oauthButtonText: {

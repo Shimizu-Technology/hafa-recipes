@@ -401,25 +401,25 @@ export default function RecipeDetailScreen() {
     if (!recipe) return '';
     const { extracted } = recipe;
     
-    let text = `🍳 ${extracted.title}\n`;
+    let text = `${extracted.title}\n`;
     text += '━'.repeat(30) + '\n\n';
     
     // Meta info
     const metaParts: string[] = [];
-    if (extracted.servings) metaParts.push(`👥 ${extracted.servings} servings`);
-    if (extracted.times?.total) metaParts.push(`⏱️ ${extracted.times.total}`);
-    if (extracted.totalEstimatedCost) metaParts.push(`💰 $${extracted.totalEstimatedCost.toFixed(2)}`);
+    if (extracted.servings) metaParts.push(`${extracted.servings} servings`);
+    if (extracted.times?.total) metaParts.push(`${extracted.times.total}`);
+    if (extracted.totalEstimatedCost) metaParts.push(`$${extracted.totalEstimatedCost.toFixed(2)}`);
     if (metaParts.length > 0) {
       text += metaParts.join('  •  ') + '\n\n';
     }
     
     // Tags
     if (extracted.tags.length > 0) {
-      text += `🏷️ ${extracted.tags.join(', ')}\n\n`;
+      text += `Tags: ${extracted.tags.join(', ')}\n\n`;
     }
     
     // Ingredients
-    text += '📝 INGREDIENTS\n';
+    text += 'INGREDIENTS\n';
     text += '─'.repeat(20) + '\n';
     extracted.components.forEach((component, compIndex) => {
       if (extracted.components.length > 1 && component.name) {
@@ -437,7 +437,7 @@ export default function RecipeDetailScreen() {
     text += '\n';
     
     // Steps
-    text += '👨‍🍳 INSTRUCTIONS\n';
+    text += 'INSTRUCTIONS\n';
     text += '─'.repeat(20) + '\n';
     let stepNum = 1;
     extracted.components.forEach((component) => {
@@ -476,7 +476,7 @@ export default function RecipeDetailScreen() {
     // Source
     text += '\n' + '━'.repeat(30) + '\n';
     text += `📺 Source: ${recipe.source_url}\n`;
-    text += `Extracted with Håfa Recipes 🧑‍🍳`;
+    text += `Extracted with Håfa Recipes`;
     
     return text;
   };
@@ -655,7 +655,7 @@ export default function RecipeDetailScreen() {
                     <Ionicons name="remove" size={16} color={colors.tint} />
                   </TouchableOpacity>
                   <RNView style={styles.servingsDisplay}>
-                    <Text style={styles.metaIcon}>👥</Text>
+                    <Ionicons name="people-outline" size={18} color={colors.tint} />
                     <Text style={[styles.metaValue, { color: isScaled ? colors.tint : colors.text }]}>
                       {currentServings}
                     </Text>
@@ -683,7 +683,7 @@ export default function RecipeDetailScreen() {
               )}
               {extracted.times?.total && (
                 <RNView style={[styles.metaItem, { backgroundColor: colors.backgroundSecondary }]}>
-                  <Text style={styles.metaIcon}>⏱️</Text>
+                  <Ionicons name="time-outline" size={18} color={colors.tint} />
                   <Text style={[styles.metaValue, { color: colors.text }]}>
                     {extracted.times.total}
                   </Text>
@@ -691,7 +691,7 @@ export default function RecipeDetailScreen() {
               )}
               {extracted.totalEstimatedCost && (
                 <RNView style={[styles.metaItem, { backgroundColor: colors.backgroundSecondary }]}>
-                  <Text style={styles.metaIcon}>💰</Text>
+                  <Ionicons name="cash-outline" size={18} color={colors.tint} />
                   <Text style={[styles.metaValue, { color: colors.text }]}>
                     ${extracted.totalEstimatedCost.toFixed(2)}
                   </Text>
@@ -703,13 +703,13 @@ export default function RecipeDetailScreen() {
             {extracted.lowConfidence ? (
               <RNView style={[styles.qualityBadge, { backgroundColor: '#fef3c7' }]}>
                 <Text style={[styles.qualityText, { color: '#92400e' }]}>
-                  ⚠️ Needs Review · Some details may be inaccurate
+                  Needs review · Some details may be inaccurate
                 </Text>
               </RNView>
             ) : recipe.has_audio_transcript && (
               <RNView style={[styles.qualityBadge, { backgroundColor: colors.success + '15' }]}>
                 <Text style={[styles.qualityText, { color: colors.success }]}>
-                  🔬 High Quality · Audio Transcribed
+                  High quality · Audio transcribed
                 </Text>
               </RNView>
             )}
@@ -1058,7 +1058,7 @@ export default function RecipeDetailScreen() {
                   {/* Empty state for no nutrition data */}
                   {!hasNutritionData && (
                     <RNView style={styles.emptyNutritionState}>
-                      <Text style={[styles.emptyNutritionIcon]}>🥗</Text>
+                      <Ionicons name="nutrition-outline" size={40} color={colors.textMuted} />
                       <Text style={[styles.emptyNutritionTitle, { color: colors.text }]}>
                         No Nutrition Data
                       </Text>
@@ -1428,9 +1428,9 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
   title: {
-    fontSize: fontSize.xxl,
-    fontFamily: fontFamily.bold,
-    lineHeight: 34,
+    fontSize: fontSize.xxxl,
+    fontFamily: fontFamily.display,
+    lineHeight: 42,
     marginBottom: spacing.md,
   },
   metaRow: {
@@ -1445,7 +1445,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderRadius: radius.md,
+    borderRadius: radius.full,
   },
   metaIcon: {
     fontSize: 16,
@@ -1464,7 +1464,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
-    borderRadius: radius.md,
+    borderRadius: radius.full,
   },
   scaleButton: {
     width: 28,
@@ -1485,8 +1485,8 @@ const styles = StyleSheet.create({
   },
   // Notes section
   notesSection: {
-    padding: spacing.md,
-    borderRadius: radius.md,
+    padding: spacing.lg,
+    borderRadius: radius.xl,
     marginBottom: spacing.lg,
   },
   notesTitleRow: {

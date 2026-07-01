@@ -292,7 +292,7 @@ export default function CookModeScreen() {
       });
       
       if (restoredTimers.size > 0) {
-        console.log(`⏱️ Restored ${restoredTimers.size} timer(s) from previous session`);
+        console.log(`Restored ${restoredTimers.size} timer(s) from previous session`);
         setActiveTimers(restoredTimers);
       }
     }
@@ -405,7 +405,7 @@ export default function CookModeScreen() {
         nextAppState === 'active'
       ) {
         // App has come to foreground - sync timer remaining times
-        console.log('📱 App foregrounded - syncing timers');
+        console.log('App foregrounded - syncing timers');
         setActiveTimers(prev => {
           const newTimers = new Map(prev);
           let changed = false;
@@ -419,7 +419,7 @@ export default function CookModeScreen() {
               if (actualRemaining !== timer.remaining) {
                 newTimers.set(stepIndex, { ...timer, remaining: actualRemaining });
                 changed = true;
-                console.log(`⏱️ Synced step ${stepIndex}: ${timer.remaining}s → ${actualRemaining}s`);
+                console.log(`Synced step ${stepIndex}: ${timer.remaining}s → ${actualRemaining}s`);
               }
               
               // If timer completed while in background

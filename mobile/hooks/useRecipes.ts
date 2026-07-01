@@ -1021,7 +1021,7 @@ export function useSaveOcrRecipe() {
       // Invalidate recipe list queries to include the new recipe
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
       queryClient.invalidateQueries({ queryKey: ['myRecipes'] });
-      console.log('✅ OCR recipe saved successfully:', data.id);
+      console.log('OCR recipe saved successfully:', data.id);
     },
     onError: () => {
       // Error handled by caller with Alert

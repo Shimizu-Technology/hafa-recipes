@@ -75,7 +75,7 @@ export function useGroceryList(includeChecked = true, isSignedIn = true) {
         console.log('📥 API fetch failed, trying cache fallback');
         const cached = await getCachedGroceryList();
         if (cached && cached.length > 0) {
-          console.log(`📦 Using cached data (${cached.length} items)`);
+          console.log(`Using cached data (${cached.length} items)`);
           return includeChecked ? cached : cached.filter(item => !item.checked);
         }
         // No cache available - re-throw the error
