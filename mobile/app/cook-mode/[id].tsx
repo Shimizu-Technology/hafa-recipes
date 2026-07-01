@@ -330,7 +330,7 @@ export default function CookModeScreen() {
           const stepIndex = parseInt(savedStep, 10);
           // Only restore if valid and not the first step (no point restoring step 0)
           if (!isNaN(stepIndex) && stepIndex > 0 && stepIndex < steps.length) {
-            console.log(`📍 Resuming cook mode at step ${stepIndex + 1}`);
+            console.log(`Resuming cook mode at step ${stepIndex + 1}`);
             setCurrentStepIndex(stepIndex);
           }
         }
@@ -967,7 +967,12 @@ export default function CookModeScreen() {
       >
         <RNView style={styles.modalOverlay}>
           <RNView style={styles.completeCard}>
-            <Text style={styles.completeEmoji}>🎉</Text>
+            <Ionicons
+              name="checkmark-circle"
+              size={64}
+              color="#FF6B35"
+              style={styles.completeIcon}
+            />
             <Text style={styles.completeTitle}>Recipe Complete!</Text>
             <Text style={styles.completeSubtitle}>{recipe.extracted.title}</Text>
             <Text style={styles.completeMessage}>
@@ -1515,8 +1520,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2a2a2a',
   },
-  completeEmoji: {
-    fontSize: 64,
+  completeIcon: {
     marginBottom: spacing.md,
   },
   completeTitle: {

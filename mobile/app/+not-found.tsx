@@ -13,7 +13,7 @@ export default function NotFoundScreen() {
   // The share intent handler will pick up the URL there
   useEffect(() => {
     if (hasShareIntent) {
-      console.log('📥 Share intent detected on not-found, redirecting to home...');
+      console.log('Share intent detected on not-found, redirecting to home...');
       router.replace('/');
     }
   }, [hasShareIntent, router]);

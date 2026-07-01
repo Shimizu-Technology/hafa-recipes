@@ -532,7 +532,7 @@ export default function GroceryScreen() {
     
     // Format items with simple list style
     const formatItem = (item: GroceryItem) => {
-      const marker = item.checked ? '✓' : '-';
+      const marker = item.checked ? '[x]' : '[ ]';
       const qty = item.quantity && item.quantity !== 'null' ? item.quantity : '';
       const unit = item.unit && item.unit !== 'null' ? item.unit : '';
       const qtyUnit = qty ? `${qty}${unit ? ' ' + unit : ''} ` : '';

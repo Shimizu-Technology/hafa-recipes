@@ -51,7 +51,7 @@ export function useGroceryList(includeChecked = true, isSignedIn = true) {
       
       if (confirmedOffline) {
         // Confirmed offline - use cache
-        console.log('📴 Offline mode: using cached grocery list');
+        console.log('Offline mode: using cached grocery list');
         const cached = await getCachedGroceryList();
         if (cached) {
           return includeChecked ? cached : cached.filter(item => !item.checked);
@@ -72,7 +72,7 @@ export function useGroceryList(includeChecked = true, isSignedIn = true) {
       } catch (error) {
         // If API fails (timeout, server error, etc.), fall back to cache
         // This prevents showing an error screen when we have usable cached data
-        console.log('📥 API fetch failed, trying cache fallback');
+        console.log('API fetch failed, trying cache fallback');
         const cached = await getCachedGroceryList();
         if (cached && cached.length > 0) {
           console.log(`Using cached data (${cached.length} items)`);
@@ -111,7 +111,7 @@ export function useGroceryCount(isSignedIn = true) {
       const confirmedOffline = isApiReachable === false;
       
       if (confirmedOffline) {
-        console.log('📴 Offline mode: using cached grocery count');
+        console.log('Offline mode: using cached grocery count');
         const cached = await getCachedGroceryCount();
         if (cached) {
           return cached;

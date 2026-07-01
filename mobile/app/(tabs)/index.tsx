@@ -52,7 +52,7 @@ export default function ExtractScreen() {
   // Handle shared URL from iOS Share Extension
   useEffect(() => {
     if (sharedUrl && sharedUrl !== url) {
-      console.log('📥 Setting shared URL:', sharedUrl);
+      console.log('Setting shared URL:', sharedUrl);
       setUrl(sharedUrl);
       // Clear the param by navigating to same screen without params
       router.setParams({ sharedUrl: undefined });
@@ -318,7 +318,7 @@ export default function ExtractScreen() {
         } else {
           // Someone else has already extracted this (public recipe)
           Alert.alert(
-            'Recipe Already Extracted! 🎉',
+            'Recipe Already Extracted!',
             `"${duplicate.title}" is already in our library. View it instantly instead of waiting for extraction!`,
             [
               {
@@ -461,7 +461,7 @@ export default function ExtractScreen() {
           <Text style={[styles.galleryHint, { color: colors.textMuted }]}>
             {selectedImages.length === 1
               ? 'Add more images for multi-page recipes'
-              : `📄 ${selectedImages.length} pages will be combined into one recipe`}
+              : `${selectedImages.length} pages will be combined into one recipe`}
           </Text>
 
           {/* Extract Button */}

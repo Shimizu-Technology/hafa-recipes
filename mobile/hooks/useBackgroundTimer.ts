@@ -130,7 +130,7 @@ export function useBackgroundTimer() {
       try {
         await Notifications.cancelScheduledNotificationAsync(scheduled.notificationId);
         scheduledNotifications.current.delete(stepIndex);
-        console.log(`🚫 Cancelled notification for step ${stepIndex}`);
+        console.log(`Cancelled notification for step ${stepIndex}`);
       } catch (error) {
         console.error('Failed to cancel notification:', error);
       }
@@ -149,7 +149,7 @@ export function useBackgroundTimer() {
     });
     await Promise.all(promises);
     scheduledNotifications.current.clear();
-    console.log('🚫 Cancelled all timer notifications');
+    console.log('Cancelled all timer notifications');
   }, []);
 
   /**

@@ -19,7 +19,7 @@ const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN || '';
 export function initSentry() {
   if (!SENTRY_DSN) {
     if (__DEV__) {
-      console.log('📊 Sentry: No DSN configured, skipping initialization');
+      console.log('Sentry: No DSN configured, skipping initialization');
     }
     return;
   }
@@ -75,7 +75,7 @@ export function initSentry() {
   });
 
   if (__DEV__) {
-    console.log('📊 Sentry: Initialized (disabled in development)');
+    console.log('Sentry: Initialized (disabled in development)');
   }
 }
 

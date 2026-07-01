@@ -50,7 +50,7 @@ function getApiBaseUrl(): string {
   
   if (debuggerHost) {
     const host = debuggerHost.split(':')[0]; // Remove port
-    console.log(`📡 Using local API at: http://${host}:8000`);
+    console.log(`Using local API at: http://${host}:8000`);
     return `http://${host}:8000`;
   }
   

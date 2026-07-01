@@ -54,7 +54,7 @@ export function useHandleShareIntent() {
       const sharedUrl = extractUrlFromIntent(shareIntent);
       
       if (sharedUrl) {
-        console.log('📥 Share Intent received:', sharedUrl);
+        console.log('Share Intent received:', sharedUrl);
         
         // Navigate to the extract tab (index) with the URL
         // We use replace to avoid having a weird back stack

@@ -325,8 +325,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     // For immediate display, show local URI (will be replaced with S3 URL)
     const userMessage: ChatMessage = { 
       role: 'user', 
-      content: hadImage 
-        ? (messageText ? `📷 ${messageText}` : '📷 [Photo attached]')
+      content: hadImage
+        ? (messageText ? `Photo: ${messageText}` : '[Photo attached]')
         : messageText,
       image_url: imageUriForDisplay || undefined,
     };

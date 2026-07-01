@@ -460,7 +460,7 @@ export default function RecipeDetailScreen() {
       if (n.fat) nutritionParts.push(`${n.fat}g fat`);
       
       if (nutritionParts.length > 0) {
-        text += '\n📊 NUTRITION (per serving)\n';
+        text += '\nNUTRITION (per serving)\n';
         text += '─'.repeat(20) + '\n';
         text += nutritionParts.join(' | ') + '\n';
       }
@@ -468,14 +468,14 @@ export default function RecipeDetailScreen() {
     
     // Equipment
     if (extracted.equipment && extracted.equipment.length > 0) {
-      text += '\n🔧 EQUIPMENT\n';
+      text += '\nEQUIPMENT\n';
       text += '─'.repeat(20) + '\n';
       text += extracted.equipment.join(', ') + '\n';
     }
     
     // Source
     text += '\n' + '━'.repeat(30) + '\n';
-    text += `📺 Source: ${recipe.source_url}\n`;
+    text += `Source: ${recipe.source_url}\n`;
     text += `Extracted with Håfa Recipes`;
     
     return text;
@@ -548,7 +548,12 @@ export default function RecipeDetailScreen() {
   if (error || !recipe) {
     return (
       <View style={styles.centerContainer}>
-        <Text style={styles.errorEmoji}>😕</Text>
+        <Ionicons
+          name="alert-circle-outline"
+          size={52}
+          color={colors.textMuted}
+          style={styles.errorIcon}
+        />
         <Text style={[styles.errorTitle, { color: colors.text }]}>
           Recipe not found
         </Text>
@@ -1183,8 +1188,9 @@ export default function RecipeDetailScreen() {
                             key={index} 
                             style={[styles.equipmentItem, { backgroundColor: colors.backgroundSecondary }]}
                           >
+                            <Ionicons name="construct-outline" size={15} color={colors.textMuted} />
                             <Text style={[styles.equipmentText, { color: colors.text }]}>
-                              🔧 {item}
+                              {item}
                             </Text>
                           </RNView>
                         ))}
@@ -1220,9 +1226,12 @@ export default function RecipeDetailScreen() {
                         </Text>
                       </RNView>
                       <RNView style={[styles.costMetaItem, { backgroundColor: colors.backgroundSecondary }]}>
-                        <Text style={[styles.costMetaValue, { color: colors.text }]}>
-                          📍 {extracted.costLocation}
-                        </Text>
+                        <RNView style={styles.costMetaValueRow}>
+                          <Ionicons name="location-outline" size={16} color={colors.text} />
+                          <Text style={[styles.costMetaValue, { color: colors.text, marginBottom: 0 }]}>
+                            {extracted.costLocation}
+                          </Text>
+                        </RNView>
                         <Text style={[styles.costMetaLabel, { color: colors.textMuted }]}>
                           pricing region
                         </Text>
@@ -1394,8 +1403,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     fontSize: fontSize.md,
   },
-  errorEmoji: {
-    fontSize: 48,
+  errorIcon: {
     marginBottom: spacing.md,
   },
   errorTitle: {
@@ -1878,6 +1886,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   equipmentItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: radius.md,
@@ -1982,6 +1993,12 @@ const styles = StyleSheet.create({
   costMetaValue: {
     fontSize: fontSize.lg,
     fontWeight: fontWeight.semibold,
+    marginBottom: spacing.xs,
+  },
+  costMetaValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
     marginBottom: spacing.xs,
   },
   costMetaLabel: {

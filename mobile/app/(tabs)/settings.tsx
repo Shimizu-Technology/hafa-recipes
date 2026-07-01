@@ -703,7 +703,7 @@ export default function SettingsScreen() {
           activeOpacity={0.7}
         >
           <Text style={[styles.developerText, { color: colors.textMuted }]}>
-            Made in Guam 🇬🇺 by{' '}
+            Made in Guam by{' '}
             <Text style={[styles.developerLink, { color: colors.tint }]}>
               Shimizu Technology
             </Text>

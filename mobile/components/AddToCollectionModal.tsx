@@ -165,7 +165,7 @@ export default function AddToCollectionModal({
   // Determine main button text and style
   const getMainButtonConfig = () => {
     if (justCreated) {
-      return { title: '✓ Created!', disabled: true };
+      return { title: 'Created', disabled: true };
     }
     if (isCreating) {
       return { title: 'Creating...', disabled: true, loading: true };
