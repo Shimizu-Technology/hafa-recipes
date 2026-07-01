@@ -24,8 +24,10 @@
   --shadow: 0 24px 70px rgba(72, 35, 20, 0.16);
 }
 
-html {
-  scroll-behavior: smooth;
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
 body {
@@ -44,10 +46,26 @@ body::selection {
 
 a {
   color: var(--terracotta);
-  text-decoration: none;
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
 }
 
 a:hover {
+  text-decoration-thickness: 0.12em;
+}
+
+.navbar-brand,
+.navbar-links a,
+.footer-links a,
+.btn {
+  text-decoration: none;
+}
+
+.navbar-brand:hover,
+.navbar-links a:hover,
+.footer-links a:hover,
+.btn:hover {
   text-decoration: none;
 }
 
