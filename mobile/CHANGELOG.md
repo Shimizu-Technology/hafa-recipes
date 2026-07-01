@@ -2,6 +2,26 @@
 
 All notable changes to Recipe Extractor.
 
+## [2.3.0] - July 2026
+
+### Added
+- **Håfa Recipes brand refresh** with a new island-modern palette, app icon, splash artwork, and brand mark.
+- **Signed-out previews** for Discover and Meal Planner so new users can understand the app before creating an account.
+- **Public Discover browsing for guests** with save actions still gated behind sign-in.
+
+### Improved
+- Default Discover view is now the visual grid layout.
+- Extract screen copy now clearly supports TikTok, YouTube, Instagram, recipe websites, OCR scans, and manual family recipes.
+- Website extraction guidance now includes a support email when a recipe site does not import cleanly.
+- Typography updated to DM Sans and Fraunces for a warmer editorial recipe feel.
+- Emoji UI was replaced with Ionicons and brand assets throughout the app.
+
+### Fixed
+- App icon now uses a full-bleed background so iOS no longer shows dark corners around the icon mask.
+- Discover now shows a real API error state instead of looking like an empty community library when loading fails.
+
+---
+
 ## [1.2.0] - December 2025
 
 ### Added
