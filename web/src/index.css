@@ -686,10 +686,6 @@ svg {
     grid-template-columns: 1fr;
   }
 
-  .feature-card-large {
-    grid-column: span 1;
-  }
-
   .feature-card,
   .step,
   .island-card,
