@@ -1,5 +1,5 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="1024" height="1024" rx="224" fill="#FFF7EC"/>
+  <rect width="1024" height="1024" fill="#FFF7EC"/>
   <circle cx="512" cy="512" r="380" fill="#F8EFE3"/>
   <path d="M286 646C335 738 421 793 512 793C603 793 689 738 738 646" stroke="#168A80" stroke-width="32" stroke-linecap="round" opacity="0.16"/>
   <g filter="url(#softShadow)">
