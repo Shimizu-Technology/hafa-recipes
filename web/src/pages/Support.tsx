@@ -22,6 +22,13 @@ export default function Support() {
           Håfa Recipes currently supports TikTok, YouTube, and Instagram cooking videos. Simply paste the video URL and our AI will extract the recipe.
         </p>
 
+        <h3>What recipe websites are supported?</h3>
+        <p>
+          We aim to support recipe pages from popular blogs, publishers, and independent websites. Some sites format recipes differently, so if a page does not import cleanly, email us at{' '}
+          <a href="mailto:shimizutechnology@gmail.com?subject=H%C3%A5fa%20Recipes%20website%20extraction%20issue">shimizutechnology@gmail.com</a>{' '}
+          with the link and we can tune support for it.
+        </p>
+
         <h3>How does the recipe extraction work?</h3>
         <p>
           Our AI analyzes the audio and visual content of cooking videos to identify ingredients, steps, cooking times, and more. The extracted recipe is then formatted into a clean, easy-to-follow format.
