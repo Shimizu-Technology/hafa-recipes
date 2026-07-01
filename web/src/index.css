@@ -209,8 +209,20 @@ a:hover {
 }
 
 .feature-icon {
-  font-size: 2.5rem;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin-bottom: 16px;
+  color: var(--primary);
+  background: rgba(255, 107, 53, 0.1);
+}
+
+.feature-icon svg {
+  width: 28px;
+  height: 28px;
 }
 
 .feature-card h3 {

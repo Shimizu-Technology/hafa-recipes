@@ -39,7 +39,7 @@ export default function Support() {
 
         <h3>Can I use the app offline?</h3>
         <p>
-          Currently, Håfa Recipes requires an internet connection to extract recipes and sync data. Offline support for grocery lists is coming soon!
+          Recipe extraction and account sync require an internet connection. Grocery lists support offline use and sync automatically when your connection returns.
         </p>
 
         <h3>How do I delete my account?</h3>
