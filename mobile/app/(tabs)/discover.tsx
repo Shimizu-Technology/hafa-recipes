@@ -442,8 +442,9 @@ export default function DiscoverScreen() {
   // Check if search or filters are active
   const hasActiveFilters = searchQuery.length > 0 || activeFilterCount > 0 || !!selectedExtractor;
 
-  // Only fetch when authenticated
-  const isAuthenticated = !!isSignedIn;
+  // Discover is a public community library. Guests can browse; sign-in is only
+  // required for saving recipes and personalized actions.
+  const canBrowseDiscover = true;
 
   // Discover recipes with infinite scroll
   const {
@@ -455,7 +456,8 @@ export default function DiscoverScreen() {
     fetchNextPage,
     hasNextPage: hasMoreRecipes,
     isFetchingNextPage,
-  } = useDiscoverRecipes(sourceTypeParam, isAuthenticated, sortOrder, mealTypeParam);
+    isError: isDiscoverError,
+  } = useDiscoverRecipes(sourceTypeParam, canBrowseDiscover, sortOrder, mealTypeParam);
 
   // Search/filter results (when filters are active)
   const {
@@ -465,6 +467,8 @@ export default function DiscoverScreen() {
     hasNextPage: hasMoreSearchResults,
     isFetchingNextPage: isFetchingNextSearchResults,
     isFetching: isDiscoverSearchFetching,
+    isError: isSearchError,
+    refetch: refetchSearch,
   } = useSearchPublicRecipes({
     query: searchQuery,
     sourceType: sourceTypeParam,
@@ -473,15 +477,15 @@ export default function DiscoverScreen() {
     extractorId: selectedExtractor?.id,
     extractorName: selectedExtractor?.name,
     mealType: mealTypeParam,
-  }, isAuthenticated);
+  }, canBrowseDiscover);
 
-  const { data: countData } = usePublicRecipeCount(sourceTypeParam, isAuthenticated);
+  const { data: countData } = usePublicRecipeCount(sourceTypeParam, canBrowseDiscover);
 
   // Popular tags from all public recipes
-  const { data: popularTags } = usePopularTags('public', isAuthenticated);
+  const { data: popularTags } = usePopularTags('public', canBrowseDiscover);
 
   // Top contributors (users with most public recipes)
-  const { data: topContributors } = useTopContributors(isAuthenticated);
+  const { data: topContributors } = useTopContributors(canBrowseDiscover);
 
   // Filter contributors based on @username search
   const matchingContributors = useMemo(() => {
@@ -541,6 +545,7 @@ export default function DiscoverScreen() {
   }, [hasTextSearch, hasActiveFilters, recipes, searchResults, currentFilters, hideMyRecipes, userId]);
 
   const displayRecipes = filteredRecipes?.slice(0, displayCount);
+  const hasPrimaryLoadError = hasActiveFilters ? isSearchError : isDiscoverError;
 
   // Determine if there's more to load - either from server or locally
   const hasMoreLocal = filteredRecipes && displayCount < filteredRecipes.length;
@@ -550,14 +555,22 @@ export default function DiscoverScreen() {
 
   const handleRefresh = useCallback(() => {
     setDisplayCount(ITEMS_PER_PAGE);
-    refetch();
-  }, [refetch]);
+    if (hasActiveFilters) {
+      refetchSearch();
+    } else {
+      refetch();
+    }
+  }, [hasActiveFilters, refetch, refetchSearch]);
 
   // Refetch when tab gains focus (handles cache cleared on user change)
   useFocusEffect(
     useCallback(() => {
-      refetch();
-    }, [refetch])
+      if (hasActiveFilters) {
+        refetchSearch();
+      } else {
+        refetch();
+      }
+    }, [hasActiveFilters, refetch, refetchSearch])
   );
 
   const handleLoadMore = () => {
@@ -693,6 +706,28 @@ export default function DiscoverScreen() {
           ? 'Try adjusting your filters or search term'
           : 'Be the first to share a recipe with the community!'}
       </Text>
+    </RNView>
+  );
+
+  const ListError = () => (
+    <RNView style={styles.emptyContainer}>
+      <RNView style={[styles.emptyIconContainer, { backgroundColor: colors.error + '12' }]}>
+        <Ionicons name="cloud-offline-outline" size={46} color={colors.error} />
+      </RNView>
+      <Text style={[styles.emptyTitle, { color: colors.text }]}>
+        Couldn’t load recipes
+      </Text>
+      <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+        The community library is unavailable right now. Check the API connection and try again.
+      </Text>
+      <TouchableOpacity
+        style={[styles.retryButton, { backgroundColor: colors.tint }]}
+        onPress={handleRefresh}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="refresh" size={17} color="#FFFFFF" />
+        <Text style={styles.retryButtonText}>Try Again</Text>
+      </TouchableOpacity>
     </RNView>
   );
 
@@ -1097,7 +1132,7 @@ export default function DiscoverScreen() {
           keyExtractor={(item) => item.id}
           numColumns={isGrid ? 2 : 1}
           columnWrapperStyle={isGrid ? styles.gridRow : undefined}
-          ListEmptyComponent={ListEmpty}
+          ListEmptyComponent={hasPrimaryLoadError ? ListError : ListEmpty}
           ListFooterComponent={ListFooter}
           contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.xl + (isSignedIn ? 0 : 100) }]}
           showsVerticalScrollIndicator={false}
@@ -1609,6 +1644,21 @@ const styles = StyleSheet.create({
   emptySubtitle: {
     fontSize: fontSize.md,
     textAlign: 'center',
+  },
+  retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: radius.full,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
   },
   footerContainer: {
     paddingVertical: spacing.md,
