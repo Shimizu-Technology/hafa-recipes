@@ -50,12 +50,12 @@ function getApiBaseUrl(): string {
   
   if (debuggerHost) {
     const host = debuggerHost.split(':')[0]; // Remove port
-    console.log(`📡 Using local API at: http://${host}:8000`);
+    console.log(`Using local API at: http://${host}:8000`);
     return `http://${host}:8000`;
   }
   
   // Fallback to production if we can't detect local IP
-  console.log('⚠️ Could not detect local IP, using production API');
+  console.log('Could not detect local IP, using production API');
   return 'https://recipe-api-x5na.onrender.com';
 }
 

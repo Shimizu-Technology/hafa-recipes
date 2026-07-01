@@ -1,6 +1,6 @@
 /**
  * Meal Planner Screen
- * 
+ *
  * Shows a weekly meal plan with breakfast, lunch, dinner, and snack slots.
  * Users can add recipes to slots, navigate between weeks, and add all
  * ingredients to their grocery list.
@@ -42,17 +42,45 @@ import {
   parseDateFromApi,
 } from '@/hooks/useMealPlan';
 import { MealPlanEntry, MealType, RecipeListItem } from '@/types/recipe';
-import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import { haptics, lightHaptic, successHaptic } from '@/utils/haptics';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DAY_WIDTH = (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm * 6) / 7;
 
-const MEAL_TYPES: { type: MealType; emoji: string; label: string }[] = [
-  { type: 'breakfast', emoji: '🌅', label: 'Breakfast' },
-  { type: 'lunch', emoji: '🌞', label: 'Lunch' },
-  { type: 'dinner', emoji: '🌙', label: 'Dinner' },
-  { type: 'snack', emoji: '🍿', label: 'Snack' },
+type MealTypeMeta = { type: MealType; icon: keyof typeof Ionicons.glyphMap; label: string };
+
+const MEAL_TYPES: MealTypeMeta[] = [
+  { type: 'breakfast', icon: 'sunny-outline', label: 'Breakfast' },
+  { type: 'lunch', icon: 'cafe-outline', label: 'Lunch' },
+  { type: 'dinner', icon: 'restaurant-outline', label: 'Dinner' },
+  { type: 'snack', icon: 'nutrition-outline', label: 'Snack' },
+];
+
+const PLANNER_PREVIEW_MEALS: Array<{
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  title: string;
+  detail: string;
+}> = [
+  {
+    icon: 'sunny-outline',
+    label: 'Breakfast',
+    title: 'Fresh fruit bowl',
+    detail: 'Light start before the day gets busy',
+  },
+  {
+    icon: 'cafe-outline',
+    label: 'Lunch',
+    title: 'Tinaktak rice bowl',
+    detail: 'Save a family favorite into the week',
+  },
+  {
+    icon: 'restaurant-outline',
+    label: 'Dinner',
+    title: 'Sheet-pan chicken',
+    detail: 'Send ingredients straight to groceries',
+  },
 ];
 
 // Day selector pill component
@@ -119,7 +147,7 @@ function MealSlot({
   onRemove,
   onViewRecipe,
 }: {
-  mealType: { type: MealType; emoji: string; label: string };
+  mealType: MealTypeMeta;
   entries: MealPlanEntry[];
   colors: ReturnType<typeof useColors>;
   onAdd: () => void;
@@ -129,7 +157,9 @@ function MealSlot({
   return (
     <RNView style={styles.mealSlot}>
       <RNView style={styles.mealSlotHeader}>
-        <Text style={styles.mealEmoji}>{mealType.emoji}</Text>
+        <RNView style={[styles.mealIcon, { backgroundColor: colors.tint + '15' }]}>
+          <Ionicons name={mealType.icon} size={18} color={colors.tint} />
+        </RNView>
         <Text style={[styles.mealLabel, { color: colors.text }]}>
           {mealType.label}
         </Text>
@@ -405,7 +435,102 @@ export default function PlannerScreen() {
   // Auth check
   if (isLoaded && !isSignedIn) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <ScrollView
+          style={styles.signedOutScroll}
+          contentContainerStyle={[
+            styles.signedOutContent,
+            { paddingBottom: Math.max(insets.bottom, spacing.md) + 190 },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
+          <RNView
+            style={[
+              styles.signedOutHero,
+              { backgroundColor: colors.backgroundElevated, borderColor: colors.cardBorder },
+            ]}
+          >
+            <RNView style={[styles.signedOutHeroIcon, { backgroundColor: colors.tint + '15' }]}>
+              <Ionicons name="calendar-outline" size={30} color={colors.tint} />
+            </RNView>
+            <Text style={[styles.signedOutEyebrow, { color: colors.tint }]}>Meal planning preview</Text>
+            <Text style={[styles.signedOutTitle, { color: colors.text }]}>Plan the week before dinner feels urgent.</Text>
+            <Text style={[styles.signedOutSubtitle, { color: colors.textSecondary }]}>
+              Sign in to map recipes across breakfast, lunch, dinner, and snacks — then send the whole week to your grocery list.
+            </Text>
+          </RNView>
+
+          <RNView
+            style={[
+              styles.previewPlannerCard,
+              { backgroundColor: colors.card, borderColor: colors.cardBorder },
+            ]}
+          >
+            <RNView style={styles.previewPlannerHeader}>
+              <RNView>
+                <Text style={[styles.previewPlannerKicker, { color: colors.textMuted }]}>This week</Text>
+                <Text style={[styles.previewPlannerTitle, { color: colors.text }]}>A calmer meal board</Text>
+              </RNView>
+              <RNView style={[styles.previewTodayBadge, { backgroundColor: colors.tint + '15' }]}>
+                <Text style={[styles.previewTodayText, { color: colors.tint }]}>Today</Text>
+              </RNView>
+            </RNView>
+
+            <RNView style={styles.previewDayRow}>
+              {weekDates.map((date) => {
+                const label = formatDayLabel(date);
+                const today = isToday(date);
+                return (
+                  <RNView
+                    key={date.toISOString()}
+                    style={[
+                      styles.previewDayPill,
+                      {
+                        backgroundColor: today ? colors.tint : colors.backgroundSecondary,
+                        borderColor: today ? colors.tint : colors.border,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.previewDayText, { color: today ? '#FFFFFF' : colors.textMuted }]}>
+                      {label.day}
+                    </Text>
+                    <Text style={[styles.previewDayNumber, { color: today ? '#FFFFFF' : colors.text }]}>
+                      {label.number}
+                    </Text>
+                  </RNView>
+                );
+              })}
+            </RNView>
+
+            <RNView style={styles.previewMealStack}>
+              {PLANNER_PREVIEW_MEALS.map((meal) => (
+                <RNView
+                  key={meal.label}
+                  style={[
+                    styles.previewMealRow,
+                    { backgroundColor: colors.backgroundSecondary, borderColor: colors.border },
+                  ]}
+                >
+                  <RNView style={[styles.previewMealIcon, { backgroundColor: colors.tint + '15' }]}>
+                    <Ionicons name={meal.icon} size={18} color={colors.tint} />
+                  </RNView>
+                  <RNView style={styles.previewMealCopy}>
+                    <Text style={[styles.previewMealLabel, { color: colors.textMuted }]}>{meal.label}</Text>
+                    <Text style={[styles.previewMealTitle, { color: colors.text }]}>{meal.title}</Text>
+                    <Text style={[styles.previewMealDetail, { color: colors.textSecondary }]}>{meal.detail}</Text>
+                  </RNView>
+                </RNView>
+              ))}
+            </RNView>
+
+            <RNView style={[styles.previewGroceryCallout, { backgroundColor: colors.accentSoft }]}>
+              <Ionicons name="cart-outline" size={20} color={colors.accent} />
+              <Text style={[styles.previewGroceryText, { color: colors.text }]}>
+                Add every planned recipe to groceries in one tap after you sign in.
+              </Text>
+            </RNView>
+          </RNView>
+        </ScrollView>
         <SignInBanner message="Sign in to plan your meals for the week!" />
       </View>
     );
@@ -533,6 +658,146 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  signedOutScroll: {
+    flex: 1,
+  },
+  signedOutContent: {
+    padding: spacing.lg,
+    gap: spacing.lg,
+  },
+  signedOutHero: {
+    padding: spacing.xl,
+    borderRadius: radius.xxl,
+    borderWidth: 1,
+  },
+  signedOutHeroIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: radius.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.lg,
+  },
+  signedOutEyebrow: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+    marginBottom: spacing.sm,
+  },
+  signedOutTitle: {
+    fontSize: fontSize.xxxl,
+    fontFamily: fontFamily.display,
+    lineHeight: 42,
+    marginBottom: spacing.md,
+  },
+  signedOutSubtitle: {
+    fontSize: fontSize.md,
+    lineHeight: 23,
+  },
+  previewPlannerCard: {
+    padding: spacing.lg,
+    borderRadius: radius.xxl,
+    borderWidth: 1,
+  },
+  previewPlannerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.lg,
+  },
+  previewPlannerKicker: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+    marginBottom: 3,
+  },
+  previewPlannerTitle: {
+    fontSize: fontSize.xl,
+    fontFamily: fontFamily.displaySemibold,
+  },
+  previewTodayBadge: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+  },
+  previewTodayText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+  },
+  previewDayRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    marginBottom: spacing.lg,
+  },
+  previewDayPill: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 58,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+  },
+  previewDayText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+  },
+  previewDayNumber: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    marginTop: 2,
+  },
+  previewMealStack: {
+    gap: spacing.sm,
+  },
+  previewMealRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+  },
+  previewMealIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  previewMealCopy: {
+    flex: 1,
+  },
+  previewMealLabel: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  previewMealTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+  },
+  previewMealDetail: {
+    fontSize: fontSize.sm,
+    marginTop: 2,
+  },
+  previewGroceryCallout: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    marginTop: spacing.md,
+  },
+  previewGroceryText: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+    lineHeight: 19,
+  },
   weekHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -621,8 +886,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.sm,
   },
-  mealEmoji: {
-    fontSize: 20,
+  mealIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginRight: spacing.xs,
   },
   mealLabel: {

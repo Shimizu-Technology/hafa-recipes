@@ -26,9 +26,9 @@ import CreateCollectionModal from '@/components/CreateCollectionModal';
 import BulkAddToCollectionModal from '@/components/BulkAddToCollectionModal';
 import { SkeletonRecipeList, SkeletonCollectionList } from '@/components/Skeleton';
 import { AnimatedListItem, ScalePressable } from '@/components/Animated';
-import { 
-  useRecipes, 
-  useSearchRecipes, 
+import {
+  useRecipes,
+  useSearchRecipes,
   useRecipeCount,
   useSavedRecipes,
   usePopularTags,
@@ -50,27 +50,27 @@ import { useViewPreference } from '@/hooks/useViewPreference';
 
 const ITEMS_PER_PAGE = 20;
 
-function RecipeCard({ 
-  recipe, 
+function RecipeCard({
+  recipe,
   onPress,
   colors,
   isSavedRecipe,
-}: { 
-  recipe: RecipeListItem; 
+}: {
+  recipe: RecipeListItem;
   onPress: () => void;
   colors: ReturnType<typeof useColors>;
   isSavedRecipe?: boolean;
 }) {
   const [imageError, setImageError] = useState(false);
-  
-  const sourceIcon = recipe.source_type === 'tiktok' 
-    ? 'logo-tiktok' 
-    : recipe.source_type === 'youtube' 
-      ? 'logo-youtube' 
-      : recipe.source_type === 'instagram' 
+
+  const sourceIcon = recipe.source_type === 'tiktok'
+    ? 'logo-tiktok'
+    : recipe.source_type === 'youtube'
+      ? 'logo-youtube'
+      : recipe.source_type === 'instagram'
         ? 'logo-instagram'
         : recipe.source_type === 'website'
-          ? 'globe-outline' 
+          ? 'globe-outline'
         : recipe.source_type === 'manual'
           ? 'create-outline'
           : 'globe-outline';
@@ -78,8 +78,8 @@ function RecipeCard({
   const showPlaceholder = !recipe.thumbnail_url || imageError;
 
   return (
-    <ScalePressable 
-      style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]} 
+    <ScalePressable
+      style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
       onPress={onPress}
     >
       {/* Thumbnail with gradient overlay */}
@@ -90,8 +90,8 @@ function RecipeCard({
           </RNView>
         ) : (
           <>
-            <Image 
-              source={{ uri: recipe.thumbnail_url! }} 
+            <Image
+              source={{ uri: recipe.thumbnail_url! }}
               style={styles.thumbnail}
               onError={() => setImageError(true)}
             />
@@ -109,27 +109,29 @@ function RecipeCard({
           </RNView>
         )}
       </RNView>
-      
+
       {/* Content */}
       <RNView style={styles.cardContent}>
         <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
           {recipe.title}
         </Text>
-        
+
         {/* Meta info */}
         <RNView style={styles.metaRow}>
           {recipe.total_time && (
-            <Text style={[styles.metaText, { color: colors.textSecondary }]}>
-              ⏱️ {recipe.total_time}
-            </Text>
+            <RNView style={styles.metaItem}>
+              <Ionicons name="time-outline" size={13} color={colors.textSecondary} />
+              <Text style={[styles.metaText, { color: colors.textSecondary }]}>{recipe.total_time}</Text>
+            </RNView>
           )}
           {recipe.servings && (
-            <Text style={[styles.metaText, { color: colors.textSecondary }]}>
-              👥 {recipe.servings}
-            </Text>
+            <RNView style={styles.metaItem}>
+              <Ionicons name="people-outline" size={13} color={colors.textSecondary} />
+              <Text style={[styles.metaText, { color: colors.textSecondary }]}>{recipe.servings}</Text>
+            </RNView>
           )}
         </RNView>
-        
+
         {/* Tags */}
         {recipe.tags.length > 0 && (
           <RNView style={styles.tagRow}>
@@ -143,7 +145,7 @@ function RecipeCard({
             )}
           </RNView>
         )}
-        
+
         {/* Footer */}
         <RNView style={styles.cardFooter}>
           <RNView style={styles.sourceRow}>
@@ -164,13 +166,13 @@ function RecipeCard({
 }
 
 // Grid recipe card - square image with title overlay
-function GridRecipeCard({ 
-  recipe, 
+function GridRecipeCard({
+  recipe,
   onPress,
   colors,
   isSavedRecipe,
-}: { 
-  recipe: RecipeListItem; 
+}: {
+  recipe: RecipeListItem;
   onPress: () => void;
   colors: ReturnType<typeof useColors>;
   isSavedRecipe?: boolean;
@@ -179,8 +181,8 @@ function GridRecipeCard({
   const showPlaceholder = !recipe.thumbnail_url || imageError;
 
   return (
-    <ScalePressable 
-      style={[styles.gridCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]} 
+    <ScalePressable
+      style={[styles.gridCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
       onPress={onPress}
     >
       {/* Full card is the image with overlay */}
@@ -190,8 +192,8 @@ function GridRecipeCard({
             <Ionicons name="restaurant-outline" size={40} color={colors.tint} />
           </RNView>
         ) : (
-          <Image 
-            source={{ uri: recipe.thumbnail_url! }} 
+          <Image
+            source={{ uri: recipe.thumbnail_url! }}
             style={styles.gridThumbnail}
             onError={() => setImageError(true)}
           />
@@ -209,13 +211,13 @@ function GridRecipeCard({
             <Text style={styles.gridTimeText}>{recipe.total_time}</Text>
           </RNView>
         )}
-        
+
         {/* Subtle gradient overlay at bottom for text readability */}
         <LinearGradient
           colors={['transparent', 'rgba(0,0,0,0.7)']}
           style={styles.gridOverlay}
         />
-        
+
         {/* Title overlaid on image */}
         <RNView style={styles.gridCardContent}>
           <Text style={styles.gridCardTitle} numberOfLines={2}>
@@ -239,7 +241,7 @@ function CollectionCard({
 }) {
   const firstThumbnail = collection.preview_thumbnails?.[0];
   const [imageError, setImageError] = useState(false);
-  
+
   return (
     <TouchableOpacity
       style={[styles.collectionCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
@@ -249,14 +251,14 @@ function CollectionCard({
       {/* Single cover image or emoji */}
       <RNView style={styles.collectionPreview}>
         {firstThumbnail && !imageError ? (
-          <Image 
-            source={{ uri: firstThumbnail }} 
-            style={styles.collectionCoverImage} 
+          <Image
+            source={{ uri: firstThumbnail }}
+            style={styles.collectionCoverImage}
             onError={() => setImageError(true)}
           />
         ) : (
           <RNView style={[styles.collectionEmptyPreview, { backgroundColor: colors.tint + '15' }]}>
-            <Text style={{ fontSize: 28 }}>{collection.emoji || '📁'}</Text>
+            <Ionicons name="folder-open-outline" size={30} color={colors.tint} />
           </RNView>
         )}
         {/* Recipe count badge */}
@@ -266,7 +268,7 @@ function CollectionCard({
           </RNView>
         )}
       </RNView>
-      
+
       {/* Collection info */}
       <RNView style={styles.collectionInfo}>
         <Text style={[styles.collectionName, { color: colors.text }]} numberOfLines={1}>
@@ -310,59 +312,59 @@ export default function HistoryScreen() {
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showCreateCollectionModal, setShowCreateCollectionModal] = useState(false);
-  
+
   // Selection mode for bulk operations
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedRecipeIds, setSelectedRecipeIds] = useState<Set<string>>(new Set());
   const [showBulkAddModal, setShowBulkAddModal] = useState(false);
-  
+
   // View preference (grid or list)
   const { viewMode, toggleViewMode, isGrid } = useViewPreference();
-  
+
   // Filter state
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [ownershipFilter, setOwnershipFilter] = useState<OwnershipFilter>('all'); // all, own, or saved only
-  
+
   // Collections
   const { data: collections, isLoading: isLoadingCollections } = useCollections(!!isSignedIn);
-  
+
   // Pass source filter to server-side queries
   const sourceTypeParam = sourceFilter === 'all' ? undefined : sourceFilter;
   const timeFilterParam = timeFilter === 'all' ? undefined : timeFilter;
-  
+
   // Check if any filters are active (excluding search)
-  const activeFilterCount = 
-    (sourceFilter !== 'all' ? 1 : 0) + 
-    (timeFilter !== 'all' ? 1 : 0) + 
+  const activeFilterCount =
+    (sourceFilter !== 'all' ? 1 : 0) +
+    (timeFilter !== 'all' ? 1 : 0) +
     selectedTags.length +
     (ownershipFilter !== 'all' ? 1 : 0); // Count ownership filter if not "all"
-  
+
   // Derived booleans for ownership filter
   const showSavedRecipes = ownershipFilter === 'all' || ownershipFilter === 'saved';
   const showOwnRecipes = ownershipFilter === 'all' || ownershipFilter === 'own';
-  
+
   // Check if search or filters are active
   const hasActiveFilters = searchQuery.length > 0 || sourceFilter !== 'all' || timeFilter !== 'all' || selectedTags.length > 0;
-  
+
   // Only fetch when authenticated
   const isAuthenticated = !!isSignedIn;
-  
+
   // Own recipes with infinite scroll
-  const { 
-    recipes, 
+  const {
+    recipes,
     total: recipesTotal,
-    isLoading: isLoadingRecipes, 
-    refetch: refetchRecipes, 
+    isLoading: isLoadingRecipes,
+    refetch: refetchRecipes,
     isRefetching: isRefetchingRecipes,
     fetchNextPage: fetchNextRecipes,
     hasNextPage: hasMoreRecipes,
     isFetchingNextPage: isFetchingNextRecipes,
   } = useRecipes(sourceTypeParam, isAuthenticated);
-  
+
   // Search/filter results (when filters are active)
-  const { 
+  const {
     recipes: searchResults,
     fetchNextPage: fetchNextSearchResults,
     hasNextPage: hasMoreSearchResults,
@@ -374,17 +376,17 @@ export default function HistoryScreen() {
     timeFilter: timeFilterParam,
     tags: selectedTags.length > 0 ? selectedTags : undefined,
   }, isAuthenticated);
-  
+
   const { data: countData } = useRecipeCount(sourceTypeParam, isAuthenticated);
-  
+
   // Popular tags for this user
   const { data: popularTags } = usePopularTags('user', isAuthenticated);
-  
+
   // Saved recipes with infinite scroll
-  const { 
-    recipes: savedRecipes, 
-    isLoading: isLoadingSaved, 
-    refetch: refetchSaved, 
+  const {
+    recipes: savedRecipes,
+    isLoading: isLoadingSaved,
+    refetch: refetchSaved,
     isRefetching: isRefetchingSaved,
     fetchNextPage: fetchNextSaved,
     hasNextPage: hasMoreSaved,
@@ -392,7 +394,7 @@ export default function HistoryScreen() {
 
   const isLoading = (showOwnRecipes && isLoadingRecipes) || (showSavedRecipes && isLoadingSaved);
   const isRefetching = (showOwnRecipes && isRefetchingRecipes) || (showSavedRecipes && isRefetchingSaved);
-  
+
   const handleRefreshAll = useCallback(() => {
     if (showOwnRecipes) refetchRecipes();
     if (showSavedRecipes) refetchSaved();
@@ -428,14 +430,14 @@ export default function HistoryScreen() {
     // Optimistic filtering: filter locally while server request is in flight
     // Use server search results if available, otherwise filter locally
     let ownRecipes: RecipeListItem[] | undefined;
-    
+
     if (hasActiveFilters) {
       // If search results are back, use them; otherwise filter cached data locally
       ownRecipes = searchResults?.length ? searchResults : filterRecipesLocally(recipes, currentFilters);
     } else {
       ownRecipes = recipes;
     }
-    
+
     // Handle "saved only" mode - only show saved recipes
     if (ownershipFilter === 'saved') {
       if (!savedRecipes) return undefined;
@@ -444,23 +446,23 @@ export default function HistoryScreen() {
         : (sourceTypeParam ? savedRecipes.filter(r => r.source_type === sourceTypeParam) : savedRecipes);
       return filteredSaved;
     }
-    
+
     if (!ownRecipes) return undefined;
-    
+
     // Handle "own only" mode - only show own recipes
     if (ownershipFilter === 'own' || !savedRecipes) {
       return ownRecipes;
     }
-    
+
     // "all" mode - combine own and saved
     const ownIds = new Set(ownRecipes.map(r => r.id));
     const uniqueSaved = savedRecipes.filter(r => !ownIds.has(r.id));
-    
+
     // Apply filters to saved recipes too (optimistic filtering)
     const filteredSaved = hasActiveFilters
       ? filterRecipesLocally(uniqueSaved, currentFilters)
       : (sourceTypeParam ? uniqueSaved.filter(r => r.source_type === sourceTypeParam) : uniqueSaved);
-    
+
     // Combine: own recipes first, then saved
     return [...ownRecipes, ...filteredSaved];
   }, [recipes, searchResults, savedRecipes, ownershipFilter, hasActiveFilters, sourceTypeParam, currentFilters]);
@@ -478,7 +480,7 @@ export default function HistoryScreen() {
 
   // For display, slice to current page
   const displayRecipes = combinedRecipes?.slice(0, displayCount);
-  
+
   // Determine if there's more to load - either from server or locally
   const hasMoreLocal = combinedRecipes && displayCount < combinedRecipes.length;
   // hasMoreServer depends on ownership filter
@@ -568,11 +570,11 @@ export default function HistoryScreen() {
     // - In "saved" mode: ALL recipes are saved, show heart on all
     // - In "all" mode: Show heart only for recipes from other users (saved ones)
     // - In "own" mode: Never show heart (all are user's own)
-    const showSavedBadge = ownershipFilter === 'saved' || 
+    const showSavedBadge = ownershipFilter === 'saved' ||
       (ownershipFilter === 'all' && item.user_id !== userId);
-    
+
     const isSelected = selectedRecipeIds.has(item.id);
-    
+
     const handlePress = () => {
       if (isSelectionMode) {
         toggleRecipeSelection(item.id);
@@ -581,13 +583,13 @@ export default function HistoryScreen() {
         router.push(`/recipe/${item.id}`);
       }
     };
-    
+
     const handleLongPress = () => {
       if (!isSelectionMode) {
         enterSelectionMode(item.id);
       }
     };
-    
+
     // Grid view: overlay checkbox on card
     if (isGrid) {
       return (
@@ -606,7 +608,7 @@ export default function HistoryScreen() {
               isSavedRecipe={showSavedBadge}
             />
             {isSelectionMode && (
-              <RNView 
+              <RNView
                 style={[
                   styles.gridSelectionCheckbox,
                   isSelected && { backgroundColor: colors.tint, borderColor: colors.tint },
@@ -622,7 +624,7 @@ export default function HistoryScreen() {
         </AnimatedListItem>
       );
     }
-    
+
     // List view: checkbox beside card
     return (
       <AnimatedListItem index={index} delay={40}>
@@ -702,7 +704,7 @@ export default function HistoryScreen() {
               {selectedRecipeIds.size} selected
             </Text>
           </RNView>
-          
+
           <RNView style={styles.headerActions}>
             <TouchableOpacity
               style={[styles.selectAllButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
@@ -717,7 +719,7 @@ export default function HistoryScreen() {
         </RNView>
       );
     }
-    
+
     // Normal header - clean two-row design
     return (
       <RNView>
@@ -730,7 +732,7 @@ export default function HistoryScreen() {
             {totalCount !== undefined && (
               <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
                 <Text style={styles.countText}>
-                  {hasActiveFilters && combinedRecipes 
+                  {hasActiveFilters && combinedRecipes
                     ? `${combinedRecipes.length} of ${totalCount}`
                     : totalCount}
                 </Text>
@@ -740,7 +742,7 @@ export default function HistoryScreen() {
               <ActivityIndicator size="small" color={colors.tint} style={{ marginLeft: spacing.sm }} />
             )}
           </RNView>
-          
+
           {/* Overflow menu */}
           <TouchableOpacity
             style={[styles.headerMenuButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
@@ -750,7 +752,7 @@ export default function HistoryScreen() {
             <Ionicons name="ellipsis-horizontal" size={18} color={colors.tint} />
           </TouchableOpacity>
         </RNView>
-        
+
         {/* Subtitle row with "What can I make?" */}
         <TouchableOpacity
           style={[styles.ingredientSearchButton, { backgroundColor: colors.tint + '15' }]}
@@ -772,7 +774,7 @@ export default function HistoryScreen() {
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
       <RNView style={[styles.emptyIconContainer, { backgroundColor: colors.tint + '15' }]}>
-        <Text style={styles.emptyEmoji}>🍳</Text>
+        <Ionicons name="restaurant-outline" size={42} color={colors.tint} />
       </RNView>
       <Text style={[styles.emptyTitle, { color: colors.text }]}>
         No recipes yet
@@ -792,13 +794,13 @@ export default function HistoryScreen() {
   );
 
   const isFetchingMore = isFetchingNextRecipes || isFetchingNextSearchResults;
-  
+
   const ListFooter = () => {
     if (!hasMore) return null;
-    
+
     return (
       <RNView style={styles.footerContainer}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.loadMoreButton, { borderColor: colors.border }]}
           onPress={handleLoadMore}
           activeOpacity={0.7}
@@ -833,13 +835,13 @@ export default function HistoryScreen() {
         ownershipFilter={ownershipFilter}
         onOwnershipFilterChange={setOwnershipFilter}
       />
-      
+
       {/* Create Collection Modal */}
       <CreateCollectionModal
         visible={showCreateCollectionModal}
         onClose={() => setShowCreateCollectionModal(false)}
       />
-      
+
       {/* Bulk Add to Collection Modal */}
       <BulkAddToCollectionModal
         visible={showBulkAddModal}
@@ -847,11 +849,11 @@ export default function HistoryScreen() {
         recipeIds={Array.from(selectedRecipeIds)}
         onComplete={handleBulkAddComplete}
       />
-      
+
       {/* Fixed header with search - outside FlatList to prevent focus loss */}
       <RNView style={styles.header}>
         <ListHeaderTitle />
-        
+
         {/* Search + Filter row */}
         <RNView style={styles.searchRow}>
           <RNView style={styles.searchInputContainer}>
@@ -885,7 +887,7 @@ export default function HistoryScreen() {
             )}
           </TouchableOpacity>
         </RNView>
-        
+
         {/* Active filters summary */}
         {activeFilterCount > 0 && (
           <RNView style={styles.activeFiltersRow}>
@@ -938,7 +940,7 @@ export default function HistoryScreen() {
             </TouchableOpacity>
           </RNView>
         )}
-        
+
         {/* Search loading indicator - shows when server is fetching more results */}
         {hasActiveFilters && isSearchFetching && (
           <RNView style={styles.searchLoadingRow}>
@@ -948,14 +950,15 @@ export default function HistoryScreen() {
             </Text>
           </RNView>
         )}
-        
+
         {/* Collections row - show skeleton while loading, or real content */}
         {isLoadingCollections ? (
           <RNView style={styles.collectionsSection}>
             <RNView style={styles.collectionsSectionHeader}>
-              <Text style={[styles.collectionsSectionTitle, { color: colors.text }]}>
-                📁 Collections
-              </Text>
+              <RNView style={styles.collectionsTitleRow}>
+                <Ionicons name="folder-open-outline" size={18} color={colors.tint} />
+                <Text style={[styles.collectionsSectionTitle, { color: colors.text }]}>Collections</Text>
+              </RNView>
             </RNView>
             <ScrollView
               horizontal
@@ -968,9 +971,10 @@ export default function HistoryScreen() {
         ) : collections && collections.length > 0 ? (
           <RNView style={styles.collectionsSection}>
             <RNView style={styles.collectionsSectionHeader}>
-              <Text style={[styles.collectionsSectionTitle, { color: colors.text }]}>
-                📁 Collections
-              </Text>
+              <RNView style={styles.collectionsTitleRow}>
+                <Ionicons name="folder-open-outline" size={18} color={colors.tint} />
+                <Text style={[styles.collectionsSectionTitle, { color: colors.text }]}>Collections</Text>
+              </RNView>
             </RNView>
             <ScrollView
               horizontal
@@ -998,7 +1002,7 @@ export default function HistoryScreen() {
             </ScrollView>
           </RNView>
         ) : null}
-        
+
         {/* Show "Create first collection" prompt if no collections */}
         {collections && collections.length === 0 && !isLoadingCollections && (
           <TouchableOpacity
@@ -1013,7 +1017,7 @@ export default function HistoryScreen() {
           </TouchableOpacity>
         )}
       </RNView>
-      
+
       {isLoading && !displayRecipes?.length ? (
         <SkeletonRecipeList count={4} />
       ) : (
@@ -1031,18 +1035,18 @@ export default function HistoryScreen() {
           keyboardShouldPersistTaps="handled"
           onScrollBeginDrag={Keyboard.dismiss}
           refreshControl={
-            <RefreshControl 
-              refreshing={isRefetching} 
+            <RefreshControl
+              refreshing={isRefetching}
               onRefresh={handleRefresh}
               tintColor={colors.tint}
             />
           }
         />
       )}
-      
+
       {/* Sign In Banner for guests */}
       {!isSignedIn && <SignInBanner message="Sign in to save your recipes" />}
-      
+
       {/* Selection Action Bar */}
       {isSelectionMode && (
         <RNView style={[styles.selectionActionBar, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
@@ -1345,8 +1349,14 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     marginTop: spacing.xs,
   },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   metaText: {
     fontSize: fontSize.xs,
+    fontFamily: fontFamily.medium,
   },
   tagRow: {
     flexDirection: 'row',
@@ -1447,6 +1457,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: spacing.sm,
+  },
+  collectionsTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   collectionsSectionTitle: {
     fontSize: fontSize.md,

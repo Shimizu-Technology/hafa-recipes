@@ -54,7 +54,7 @@ export function useHandleShareIntent() {
       const sharedUrl = extractUrlFromIntent(shareIntent);
       
       if (sharedUrl) {
-        console.log('📥 Share Intent received:', sharedUrl);
+        console.log('Share Intent received:', sharedUrl);
         
         // Navigate to the extract tab (index) with the URL
         // We use replace to avoid having a weird back stack
@@ -69,7 +69,7 @@ export function useHandleShareIntent() {
           setIsProcessing(false);
         }, 300);
       } else {
-        console.log('⚠️ Share Intent received but no URL found:', shareIntent);
+        console.log('Share Intent received but no URL found:', shareIntent);
         resetShareIntent();
         setIsProcessing(false);
       }

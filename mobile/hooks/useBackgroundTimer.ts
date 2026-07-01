@@ -77,7 +77,7 @@ export function useBackgroundTimer() {
     // Check permissions
     const granted = await requestNotificationPermissions();
     if (!granted) {
-      console.log('⚠️ Notification permission not granted');
+      console.log('Notification permission not granted');
       setHasPermission(false);
       return null;
     }
@@ -94,7 +94,7 @@ export function useBackgroundTimer() {
       // Schedule the notification
       const notificationId = await Notifications.scheduleNotificationAsync({
         content: {
-          title: '⏰ Timer Complete!',
+          title: 'Timer complete!',
           body: truncatedStep,
           sound: soundPreference !== 'none' ? getSoundFileName(soundPreference) : undefined,
           priority: Notifications.AndroidNotificationPriority.HIGH,
@@ -113,7 +113,7 @@ export function useBackgroundTimer() {
         endTime,
       });
       
-      console.log(`📅 Scheduled notification for step ${stepIndex} in ${remainingSeconds}s`);
+      console.log(`Scheduled notification for step ${stepIndex} in ${remainingSeconds}s`);
       return notificationId;
     } catch (error) {
       console.error('Failed to schedule notification:', error);
@@ -130,7 +130,7 @@ export function useBackgroundTimer() {
       try {
         await Notifications.cancelScheduledNotificationAsync(scheduled.notificationId);
         scheduledNotifications.current.delete(stepIndex);
-        console.log(`🚫 Cancelled notification for step ${stepIndex}`);
+        console.log(`Cancelled notification for step ${stepIndex}`);
       } catch (error) {
         console.error('Failed to cancel notification:', error);
       }
@@ -149,7 +149,7 @@ export function useBackgroundTimer() {
     });
     await Promise.all(promises);
     scheduledNotifications.current.clear();
-    console.log('🚫 Cancelled all timer notifications');
+    console.log('Cancelled all timer notifications');
   }, []);
 
   /**
@@ -228,14 +228,14 @@ export function useAppStateSync(
         nextAppState === 'active'
       ) {
         // App has come to foreground
-        console.log('📱 App foregrounded');
+        console.log('App foregrounded');
         onForegrounded();
       } else if (
         appState.current === 'active' &&
         nextAppState.match(/inactive|background/)
       ) {
         // App is going to background
-        console.log('📱 App backgrounded');
+        console.log('App backgrounded');
         onBackgrounded();
       }
       appState.current = nextAppState;

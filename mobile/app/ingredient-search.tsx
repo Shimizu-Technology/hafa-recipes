@@ -136,7 +136,7 @@ export default function IngredientSearchScreen() {
               
               {/* Matched ingredients */}
               <Text style={[styles.matchedText, { color: colors.textMuted }]} numberOfLines={1}>
-                ✓ {item.matched_ingredients.slice(0, 4).join(', ')}
+                Have: {item.matched_ingredients.slice(0, 4).join(', ')}
                 {item.matched_ingredients.length > 4 && ` +${item.matched_ingredients.length - 4} more`}
               </Text>
               

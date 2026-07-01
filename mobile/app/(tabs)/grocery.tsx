@@ -528,11 +528,11 @@ export default function GroceryScreen() {
       }
     });
 
-    let text = '🛒 Grocery List\n\n';
+    let text = 'Grocery List\n\n';
     
     // Format items with simple list style
     const formatItem = (item: GroceryItem) => {
-      const marker = item.checked ? '✓' : '-';
+      const marker = item.checked ? '[x]' : '[ ]';
       const qty = item.quantity && item.quantity !== 'null' ? item.quantity : '';
       const unit = item.unit && item.unit !== 'null' ? item.unit : '';
       const qtyUnit = qty ? `${qty}${unit ? ' ' + unit : ''} ` : '';
@@ -545,7 +545,7 @@ export default function GroceryScreen() {
       .sort(([a], [b]) => a.localeCompare(b))
       .forEach(([recipeName, items], index) => {
         if (index > 0) text += '\n';
-        text += `📖 ${recipeName}\n`;
+        text += `${recipeName}\n`;
         items.forEach(item => {
           text += formatItem(item) + '\n';
         });
@@ -554,7 +554,7 @@ export default function GroceryScreen() {
     // Add items without recipe last
     if (noRecipe.length > 0) {
       if (Object.keys(byRecipe).length > 0) text += '\n';
-      text += `📝 Other Items\n`;
+      text += `Other Items\n`;
       noRecipe.forEach(item => {
         text += formatItem(item) + '\n';
       });

@@ -20,9 +20,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Button, Input, useColors } from '@/components/Themed';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
-import { 
-  useCollections, 
-  useAddToCollection, 
+import {
+  useCollections,
+  useAddToCollection,
   useCreateCollection,
 } from '@/hooks/useCollections';
 import { Collection } from '@/types/recipe';
@@ -42,24 +42,24 @@ export default function BulkAddToCollectionModal({
   onComplete,
 }: BulkAddToCollectionModalProps) {
   const colors = useColors();
-  
+
   // Selected collections to add recipes to
   const [selectedCollectionIds, setSelectedCollectionIds] = useState<Set<string>>(new Set());
   const [showCreateNew, setShowCreateNew] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [addProgress, setAddProgress] = useState(0);
-  
+
   // Fetch collections
   const { data: collections, isLoading: isLoadingCollections } = useCollections();
-  
+
   // Mutations
   const addToCollection = useAddToCollection();
   const createCollection = useCreateCollection();
-  
+
   const isCreating = createCollection.isPending;
   const hasValidName = newCollectionName.trim().length > 0;
-  
+
   // Reset state when modal closes
   useEffect(() => {
     if (!visible) {
@@ -70,7 +70,7 @@ export default function BulkAddToCollectionModal({
       setAddProgress(0);
     }
   }, [visible]);
-  
+
   const toggleCollection = (collectionId: string) => {
     setSelectedCollectionIds(prev => {
       const newSet = new Set(prev);
@@ -83,19 +83,19 @@ export default function BulkAddToCollectionModal({
     });
     haptics.light();
   };
-  
+
   const handleCreateCollection = async () => {
     if (!newCollectionName.trim()) return;
-    
+
     const name = newCollectionName.trim();
     Keyboard.dismiss();
-    
+
     try {
       const newCollection = await createCollection.mutateAsync({ name });
-      
+
       // Auto-select the new collection
       setSelectedCollectionIds(prev => new Set([...prev, newCollection.id]));
-      
+
       haptics.success();
       setNewCollectionName('');
       setShowCreateNew(false);
@@ -103,16 +103,16 @@ export default function BulkAddToCollectionModal({
       // Error handled by React Query
     }
   };
-  
+
   const handleAddToCollections = async () => {
     if (selectedCollectionIds.size === 0 || recipeIds.length === 0) return;
-    
+
     setIsAdding(true);
     setAddProgress(0);
-    
+
     const totalOperations = recipeIds.length * selectedCollectionIds.size;
     let completed = 0;
-    
+
     try {
       // Add each recipe to each selected collection
       for (const recipeId of recipeIds) {
@@ -126,7 +126,7 @@ export default function BulkAddToCollectionModal({
           setAddProgress(Math.round((completed / totalOperations) * 100));
         }
       }
-      
+
       haptics.success();
       onComplete?.();
     } catch {
@@ -135,9 +135,9 @@ export default function BulkAddToCollectionModal({
       setIsAdding(false);
     }
   };
-  
+
   const canAdd = selectedCollectionIds.size > 0 && recipeIds.length > 0 && !isAdding;
-  
+
   return (
     <Modal
       visible={visible}
@@ -145,7 +145,7 @@ export default function BulkAddToCollectionModal({
       animationType="fade"
       onRequestClose={onClose}
     >
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
@@ -163,15 +163,15 @@ export default function BulkAddToCollectionModal({
                       {recipeIds.length} recipe{recipeIds.length !== 1 ? 's' : ''} selected
                     </Text>
                   </RNView>
-                  <TouchableOpacity 
-                    onPress={onClose} 
+                  <TouchableOpacity
+                    onPress={onClose}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     disabled={isAdding}
                   >
                     <Ionicons name="close" size={24} color={colors.textMuted} />
                   </TouchableOpacity>
                 </RNView>
-                
+
                 {/* Adding progress */}
                 {isAdding && (
                   <RNView style={[styles.progressContainer, { backgroundColor: colors.tint + '15' }]}>
@@ -181,14 +181,14 @@ export default function BulkAddToCollectionModal({
                     </Text>
                   </RNView>
                 )}
-                
+
                 {/* Collections list */}
                 {isLoadingCollections ? (
                   <RNView style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color={colors.tint} />
                   </RNView>
                 ) : (
-                  <ScrollView 
+                  <ScrollView
                     style={styles.scrollView}
                     showsVerticalScrollIndicator={false}
                   >
@@ -201,7 +201,7 @@ export default function BulkAddToCollectionModal({
                               key={collection.id}
                               style={[
                                 styles.collectionRow,
-                                { 
+                                {
                                   backgroundColor: isSelected ? colors.tint + '15' : 'transparent',
                                   borderColor: isSelected ? colors.tint : colors.border,
                                 },
@@ -211,9 +211,9 @@ export default function BulkAddToCollectionModal({
                               disabled={isAdding}
                             >
                               <RNView style={styles.collectionInfo}>
-                                <Text style={styles.collectionEmoji}>
-                                  {collection.emoji || '📁'}
-                                </Text>
+                                <RNView style={[styles.collectionIcon, { backgroundColor: colors.tint + '15' }]}>
+                                  <Ionicons name="folder-open-outline" size={20} color={colors.tint} />
+                                </RNView>
                                 <RNView style={styles.collectionText}>
                                   <Text style={[styles.collectionName, { color: colors.text }]}>
                                     {collection.name}
@@ -225,7 +225,7 @@ export default function BulkAddToCollectionModal({
                               </RNView>
                               <RNView style={[
                                 styles.checkbox,
-                                { 
+                                {
                                   backgroundColor: isSelected ? colors.tint : 'transparent',
                                   borderColor: isSelected ? colors.tint : colors.border,
                                 },
@@ -246,15 +246,15 @@ export default function BulkAddToCollectionModal({
                         </Text>
                       </RNView>
                     )}
-                    
+
                     {/* Create new collection */}
                     {showCreateNew ? (
                       <RNView style={[styles.createNewForm, { borderColor: colors.tint + '40' }]}>
                         <RNView style={styles.createNewInput}>
-                          <Ionicons 
-                            name="folder-outline" 
-                            size={20} 
-                            color={colors.tint} 
+                          <Ionicons
+                            name="folder-outline"
+                            size={20}
+                            color={colors.tint}
                           />
                           <RNView style={styles.inputWrapper}>
                             <Input
@@ -269,7 +269,7 @@ export default function BulkAddToCollectionModal({
                             />
                           </RNView>
                           {hasValidName ? (
-                            <TouchableOpacity 
+                            <TouchableOpacity
                               onPress={handleCreateCollection}
                               disabled={isCreating}
                             >
@@ -280,7 +280,7 @@ export default function BulkAddToCollectionModal({
                               )}
                             </TouchableOpacity>
                           ) : (
-                            <TouchableOpacity 
+                            <TouchableOpacity
                               onPress={() => {
                                 setShowCreateNew(false);
                                 setNewCollectionName('');
@@ -307,12 +307,12 @@ export default function BulkAddToCollectionModal({
                     )}
                   </ScrollView>
                 )}
-                
+
                 {/* Footer with action button */}
                 <RNView style={styles.footer}>
                   <Button
-                    title={isAdding 
-                      ? 'Adding...' 
+                    title={isAdding
+                      ? 'Adding...'
                       : `Add to ${selectedCollectionIds.size} Collection${selectedCollectionIds.size !== 1 ? 's' : ''}`
                     }
                     onPress={handleAddToCollections}
@@ -406,8 +406,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
   },
-  collectionEmoji: {
-    fontSize: 24,
+  collectionIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginRight: spacing.sm,
   },
   collectionText: {

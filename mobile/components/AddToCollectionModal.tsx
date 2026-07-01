@@ -20,10 +20,10 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Button, Input, useColors } from '@/components/Themed';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
-import { 
-  useCollections, 
-  useRecipeCollections, 
-  useAddToCollection, 
+import {
+  useCollections,
+  useRecipeCollections,
+  useAddToCollection,
   useRemoveFromCollection,
   useCreateCollection,
 } from '@/hooks/useCollections';
@@ -45,29 +45,29 @@ export default function AddToCollectionModal({
   recipeTitle,
 }: AddToCollectionModalProps) {
   const colors = useColors();
-  
+
   // Selected collections (local state for optimistic UI)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showCreateNew, setShowCreateNew] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState('');
   const [justCreated, setJustCreated] = useState(false); // For success feedback
-  
+
   // Fetch data
   const { data: collections, isLoading: isLoadingCollections } = useCollections();
   const { data: recipeCollectionIds, isLoading: isLoadingRecipeCollections } = useRecipeCollections(recipeId);
-  
+
   // Mutations
   const addToCollection = useAddToCollection();
   const removeFromCollection = useRemoveFromCollection();
   const createCollection = useCreateCollection();
-  
+
   const isLoading = isLoadingCollections || isLoadingRecipeCollections;
   const isCreating = createCollection.isPending;
-  
+
   // Determine button state
   const hasValidName = newCollectionName.trim().length > 0;
   const isInCreateMode = showCreateNew;
-  
+
   // Initialize selected IDs from server data
   useEffect(() => {
     if (recipeCollectionIds) {
@@ -76,7 +76,7 @@ export default function AddToCollectionModal({
       setSelectedIds(new Set(validIds));
     }
   }, [recipeCollectionIds]);
-  
+
   // Reset state when modal closes
   useEffect(() => {
     if (!visible) {
@@ -85,11 +85,11 @@ export default function AddToCollectionModal({
       setJustCreated(false);
     }
   }, [visible]);
-  
+
   const handleToggleCollection = (collectionId: string) => {
     const isCurrentlySelected = selectedIds.has(collectionId);
     haptics.light();
-    
+
     // Optimistic update - immediately update UI
     const newSelectedIds = new Set(selectedIds);
     if (isCurrentlySelected) {
@@ -98,7 +98,7 @@ export default function AddToCollectionModal({
       newSelectedIds.add(collectionId);
     }
     setSelectedIds(newSelectedIds);
-    
+
     // Fire-and-forget API call (no await - allows rapid clicking)
     if (isCurrentlySelected) {
       removeFromCollection.mutate(
@@ -112,31 +112,31 @@ export default function AddToCollectionModal({
       );
     }
   };
-  
+
   const handleCreateAndAdd = async () => {
     if (!newCollectionName.trim()) return;
-    
+
     const name = newCollectionName.trim();
     Keyboard.dismiss();
-    
+
     try {
       // Create collection
       const newCollection = await createCollection.mutateAsync({ name });
-      
+
       // Add recipe to the new collection
       await addToCollection.mutateAsync({
         collectionId: newCollection.id,
         recipeId,
       });
-      
+
       // Update local state
       setSelectedIds(new Set([...selectedIds, newCollection.id]));
-      
+
       // Show success feedback
       haptics.success();
       setJustCreated(true);
       setNewCollectionName('');
-      
+
       // Reset after brief delay
       setTimeout(() => {
         setShowCreateNew(false);
@@ -146,7 +146,7 @@ export default function AddToCollectionModal({
       // Mutation error handled by React Query
     }
   };
-  
+
   const handleMainButtonPress = () => {
     if (isInCreateMode && hasValidName) {
       // Create the collection
@@ -161,11 +161,11 @@ export default function AddToCollectionModal({
       onClose();
     }
   };
-  
+
   // Determine main button text and style
   const getMainButtonConfig = () => {
     if (justCreated) {
-      return { title: '✓ Created!', disabled: true };
+      return { title: 'Created', disabled: true };
     }
     if (isCreating) {
       return { title: 'Creating...', disabled: true, loading: true };
@@ -178,9 +178,9 @@ export default function AddToCollectionModal({
     }
     return { title: 'Done', disabled: false };
   };
-  
+
   const buttonConfig = getMainButtonConfig();
-  
+
   return (
     <Modal
       visible={visible}
@@ -188,7 +188,7 @@ export default function AddToCollectionModal({
       animationType="fade"
       onRequestClose={onClose}
     >
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
@@ -210,14 +210,14 @@ export default function AddToCollectionModal({
                   <Ionicons name="close" size={24} color={colors.textMuted} />
                 </TouchableOpacity>
               </RNView>
-              
+
               {/* Collections list */}
               {isLoading ? (
                 <RNView style={styles.loadingContainer}>
                   <ActivityIndicator size="large" color={colors.tint} />
                 </RNView>
               ) : (
-                <ScrollView 
+                <ScrollView
                   style={styles.scrollView}
                   showsVerticalScrollIndicator={false}
                 >
@@ -230,7 +230,7 @@ export default function AddToCollectionModal({
                             key={collection.id}
                             style={[
                               styles.collectionRow,
-                              { 
+                              {
                                 backgroundColor: isSelected ? colors.tint + '15' : 'transparent',
                                 borderColor: isSelected ? colors.tint : colors.border,
                               },
@@ -239,9 +239,9 @@ export default function AddToCollectionModal({
                             activeOpacity={0.7}
                           >
                             <RNView style={styles.collectionInfo}>
-                              <Text style={styles.collectionEmoji}>
-                                {collection.emoji || '📁'}
-                              </Text>
+                              <RNView style={[styles.collectionIcon, { backgroundColor: colors.tint + '15' }]}>
+                                <Ionicons name="folder-open-outline" size={20} color={colors.tint} />
+                              </RNView>
                               <RNView style={styles.collectionText}>
                                 <Text style={[styles.collectionName, { color: colors.text }]}>
                                   {collection.name}
@@ -253,7 +253,7 @@ export default function AddToCollectionModal({
                             </RNView>
                             <RNView style={[
                               styles.checkbox,
-                              { 
+                              {
                                 backgroundColor: isSelected ? colors.tint : 'transparent',
                                 borderColor: isSelected ? colors.tint : colors.border,
                               },
@@ -274,15 +274,15 @@ export default function AddToCollectionModal({
                       </Text>
                     </RNView>
                   )}
-                  
+
                   {/* Create new collection */}
                   {showCreateNew ? (
                     <RNView style={[styles.createNewForm, { borderColor: colors.tint + '40' }]}>
                       <RNView style={styles.createNewInput}>
-                        <Ionicons 
-                          name={justCreated ? "checkmark-circle" : "folder-outline"} 
-                          size={20} 
-                          color={justCreated ? colors.success : colors.tint} 
+                        <Ionicons
+                          name={justCreated ? "checkmark-circle" : "folder-outline"}
+                          size={20}
+                          color={justCreated ? colors.success : colors.tint}
                         />
                         <RNView style={styles.inputWrapper}>
                           <Input
@@ -297,7 +297,7 @@ export default function AddToCollectionModal({
                           />
                         </RNView>
                         {!justCreated && (
-                          <TouchableOpacity 
+                          <TouchableOpacity
                             onPress={() => {
                               setShowCreateNew(false);
                               setNewCollectionName('');
@@ -323,7 +323,7 @@ export default function AddToCollectionModal({
                   )}
                 </ScrollView>
               )}
-              
+
               {/* Smart main button - changes based on context */}
               <RNView style={styles.footer}>
                 <Button
@@ -404,8 +404,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
   },
-  collectionEmoji: {
-    fontSize: 24,
+  collectionIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginRight: spacing.sm,
   },
   collectionText: {

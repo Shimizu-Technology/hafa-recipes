@@ -21,7 +21,7 @@ import Animated, {
 import { Text, useColors } from '@/components/Themed';
 import RecipeChatModal from '@/components/RecipeChatModal';
 import { haptics } from '@/utils/haptics';
-import { spacing, radius, fontSize, fontWeight } from '@/constants/Colors';
+import { spacing, radius, fontSize, fontWeight, brand } from '@/constants/Colors';
 
 const TAB_BAR_HEIGHT = 85; // Approximate height of tab bar + safe area
 
@@ -117,7 +117,7 @@ export default function FloatingChatButton() {
             >
               {/* Gradient background */}
               <LinearGradient
-                colors={[colors.tint, '#E85A2A']}
+                colors={[colors.tint, brand.clay]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.fabGradient}

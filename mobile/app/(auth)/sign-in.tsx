@@ -18,7 +18,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Input, Button, useColors } from '@/components/Themed';
-import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { BrandMark } from '@/components/BrandMark';
+import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 
 // Required for OAuth to work properly (for Apple Sign-In)
 WebBrowser.maybeCompleteAuthSession();
@@ -34,7 +35,7 @@ export default function SignInScreen() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -48,7 +49,7 @@ export default function SignInScreen() {
   const handleEmailSignIn = async () => {
     if (!isLoaded) return;
     setErrorMessage(null);
-    
+
     if (!email.trim() || !password.trim()) {
       setErrorMessage('Please enter your email and password.');
       return;
@@ -101,11 +102,11 @@ export default function SignInScreen() {
   const handleAppleSignIn = useCallback(async () => {
     if (!isLoaded) return;
     setErrorMessage(null);
-    
+
     setIsLoading(true);
     try {
       const redirectUrl = Linking.createURL('oauth-callback');
-      
+
       const { createdSessionId, setActive: ssoSetActive, signIn: ssoSignIn, signUp } = await startSSOFlow({
         strategy: 'oauth_apple',
         redirectUrl,
@@ -137,12 +138,12 @@ export default function SignInScreen() {
   const handleGoogleSignIn = useCallback(async () => {
     if (!isLoaded) return;
     setErrorMessage(null);
-    
+
     setIsLoading(true);
     try {
       // Use web-based SSO on all platforms
       const redirectUrl = Linking.createURL('oauth-callback');
-      
+
       const { createdSessionId, setActive: ssoSetActive, signIn: ssoSignIn, signUp } = await startSSOFlow({
         strategy: 'oauth_google',
         redirectUrl,
@@ -158,7 +159,7 @@ export default function SignInScreen() {
       }
     } catch (error: any) {
       console.log('Google Sign-In error:', error);
-      
+
       // Handle Clerk errors
       const clerkError = error.errors?.[0];
       if (clerkError?.code === 'session_exists') {
@@ -197,12 +198,11 @@ export default function SignInScreen() {
 
           {/* Logo / Header */}
           <RNView style={styles.header}>
-            <RNView style={[styles.logoContainer, { backgroundColor: colors.tint + '15' }]}>
-              <Text style={styles.logoEmoji}>🍳</Text>
-            </RNView>
-            <Text style={[styles.title, { color: colors.text }]}>Welcome Back</Text>
+            <BrandMark size={86} style={{ backgroundColor: colors.backgroundSecondary }} />
+            <Text style={[styles.eyebrow, { color: colors.tint }]}>Håfa Recipes</Text>
+            <Text style={[styles.title, { color: colors.text }]}>Welcome back</Text>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-              Sign in to access your recipes
+              Sign in to save, plan, shop, and cook from your recipe library.
             </Text>
           </RNView>
 
@@ -353,20 +353,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.xl,
   },
-  logoContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  logoEmoji: {
-    fontSize: 40,
+  eyebrow: {
+    fontSize: fontSize.xs,
+    fontFamily: fontFamily.semibold,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginTop: spacing.lg,
+    marginBottom: spacing.xs,
   },
   title: {
-    fontSize: fontSize.xxl,
-    fontWeight: fontWeight.bold,
+    fontSize: fontSize.xxxl,
+    fontFamily: fontFamily.display,
     marginBottom: spacing.xs,
   },
   subtitle: {
@@ -383,7 +380,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
     paddingVertical: spacing.md,
-    borderRadius: radius.md,
+    borderRadius: radius.full,
     borderWidth: 1,
   },
   oauthButtonText: {

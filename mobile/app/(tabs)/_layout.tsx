@@ -57,13 +57,15 @@ export default function TabLayout() {
         tabBarInactiveTintColor: colors.tabIconDefault,
         tabBarHideOnKeyboard: true,
         tabBarStyle: {
-          backgroundColor: colors.background,
+          backgroundColor: colors.backgroundElevated,
           borderTopColor: colors.border,
           borderTopWidth: 1,
+          paddingTop: 6,
         },
         tabBarLabelStyle: {
           fontSize: 11,
-          fontWeight: '500',
+          fontWeight: '600',
+          fontFamily: 'DMSans_600SemiBold',
         },
         headerStyle: {
           backgroundColor: colors.background,
@@ -73,9 +75,10 @@ export default function TabLayout() {
           borderBottomColor: colors.border,
         },
         headerTitleStyle: {
-          fontWeight: '600',
+          fontWeight: '700',
           fontSize: 17,
           color: colors.text,
+          fontFamily: 'DMSans_700Bold',
         },
       }}>
       <Tabs.Screen
