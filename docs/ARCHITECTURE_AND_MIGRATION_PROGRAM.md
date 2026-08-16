@@ -1,6 +1,6 @@
 # Håfa Recipes architecture and migration program
 
-Status: monorepo/provider cutover complete; stable Clerk identity foundation in review
+Status: monorepo/provider cutover complete; stable identity deployed; mobile handoff in progress
 
 Last updated: 2026-08-17
 
@@ -218,16 +218,23 @@ audit and safe rollback.
 
 The preferred rollout uses two releases:
 
-1. A development-key bridge release authenticates the current session, ensures
-   the stable identity/prod shell exists, requests a short-lived one-time Clerk
-   production sign-in ticket from the API, and stores it in Expo SecureStore.
-2. The later production-key release consumes that ticket with Clerk's ticket
-   strategy, activates the production session, and immediately deletes the local
+1. A development-key bridge release authenticates the current session, creates
+   a random installation ID, and stores an opaque 90-day migration grant in Expo
+   SecureStore.
+2. The API stores only hashes, binds the grant to the stable user and provisioned
+   production alias, rotates one record per installation, and limits each user
+   to ten active installation grants.
+3. The later production-key release redeems the grant. The API row-locks and
+   consumes it atomically, then creates a 60-second, one-use Clerk production
    ticket.
+4. The app immediately consumes that ticket with Clerk's `ticket` strategy,
+   activates the production session, and deletes the grant.
 
-Tickets must never appear in logs or analytics, must be short lived, single use,
-bound to the intended user, and covered by replay/expiry tests. App upgrades must
-be verified to preserve SecureStore on physical devices.
+This avoids placing a long-lived Clerk ticket on the device before the second
+release exists. Raw grants and tickets must never appear in logs or analytics.
+Replay, expiry, concurrency, and transient-provider failure are covered with
+real PostgreSQL tests. App upgrades must be verified to preserve SecureStore on
+physical devices.
 
 Users who skip the bridge release sign in once through Apple, Google, or email.
 Strict verified matching attaches the production identity to the existing stable
@@ -237,10 +244,11 @@ user, so their recipes and related data remain unchanged.
 
 Production Clerk session settings, not production keys alone, control the weekly
 sign-out. For this low-risk consumer app, the target is no inactivity timeout and
-a 365-day maximum session lifetime, subject to Clerk plan support. A 30-day
-maximum is the conservative fallback. Manual sign-out, account deletion, token
-revocation, device changes, and security events still end a session; “never sign
-out” is therefore not promised literally.
+a 365-day maximum session lifetime, subject to Clerk plan support. Clerk Hobby
+currently fixes production sessions at seven days; custom duration requires an
+explicit paid-plan purchase. Manual sign-out, account deletion, token revocation,
+device changes, and security events still end a session; “never sign out” is
+therefore not promised literally.
 
 ## Release and verification gates
 

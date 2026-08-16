@@ -1,5 +1,6 @@
 from .chat import cooking_router as cooking_chat_router
 from .chat import router as chat_router
+from .clerk_transition import router as clerk_transition_router
 from .collections import router as collections_router
 from .extract import router as extract_router
 from .grocery import router as grocery_router
@@ -11,6 +12,7 @@ from .users import router as users_router
 
 __all__ = [
     "chat_router",
+    "clerk_transition_router",
     "collections_router",
     "cooking_chat_router",
     "extract_router",

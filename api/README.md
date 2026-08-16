@@ -238,6 +238,7 @@ This repo uses simple numbered migration scripts in `migrations/` rather than Al
 ```bash
 # Run a migration against the configured DATABASE_URL
 uv run python -m migrations.016_add_stable_clerk_identities
+uv run python -m migrations.017_add_clerk_migration_grants
 ```
 
 Run migrations intentionally for each environment; do not run production migrations from a local shell unless you have confirmed the target database.
@@ -258,6 +259,14 @@ uv run python -m app.clerk_transition provision-production --apply
 
 The transition tool never deletes or merges users. Production matching requires
 one exact verified primary email and a non-conflicting stable external ID.
+
+Migration 017 adds the hash-at-rest, device-scoped grants used by the two-build
+mobile cutover. A development session creates a grant at
+`POST /api/auth/clerk-transition/grants`; the production-key build redeems it at
+`POST /api/auth/clerk-transition/redeem` for a 60-second, one-use Clerk ticket.
+The redeem request carries the grant in the `Authorization: Bearer` header so
+standard HTTP/Sentry secret scrubbing applies. Raw grants and tickets must never
+be logged.
 
 ## Deployment (Render)
 

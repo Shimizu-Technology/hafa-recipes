@@ -380,6 +380,13 @@ async def test_migration_backfills_all_owners_without_rewriting_them(monkeypatch
         await migration.run_migration()
         await migration.run_migration()
 
+        grant_migration = importlib.import_module(
+            "migrations.017_add_clerk_migration_grants"
+        )
+        monkeypatch.setattr(grant_migration, "engine", engine)
+        await grant_migration.run_migration()
+        await grant_migration.run_migration()
+
         async with engine.connect() as connection:
             users = (
                 await connection.execute(text("SELECT id FROM app_users ORDER BY id"))
@@ -397,6 +404,12 @@ async def test_migration_backfills_all_owners_without_rewriting_them(monkeypatch
                     text("SELECT user_id FROM recipes ORDER BY user_id NULLS LAST")
                 )
             ).scalars().all()
+            grants_table_exists = await connection.scalar(
+                text(
+                    "SELECT to_regclass('public.clerk_migration_grants') "
+                    "IS NOT NULL"
+                )
+            )
 
         assert users == ["user_one", "user_two"]
         assert identities == [
@@ -404,6 +417,7 @@ async def test_migration_backfills_all_owners_without_rewriting_them(monkeypatch
             ("user_two", "user_two"),
         ]
         assert recipe_owners == ["user_one", None]
+        assert grants_table_exists is True
     finally:
         async with engine.begin() as connection:
             await connection.execute(text("DROP SCHEMA public CASCADE"))

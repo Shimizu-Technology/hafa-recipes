@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.routers import (
     chat_router,
+    clerk_transition_router,
     collections_router,
     cooking_chat_router,
     extract_router,
@@ -62,6 +63,7 @@ app.include_router(recipes_router)
 app.include_router(extract_router)
 app.include_router(grocery_router)
 app.include_router(chat_router)
+app.include_router(clerk_transition_router)
 app.include_router(cooking_chat_router)
 app.include_router(users_router)
 app.include_router(collections_router)
