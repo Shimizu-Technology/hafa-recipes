@@ -1,6 +1,6 @@
 # Clerk production migration runbook
 
-Status: foundation/grant/bridge deployed; 35/35 production aliases provisioned;
+Status: foundation/grant API deployed; 35/35 production aliases provisioned;
 iOS 2.4.0 bridge waiting for App Review; production-key cutover gated
 
 Last updated: 2026-08-17
@@ -132,6 +132,10 @@ The same audit identified these pre-cutover blockers:
 - the required `recipe-extractor-public-metadata` template has not been
   confirmed in production and must emit
   `{ "public_metadata": "{{user.public_metadata}}" }` under that exact name;
+- production transactional email has not been acceptance-tested. Confirm the
+  sender identity and reply/support paths, then exercise sign-up verification,
+  sign-in verification, password recovery, redirect URLs, and delivery to both
+  ordinary and Apple private-relay addresses before cutover;
 - the Clerk application support email is blank; use the same
   `shimizutechnology@gmail.com` address published by the support/privacy pages;
   and

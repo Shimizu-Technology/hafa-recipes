@@ -1,6 +1,6 @@
 # Håfa Recipes architecture and migration program
 
-Status: monorepo/provider-source cutover complete; stable identity/grant/bridge
+Status: monorepo/provider-source cutover complete; stable identity/grant API
 deployed; iOS bridge release 2.4.0 waiting for App Review
 
 Last updated: 2026-08-17
