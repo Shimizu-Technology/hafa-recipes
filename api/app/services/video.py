@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 import httpx
 
 from app.config import get_settings
+from app.security import PublicHTTPTransport
 
 settings = get_settings()
 
@@ -205,7 +206,11 @@ class VideoService:
             # TikTok short URLs need to be resolved
             if "/t/" in url or "vm.tiktok.com" in url:
                 try:
-                    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                    async with httpx.AsyncClient(
+                        timeout=10.0,
+                        follow_redirects=True,
+                        transport=PublicHTTPTransport(),
+                    ) as client:
                         response = await client.head(url)
                         resolved_url = str(response.url)
                         print(f"🔗 Resolved TikTok URL: {url} → {resolved_url}")
@@ -364,7 +369,8 @@ class VideoService:
                 async with httpx.AsyncClient(
                     timeout=20.0,
                     follow_redirects=True,
-                    headers=headers
+                    headers=headers,
+                    transport=PublicHTTPTransport(),
                 ) as client:
                     response = await client.get(url)
                     
@@ -536,7 +542,8 @@ class VideoService:
                 "Accept": "image/*,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.9",
                 "Referer": "https://www.tiktok.com/",
-            }
+            },
+            transport=PublicHTTPTransport(),
         ) as client:
             for i, url in enumerate(image_urls[:20]):  # Limit to 20 images
                 try:
@@ -868,4 +875,3 @@ class VideoService:
 
 # Singleton instance
 video_service = VideoService()
-
