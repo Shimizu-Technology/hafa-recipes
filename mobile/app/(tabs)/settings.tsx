@@ -127,7 +127,15 @@ export default function SettingsScreen() {
           onPress: async () => {
             // A deliberate sign-out opts this installation out of silent Clerk
             // migration so a future production build cannot sign it back in.
-            await markMigrationSignedOut().catch(() => undefined);
+            try {
+              await markMigrationSignedOut();
+            } catch {
+              Alert.alert(
+                'Could Not Sign Out',
+                'Håfa Recipes could not securely clear this device session. Please try again.',
+              );
+              return;
+            }
 
             // IMPORTANT: Remove token getter FIRST to prevent new authenticated requests
             api.setTokenGetter(null);

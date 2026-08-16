@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as SecureStore from 'expo-secure-store';
 
 const secureValues = new Map<string, string>();
 
@@ -82,6 +83,13 @@ describe('Clerk migration state', () => {
     await clearMigrationSignOut();
     await saveMigrationGrant({ grant: rawGrant, expiresAt });
     expect(await loadMigrationGrant()).toEqual({ grant: rawGrant, expiresAt });
+  });
+
+  it('rejects sign-out preparation if neither the opt-out nor grant deletion persists', async () => {
+    vi.mocked(SecureStore.setItemAsync).mockRejectedValueOnce(new Error('keychain write failed'));
+    vi.mocked(SecureStore.deleteItemAsync).mockRejectedValueOnce(new Error('keychain delete failed'));
+
+    await expect(markMigrationSignedOut()).rejects.toThrow('keychain delete failed');
   });
 });
 
