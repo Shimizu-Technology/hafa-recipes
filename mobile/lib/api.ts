@@ -4,6 +4,7 @@
 
 import axios, { AxiosInstance } from 'axios';
 import { captureError, captureMessage, addBreadcrumb } from './sentry';
+import { API_BASE_URL } from './apiConfig';
 import {
   Recipe,
   RecipeListItem,
@@ -28,38 +29,6 @@ import {
   DayMeals,
   WeekPlan,
 } from '../types/recipe';
-
-// Configure base URL based on environment
-import Constants from 'expo-constants';
-
-// API Configuration
-// For development: Automatically detect the dev machine's IP from Expo
-// For production: Use the Render URL
-// Set USE_LOCAL_API to true ONLY if you're running the backend locally with uvicorn
-const USE_LOCAL_API = true; // Using local backend with uvicorn
-
-function getApiBaseUrl(): string {
-  if (!__DEV__ || !USE_LOCAL_API) {
-    // Production or explicitly using remote
-    return 'https://recipe-api-x5na.onrender.com';
-  }
-  
-  // In development, try to get the IP from Expo's dev server
-  // This extracts the IP from Expo's debugger host (e.g., "192.168.1.100:8081")
-  const debuggerHost = Constants.expoConfig?.hostUri || Constants.manifest?.debuggerHost;
-  
-  if (debuggerHost) {
-    const host = debuggerHost.split(':')[0]; // Remove port
-    console.log(`Using local API at: http://${host}:8000`);
-    return `http://${host}:8000`;
-  }
-  
-  // Fallback to production if we can't detect local IP
-  console.log('Could not detect local IP, using production API');
-  return 'https://recipe-api-x5na.onrender.com';
-}
-
-const API_BASE_URL = getApiBaseUrl();
 
 // Token getter function type - will be set by the app
 type TokenGetter = () => Promise<string | null>;

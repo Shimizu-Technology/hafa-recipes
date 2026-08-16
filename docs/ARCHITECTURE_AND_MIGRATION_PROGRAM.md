@@ -1,6 +1,6 @@
 # Håfa Recipes architecture and migration program
 
-Status: monorepo/provider cutover complete; stable identity deployed; mobile handoff in progress
+Status: monorepo/provider cutover complete; stable identity/grant API deployed; bridge client under review
 
 Last updated: 2026-08-17
 

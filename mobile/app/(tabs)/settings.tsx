@@ -14,6 +14,7 @@ import { API_BASE_URL } from '@/lib/api';
 import { captureMessage, captureError } from '@/lib/sentry';
 import { useTheme, ThemePreference } from '@/contexts/ThemeContext';
 import { clearAllOfflineGroceryData } from '@/lib/offlineStorage';
+import { markMigrationSignedOut } from '@/lib/clerkMigration';
 import { useTimerSoundPreference, TIMER_SOUNDS, TimerSoundOption, playTimerSoundPreview } from '@/hooks/useTimerSound';
 import { useTTSVoice, TTS_VOICES, TTSVoice } from '@/hooks/useTTS';
 import { useTextSize, TEXT_SIZE_LABELS, TextSizeOption } from '@/hooks/useTextSize';
@@ -124,6 +125,10 @@ export default function SettingsScreen() {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
+            // A deliberate sign-out opts this installation out of silent Clerk
+            // migration so a future production build cannot sign it back in.
+            await markMigrationSignedOut().catch(() => undefined);
+
             // IMPORTANT: Remove token getter FIRST to prevent new authenticated requests
             api.setTokenGetter(null);
 
@@ -164,6 +169,7 @@ export default function SettingsScreen() {
                     setIsDeleting(true);
                     try {
                       await api.deleteAccount();
+                      await markMigrationSignedOut().catch(() => undefined);
 
                       // Remove token getter FIRST
                       api.setTokenGetter(null);
