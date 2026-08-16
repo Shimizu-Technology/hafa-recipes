@@ -1,0 +1,93 @@
+from types import SimpleNamespace
+
+import pytest
+from fastapi import HTTPException
+
+import app.auth as auth
+from app.config import Settings
+
+
+def _settings(**overrides) -> Settings:
+    values = {
+        "database_url": "postgresql://user:pass@example.com/db",
+        "openai_api_key": "test-openai-key",
+        "clerk_frontend_api": "dev.example.clerk.accounts.dev",
+        "clerk_secret_key": "sk_test_dev",
+        "clerk_development_issuer": "https://dev.example.clerk.accounts.dev",
+        "clerk_development_secret_key": "sk_test_dev",
+        "clerk_production_issuer": "https://clerk.hafa-recipes.com",
+        "clerk_production_secret_key": "sk_live_prod",
+        "clerk_production_authorized_parties": "https://hafa-recipes.com",
+    }
+    values.update(overrides)
+    return Settings(**values)
+
+
+class _SigningKeyClient:
+    def get_signing_key_from_jwt(self, _token):
+        return SimpleNamespace(key="public-key")
+
+
+def test_verify_clerk_token_uses_exact_issuer_and_environment_policy(monkeypatch):
+    monkeypatch.setattr(auth, "settings", _settings())
+    monkeypatch.setattr(auth, "_get_jwks_client", lambda _environment: _SigningKeyClient())
+    calls = []
+
+    def fake_decode(_token, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return {"iss": "https://clerk.hafa-recipes.com"}
+        return {
+            "iss": "https://clerk.hafa-recipes.com",
+            "sub": "user_prod",
+            "exp": 9999999999,
+            "azp": "https://hafa-recipes.com",
+        }
+
+    monkeypatch.setattr(auth.jwt, "decode", fake_decode)
+
+    verified = auth.verify_clerk_token("header.payload.signature")
+
+    assert verified.subject == "user_prod"
+    assert verified.environment_name == "production"
+    assert calls[1]["issuer"] == "https://clerk.hafa-recipes.com"
+    assert calls[1]["algorithms"] == ["RS256"]
+
+
+def test_verify_clerk_token_rejects_unrecognized_issuer_before_jwks(monkeypatch):
+    monkeypatch.setattr(auth, "settings", _settings())
+    monkeypatch.setattr(
+        auth.jwt,
+        "decode",
+        lambda _token, **_kwargs: {"iss": "https://attacker.example"},
+    )
+
+    with pytest.raises(HTTPException) as error:
+        auth.verify_clerk_token("header.payload.signature")
+
+    assert error.value.status_code == 401
+
+
+def test_verify_clerk_token_rejects_wrong_authorized_party(monkeypatch):
+    monkeypatch.setattr(auth, "settings", _settings())
+    monkeypatch.setattr(auth, "_get_jwks_client", lambda _environment: _SigningKeyClient())
+    calls = 0
+
+    def fake_decode(_token, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"iss": "https://clerk.hafa-recipes.com"}
+        return {
+            "iss": "https://clerk.hafa-recipes.com",
+            "sub": "user_prod",
+            "exp": 9999999999,
+            "azp": "https://evil.example",
+        }
+
+    monkeypatch.setattr(auth.jwt, "decode", fake_decode)
+
+    with pytest.raises(HTTPException) as error:
+        auth.verify_clerk_token("header.payload.signature")
+
+    assert error.value.status_code == 401

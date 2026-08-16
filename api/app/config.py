@@ -1,9 +1,30 @@
+from dataclasses import dataclass
 from functools import lru_cache
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 UNSUPPORTED_ASYNCPG_QUERY_PARAMS = frozenset({"sslmode", "channel_binding"})
+
+
+@dataclass(frozen=True)
+class ClerkEnvironment:
+    """Credentials and verification policy for one exact Clerk issuer."""
+
+    name: str
+    issuer: str
+    secret_key: str | None
+    jwks_url: str
+    audience: str | list[str] | None
+    authorized_parties: tuple[str, ...]
+
+    @property
+    def is_development(self) -> bool:
+        return self.name in {"development", "legacy"}
+
+    @property
+    def is_production(self) -> bool:
+        return self.name == "production"
 
 
 class Settings(BaseSettings):
@@ -26,9 +47,25 @@ class Settings(BaseSettings):
     
     # Clerk Auth
     clerk_secret_key: str | None = None
-    clerk_frontend_api: str = "clerk.your-domain.com"  # e.g., "prepared-mole-42.clerk.accounts.dev"
+    clerk_frontend_api: str | None = None  # e.g., "prepared-mole-42.clerk.accounts.dev"
     clerk_jwt_issuer: str | None = None
     clerk_jwt_audience: str | None = None
+    clerk_authorized_parties: str = ""
+
+    # Explicit issuer-scoped settings used during the production transition.
+    # Legacy CLERK_* settings above remain supported so the foundation can be
+    # deployed before changing any production credentials.
+    clerk_development_issuer: str | None = None
+    clerk_development_secret_key: str | None = None
+    clerk_development_jwks_url: str | None = None
+    clerk_development_audience: str | None = None
+    clerk_development_authorized_parties: str = ""
+    clerk_production_issuer: str | None = None
+    clerk_production_secret_key: str | None = None
+    clerk_production_jwks_url: str | None = None
+    clerk_production_audience: str | None = None
+    clerk_production_authorized_parties: str = ""
+    clerk_primary_environment: str = "development"
     
     # AWS S3 (for thumbnail storage)
     aws_access_key_id: str | None = None
@@ -74,7 +111,9 @@ class Settings(BaseSettings):
         """Expected Clerk JWT issuer."""
         if self.clerk_jwt_issuer:
             return self.clerk_jwt_issuer.rstrip("/")
-        frontend_api = self.clerk_frontend_api.rstrip("/")
+        frontend_api = (self.clerk_frontend_api or "").rstrip("/")
+        if not frontend_api:
+            return ""
         if frontend_api.startswith("http://") or frontend_api.startswith("https://"):
             return frontend_api
         return f"https://{frontend_api}"
@@ -83,6 +122,83 @@ class Settings(BaseSettings):
     def jwks_url(self) -> str:
         """Clerk JWKS endpoint."""
         return f"{self.clerk_issuer}/.well-known/jwks.json"
+
+    @staticmethod
+    def _parse_csv(value: str) -> tuple[str, ...]:
+        return tuple(item.strip() for item in value.split(",") if item.strip())
+
+    @staticmethod
+    def _parse_audience(value: str | None) -> str | list[str] | None:
+        values = [item.strip() for item in (value or "").split(",") if item.strip()]
+        if not values:
+            return None
+        return values[0] if len(values) == 1 else values
+
+    @property
+    def clerk_environments(self) -> tuple[ClerkEnvironment, ...]:
+        """Return configured Clerk instances, deduplicated by exact issuer."""
+        environments: list[ClerkEnvironment] = []
+
+        explicit = (
+            (
+                "development",
+                self.clerk_development_issuer,
+                self.clerk_development_secret_key,
+                self.clerk_development_jwks_url,
+                self.clerk_development_audience,
+                self.clerk_development_authorized_parties,
+            ),
+            (
+                "production",
+                self.clerk_production_issuer,
+                self.clerk_production_secret_key,
+                self.clerk_production_jwks_url,
+                self.clerk_production_audience,
+                self.clerk_production_authorized_parties,
+            ),
+        )
+        for name, issuer, secret, jwks, audience, parties in explicit:
+            normalized = (issuer or "").strip().rstrip("/")
+            if normalized:
+                environments.append(
+                    ClerkEnvironment(
+                        name=name,
+                        issuer=normalized,
+                        secret_key=secret,
+                        jwks_url=(jwks or f"{normalized}/.well-known/jwks.json").strip(),
+                        audience=self._parse_audience(audience),
+                        authorized_parties=self._parse_csv(parties),
+                    )
+                )
+
+        legacy_issuer = self.clerk_issuer.strip().rstrip("/")
+        if legacy_issuer and all(item.issuer != legacy_issuer for item in environments):
+            environments.append(
+                ClerkEnvironment(
+                    name="legacy",
+                    issuer=legacy_issuer,
+                    secret_key=self.clerk_secret_key,
+                    jwks_url=self.jwks_url,
+                    audience=self._parse_audience(self.clerk_jwt_audience),
+                    authorized_parties=self._parse_csv(self.clerk_authorized_parties),
+                )
+            )
+
+        return tuple(environments)
+
+    def clerk_environment_for_issuer(self, issuer: str | None) -> ClerkEnvironment | None:
+        normalized = (issuer or "").strip().rstrip("/")
+        return next((item for item in self.clerk_environments if item.issuer == normalized), None)
+
+    @property
+    def primary_clerk_environment(self) -> ClerkEnvironment | None:
+        preferred = self.clerk_primary_environment.strip().lower()
+        environments = self.clerk_environments
+        return (
+            next((item for item in environments if item.name == preferred), None)
+            or next((item for item in environments if item.is_development), None)
+            or next(iter(environments), None)
+        )
 
     @property
     def allowed_cors_origins(self) -> list[str]:
@@ -122,4 +238,3 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Get cached settings instance."""
     return Settings()
-

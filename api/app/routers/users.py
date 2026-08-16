@@ -1,6 +1,5 @@
 """User management endpoints - account deletion for Apple compliance."""
 
-import httpx
 import sentry_sdk
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, select
@@ -10,6 +9,7 @@ from app.auth import ClerkUser, get_current_user
 from app.config import get_settings
 from app.db import get_db
 from app.models.grocery import GroceryItem, GroceryList, GroceryListInvite, GroceryListMember
+from app.models.identity import AppUser, ClerkIdentity
 from app.models.meal_plan import MealPlanEntry
 from app.models.recipe import (
     Collection,
@@ -20,25 +20,26 @@ from app.models.recipe import (
     RecipeVersion,
     SavedRecipe,
 )
+from app.services.clerk import ClerkBackendClient
 from app.services.storage import storage_service
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 settings = get_settings()
 
 
-async def _delete_clerk_user(user_id: str) -> bool:
-    """Delete the Clerk user when a secret key is configured."""
-    if not settings.clerk_secret_key:
-        return False
-
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        response = await client.delete(
-            f"https://api.clerk.com/v1/users/{user_id}",
-            headers={"Authorization": f"Bearer {settings.clerk_secret_key}"},
+async def _delete_clerk_users(identities: list[tuple[str, str]]) -> bool:
+    """Delete every issuer-scoped Clerk alias for the local account."""
+    deleted_all = True
+    for issuer, clerk_user_id in identities:
+        environment = settings.clerk_environment_for_issuer(issuer)
+        if environment is None or not environment.secret_key:
+            deleted_all = False
+            continue
+        deleted_all = (
+            await ClerkBackendClient(environment, timeout=20.0).delete_user(clerk_user_id)
+            and deleted_all
         )
-        if response.status_code not in {200, 204, 404}:
-            raise RuntimeError(f"Clerk deletion failed with status {response.status_code}")
-    return True
+    return deleted_all
 
 
 @router.delete("/me")
@@ -53,6 +54,12 @@ async def delete_account(
     also deletes the Clerk account record.
     """
     user_id = user.id
+    identity_result = await db.execute(
+        select(ClerkIdentity.issuer, ClerkIdentity.clerk_user_id).where(
+            ClerkIdentity.app_user_id == user_id
+        )
+    )
+    clerk_identities = [(row[0], row[1]) for row in identity_result.all()]
 
     try:
         recipe_result = await db.execute(select(Recipe.id).where(Recipe.user_id == user_id))
@@ -98,6 +105,8 @@ async def delete_account(
         await db.execute(delete(GroceryListInvite).where(GroceryListInvite.created_by == user_id))
         await db.execute(delete(GroceryListMember).where(GroceryListMember.user_id == user_id))
         await db.execute(delete(Recipe).where(Recipe.user_id == user_id))
+        await db.execute(delete(ClerkIdentity).where(ClerkIdentity.app_user_id == user_id))
+        await db.execute(delete(AppUser).where(AppUser.id == user_id))
 
         # Delete grocery lists that are now empty after this user leaves/deletes account.
         if list_ids:
@@ -124,7 +133,7 @@ async def delete_account(
 
     clerk_deleted = False
     try:
-        clerk_deleted = await _delete_clerk_user(user_id)
+        clerk_deleted = await _delete_clerk_users(clerk_identities)
     except Exception as e:
         sentry_sdk.capture_exception(e)
         print(f"⚠️ Local account data deleted, but Clerk deletion failed for {user_id}: {e}")
