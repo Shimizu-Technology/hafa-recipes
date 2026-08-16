@@ -8,7 +8,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.routers.clerk_transition as handoff
@@ -151,6 +151,48 @@ async def test_same_installation_rotates_one_grant_row(
     assert len(rows) == 1
     assert rows[0].token_hash == handoff._hash_grant(second.grant)
     assert rows[0].token_hash != handoff._hash_grant(first.grant)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_new_installations_cannot_bypass_per_user_cap(
+    handoff_database,
+    monkeypatch,
+):
+    monkeypatch.setattr(handoff, "settings", _settings())
+    await _seed_aliases(handoff_database)
+    now = datetime.now(timezone.utc)
+    async with handoff_database() as db:
+        for index in range(handoff.MAX_ACTIVE_GRANTS_PER_USER - 1):
+            db.add(
+                ClerkMigrationGrant(
+                    app_user_id="stable_user",
+                    device_hash=handoff._hash_grant(f"existing-device-{index}"),
+                    token_hash=handoff._hash_grant(f"existing-grant-{index}"),
+                    expires_at=now + timedelta(days=30),
+                )
+            )
+        await db.commit()
+
+    async def issue(suffix: str) -> int:
+        async with handoff_database() as db:
+            try:
+                await handoff.create_migration_grant(
+                    payload=handoff.CreateMigrationGrantRequest(
+                        installation_id=f"cmi_{suffix * 44}",
+                    ),
+                    db=db,
+                    user=_user(),
+                )
+                return 200
+            except HTTPException as error:
+                return error.status_code
+
+    assert sorted(await asyncio.gather(issue("a"), issue("b"))) == [200, 429]
+    async with handoff_database() as db:
+        count = await db.scalar(
+            select(func.count()).select_from(ClerkMigrationGrant)
+        )
+    assert count == handoff.MAX_ACTIVE_GRANTS_PER_USER
 
 
 @pytest.mark.asyncio

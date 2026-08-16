@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import ClerkUser, get_current_user
 from app.config import ClerkEnvironment, get_settings
 from app.db import get_db
-from app.models.identity import ClerkIdentity, ClerkMigrationGrant
+from app.models.identity import AppUser, ClerkIdentity, ClerkMigrationGrant
 from app.services.clerk import ClerkBackendClient
 
 router = APIRouter(prefix="/api/auth/clerk-transition", tags=["auth"])
@@ -128,6 +128,17 @@ async def create_migration_grant(
     device_hash = _hash_grant(payload.installation_id)
     for _attempt in range(3):
         raw_grant = f"cmg_{secrets.token_urlsafe(32)}"
+        user_lock_result = await db.execute(
+            select(AppUser.id)
+            .where(AppUser.id == user.id)
+            .with_for_update()
+        )
+        if user_lock_result.scalar_one_or_none() is None:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Stable account is not available",
+            )
         await db.execute(
             delete(ClerkMigrationGrant).where(
                 ClerkMigrationGrant.app_user_id == user.id,

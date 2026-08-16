@@ -228,9 +228,10 @@ The QA Clerk session was revoked, the temporary Clerk user was deleted, and the
 disposable Neon branch was deleted after the checks. Production was unchanged.
 
 On a local PostgreSQL 16 database, migrations 016 and 017 each completed twice;
-41 tests passed, including real row locking, concurrent one-use redemption,
-hash-at-rest storage, per-installation rotation, transient Clerk failure retry,
-and a 60-second Backend API ticket contract.
+42 tests passed, including real row locking, concurrent one-use redemption,
+concurrent enforcement of the per-user device cap, hash-at-rest storage,
+per-installation rotation, transient Clerk failure retry, and a 60-second
+Backend API ticket contract.
 
 ## Rollback
 
