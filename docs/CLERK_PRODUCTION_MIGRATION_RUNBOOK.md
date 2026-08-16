@@ -120,27 +120,57 @@ audit on 2026-08-17 confirmed:
   secrets; and
 - Render continues accepting both issuers with development primary.
 
-The same audit identified these pre-cutover blockers:
+Provider-readiness work completed on 2026-08-17:
 
-- Google OAuth is disabled and has no production client ID/secret;
-- Apple OAuth is disabled and has no Service ID/private key configuration;
-- the Apple App ID does not yet have Sign in with Apple enabled, and no Håfa
-  Recipes Service ID or dedicated Sign in with Apple key exists;
-- no Android native application is registered in Clerk; register package
-  `com.shimizutechnology.recipeextractor` with the SHA-256 fingerprint from the
-  EAS production keystore;
-- the required `recipe-extractor-public-metadata` template has not been
-  confirmed in production and must emit
-  `{ "public_metadata": "{{user.public_metadata}}" }` under that exact name;
-- production transactional email has not been acceptance-tested. Confirm the
-  sender identity and reply/support paths, then exercise sign-up verification,
-  sign-in verification, password recovery, redirect URLs, and delivery to both
-  ordinary and Apple private-relay addresses before cutover;
-- the Clerk application support email is blank; use the same
-  `shimizutechnology@gmail.com` address published by the support/privacy pages;
-  and
+- Apple Sign in was enabled with Håfa Recipes as its own primary App ID;
+- the dedicated Apple Services ID
+  `com.shimizutechnology.recipeextractor.signin` was registered with
+  `clerk.hafa-recipes.com` and the exact Clerk OAuth callback;
+- a Håfa Recipes-only Sign in with Apple key was created, installed in Clerk,
+  and retained outside Git with owner-only file permissions;
+- the production Apple connection and its sign-up/sign-in strategy were
+  enabled after Clerk accepted the custom credentials;
+- the Account Portal produced an Apple authorization request containing the
+  Håfa Recipes Services ID and exact Clerk callback, and Apple displayed
+  "Håfa Recipes" on its authorization page;
+- a clean native iOS simulator build using the production Clerk key loaded the
+  app and sign-in screen without an environment error, then opened Apple's
+  authorization page with the message "Use your Apple Account to sign in to
+  Håfa Recipes";
+- the Android application was registered in Clerk with package
+  `com.shimizutechnology.recipeextractor` and the EAS production keystore's
+  SHA-256 fingerprint;
+- the production `recipe-extractor-public-metadata` JWT template was created
+  under that exact name with
+  `{ "public_metadata": "{{user.public_metadata}}" }`;
+- the Clerk support email was set to `shimizutechnology@gmail.com`; and
+- an ordinary-email sign-in verification message was delivered to that address,
+  its code was accepted by the production Account Portal, and the successful
+  session redirected to `https://hafa-recipes.com/`.
+
+The remaining pre-cutover blockers are:
+
+- the dedicated Google Cloud project `hafa-recipes-production` exists, but the
+  owner must accept the Google API Services User Data Policy before consent
+  configuration can finish and the production OAuth client can be created;
+- after that approval, create a web client whose only Clerk redirect is
+  `https://clerk.hafa-recipes.com/v1/oauth_callback`, install its credentials in
+  Clerk, enable Google for sign-up/sign-in, and complete one callback test;
+- Apple reached the provider's password/passkey screen, but a complete callback
+  still requires an owner-controlled Apple login. Complete that test before the
+  production-key mobile release;
+- exercise sign-up verification, password recovery, and delivery to an Apple
+  private-relay address in addition to the completed ordinary-email sign-in
+  test; and
 - the Hobby plan fixes maximum session lifetime at seven days. A 365-day
   lifetime requires a separately approved Clerk Pro purchase.
+
+For local cutover testing, move the gitignored `mobile/.env.local` aside before
+starting Metro with explicit production variables, then restore it after the
+test. Expo's development-only virtual environment merges `.env.local` over the
+shell and can otherwise pair its development key with
+`EXPO_PUBLIC_CLERK_ENVIRONMENT=production`. This precedence is local-only: EAS
+does not receive the untracked file.
 
 Do not enable a social provider until its production credential, redirect URI,
 and one complete sign-in/sign-up test pass together. Do not reuse another
