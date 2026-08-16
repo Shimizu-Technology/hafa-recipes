@@ -25,7 +25,7 @@ const WEBSITE_URL = 'https://hafa-recipes.com';
 const PRIVACY_URL = 'https://hafa-recipes.com/privacy';
 const SUPPORT_URL = 'https://hafa-recipes.com/support';
 const DEVELOPER_URL = 'https://shimizu-technology.com';
-const APP_VERSION = Constants.expoConfig?.version ?? '2.3.0';
+const APP_VERSION = Constants.expoConfig?.version ?? '2.4.0';
 
 interface MenuItemProps {
   icon: keyof typeof Ionicons.glyphMap;
