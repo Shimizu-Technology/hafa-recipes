@@ -1,0 +1,65 @@
+[project]
+name = "recipe-api"
+version = "1.0.0"
+description = "Recipe Extractor API - Transform cooking videos into structured recipes"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # FastAPI & Server
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "python-multipart>=0.0.12",
+    # Database
+    "sqlalchemy[asyncio]>=2.0.0",
+    "asyncpg>=0.30.0",
+    "greenlet>=3.0.0",
+    # Validation & Settings
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    # OpenAI
+    "openai>=1.50.0",
+    # Video Processing
+    "yt-dlp>=2024.11.0",
+    # HTTP Client
+    "httpx[http2]>=0.28.0",
+    # AWS S3
+    "boto3>=1.35.0",
+    # Environment
+    "python-dotenv>=1.0.0",
+    "pyjwt>=2.10.1",
+    "cryptography>=46.0.3",
+    # Error Monitoring
+    "sentry-sdk[fastapi]>=2.0.0",
+    # Website Scraping
+    "beautifulsoup4>=4.12.0",
+    "extruct>=0.17.0",
+    "trafilatura>=1.12.0",
+    "lxml>=5.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+

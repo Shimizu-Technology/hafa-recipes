@@ -1,0 +1,53 @@
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Credentials and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.jks
+*.mobileprovision
+google-play-service-account.json
+instagram_cookies.txt
+
+# Python
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.ruff_cache/
+**/.coverage
+**/htmlcov/
+**/*.egg-info/
+
+# JavaScript, Expo, and provider state
+**/node_modules/
+**/.expo/
+**/.netlify/
+**/dist/
+**/web-build/
+**/*.tsbuildinfo
+mobile/ios/
+mobile/android/
+
+# Logs, temporary downloads, and release artifacts
+*.log
+*.tmp
+*.temp
+**/temp_audio/
+**/downloads/
+*.aab
+*.apk
+*.ipa
+*.xcarchive
+*.dSYM.zip
+*.tar
+*.tar.gz
+*.zip
