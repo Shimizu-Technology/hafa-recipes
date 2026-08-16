@@ -1,6 +1,7 @@
 # Håfa Recipes architecture and migration program
 
-Status: monorepo/provider cutover complete; stable identity/grant API deployed; bridge client under review
+Status: monorepo/provider-source cutover complete; stable identity/grant/bridge
+deployed; iOS bridge release 2.4.0 waiting for App Review
 
 Last updated: 2026-08-17
 
@@ -105,6 +106,20 @@ After merge, and not before:
 
 Render and Netlify rollback is to restore the old repository and root settings.
 The App Store binary is unaffected by a Git repository move.
+
+### Execution record
+
+Completed on 2026-08-17:
+
+- the history-preserving monorepo PR merged after repository-wide checks,
+  local API/mobile/web runtime verification, and a current-head Greptile 5/5;
+- Render now builds `api/`, Netlify builds `web/`, and the EAS project is linked
+  from `mobile/` in `Shimizu-Technology/hafa-recipes`;
+- the stable identity, migration-grant API, and development-key mobile bridge
+  shipped through three additional PRs, each with green CI and a current-head
+  Greptile 5/5; and
+- production Render is healthy on merged commit `8fc1b76`, while Netlify and
+  EAS retain their existing production projects and now use the monorepo.
 
 ## Phase B: production stabilization before identity cutover
 
@@ -282,6 +297,14 @@ Identity migration acceptance includes:
 9. Both issuers remain enabled while adoption and errors are monitored.
 10. Development issuer is retired only after the defined legacy-traffic cutoff;
     aliases and backups remain.
+
+The bridge release is iOS 2.4.0 build 41, EAS build
+`4ae9ca7c-0f6a-4ec3-aef9-1cfd6df70025`. EAS submission
+`9c3d038d-c84a-4344-9f97-0682a5400eaf` uploaded successfully, Apple processed
+the binary, and App Store Connect reports **Waiting for Review**. Production
+must remain development-primary until this release is approved, released, and
+given an adoption window; waiting for review is not evidence that grants exist
+on customer devices.
 
 ## Rollback principles
 

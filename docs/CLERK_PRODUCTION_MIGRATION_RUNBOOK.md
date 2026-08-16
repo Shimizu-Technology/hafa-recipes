@@ -1,6 +1,7 @@
 # Clerk production migration runbook
 
-Status: foundation and grant API deployed; 35/35 production aliases provisioned; bridge client under review
+Status: foundation/grant/bridge deployed; 35/35 production aliases provisioned;
+iOS 2.4.0 bridge waiting for App Review; production-key cutover gated
 
 Last updated: 2026-08-17
 
@@ -105,20 +106,42 @@ Migration-grant API evidence on 2026-08-17:
 
 ## Production Clerk setup
 
-The production instance uses `https://clerk.hafa-recipes.com`. Its five DNS
-records are present in Netlify DNS and Clerk reports the DNS configuration as
-verified. The iOS native application and `hafarecipes://oauth-callback` mobile
-redirect are registered. Complete the remaining settings Clerk does not copy:
+The production instance uses `https://clerk.hafa-recipes.com`. The dashboard
+audit on 2026-08-17 confirmed:
 
-- production domain and DNS;
-- native iOS application with the Håfa Recipes bundle ID and Apple team ID;
-- mobile SSO redirect allowlist;
-- dedicated Google and Apple OAuth credentials;
-- email delivery, sender identity, paths, and redirect URLs;
-- the `recipe-extractor-public-metadata` JWT template;
-- session policy: maximum lifetime enabled at 365 days if the Clerk plan allows
-  it, otherwise Clerk Hobby's fixed seven-day policy; and
-- production publishable and secret keys stored only in provider secrets.
+- the primary domain and all five Netlify DNS records are **Verified**;
+- Clerk reports the custom-domain SSL certificates as **Issued**;
+- the Native API is enabled and the iOS application is registered with Apple
+  team `4T358A5S74` and bundle ID
+  `com.shimizutechnology.recipeextractor`;
+- the allowlist contains both `hafarecipes://oauth-callback` and the legacy
+  `com.shimizutechnology.recipeextractor://callback` redirect;
+- production Backend API and publishable credentials exist only in provider
+  secrets; and
+- Render continues accepting both issuers with development primary.
+
+The same audit identified these pre-cutover blockers:
+
+- Google OAuth is disabled and has no production client ID/secret;
+- Apple OAuth is disabled and has no Service ID/private key configuration;
+- the Apple App ID does not yet have Sign in with Apple enabled, and no Håfa
+  Recipes Service ID or dedicated Sign in with Apple key exists;
+- no Android native application is registered in Clerk; register package
+  `com.shimizutechnology.recipeextractor` with the SHA-256 fingerprint from the
+  EAS production keystore;
+- the required `recipe-extractor-public-metadata` template has not been
+  confirmed in production and must emit
+  `{ "public_metadata": "{{user.public_metadata}}" }` under that exact name;
+- the Clerk application support email is blank; use the same
+  `shimizutechnology@gmail.com` address published by the support/privacy pages;
+  and
+- the Hobby plan fixes maximum session lifetime at seven days. A 365-day
+  lifetime requires a separately approved Clerk Pro purchase.
+
+Do not enable a social provider until its production credential, redirect URI,
+and one complete sign-in/sign-up test pass together. Do not reuse another
+product's OAuth project or Apple primary App ID merely to avoid creating Håfa
+Recipes-specific credentials.
 
 Clerk requires at least one of maximum lifetime or inactivity timeout to remain
 enabled, so a literal never-expiring session is not available. As of this
@@ -259,12 +282,32 @@ concurrent enforcement of the per-user device cap, hash-at-rest storage,
 per-installation rotation, transient Clerk failure retry, and a 60-second
 Backend API ticket contract.
 
-The bridge client has seven focused tests covering environment/key mismatch,
-stored-grant validation and refresh, stable random installation IDs, deliberate
-sign-out opt-out, header-only grant creation/redemption, terminal replay, and
-retryable network/provider failure. It type-checks cleanly and the development-
-key build was bundled and exercised in the iOS Simulator against the live API;
-the signed-out and sign-in surfaces rendered without bridge errors.
+The bridge client has ten focused tests covering environment/key mismatch,
+stored-grant validation and refresh, stable random installation IDs, serialized
+grant/sign-out storage, fail-closed deliberate sign-out, header-only grant
+creation/redemption, terminal replay, and retryable network/provider failure.
+It type-checks cleanly and the repository-wide gate passes.
+
+After merged commit `8fc1b76` deployed, the development-key client was run from
+the monorepo in the iOS Simulator against the live API. An existing account
+signed in, loaded its recipe library, and received a 200 from
+`POST /api/auth/clerk-transition/grants`; recipe endpoints also returned 200.
+A deliberate sign-out returned to Guest User without issuing another grant,
+confirming the opt-out path against production rather than only in unit tests.
+
+## Bridge App Store release
+
+iOS 2.4.0 build 41 was archived from merged commit `8fc1b76` as EAS build
+`4ae9ca7c-0f6a-4ec3-aef9-1cfd6df70025`. Submission
+`9c3d038d-c84a-4344-9f97-0682a5400eaf` uploaded successfully, Apple processed
+the binary, and the version is **Waiting for Review** in App Store Connect. The
+release continues using the development Clerk publishable key intentionally so
+installed sessions can create migration grants.
+
+Do not switch EAS to the production publishable key or change Render's primary
+environment while this build is only waiting for review. After approval and
+release, record adoption evidence and successful grant creation over the agreed
+window, then produce a separate production-key validation/release candidate.
 
 ## Rollback
 
