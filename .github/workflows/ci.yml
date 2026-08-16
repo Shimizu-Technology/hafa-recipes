@@ -75,6 +75,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Test migration bridge
+        run: npm test
+
       - name: Type-check
         run: npm run typecheck
 

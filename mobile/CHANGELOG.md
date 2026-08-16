@@ -2,6 +2,23 @@
 
 All notable changes to Recipe Extractor.
 
+## [2.4.0] - August 2026
+
+### Improved
+- Added the invisible first half of the Clerk production migration so signed-in
+  users can retain their session and recipe library through the follow-up
+  authentication cutover.
+- Added an explicit release guard that prevents development and production
+  Clerk credentials from being mixed accidentally.
+- Centralized local and production API selection for safer release testing.
+
+### Security
+- Migration credentials are installation-scoped, stored only in SecureStore,
+  and never written to logs, analytics, URLs, or crash reports.
+- Deliberate sign-out now opts the installation out of automatic migration.
+
+---
+
 ## [2.3.0] - July 2026
 
 ### Added

@@ -31,6 +31,7 @@ import { AppLoadingSkeleton } from '@/components/Skeleton';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { FloatingTimerOverlay } from '@/components/FloatingTimerOverlay';
 import FloatingChatButton from '@/components/FloatingChatButton';
+import { ClerkMigrationBridge } from '@/components/ClerkMigrationBridge';
 import { initSentry, setSentryUser, addBreadcrumb, withSentry } from '@/lib/sentry';
 import { useHandleShareIntent } from '@/hooks/useShareIntent';
 
@@ -93,7 +94,9 @@ function RootLayout() {
           tokenCache={tokenCache}
         >
           <ClerkLoaded>
-            <RootLayoutNav />
+            <ClerkMigrationBridge>
+              <RootLayoutNav />
+            </ClerkMigrationBridge>
           </ClerkLoaded>
         </ClerkProvider>
       </ShareIntentProvider>

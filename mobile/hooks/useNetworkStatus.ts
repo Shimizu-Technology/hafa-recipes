@@ -7,27 +7,9 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
-import Constants from 'expo-constants';
+import { API_BASE_URL } from '@/lib/apiConfig';
 
-// API base URL - same logic as api.ts
-const USE_LOCAL_API = true;
-
-function getApiBaseUrl(): string {
-  if (!__DEV__ || !USE_LOCAL_API) {
-    return 'https://recipe-api-x5na.onrender.com';
-  }
-  
-  const debuggerHost = Constants.expoConfig?.hostUri || (Constants.manifest as any)?.debuggerHost;
-  
-  if (debuggerHost) {
-    const host = debuggerHost.split(':')[0];
-    return `http://${host}:8000`;
-  }
-  
-  return 'https://recipe-api-x5na.onrender.com';
-}
-
-const API_URL = getApiBaseUrl();
+const API_URL = API_BASE_URL;
 const HEALTH_CHECK_INTERVAL = 30000; // 30 seconds
 const HEALTH_CHECK_TIMEOUT = 8000; // 8 second timeout (more forgiving for slow connections)
 const CONSECUTIVE_FAILURES_BEFORE_OFFLINE = 2; // Require 2 consecutive failures before marking offline

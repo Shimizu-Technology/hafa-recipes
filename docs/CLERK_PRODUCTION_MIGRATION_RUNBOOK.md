@@ -1,6 +1,6 @@
 # Clerk production migration runbook
 
-Status: foundation deployed; 35/35 production aliases provisioned; mobile handoff in progress
+Status: foundation and grant API deployed; 35/35 production aliases provisioned; bridge client under review
 
 Last updated: 2026-08-17
 
@@ -93,6 +93,16 @@ Production evidence on 2026-08-17:
   missing, or failed result; and
 - the API remained healthy after a credential-aware redeploy.
 
+Migration-grant API evidence on 2026-08-17:
+
+- Render ran migrations 016 and 017 in one pre-deploy command;
+- migration 016 remained idempotent at 35 application users and 35 development
+  identities;
+- migration 017 reported the grant schema ready with zero existing grants;
+- commit `8e3fe40` became live and `/health` reported a connected production
+  database; and
+- the live OpenAPI document exposed both handoff endpoints.
+
 ## Production Clerk setup
 
 The production instance uses `https://clerk.hafa-recipes.com`. Its five DNS
@@ -181,6 +191,22 @@ python -m migrations.017_add_clerk_migration_grants
    Clerk ticket. The mobile app consumes it immediately with Clerk's `ticket`
    strategy, activates the new session, and deletes the grant from SecureStore.
 
+The mobile implementation also enforces these client-side rules:
+
+- `EXPO_PUBLIC_CLERK_ENVIRONMENT` may explicitly name `development` or
+  `production`, and the app fails closed if it conflicts with the publishable
+  key prefix;
+- production redemption holds the app loading boundary until the one startup
+  attempt finishes, avoiding a signed-out flash;
+- network and provider failures preserve the grant and retry when the app next
+  enters the foreground;
+- a deliberate sign-out writes an opt-out marker before deleting the local
+  grant, so the production release cannot silently sign the person back in;
+- a later successful development sign-in clears that opt-out and provisions a
+  fresh grant; and
+- an explicit `EXPO_PUBLIC_API_BASE_URL` supports local client testing against
+  production while non-HTTPS overrides are rejected outside development.
+
 The migration grant expires after 90 days so it can survive App Review and the
 two-release adoption window without leaving a long-lived Clerk ticket on the
 device. A transient Clerk failure does not consume the grant. Raw grants and
@@ -232,6 +258,13 @@ On a local PostgreSQL 16 database, migrations 016 and 017 each completed twice;
 concurrent enforcement of the per-user device cap, hash-at-rest storage,
 per-installation rotation, transient Clerk failure retry, and a 60-second
 Backend API ticket contract.
+
+The bridge client has seven focused tests covering environment/key mismatch,
+stored-grant validation and refresh, stable random installation IDs, deliberate
+sign-out opt-out, header-only grant creation/redemption, terminal replay, and
+retryable network/provider failure. It type-checks cleanly and the development-
+key build was bundled and exercised in the iOS Simulator against the live API;
+the signed-out and sign-in surfaces rendered without bridge errors.
 
 ## Rollback
 

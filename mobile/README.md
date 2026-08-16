@@ -29,6 +29,8 @@ Scan QR with Expo Go, or press `i` for iOS simulator.
 ```bash
 # Clerk Auth (required)
 EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+EXPO_PUBLIC_CLERK_ENVIRONMENT=development
+EXPO_PUBLIC_API_BASE_URL=https://recipe-api-x5na.onrender.com
 
 # Sentry Error Monitoring (optional but recommended for production)
 EXPO_PUBLIC_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
@@ -36,15 +38,15 @@ EXPO_PUBLIC_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
 
 For production builds, set these in **Expo Dashboard → Environment variables**.
 
+`EXPO_PUBLIC_CLERK_ENVIRONMENT` is a release safety check. It must be
+`development` for the bridge release and `production` for the final Clerk
+cutover release; the app also verifies that it matches the `pk_test_` or
+`pk_live_` publishable-key prefix.
+
 ## API Configuration
 
-Edit `lib/api.ts`:
-
-```typescript
-const USE_LOCAL_API = true;  // false for production
-```
-
-- **Development:** Auto-detects your machine's IP
+- **Development:** Auto-detects your machine's IP, or uses
+  `EXPO_PUBLIC_API_BASE_URL` when explicitly set
 - **Production:** Uses `https://recipe-api-x5na.onrender.com`
 
 ## Features
@@ -171,4 +173,3 @@ eas submit --platform android --latest
 ## License
 
 Private - Shimizu Technology
-
