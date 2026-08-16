@@ -1,0 +1,124 @@
+{
+  "expo": {
+    "name": "Håfa Recipes",
+    "slug": "recipe-extractor",
+    "version": "2.3.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "hafarecipes",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#101411"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.shimizutechnology.recipeextractor",
+      "buildNumber": "32",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Håfa Recipes needs access to your camera to take photos of your recipes. For example, you can photograph a handwritten family recipe or a dish you've prepared to add as a recipe image.",
+        "NSPhotoLibraryUsageDescription": "Håfa Recipes needs access to your photo library to select images for your recipes. For example, you can choose a photo of a finished dish to use as the recipe thumbnail.",
+        "NSSpeechRecognitionUsageDescription": "Håfa Recipes uses speech recognition to let you ask questions about recipes using your voice.",
+        "NSMicrophoneUsageDescription": "Håfa Recipes needs access to your microphone to convert your voice to text when asking questions about recipes."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#FFF7EC"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "com.shimizutechnology.recipeextractor",
+      "versionCode": 15,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "hafarecipes"
+            }
+          ]
+        }
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-web-browser",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "ccacheEnabled": false
+          }
+        }
+      ],
+      [
+        "expo-share-intent",
+        {
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1
+          }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Håfa Recipes needs access to your camera to take photos of your recipes. For example, you can photograph a handwritten family recipe or a dish you've prepared to add as a recipe image.",
+          "photosPermission": "Håfa Recipes needs access to your photo library to select images for your recipes. For example, you can choose a photo of a finished dish to use as the recipe thumbnail."
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Håfa Recipes needs access to your microphone to convert your voice to text when asking questions about recipes.",
+          "speechRecognitionPermission": "Håfa Recipes uses speech recognition to let you ask questions about recipes using your voice."
+        }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "shimizu-technology",
+          "project": "hafa-recipes"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#E65F2E",
+          "sounds": [
+            "./assets/sounds/timer_complete.mp3",
+            "./assets/sounds/timer_bell.mp3",
+            "./assets/sounds/timer_chime.mp3",
+            "./assets/sounds/timer_alarm.mp3"
+          ]
+        }
+      ],
+      "expo-font"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "97e94fdf-ea37-44c2-82ea-ede6ab0b06b7"
+      }
+    },
+    "owner": "shimizutechnology"
+  }
+}

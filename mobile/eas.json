@@ -1,0 +1,53 @@
+{
+  "cli": {
+    "version": ">= 5.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "ios": {
+        "simulator": false
+      }
+    },
+    "android-debug": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      },
+      "env": {
+        "SENTRY_ALLOW_FAILURE": "true"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "SENTRY_ALLOW_FAILURE": "true",
+        "USE_CCACHE": "0",
+        "CCACHE_DISABLE": "1"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "shimizutechnology@gmail.com",
+        "appleTeamId": "4T358A5S74",
+        "ascAppId": "6755892896"
+      },
+      "android": {
+        "serviceAccountKeyPath": "./google-play-service-account.json",
+        "track": "internal"
+      }
+    }
+  }
+}
+
