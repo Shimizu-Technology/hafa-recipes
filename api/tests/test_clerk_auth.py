@@ -91,3 +91,56 @@ def test_verify_clerk_token_rejects_wrong_authorized_party(monkeypatch):
         auth.verify_clerk_token("header.payload.signature")
 
     assert error.value.status_code == 401
+
+
+def test_verify_clerk_token_can_require_authorized_party_claim(monkeypatch):
+    monkeypatch.setattr(
+        auth,
+        "settings",
+        _settings(clerk_production_require_authorized_party=True),
+    )
+    monkeypatch.setattr(auth, "_get_jwks_client", lambda _environment: _SigningKeyClient())
+    calls = 0
+
+    def fake_decode(_token, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"iss": "https://clerk.hafa-recipes.com"}
+        return {
+            "iss": "https://clerk.hafa-recipes.com",
+            "sub": "user_prod",
+            "exp": 9999999999,
+        }
+
+    monkeypatch.setattr(auth.jwt, "decode", fake_decode)
+
+    with pytest.raises(HTTPException) as error:
+        auth.verify_clerk_token("header.payload.signature")
+
+    assert error.value.status_code == 401
+
+
+def test_verify_clerk_token_allows_missing_party_for_native_tokens_by_default(
+    monkeypatch,
+):
+    monkeypatch.setattr(auth, "settings", _settings())
+    monkeypatch.setattr(auth, "_get_jwks_client", lambda _environment: _SigningKeyClient())
+    calls = 0
+
+    def fake_decode(_token, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"iss": "https://clerk.hafa-recipes.com"}
+        return {
+            "iss": "https://clerk.hafa-recipes.com",
+            "sub": "user_prod",
+            "exp": 9999999999,
+        }
+
+    monkeypatch.setattr(auth.jwt, "decode", fake_decode)
+
+    verified = auth.verify_clerk_token("header.payload.signature")
+
+    assert verified.subject == "user_prod"

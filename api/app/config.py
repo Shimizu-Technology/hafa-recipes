@@ -17,6 +17,7 @@ class ClerkEnvironment:
     jwks_url: str
     audience: str | list[str] | None
     authorized_parties: tuple[str, ...]
+    require_authorized_party: bool = False
 
     @property
     def is_development(self) -> bool:
@@ -60,11 +61,13 @@ class Settings(BaseSettings):
     clerk_development_jwks_url: str | None = None
     clerk_development_audience: str | None = None
     clerk_development_authorized_parties: str = ""
+    clerk_development_require_authorized_party: bool = False
     clerk_production_issuer: str | None = None
     clerk_production_secret_key: str | None = None
     clerk_production_jwks_url: str | None = None
     clerk_production_audience: str | None = None
     clerk_production_authorized_parties: str = ""
+    clerk_production_require_authorized_party: bool = False
     clerk_primary_environment: str = "development"
     
     # AWS S3 (for thumbnail storage)
@@ -147,6 +150,7 @@ class Settings(BaseSettings):
                 self.clerk_development_jwks_url,
                 self.clerk_development_audience,
                 self.clerk_development_authorized_parties,
+                self.clerk_development_require_authorized_party,
             ),
             (
                 "production",
@@ -155,9 +159,10 @@ class Settings(BaseSettings):
                 self.clerk_production_jwks_url,
                 self.clerk_production_audience,
                 self.clerk_production_authorized_parties,
+                self.clerk_production_require_authorized_party,
             ),
         )
-        for name, issuer, secret, jwks, audience, parties in explicit:
+        for name, issuer, secret, jwks, audience, parties, require_party in explicit:
             normalized = (issuer or "").strip().rstrip("/")
             if normalized:
                 environments.append(
@@ -168,6 +173,7 @@ class Settings(BaseSettings):
                         jwks_url=(jwks or f"{normalized}/.well-known/jwks.json").strip(),
                         audience=self._parse_audience(audience),
                         authorized_parties=self._parse_csv(parties),
+                        require_authorized_party=require_party,
                     )
                 )
 
@@ -181,6 +187,7 @@ class Settings(BaseSettings):
                     jwks_url=self.jwks_url,
                     audience=self._parse_audience(self.clerk_jwt_audience),
                     authorized_parties=self._parse_csv(self.clerk_authorized_parties),
+                    require_authorized_party=False,
                 )
             )
 

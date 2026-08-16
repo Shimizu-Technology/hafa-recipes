@@ -61,6 +61,7 @@ def test_clerk_environments_are_issuer_scoped_and_deduplicate_legacy_settings():
         clerk_production_secret_key="production-secret",
         clerk_production_audience="mobile,web",
         clerk_production_authorized_parties="https://hafa-recipes.com, hafa://callback",
+        clerk_production_require_authorized_party=True,
         clerk_primary_environment="production",
     )
 
@@ -77,6 +78,7 @@ def test_clerk_environments_are_issuer_scoped_and_deduplicate_legacy_settings():
         "https://hafa-recipes.com",
         "hafa://callback",
     )
+    assert production.require_authorized_party is True
     assert settings.primary_clerk_environment == production
 
 

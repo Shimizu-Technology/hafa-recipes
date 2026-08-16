@@ -26,9 +26,14 @@ to one application-owned identity.
 - Development subjects may be lazily adopted only as their identical stable ID.
 - Unknown production subjects require the matching production Backend API to
   confirm a verified primary email and a pre-provisioned stable `external_id`.
+- An `azp` claim is validated whenever present. Because valid Expo native tokens
+  may omit `azp`, requiring the claim is a separate explicit policy switch for
+  clients that guarantee it; a configured browser-only surface should enable it.
 - Inventory and provisioning commands are dry-run by default, idempotent, and
   exit non-zero on missing, failed, or ambiguous records.
 - Provisioning never deletes or merges Clerk users.
+- Account deletion attempts every issuer alias and keeps local identity/data
+  intact for an idempotent retry unless every remote alias is confirmed deleted.
 
 ## Production prerequisites
 
@@ -55,6 +60,7 @@ CLERK_DEVELOPMENT_SECRET_KEY
 CLERK_DEVELOPMENT_JWKS_URL          optional; defaults from issuer
 CLERK_DEVELOPMENT_AUDIENCE          optional; comma-separated
 CLERK_DEVELOPMENT_AUTHORIZED_PARTIES optional; comma-separated
+CLERK_DEVELOPMENT_REQUIRE_AUTHORIZED_PARTY optional; false for Expo native
 CLERK_PRIMARY_ENVIRONMENT=development
 ```
 
@@ -103,6 +109,7 @@ CLERK_PRODUCTION_SECRET_KEY
 CLERK_PRODUCTION_JWKS_URL           optional; defaults from issuer
 CLERK_PRODUCTION_AUDIENCE           optional; comma-separated
 CLERK_PRODUCTION_AUTHORIZED_PARTIES optional; comma-separated
+CLERK_PRODUCTION_REQUIRE_AUTHORIZED_PARTY optional; false for Expo native
 CLERK_PRIMARY_ENVIRONMENT=development
 ```
 
@@ -146,7 +153,8 @@ and extraction jobs.
 - Development and production JWTs for one person both return the same stable
   ID and identical recipe totals.
 - An unknown production subject without a verified external ID receives 403.
-- Wrong issuer, signature, audience, or authorized party receives 401.
+- Wrong issuer, signature, audience, or present authorized party receives 401;
+  a missing authorized party also receives 401 when strict mode is enabled.
 - Concurrent first authentication creates exactly one alias.
 - Old and new builds can be used concurrently on separate devices.
 - Account deletion removes local data and every configured Clerk alias.

@@ -127,11 +127,15 @@ def verify_clerk_token(token: str) -> VerifiedClerkToken:
         claims = jwt.decode(token, **decode_options)
 
         authorized_party = claims.get("azp")
-        if (
-            authorized_party
-            and environment.authorized_parties
+        missing_required_party = (
+            environment.require_authorized_party and not authorized_party
+        )
+        invalid_present_party = (
+            bool(authorized_party)
+            and bool(environment.authorized_parties)
             and authorized_party not in environment.authorized_parties
-        ):
+        )
+        if missing_required_party or invalid_present_party:
             logger.warning(
                 "Rejected Clerk token with invalid authorized party for %s",
                 environment.name,

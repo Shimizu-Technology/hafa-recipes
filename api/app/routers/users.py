@@ -35,10 +35,18 @@ async def _delete_clerk_users(identities: list[tuple[str, str]]) -> bool:
         if environment is None or not environment.secret_key:
             deleted_all = False
             continue
-        deleted_all = (
-            await ClerkBackendClient(environment, timeout=20.0).delete_user(clerk_user_id)
-            and deleted_all
-        )
+        try:
+            deleted = await ClerkBackendClient(
+                environment,
+                timeout=20.0,
+            ).delete_user(clerk_user_id)
+            deleted_all = deleted and deleted_all
+        except Exception as error:
+            # Keep trying the remaining aliases. Callers do not delete local
+            # identity rows unless every remote alias is confirmed deleted, so
+            # a later retry remains possible and idempotent (404 is success).
+            sentry_sdk.capture_exception(error)
+            deleted_all = False
     return deleted_all
 
 
@@ -60,6 +68,17 @@ async def delete_account(
         )
     )
     clerk_identities = [(row[0], row[1]) for row in identity_result.all()]
+
+    try:
+        clerk_deleted = await _delete_clerk_users(clerk_identities)
+    except Exception as error:
+        sentry_sdk.capture_exception(error)
+        clerk_deleted = False
+    if not clerk_deleted:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to delete every authentication account. No local data was deleted; please try again.",
+        )
 
     try:
         recipe_result = await db.execute(select(Recipe.id).where(Recipe.user_id == user_id))
@@ -130,13 +149,6 @@ async def delete_account(
             status_code=500,
             detail="Failed to delete account. Please try again.",
         )
-
-    clerk_deleted = False
-    try:
-        clerk_deleted = await _delete_clerk_users(clerk_identities)
-    except Exception as e:
-        sentry_sdk.capture_exception(e)
-        print(f"⚠️ Local account data deleted, but Clerk deletion failed for {user_id}: {e}")
 
     return {
         "message": "Account deleted successfully",
