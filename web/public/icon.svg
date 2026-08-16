@@ -1,0 +1,22 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" fill="#FFF7EC"/>
+  <circle cx="512" cy="512" r="380" fill="#F8EFE3"/>
+  <path d="M286 646C335 738 421 793 512 793C603 793 689 738 738 646" stroke="#168A80" stroke-width="32" stroke-linecap="round" opacity="0.16"/>
+  <g filter="url(#softShadow)">
+    <path d="M416 472C424 510 459 538 512 538C565 538 600 510 608 472H416Z" fill="#FF8A5B"/>
+    <path d="M386 420H638C638 493 582 552 512 552C442 552 386 493 386 420Z" fill="#E65F2E"/>
+    <path d="M402 420H622" stroke="#B94722" stroke-width="26" stroke-linecap="round"/>
+    <rect x="278" y="552" width="468" height="94" rx="47" fill="#E65F2E"/>
+    <path d="M330 620H694C673 678 604 720 512 720C420 720 351 678 330 620Z" fill="#D95628"/>
+    <path d="M418 708C432 654 592 654 606 708L650 870C657 898 635 925 606 925H418C389 925 367 898 374 870L418 708Z" fill="#E65F2E"/>
+    <path d="M435 719C452 674 572 674 589 719" stroke="#FFB85C" stroke-width="24" stroke-linecap="round" opacity="0.48"/>
+    <path d="M454 332C422 294 422 248 454 210" stroke="#B94722" stroke-width="28" stroke-linecap="round"/>
+    <path d="M512 328C478 282 478 224 512 178" stroke="#E65F2E" stroke-width="32" stroke-linecap="round"/>
+    <path d="M570 332C602 294 602 248 570 210" stroke="#B94722" stroke-width="28" stroke-linecap="round"/>
+  </g>
+  <defs>
+    <filter id="softShadow" x="220" y="126" width="608" height="845" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#B94722" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+</svg>
