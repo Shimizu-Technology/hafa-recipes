@@ -29,6 +29,16 @@ async def _app_users(db: AsyncSession) -> list[AppUser]:
     return list(result.scalars())
 
 
+async def _identities_for_issuer(
+    db: AsyncSession,
+    issuer: str,
+) -> dict[str, ClerkIdentity]:
+    result = await db.execute(
+        select(ClerkIdentity).where(ClerkIdentity.issuer == issuer)
+    )
+    return {identity.app_user_id: identity for identity in result.scalars()}
+
+
 async def audit_development(
     db: AsyncSession,
     environment: ClerkEnvironment,
@@ -40,15 +50,10 @@ async def audit_development(
         raise ValueError("A configured development Clerk environment is required")
 
     remote = {profile.clerk_user_id: profile for profile in await ClerkBackendClient(environment).list_users()}
+    identities = await _identities_for_issuer(db, environment.issuer)
     results: list[TransitionResult] = []
     for app_user in await _app_users(db):
-        identity_result = await db.execute(
-            select(ClerkIdentity).where(
-                ClerkIdentity.app_user_id == app_user.id,
-                ClerkIdentity.issuer == environment.issuer,
-            )
-        )
-        identity = identity_result.scalar_one_or_none()
+        identity = identities.get(app_user.id)
         if identity and identity.clerk_user_id != app_user.id:
             results.append(TransitionResult(app_user.id, "conflict", detail="development subject differs from stable ID"))
             continue
@@ -167,9 +172,32 @@ async def provision_production(
         profile.clerk_user_id: profile for profile in await development_client.list_users()
     }
     production_profiles = await production_client.list_users()
+    development_identities = await _identities_for_issuer(db, development.issuer)
+    production_identities = await _identities_for_issuer(db, production.issuer)
     results: list[TransitionResult] = []
 
     for app_user in await _app_users(db):
+        development_identity = development_identities.get(app_user.id)
+        if development_identity is None:
+            results.append(
+                TransitionResult(
+                    app_user.id,
+                    "missing",
+                    detail="development identity alias is missing",
+                )
+            )
+            continue
+        if development_identity.clerk_user_id != app_user.id:
+            results.append(
+                TransitionResult(
+                    app_user.id,
+                    "conflict",
+                    development_identity.clerk_user_id,
+                    "development subject differs from stable ID",
+                )
+            )
+            continue
+
         development_profile = development_profiles.get(app_user.id)
         if development_profile is None:
             results.append(TransitionResult(app_user.id, "missing", detail="development Clerk user not found"))
@@ -187,13 +215,7 @@ async def provision_production(
             results.append(TransitionResult(app_user.id, "conflict", detail=conflict))
             continue
 
-        identity_result = await db.execute(
-            select(ClerkIdentity).where(
-                ClerkIdentity.app_user_id == app_user.id,
-                ClerkIdentity.issuer == production.issuer,
-            )
-        )
-        existing_identity = identity_result.scalar_one_or_none()
+        existing_identity = production_identities.get(app_user.id)
         if existing_identity and (
             candidate is None
             or existing_identity.clerk_user_id != candidate.clerk_user_id

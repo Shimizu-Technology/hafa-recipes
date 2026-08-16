@@ -11,8 +11,10 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.auth as auth
+import app.clerk_transition as transition
 from app.auth import VerifiedClerkToken, _attach_identity, _resolve_identity
-from app.config import Settings
+from app.clerk_transition import provision_production
+from app.config import ClerkEnvironment, Settings
 from app.models.identity import AppUser, ClerkIdentity
 from app.services.clerk import ClerkProfile
 
@@ -199,6 +201,126 @@ async def test_unknown_production_subject_without_external_id_is_forbidden(
             await _resolve_identity(db, token)
 
         assert error.value.status_code == 403
+
+
+def _clerk_environment(name: str) -> ClerkEnvironment:
+    issuer = (
+        "https://development.clerk.accounts.dev"
+        if name == "development"
+        else "https://clerk.hafa-recipes.com"
+    )
+    return ClerkEnvironment(
+        name=name,
+        issuer=issuer,
+        secret_key=f"secret-{name}",
+        jwks_url=f"{issuer}/.well-known/jwks.json",
+        audience=None,
+        authorized_parties=(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_provisioner_requires_a_valid_development_alias(
+    identity_database,
+    monkeypatch,
+):
+    development = _clerk_environment("development")
+    production = _clerk_environment("production")
+    development_profile = ClerkProfile(
+        clerk_user_id="stable_user",
+        email="chef@example.com",
+        email_verified=True,
+        first_name=None,
+        last_name=None,
+        external_id=None,
+    )
+
+    class InventoryClient:
+        def __init__(self, environment):
+            self.environment = environment
+
+        async def list_users(self):
+            return [development_profile] if self.environment.is_development else []
+
+    monkeypatch.setattr(transition, "ClerkBackendClient", InventoryClient)
+    async with identity_database() as db:
+        db.add(AppUser(id="stable_user"))
+        await db.commit()
+
+        results = await provision_production(
+            db,
+            development,
+            production,
+            apply=False,
+        )
+
+        assert [(result.status, result.detail) for result in results] == [
+            ("missing", "development identity alias is missing")
+        ]
+
+
+@pytest.mark.asyncio
+async def test_provisioner_attaches_existing_production_user_idempotently(
+    identity_database,
+    monkeypatch,
+):
+    development = _clerk_environment("development")
+    production = _clerk_environment("production")
+    development_profile = ClerkProfile(
+        clerk_user_id="stable_user",
+        email="chef@example.com",
+        email_verified=True,
+        first_name="Test",
+        last_name="Chef",
+        external_id=None,
+    )
+    production_profile = ClerkProfile(
+        clerk_user_id="production_user",
+        email="chef@example.com",
+        email_verified=True,
+        first_name="Test",
+        last_name="Chef",
+        external_id="stable_user",
+    )
+
+    class InventoryClient:
+        def __init__(self, environment):
+            self.environment = environment
+
+        async def list_users(self):
+            return (
+                [development_profile]
+                if self.environment.is_development
+                else [production_profile]
+            )
+
+    monkeypatch.setattr(transition, "ClerkBackendClient", InventoryClient)
+    async with identity_database() as db:
+        db.add(AppUser(id="stable_user"))
+        db.add(
+            ClerkIdentity(
+                app_user_id="stable_user",
+                issuer=development.issuer,
+                clerk_user_id="stable_user",
+            )
+        )
+        await db.commit()
+
+        first = await provision_production(
+            db,
+            development,
+            production,
+            apply=True,
+        )
+        second = await provision_production(
+            db,
+            development,
+            production,
+            apply=True,
+        )
+
+        assert [result.status for result in first] == ["attached"]
+        assert [result.status for result in second] == ["unchanged"]
 
 
 @pytest.mark.asyncio
