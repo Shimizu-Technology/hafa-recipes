@@ -1,6 +1,6 @@
 # Clerk production migration runbook
 
-Status: foundation implementation in review; client cutover not started
+Status: foundation deployed; 35/35 production aliases provisioned; mobile handoff in progress
 
 Last updated: 2026-08-17
 
@@ -32,6 +32,8 @@ to one application-owned identity.
 - Inventory and provisioning commands are dry-run by default, idempotent, and
   exit non-zero on missing, failed, or ambiguous records.
 - Provisioning never deletes or merges Clerk users.
+- Migration 017 stores only SHA-256 hashes of device-scoped migration grants.
+  Redemption is row-locked, one-use, and produces a 60-second Clerk ticket.
 - Account deletion attempts every issuer alias and keeps local identity/data
   intact for an idempotent retry unless every remote alias is confirmed deleted.
 
@@ -83,10 +85,20 @@ development alias; it does not touch ownership data. Compare post-change owner
 counts with the recorded baseline, deploy the API, restore auto-deploy, and test
 an existing account before proceeding.
 
+Production evidence on 2026-08-17:
+
+- Render pre-deploy completed migration 016 with `app_users=35` and
+  `development_identities=35`;
+- the development inventory audit returned 35 `unchanged` and no conflict,
+  missing, or failed result; and
+- the API remained healthy after a credential-aware redeploy.
+
 ## Production Clerk setup
 
-Create/activate the production instance by cloning safe development settings,
-then configure the settings Clerk does not copy:
+The production instance uses `https://clerk.hafa-recipes.com`. Its five DNS
+records are present in Netlify DNS and Clerk reports the DNS configuration as
+verified. The iOS native application and `hafarecipes://oauth-callback` mobile
+redirect are registered. Complete the remaining settings Clerk does not copy:
 
 - production domain and DNS;
 - native iOS application with the Håfa Recipes bundle ID and Apple team ID;
@@ -95,11 +107,14 @@ then configure the settings Clerk does not copy:
 - email delivery, sender identity, paths, and redirect URLs;
 - the `recipe-extractor-public-metadata` JWT template;
 - session policy: maximum lifetime enabled at 365 days if the Clerk plan allows
-  it, otherwise 30 days; inactivity timeout disabled; and
+  it, otherwise Clerk Hobby's fixed seven-day policy; and
 - production publishable and secret keys stored only in provider secrets.
 
 Clerk requires at least one of maximum lifetime or inactivity timeout to remain
-enabled, so a literal never-expiring session is not available.
+enabled, so a literal never-expiring session is not available. As of this
+cutover, custom session duration requires a paid Clerk plan; purchasing or
+upgrading the plan is a separate owner approval and is not implicit in this
+runbook.
 
 Add the production API settings to Render without changing the primary:
 
@@ -133,15 +148,43 @@ Stop the rollout on any `missing`, `conflict`, or `failed` result. Investigate
 the source record; do not delete a user or edit an ownership value to make the
 run green.
 
+Production evidence on 2026-08-17:
+
+- the first dry-run returned 35 `would_create`;
+- apply returned 35 `created`; and
+- the final dry-run returned 35 `unchanged`, with no conflict, missing, or
+  failed result.
+
 ## Client transition
 
-The planned low-friction path remains two releases:
+The low-friction path uses two releases and two different credentials:
 
-1. a development-key bridge release requests a short-lived, one-use production
-   sign-in token for the already provisioned production alias and stores it in
-   Expo SecureStore without logging it; and
-2. the production-key release consumes it with Clerk's `ticket` strategy,
-   activates the new session, and deletes the local token immediately.
+Deploy migration 017 before either client calls the handoff endpoints:
+
+```bash
+python -m migrations.017_add_clerk_migration_grants
+```
+
+1. A development-key bridge release creates a random per-installation ID in
+   Expo SecureStore and, while the person is still authenticated, requests a
+   migration grant from `POST /api/auth/clerk-transition/grants`.
+2. The API verifies that the request came from the development issuer and that
+   the same stable user has a provisioned production alias. It stores only the
+   grant and installation SHA-256 hashes. Reissuing on the same installation
+   rotates one row; expired and redeemed rows are cleaned up, and each user is
+   capped at ten active installation grants.
+3. The production-key release reads the grant and sends it in a redacted
+   `Authorization: Bearer` header to
+   `POST /api/auth/clerk-transition/redeem`. A PostgreSQL row lock ensures that
+   concurrent or replayed requests cannot issue a second ticket.
+4. Only at redemption time does the API request a 60-second, one-use production
+   Clerk ticket. The mobile app consumes it immediately with Clerk's `ticket`
+   strategy, activates the new session, and deletes the grant from SecureStore.
+
+The migration grant expires after 90 days so it can survive App Review and the
+two-release adoption window without leaving a long-lived Clerk ticket on the
+device. A transient Clerk failure does not consume the grant. Raw grants and
+tickets must never enter logs, analytics, crash reports, URLs, or Git.
 
 People who skip the bridge release sign in once with Apple, Google, or email.
 Because their production alias was pre-provisioned to the same stable user, they
@@ -156,6 +199,8 @@ and extraction jobs.
 - Wrong issuer, signature, audience, or present authorized party receives 401;
   a missing authorized party also receives 401 when strict mode is enabled.
 - Concurrent first authentication creates exactly one alias.
+- Concurrent migration-grant redemption creates exactly one Clerk ticket;
+  replay and expiry fail with the same terminal response.
 - Old and new builds can be used concurrently on separate devices.
 - Account deletion removes local data and every configured Clerk alias.
 - Before/after ownership counts and checksums match.
@@ -182,10 +227,16 @@ On an expiring Neon branch cloned from the former application database:
 The QA Clerk session was revoked, the temporary Clerk user was deleted, and the
 disposable Neon branch was deleted after the checks. Production was unchanged.
 
+On a local PostgreSQL 16 database, migrations 016 and 017 each completed twice;
+41 tests passed, including real row locking, concurrent one-use redemption,
+hash-at-rest storage, per-installation rotation, transient Clerk failure retry,
+and a 60-second Backend API ticket contract.
+
 ## Rollback
 
 - Before client cutover, redeploy the previous API commit; the additive tables
-  can remain unused.
+  can remain unused. Migration grants can be removed after the observation
+  window because they do not own application data.
 - During dual issuer operation, keep development primary and continue accepting
   both issuers.
 - If production authentication is unhealthy, ship/re-enable the development-key

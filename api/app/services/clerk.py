@@ -158,6 +158,36 @@ class ClerkBackendClient:
             return None
         return parse_clerk_profile(response.json())
 
+    async def create_sign_in_token(
+        self,
+        clerk_user_id: str,
+        *,
+        expires_in_seconds: int = 60,
+    ) -> str:
+        """Create a short-lived, one-use Clerk ticket for a known user."""
+        if (
+            not clerk_user_id
+            or not clerk_user_id.replace("_", "").replace("-", "").isalnum()
+            or not 1 <= expires_in_seconds <= 300
+        ):
+            raise ValueError("Invalid sign-in token request")
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{CLERK_API_BASE_URL}/sign_in_tokens",
+                headers=self._headers,
+                json={
+                    "user_id": clerk_user_id,
+                    "expires_in_seconds": expires_in_seconds,
+                },
+            )
+        response.raise_for_status()
+        payload = response.json()
+        token = str(payload.get("token") or "") if isinstance(payload, dict) else ""
+        if not token or len(token) > 16 * 1024:
+            raise RuntimeError("Clerk returned an invalid sign-in token response")
+        return token
+
     async def delete_user(self, clerk_user_id: str) -> bool:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.delete(
