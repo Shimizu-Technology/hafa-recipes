@@ -24,7 +24,6 @@ vi.mock('./apiConfig', () => ({
 
 import {
   clerkEnvironmentForKey,
-  clearMigrationSignOut,
   getOrCreateInstallationId,
   loadMigrationGrant,
   markMigrationSignedOut,
@@ -32,7 +31,7 @@ import {
   redeemMigrationGrant,
   resolveClerkEnvironment,
   requestMigrationGrant,
-  saveMigrationGrant,
+  saveMigrationGrantForSession,
   shouldRefreshMigrationGrant,
 } from './clerkMigration';
 
@@ -76,12 +75,16 @@ describe('Clerk migration state', () => {
   });
 
   it('makes a deliberate sign-out terminal until a later development sign-in', async () => {
-    await saveMigrationGrant({ grant: rawGrant, expiresAt });
-    await markMigrationSignedOut();
+    await saveMigrationGrantForSession({ grant: rawGrant, expiresAt }, 'sess_original');
+    await markMigrationSignedOut('sess_original');
     expect(await loadMigrationGrant()).toBeNull();
 
-    await clearMigrationSignOut();
-    await saveMigrationGrant({ grant: rawGrant, expiresAt });
+    expect(
+      await saveMigrationGrantForSession({ grant: rawGrant, expiresAt }, 'sess_original'),
+    ).toBe(false);
+    expect(
+      await saveMigrationGrantForSession({ grant: rawGrant, expiresAt }, 'sess_new'),
+    ).toBe(true);
     expect(await loadMigrationGrant()).toEqual({ grant: rawGrant, expiresAt });
   });
 
@@ -89,7 +92,45 @@ describe('Clerk migration state', () => {
     vi.mocked(SecureStore.setItemAsync).mockRejectedValueOnce(new Error('keychain write failed'));
     vi.mocked(SecureStore.deleteItemAsync).mockRejectedValueOnce(new Error('keychain delete failed'));
 
-    await expect(markMigrationSignedOut()).rejects.toThrow('keychain delete failed');
+    await expect(markMigrationSignedOut('sess_original')).rejects.toThrow(
+      'keychain delete failed',
+    );
+  });
+
+  it('honors the session opt-out if grant deletion is interrupted', async () => {
+    await saveMigrationGrantForSession({ grant: rawGrant, expiresAt }, 'sess_original');
+    vi.mocked(SecureStore.deleteItemAsync).mockRejectedValueOnce(
+      new Error('keychain delete interrupted'),
+    );
+
+    await expect(markMigrationSignedOut('sess_original')).rejects.toThrow(
+      'keychain delete interrupted',
+    );
+    await expect(loadMigrationGrant()).resolves.toBeNull();
+  });
+
+  it('serializes an in-flight grant save with a newer sign-out decision', async () => {
+    let releaseGrantWrite!: () => void;
+    const grantWriteStarted = new Promise<void>((resolve) => {
+      vi.mocked(SecureStore.setItemAsync).mockImplementationOnce(async (key, value) => {
+        secureValues.set(key, value);
+        resolve();
+        await new Promise<void>((release) => {
+          releaseGrantWrite = release;
+        });
+      });
+    });
+
+    const save = saveMigrationGrantForSession(
+      { grant: rawGrant, expiresAt },
+      'sess_original',
+    );
+    await grantWriteStarted;
+    const signOut = markMigrationSignedOut('sess_original');
+    releaseGrantWrite();
+
+    await expect(Promise.all([save, signOut])).resolves.toEqual([true, undefined]);
+    expect(await loadMigrationGrant()).toBeNull();
   });
 });
 

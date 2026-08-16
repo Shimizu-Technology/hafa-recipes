@@ -6,19 +6,18 @@ import { AppLoadingSkeleton } from '@/components/Skeleton';
 import {
   CLERK_ENVIRONMENT,
   clearMigrationGrant,
-  clearMigrationSignOut,
   getOrCreateInstallationId,
   loadMigrationGrant,
   redeemMigrationGrant,
   requestMigrationGrant,
-  saveMigrationGrant,
+  saveMigrationGrantForSession,
   shouldRefreshMigrationGrant,
 } from '@/lib/clerkMigration';
 
 const JWT_TEMPLATE = 'recipe-extractor-public-metadata';
 
 export function ClerkMigrationBridge({ children }: { children: React.ReactNode }) {
-  const { getToken, isLoaded: isAuthLoaded, isSignedIn } = useAuth();
+  const { getToken, isLoaded: isAuthLoaded, isSignedIn, sessionId } = useAuth();
   const {
     isLoaded: isSignInLoaded,
     setActive,
@@ -48,6 +47,7 @@ export function ClerkMigrationBridge({ children }: { children: React.ReactNode }
       CLERK_ENVIRONMENT !== 'development' ||
       !isAuthLoaded ||
       !isSignedIn ||
+      !sessionId ||
       provisionInFlight.current
     ) {
       return;
@@ -58,7 +58,6 @@ export function ClerkMigrationBridge({ children }: { children: React.ReactNode }
 
     const provisionGrant = async () => {
       try {
-        await clearMigrationSignOut();
         const storedGrant = await loadMigrationGrant();
         if (!shouldRefreshMigrationGrant(storedGrant)) return;
 
@@ -67,7 +66,7 @@ export function ClerkMigrationBridge({ children }: { children: React.ReactNode }
 
         const installationId = await getOrCreateInstallationId();
         const grant = await requestMigrationGrant(sessionToken, installationId);
-        if (!cancelled) await saveMigrationGrant(grant);
+        if (!cancelled) await saveMigrationGrantForSession(grant, sessionId);
       } catch {
         // This is deliberately silent and retryable on the next foreground load.
         // Never attach a raw grant or session token to logs or crash reporting.
@@ -80,7 +79,7 @@ export function ClerkMigrationBridge({ children }: { children: React.ReactNode }
     return () => {
       cancelled = true;
     };
-  }, [foregroundEpoch, getToken, isAuthLoaded, isNative, isSignedIn]);
+  }, [foregroundEpoch, getToken, isAuthLoaded, isNative, isSignedIn, sessionId]);
 
   useEffect(() => {
     if (!shouldGate || !isAuthLoaded || !isSignInLoaded) return;

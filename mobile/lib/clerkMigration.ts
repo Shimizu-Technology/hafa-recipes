@@ -25,6 +25,20 @@ const TICKET_PATTERN = /^.{20,2048}$/;
 const SECURE_STORE_OPTIONS: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
 };
+let migrationStateQueue: Promise<void> = Promise.resolve();
+
+function serializeMigrationState<T>(operation: () => Promise<T>): Promise<T> {
+  const result = migrationStateQueue.then(operation, operation);
+  migrationStateQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+function isValidSessionId(sessionId: string): boolean {
+  return sessionId.length > 0 && sessionId.length <= 256;
+}
 
 export function clerkEnvironmentForKey(publishableKey: string): ClerkEnvironment {
   if (publishableKey.startsWith('pk_test_')) return 'development';
@@ -103,7 +117,7 @@ export async function getOrCreateInstallationId(): Promise<string> {
 
 export async function loadMigrationGrant(): Promise<StoredMigrationGrant | null> {
   const optedOut = await SecureStore.getItemAsync(MIGRATION_SIGNED_OUT_KEY);
-  if (optedOut === '1') {
+  if (optedOut) {
     await SecureStore.deleteItemAsync(MIGRATION_GRANT_KEY);
     return null;
   }
@@ -116,7 +130,7 @@ export async function loadMigrationGrant(): Promise<StoredMigrationGrant | null>
   return grant;
 }
 
-export async function saveMigrationGrant(
+async function writeMigrationGrant(
   grant: StoredMigrationGrant,
 ): Promise<void> {
   if (!isStoredMigrationGrant(grant)) {
@@ -129,27 +143,57 @@ export async function saveMigrationGrant(
   );
 }
 
+export async function saveMigrationGrantForSession(
+  grant: StoredMigrationGrant,
+  sessionId: string,
+): Promise<boolean> {
+  if (!isStoredMigrationGrant(grant)) {
+    throw new Error('Migration grant response is invalid');
+  }
+  if (!isValidSessionId(sessionId)) {
+    throw new Error('Clerk session is invalid');
+  }
+
+  return serializeMigrationState(async () => {
+    const signedOutSessionId = await SecureStore.getItemAsync(MIGRATION_SIGNED_OUT_KEY);
+    if (signedOutSessionId === '1' || signedOutSessionId === sessionId) {
+      await clearMigrationGrant();
+      return false;
+    }
+
+    // A different session means the person explicitly signed in again after
+    // opting out. Only that new session may re-enable migration provisioning.
+    if (signedOutSessionId) {
+      await SecureStore.deleteItemAsync(MIGRATION_SIGNED_OUT_KEY);
+    }
+    await writeMigrationGrant(grant);
+    return true;
+  });
+}
+
 export async function clearMigrationGrant(): Promise<void> {
   await SecureStore.deleteItemAsync(MIGRATION_GRANT_KEY);
 }
 
-export async function clearMigrationSignOut(): Promise<void> {
-  await SecureStore.deleteItemAsync(MIGRATION_SIGNED_OUT_KEY);
-}
+export async function markMigrationSignedOut(sessionId: string): Promise<void> {
+  if (!isValidSessionId(sessionId)) {
+    throw new Error('Clerk session is invalid');
+  }
 
-export async function markMigrationSignedOut(): Promise<void> {
   // Set the opt-out first so a grant cannot silently sign the person back in
   // if the app is interrupted between these two SecureStore operations.
-  try {
-    await SecureStore.setItemAsync(
-      MIGRATION_SIGNED_OUT_KEY,
-      '1',
-      SECURE_STORE_OPTIONS,
-    );
-  } finally {
-    // Still remove the credential if writing the stronger opt-out marker fails.
-    await clearMigrationGrant();
-  }
+  await serializeMigrationState(async () => {
+    try {
+      await SecureStore.setItemAsync(
+        MIGRATION_SIGNED_OUT_KEY,
+        sessionId,
+        SECURE_STORE_OPTIONS,
+      );
+    } finally {
+      // Still remove the credential if writing the stronger opt-out marker fails.
+      await clearMigrationGrant();
+    }
+  });
 }
 
 export async function requestMigrationGrant(

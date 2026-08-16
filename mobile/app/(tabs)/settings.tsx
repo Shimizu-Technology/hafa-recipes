@@ -75,7 +75,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, sessionId } = useAuth();
   const { user } = useUser();
   const { data: countData } = useRecipeCount(undefined, !!isSignedIn);
   const { signOut } = useClerk();
@@ -128,7 +128,8 @@ export default function SettingsScreen() {
             // A deliberate sign-out opts this installation out of silent Clerk
             // migration so a future production build cannot sign it back in.
             try {
-              await markMigrationSignedOut();
+              if (!sessionId) throw new Error('Clerk session is unavailable');
+              await markMigrationSignedOut(sessionId);
             } catch {
               Alert.alert(
                 'Could Not Sign Out',
@@ -177,7 +178,9 @@ export default function SettingsScreen() {
                     setIsDeleting(true);
                     try {
                       await api.deleteAccount();
-                      await markMigrationSignedOut().catch(() => undefined);
+                      if (sessionId) {
+                        await markMigrationSignedOut(sessionId).catch(() => undefined);
+                      }
 
                       // Remove token getter FIRST
                       api.setTokenGetter(null);
