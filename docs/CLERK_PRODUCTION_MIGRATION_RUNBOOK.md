@@ -1,7 +1,8 @@
 # Clerk production migration runbook
 
 Status: foundation/grant API deployed; 35/35 production aliases provisioned;
-iOS 2.4.0 bridge waiting for App Review; production-key cutover gated
+production Apple/Google/email authentication configured; iOS 2.4.0 bridge
+waiting for App Review; production-key cutover gated
 
 Last updated: 2026-08-17
 
@@ -148,14 +149,25 @@ Provider-readiness work completed on 2026-08-17:
   its code was accepted by the production Account Portal, and the successful
   session redirected to `https://hafa-recipes.com/`.
 
+Google provider evidence on 2026-08-17:
+
+- the owner accepted the Google API Services User Data Policy for the dedicated
+  `hafa-recipes-production` project;
+- the external consent configuration identifies the app as Håfa Recipes and
+  uses `shimizutechnology@gmail.com` for support and developer contact;
+- the web client `Håfa Recipes Clerk Production` has only
+  `https://clerk.hafa-recipes.com/v1/oauth_callback` as its authorized redirect;
+- its credentials were installed in the production Clerk instance and the
+  Google connection is enabled and marked **Used for sign-in**;
+- the production Account Portal offered Google beside Apple, Google displayed
+  the Håfa Recipes consent screen, and the callback redirected successfully to
+  `https://hafa-recipes.com/`; and
+- Clerk recorded the test account's production sign-in against its existing
+  pre-provisioned production identity rather than creating a disconnected
+  application owner.
+
 The remaining pre-cutover blockers are:
 
-- the dedicated Google Cloud project `hafa-recipes-production` exists, but the
-  owner must accept the Google API Services User Data Policy before consent
-  configuration can finish and the production OAuth client can be created;
-- after that approval, create a web client whose only Clerk redirect is
-  `https://clerk.hafa-recipes.com/v1/oauth_callback`, install its credentials in
-  Clerk, enable Google for sign-up/sign-in, and complete one callback test;
 - Apple reached the provider's password/passkey screen, but a complete callback
   still requires an owner-controlled Apple login. Complete that test before the
   production-key mobile release;
