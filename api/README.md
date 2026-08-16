@@ -36,11 +36,12 @@ OPENAI_API_KEY=sk-...
 # OpenRouter - Gemini extraction (required)
 OPENROUTER_API_KEY=sk-or-...
 
-# Clerk Auth (required)
-CLERK_FRONTEND_API=your-clerk-domain.clerk.accounts.dev
-CLERK_SECRET_KEY=sk_live_...              # required for server-side account deletion
-# CLERK_JWT_ISSUER=https://your-clerk-domain.clerk.accounts.dev
-# CLERK_JWT_AUDIENCE=hafa-recipes-api
+# Clerk Auth (required; both are accepted during the migration)
+CLERK_DEVELOPMENT_ISSUER=https://your-development-instance.clerk.accounts.dev
+CLERK_DEVELOPMENT_SECRET_KEY=sk_test_...
+CLERK_PRODUCTION_ISSUER=https://clerk.hafa-recipes.com
+CLERK_PRODUCTION_SECRET_KEY=sk_live_...
+CLERK_PRIMARY_ENVIRONMENT=development
 
 # AWS S3 - thumbnail storage (recommended)
 AWS_ACCESS_KEY_ID=AKIA...
@@ -236,10 +237,27 @@ This repo uses simple numbered migration scripts in `migrations/` rather than Al
 
 ```bash
 # Run a migration against the configured DATABASE_URL
-uv run python migrations/015_add_extraction_job_user_id.py
+uv run python -m migrations.016_add_stable_clerk_identities
 ```
 
 Run migrations intentionally for each environment; do not run production migrations from a local shell unless you have confirmed the target database.
+
+Migration 016 is additive: it makes each existing development Clerk subject a
+stable application user ID and does not rewrite ownership columns. After it is
+applied, validate the development inventory and then plan production users:
+
+```bash
+# Both commands are dry-run by default and exit non-zero on missing/conflicting users.
+uv run python -m app.clerk_transition audit-development
+uv run python -m app.clerk_transition provision-production
+
+# Apply only after reviewing a clean dry-run. Rerun to prove idempotence.
+uv run python -m app.clerk_transition audit-development --apply
+uv run python -m app.clerk_transition provision-production --apply
+```
+
+The transition tool never deletes or merges users. Production matching requires
+one exact verified primary email and a non-conflicting stable external ID.
 
 ## Deployment (Render)
 
@@ -253,4 +271,3 @@ Run migrations intentionally for each environment; do not run production migrati
 ## License
 
 Private - Shimizu Technology
-

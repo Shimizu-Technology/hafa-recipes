@@ -47,3 +47,43 @@ def test_async_database_url_removes_channel_binding_and_preserves_supported_para
         settings.async_database_url
         == "postgresql+asyncpg://user:pass@example.com/db?application_name=hafa"
     )
+
+
+def test_clerk_environments_are_issuer_scoped_and_deduplicate_legacy_settings():
+    settings = Settings(
+        database_url="postgresql://user:pass@example.com/db",
+        openai_api_key="test-openai-key",
+        clerk_frontend_api="dev.example.clerk.accounts.dev",
+        clerk_secret_key="legacy-secret",
+        clerk_development_issuer="https://dev.example.clerk.accounts.dev/",
+        clerk_development_secret_key="development-secret",
+        clerk_production_issuer="https://clerk.hafa-recipes.com",
+        clerk_production_secret_key="production-secret",
+        clerk_production_audience="mobile,web",
+        clerk_production_authorized_parties="https://hafa-recipes.com, hafa://callback",
+        clerk_production_require_authorized_party=True,
+        clerk_primary_environment="production",
+    )
+
+    assert [item.name for item in settings.clerk_environments] == [
+        "development",
+        "production",
+    ]
+    production = settings.clerk_environment_for_issuer(
+        "https://clerk.hafa-recipes.com/"
+    )
+    assert production is not None
+    assert production.audience == ["mobile", "web"]
+    assert production.authorized_parties == (
+        "https://hafa-recipes.com",
+        "hafa://callback",
+    )
+    assert production.require_authorized_party is True
+    assert settings.primary_clerk_environment == production
+
+
+def test_unconfigured_legacy_clerk_settings_do_not_create_placeholder_issuer():
+    settings = _settings("postgresql://user:pass@example.com/db")
+
+    assert settings.clerk_issuer == ""
+    assert settings.clerk_environments == ()

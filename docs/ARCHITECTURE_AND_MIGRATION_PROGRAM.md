@@ -1,6 +1,6 @@
 # Håfa Recipes architecture and migration program
 
-Status: approved direction, executing in gated phases
+Status: monorepo/provider cutover complete; stable Clerk identity foundation in review
 
 Last updated: 2026-08-17
 
@@ -156,6 +156,20 @@ clerk_identities
 unique (issuer, clerk_user_id)
 unique (app_user_id, issuer)
 ```
+
+Migration 016 implements this as an additive PostgreSQL change. It discovers
+stable owners across recipes, saved recipes, collections, notes, versions,
+extraction jobs, meal plans, grocery membership/items, and grocery invitations.
+It creates the development alias `(development issuer, existing user_id)` while
+leaving every ownership value untouched.
+
+The API now verifies the untrusted token only far enough to select an exact
+configured issuer, then verifies RS256 signature, expiry, issuer, optional
+audience, and optional `azp` against that issuer's policy. Routes receive only
+the resolved stable application ID. Unknown development identities can be
+adopted with `stable ID = development subject`; unknown production subjects
+require the matching Clerk Backend API to confirm both a verified primary email
+and the pre-provisioned stable `external_id`.
 
 For an existing user, the legacy development Clerk subject becomes the initial
 stable `app_users.id`. Existing `user_id` ownership values therefore remain
