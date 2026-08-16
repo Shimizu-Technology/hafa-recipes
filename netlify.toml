@@ -1,8 +1,11 @@
 [build]
+  base = "web"
   command = "npm run build"
   publish = "dist"
 
-# Security headers for all static assets/routes
+[build.environment]
+  NODE_VERSION = "22.12.0"
+
 [[headers]]
   for = "/*"
   [headers.values]
@@ -12,7 +15,6 @@
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
     Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 
-# Handle SPA routing - redirect all routes to index.html
 [[redirects]]
   from = "/*"
   to = "/index.html"
