@@ -2,9 +2,9 @@
 
 Status: foundation/grant API deployed; 35/35 production aliases provisioned;
 production Apple/Google/email authentication configured; iOS 2.4.0 bridge
-waiting for App Review; production-key cutover gated
+live on the App Store; bridge-adoption observation in progress
 
-Last updated: 2026-08-17
+Last updated: 2026-08-18
 
 ## Objective
 
@@ -174,8 +174,37 @@ The remaining pre-cutover blockers are:
 - exercise sign-up verification, password recovery, and delivery to an Apple
   private-relay address in addition to the completed ordinary-email sign-in
   test; and
-- the Hobby plan fixes maximum session lifetime at seven days. A 365-day
-  lifetime requires a separately approved Clerk Pro purchase.
+- record migration-grant adoption after the bridge release before producing
+  the production-key release candidate.
+
+## Deferred session-duration improvement
+
+Owner decision on 2026-08-18: remain on Clerk Hobby and do not add a Clerk Pro
+subscription at this time. This is an intentional cost decision, not a migration
+defect or a production-cutover blocker.
+
+Clerk Hobby fixes production maximum session lifetime at seven days. Moving from
+the development instance to the production instance therefore does **not** by
+itself stop weekly session expiry. The app must continue treating
+reauthentication as a recoverable state: preserve local context, never present
+an empty recipe library as if data were lost, offer Apple/Google sign-in, and
+return the person to their recipes after a successful sign-in.
+
+If weekly sign-in becomes worth an additional recurring bill, revisit this
+decision as a separate, explicitly approved billing change:
+
+1. confirm Clerk's then-current plan and session-duration terms;
+2. obtain owner approval for the purchase before changing the subscription;
+3. upgrade the production Clerk instance to a plan with custom session duration;
+4. set a long maximum lifetime (the current target is 365 days) and leave the
+   inactivity timeout disabled unless product requirements change;
+5. verify expiration, manual sign-out, account deletion, revocation, and
+   returning-user behavior in the native app; and
+6. update this runbook with the final policy and validation evidence.
+
+A literal “never sign out” promise is not supported: Clerk requires at least one
+session-expiration control, and manual sign-out, account deletion, revocation,
+device state, or other security events may still end a session.
 
 For local cutover testing, move the gitignored `mobile/.env.local` aside before
 starting Metro with explicit production variables, then restore it after the
@@ -346,14 +375,15 @@ confirming the opt-out path against production rather than only in unit tests.
 iOS 2.4.0 build 41 was archived from merged commit `8fc1b76` as EAS build
 `4ae9ca7c-0f6a-4ec3-aef9-1cfd6df70025`. Submission
 `9c3d038d-c84a-4344-9f97-0682a5400eaf` uploaded successfully, Apple processed
-the binary, and the version is **Waiting for Review** in App Store Connect. The
-release continues using the development Clerk publishable key intentionally so
-installed sessions can create migration grants.
+the binary, and version 2.4.0 became live on the App Store at
+`2026-08-17T05:24:39Z` (`2026-08-17 15:24:39` ChST). The release continues using
+the development Clerk publishable key intentionally so installed sessions can
+create migration grants.
 
 Do not switch EAS to the production publishable key or change Render's primary
-environment while this build is only waiting for review. After approval and
-release, record adoption evidence and successful grant creation over the agreed
-window, then produce a separate production-key validation/release candidate.
+environment until adoption evidence and successful grant creation are recorded
+over the agreed window. Then produce a separate production-key
+validation/release candidate.
 
 ## Rollback
 
@@ -373,6 +403,7 @@ window, then produce a separate production-key validation/release candidate.
 - [Migrating users and the development-to-production limitation](https://clerk.com/docs/guides/development/migrating/overview)
 - [Deploying a production Clerk instance](https://clerk.com/docs/guides/development/deployment/production)
 - [Deploying Clerk with Expo](https://clerk.com/docs/guides/development/deployment/expo)
+- [Clerk pricing](https://clerk.com/pricing)
 - [Manual JWT verification](https://clerk.com/docs/guides/sessions/manual-jwt-verification)
 - [Session lifetime options](https://clerk.com/docs/guides/secure/session-options)
 - [One-use sign-in tokens](https://clerk.com/docs/reference/backend/sign-in-tokens/create-sign-in-token)
