@@ -312,7 +312,10 @@ the binary, and version 2.4.0 became live on the App Store at
 `2026-08-17T05:24:39Z` (`2026-08-17 15:24:39` ChST). Production must remain
 development-primary until the live bridge has been given an adoption window;
 App Store availability alone is not evidence that grants exist on customer
-devices.
+devices. The runbook defines the exit gate as a minimum 14-day window, at least
+90% valid-grant coverage among users authenticated through the development
+issuer since release, at least one public-install grant, clean final-week error
+evidence, and a complete conflict-free production alias inventory.
 
 ## Rollback principles
 

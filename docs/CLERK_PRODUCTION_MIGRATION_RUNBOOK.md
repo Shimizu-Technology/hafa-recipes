@@ -174,8 +174,8 @@ The remaining pre-cutover blockers are:
 - exercise sign-up verification, password recovery, and delivery to an Apple
   private-relay address in addition to the completed ordinary-email sign-in
   test; and
-- record migration-grant adoption after the bridge release before producing
-  the production-key release candidate.
+- satisfy the measurable bridge-adoption exit gate below before producing the
+  production-key release candidate.
 
 ## Deferred session-duration improvement
 
@@ -382,8 +382,59 @@ create migration grants.
 
 Do not switch EAS to the production publishable key or change Render's primary
 environment until adoption evidence and successful grant creation are recorded
-over the agreed window. Then produce a separate production-key
+over the exit window below. Then produce a separate production-key
 validation/release candidate.
+
+### Bridge-adoption exit gate
+
+The observation window began at the App Store release time and runs for at least
+14 full days, so the gate cannot open before `2026-08-31T05:24:39Z`. At the end
+of that minimum window, all of the following must be true:
+
+- at least one unexpired, unredeemed migration grant created after the release
+  exists, proving the public bridge binary reached a real installation;
+- at least 90% of distinct application users whose development identity has
+  `last_authenticated_at >= 2026-08-17T05:24:39Z` have an unexpired grant
+  created after that timestamp;
+- Render and Clerk logs show no unresolved grant-creation errors during the
+  final seven days; and
+- the production aliases remain complete and conflict-free.
+
+Use a read-only production query equivalent to the following and retain only
+aggregate counts in the rollout record. Do not export user IDs, grant hashes, or
+device hashes.
+
+```sql
+WITH active AS (
+    SELECT DISTINCT app_user_id
+    FROM clerk_identities
+    WHERE issuer = :development_issuer
+      AND last_authenticated_at >= TIMESTAMPTZ '2026-08-17T05:24:39Z'
+),
+covered AS (
+    SELECT DISTINCT app_user_id
+    FROM clerk_migration_grants
+    WHERE created_at >= TIMESTAMPTZ '2026-08-17T05:24:39Z'
+      AND redeemed_at IS NULL
+      AND expires_at > NOW()
+)
+SELECT
+    COUNT(*) AS active_users,
+    COUNT(*) FILTER (WHERE covered.app_user_id IS NOT NULL) AS covered_users,
+    ROUND(
+        100.0 * COUNT(*) FILTER (WHERE covered.app_user_id IS NOT NULL)
+        / NULLIF(COUNT(*), 0),
+        1
+    ) AS coverage_percent
+FROM active
+LEFT JOIN covered USING (app_user_id);
+```
+
+If the gate is not satisfied, extend observation in seven-day increments and
+re-run the same evidence. Do not silently lower the threshold. Proceeding with
+lower coverage requires an explicit owner decision that accepts additional
+one-time sign-ins for uncovered users, documented in this runbook before the
+production-key build is submitted.
 
 ## Rollback
 
