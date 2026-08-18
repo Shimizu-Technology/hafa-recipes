@@ -1,9 +1,9 @@
 # Håfa Recipes architecture and migration program
 
 Status: monorepo/provider-source cutover complete; stable identity/grant API
-deployed; iOS bridge release 2.4.0 waiting for App Review
+deployed; iOS bridge release 2.4.0 live; adoption observation in progress
 
-Last updated: 2026-08-17
+Last updated: 2026-08-18
 
 ## Purpose
 
@@ -265,6 +265,13 @@ explicit paid-plan purchase. Manual sign-out, account deletion, token revocation
 device changes, and security events still end a session; “never sign out” is
 therefore not promised literally.
 
+The owner decided on 2026-08-18 to keep Clerk Hobby and avoid another recurring
+bill. Weekly expiry is accepted for the current rollout and does not block the
+production-instance migration. If the user-experience cost later justifies the
+subscription, the team should re-check Clerk's current terms, obtain explicit
+billing approval, upgrade production, configure the 365-day target, and validate
+native expiration and recovery behavior before calling the improvement complete.
+
 ## Release and verification gates
 
 Each implementation phase uses its own PR when it can be deployed or rolled back
@@ -301,10 +308,14 @@ Identity migration acceptance includes:
 The bridge release is iOS 2.4.0 build 41, EAS build
 `4ae9ca7c-0f6a-4ec3-aef9-1cfd6df70025`. EAS submission
 `9c3d038d-c84a-4344-9f97-0682a5400eaf` uploaded successfully, Apple processed
-the binary, and App Store Connect reports **Waiting for Review**. Production
-must remain development-primary until this release is approved, released, and
-given an adoption window; waiting for review is not evidence that grants exist
-on customer devices.
+the binary, and version 2.4.0 became live on the App Store at
+`2026-08-17T05:24:39Z` (`2026-08-17 15:24:39` ChST). Production must remain
+development-primary until the live bridge has been given an adoption window;
+App Store availability alone is not evidence that grants exist on customer
+devices. The runbook defines the exit gate as a minimum 14-day window, at least
+90% valid-grant coverage among users authenticated through the development
+issuer since release, at least one public-install grant, clean final-week error
+evidence, and a complete conflict-free production alias inventory.
 
 ## Rollback principles
 
