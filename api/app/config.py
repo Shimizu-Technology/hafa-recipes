@@ -160,22 +160,31 @@ class Settings(BaseSettings):
             parsed_database_url = urlsplit(self.database_url)
             database_host = parsed_database_url.hostname
             local_database_hosts = {None, "localhost", "127.0.0.1", "::1"}
+            query_parameters = parse_qsl(
+                parsed_database_url.query,
+                keep_blank_values=True,
+            )
             query_hosts = [
+                value for key, value in query_parameters if key.lower() == "host"
+            ]
+            query_host_addresses = [
                 value
-                for key, value in parse_qsl(
-                    parsed_database_url.query,
-                    keep_blank_values=True,
-                )
-                if key.lower() == "host"
+                for key, value in query_parameters
+                if key.lower() == "hostaddr"
             ]
             query_hosts_are_local = all(
                 host in {"localhost", "127.0.0.1", "::1"} or host.startswith("/")
                 for host in query_hosts
             )
+            query_host_addresses_are_local = all(
+                address in {"127.0.0.1", "::1"}
+                for address in query_host_addresses
+            )
             if (
                 self.environment.lower() != "development"
                 or database_host not in local_database_hosts
                 or not query_hosts_are_local
+                or not query_host_addresses_are_local
             ):
                 raise ValueError(
                     "DATABASE_USE_SSL can only be disabled for a local development database"
