@@ -58,11 +58,18 @@ def test_render_uses_only_the_versioned_migration_runner():
     assert "python -m migrations.022_add_admin_moderation" not in render_config
 
 
-def test_runner_tracks_the_latest_numbered_migration_file():
+def test_runner_registers_every_active_numbered_migration_file():
     migrations_directory = Path(migration_runner.__file__).resolve().parent
-    discovered_versions = [
-        int(path.name[:3])
-        for path in migrations_directory.glob("[0-9][0-9][0-9]_*.py")
-    ]
+    first_active_version = int(
+        migration_runner.ACTIVE_MIGRATIONS[0].removeprefix("migrations.")[:3]
+    )
+    discovered_modules = tuple(
+        f"migrations.{path.stem}"
+        for path in sorted(migrations_directory.glob("[0-9][0-9][0-9]_*.py"))
+        if int(path.name[:3]) >= first_active_version
+    )
 
-    assert max(discovered_versions) == migration_runner.LATEST_MIGRATION
+    assert discovered_modules == migration_runner.ACTIVE_MIGRATIONS
+    assert migration_runner.LATEST_MIGRATION == int(
+        discovered_modules[-1].removeprefix("migrations.")[:3]
+    )
