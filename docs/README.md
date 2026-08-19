@@ -40,6 +40,10 @@ Last reviewed: 2026-08-19
    - Why one model should not handle every AI task
    - Evaluation and rollout criteria
 
+8. [Deletion cleanup operations runbook](./DELETION-CLEANUP-RUNBOOK.md)
+   - Durable account and recipe cleanup behavior
+   - Queue states, alerts, verification, and safe recovery
+
 ## Source-of-truth policy
 
 - The documents above describe the current product and active plan.

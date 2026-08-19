@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import ClerkUser, get_current_user
 from app.config import get_settings
 from app.db import get_db
+from app.deletion_cleanup import deletion_cleanup_worker
 from app.job_worker import job_worker
 from app.models.schemas import DiagnosticResponse, HealthResponse
 
@@ -34,9 +35,11 @@ async def dependency_diagnostics(
         await db.execute(text("SELECT 1"))
         db_status = "connected"
         job_queue = await job_worker.queue_metrics()
+        deletion_cleanup_queue = await deletion_cleanup_worker.queue_metrics()
     except Exception:
         db_status = "unavailable"
         job_queue = {}
+        deletion_cleanup_queue = {}
 
     dependencies = {
         "database": db_status,
@@ -49,6 +52,7 @@ async def dependency_diagnostics(
         dependencies=dependencies,
         disabled_ai_capabilities=sorted(settings.disabled_ai_capability_set),
         job_queue=job_queue,
+        deletion_cleanup_queue=deletion_cleanup_queue,
     )
 
 

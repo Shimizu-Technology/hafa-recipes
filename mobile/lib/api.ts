@@ -1103,7 +1103,16 @@ class ApiClient {
   // User Account
   // ============================================================
 
-  async deleteAccount(): Promise<{ message: string; clerk_deleted?: boolean }> {
+  async deleteAccount(): Promise<{
+    message: string;
+    deleted: { recipes: number };
+    cleanup: {
+      id: string;
+      status: 'queued' | 'processing' | 'completed' | 'failed';
+      clerk_accounts: number;
+      storage_prefixes: number;
+    };
+  }> {
     const { data } = await this.client.delete('/api/users/me');
     return data;
   }

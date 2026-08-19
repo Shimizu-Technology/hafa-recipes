@@ -15,17 +15,22 @@ from app.image_validation import (
     decode_and_validate_base64_image,
     validate_image_bytes,
 )
+from app.media_lifecycle import recipe_media_upload_guard
 from app.security import PublicHTTPTransport
 
 MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024
 MAX_CHAT_IMAGE_BYTES = 8 * 1024 * 1024
 
 
+class StorageCleanupError(RuntimeError):
+    """Raised when object cleanup is incomplete and must be retried."""
+
+
 class StorageService:
     """
     Handles uploading and managing images in S3.
     
-    Thumbnails are stored with the pattern: thumbnails/{recipe_id}.jpg
+    Thumbnails use immutable, content-addressed keys under each recipe prefix.
     """
     
     def __init__(self):
@@ -135,18 +140,22 @@ class StorageService:
             else:
                 extension = "jpg"
             
-            # Upload to S3
-            s3_key = f"thumbnails/{recipe_id}.{extension}"
+            # Changing content changes the URL, preventing stale client/CDN caches.
+            image_hash = hashlib.sha256(image_data).hexdigest()
+            s3_key = f"thumbnails/{recipe_id}/{image_hash}.{extension}"
             
-            print(f"📤 Uploading to S3: {s3_key}")
-            
-            self.client.put_object(
-                Bucket=self.bucket_name,
-                Key=s3_key,
-                Body=image_data,
-                ContentType=content_type,
-                # Note: Public access is controlled by bucket policy, not ACL
-            )
+            async with recipe_media_upload_guard(recipe_id) as recipe_exists:
+                if not recipe_exists:
+                    return None
+                print(f"📤 Uploading to S3: {s3_key}")
+                self.client.put_object(
+                    Bucket=self.bucket_name,
+                    Key=s3_key,
+                    Body=image_data,
+                    ContentType=content_type,
+                    CacheControl="public, max-age=31536000, immutable",
+                    # Note: Public access is controlled by bucket policy, not ACL
+                )
             
             # Generate public URL
             settings = get_settings()
@@ -179,17 +188,8 @@ class StorageService:
             return False
         
         try:
-            # Try common extensions
-            for ext in ["jpg", "png", "webp", "gif"]:
-                s3_key = f"thumbnails/{recipe_id}.{ext}"
-                try:
-                    self.client.delete_object(
-                        Bucket=self.bucket_name,
-                        Key=s3_key,
-                    )
-                except ClientError:
-                    continue
-            
+            for prefix in self.thumbnail_prefixes(recipe_id):
+                await self.delete_prefix(prefix)
             print(f"🗑️ Thumbnail deleted for recipe: {recipe_id}")
             return True
             
@@ -198,57 +198,55 @@ class StorageService:
             return False
     
     async def delete_prefix(self, prefix: str) -> int:
-        """Delete all S3 objects under a prefix and return deleted count."""
+        """Delete every object under a prefix or raise so durable cleanup retries."""
         if not self.is_enabled:
             return 0
 
         deleted_count = 0
-        continuation_token = None
-
         try:
             while True:
-                kwargs = {"Bucket": self.bucket_name, "Prefix": prefix}
-                if continuation_token:
-                    kwargs["ContinuationToken"] = continuation_token
-
-                response = self.client.list_objects_v2(**kwargs)
+                response = self.client.list_objects_v2(
+                    Bucket=self.bucket_name,
+                    Prefix=prefix,
+                    MaxKeys=1000,
+                )
                 objects = response.get("Contents", [])
-                if objects:
-                    delete_response = self.client.delete_objects(
-                        Bucket=self.bucket_name,
-                        Delete={"Objects": [{"Key": obj["Key"]} for obj in objects]},
-                    )
-                    errors = delete_response.get("Errors", [])
-                    if errors:
-                        print(
-                            f"⚠️ Failed to delete {len(errors)} objects under S3 prefix {prefix}: "
-                            f"{errors[:3]}"
-                        )
-                    deleted_count += len(delete_response.get("Deleted", []))
-
-                if not response.get("IsTruncated"):
+                if not objects:
                     break
-                continuation_token = response.get("NextContinuationToken")
+
+                delete_response = self.client.delete_objects(
+                    Bucket=self.bucket_name,
+                    Delete={
+                        "Objects": [{"Key": obj["Key"]} for obj in objects],
+                        "Quiet": False,
+                    },
+                )
+                errors = delete_response.get("Errors", [])
+                if errors:
+                    raise StorageCleanupError(
+                        f"S3 reported {len(errors)} failed object deletions"
+                    )
+                deleted = delete_response.get("Deleted", [])
+                if len(deleted) != len(objects):
+                    raise StorageCleanupError(
+                        "S3 did not confirm every requested object deletion"
+                    )
+                deleted_count += len(deleted)
 
             return deleted_count
-        except Exception as e:
-            print(f"❌ Failed to delete S3 prefix {prefix}: {e}")
-            return deleted_count
+        except StorageCleanupError:
+            raise
+        except Exception as error:
+            raise StorageCleanupError(
+                f"Unable to delete S3 prefix: {type(error).__name__}"
+            ) from error
 
-    def get_thumbnail_url(self, recipe_id: str | UUID, extension: str = "jpg") -> str:
-        """
-        Get the S3 URL for a recipe's thumbnail.
-        
-        Args:
-            recipe_id: Recipe ID
-            extension: File extension
-            
-        Returns:
-            S3 URL
-        """
-        settings = get_settings()
-        return f"https://{self.bucket_name}.s3.{settings.aws_region}.amazonaws.com/thumbnails/{recipe_id}.{extension}"
-    
+    @staticmethod
+    def thumbnail_prefixes(recipe_id: str | UUID) -> list[str]:
+        """Return both legacy and content-addressed thumbnail prefixes."""
+        normalized = str(recipe_id)
+        return [f"thumbnails/{normalized}.", f"thumbnails/{normalized}/"]
+
     async def upload_thumbnail_from_bytes(
         self,
         image_data: bytes,
@@ -289,17 +287,20 @@ class StorageService:
             else:
                 extension = "jpg"
             
-            # Upload to S3
-            s3_key = f"thumbnails/{recipe_id}.{extension}"
+            image_hash = hashlib.sha256(image_data).hexdigest()
+            s3_key = f"thumbnails/{recipe_id}/{image_hash}.{extension}"
             
-            print(f"📤 Uploading to S3: {s3_key}")
-            
-            self.client.put_object(
-                Bucket=self.bucket_name,
-                Key=s3_key,
-                Body=image_data,
-                ContentType=content_type,
-            )
+            async with recipe_media_upload_guard(recipe_id) as recipe_exists:
+                if not recipe_exists:
+                    return None
+                print(f"📤 Uploading to S3: {s3_key}")
+                self.client.put_object(
+                    Bucket=self.bucket_name,
+                    Key=s3_key,
+                    Body=image_data,
+                    ContentType=content_type,
+                    CacheControl="public, max-age=31536000, immutable",
+                )
             
             # Generate public URL
             settings = get_settings()
