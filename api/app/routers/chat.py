@@ -1,6 +1,7 @@
 """Recipe chat API endpoints - AI-powered recipe assistant."""
 
 import json
+from datetime import datetime, timezone
 from typing import Annotated, Literal, Optional
 from uuid import UUID
 
@@ -101,6 +102,8 @@ class EstimateNutritionResponse(BaseModel):
     """Response with estimated nutrition."""
 
     nutrition: NutritionEstimate
+    model: str
+    calculated_at: datetime
 
 
 class UploadChatImageRequest(BaseModel):
@@ -617,7 +620,11 @@ Example: {{"calories": 350, "protein": 25, "carbs": 30, "fat": 12}}
                             fat=int(nutrition.get("fat", 0)),
                         )
                         invocation.succeed(response)
-                        return EstimateNutritionResponse(nutrition=parsed)
+                        return EstimateNutritionResponse(
+                            nutrition=parsed,
+                            model=invocation.model,
+                            calculated_at=datetime.now(timezone.utc),
+                        )
                     except (json.JSONDecodeError, ValueError):
                         invocation.fail("invalid_schema", response)
                         raise HTTPException(

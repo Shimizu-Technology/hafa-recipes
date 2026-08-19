@@ -292,8 +292,8 @@ class ApiClient {
     return data;
   }
 
-  async toggleRecipeSharing(id: string): Promise<{ is_public: boolean; message: string }> {
-    const { data } = await this.client.post(`/api/recipes/${id}/share`);
+  async setRecipeSharing(id: string, isPublic: boolean): Promise<{ is_public: boolean; message: string }> {
+    const { data } = await this.client.post(`/api/recipes/${id}/share`, { is_public: isPublic });
     return data;
   }
 
@@ -785,7 +785,11 @@ class ApiClient {
   async estimateNutrition(
     ingredients: string[],
     servings: number = 4
-  ): Promise<{ nutrition: { calories: number; protein: number; carbs: number; fat: number } }> {
+  ): Promise<{
+    nutrition: { calories: number; protein: number; carbs: number; fat: number };
+    model: string;
+    calculated_at: string;
+  }> {
     const { data } = await this.client.post('/api/recipes/ai/estimate-nutrition', {
       ingredients,
       servings,
@@ -805,11 +809,24 @@ class ApiClient {
       prep_time?: string | null;
       cook_time?: string | null;
       total_time?: string | null;
+      components?: Array<{
+        name: string;
+        ingredients: Array<{
+          name: string;
+          quantity?: string | null;
+          unit?: string | null;
+          notes?: string | null;
+          estimatedCost?: number | null;
+        }>;
+        steps: string[];
+        notes?: string | null;
+      }>;
       ingredients: Array<{
         name: string;
         quantity?: string | null;
         unit?: string | null;
         notes?: string | null;
+        estimatedCost?: number | null;
       }>;
       steps: string[];
       notes?: string | null;
@@ -821,6 +838,8 @@ class ApiClient {
         carbs?: number;
         fat?: number;
       } | null;
+      nutrition_recalculated?: boolean;
+      nutrition_model?: string | null;
     },
     imageUri?: string | null
   ): Promise<Recipe> {

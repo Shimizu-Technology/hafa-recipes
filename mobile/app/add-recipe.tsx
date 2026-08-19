@@ -25,6 +25,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { View, Text, useColors } from '@/components/Themed';
 import { api } from '@/lib/api';
+import { formatPublishDisclosure } from '@/lib/recipePublishing';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
 interface IngredientInput {
@@ -69,7 +70,7 @@ export default function AddRecipeScreen() {
   const queryClient = useQueryClient();
   
   // Get initial data from route params (for OCR pre-fill)
-  const { initialData, isPublic: initialIsPublic, fromOcr } = useLocalSearchParams<{
+  const { initialData, fromOcr } = useLocalSearchParams<{
     initialData?: string;
     isPublic?: string;
     fromOcr?: string;
@@ -112,10 +113,8 @@ export default function AddRecipeScreen() {
         if (data.notes) setNotes(data.notes);
         if (data.tags?.length) setTags(data.tags.join(', '));
         
-        // Set public/private from params
-        if (initialIsPublic !== undefined) {
-          setIsPublic(initialIsPublic === 'true');
-        }
+        // New recipes stay private until this screen shows the publish disclosure.
+        setIsPublic(false);
         
         // Ingredients - flatten from components
         const allIngredients: IngredientInput[] = [];
@@ -174,7 +173,7 @@ export default function AddRecipeScreen() {
         // Non-critical: form will be empty, user can fill manually
       }
     }
-  }, [initialData, initialIsPublic]);
+  }, [initialData]);
   
   // AI feature states
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
@@ -368,6 +367,29 @@ export default function AddRecipeScreen() {
     }
     
     createMutation.mutate();
+  };
+
+  const handlePublicToggle = () => {
+    if (isPublic) {
+      setIsPublic(false);
+      return;
+    }
+    const disclosure = {
+      title: title.trim() || 'Untitled recipe',
+      ingredientCount: ingredients.filter(ingredient => ingredient.name.trim()).length,
+      instructionCount: steps.filter(step => step.text.trim()).length,
+      hasPhoto: Boolean(imageUri),
+      hasSourceLink: false,
+      contributorName: 'your contributor name',
+    };
+    Alert.alert(
+      'Preview before publishing',
+      formatPublishDisclosure(disclosure),
+      [
+        { text: 'Keep private', style: 'cancel' },
+        { text: 'Share when saved', onPress: () => setIsPublic(true) },
+      ],
+    );
   };
 
   const handleSuggestTags = async () => {
@@ -780,7 +802,7 @@ export default function AddRecipeScreen() {
                   backgroundColor: isPublic ? colors.success + '10' : 'transparent',
                 },
               ]}
-              onPress={() => setIsPublic(!isPublic)}
+              onPress={handlePublicToggle}
               activeOpacity={0.7}
               accessibilityRole="switch"
               accessibilityLabel="Share recipe to the public library"
