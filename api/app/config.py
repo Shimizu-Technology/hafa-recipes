@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 UNSUPPORTED_ASYNCPG_QUERY_PARAMS = frozenset({"sslmode", "channel_binding"})
@@ -59,6 +59,22 @@ class Settings(BaseSettings):
     tts_model: str = "tts-1"
     openai_reasoning_effort: str = "none"
     ai_disabled_capabilities: str = ""
+    ai_canary_models: dict[str, str] = Field(default_factory=dict)
+    ai_canary_percentages: dict[str, int] = Field(default_factory=dict)
+    ai_model_pricing: dict[str, dict[str, float]] = Field(
+        default_factory=lambda: {
+            "gpt-5.6-luna": {
+                "input_per_million": 0.20,
+                "cached_input_per_million": 0.02,
+                "output_per_million": 1.20,
+            },
+            "gpt-5.6-terra": {
+                "input_per_million": 2.00,
+                "cached_input_per_million": 0.20,
+                "output_per_million": 12.00,
+            },
+        }
+    )
     
     # Clerk Auth
     clerk_secret_key: str | None = None
@@ -154,6 +170,42 @@ class Settings(BaseSettings):
 
         if self.openai_reasoning_effort not in {"none", "low", "medium", "high", "xhigh"}:
             raise ValueError("OPENAI_REASONING_EFFORT must be none, low, medium, high, or xhigh")
+        supported_canary_capabilities = {
+            "recipe_extraction",
+            "ocr",
+            "recipe_chat",
+            "cooking_chat",
+            "enrichment",
+            "transcription",
+            "tts",
+        }
+        unknown_canary_capabilities = (
+            set(self.ai_canary_models) | set(self.ai_canary_percentages)
+        ) - supported_canary_capabilities
+        if unknown_canary_capabilities:
+            raise ValueError(
+                "Unknown AI canary capabilities: "
+                + ", ".join(sorted(unknown_canary_capabilities))
+            )
+        for capability, percentage in self.ai_canary_percentages.items():
+            if percentage < 0 or percentage > 100:
+                raise ValueError(f"AI canary percentage for {capability} must be between 0 and 100")
+            if percentage and not self.ai_canary_models.get(capability, "").strip():
+                raise ValueError(f"AI canary model for {capability} is required when rollout is enabled")
+        for capability, model_id in self.ai_canary_models.items():
+            normalized = model_id.strip().lower()
+            if not normalized:
+                raise ValueError(f"AI canary model for {capability} cannot be empty")
+            if "gemini-2." in normalized or normalized.startswith("gpt-4o"):
+                raise ValueError(f"AI canary for {capability} uses a retired or deprecated model")
+        for model_id, prices in self.ai_model_pricing.items():
+            if not model_id.strip():
+                raise ValueError("AI pricing model IDs cannot be empty")
+            required_prices = {"input_per_million", "output_per_million"}
+            if not required_prices.issubset(prices):
+                raise ValueError(f"AI pricing for {model_id} is missing required token rates")
+            if any(price < 0 for price in prices.values()):
+                raise ValueError(f"AI pricing for {model_id} cannot contain negative rates")
         if self.job_worker_poll_seconds <= 0:
             raise ValueError("JOB_WORKER_POLL_SECONDS must be positive")
         if self.job_lease_seconds < 60:

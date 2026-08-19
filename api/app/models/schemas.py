@@ -226,6 +226,7 @@ class DiagnosticResponse(BaseModel):
     disabled_ai_capabilities: list[str]
     job_queue: dict[str, int] = Field(default_factory=dict)
     deletion_cleanup_queue: dict[str, int] = Field(default_factory=dict)
+    ai_usage: dict[str, int] = Field(default_factory=dict)
 
 
 class ErrorResponse(BaseModel):

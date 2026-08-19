@@ -89,6 +89,15 @@ The third implementation slice completes B3's database-invariant foundation:
 - disposable PostgreSQL tests exercise migration replay and real concurrent
   transactions.
 
+The fourth implementation slice establishes the AI governance foundation:
+
+- privacy-bounded invocation provenance and 24-hour admin usage visibility;
+- prompt/schema versioning, deterministic canary routing, and configuration-only rollback;
+- deterministic schema/completeness gates before Luna-to-Terra escalation;
+- a synthetic five-category golden dataset and comparative offline runner that
+  stores metrics but never provider output; and
+- provider-neutral mobile copy with an automated Expo/npm version-consistency gate.
+
 ## Release A: Production safety
 
 Goal: remove immediate privacy, model, auth-transition, and environment risks before adding functionality.
@@ -100,13 +109,15 @@ Priority: P0
 
 Work:
 
-- [ ] Add environment-configured model IDs for extraction, OCR/vision, recipe chat, general chat, tags, nutrition, transcription, and TTS.
-- [ ] Add startup validation that rejects retired or missing required model configuration.
-- [ ] Replace Gemini 2.0 Flash after a focused extraction/OCR evaluation.
-- [ ] Replace GPT-4o chat and vision usage after a focused evaluation.
-- [ ] Keep `whisper-1` and `tts-1` initially unless evaluations justify change.
-- [ ] Add a provider/model kill switch and ordered fallback configuration.
-- [ ] Remove Gemini 2.0/GPT-4o branding from mobile UI and stale active docs.
+- [x] Add environment-configured model IDs for extraction, OCR/vision, recipe chat, general chat, tags, nutrition, transcription, and TTS.
+- [x] Add startup validation that rejects retired or missing required model configuration.
+- [x] Replace Gemini 2.0 Flash after a focused extraction/OCR evaluation.
+- [ ] Replace GPT-4o chat and vision usage after a focused evaluation. Runtime
+  removal and the vision comparison are complete; the focused chat comparison
+  remains before this combined item can close.
+- [x] Keep `whisper-1` and `tts-1` initially unless evaluations justify change.
+- [x] Add a provider/model kill switch and ordered fallback configuration.
+- [x] Remove Gemini 2.0/GPT-4o branding from mobile UI and stale active docs.
 
 Candidate evaluation set:
 
@@ -395,11 +406,11 @@ Priority: P1
 
 Work:
 
-- [ ] Build a redacted golden dataset from real source categories and known failures.
-- [ ] Define schema, completeness, hallucination, correction, latency, and cost metrics.
-- [ ] Add offline evaluation runner and stored reports.
-- [ ] Add shadow/canary rollout and rollback.
-- [ ] Record prompt versions and schema versions.
+- [x] Build a redacted golden dataset from real source categories and known failures.
+- [x] Define schema, completeness, hallucination, correction, latency, and cost metrics.
+- [x] Add offline evaluation runner and stored reports.
+- [x] Add shadow/canary rollout and rollback.
+- [x] Record prompt versions and schema versions.
 
 Acceptance criteria:
 

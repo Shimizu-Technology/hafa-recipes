@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai_governance import ai_usage_metrics
 from app.auth import ClerkUser, get_current_user
 from app.config import get_settings
 from app.db import get_db
@@ -36,10 +37,12 @@ async def dependency_diagnostics(
         db_status = "connected"
         job_queue = await job_worker.queue_metrics()
         deletion_cleanup_queue = await deletion_cleanup_worker.queue_metrics()
+        ai_usage = await ai_usage_metrics(db)
     except Exception:
         db_status = "unavailable"
         job_queue = {}
         deletion_cleanup_queue = {}
+        ai_usage = {}
 
     dependencies = {
         "database": db_status,
@@ -53,6 +56,7 @@ async def dependency_diagnostics(
         disabled_ai_capabilities=sorted(settings.disabled_ai_capability_set),
         job_queue=job_queue,
         deletion_cleanup_queue=deletion_cleanup_queue,
+        ai_usage=ai_usage,
     )
 
 

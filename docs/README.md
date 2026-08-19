@@ -37,13 +37,14 @@ Last reviewed: 2026-08-19
    - Authorization, reversibility, and audit requirements
 
 7. [Decision: GPT-5.6 Luna baseline with Terra escalation](./decisions/ADR-004-GPT-5-6-MODEL-ROUTING.md)
+8. [AI model governance and rollout runbook](./AI-MODEL-GOVERNANCE-RUNBOOK.md)
    - Why one model should not handle every AI task
    - Evaluation and rollout criteria
 
-8. [Database invariants and canonical sources runbook](./DATABASE-INVARIANTS-RUNBOOK.md)
+9. [Database invariants and canonical sources runbook](./DATABASE-INVARIANTS-RUNBOOK.md)
    - Canonical URL rules, concurrency constraints, schema verification, deployment, and rollback
 
-9. [Deletion cleanup operations runbook](./DELETION-CLEANUP-RUNBOOK.md)
+10. [Deletion cleanup operations runbook](./DELETION-CLEANUP-RUNBOOK.md)
    - Durable account and recipe cleanup behavior
    - Queue states, alerts, verification, and safe recovery
 

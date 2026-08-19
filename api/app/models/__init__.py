@@ -1,3 +1,4 @@
+from .ai import AIInvocation
 from .deletion import DeletedAuthIdentity, DeletionCleanupJob
 from .grocery import GroceryItem, GroceryList, GroceryListInvite, GroceryListMember
 from .identity import AppUser, ClerkIdentity
@@ -16,4 +17,5 @@ __all__ = [
     "ClerkIdentity",
     "DeletionCleanupJob",
     "DeletedAuthIdentity",
+    "AIInvocation",
 ]

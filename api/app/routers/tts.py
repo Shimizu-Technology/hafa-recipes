@@ -7,8 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from app.ai_governance import PROMPT_VERSIONS, AIInvocationTracker, ai_request_context
 from app.auth import ClerkUser, get_current_user
 from app.config import get_settings
+from app.rate_limit import RateLimitExceeded, ai_rate_limiter
 
 router = APIRouter(prefix="/api/tts", tags=["TTS"])
 settings = get_settings()
@@ -61,39 +63,54 @@ async def generate_tts(
         raise HTTPException(status_code=503, detail="Text-to-speech is temporarily unavailable")
     
     try:
-        # Call OpenAI TTS API
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                "https://api.openai.com/v1/audio/speech",
-                headers={
-                    "Authorization": f"Bearer {settings.openai_api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": settings.tts_model,
-                    "input": request.text,
-                    "voice": request.voice,
-                    "response_format": "mp3",
-                },
-            )
-            
-            if response.status_code != 200:
-                print(f"❌ OpenAI TTS request failed with status {response.status_code}")
-                raise HTTPException(
-                    status_code=502,
-                    detail="Speech generation is temporarily unavailable.",
-                )
-            
-            # Return audio as streaming response
-            return StreamingResponse(
-                iter([response.content]),
-                media_type="audio/mpeg",
-                headers={
-                    "Content-Disposition": "inline; filename=speech.mp3",
-                    "Cache-Control": "no-cache",
-                }
-            )
-            
+        with ai_request_context(user_id=user.id, route="tts"):
+            async with ai_rate_limiter.limit(
+                user_id=user.id,
+                capability="tts",
+                requests_per_minute=20,
+                max_concurrency=2,
+            ):
+                async with AIInvocationTracker(
+                    capability="tts",
+                    primary_model=settings.tts_model,
+                    prompt_version=PROMPT_VERSIONS["tts"],
+                ) as invocation:
+                    async with httpx.AsyncClient(timeout=60.0) as client:
+                        response = await client.post(
+                            "https://api.openai.com/v1/audio/speech",
+                            headers={
+                                "Authorization": f"Bearer {settings.openai_api_key}",
+                                "Content-Type": "application/json",
+                            },
+                            json={
+                                "model": invocation.model,
+                                "input": request.text,
+                                "voice": request.voice,
+                                "response_format": "mp3",
+                            },
+                        )
+
+                    if response.status_code != 200:
+                        invocation.fail(f"provider_http_{response.status_code}")
+                        raise HTTPException(
+                            status_code=502,
+                            detail="Speech generation is temporarily unavailable.",
+                        )
+                    invocation.succeed()
+                    return StreamingResponse(
+                        iter([response.content]),
+                        media_type="audio/mpeg",
+                        headers={
+                            "Content-Disposition": "inline; filename=speech.mp3",
+                            "Cache-Control": "no-cache",
+                        },
+                    )
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many speech requests. Please wait and try again.",
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
     except httpx.TimeoutException:
         raise HTTPException(
             status_code=504,
@@ -101,8 +118,7 @@ async def generate_tts(
         )
     except HTTPException:
         raise
-    except Exception as e:
-        print(f"❌ TTS error: {e}")
+    except Exception:
         raise HTTPException(
             status_code=500,
             detail="Speech generation failed. Please try again."

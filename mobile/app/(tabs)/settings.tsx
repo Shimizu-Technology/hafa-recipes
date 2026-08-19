@@ -605,17 +605,17 @@ export default function SettingsScreen() {
             <Divider />
 
             <Text style={[styles.techLabel, { color: colors.textMuted }]}>
-              Powered by
+              Built for dependable cooking workflows
             </Text>
             <RNView style={styles.techList}>
               <Text style={[styles.techItem, { color: colors.textSecondary }]}>
-                • OpenAI Whisper (transcription)
+                • AI-assisted transcription and recipe extraction
               </Text>
               <Text style={[styles.techItem, { color: colors.textSecondary }]}>
-                • OpenAI recipe extraction and photo scanning
+                • Photo scanning for printed and handwritten recipes
               </Text>
               <Text style={[styles.techItem, { color: colors.textSecondary }]}>
-                • OpenAI recipe and cooking chat
+                • Safety-aware recipe and cooking help
               </Text>
               <Text style={[styles.techItem, { color: colors.textSecondary }]}>
                 • FastAPI + React Native

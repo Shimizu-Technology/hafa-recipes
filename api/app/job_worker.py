@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import and_, func, or_, select, text
 
+from app.ai_governance import ai_request_context
 from app.config import get_settings
 from app.db.database import AsyncSessionLocal
 from app.models.recipe import ExtractionJob
@@ -306,26 +307,32 @@ class DurableJobWorker:
             # extraction implementations are incrementally moved into services.
             from app.routers.extract import run_extraction_job, run_re_extraction_job
 
-            if persisted["job_kind"] == "reextract":
-                await run_re_extraction_job(
-                    job_id=str(job_id),
-                    recipe_id=str(persisted["target_recipe_id"]),
-                    source_url=persisted["url"],
-                    location=persisted["location"],
-                    user_id=persisted["user_id"],
-                    lease_token=persisted["lease_token"],
-                )
-            else:
-                await run_extraction_job(
-                    job_id=str(job_id),
-                    url=persisted["url"],
-                    location=persisted["location"],
-                    notes=persisted["notes"],
-                    user_id=persisted["user_id"],
-                    user_display_name=persisted["display_name"],
-                    is_public=persisted["is_public"],
-                    lease_token=persisted["lease_token"],
-                )
+            with ai_request_context(
+                request_id=f"job_{job_id.hex}",
+                user_id=persisted["user_id"],
+                job_id=str(job_id),
+                route="extraction_worker",
+            ):
+                if persisted["job_kind"] == "reextract":
+                    await run_re_extraction_job(
+                        job_id=str(job_id),
+                        recipe_id=str(persisted["target_recipe_id"]),
+                        source_url=persisted["url"],
+                        location=persisted["location"],
+                        user_id=persisted["user_id"],
+                        lease_token=persisted["lease_token"],
+                    )
+                else:
+                    await run_extraction_job(
+                        job_id=str(job_id),
+                        url=persisted["url"],
+                        location=persisted["location"],
+                        notes=persisted["notes"],
+                        user_id=persisted["user_id"],
+                        user_display_name=persisted["display_name"],
+                        is_public=persisted["is_public"],
+                        lease_token=persisted["lease_token"],
+                    )
         except asyncio.CancelledError:
             # Leave the persisted processing lease intact. A new worker will
             # recover the job after lease expiry without losing the request.

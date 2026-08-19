@@ -11,6 +11,7 @@ services:
       python -m migrations.017_add_clerk_migration_grants &&
       python -m migrations.018_add_durable_extraction_jobs &&
       python -m migrations.019_add_durable_deletion_cleanup &&
-      python -m migrations.020_add_database_invariants
+      python -m migrations.020_add_database_invariants &&
+      python -m migrations.021_add_ai_invocation_provenance
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /up

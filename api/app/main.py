@@ -1,9 +1,13 @@
 """Recipe Extractor API - FastAPI Application."""
 
+import re
+from uuid import uuid4
+
 import sentry_sdk
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.ai_governance import ai_request_context, verify_ai_governance_schema
 from app.config import get_settings
 from app.database_invariants import verify_database_invariants
 from app.deletion_cleanup import deletion_cleanup_worker
@@ -60,6 +64,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+@app.middleware("http")
+async def attach_request_context(request: Request, call_next):
+    """Trace requests without trusting or logging arbitrary header content."""
+
+    supplied = request.headers.get("x-request-id", "")
+    request_id = supplied if SAFE_REQUEST_ID.fullmatch(supplied) else uuid4().hex
+    with ai_request_context(request_id=request_id, route=request.url.path):
+        response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
 # Include routers
 app.include_router(health_router)
 app.include_router(recipes_router)
@@ -93,6 +111,8 @@ async def startup():
     print(f"📍 Environment: {settings.environment}")
     print("📚 Docs: http://localhost:8000/docs")
     await verify_database_invariants()
+    await verify_ai_governance_schema()
+    print("AI governance schema ready")
     await job_worker.start()
     await deletion_cleanup_worker.start()
 

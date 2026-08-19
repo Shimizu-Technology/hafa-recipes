@@ -40,6 +40,8 @@ OCR_FALLBACK_MODEL=gpt-5.6-terra
 RECIPE_CHAT_MODEL=gpt-5.6-luna
 COOKING_CHAT_MODEL=gpt-5.6-luna
 ENRICHMENT_MODEL=gpt-5.6-luna
+AI_CANARY_MODELS={}
+AI_CANARY_PERCENTAGES={}
 AI_DISABLED_CAPABILITIES=
 
 # Clerk Auth (required; both are accepted during the migration)
@@ -140,6 +142,30 @@ Supported sites: AllRecipes, Budget Bytes, Half Baked Harvest, Delish, Pinch of 
 | Recipe and Cooking Chat | GPT-5.6 Luna |
 | Tag/Nutrition AI | GPT-5.6 Luna |
 | Text-to-Speech | `tts-1` |
+
+Model changes are evaluation-gated. `AI_CANARY_MODELS` and
+`AI_CANARY_PERCENTAGES` accept JSON objects keyed by capability; routing is
+deterministic for a request/job, and setting a percentage to `0` is the
+immediate rollback. Every provider attempt stores only operational provenance
+(model, prompt/schema version, latency, usage, cost estimate, rollout/fallback
+reason, and stable error code). Prompts, responses, full URLs, and recipe text
+are never written to the provenance table or structured AI log.
+
+Validate the redacted five-category benchmark without making provider calls:
+
+```bash
+cd api
+.venv/bin/python -m evals.run_recipe_model_eval --dry-run
+```
+
+Run a comparative Luna/Terra report with an explicitly selected local secret
+file (reports never contain model output):
+
+```bash
+.venv/bin/python -m evals.run_recipe_model_eval \
+  --env-file /absolute/path/to/local-eval.env \
+  --models gpt-5.6-luna gpt-5.6-terra
+```
 
 Model IDs are environment-pinned rather than provider aliases. Routine AI uses
 `reasoning_effort=none`; Terra is not called unless extraction/OCR needs a
