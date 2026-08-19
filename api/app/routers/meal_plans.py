@@ -13,7 +13,8 @@ from app.auth import ClerkUser, get_current_user
 from app.db import get_db
 from app.models.grocery import GroceryItem
 from app.models.meal_plan import MealPlanEntry
-from app.models.recipe import Recipe, SavedRecipe
+from app.models.recipe import Recipe
+from app.moderation import accessible_recipe_conditions, is_publicly_viewable
 from app.routers.grocery import get_or_create_user_list
 
 router = APIRouter(prefix="/api/meal-plans", tags=["meal-plans"])
@@ -98,23 +99,16 @@ async def get_accessible_recipe(
     recipe_id: UUID,
     user: ClerkUser,
 ) -> Optional[Recipe]:
-    """Return a recipe if the user owns it, it is public, or they saved it."""
+    """Return a recipe if the user owns it or it passes current public policy."""
     result = await db.execute(select(Recipe).where(Recipe.id == recipe_id))
     recipe = result.scalar_one_or_none()
 
     if not recipe:
         return None
 
-    if recipe.user_id == user.id or recipe.is_public:
+    if recipe.user_id == user.id:
         return recipe
-
-    saved_result = await db.execute(
-        select(SavedRecipe).where(
-            SavedRecipe.user_id == user.id,
-            SavedRecipe.recipe_id == recipe_id,
-        )
-    )
-    return recipe if saved_result.scalar_one_or_none() else None
+    return recipe if await is_publicly_viewable(db, recipe, user.id) else None
 
 
 def organize_by_day(entries: List[MealPlanEntry], week_start: date, week_end: date) -> List[DayMeals]:
@@ -167,10 +161,12 @@ async def get_week_plan(
     # Fetch all entries for this week
     result = await db.execute(
         select(MealPlanEntry)
+        .join(Recipe, Recipe.id == MealPlanEntry.recipe_id)
         .where(
             MealPlanEntry.user_id == user.id,
             MealPlanEntry.date >= week_start,
-            MealPlanEntry.date <= week_end
+            MealPlanEntry.date <= week_end,
+            *accessible_recipe_conditions(user.id),
         )
         .order_by(MealPlanEntry.date, MealPlanEntry.meal_type, MealPlanEntry.created_at)
     )
@@ -197,9 +193,11 @@ async def get_day_plan(
     
     result = await db.execute(
         select(MealPlanEntry)
+        .join(Recipe, Recipe.id == MealPlanEntry.recipe_id)
         .where(
             MealPlanEntry.user_id == user.id,
-            MealPlanEntry.date == target
+            MealPlanEntry.date == target,
+            *accessible_recipe_conditions(user.id),
         )
         .order_by(MealPlanEntry.meal_type, MealPlanEntry.created_at)
     )
@@ -277,6 +275,8 @@ async def update_meal(
     entry = result.scalar_one_or_none()
     
     if not entry:
+        raise HTTPException(status_code=404, detail="Meal plan entry not found")
+    if await get_accessible_recipe(db, entry.recipe_id, user) is None:
         raise HTTPException(status_code=404, detail="Meal plan entry not found")
     
     if update.meal_type is not None:
@@ -484,4 +484,3 @@ async def copy_week(
         "entries_copied": entries_copied,
         "target_week_start": target_start
     }
-

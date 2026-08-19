@@ -12,10 +12,13 @@ from app.config import get_settings
 from app.database_invariants import verify_database_invariants
 from app.deletion_cleanup import deletion_cleanup_worker
 from app.job_worker import job_worker
+from app.moderation import verify_moderation_schema
 from app.routers import (
+    admin_router,
     chat_router,
     clerk_transition_router,
     collections_router,
+    community_safety_router,
     cooking_chat_router,
     extract_router,
     grocery_router,
@@ -80,6 +83,7 @@ async def attach_request_context(request: Request, call_next):
 
 # Include routers
 app.include_router(health_router)
+app.include_router(admin_router)
 app.include_router(recipes_router)
 app.include_router(extract_router)
 app.include_router(grocery_router)
@@ -88,6 +92,7 @@ app.include_router(clerk_transition_router)
 app.include_router(cooking_chat_router)
 app.include_router(users_router)
 app.include_router(collections_router)
+app.include_router(community_safety_router)
 app.include_router(meal_plans_router)
 app.include_router(tts_router)
 
@@ -113,6 +118,8 @@ async def startup():
     await verify_database_invariants()
     await verify_ai_governance_schema()
     print("AI governance schema ready")
+    await verify_moderation_schema()
+    print("Moderation schema ready")
     await job_worker.start()
     await deletion_cleanup_worker.start()
 

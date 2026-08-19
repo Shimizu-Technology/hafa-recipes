@@ -51,4 +51,4 @@ Use a calm, utilitarian operational layout rather than a generic card dashboard:
 
 ## Implementation tracking
 
-The product owner accepted the MVP scope and separate-web direction on 2026-08-18. Implementation is tracked in roadmap task C7 and remains sequenced after the immediate production-safety and data-integrity foundations it depends on.
+The product owner accepted the MVP scope and separate-web direction on 2026-08-18. The server-side foundation was implemented on 2026-08-19: migration 022, shared public-visibility policy, reporting/blocking/appeal contracts, reversible moderation and curation actions, safe extraction recovery, and append-only audit history. The separate `admin/` interface and consumer report/block controls remain tracked in roadmap task C7. Operational details are in `ADMIN-MODERATION-RUNBOOK.md`.

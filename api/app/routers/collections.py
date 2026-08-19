@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import ClerkUser, get_current_user
 from app.db.database import get_db
-from app.models.recipe import Collection, CollectionRecipe, Recipe, SavedRecipe
+from app.models.recipe import Collection, CollectionRecipe, Recipe
+from app.moderation import accessible_recipe_conditions, is_publicly_viewable
 
 router = APIRouter(prefix="/api/collections", tags=["collections"])
 
@@ -93,9 +94,12 @@ async def get_collections(
     query = (
         select(
             Collection,
-            func.count(CollectionRecipe.recipe_id).label("recipe_count")
+            func.count(CollectionRecipe.recipe_id)
+            .filter(*accessible_recipe_conditions(user_id))
+            .label("recipe_count")
         )
         .outerjoin(CollectionRecipe, Collection.id == CollectionRecipe.collection_id)
+        .outerjoin(Recipe, Recipe.id == CollectionRecipe.recipe_id)
         .where(Collection.user_id == user_id)
         .group_by(Collection.id)
         .order_by(Collection.created_at.desc())
@@ -110,7 +114,10 @@ async def get_collections(
         preview_query = (
             select(Recipe.thumbnail_url)
             .join(CollectionRecipe, Recipe.id == CollectionRecipe.recipe_id)
-            .where(CollectionRecipe.collection_id == collection.id)
+            .where(
+                CollectionRecipe.collection_id == collection.id,
+                *accessible_recipe_conditions(user_id),
+            )
             .order_by(CollectionRecipe.added_at.desc())
             .limit(4)
         )
@@ -171,9 +178,12 @@ async def get_collection(
     query = (
         select(
             Collection,
-            func.count(CollectionRecipe.recipe_id).label("recipe_count")
+            func.count(CollectionRecipe.recipe_id)
+            .filter(*accessible_recipe_conditions(user_id))
+            .label("recipe_count")
         )
         .outerjoin(CollectionRecipe, Collection.id == CollectionRecipe.collection_id)
+        .outerjoin(Recipe, Recipe.id == CollectionRecipe.recipe_id)
         .where(Collection.id == uuid.UUID(collection_id))
         .where(Collection.user_id == user_id)
         .group_by(Collection.id)
@@ -226,8 +236,13 @@ async def update_collection(
     await db.refresh(collection)
     
     # Get recipe count
-    count_query = select(func.count(CollectionRecipe.recipe_id)).where(
-        CollectionRecipe.collection_id == collection.id
+    count_query = (
+        select(func.count(CollectionRecipe.recipe_id))
+        .join(Recipe, Recipe.id == CollectionRecipe.recipe_id)
+        .where(
+            CollectionRecipe.collection_id == collection.id,
+            *accessible_recipe_conditions(user_id),
+        )
     )
     count_result = await db.execute(count_query)
     recipe_count = count_result.scalar() or 0
@@ -293,7 +308,10 @@ async def get_collection_recipes(
     query = (
         select(Recipe, CollectionRecipe.added_at)
         .join(CollectionRecipe, Recipe.id == CollectionRecipe.recipe_id)
-        .where(CollectionRecipe.collection_id == uuid.UUID(collection_id))
+        .where(
+            CollectionRecipe.collection_id == uuid.UUID(collection_id),
+            *accessible_recipe_conditions(user_id),
+        )
         .order_by(CollectionRecipe.added_at.desc())
     )
     
@@ -335,7 +353,11 @@ async def get_collection_recipe_ids(
     
     query = (
         select(CollectionRecipe.recipe_id)
-        .where(CollectionRecipe.collection_id == uuid.UUID(collection_id))
+        .join(Recipe, Recipe.id == CollectionRecipe.recipe_id)
+        .where(
+            CollectionRecipe.collection_id == uuid.UUID(collection_id),
+            *accessible_recipe_conditions(user_id),
+        )
     )
     
     result = await db.execute(query)
@@ -363,7 +385,7 @@ async def add_recipe_to_collection(
     if not collection_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Collection not found")
     
-    # Verify recipe exists and user has access (owns it, it is public, or user saved it)
+    # Verify recipe exists and passes the same policy used by every public view.
     recipe_query = select(Recipe).where(Recipe.id == uuid.UUID(data.recipe_id))
     recipe_result = await db.execute(recipe_query)
     recipe = recipe_result.scalar_one_or_none()
@@ -371,15 +393,8 @@ async def add_recipe_to_collection(
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
-    if recipe.user_id != user_id and not recipe.is_public:
-        saved_result = await db.execute(
-            select(SavedRecipe).where(
-                SavedRecipe.user_id == user_id,
-                SavedRecipe.recipe_id == recipe.id,
-            )
-        )
-        if not saved_result.scalar_one_or_none():
-            raise HTTPException(status_code=403, detail="You don't have access to this recipe")
+    if recipe.user_id != user_id and not await is_publicly_viewable(db, recipe, user_id):
+        raise HTTPException(status_code=404, detail="Recipe not found")
     
     # Check if already in collection
     existing_query = select(CollectionRecipe).where(
@@ -447,9 +462,11 @@ async def get_recipe_collections(
     query = (
         select(CollectionRecipe.collection_id)
         .join(Collection, CollectionRecipe.collection_id == Collection.id)
+        .join(Recipe, Recipe.id == CollectionRecipe.recipe_id)
         .where(
             CollectionRecipe.recipe_id == uuid.UUID(recipe_id),
-            Collection.user_id == user_id
+            Collection.user_id == user_id,
+            *accessible_recipe_conditions(user_id),
         )
     )
     
@@ -457,4 +474,3 @@ async def get_recipe_collections(
     collection_ids = [str(row[0]) for row in result.all()]
     
     return collection_ids
-

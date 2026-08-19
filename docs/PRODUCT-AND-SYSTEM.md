@@ -159,7 +159,7 @@ TikTok / Instagram / YouTube / website / photo / manual form
  Library / Discover / Planner / Grocery / Cook Mode / Chat
 ```
 
-The target admin path is a separate lightweight web interface calling backend-enforced `/api/admin/*` actions. It should use Clerk authentication and an admin claim, but authorization must be enforced by FastAPI on every request. The consumer mobile bundle should not contain the moderation experience, and the legacy Next.js app should not be revived for it.
+The admin backend foundation now provides server-enforced `/api/admin/*` actions for bounded dashboard/search data, reports and appeals, reversible moderation, featured ordering, extraction recovery, and append-only audit history. A shared policy removes hidden or blocked-contributor recipes from every non-owner surface while preserving owner access and sharing intent. The next layer is the separate lightweight `admin/` web interface using Clerk authentication and the existing admin claim. The consumer mobile bundle should not contain the moderation experience, and the legacy Next.js app should not be revived for it.
 
 ## Environment strategy
 
