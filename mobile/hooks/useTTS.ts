@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Audio } from 'expo-av';
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '@/lib/api';
 
@@ -76,14 +76,14 @@ export function useTTS() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const soundRef = useRef<Audio.Sound | null>(null);
+  const soundRef = useRef<AudioPlayer | null>(null);
   const { voice } = useTTSVoice();
 
   // Clean up sound on unmount
   useEffect(() => {
     return () => {
       if (soundRef.current) {
-        soundRef.current.unloadAsync();
+        soundRef.current.remove();
       }
     };
   }, []);
@@ -93,8 +93,8 @@ export function useTTS() {
 
     // Stop any currently playing audio
     if (soundRef.current) {
-      await soundRef.current.stopAsync();
-      await soundRef.current.unloadAsync();
+      soundRef.current.pause();
+      soundRef.current.remove();
       soundRef.current = null;
     }
 
@@ -119,22 +119,20 @@ export function useTTS() {
       const base64Uri = await base64Promise;
 
       // Load and play audio
-      await Audio.setAudioModeAsync({
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        shouldPlayInBackground: false,
       });
 
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: base64Uri },
-        { shouldPlay: true },
-        (status) => {
-          if (status.isLoaded && status.didJustFinish) {
-            setIsPlaying(false);
-          }
+      const sound = createAudioPlayer({ uri: base64Uri });
+      sound.addListener('playbackStatusUpdate', (status) => {
+        if (status.didJustFinish) {
+          setIsPlaying(false);
         }
-      );
+      });
 
       soundRef.current = sound;
+      sound.play();
       setIsPlaying(true);
     } catch (e) {
       console.log('TTS error:', e);
@@ -146,8 +144,8 @@ export function useTTS() {
 
   const stop = useCallback(async () => {
     if (soundRef.current) {
-      await soundRef.current.stopAsync();
-      await soundRef.current.unloadAsync();
+      soundRef.current.pause();
+      soundRef.current.remove();
       soundRef.current = null;
       setIsPlaying(false);
     }

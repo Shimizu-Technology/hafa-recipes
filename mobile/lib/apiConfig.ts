@@ -1,29 +1,16 @@
 import Constants from 'expo-constants';
 import { NativeModules } from 'react-native';
 
-export const PRODUCTION_API_BASE_URL = 'https://recipe-api-x5na.onrender.com';
+import {
+  environmentLabel,
+  PRODUCTION_API_BASE_URL,
+  resolveApiBaseUrl,
+  resolveAppEnvironment,
+} from '@/lib/environmentConfig';
 
-function configuredApiBaseUrl(): string | null {
-  const configured = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
-  if (!configured) return null;
-
-  let parsed: URL;
-  try {
-    parsed = new URL(configured);
-  } catch {
-    throw new Error('EXPO_PUBLIC_API_BASE_URL must be an absolute URL');
-  }
-  if (parsed.protocol !== 'https:' && !(__DEV__ && parsed.protocol === 'http:')) {
-    throw new Error('EXPO_PUBLIC_API_BASE_URL must use HTTPS outside development');
-  }
-  return configured.replace(/\/+$/, '');
-}
+export { PRODUCTION_API_BASE_URL };
 
 export function getApiBaseUrl(): string {
-  const configured = configuredApiBaseUrl();
-  if (configured) return configured;
-  if (!__DEV__) return PRODUCTION_API_BASE_URL;
-
   const sourceCode = NativeModules.SourceCode as
     | { scriptURL?: string; getConstants?: () => { scriptURL?: string } }
     | undefined;
@@ -36,18 +23,30 @@ export function getApiBaseUrl(): string {
     Constants.intentUri ||
     sourceCodeUrl;
 
+  let inferredHost: string | undefined;
   if (developmentHost) {
     try {
       const hostUrl = developmentHost.includes('://')
         ? developmentHost
         : `http://${developmentHost}`;
-      const host = new URL(hostUrl).hostname;
-      if (host) return `http://${host}:8000`;
+      inferredHost = new URL(hostUrl).hostname;
     } catch {
-      // Fall through to the production API when Expo provides a malformed host.
+      // The resolver below will produce a clear setup error.
     }
   }
-  return PRODUCTION_API_BASE_URL;
+
+  return resolveApiBaseUrl({
+    appEnvironment: APP_ENVIRONMENT,
+    configuredUrl: process.env.EXPO_PUBLIC_API_BASE_URL,
+    developmentHost: inferredHost,
+    allowRemoteDevelopmentApi:
+      process.env.EXPO_PUBLIC_ALLOW_REMOTE_DEVELOPMENT_API === 'true',
+  });
 }
 
+export const APP_ENVIRONMENT = resolveAppEnvironment(
+  process.env.EXPO_PUBLIC_APP_ENV,
+  __DEV__,
+);
 export const API_BASE_URL = getApiBaseUrl();
+export const ENVIRONMENT_LABEL = environmentLabel(APP_ENVIRONMENT, API_BASE_URL);

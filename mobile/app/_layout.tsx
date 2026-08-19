@@ -1,7 +1,7 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-navigation/native';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { ClerkProvider, ClerkLoaded, useAuth, useUser } from '@clerk/clerk-expo';
+import { ClerkProvider, ClerkLoaded, useAuth, useUser } from '@clerk/expo';
 import { useFonts } from 'expo-font';
 import {
   DMSans_400Regular,
@@ -31,6 +31,7 @@ import { tokenCache, CLERK_PUBLISHABLE_KEY } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { AppLoadingSkeleton } from '@/components/Skeleton';
 import { OfflineBanner } from '@/components/OfflineBanner';
+import { EnvironmentBanner } from '@/components/EnvironmentBanner';
 import { FloatingTimerOverlay } from '@/components/FloatingTimerOverlay';
 import FloatingChatButton from '@/components/FloatingChatButton';
 import { ClerkMigrationBridge } from '@/components/ClerkMigrationBridge';
@@ -238,6 +239,7 @@ function RootLayoutNav() {
             <ExtractionProvider>
               <AuthProtection>
                 <ShareIntentHandler>
+                  <EnvironmentBanner />
                   {/* Global offline indicator */}
                   <OfflineBanner />
                   {/* Floating timer when leaving cook mode with active timers */}

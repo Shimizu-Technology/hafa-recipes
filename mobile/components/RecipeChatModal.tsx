@@ -23,6 +23,7 @@ import {
   View as RNView,
   TextInput,
   Image,
+  Linking,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
@@ -51,12 +52,19 @@ import { Recipe, ChatMessage } from '@/types/recipe';
 import { useChatWithRecipe, useCookingChat } from '@/hooks/useChat';
 import { useTTS } from '@/hooks/useTTS';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
-import Markdown from 'react-native-markdown-display';
+import {
+  Markdown,
+  type RenderRules,
+} from '@believer/react-native-markdown-display';
 import api from '@/lib/api';
 
 // Storage key prefix for chat history
 const CHAT_STORAGE_KEY_PREFIX = 'recipe_chat_';
 const COOKING_CHAT_STORAGE_KEY = 'cooking_assistant_chat';
+const CHAT_MARKDOWN_RULES: RenderRules = {
+  // Assistant text must never trigger a remote image request from the device.
+  image: () => null,
+};
 
 interface RecipeChatModalProps {
   isVisible: boolean;
@@ -106,6 +114,21 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const chatMutation = isGeneralMode ? cookingChatMutation : recipeChatMutation;
   
   const { speak, stop, isPlaying, isLoading: ttsLoading } = useTTS();
+
+  const handleAssistantLink = useCallback((url: string) => {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+        throw new Error('unsupported protocol');
+      }
+      void Linking.openURL(parsed.toString()).catch(() => {
+        Alert.alert('Link unavailable', 'This assistant link could not be opened.');
+      });
+    } catch {
+      Alert.alert('Link unavailable', 'This assistant link cannot be opened safely.');
+    }
+    return false;
+  }, []);
   
   // Speech recognition event handlers
   useSpeechRecognitionEvent('start', () => {
@@ -595,6 +618,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                   </>
                 ) : (
                   <Markdown
+                    rules={CHAT_MARKDOWN_RULES}
+                    onLinkPress={handleAssistantLink}
                     style={{
                       body: { color: colors.text, fontSize: fontSize.md, lineHeight: 24, flexShrink: 1 },
                       paragraph: { marginVertical: 4, flexShrink: 1 },
@@ -1022,4 +1047,3 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
 });
-

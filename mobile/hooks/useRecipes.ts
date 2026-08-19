@@ -5,7 +5,7 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData, useInfiniteQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useAuth } from '@clerk/clerk-expo';
+import { useAuth } from '@clerk/expo';
 import { AppState, AppStateStatus } from 'react-native';
 import { api } from '../lib/api';
 import { ExtractRequest, JobStatus, RecipeListItem, PaginatedRecipes } from '../types/recipe';

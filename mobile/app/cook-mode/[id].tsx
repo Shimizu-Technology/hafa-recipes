@@ -18,7 +18,7 @@ import {
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { Audio } from 'expo-av';
+import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -38,6 +38,12 @@ const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.2;
 
 // Key for persisting cook mode step progress
 const COOK_MODE_STEP_KEY = (recipeId: string) => `cook_mode_step_${recipeId}`;
+
+async function replayAudio(player: AudioPlayer | null): Promise<void> {
+  if (!player) return;
+  await player.seekTo(0);
+  player.play();
+}
 
 interface CookingStep {
   step: string;
@@ -149,7 +155,7 @@ export default function CookModeScreen() {
   
   const slideAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(1)).current;
-  const soundRef = useRef<Audio.Sound | null>(null);
+  const soundRef = useRef<AudioPlayer | null>(null);
   
   // Timer sound preference
   const { soundPreference } = useTimerSoundPreference();
@@ -372,7 +378,7 @@ export default function CookModeScreen() {
     const loadSound = async () => {
       // Unload previous sound if any
       if (soundRef.current) {
-        await soundRef.current.unloadAsync();
+        soundRef.current.remove();
         soundRef.current = null;
       }
       
@@ -381,10 +387,7 @@ export default function CookModeScreen() {
       if (!soundFile) return; // 'none' preference
       
       try {
-        const { sound } = await Audio.Sound.createAsync(
-          soundFile,
-          { shouldPlay: false }
-        );
+        const sound = createAudioPlayer(soundFile);
         soundRef.current = sound;
       } catch (e) {
         console.log('Timer sound not available');
@@ -393,7 +396,7 @@ export default function CookModeScreen() {
     loadSound();
     
     return () => {
-      soundRef.current?.unloadAsync();
+      soundRef.current?.remove();
     };
   }, [soundPreference]);
 
@@ -427,7 +430,7 @@ export default function CookModeScreen() {
                 // Play sound and vibrate
                 heavyHaptic();
                 Vibration.vibrate([0, 500, 200, 500, 200, 500]);
-                soundRef.current?.replayAsync().catch(() => {});
+                replayAudio(soundRef.current).catch(() => {});
               }
             }
           });
@@ -472,7 +475,7 @@ export default function CookModeScreen() {
           // Play sound and vibrate
           heavyHaptic();
           Vibration.vibrate([0, 500, 200, 500, 200, 500]);
-          soundRef.current?.replayAsync().catch(() => {});
+          replayAudio(soundRef.current).catch(() => {});
         }
         
         return changed ? newTimers : prev;

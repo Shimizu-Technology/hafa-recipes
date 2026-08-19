@@ -8,6 +8,25 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 UNSUPPORTED_ASYNCPG_QUERY_PARAMS = frozenset({"sslmode", "channel_binding"})
 
 
+def _database_target_is_local(database_url: str) -> bool:
+    """Return true only when every PostgreSQL routing hint stays on this host."""
+    parsed = urlsplit(database_url)
+    local_hosts = {"localhost", "127.0.0.1", "::1"}
+    query_parameters = parse_qsl(parsed.query, keep_blank_values=True)
+    query_hosts = [value for key, value in query_parameters if key.lower() == "host"]
+    query_host_addresses = [
+        value for key, value in query_parameters if key.lower() == "hostaddr"
+    ]
+    if any(key.lower() in {"service", "servicefile"} for key, _ in query_parameters):
+        return False
+    if any(host not in local_hosts and not host.startswith("/") for host in query_hosts):
+        return False
+    if any(address not in {"127.0.0.1", "::1"} for address in query_host_addresses):
+        return False
+    has_query_target = bool(query_hosts or query_host_addresses)
+    return parsed.hostname in local_hosts or (parsed.hostname is None and has_query_target)
+
+
 @dataclass(frozen=True)
 class ClerkEnvironment:
     """Credentials and verification policy for one exact Clerk issuer."""
@@ -41,6 +60,8 @@ class Settings(BaseSettings):
     # Database
     database_url: str
     database_use_ssl: bool = True
+    database_echo_sql: bool = False
+    allow_remote_database_in_development: bool = False
     
     # OpenAI
     openai_api_key: str
@@ -59,6 +80,7 @@ class Settings(BaseSettings):
     tts_model: str = "tts-1"
     openai_reasoning_effort: str = "none"
     ai_disabled_capabilities: str = ""
+    allow_paid_ai_in_development: bool = False
     ai_canary_models: dict[str, str] = Field(default_factory=dict)
     ai_canary_percentages: dict[str, int] = Field(default_factory=dict)
     ai_model_pricing: dict[str, dict[str, float]] = Field(
@@ -150,6 +172,8 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_ai_registry(self) -> "Settings":
         """Reject missing, retired, or unsafe active model configuration."""
+        if self.environment not in {"development", "test", "production"}:
+            raise ValueError("ENVIRONMENT must be development, test, or production")
         configured_models = {
             "recipe_extraction": self.recipe_extraction_model,
             "recipe_extraction_fallback": self.recipe_extraction_fallback_model,
@@ -220,48 +244,21 @@ class Settings(BaseSettings):
             raise ValueError("DELETION_CLEANUP_LEASE_SECONDS must be at least 60")
         if self.deletion_cleanup_max_attempts < 1:
             raise ValueError("DELETION_CLEANUP_MAX_ATTEMPTS must be at least 1")
+        database_is_local = _database_target_is_local(self.database_url)
+        if (
+            self.environment == "development"
+            and not database_is_local
+            and not self.allow_remote_database_in_development
+        ):
+            raise ValueError(
+                "Development must use local PostgreSQL unless "
+                "ALLOW_REMOTE_DATABASE_IN_DEVELOPMENT=true is explicitly set"
+            )
         if not self.database_use_ssl:
-            parsed_database_url = urlsplit(self.database_url)
-            database_host = parsed_database_url.hostname
-            local_database_hosts = {"localhost", "127.0.0.1", "::1"}
-            query_parameters = parse_qsl(
-                parsed_database_url.query,
-                keep_blank_values=True,
-            )
-            query_hosts = [
-                value for key, value in query_parameters if key.lower() == "host"
-            ]
-            query_host_addresses = [
-                value
-                for key, value in query_parameters
-                if key.lower() == "hostaddr"
-            ]
-            query_hosts_are_local = all(
-                host in {"localhost", "127.0.0.1", "::1"} or host.startswith("/")
-                for host in query_hosts
-            )
-            query_host_addresses_are_local = all(
-                address in {"127.0.0.1", "::1"}
-                for address in query_host_addresses
-            )
-            uses_service_routing = any(
-                key.lower() in {"service", "servicefile"}
-                for key, _value in query_parameters
-            )
-            has_explicit_query_target = bool(query_hosts or query_host_addresses)
-            has_explicit_local_target = (
-                database_host in local_database_hosts
-                or (database_host is None and has_explicit_query_target)
-            )
-            if (
-                self.environment.lower() != "development"
-                or not has_explicit_local_target
-                or not query_hosts_are_local
-                or not query_host_addresses_are_local
-                or uses_service_routing
-            ):
+            if self.environment not in {"development", "test"} or not database_is_local:
                 raise ValueError(
-                    "DATABASE_USE_SSL can only be disabled for a local development database"
+                    "DATABASE_USE_SSL can only be disabled for a local development database "
+                    "(or local test database)"
                 )
         return self
 
@@ -276,6 +273,8 @@ class Settings(BaseSettings):
 
     def is_ai_capability_enabled(self, capability: str) -> bool:
         """Return whether a capability is allowed to call a paid provider."""
+        if self.environment == "development" and not self.allow_paid_ai_in_development:
+            return False
         disabled = self.disabled_ai_capability_set
         return "all" not in disabled and capability.lower() not in disabled
     

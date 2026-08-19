@@ -40,19 +40,18 @@ No JavaScript workspace framework is required.
 
 ## Local setup
 
-Requirements: Python 3.12, [uv](https://docs.astral.sh/uv/), Node.js 22.12+
-and npm.
+Requirements: Docker, Python 3.12, [uv](https://docs.astral.sh/uv/), Node.js
+22.12+ and npm.
 
 ```bash
-cp api/.env.example api/.env
-cp mobile/.env.example mobile/.env
-
-cd api && uv sync --dev && cd ..
-cd mobile && npm ci && cd ..
-cd web && npm ci && cd ..
-
+./scripts/setup-dev.sh
 ./scripts/dev.sh
 ```
+
+The setup uses an isolated local PostgreSQL database and synthetic seed data.
+Paid AI is off by default, and development cannot silently fall back to the
+production database or API. See the
+[development and dependency runbook](docs/DEVELOPMENT-AND-DEPENDENCY-RUNBOOK.md).
 
 Local URLs:
 

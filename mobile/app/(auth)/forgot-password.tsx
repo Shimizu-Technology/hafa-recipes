@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   View as RNView,
 } from 'react-native';
-import { useSignIn } from '@clerk/clerk-expo';
+import { useSignIn } from '@clerk/expo/legacy';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -395,4 +395,3 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
 });
-

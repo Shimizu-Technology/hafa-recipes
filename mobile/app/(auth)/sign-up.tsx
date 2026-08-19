@@ -8,7 +8,8 @@ import {
   View as RNView,
   Alert,
 } from 'react-native';
-import { useSignUp, useSignIn, useSSO, useClerk } from '@clerk/clerk-expo';
+import { useSSO, useClerk } from '@clerk/expo';
+import { useSignIn, useSignUp } from '@clerk/expo/legacy';
 import { useRouter, Link } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
@@ -581,4 +582,3 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
   },
 });
-

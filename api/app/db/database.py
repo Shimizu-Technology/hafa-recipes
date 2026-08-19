@@ -14,7 +14,7 @@ ssl_context = ssl.create_default_context()
 # Create async engine with SSL for Neon
 engine = create_async_engine(
     settings.async_database_url,
-    echo=settings.environment.lower() == "development",
+    echo=settings.database_echo_sql,
     pool_pre_ping=True,
     connect_args={"ssl": ssl_context} if settings.database_use_ssl else {},
 )

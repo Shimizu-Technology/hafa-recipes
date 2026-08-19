@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: hafa_recipes_development
+      POSTGRES_USER: hafa
+      POSTGRES_PASSWORD: hafa_local_only
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hafa -d hafa_recipes_development"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - hafa_recipes_development_data:/var/lib/postgresql/data
+
+volumes:
+  hafa_recipes_development_data:
