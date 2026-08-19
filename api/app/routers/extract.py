@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.ai_governance import ai_request_context
 from app.auth import ClerkUser, get_current_user
 from app.config import get_settings
 from app.database_invariants import next_recipe_version_number
@@ -1657,10 +1658,11 @@ async def extract_recipe_from_image(
         ) from e
     
     # Extract recipe using vision models
-    result = await llm_service.extract_from_image(
-        image_base64=image_base64,
-        location=location
-    )
+    with ai_request_context(user_id=user.id, route="ocr_single"):
+        result = await llm_service.extract_from_image(
+            image_base64=image_base64,
+            location=location,
+        )
     
     if result.success:
         print(f"✅ OCR extraction successful: {result.recipe.get('title', 'Untitled')}")
@@ -1745,10 +1747,11 @@ async def extract_recipe_from_multiple_images(
         )
     
     # Extract recipe using multi-image vision
-    result = await llm_service.extract_from_images(
-        images_base64=images_base64,
-        location=location
-    )
+    with ai_request_context(user_id=user.id, route="ocr_multi"):
+        result = await llm_service.extract_from_images(
+            images_base64=images_base64,
+            location=location,
+        )
     
     if result.success:
         print(f"✅ Multi-image OCR successful: {result.recipe.get('title', 'Untitled')}")

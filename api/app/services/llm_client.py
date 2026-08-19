@@ -8,6 +8,7 @@ from typing import Optional
 
 import httpx
 
+from app.ai_governance import PROMPT_VERSIONS, RECIPE_SCHEMA_VERSION, AIInvocationTracker
 from app.config import get_settings
 from app.services.prompts import (
     get_multi_image_ocr_prompt,
@@ -27,6 +28,7 @@ class ExtractionResult:
     error: Optional[str] = None
     model_used: Optional[str] = None
     latency_seconds: Optional[float] = None
+    error_code: Optional[str] = None
 
 
 class LLMService:
@@ -46,6 +48,7 @@ class LLMService:
         "base_url": "https://api.openai.com/v1",
         "timeout": 60,
         "max_retries": 2,
+        "allow_canary": True,
     }
     
     FALLBACK_CONFIG = {
@@ -54,6 +57,8 @@ class LLMService:
         "base_url": "https://api.openai.com/v1",
         "timeout": 120,
         "max_retries": 1,
+        "allow_canary": False,
+        "rollout_variant": "fallback",
     }
     
     # Vision model configurations for OCR
@@ -63,6 +68,7 @@ class LLMService:
         "base_url": "https://api.openai.com/v1",
         "timeout": 90,
         "max_retries": 2,
+        "allow_canary": True,
     }
     
     FALLBACK_VISION_CONFIG = {
@@ -71,6 +77,8 @@ class LLMService:
         "base_url": "https://api.openai.com/v1",
         "timeout": 120,
         "max_retries": 1,
+        "allow_canary": False,
+        "rollout_variant": "fallback",
     }
     
     def __init__(self):
@@ -119,6 +127,7 @@ class LLMService:
                 prompt=prompt,
                 source_url=source_url,
                 location=location,
+                fallback_reason=None,
             )
             
             if result.success:
@@ -135,6 +144,7 @@ class LLMService:
                 prompt=prompt,
                 source_url=source_url,
                 location=location,
+                fallback_reason=result.error_code or "primary_failed",
             )
             
             if result.success:
@@ -185,6 +195,7 @@ class LLMService:
                 prompt=prompt,
                 image_base64=image_base64,
                 location=location,
+                fallback_reason=None,
             )
             
             if result.success:
@@ -200,6 +211,7 @@ class LLMService:
                 prompt=prompt,
                 image_base64=image_base64,
                 location=location,
+                fallback_reason=result.error_code or "primary_failed",
             )
             
             if result.success:
@@ -253,6 +265,7 @@ class LLMService:
                 prompt=prompt,
                 images_base64=images_base64,
                 location=location,
+                fallback_reason=None,
             )
             
             if result.success:
@@ -268,6 +281,7 @@ class LLMService:
                 prompt=prompt,
                 images_base64=images_base64,
                 location=location,
+                fallback_reason=result.error_code or "primary_failed",
             )
             
             if result.success:
@@ -320,6 +334,7 @@ class LLMService:
                 prompt=prompt,
                 images_base64=images_base64,
                 location=location,
+                fallback_reason=None,
             )
             
             if result.success:
@@ -335,6 +350,7 @@ class LLMService:
                 prompt=prompt,
                 images_base64=images_base64,
                 location=location,
+                fallback_reason=result.error_code or "primary_failed",
             )
             
             if result.success:
@@ -364,9 +380,14 @@ class LLMService:
         if self.openai_api_key:
             try:
                 result = await self._call_simple_llm(
-                    config=self.PRIMARY_CONFIG,
+                    config={
+                        **self.PRIMARY_CONFIG,
+                        "name": settings.enrichment_model,
+                        "model": settings.enrichment_model,
+                    },
                     api_key=self.openai_api_key,
                     prompt=prompt,
+                    fallback_reason=None,
                 )
                 if result:
                     return result
@@ -380,6 +401,7 @@ class LLMService:
                     config=self.FALLBACK_CONFIG,
                     api_key=self.openai_api_key,
                     prompt=prompt,
+                    fallback_reason="primary_failed",
                 )
                 if result:
                     return result
@@ -393,6 +415,7 @@ class LLMService:
         config: dict,
         api_key: str,
         prompt: str,
+        fallback_reason: str | None,
     ) -> Optional[dict]:
         """Make a simple LLM API call and return parsed JSON."""
         
@@ -401,34 +424,46 @@ class LLMService:
             "Content-Type": "application/json",
         }
         
-        payload = {
-            "model": config["model"],
-            "messages": [
-                {"role": "system", "content": self.SYSTEM_PROMPT},
-                {"role": "user", "content": prompt}
-            ],
-            "reasoning_effort": settings.openai_reasoning_effort,
-            "max_completion_tokens": 4000,
-        }
-        
-        payload["response_format"] = {"type": "json_object"}
-        
-        url = f"{config['base_url']}/chat/completions"
-        
-        async with httpx.AsyncClient(timeout=config["timeout"]) as client:
-            response = await client.post(url, headers=headers, json=payload)
-            
+        async with AIInvocationTracker(
+            capability="enrichment",
+            primary_model=config["model"],
+            prompt_version=PROMPT_VERSIONS["enrichment"],
+            schema_version="generic-json-v1",
+            fallback_reason=fallback_reason,
+            allow_canary=config.get("allow_canary", True),
+            rollout_variant=config.get("rollout_variant"),
+        ) as invocation:
+            payload = {
+                "model": invocation.model,
+                "messages": [
+                    {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                "reasoning_effort": settings.openai_reasoning_effort,
+                "max_completion_tokens": 4000,
+                "response_format": {"type": "json_object"},
+            }
+            url = f"{config['base_url']}/chat/completions"
+
+            async with httpx.AsyncClient(timeout=config["timeout"]) as client:
+                response = await client.post(url, headers=headers, json=payload)
+
             if response.status_code != 200:
-                print(f"❌ LLM error: HTTP {response.status_code}")
+                invocation.fail(f"provider_http_{response.status_code}")
                 return None
-            
+
             data = response.json()
             raw_content = data["choices"][0]["message"]["content"]
-            
             if not raw_content:
+                invocation.fail("empty_response", data)
                 return None
-            
-            return self._parse_json_response(raw_content)
+
+            parsed = self._parse_json_response(raw_content)
+            if parsed is None:
+                invocation.fail("invalid_json", data)
+                return None
+            invocation.succeed(data)
+            return parsed
     
     async def _try_multi_image_extraction(
         self,
@@ -437,10 +472,12 @@ class LLMService:
         prompt: str,
         images_base64: list[str],
         location: str,
+        fallback_reason: str | None,
     ) -> ExtractionResult:
         """Try multi-image extraction with a specific model, with retries."""
         
         last_error = None
+        last_error_code = None
         
         for attempt in range(config["max_retries"] + 1):
             if attempt > 0:
@@ -455,12 +492,14 @@ class LLMService:
                     prompt=prompt,
                     images_base64=images_base64,
                     location=location,
+                    fallback_reason=fallback_reason,
                 )
                 
                 if result.success:
                     return result
                 else:
                     last_error = result.error
+                    last_error_code = result.error_code
                     
             except Exception as e:
                 last_error = str(e)
@@ -469,7 +508,8 @@ class LLMService:
         return ExtractionResult(
             success=False,
             error=last_error,
-            model_used=config["name"]
+            model_used=config["name"],
+            error_code=last_error_code or "provider_error",
         )
     
     async def _call_multi_image_vision_llm(
@@ -479,6 +519,7 @@ class LLMService:
         prompt: str,
         images_base64: list[str],
         location: str,
+        fallback_reason: str | None,
     ) -> ExtractionResult:
         """Make a multi-image vision LLM API call."""
         
@@ -512,73 +553,84 @@ class LLMService:
             "text": prompt
         })
         
-        # Build the message with all images
-        payload = {
-            "model": config["model"],
-            "messages": [
-                {"role": "system", "content": self.SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": content
-                }
-            ],
-            "reasoning_effort": settings.openai_reasoning_effort,
-            "max_completion_tokens": 5000,
-        }
-        
-        url = f"{config['base_url']}/chat/completions"
-        
-        # Increase timeout for multi-image
-        timeout = config["timeout"] + (len(images_base64) * 15)
-        
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(url, headers=headers, json=payload)
-            
+        async with AIInvocationTracker(
+            capability="ocr",
+            primary_model=config["model"],
+            prompt_version=PROMPT_VERSIONS["ocr"],
+            schema_version=RECIPE_SCHEMA_VERSION,
+            fallback_reason=fallback_reason,
+            allow_canary=config.get("allow_canary", True),
+            rollout_variant=config.get("rollout_variant"),
+        ) as invocation:
+            payload = {
+                "model": invocation.model,
+                "messages": [
+                    {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {"role": "user", "content": content},
+                ],
+                "reasoning_effort": settings.openai_reasoning_effort,
+                "max_completion_tokens": 5000,
+            }
+            url = f"{config['base_url']}/chat/completions"
+            timeout = config["timeout"] + (len(images_base64) * 15)
+
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(url, headers=headers, json=payload)
+
             latency = time.time() - start_time
-            
             if response.status_code != 200:
+                error_code = f"provider_http_{response.status_code}"
+                invocation.fail(error_code)
                 return ExtractionResult(
                     success=False,
-                    error=f"HTTP {response.status_code}: {response.text[:200]}",
-                    model_used=config["name"],
-                    latency_seconds=latency
+                    error="AI provider request failed",
+                    model_used=invocation.model,
+                    latency_seconds=latency,
+                    error_code=error_code,
                 )
-            
+
             data = response.json()
-            
-            # Extract content
             raw_content = data["choices"][0]["message"]["content"]
-            
             if not raw_content:
+                invocation.fail("empty_response", data)
                 return ExtractionResult(
                     success=False,
                     error="Empty response from vision model",
-                    model_used=config["name"],
-                    latency_seconds=latency
+                    model_used=invocation.model,
+                    latency_seconds=latency,
+                    error_code="empty_response",
                 )
-            
-            # Parse JSON (handle markdown code blocks)
+
             recipe_data = self._parse_json_response(raw_content)
-            
-            if recipe_data is None:
+            raw_validation_error = self._raw_recipe_validation_error(recipe_data)
+            if raw_validation_error:
+                invocation.fail(raw_validation_error, data)
                 return ExtractionResult(
                     success=False,
-                    error="Failed to parse JSON from response",
-                    model_used=config["name"],
-                    latency_seconds=latency
+                    error="Failed to parse a recipe from response",
+                    model_used=invocation.model,
+                    latency_seconds=latency,
+                    error_code=raw_validation_error,
                 )
-            
-            # Post-process
+
             recipe_data = self._post_process_recipe(recipe_data, "photo-upload", location)
-            
-            print(f"✅ Recipe extracted from {len(images_base64)} images with {config['name']}: {recipe_data.get('title', 'Untitled')}")
-            print(f"   Latency: {latency:.1f}s | Components: {len(recipe_data.get('components', []))}")
-            
+            validation_error = self._recipe_validation_error(recipe_data)
+            if validation_error:
+                invocation.fail(validation_error, data)
+                return ExtractionResult(
+                    success=False,
+                    error="Extracted recipe was incomplete",
+                    model_used=invocation.model,
+                    latency_seconds=latency,
+                    error_code=validation_error,
+                )
+
+            invocation.succeed(data)
             return ExtractionResult(
                 success=True,
                 recipe=recipe_data,
-                model_used=config["name"],
-                latency_seconds=latency
+                model_used=invocation.model,
+                latency_seconds=latency,
             )
     
     def _get_mime_type(self, image_base64: str) -> str:
@@ -600,10 +652,12 @@ class LLMService:
         prompt: str,
         image_base64: str,
         location: str,
+        fallback_reason: str | None,
     ) -> ExtractionResult:
         """Try vision extraction with a specific model, with retries."""
         
         last_error = None
+        last_error_code = None
         
         for attempt in range(config["max_retries"] + 1):
             if attempt > 0:
@@ -618,12 +672,14 @@ class LLMService:
                     prompt=prompt,
                     image_base64=image_base64,
                     location=location,
+                    fallback_reason=fallback_reason,
                 )
                 
                 if result.success:
                     return result
                 else:
                     last_error = result.error
+                    last_error_code = result.error_code
                     
             except Exception as e:
                 last_error = str(e)
@@ -632,7 +688,8 @@ class LLMService:
         return ExtractionResult(
             success=False,
             error=last_error,
-            model_used=config["name"]
+            model_used=config["name"],
+            error_code=last_error_code or "provider_error",
         )
     
     async def _call_vision_llm(
@@ -642,6 +699,7 @@ class LLMService:
         prompt: str,
         image_base64: str,
         location: str,
+        fallback_reason: str | None,
     ) -> ExtractionResult:
         """Make a single vision LLM API call."""
         
@@ -664,82 +722,93 @@ class LLMService:
         elif image_base64.startswith("UklG"):
             mime_type = "image/webp"
         
-        # Build the message with image
-        payload = {
-            "model": config["model"],
-            "messages": [
-                {"role": "system", "content": self.SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{mime_type};base64,{image_base64}"
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": prompt
-                        }
-                    ]
-                }
-            ],
-            "temperature": 0.1,
-            "reasoning_effort": settings.openai_reasoning_effort,
-            "max_completion_tokens": 4000,
-        }
-        
-        url = f"{config['base_url']}/chat/completions"
-        
-        async with httpx.AsyncClient(timeout=config["timeout"]) as client:
-            response = await client.post(url, headers=headers, json=payload)
-            
+        async with AIInvocationTracker(
+            capability="ocr",
+            primary_model=config["model"],
+            prompt_version=PROMPT_VERSIONS["ocr"],
+            schema_version=RECIPE_SCHEMA_VERSION,
+            fallback_reason=fallback_reason,
+            allow_canary=config.get("allow_canary", True),
+            rollout_variant=config.get("rollout_variant"),
+        ) as invocation:
+            payload = {
+                "model": invocation.model,
+                "messages": [
+                    {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{mime_type};base64,{image_base64}"},
+                            },
+                            {"type": "text", "text": prompt},
+                        ],
+                    },
+                ],
+                "temperature": 0.1,
+                "reasoning_effort": settings.openai_reasoning_effort,
+                "max_completion_tokens": 4000,
+            }
+            url = f"{config['base_url']}/chat/completions"
+
+            async with httpx.AsyncClient(timeout=config["timeout"]) as client:
+                response = await client.post(url, headers=headers, json=payload)
+
             latency = time.time() - start_time
-            
             if response.status_code != 200:
+                error_code = f"provider_http_{response.status_code}"
+                invocation.fail(error_code)
                 return ExtractionResult(
                     success=False,
-                    error=f"HTTP {response.status_code}: {response.text[:200]}",
-                    model_used=config["name"],
-                    latency_seconds=latency
+                    error="AI provider request failed",
+                    model_used=invocation.model,
+                    latency_seconds=latency,
+                    error_code=error_code,
                 )
-            
+
             data = response.json()
-            
-            # Extract content
             raw_content = data["choices"][0]["message"]["content"]
-            
             if not raw_content:
+                invocation.fail("empty_response", data)
                 return ExtractionResult(
                     success=False,
                     error="Empty response from vision model",
-                    model_used=config["name"],
-                    latency_seconds=latency
+                    model_used=invocation.model,
+                    latency_seconds=latency,
+                    error_code="empty_response",
                 )
-            
-            # Parse JSON (handle markdown code blocks)
+
             recipe_data = self._parse_json_response(raw_content)
-            
-            if recipe_data is None:
+            raw_validation_error = self._raw_recipe_validation_error(recipe_data)
+            if raw_validation_error:
+                invocation.fail(raw_validation_error, data)
                 return ExtractionResult(
                     success=False,
-                    error="Failed to parse JSON from response",
-                    model_used=config["name"],
-                    latency_seconds=latency
+                    error="Failed to parse a recipe from response",
+                    model_used=invocation.model,
+                    latency_seconds=latency,
+                    error_code=raw_validation_error,
                 )
-            
-            # Post-process
+
             recipe_data = self._post_process_recipe(recipe_data, "photo-upload", location)
-            
-            print(f"✅ Recipe extracted from image with {config['name']}: {recipe_data.get('title', 'Untitled')}")
-            print(f"   Latency: {latency:.1f}s | Components: {len(recipe_data.get('components', []))}")
-            
+            validation_error = self._recipe_validation_error(recipe_data)
+            if validation_error:
+                invocation.fail(validation_error, data)
+                return ExtractionResult(
+                    success=False,
+                    error="Extracted recipe was incomplete",
+                    model_used=invocation.model,
+                    latency_seconds=latency,
+                    error_code=validation_error,
+                )
+
+            invocation.succeed(data)
             return ExtractionResult(
                 success=True,
                 recipe=recipe_data,
-                model_used=config["name"],
-                latency_seconds=latency
+                model_used=invocation.model,
+                latency_seconds=latency,
             )
     
     async def _try_extraction(
@@ -749,10 +818,12 @@ class LLMService:
         prompt: str,
         source_url: str,
         location: str,
+        fallback_reason: str | None,
     ) -> ExtractionResult:
         """Try extraction with a specific model, with retries."""
         
         last_error = None
+        last_error_code = None
         
         for attempt in range(config["max_retries"] + 1):
             if attempt > 0:
@@ -768,12 +839,14 @@ class LLMService:
                     prompt=prompt,
                     source_url=source_url,
                     location=location,
+                    fallback_reason=fallback_reason,
                 )
                 
                 if result.success:
                     return result
                 else:
                     last_error = result.error
+                    last_error_code = result.error_code
                     
             except Exception as e:
                 last_error = str(e)
@@ -782,7 +855,8 @@ class LLMService:
         return ExtractionResult(
             success=False,
             error=last_error,
-            model_used=config["name"]
+            model_used=config["name"],
+            error_code=last_error_code or "provider_error",
         )
     
     async def _call_llm(
@@ -792,6 +866,7 @@ class LLMService:
         prompt: str,
         source_url: str,
         location: str,
+        fallback_reason: str | None,
     ) -> ExtractionResult:
         """Make a single LLM API call."""
         
@@ -803,68 +878,84 @@ class LLMService:
             "Content-Type": "application/json",
         }
         
-        payload = {
-            "model": config["model"],
-            "messages": [
-                {"role": "system", "content": self.SYSTEM_PROMPT},
-                {"role": "user", "content": prompt}
-            ],
-            "reasoning_effort": settings.openai_reasoning_effort,
-            "max_completion_tokens": 4000,
-        }
-        
-        payload["response_format"] = {"type": "json_object"}
-        
-        url = f"{config['base_url']}/chat/completions"
-        
-        async with httpx.AsyncClient(timeout=config["timeout"]) as client:
-            response = await client.post(url, headers=headers, json=payload)
-            
+        async with AIInvocationTracker(
+            capability="recipe_extraction",
+            primary_model=config["model"],
+            prompt_version=PROMPT_VERSIONS["recipe_extraction"],
+            schema_version=RECIPE_SCHEMA_VERSION,
+            fallback_reason=fallback_reason,
+            allow_canary=config.get("allow_canary", True),
+            rollout_variant=config.get("rollout_variant"),
+        ) as invocation:
+            payload = {
+                "model": invocation.model,
+                "messages": [
+                    {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                "reasoning_effort": settings.openai_reasoning_effort,
+                "max_completion_tokens": 4000,
+                "response_format": {"type": "json_object"},
+            }
+            url = f"{config['base_url']}/chat/completions"
+
+            async with httpx.AsyncClient(timeout=config["timeout"]) as client:
+                response = await client.post(url, headers=headers, json=payload)
+
             latency = time.time() - start_time
-            
             if response.status_code != 200:
+                error_code = f"provider_http_{response.status_code}"
+                invocation.fail(error_code)
                 return ExtractionResult(
                     success=False,
-                    error=f"HTTP {response.status_code}: {response.text[:200]}",
-                    model_used=config["name"],
-                    latency_seconds=latency
+                    error="AI provider request failed",
+                    model_used=invocation.model,
+                    latency_seconds=latency,
+                    error_code=error_code,
                 )
-            
+
             data = response.json()
-            
-            # Extract content
             raw_content = data["choices"][0]["message"]["content"]
-            
             if not raw_content:
+                invocation.fail("empty_response", data)
                 return ExtractionResult(
                     success=False,
                     error="Empty response from LLM",
-                    model_used=config["name"],
-                    latency_seconds=latency
+                    model_used=invocation.model,
+                    latency_seconds=latency,
+                    error_code="empty_response",
                 )
-            
-            # Parse JSON (handle markdown code blocks)
+
             recipe_data = self._parse_json_response(raw_content)
-            
-            if recipe_data is None:
+            raw_validation_error = self._raw_recipe_validation_error(recipe_data)
+            if raw_validation_error:
+                invocation.fail(raw_validation_error, data)
                 return ExtractionResult(
                     success=False,
-                    error="Failed to parse JSON from response",
-                    model_used=config["name"],
-                    latency_seconds=latency
+                    error="Failed to parse a recipe from response",
+                    model_used=invocation.model,
+                    latency_seconds=latency,
+                    error_code=raw_validation_error,
                 )
-            
-            # Post-process
+
             recipe_data = self._post_process_recipe(recipe_data, source_url, location)
-            
-            print(f"✅ Recipe extracted with {config['name']}: {recipe_data.get('title', 'Untitled')}")
-            print(f"   Latency: {latency:.1f}s | Components: {len(recipe_data.get('components', []))}")
-            
+            validation_error = self._recipe_validation_error(recipe_data)
+            if validation_error:
+                invocation.fail(validation_error, data)
+                return ExtractionResult(
+                    success=False,
+                    error="Extracted recipe was incomplete",
+                    model_used=invocation.model,
+                    latency_seconds=latency,
+                    error_code=validation_error,
+                )
+
+            invocation.succeed(data)
             return ExtractionResult(
                 success=True,
                 recipe=recipe_data,
-                model_used=config["name"],
-                latency_seconds=latency
+                model_used=invocation.model,
+                latency_seconds=latency,
             )
     
     def _parse_json_response(self, raw_content: str) -> Optional[dict]:
@@ -903,6 +994,38 @@ class LLMService:
         except json.JSONDecodeError:
             pass
         
+        return None
+
+    @staticmethod
+    def _raw_recipe_validation_error(recipe: object) -> str | None:
+        if not isinstance(recipe, dict):
+            return "invalid_json"
+        components = recipe.get("components")
+        if components is not None:
+            if not isinstance(components, list) or any(
+                not isinstance(component, dict) for component in components
+            ):
+                return "invalid_components"
+            if any(
+                key in component and not isinstance(component[key], list)
+                for component in components
+                for key in ("ingredients", "steps")
+            ):
+                return "invalid_components"
+        return None
+
+    @staticmethod
+    def _recipe_validation_error(recipe: dict) -> str | None:
+        title = recipe.get("title")
+        if not isinstance(title, str) or not title.strip():
+            return "missing_title"
+        components = recipe.get("components")
+        if not isinstance(components, list) or not components:
+            return "missing_components"
+        if not any(component.get("ingredients") for component in components):
+            return "missing_ingredients"
+        if not any(component.get("steps") for component in components):
+            return "missing_steps"
         return None
     
     def _sanitize_text(self, text: str) -> str:

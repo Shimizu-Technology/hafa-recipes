@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai_governance import PROMPT_VERSIONS, AIInvocationTracker, ai_request_context
 from app.auth import ClerkUser, get_current_user
 from app.config import get_settings
 from app.db import get_db
@@ -38,8 +39,10 @@ BoundedIngredient = Annotated[str, Field(min_length=1, max_length=300)]
 # Schemas
 # ============================================================
 
+
 class ChatMessage(BaseModel):
     """A single chat message."""
+
     role: Literal["user", "assistant"]
     content: str = Field(min_length=1, max_length=MAX_CHAT_MESSAGE_CHARS)
     image_url: Optional[str] = Field(default=None, max_length=2_048)
@@ -47,6 +50,7 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     """Request to chat about a recipe."""
+
     message: str = Field(default="", max_length=MAX_CHAT_MESSAGE_CHARS)
     history: list[ChatMessage] = Field(default_factory=list, max_length=MAX_CHAT_HISTORY_ITEMS)
     image_base64: Optional[str] = Field(default=None, max_length=MAX_CHAT_IMAGE_BASE64_CHARS)
@@ -60,28 +64,33 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     """Response from the recipe chat."""
+
     response: str
 
 
 class SuggestTagsRequest(BaseModel):
     """Request to suggest tags for a recipe."""
+
     title: str = Field(min_length=1, max_length=200)
     ingredients: list[BoundedIngredient] = Field(min_length=1, max_length=100)
 
 
 class SuggestTagsResponse(BaseModel):
     """Response with suggested tags."""
+
     tags: list[str]
 
 
 class EstimateNutritionRequest(BaseModel):
     """Request to estimate nutrition for a recipe."""
+
     ingredients: list[BoundedIngredient] = Field(min_length=1, max_length=100)
     servings: int = Field(default=4, ge=1, le=1_000)
 
 
 class NutritionEstimate(BaseModel):
     """Estimated nutrition values."""
+
     calories: int = Field(ge=0, le=100_000)
     protein: int = Field(ge=0, le=10_000)
     carbs: int = Field(ge=0, le=10_000)
@@ -90,22 +99,26 @@ class NutritionEstimate(BaseModel):
 
 class EstimateNutritionResponse(BaseModel):
     """Response with estimated nutrition."""
+
     nutrition: NutritionEstimate
 
 
 class UploadChatImageRequest(BaseModel):
     """Request to upload a chat image to S3."""
+
     image_base64: str = Field(min_length=1, max_length=MAX_CHAT_IMAGE_BASE64_CHARS)
 
 
 class UploadChatImageResponse(BaseModel):
     """Response with the S3 URL of the uploaded image."""
+
     image_url: str
-    
+
 
 # ============================================================
 # Helper Functions
 # ============================================================
+
 
 async def user_can_access_recipe(db: AsyncSession, recipe: Recipe, user: ClerkUser) -> bool:
     """Return True if the user owns the recipe, it is public, or they saved it."""
@@ -199,7 +212,7 @@ def _rate_limit_http_exception(exc: RateLimitExceeded) -> HTTPException:
 def build_recipe_context(recipe: Recipe) -> str:
     """Build a detailed context string from a recipe for the AI."""
     extracted = recipe.extracted or {}
-    
+
     # Basic info
     title = extracted.get("title", "Untitled Recipe")
     servings = extracted.get("servings", "Unknown")
@@ -207,7 +220,7 @@ def build_recipe_context(recipe: Recipe) -> str:
     total_time = times.get("total", "Unknown")
     prep_time = times.get("prep", "Unknown")
     cook_time = times.get("cook", "Unknown")
-    
+
     # Ingredients
     components = extracted.get("components", [])
     ingredients_text = ""
@@ -222,14 +235,14 @@ def build_recipe_context(recipe: Recipe) -> str:
             name = ing.get("name", "")
             notes = ing.get("notes", "")
             cost = ing.get("estimatedCost")
-            
+
             line = f"- {qty} {unit} {name}".strip()
             if notes:
                 line += f" ({notes})"
             if cost:
                 line += f" [${cost:.2f}]"
             ingredients_text += line + "\n"
-    
+
     # Steps
     steps_text = ""
     for component in components:
@@ -239,7 +252,7 @@ def build_recipe_context(recipe: Recipe) -> str:
             steps_text += f"\n{comp_name}:\n"
         for i, step in enumerate(steps, 1):
             steps_text += f"{i}. {step}\n"
-    
+
     # Nutrition
     nutrition = extracted.get("nutrition", {})
     per_serving = nutrition.get("perServing", {})
@@ -247,22 +260,22 @@ def build_recipe_context(recipe: Recipe) -> str:
     if per_serving:
         nutrition_text = f"""
 Nutrition (per serving):
-- Calories: {per_serving.get('calories', 'N/A')}
-- Protein: {per_serving.get('protein', 'N/A')}g
-- Carbs: {per_serving.get('carbs', 'N/A')}g
-- Fat: {per_serving.get('fat', 'N/A')}g
+- Calories: {per_serving.get("calories", "N/A")}
+- Protein: {per_serving.get("protein", "N/A")}g
+- Carbs: {per_serving.get("carbs", "N/A")}g
+- Fat: {per_serving.get("fat", "N/A")}g
 """
-    
+
     # Equipment
     equipment = extracted.get("equipment", [])
     equipment_text = ""
     if equipment:
         equipment_text = "\nEquipment needed:\n" + "\n".join(f"- {e}" for e in equipment)
-    
+
     # Tags
     tags = extracted.get("tags", [])
     tags_text = f"\nTags: {', '.join(tags)}" if tags else ""
-    
+
     # Cost
     total_cost = extracted.get("totalEstimatedCost")
     cost_location = extracted.get("costLocation", "")
@@ -271,11 +284,11 @@ Nutrition (per serving):
         cost_text = f"\nEstimated total cost: ${total_cost:.2f}"
         if cost_location:
             cost_text += f" ({cost_location} pricing)"
-    
+
     # Notes
     notes = extracted.get("notes", "")
     notes_text = f"\nChef's notes: {notes}" if notes else ""
-    
+
     context = f"""
 RECIPE: {title}
 
@@ -295,7 +308,7 @@ INSTRUCTIONS:
 {cost_text}
 {notes_text}
 """.strip()
-    
+
     return context
 
 
@@ -327,16 +340,17 @@ If asked about something unrelated to cooking or this recipe, politely redirect 
 # Endpoints
 # ============================================================
 
+
 @router.post("/{recipe_id}/chat", response_model=ChatResponse)
 async def chat_about_recipe(
     recipe_id: UUID,
     request: ChatRequest,
     db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
+    user: ClerkUser = Depends(get_current_user),
 ):
     """
     Chat with an AI assistant about a specific recipe.
-    
+
     The AI has full context of the recipe and can answer questions about:
     - Ingredient substitutions
     - Scaling the recipe
@@ -346,25 +360,22 @@ async def chat_about_recipe(
     - And more!
     """
     # Get the recipe
-    result = await db.execute(
-        select(Recipe).where(Recipe.id == recipe_id)
-    )
+    result = await db.execute(select(Recipe).where(Recipe.id == recipe_id))
     recipe = result.scalar_one_or_none()
-    
+
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
-    
+
     # Check authorization - must be owner, public, or saved by this user
     if not await user_can_access_recipe(db, recipe, user):
         raise HTTPException(
-            status_code=403,
-            detail="You don't have permission to access this recipe"
+            status_code=403, detail="You don't have permission to access this recipe"
         )
-    
+
     # Build the context and system prompt
     recipe_context = build_recipe_context(recipe)
     system_prompt = build_system_prompt(recipe_context)
-    
+
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(
         _build_client_messages(
@@ -374,27 +385,35 @@ async def chat_about_recipe(
             user_id=user.id,
         )
     )
-    
+
     try:
         if not settings.is_ai_capability_enabled("recipe_chat"):
             raise HTTPException(status_code=503, detail="Recipe chat is temporarily unavailable")
-        async with ai_rate_limiter.limit(
-            user_id=user.id,
-            capability="recipe_chat",
-            requests_per_minute=20,
-            max_concurrency=2,
-        ):
-            response = await openai_client.chat.completions.create(
-                model=settings.recipe_chat_model,
-                messages=messages,
-                max_completion_tokens=1000,
-                reasoning_effort=settings.openai_reasoning_effort,
-                extra_body={"safety_identifier": public_contributor_id(user.id)},
-            )
-        assistant_message = response.choices[0].message.content
-        if not assistant_message:
-            raise RuntimeError("AI provider returned an empty response")
-        return ChatResponse(response=assistant_message)
+        with ai_request_context(user_id=user.id, route="recipe_chat"):
+            async with ai_rate_limiter.limit(
+                user_id=user.id,
+                capability="recipe_chat",
+                requests_per_minute=20,
+                max_concurrency=2,
+            ):
+                async with AIInvocationTracker(
+                    capability="recipe_chat",
+                    primary_model=settings.recipe_chat_model,
+                    prompt_version=PROMPT_VERSIONS["recipe_chat"],
+                ) as invocation:
+                    response = await openai_client.chat.completions.create(
+                        model=invocation.model,
+                        messages=messages,
+                        max_completion_tokens=1000,
+                        reasoning_effort=settings.openai_reasoning_effort,
+                        extra_body={"safety_identifier": public_contributor_id(user.id)},
+                    )
+                    assistant_message = response.choices[0].message.content
+                    if not assistant_message:
+                        invocation.fail("empty_response", response)
+                        raise RuntimeError("AI provider returned an empty response")
+                    invocation.succeed(response)
+                    return ChatResponse(response=assistant_message)
     except RateLimitExceeded as exc:
         raise _rate_limit_http_exception(exc) from exc
     except HTTPException:
@@ -402,22 +421,20 @@ async def chat_about_recipe(
     except Exception as e:
         print(f"❌ Chat provider error: {type(e).__name__}")
         raise HTTPException(
-            status_code=500,
-            detail="Failed to get response from AI. Please try again."
+            status_code=500, detail="Failed to get response from AI. Please try again."
         )
 
 
 @router.post("/ai/upload-chat-image", response_model=UploadChatImageResponse)
 async def upload_chat_image(
-    request: UploadChatImageRequest,
-    user: ClerkUser = Depends(get_current_user)
+    request: UploadChatImageRequest, user: ClerkUser = Depends(get_current_user)
 ):
     """
     Upload a chat image to S3 for persistent storage.
-    
+
     This allows images to be stored with permanent URLs that can be
     included in chat history and re-sent to OpenAI for context.
-    
+
     Returns the S3 URL of the uploaded image.
     """
     try:
@@ -427,32 +444,26 @@ async def upload_chat_image(
         )
     except ImageValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    
+
     # Upload to S3
     s3_url = await storage_service.upload_chat_image(
         image_base64=request.image_base64,
         user_id=user.id,
     )
-    
+
     if not s3_url:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to upload image. Please try again."
-        )
-    
+        raise HTTPException(status_code=500, detail="Failed to upload image. Please try again.")
+
     return UploadChatImageResponse(image_url=s3_url)
 
 
 @router.post("/ai/suggest-tags", response_model=SuggestTagsResponse)
-async def suggest_tags(
-    request: SuggestTagsRequest,
-    user: ClerkUser = Depends(get_current_user)
-):
+async def suggest_tags(request: SuggestTagsRequest, user: ClerkUser = Depends(get_current_user)):
     """
     Suggest tags for a recipe based on title and ingredients.
     """
     ingredient_list = ", ".join(request.ingredients)
-    
+
     prompt = f"""Based on this recipe information, suggest 5-8 relevant tags.
 
 Recipe title: {request.title}
@@ -472,70 +483,75 @@ Example response: ["italian", "dinner", "pasta", "quick", "vegetarian"]
     try:
         if not settings.is_ai_capability_enabled("enrichment"):
             raise HTTPException(status_code=503, detail="AI enrichment is temporarily unavailable")
-        async with ai_rate_limiter.limit(
-            user_id=user.id,
-            capability="enrichment",
-            requests_per_minute=10,
-            max_concurrency=2,
-        ):
-            response = await openai_client.chat.completions.create(
-                model=settings.enrichment_model,
-                messages=[
-                    {"role": "system", "content": "Suggest recipe tags and return only valid JSON."},
-                    {"role": "user", "content": prompt},
-                ],
-                max_completion_tokens=200,
-                reasoning_effort=settings.openai_reasoning_effort,
-                extra_body={"safety_identifier": public_contributor_id(user.id)},
-            )
-        
-        result = response.choices[0].message.content.strip()
-        
-        # Parse JSON response
-        try:
-            # Handle potential markdown code blocks
-            if result.startswith("```"):
-                result = result.split("```")[1]
-                if result.startswith("json"):
-                    result = result[4:]
-            
-            tags = json.loads(result)
-            if isinstance(tags, list):
-                clean_tags = [
-                    tag.strip().lower()[:50]
-                    for tag in tags
-                    if isinstance(tag, str) and tag.strip()
-                ]
-                return SuggestTagsResponse(tags=clean_tags[:10])
-        except json.JSONDecodeError:
-            # Fallback: try to extract comma-separated values
-            tags = [t.strip().lower().strip('"\'') for t in result.split(",")]
-            return SuggestTagsResponse(tags=tags[:10])
-        
-        return SuggestTagsResponse(tags=[])
-        
+        with ai_request_context(user_id=user.id, route="suggest_tags"):
+            async with ai_rate_limiter.limit(
+                user_id=user.id,
+                capability="enrichment",
+                requests_per_minute=10,
+                max_concurrency=2,
+            ):
+                async with AIInvocationTracker(
+                    capability="enrichment",
+                    primary_model=settings.enrichment_model,
+                    prompt_version=PROMPT_VERSIONS["enrichment_tags"],
+                    schema_version="tags-v1",
+                ) as invocation:
+                    response = await openai_client.chat.completions.create(
+                        model=invocation.model,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": "Suggest recipe tags and return only valid JSON.",
+                            },
+                            {"role": "user", "content": prompt},
+                        ],
+                        max_completion_tokens=200,
+                        reasoning_effort=settings.openai_reasoning_effort,
+                        extra_body={"safety_identifier": public_contributor_id(user.id)},
+                    )
+
+                    result = response.choices[0].message.content.strip()
+                    try:
+                        if result.startswith("```"):
+                            result = result.split("```")[1]
+                            if result.startswith("json"):
+                                result = result[4:]
+
+                        tags = json.loads(result)
+                        if isinstance(tags, list):
+                            clean_tags = [
+                                tag.strip().lower()[:50]
+                                for tag in tags
+                                if isinstance(tag, str) and tag.strip()
+                            ]
+                            invocation.succeed(response)
+                            return SuggestTagsResponse(tags=clean_tags[:10])
+                    except json.JSONDecodeError:
+                        tags = [t.strip().lower().strip("\"'") for t in result.split(",")]
+                        invocation.outcome("repaired", "invalid_json", response)
+                        return SuggestTagsResponse(tags=tags[:10])
+
+                    invocation.fail("invalid_schema", response)
+                    return SuggestTagsResponse(tags=[])
+
     except RateLimitExceeded as exc:
         raise _rate_limit_http_exception(exc) from exc
     except HTTPException:
         raise
     except Exception as e:
         print(f"❌ Tag suggestion provider error: {type(e).__name__}")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to suggest tags. Please try again."
-        )
+        raise HTTPException(status_code=500, detail="Failed to suggest tags. Please try again.")
 
 
 @router.post("/ai/estimate-nutrition", response_model=EstimateNutritionResponse)
 async def estimate_nutrition(
-    request: EstimateNutritionRequest,
-    user: ClerkUser = Depends(get_current_user)
+    request: EstimateNutritionRequest, user: ClerkUser = Depends(get_current_user)
 ):
     """
     Estimate nutrition facts for a recipe based on ingredients.
     """
     ingredient_list = "\n".join(f"- {ing}" for ing in request.ingredients)
-    
+
     prompt = f"""Estimate the nutrition facts PER SERVING for a recipe with {request.servings} servings.
 
 Ingredients:
@@ -552,61 +568,63 @@ Example: {{"calories": 350, "protein": 25, "carbs": 30, "fat": 12}}
     try:
         if not settings.is_ai_capability_enabled("enrichment"):
             raise HTTPException(status_code=503, detail="AI enrichment is temporarily unavailable")
-        async with ai_rate_limiter.limit(
-            user_id=user.id,
-            capability="enrichment",
-            requests_per_minute=10,
-            max_concurrency=2,
-        ):
-            response = await openai_client.chat.completions.create(
-                model=settings.enrichment_model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Estimate nutrition conservatively and return only valid JSON.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                max_completion_tokens=100,
-                reasoning_effort=settings.openai_reasoning_effort,
-                response_format={"type": "json_object"},
-                extra_body={"safety_identifier": public_contributor_id(user.id)},
-            )
-        
-        result = response.choices[0].message.content.strip()
-        
-        # Parse JSON response
-        try:
-            # Handle potential markdown code blocks
-            if result.startswith("```"):
-                result = result.split("```")[1]
-                if result.startswith("json"):
-                    result = result[4:]
-            
-            # Find JSON object in response
-            json_match = result
-            if "{" in result:
-                start = result.index("{")
-                end = result.rindex("}") + 1
-                json_match = result[start:end]
-            
-            nutrition = json.loads(json_match)
-            
-            return EstimateNutritionResponse(
-                nutrition=NutritionEstimate(
-                    calories=int(nutrition.get("calories", 0)),
-                    protein=int(nutrition.get("protein", 0)),
-                    carbs=int(nutrition.get("carbs", 0)),
-                    fat=int(nutrition.get("fat", 0)),
-                )
-            )
-        except (json.JSONDecodeError, ValueError):
-            print(f"Failed to parse nutrition JSON: {result}")
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to parse nutrition data. Please try again."
-            )
-        
+        with ai_request_context(user_id=user.id, route="estimate_nutrition"):
+            async with ai_rate_limiter.limit(
+                user_id=user.id,
+                capability="enrichment",
+                requests_per_minute=10,
+                max_concurrency=2,
+            ):
+                async with AIInvocationTracker(
+                    capability="enrichment",
+                    primary_model=settings.enrichment_model,
+                    prompt_version=PROMPT_VERSIONS["enrichment_nutrition"],
+                    schema_version="nutrition-estimate-v1",
+                ) as invocation:
+                    response = await openai_client.chat.completions.create(
+                        model=invocation.model,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": "Estimate nutrition conservatively and return only valid JSON.",
+                            },
+                            {"role": "user", "content": prompt},
+                        ],
+                        max_completion_tokens=100,
+                        reasoning_effort=settings.openai_reasoning_effort,
+                        response_format={"type": "json_object"},
+                        extra_body={"safety_identifier": public_contributor_id(user.id)},
+                    )
+
+                    result = response.choices[0].message.content.strip()
+                    try:
+                        if result.startswith("```"):
+                            result = result.split("```")[1]
+                            if result.startswith("json"):
+                                result = result[4:]
+
+                        json_match = result
+                        if "{" in result:
+                            start = result.index("{")
+                            end = result.rindex("}") + 1
+                            json_match = result[start:end]
+
+                        nutrition = json.loads(json_match)
+                        parsed = NutritionEstimate(
+                            calories=int(nutrition.get("calories", 0)),
+                            protein=int(nutrition.get("protein", 0)),
+                            carbs=int(nutrition.get("carbs", 0)),
+                            fat=int(nutrition.get("fat", 0)),
+                        )
+                        invocation.succeed(response)
+                        return EstimateNutritionResponse(nutrition=parsed)
+                    except (json.JSONDecodeError, ValueError):
+                        invocation.fail("invalid_schema", response)
+                        raise HTTPException(
+                            status_code=500,
+                            detail="Failed to parse nutrition data. Please try again.",
+                        )
+
     except RateLimitExceeded as exc:
         raise _rate_limit_http_exception(exc) from exc
     except HTTPException:
@@ -614,8 +632,7 @@ Example: {{"calories": 350, "protein": 25, "carbs": 30, "fat": 12}}
     except Exception as e:
         print(f"❌ Nutrition provider error: {type(e).__name__}")
         raise HTTPException(
-            status_code=500,
-            detail="Failed to estimate nutrition. Please try again."
+            status_code=500, detail="Failed to estimate nutrition. Please try again."
         )
 
 
@@ -643,12 +660,11 @@ class GeneralChatRequest(ChatRequest):
 
 @cooking_router.post("/cooking", response_model=ChatResponse)
 async def chat_cooking_assistant(
-    request: GeneralChatRequest,
-    user: ClerkUser = Depends(get_current_user)
+    request: GeneralChatRequest, user: ClerkUser = Depends(get_current_user)
 ):
     """
     Chat with a general cooking assistant.
-    
+
     Unlike recipe-specific chat, this doesn't require a recipe context.
     Ask about anything cooking, food, or kitchen related!
     """
@@ -661,27 +677,35 @@ async def chat_cooking_assistant(
             user_id=user.id,
         )
     )
-    
+
     try:
         if not settings.is_ai_capability_enabled("cooking_chat"):
             raise HTTPException(status_code=503, detail="Cooking chat is temporarily unavailable")
-        async with ai_rate_limiter.limit(
-            user_id=user.id,
-            capability="cooking_chat",
-            requests_per_minute=20,
-            max_concurrency=2,
-        ):
-            response = await openai_client.chat.completions.create(
-                model=settings.cooking_chat_model,
-                messages=messages,
-                max_completion_tokens=1000,
-                reasoning_effort=settings.openai_reasoning_effort,
-                extra_body={"safety_identifier": public_contributor_id(user.id)},
-            )
-        assistant_message = response.choices[0].message.content
-        if not assistant_message:
-            raise RuntimeError("AI provider returned an empty response")
-        return ChatResponse(response=assistant_message)
+        with ai_request_context(user_id=user.id, route="cooking_chat"):
+            async with ai_rate_limiter.limit(
+                user_id=user.id,
+                capability="cooking_chat",
+                requests_per_minute=20,
+                max_concurrency=2,
+            ):
+                async with AIInvocationTracker(
+                    capability="cooking_chat",
+                    primary_model=settings.cooking_chat_model,
+                    prompt_version=PROMPT_VERSIONS["cooking_chat"],
+                ) as invocation:
+                    response = await openai_client.chat.completions.create(
+                        model=invocation.model,
+                        messages=messages,
+                        max_completion_tokens=1000,
+                        reasoning_effort=settings.openai_reasoning_effort,
+                        extra_body={"safety_identifier": public_contributor_id(user.id)},
+                    )
+                    assistant_message = response.choices[0].message.content
+                    if not assistant_message:
+                        invocation.fail("empty_response", response)
+                        raise RuntimeError("AI provider returned an empty response")
+                    invocation.succeed(response)
+                    return ChatResponse(response=assistant_message)
     except RateLimitExceeded as exc:
         raise _rate_limit_http_exception(exc) from exc
     except HTTPException:
@@ -689,6 +713,5 @@ async def chat_cooking_assistant(
     except Exception as e:
         print(f"❌ Cooking chat provider error: {type(e).__name__}")
         raise HTTPException(
-            status_code=500,
-            detail="Failed to get response from AI. Please try again."
+            status_code=500, detail="Failed to get response from AI. Please try again."
         )

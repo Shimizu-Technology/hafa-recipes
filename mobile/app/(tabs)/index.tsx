@@ -782,7 +782,7 @@ export default function ExtractScreen() {
           {/* Footer */}
           <RNView style={styles.footer}>
             <Text style={[styles.footerText, { color: colors.textMuted }]}>
-              Powered by OpenAI
+              AI-assisted recipe extraction
             </Text>
           </RNView>
         </ScrollView>

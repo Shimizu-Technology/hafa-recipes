@@ -11,6 +11,7 @@ repository_root="$(cd "$(dirname "$0")/.." && pwd)"
 
 (
   cd "$repository_root/mobile"
+  node -e 'const appVersion=require("./app.json").expo.version; const packageVersion=require("./package.json").version; if (appVersion !== packageVersion) { throw new Error(`Mobile version mismatch: app.json=${appVersion}, package.json=${packageVersion}`) }'
   npm test
   npm run typecheck
   npm run doctor

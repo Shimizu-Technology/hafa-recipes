@@ -47,6 +47,20 @@ Compare schema validity, factual completeness, hallucinations, field corrections
 
 The product owner accepted the Luna-first, Terra-escalation strategy on 2026-08-18. This acceptance authorizes the routing direction, not an unevaluated production model change. Each capability must still pass the comparative evaluation and rollout gates. If Luna cannot meet the quality bar, Terra may become the default for that capability rather than for the entire application.
 
+## Initial recipe/OCR evidence
+
+The privacy-bounded five-category comparison completed on 2026-08-19 at
+reasoning effort `none`. Luna achieved 100% task success and schema validity
+with zero scored corrections/hallucinations at an estimated $0.006572 total.
+Terra achieved 80% task success and 100% schema validity with two scored
+measurement inventions in the deliberately incomplete case at an estimated
+$0.067489 total. The report is
+`api/evals/reports/luna-terra-recipe-extraction-2026-08-19.json`.
+
+Decision unchanged: Luna remains the routine recipe/OCR model. Terra is not a
+universal upgrade; it remains a deterministic fallback after a failed schema or
+completeness gate. Chat still requires its own focused comparison.
+
 ## Official references
 
 - [Using GPT-5.6](https://developers.openai.com/api/docs/guides/latest-model)
