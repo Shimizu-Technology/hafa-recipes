@@ -318,14 +318,8 @@ the role via Clerk:
 This repo uses simple numbered migration scripts in `migrations/` rather than Alembic.
 
 ```bash
-# Run a migration against the configured DATABASE_URL
-uv run python -m migrations.016_add_stable_clerk_identities
-uv run python -m migrations.017_add_clerk_migration_grants
-uv run python -m migrations.018_add_durable_extraction_jobs
-uv run python -m migrations.019_add_durable_deletion_cleanup
-uv run python -m migrations.020_add_database_invariants
-uv run python -m migrations.021_add_ai_invocation_provenance
-uv run python -m migrations.022_add_admin_moderation
+# Run the complete active, idempotent chain against the configured DATABASE_URL.
+uv run python -m migrations.run
 ```
 
 Run migrations intentionally for each environment; do not run production migrations from a local shell unless you have confirmed the target database.
@@ -365,12 +359,17 @@ to run the worker against an incomplete queue schema. See
 
 1. Connect GitHub repo to Render
 2. Set environment variables in dashboard
-3. Run migrations 016 through 022 in the pre-deploy command
+3. Set the pre-deploy command to `python -m migrations.run`
 4. Set the health-check path to `/up`
 5. Auto-deploys on push to `main`
 
 **Build Command:** `pip install -r requirements.txt`  
 **Start Command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+The checked-in Blueprint uses `api/` as its root directory. A legacy service
+whose Render root is still the repository root must use
+`cd api && python -m migrations.run`; do not copy the numbered migration list
+into the provider dashboard.
 
 ## License
 

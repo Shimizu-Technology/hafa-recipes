@@ -18,6 +18,36 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.mark.asyncio
+async def test_moderation_preflight_reports_missing_schema_cleanly():
+    assert TEST_DATABASE_URL
+    engine = create_async_engine(TEST_DATABASE_URL)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text("DROP SCHEMA public CASCADE"))
+            await connection.execute(text("CREATE SCHEMA public"))
+            await connection.execute(text("""
+                CREATE TABLE schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    name VARCHAR(128) NOT NULL
+                )
+            """))
+            await connection.execute(text("""
+                INSERT INTO schema_migrations (version, name)
+                VALUES (22, 'incomplete_admin_moderation')
+            """))
+
+        with pytest.raises(RuntimeError, match="missing or incomplete"):
+            await verify_moderation_schema(
+                async_sessionmaker(engine, expire_on_commit=False)
+            )
+    finally:
+        async with engine.begin() as connection:
+            await connection.execute(text("DROP SCHEMA public CASCADE"))
+            await connection.execute(text("CREATE SCHEMA public"))
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_moderation_migration_is_idempotent_and_enforces_safety(monkeypatch):
     assert TEST_DATABASE_URL
     engine = create_async_engine(TEST_DATABASE_URL)

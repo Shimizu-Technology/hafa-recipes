@@ -60,6 +60,13 @@ async def run_migration() -> None:
                     UNIQUE (app_user_id, issuer)
             )
         """))
+        # ``Base.metadata.create_all`` uses the model's Python-side UUID default,
+        # so an already-created local table may not have a database default.
+        # The migration's set-based backfill must work in either case.
+        await conn.execute(text("""
+            ALTER TABLE clerk_identities
+            ALTER COLUMN id SET DEFAULT gen_random_uuid()
+        """))
         await conn.execute(text("""
             CREATE INDEX IF NOT EXISTS ix_clerk_identities_app_user_id
             ON clerk_identities (app_user_id)
