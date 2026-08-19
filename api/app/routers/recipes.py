@@ -279,6 +279,7 @@ async def create_recipe_version(
         The created RecipeVersion
     """
     next_version = await next_recipe_version_number(db, recipe.id)
+    await db.refresh(recipe)
 
     # Auto-generate change summary if new_extracted is provided
     if change_summary is None and new_extracted is not None:
@@ -2183,14 +2184,6 @@ async def re_extract_recipe(
             detail="Cannot re-extract manual recipes. Please edit them directly."
         )
 
-    # Save the old extracted data BEFORE extraction for comparison
-    old_extracted = dict(recipe.extracted) if recipe.extracted else {}
-    old_thumbnail = recipe.thumbnail_url
-
-    # Store original if not already stored
-    if not recipe.original_extracted:
-        recipe.original_extracted = recipe.extracted.copy() if recipe.extracted else None
-
     # Run extraction
     try:
         extraction_result = await recipe_extractor.extract(
@@ -2207,15 +2200,27 @@ async def re_extract_recipe(
 
         new_extracted = extraction_result.recipe
 
-        # Create version snapshot with comparison AFTER we have the new data
-        # We store the OLD state and compare to NEW state for the summary
+        uploaded_thumbnail_url = None
+        if extraction_result.thumbnail_url:
+            uploaded_thumbnail_url = await storage_service.upload_thumbnail_from_url(
+                extraction_result.thumbnail_url,
+                str(recipe.id),
+            )
+
+        next_version = await next_recipe_version_number(db, recipe.id)
+        await db.refresh(recipe)
+        old_extracted = dict(recipe.extracted) if recipe.extracted else {}
+        old_thumbnail = recipe.thumbnail_url
+        if not recipe.original_extracted:
+            recipe.original_extracted = (
+                recipe.extracted.copy() if recipe.extracted else None
+            )
+
         change_summary = generate_change_summary(old_extracted, new_extracted)
         if change_summary == "Minor updates":
             change_summary = "Re-extracted with AI (no significant changes detected)"
         else:
             change_summary = f"Re-extracted with AI:\n{change_summary}"
-
-        next_version = await next_recipe_version_number(db, recipe.id)
 
         version = RecipeVersion(
             recipe_id=recipe.id,
@@ -2235,16 +2240,10 @@ async def re_extract_recipe(
         recipe.extraction_quality = extraction_result.extraction_quality
         recipe.has_audio_transcript = extraction_result.has_audio_transcript
 
-        # Update thumbnail if we got a new one
-        if extraction_result.thumbnail_url:
-            s3_url = await storage_service.upload_thumbnail_from_url(
-                extraction_result.thumbnail_url,
-                str(recipe.id)
-            )
-            if s3_url:
-                recipe.thumbnail_url = s3_url
-                if recipe.extracted and "media" in recipe.extracted:
-                    recipe.extracted["media"]["thumbnail"] = s3_url
+        if uploaded_thumbnail_url:
+            recipe.thumbnail_url = uploaded_thumbnail_url
+            if recipe.extracted and "media" in recipe.extracted:
+                recipe.extracted["media"]["thumbnail"] = uploaded_thumbnail_url
 
         await db.commit()
         await db.refresh(recipe)

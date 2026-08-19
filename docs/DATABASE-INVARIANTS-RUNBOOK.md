@@ -119,7 +119,7 @@ If startup reports migration 020 is incomplete:
 
 - idempotent migration execution;
 - canonical handling without deleting legacy recipes;
-- saved/version duplicate cleanup before constraints;
+- duplicate saved-row cleanup and lossless version-history resequencing before constraints;
 - all owner constraints validate;
 - startup schema verification passes; and
 - two concurrent version transactions receive sequential unique numbers.

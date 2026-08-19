@@ -6,10 +6,12 @@ import os
 from uuid import UUID
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.database_invariants import next_recipe_version_number, verify_database_invariants
+from app.database_invariants import verify_database_invariants
+from app.models.recipe import Recipe, RecipeVersion
+from app.routers.recipes import create_recipe_version
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
@@ -44,7 +46,8 @@ CREATE TABLE recipe_versions (
     recipe_id UUID NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
     version_number INTEGER NOT NULL,
     extracted JSONB NOT NULL DEFAULT '{}'::jsonb,
-    created_by VARCHAR(64)
+    created_by VARCHAR(64),
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE TABLE extraction_jobs (id UUID PRIMARY KEY, user_id VARCHAR(64));
 CREATE TABLE meal_plan_entries (
@@ -96,9 +99,23 @@ async def test_migration_is_idempotent_and_enforces_logical_records(monkeypatch)
                   ('32222222-2222-4222-8222-222222222222', 'saver', :recipe)
             """).bindparams(recipe=recipe_one))
             await conn.execute(text("""
-                INSERT INTO recipe_versions (id, recipe_id, version_number, created_by) VALUES
-                  ('41111111-1111-4111-8111-111111111111', :recipe, 1, 'owner'),
-                  ('42222222-2222-4222-8222-222222222222', :recipe, 1, 'owner')
+                INSERT INTO recipe_versions (
+                    id, recipe_id, version_number, extracted, created_by
+                ) VALUES
+                  (
+                    '41111111-1111-4111-8111-111111111111',
+                    :recipe,
+                    1,
+                    '{"title":"Original"}'::jsonb,
+                    'owner'
+                  ),
+                  (
+                    '42222222-2222-4222-8222-222222222222',
+                    :recipe,
+                    1,
+                    '{"title":"Concurrent edit"}'::jsonb,
+                    'owner'
+                  )
             """).bindparams(recipe=recipe_one))
 
         migration = importlib.import_module("migrations.020_add_database_invariants")
@@ -123,7 +140,13 @@ async def test_migration_is_idempotent_and_enforces_logical_records(monkeypatch)
                 """))
             ).scalars().all()
             save_count = await conn.scalar(text("SELECT COUNT(*) FROM saved_recipes"))
-            version_count = await conn.scalar(text("SELECT COUNT(*) FROM recipe_versions"))
+            versions = (
+                await conn.execute(text("""
+                    SELECT version_number, extracted->>'title' AS title
+                    FROM recipe_versions
+                    ORDER BY version_number
+                """))
+            ).all()
             migration_count = await conn.scalar(
                 text("SELECT COUNT(*) FROM schema_migrations WHERE version = 20")
             )
@@ -137,7 +160,7 @@ async def test_migration_is_idempotent_and_enforces_logical_records(monkeypatch)
         assert keys.count(None) == 1
         assert len([key for key in keys if key is not None]) == 2
         assert save_count == 1
-        assert version_count == 1
+        assert versions == [(1, "Original"), (2, "Concurrent edit")]
         assert migration_count == 1
         assert validated_owner_constraints == 11
     finally:
@@ -148,7 +171,7 @@ async def test_migration_is_idempotent_and_enforces_logical_records(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_recipe_version_numbers_serialize_on_recipe_row():
+async def test_recipe_version_snapshots_refresh_after_waiting_for_lock():
     assert TEST_DATABASE_URL
     engine = create_async_engine(TEST_DATABASE_URL)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -162,8 +185,20 @@ async def test_recipe_version_numbers_serialize_on_recipe_row():
                 CREATE TABLE recipes (
                     id UUID PRIMARY KEY,
                     source_url TEXT NOT NULL,
+                    canonical_source_key VARCHAR(96),
                     source_type VARCHAR(32) NOT NULL,
-                    extracted JSONB NOT NULL
+                    raw_text TEXT,
+                    extracted JSONB NOT NULL,
+                    original_extracted JSONB,
+                    thumbnail_url TEXT,
+                    extraction_method VARCHAR(32),
+                    extraction_quality VARCHAR(16),
+                    has_audio_transcript BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    user_id VARCHAR(64),
+                    extractor_display_name VARCHAR(100),
+                    is_public BOOLEAN NOT NULL DEFAULT FALSE,
+                    total_minutes INTEGER
                 )
             """))
             await conn.execute(text("""
@@ -172,43 +207,76 @@ async def test_recipe_version_numbers_serialize_on_recipe_row():
                     recipe_id UUID NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
                     version_number INTEGER NOT NULL,
                     extracted JSONB NOT NULL,
+                    thumbnail_url TEXT,
+                    change_type VARCHAR(32) NOT NULL DEFAULT 'edit',
+                    change_summary TEXT,
+                    created_by VARCHAR(64),
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
                     UNIQUE (recipe_id, version_number)
                 )
             """))
             await conn.execute(
                 text("""
                     INSERT INTO recipes (id, source_url, source_type, extracted)
-                    VALUES (:id, 'manual://test', 'manual', '{}'::jsonb)
+                    VALUES (
+                      :id,
+                      'manual://test',
+                      'manual',
+                      '{"title":"Initial"}'::jsonb
+                    )
                 """),
                 {"id": recipe_id},
             )
 
-        first_started = asyncio.Event()
+        async with sessions() as first_session, sessions() as second_session:
+            first_recipe, stale_second_recipe = await asyncio.gather(
+                first_session.get(Recipe, recipe_id),
+                second_session.get(Recipe, recipe_id),
+            )
+            assert first_recipe and stale_second_recipe
+            first_locked = asyncio.Event()
 
-        async def allocate(version_id: UUID, wait_for_first: bool) -> int:
-            async with sessions() as session:
-                if wait_for_first:
-                    await first_started.wait()
-                number = await next_recipe_version_number(session, recipe_id)
-                if not wait_for_first:
-                    first_started.set()
-                    await asyncio.sleep(0.1)
-                await session.execute(
-                    text("""
-                        INSERT INTO recipe_versions (
-                            id, recipe_id, version_number, extracted
-                        ) VALUES (:id, :recipe_id, :number, '{}'::jsonb)
-                    """),
-                    {"id": version_id, "recipe_id": recipe_id, "number": number},
+            async def first_edit() -> None:
+                await create_recipe_version(
+                    first_session,
+                    first_recipe,
+                    "edit",
+                    "owner",
+                    change_summary="First edit",
                 )
-                await session.commit()
-                return number
+                first_recipe.extracted = {"title": "First edit"}
+                first_locked.set()
+                await asyncio.sleep(0.1)
+                await first_session.commit()
 
-        first, second = await asyncio.gather(
-            allocate(UUID("61111111-1111-4111-8111-111111111111"), False),
-            allocate(UUID("62222222-2222-4222-8222-222222222222"), True),
-        )
-        assert (first, second) == (1, 2)
+            async def second_edit() -> None:
+                await first_locked.wait()
+                await create_recipe_version(
+                    second_session,
+                    stale_second_recipe,
+                    "edit",
+                    "owner",
+                    change_summary="Second edit",
+                )
+                stale_second_recipe.extracted = {"title": "Second edit"}
+                await second_session.commit()
+
+            await asyncio.gather(first_edit(), second_edit())
+
+        async with sessions() as session:
+            versions = (
+                await session.execute(
+                    select(RecipeVersion).order_by(RecipeVersion.version_number)
+                )
+            ).scalars().all()
+            final_recipe = await session.get(Recipe, recipe_id)
+
+        assert [version.version_number for version in versions] == [1, 2]
+        assert [version.extracted["title"] for version in versions] == [
+            "Initial",
+            "First edit",
+        ]
+        assert final_recipe and final_recipe.extracted["title"] == "Second edit"
     finally:
         async with engine.begin() as conn:
             await conn.execute(text("DROP SCHEMA public CASCADE"))

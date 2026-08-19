@@ -1424,15 +1424,6 @@ async def run_re_extraction_job(
             if not recipe:
                 raise Exception(f"Recipe {recipe_id} not found")
             
-            # Save old state BEFORE extraction for version comparison
-            old_extracted = dict(recipe.extracted) if recipe.extracted else {}
-            old_thumbnail = recipe.thumbnail_url
-            
-            # Preserve original if not already done
-            if not recipe.original_extracted and recipe.extracted:
-                recipe.original_extracted = recipe.extracted.copy()
-                await db.commit()
-            
             # Detect platform and run appropriate extraction
             platform = video_service.detect_platform(source_url)
             
@@ -1480,33 +1471,7 @@ async def run_re_extraction_job(
             
             if result.success:
                 new_extracted = result.recipe
-                
-                # Generate change summary comparing old vs new
-                change_summary = _generate_reextract_change_summary(old_extracted, new_extracted)
-                
-                # Create version snapshot with OLD state and change comparison
-                next_version = await next_recipe_version_number(db, recipe.id)
-                
-                version = RecipeVersion(
-                    recipe_id=recipe.id,
-                    version_number=next_version,
-                    extracted=old_extracted,  # Store OLD state
-                    thumbnail_url=old_thumbnail,
-                    change_type="re-extract",
-                    change_summary=change_summary,
-                    created_by=user_id,
-                )
-                db.add(version)
-                
-                # ============================================================
-                # BUILD ALL RECIPE DATA IN MEMORY FIRST, THEN SINGLE COMMIT
-                # This avoids session state issues with multiple commits
-                # ============================================================
-                
-                # Make a fresh copy of extracted data
                 final_extracted = dict(new_extracted)
-                
-                # Add confidence info
                 if result.low_confidence:
                     final_extracted['lowConfidence'] = True
                     final_extracted['confidenceWarning'] = result.confidence_warning
@@ -1514,9 +1479,8 @@ async def run_re_extraction_job(
                 else:
                     final_extracted.pop('lowConfidence', None)
                     final_extracted.pop('confidenceWarning', None)
-                
-                # Upload thumbnail FIRST (before any DB commits) so we have the URL
-                final_thumbnail_url = recipe.thumbnail_url  # Keep existing
+
+                uploaded_thumbnail_url = None
                 if result.thumbnail_url:
                     await update_progress(ExtractionProgress(
                         step="saving",
@@ -1528,11 +1492,32 @@ async def run_re_extraction_job(
                         str(recipe.id)
                     )
                     if s3_url:
-                        final_thumbnail_url = s3_url
-                        # Update thumbnail in extracted data
+                        uploaded_thumbnail_url = s3_url
                         if "media" in final_extracted:
                             final_extracted["media"] = dict(final_extracted.get("media", {}))
                             final_extracted["media"]["thumbnail"] = s3_url
+
+                next_version = await next_recipe_version_number(db, recipe.id)
+                await db.refresh(recipe)
+                old_extracted = dict(recipe.extracted) if recipe.extracted else {}
+                old_thumbnail = recipe.thumbnail_url
+                if not recipe.original_extracted and recipe.extracted:
+                    recipe.original_extracted = recipe.extracted.copy()
+                change_summary = _generate_reextract_change_summary(
+                    old_extracted,
+                    new_extracted,
+                )
+                version = RecipeVersion(
+                    recipe_id=recipe.id,
+                    version_number=next_version,
+                    extracted=old_extracted,
+                    thumbnail_url=old_thumbnail,
+                    change_type="re-extract",
+                    change_summary=change_summary,
+                    created_by=user_id,
+                )
+                db.add(version)
+                final_thumbnail_url = uploaded_thumbnail_url or recipe.thumbnail_url
 
                 terminal_job_result = await db.execute(
                     select(ExtractionJob)

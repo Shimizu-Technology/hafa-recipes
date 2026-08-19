@@ -149,12 +149,38 @@ async def run_migration() -> None:
             CREATE UNIQUE INDEX IF NOT EXISTS uq_saved_recipes_user_recipe
             ON saved_recipes (user_id, recipe_id)
         """))
+        # Duplicate version numbers may contain distinct user-restorable history.
+        # Resequence every row for affected recipes instead of deleting snapshots.
         await conn.execute(text("""
-            DELETE FROM recipe_versions AS duplicate
-            USING recipe_versions AS keeper
-            WHERE duplicate.recipe_id = keeper.recipe_id
-              AND duplicate.version_number = keeper.version_number
-              AND duplicate.id > keeper.id
+            CREATE TEMP TABLE recipe_version_resequence ON COMMIT DROP AS
+            SELECT id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY recipe_id
+                       ORDER BY version_number, created_at NULLS LAST, id
+                   )::INTEGER AS new_number,
+                   MAX(version_number) OVER (PARTITION BY recipe_id) AS max_number
+            FROM recipe_versions
+            WHERE recipe_id IN (
+                SELECT recipe_id
+                FROM recipe_versions
+                GROUP BY recipe_id, version_number
+                HAVING COUNT(*) > 1
+            )
+        """))
+        # Move out of the existing number range before assigning the compact
+        # sequence, so this also works if an installation already has a unique
+        # index with deferred/legacy rows being repaired manually.
+        await conn.execute(text("""
+            UPDATE recipe_versions AS version
+            SET version_number = resequence.max_number + resequence.new_number
+            FROM recipe_version_resequence AS resequence
+            WHERE version.id = resequence.id
+        """))
+        await conn.execute(text("""
+            UPDATE recipe_versions AS version
+            SET version_number = resequence.new_number
+            FROM recipe_version_resequence AS resequence
+            WHERE version.id = resequence.id
         """))
         await conn.execute(text("""
             CREATE UNIQUE INDEX IF NOT EXISTS uq_recipe_versions_recipe_number
