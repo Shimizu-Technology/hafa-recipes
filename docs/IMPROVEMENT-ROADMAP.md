@@ -558,20 +558,22 @@ Priority: P1 before social expansion
 Work:
 
 - [ ] Create a separate lightweight `admin/` web application; do not revive the legacy Next.js product or place moderation in the consumer mobile app.
-- [ ] Add backend-enforced `/api/admin/*` authorization using Clerk admin metadata. A hidden route or client-side role check is not authorization.
-- [ ] Add a compact dashboard for reports, stuck/failed jobs, and recent admin actions.
-- [ ] Add recipe/contributor search with public/owner-safe previews.
-- [ ] Add recipe/user reporting and contributor blocking.
-- [ ] Add moderation state and an admin review queue.
-- [ ] Add reversible hide/unhide and feature/unfeature actions with reasons.
-- [ ] Add curated collection/featured-order controls for the intended meaning of “moving things around.”
-- [ ] Add safe retry/cancel actions for stale or failed extraction jobs.
-- [ ] Record an append-only audit event for every admin action, including actor, target, reason, timestamp, and a bounded before/after summary.
+- [x] Add backend-enforced `/api/admin/*` authorization using Clerk admin metadata. A hidden route or client-side role check is not authorization.
+- [ ] Add a compact dashboard for reports, stuck/failed jobs, and recent admin actions. The bounded dashboard API is complete; the separate admin UI remains.
+- [ ] Add recipe/contributor search with public/owner-safe previews. Privacy-bounded APIs are complete; the separate admin UI remains.
+- [ ] Add recipe/user reporting and contributor blocking. Server contracts and consistent visibility enforcement are complete; intuitive consumer controls remain.
+- [x] Add moderation state and an admin review queue API.
+- [x] Add reversible hide/unhide and feature/unfeature actions with reasons.
+- [x] Add curated featured-order controls for the intended meaning of “moving things around.”
+- [x] Add safe retry/cancel actions for stale or failed extraction jobs.
+- [x] Record an append-only audit event for every admin action, including actor, target, reason, timestamp, and a bounded before/after summary.
 - [ ] Require confirmation for destructive actions; omit hard delete, arbitrary ownership changes, user impersonation, and a general database editor from the MVP.
-- [ ] Add takedown and appeal/support workflow.
+- [ ] Add takedown and appeal/support workflow. Server-side report status, user follow-up, and appeal contracts are complete; the operator and consumer UI remains.
 - [ ] Add terms covering public recipes and source attribution.
 - [ ] Align website, in-app, App Store, and Play privacy/support URLs.
 - [ ] Obtain appropriate legal/privacy review before publishing policy changes.
+
+Implemented foundation (2026-08-19): migration 022 adds reversible recipe/contributor moderation, unique featured ordering, reports, blocks, appeals, and database-enforced append-only audit history. All public and signed-in recipe surfaces share one moderation/block visibility policy. Admin APIs provide bounded dashboard, search, report review, job recovery, and audit data without exposing private recipe bodies, notes, chat history, full extraction URLs, or provider error bodies. Startup verifies the complete boundary. See `ADMIN-MODERATION-RUNBOOK.md`.
 
 Acceptance criteria:
 

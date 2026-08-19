@@ -53,6 +53,10 @@ Last reviewed: 2026-08-19
    - Preview/production target rules and visible environment labels
    - Dependency audit triage and accepted upstream findings
 
+12. [Admin moderation and UGC safety runbook](./ADMIN-MODERATION-RUNBOOK.md)
+   - Server-enforced admin and user-safety APIs
+   - Visibility, reversibility, privacy, audit, deployment, and rollback rules
+
 ## Source-of-truth policy
 
 - The documents above describe the current product and active plan.

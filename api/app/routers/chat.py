@@ -16,7 +16,8 @@ from app.auth import ClerkUser, get_current_user
 from app.config import get_settings
 from app.db import get_db
 from app.image_validation import ImageValidationError, decode_and_validate_base64_image
-from app.models.recipe import Recipe, SavedRecipe
+from app.models.recipe import Recipe
+from app.moderation import is_publicly_viewable
 from app.public_identity import public_contributor_id
 from app.rate_limit import RateLimitExceeded, ai_rate_limiter
 from app.services.storage import MAX_CHAT_IMAGE_BYTES, storage_service
@@ -124,17 +125,10 @@ class UploadChatImageResponse(BaseModel):
 
 
 async def user_can_access_recipe(db: AsyncSession, recipe: Recipe, user: ClerkUser) -> bool:
-    """Return True if the user owns the recipe, it is public, or they saved it."""
-    if recipe.user_id == user.id or recipe.is_public:
+    """Return True if the user owns it or it passes current public policy."""
+    if recipe.user_id == user.id:
         return True
-
-    saved_result = await db.execute(
-        select(SavedRecipe).where(
-            SavedRecipe.user_id == user.id,
-            SavedRecipe.recipe_id == recipe.id,
-        )
-    )
-    return saved_result.scalar_one_or_none() is not None
+    return await is_publicly_viewable(db, recipe, user.id)
 
 
 def _validated_image_data_url(image_base64: str) -> str:

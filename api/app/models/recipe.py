@@ -60,6 +60,15 @@ class Recipe(Base):
     # Public visibility - True means visible in Discover feed
     # Legacy recipes (user_id=NULL) are public by default
     is_public = Column(Boolean, nullable=False, default=False, server_default="false")
+
+    # Moderation is deliberately independent from the owner's sharing choice.
+    # Hiding a recipe is reversible and never silently rewrites is_public.
+    moderation_status = Column(
+        String(16), nullable=False, default="active", server_default="active", index=True
+    )
+    moderation_updated_at = Column(DateTime(timezone=True), nullable=True)
+    is_featured = Column(Boolean, nullable=False, default=False, server_default="false")
+    featured_order = Column(Integer, nullable=True, index=True)
     
     # Cached total cook time in minutes for efficient SQL filtering
     # Parsed from extracted["times"]["total"] when recipe is created/updated

@@ -33,6 +33,7 @@ from app.models.schemas import (
     RecipeListItem,
     RecipeResponse,
 )
+from app.moderation import is_publicly_viewable, public_recipe_conditions
 from app.public_identity import public_contributor_id, visible_recipe_user_id
 from app.recipe_derived_data import (
     ensure_derived_metadata,
@@ -567,7 +568,7 @@ async def resolve_public_contributor_filter(
 
     result = await db.execute(
         select(Recipe.user_id)
-        .where(Recipe.is_public.is_(True), Recipe.user_id.isnot(None))
+        .where(*public_recipe_conditions(viewer_user_id), Recipe.user_id.isnot(None))
         .distinct()
     )
     for candidate_user_id in result.scalars().all():
@@ -831,7 +832,8 @@ async def get_public_recipes(
     Meal type filter:
     - breakfast, lunch, dinner, snack, dessert
     """
-    base_query = select(Recipe).where(Recipe.is_public.is_(True))
+    viewer_user_id = user.id if user else None
+    base_query = select(Recipe).where(*public_recipe_conditions(viewer_user_id))
 
     # Filter by opaque public contributor ID if provided.
     if extractor_id:
@@ -869,12 +871,18 @@ async def get_public_recipes(
             .scalar_subquery()
         )
         ordered_query = base_query.order_by(
+            Recipe.is_featured.desc(),
+            Recipe.featured_order.asc().nullslast(),
             desc(save_count_subquery),
             Recipe.created_at.desc()
         )
     else:
-        # Default: recent (newest first)
-        ordered_query = base_query.order_by(Recipe.created_at.desc())
+        # Curated recipes lead the default feed in administrator-defined order.
+        ordered_query = base_query.order_by(
+            Recipe.is_featured.desc(),
+            Recipe.featured_order.asc().nullslast(),
+            Recipe.created_at.desc(),
+        )
 
     # Execute paginated query
     result = await db.execute(
@@ -915,9 +923,12 @@ async def get_recipe_count(
 async def get_public_recipe_count(
     source_type: Optional[str] = Query(default=None, description="Filter by source: tiktok, youtube, instagram"),
     db: AsyncSession = Depends(get_db),
+    user: Optional[ClerkUser] = Depends(get_optional_user),
 ):
     """Get total number of public recipes."""
-    query = select(func.count(Recipe.id)).where(Recipe.is_public.is_(True))
+    query = select(func.count(Recipe.id)).where(
+        *public_recipe_conditions(user.id if user else None)
+    )
 
     if source_type and source_type != 'all':
         query = query.where(Recipe.source_type == source_type)
@@ -932,6 +943,7 @@ async def get_random_recipe(
     meal_type: Optional[str] = Query(default=None, description="Filter by meal type: breakfast, lunch, dinner, snack, dessert"),
     source_type: Optional[str] = Query(default=None, description="Filter by source: tiktok, youtube, instagram, manual"),
     db: AsyncSession = Depends(get_db),
+    user: Optional[ClerkUser] = Depends(get_optional_user),
 ):
     """
     Get a single random public recipe.
@@ -942,7 +954,9 @@ async def get_random_recipe(
 
     Returns 404 if no matching recipes found.
     """
-    base_query = select(Recipe).where(Recipe.is_public.is_(True))
+    base_query = select(Recipe).where(
+        *public_recipe_conditions(user.id if user else None)
+    )
 
     # Apply meal_type filter if provided
     if meal_type and meal_type != 'all':
@@ -965,7 +979,7 @@ async def get_random_recipe(
             detail="No recipes found matching your filters. Try removing some filters."
         )
 
-    return recipe_to_list_item(recipe)
+    return recipe_to_list_item(recipe, user.id if user else None)
 
 
 def parse_time_to_minutes(time_str: str) -> Optional[int]:
@@ -1191,7 +1205,10 @@ async def search_by_ingredients(
         saved_result = await db.execute(
             select(Recipe)
             .join(SavedRecipe, SavedRecipe.recipe_id == Recipe.id)
-            .where(SavedRecipe.user_id == user.id)
+            .where(
+                SavedRecipe.user_id == user.id,
+                *public_recipe_conditions(user.id),
+            )
         )
         saved_recipes = list(saved_result.scalars().all())
 
@@ -1199,7 +1216,7 @@ async def search_by_ingredients(
     public_recipes = []
     if include_public:
         public_result = await db.execute(
-            select(Recipe).where(Recipe.is_public.is_(True))
+            select(Recipe).where(*public_recipe_conditions(user.id))
         )
         public_recipes = list(public_result.scalars().all())
 
@@ -1262,7 +1279,9 @@ async def search_public_recipes(
     - Returns paginated results with total count
     """
     # Start with base query
-    base_query = select(Recipe).where(Recipe.is_public.is_(True))
+    base_query = select(Recipe).where(
+        *public_recipe_conditions(user.id if user else None)
+    )
 
     # Filter by opaque public contributor ID if provided.
     if extractor_id:
@@ -1356,7 +1375,9 @@ async def get_popular_tags(
             return []
         query = select(Recipe.extracted["tags"]).where(Recipe.user_id == user.id)
     else:
-        query = select(Recipe.extracted["tags"]).where(Recipe.is_public.is_(True))
+        query = select(Recipe.extracted["tags"]).where(
+            *public_recipe_conditions(user.id if user else None)
+        )
 
     result = await db.execute(query)
     rows = result.all()
@@ -1380,6 +1401,7 @@ async def get_popular_tags(
 async def get_top_contributors(
     limit: int = Query(default=8, le=100, description="Max contributors to return"),
     db: AsyncSession = Depends(get_db),
+    user: Optional[ClerkUser] = Depends(get_optional_user),
 ):
     """
     Get top contributors who have shared the most public recipes.
@@ -1394,7 +1416,7 @@ async def get_top_contributors(
             func.count(Recipe.id).label('recipe_count'),
             func.max(Recipe.extractor_display_name).label('display_name'),
         )
-        .where(Recipe.is_public.is_(True))
+        .where(*public_recipe_conditions(user.id if user else None))
         .where(Recipe.user_id.isnot(None))
         .group_by(Recipe.user_id)
         .order_by(func.count(Recipe.id).desc())
@@ -1444,6 +1466,11 @@ async def get_similar_recipes(
 
     if not target_recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
+    is_owner = bool(user and target_recipe.user_id and target_recipe.user_id == user.id)
+    if not is_owner and not await is_publicly_viewable(
+        db, target_recipe, user.id if user else None
+    ):
+        raise HTTPException(status_code=404, detail="Recipe not found")
 
     # Extract tags from target recipe
     target_tags = []
@@ -1454,7 +1481,7 @@ async def get_similar_recipes(
         # If no tags, return recipes from same user or random public recipes
         query = (
             select(Recipe)
-            .where(Recipe.is_public.is_(True))
+            .where(*public_recipe_conditions(user.id if user else None))
             .where(Recipe.id != recipe_id)
             .order_by(func.random())
             .limit(limit)
@@ -1466,7 +1493,7 @@ async def get_similar_recipes(
         # Count how many tags each recipe shares with the target
         all_public_recipes = await db.execute(
             select(Recipe)
-            .where(Recipe.is_public.is_(True))
+            .where(*public_recipe_conditions(user.id if user else None))
             .where(Recipe.id != recipe_id)
         )
         candidates = all_public_recipes.scalars().all()
@@ -1576,7 +1603,7 @@ async def check_duplicate(
     public_result = await db.execute(
         select(Recipe).where(
             url_condition,
-            Recipe.is_public.is_(True)
+            *public_recipe_conditions(user.id),
         ).limit(1)
     )
     public_recipe = public_result.scalar_one_or_none()
@@ -1615,11 +1642,13 @@ async def get_recipe(
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
-    # Check access: public recipes are accessible to anyone
-    # Private recipes only accessible to owner
-    if not recipe.is_public:
-        if not user or recipe.user_id != user.id:
-            raise HTTPException(status_code=403, detail="Access denied")
+    # Owners always retain access. Everyone else must pass the complete public
+    # visibility policy, including moderation and their own contributor blocks.
+    is_owner = bool(user and recipe.user_id and recipe.user_id == user.id)
+    if not is_owner and not await is_publicly_viewable(
+        db, recipe, user.id if user else None
+    ):
+        raise HTTPException(status_code=404, detail="Recipe not found")
 
     # Normalize recipe data to ensure valid structure
     return recipe_to_detail_response(recipe, user.id if user else None)
@@ -2027,9 +2056,8 @@ async def save_recipe(
     if recipe.user_id == user.id:
         raise HTTPException(status_code=400, detail="You can't save your own recipe")
 
-    # Recipe must be public to save
-    if not recipe.is_public:
-        raise HTTPException(status_code=403, detail="This recipe is not public")
+    if not await is_publicly_viewable(db, recipe, user.id):
+        raise HTTPException(status_code=404, detail="Recipe not found")
 
     # Check if already saved
     existing = await db.execute(
@@ -2100,9 +2128,12 @@ async def check_recipe_saved(
     Check if a recipe is saved by the current user.
     """
     result = await db.execute(
-        select(SavedRecipe).where(
+        select(SavedRecipe)
+        .join(Recipe, Recipe.id == SavedRecipe.recipe_id)
+        .where(
             SavedRecipe.user_id == user.id,
-            SavedRecipe.recipe_id == recipe_id
+            SavedRecipe.recipe_id == recipe_id,
+            *public_recipe_conditions(user.id),
         )
     )
     saved = result.scalar_one_or_none()
@@ -2124,7 +2155,9 @@ async def get_saved_recipes(
     count_result = await db.execute(
         select(func.count())
         .select_from(SavedRecipe)
+        .join(Recipe, Recipe.id == SavedRecipe.recipe_id)
         .where(SavedRecipe.user_id == user.id)
+        .where(*public_recipe_conditions(user.id))
     )
     total_count = count_result.scalar() or 0
 
@@ -2132,7 +2165,10 @@ async def get_saved_recipes(
     result = await db.execute(
         select(Recipe)
         .join(SavedRecipe, SavedRecipe.recipe_id == Recipe.id)
-        .where(SavedRecipe.user_id == user.id)
+        .where(
+            SavedRecipe.user_id == user.id,
+            *public_recipe_conditions(user.id),
+        )
         .order_by(SavedRecipe.created_at.desc())
         .limit(limit)
         .offset(offset)
@@ -2161,7 +2197,9 @@ async def get_saved_recipes_count(
     """
     result = await db.execute(
         select(func.count(SavedRecipe.id))
+        .join(Recipe, Recipe.id == SavedRecipe.recipe_id)
         .where(SavedRecipe.user_id == user.id)
+        .where(*public_recipe_conditions(user.id))
     )
     count = result.scalar()
 
@@ -2331,9 +2369,8 @@ async def get_recipe_note(
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
-    # User must either own the recipe or it must be public
-    if not recipe.is_public and recipe.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
+    if recipe.user_id != user.id and not await is_publicly_viewable(db, recipe, user.id):
+        raise HTTPException(status_code=404, detail="Recipe not found")
 
     # Get the user's note for this recipe
     result = await db.execute(
@@ -2378,9 +2415,8 @@ async def update_recipe_note(
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
-    # User must either own the recipe or it must be public
-    if not recipe.is_public and recipe.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
+    if recipe.user_id != user.id and not await is_publicly_viewable(db, recipe, user.id):
+        raise HTTPException(status_code=404, detail="Recipe not found")
 
     # Check if note already exists
     result = await db.execute(

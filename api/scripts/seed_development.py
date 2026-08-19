@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.db.database import AsyncSessionLocal, Base, engine
-from app.models import ai, deletion, grocery, identity, meal_plan, recipe  # noqa: F401
+from app.models import ai, deletion, grocery, identity, meal_plan, moderation, recipe  # noqa: F401
 from app.models.identity import AppUser
 from app.models.recipe import Recipe
 
@@ -29,8 +29,10 @@ async def seed() -> None:
     # add the same named invariants and verification markers production requires.
     migration_20 = importlib.import_module("migrations.020_add_database_invariants")
     migration_21 = importlib.import_module("migrations.021_add_ai_invocation_provenance")
+    migration_22 = importlib.import_module("migrations.022_add_admin_moderation")
     await migration_20.run_migration()
     await migration_21.run_migration()
+    await migration_22.run_migration()
 
     async with AsyncSessionLocal() as session:
         user = await session.get(AppUser, SEED_USER_ID)

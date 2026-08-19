@@ -5,12 +5,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai_governance import ai_usage_metrics
-from app.auth import ClerkUser, get_current_user
+from app.auth import ClerkUser
 from app.config import get_settings
 from app.db import get_db
 from app.deletion_cleanup import deletion_cleanup_worker
 from app.job_worker import job_worker
 from app.models.schemas import DiagnosticResponse, HealthResponse
+from app.moderation import require_admin
 
 router = APIRouter(tags=["health"])
 settings = get_settings()
@@ -26,11 +27,10 @@ async def liveness_check():
 @router.get("/api/admin/diagnostics", response_model=DiagnosticResponse)
 async def dependency_diagnostics(
     db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user),
+    user: ClerkUser = Depends(require_admin),
 ):
     """Return bounded dependency diagnostics to authenticated admins only."""
-    if not user.is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required")
+    del user
 
     try:
         await db.execute(text("SELECT 1"))

@@ -223,6 +223,26 @@ app/
 | POST | `/api/recipes/{id}/chat` | AI chat about recipe |
 | POST | `/api/recipes/{id}/save` | Bookmark recipe |
 | DELETE | `/api/recipes/{id}/save` | Remove bookmark |
+
+### Community safety
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/reports` | Report a visible recipe or contributor |
+| GET | `/api/reports/mine` | Track the caller's reports and appeals |
+| POST | `/api/appeals` | Appeal a moderation hold on owned content/account |
+| GET/POST/DELETE | `/api/blocks` | List, add, or remove contributor blocks |
+
+### Admin moderation
+All routes require the Clerk `admin` metadata role. See `../docs/ADMIN-MODERATION-RUNBOOK.md` for the complete route table and privacy rules.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/admin/dashboard` | Reports, hidden content, stuck jobs, and recent actions |
+| GET/PUT | `/api/admin/reports` | Review and resolve reports/appeals |
+| GET/PUT | `/api/admin/recipes` | Public-safe search and reversible moderation/curation |
+| GET/PUT | `/api/admin/contributors` | Public-safe search and reversible contributor moderation |
+| GET/POST | `/api/admin/jobs` | Bounded job visibility and safe retry/cancel |
+| GET | `/api/admin/audit` | Append-only admin action history |
 | POST | `/api/recipes/{id}/restore` | Restore original version |
 
 New recipes are private by default across extraction, OCR, and manual creation.
@@ -302,6 +322,10 @@ This repo uses simple numbered migration scripts in `migrations/` rather than Al
 uv run python -m migrations.016_add_stable_clerk_identities
 uv run python -m migrations.017_add_clerk_migration_grants
 uv run python -m migrations.018_add_durable_extraction_jobs
+uv run python -m migrations.019_add_durable_deletion_cleanup
+uv run python -m migrations.020_add_database_invariants
+uv run python -m migrations.021_add_ai_invocation_provenance
+uv run python -m migrations.022_add_admin_moderation
 ```
 
 Run migrations intentionally for each environment; do not run production migrations from a local shell unless you have confirmed the target database.
@@ -341,7 +365,7 @@ to run the worker against an incomplete queue schema. See
 
 1. Connect GitHub repo to Render
 2. Set environment variables in dashboard
-3. Run migrations 016, 017, and 018 in the pre-deploy command
+3. Run migrations 016 through 022 in the pre-deploy command
 4. Set the health-check path to `/up`
 5. Auto-deploys on push to `main`
 

@@ -196,9 +196,13 @@ async def test_recipe_version_snapshots_refresh_after_waiting_for_lock():
                     has_audio_transcript BOOLEAN DEFAULT FALSE,
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     user_id VARCHAR(64),
-                    extractor_display_name VARCHAR(100),
-                    is_public BOOLEAN NOT NULL DEFAULT FALSE,
-                    total_minutes INTEGER
+                        extractor_display_name VARCHAR(100),
+                        is_public BOOLEAN NOT NULL DEFAULT FALSE,
+                        moderation_status VARCHAR(16) NOT NULL DEFAULT 'active',
+                        moderation_updated_at TIMESTAMPTZ,
+                        is_featured BOOLEAN NOT NULL DEFAULT FALSE,
+                        featured_order INTEGER,
+                        total_minutes INTEGER
                 )
             """))
             await conn.execute(text("""

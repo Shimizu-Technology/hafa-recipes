@@ -25,6 +25,10 @@ class AppUser(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+    moderation_status = Column(
+        String(16), nullable=False, default="active", server_default="active", index=True
+    )
+    moderation_updated_at = Column(DateTime(timezone=True), nullable=True)
 
     clerk_identities = relationship(
         "ClerkIdentity",
