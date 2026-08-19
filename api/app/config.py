@@ -112,6 +112,12 @@ class Settings(BaseSettings):
     job_lease_seconds: int = 600
     job_max_attempts: int = 3
     job_expiry_hours: int = 24
+
+    # Durable account/recipe external cleanup worker
+    deletion_cleanup_worker_enabled: bool = True
+    deletion_cleanup_poll_seconds: float = 10.0
+    deletion_cleanup_lease_seconds: int = 300
+    deletion_cleanup_max_attempts: int = 20
     
     # Sentry error monitoring
     sentry_dsn: str | None = None
@@ -156,6 +162,12 @@ class Settings(BaseSettings):
             raise ValueError("JOB_MAX_ATTEMPTS must be at least 1")
         if self.job_expiry_hours < 1:
             raise ValueError("JOB_EXPIRY_HOURS must be at least 1")
+        if self.deletion_cleanup_poll_seconds <= 0:
+            raise ValueError("DELETION_CLEANUP_POLL_SECONDS must be positive")
+        if self.deletion_cleanup_lease_seconds < 60:
+            raise ValueError("DELETION_CLEANUP_LEASE_SECONDS must be at least 60")
+        if self.deletion_cleanup_max_attempts < 1:
+            raise ValueError("DELETION_CLEANUP_MAX_ATTEMPTS must be at least 1")
         if not self.database_use_ssl:
             parsed_database_url = urlsplit(self.database_url)
             database_host = parsed_database_url.hostname

@@ -4,14 +4,18 @@ import json
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import String, delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import ClerkUser, get_current_user, get_optional_user
+from app.config import get_settings
 from app.db import get_db
+from app.deletion_cleanup import deletion_cleanup_worker
 from app.image_validation import ImageValidationError, ValidatedImage, validate_image_bytes
+from app.models.deletion import DeletionCleanupJob
+from app.models.meal_plan import MealPlanEntry
 from app.models.recipe import (
     CollectionRecipe,
     ExtractionJob,
@@ -30,6 +34,7 @@ from app.public_identity import public_contributor_id, visible_recipe_user_id
 from app.services.storage import storage_service
 
 MAX_RECIPE_UPLOAD_BYTES = 10 * 1024 * 1024
+settings = get_settings()
 
 
 def normalize_recipe_data(recipe: Recipe) -> Recipe:
@@ -1569,7 +1574,7 @@ async def toggle_recipe_sharing(
     }
 
 
-@router.delete("/{recipe_id}")
+@router.delete("/{recipe_id}", status_code=status.HTTP_202_ACCEPTED)
 async def delete_recipe(
     recipe_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -1581,7 +1586,7 @@ async def delete_recipe(
     Only the recipe owner can delete it.
     """
     result = await db.execute(
-        select(Recipe).where(Recipe.id == recipe_id)
+        select(Recipe).where(Recipe.id == recipe_id).with_for_update()
     )
     recipe = result.scalar_one_or_none()
 
@@ -1592,7 +1597,17 @@ async def delete_recipe(
     if recipe.user_id != user.id:
         raise HTTPException(status_code=403, detail="You can only delete your own recipes")
 
-    # Delete related records first to avoid foreign key constraint issues
+    storage_prefixes = storage_service.thumbnail_prefixes(recipe_id)
+    cleanup_job = DeletionCleanupJob(
+        kind="recipe",
+        app_user_id=user.id,
+        storage_prefixes=storage_prefixes,
+        storage_prefix_count=len(storage_prefixes),
+        max_attempts=settings.deletion_cleanup_max_attempts,
+    )
+    db.add(cleanup_job)
+
+    # Delete related records first to avoid foreign key constraint issues.
     # Delete recipe versions (has NOT NULL constraint on recipe_id)
     await db.execute(
         delete(RecipeVersion).where(RecipeVersion.recipe_id == recipe_id)
@@ -1600,7 +1615,12 @@ async def delete_recipe(
 
     # Delete extraction jobs linked to this recipe
     await db.execute(
-        delete(ExtractionJob).where(ExtractionJob.recipe_id == recipe_id)
+        delete(ExtractionJob).where(
+            or_(
+                ExtractionJob.recipe_id == recipe_id,
+                ExtractionJob.target_recipe_id == recipe_id,
+            )
+        )
     )
 
     # Delete from saved_recipes
@@ -1618,11 +1638,20 @@ async def delete_recipe(
         delete(RecipeNote).where(RecipeNote.recipe_id == recipe_id)
     )
 
+    await db.execute(
+        delete(MealPlanEntry).where(MealPlanEntry.recipe_id == recipe_id)
+    )
+
     # Now delete the recipe itself
     await db.delete(recipe)
     await db.commit()
+    deletion_cleanup_worker.wake()
 
-    return {"message": "Recipe deleted successfully", "id": str(recipe_id)}
+    return {
+        "message": "Recipe deleted; media cleanup is being finalized",
+        "id": str(recipe_id),
+        "cleanup": {"id": str(cleanup_job.id), "status": cleanup_job.status},
+    }
 
 
 @router.patch("/{recipe_id}", response_model=RecipeResponse)

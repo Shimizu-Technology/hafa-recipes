@@ -15,6 +15,8 @@ import app.clerk_transition as transition
 from app.auth import VerifiedClerkToken, _attach_identity, _resolve_identity
 from app.clerk_transition import provision_production
 from app.config import ClerkEnvironment, Settings
+from app.deletion_cleanup import hash_auth_identity
+from app.models.deletion import DeletedAuthIdentity, DeletionCleanupJob
 from app.models.identity import AppUser, ClerkIdentity
 from app.services.clerk import ClerkProfile
 
@@ -30,18 +32,58 @@ async def identity_database():
     assert TEST_DATABASE_URL
     engine = create_async_engine(TEST_DATABASE_URL)
     async with engine.begin() as connection:
+        await connection.run_sync(DeletedAuthIdentity.__table__.drop, checkfirst=True)
+        await connection.run_sync(DeletionCleanupJob.__table__.drop, checkfirst=True)
         await connection.run_sync(ClerkIdentity.__table__.drop, checkfirst=True)
         await connection.run_sync(AppUser.__table__.drop, checkfirst=True)
         await connection.run_sync(AppUser.__table__.create)
         await connection.run_sync(ClerkIdentity.__table__.create)
+        await connection.run_sync(DeletionCleanupJob.__table__.create)
+        await connection.run_sync(DeletedAuthIdentity.__table__.create)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     try:
         yield sessions
     finally:
         async with engine.begin() as connection:
+            await connection.run_sync(DeletedAuthIdentity.__table__.drop, checkfirst=True)
+            await connection.run_sync(DeletionCleanupJob.__table__.drop, checkfirst=True)
             await connection.run_sync(ClerkIdentity.__table__.drop, checkfirst=True)
             await connection.run_sync(AppUser.__table__.drop, checkfirst=True)
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_deleted_subject_cannot_be_lazily_recreated(identity_database):
+    issuer = "https://development.clerk.accounts.dev"
+    token = VerifiedClerkToken(
+        subject="deleted_user",
+        issuer=issuer,
+        environment_name="development",
+        claims={},
+    )
+    async with identity_database() as db:
+        cleanup_job = DeletionCleanupJob(
+            kind="account",
+            app_user_id="deleted_user",
+            clerk_identities=[],
+            storage_prefixes=[],
+        )
+        db.add(cleanup_job)
+        await db.flush()
+        db.add(
+            DeletedAuthIdentity(
+                deletion_job_id=cleanup_job.id,
+                issuer=issuer,
+                clerk_user_id_hash=hash_auth_identity(issuer, "deleted_user"),
+            )
+        )
+        await db.commit()
+
+        with pytest.raises(HTTPException) as error:
+            await _resolve_identity(db, token)
+
+        assert error.value.status_code == 401
+        assert error.value.detail == "Account has been deleted"
 
 
 @pytest.mark.asyncio

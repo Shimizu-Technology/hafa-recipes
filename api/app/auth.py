@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import ClerkEnvironment, get_settings
 from app.db import get_db
+from app.deletion_cleanup import hash_auth_identity
+from app.models.deletion import DeletedAuthIdentity
 from app.models.identity import AppUser, ClerkIdentity
 from app.services.clerk import ClerkBackendClient, ClerkProfile
 
@@ -233,6 +235,16 @@ async def _resolve_identity(
     db: AsyncSession,
     token: VerifiedClerkToken,
 ) -> tuple[ClerkIdentity, ClerkProfile | None]:
+    tombstone_result = await db.execute(
+        select(DeletedAuthIdentity.id).where(
+            DeletedAuthIdentity.issuer == token.issuer,
+            DeletedAuthIdentity.clerk_user_id_hash
+            == hash_auth_identity(token.issuer, token.subject),
+        )
+    )
+    if tombstone_result.scalar_one_or_none() is not None:
+        raise _unauthorized("Account has been deleted")
+
     identity = await _find_identity(
         db,
         issuer=token.issuer,

@@ -1,13 +1,15 @@
-"""User management endpoints - account deletion for Apple compliance."""
+"""User management endpoints, including durable account deletion."""
 
 import sentry_sdk
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import delete, select
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import ClerkUser, get_current_user
 from app.config import get_settings
 from app.db import get_db
+from app.deletion_cleanup import deletion_cleanup_worker, hash_auth_identity
+from app.models.deletion import DeletedAuthIdentity, DeletionCleanupJob
 from app.models.grocery import GroceryItem, GroceryList, GroceryListInvite, GroceryListMember
 from app.models.identity import AppUser, ClerkIdentity
 from app.models.meal_plan import MealPlanEntry
@@ -20,141 +22,185 @@ from app.models.recipe import (
     RecipeVersion,
     SavedRecipe,
 )
-from app.services.clerk import ClerkBackendClient
 from app.services.storage import storage_service
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 settings = get_settings()
 
 
-async def _delete_clerk_users(identities: list[tuple[str, str]]) -> bool:
-    """Delete every issuer-scoped Clerk alias for the local account."""
-    deleted_all = True
-    for issuer, clerk_user_id in identities:
-        environment = settings.clerk_environment_for_issuer(issuer)
-        if environment is None or not environment.secret_key:
-            deleted_all = False
-            continue
-        try:
-            deleted = await ClerkBackendClient(
-                environment,
-                timeout=20.0,
-            ).delete_user(clerk_user_id)
-            deleted_all = deleted and deleted_all
-        except Exception as error:
-            # Keep trying the remaining aliases. Callers do not delete local
-            # identity rows unless every remote alias is confirmed deleted, so
-            # a later retry remains possible and idempotent (404 is success).
-            sentry_sdk.capture_exception(error)
-            deleted_all = False
-    return deleted_all
+def _account_cleanup_response(job: DeletionCleanupJob, recipe_count: int = 0) -> dict:
+    return {
+        "message": "Account data deleted; external cleanup is being finalized",
+        "deleted": {"recipes": recipe_count},
+        "cleanup": {
+            "id": str(job.id),
+            "status": job.status,
+            "clerk_accounts": job.clerk_target_count,
+            "storage_prefixes": job.storage_prefix_count,
+        },
+    }
 
 
-@router.delete("/me")
+@router.delete("/me", status_code=status.HTTP_202_ACCEPTED)
 async def delete_account(
     db: AsyncSession = Depends(get_db),
     user: ClerkUser = Depends(get_current_user),
 ):
-    """
-    Delete the current user's account and associated data.
-
-    This permanently deletes local app data and, when CLERK_SECRET_KEY is configured,
-    also deletes the Clerk account record.
-    """
+    """Atomically erase local account data and queue retryable external cleanup."""
     user_id = user.id
-    identity_result = await db.execute(
-        select(ClerkIdentity.issuer, ClerkIdentity.clerk_user_id).where(
-            ClerkIdentity.app_user_id == user_id
-        )
-    )
-    clerk_identities = [(row[0], row[1]) for row in identity_result.all()]
 
     try:
-        clerk_deleted = await _delete_clerk_users(clerk_identities)
-    except Exception as error:
-        sentry_sdk.capture_exception(error)
-        clerk_deleted = False
-    if not clerk_deleted:
-        raise HTTPException(
-            status_code=502,
-            detail="Unable to delete every authentication account. No local data was deleted; please try again.",
+        app_user_result = await db.execute(
+            select(AppUser).where(AppUser.id == user_id).with_for_update()
         )
+        app_user = app_user_result.scalar_one_or_none()
+        if app_user is None:
+            existing_result = await db.execute(
+                select(DeletionCleanupJob).where(
+                    DeletionCleanupJob.kind == "account",
+                    DeletionCleanupJob.app_user_id == user_id,
+                )
+            )
+            existing_job = existing_result.scalar_one_or_none()
+            if existing_job is None:
+                await db.rollback()
+                raise HTTPException(status_code=404, detail="Account not found")
+            response = _account_cleanup_response(existing_job)
+            await db.rollback()
+            return response
 
-    try:
+        identity_result = await db.execute(
+            select(ClerkIdentity.issuer, ClerkIdentity.clerk_user_id).where(
+                ClerkIdentity.app_user_id == user_id
+            )
+        )
+        clerk_identities = [
+            {"issuer": issuer, "clerk_user_id": clerk_user_id}
+            for issuer, clerk_user_id in identity_result.all()
+        ]
+
         recipe_result = await db.execute(select(Recipe.id).where(Recipe.user_id == user_id))
         recipe_ids = [row[0] for row in recipe_result.all()]
-
+        collection_result = await db.execute(
+            select(Collection.id).where(Collection.user_id == user_id)
+        )
+        collection_ids = [row[0] for row in collection_result.all()]
         list_result = await db.execute(
             select(GroceryListMember.list_id).where(GroceryListMember.user_id == user_id)
         )
         list_ids = [row[0] for row in list_result.all()]
 
-        collection_result = await db.execute(select(Collection.id).where(Collection.user_id == user_id))
-        collection_ids = [row[0] for row in collection_result.all()]
+        storage_prefixes = [
+            prefix
+            for recipe_id in recipe_ids
+            for prefix in storage_service.thumbnail_prefixes(recipe_id)
+        ]
+        storage_prefixes.append(f"chat-images/{user_id}/")
 
-        # S3 cleanup is best-effort; database deletion should not be blocked by storage issues.
-        for recipe_id in recipe_ids:
-            try:
-                await storage_service.delete_thumbnail(recipe_id)
-            except Exception as e:
-                print(f"Warning: Failed to delete thumbnail for {recipe_id}: {e}")
-        try:
-            await storage_service.delete_prefix(f"chat-images/{user_id}/")
-        except Exception as e:
-            print(f"Warning: Failed to delete chat images for {user_id}: {e}")
+        cleanup_job = DeletionCleanupJob(
+            kind="account",
+            app_user_id=user_id,
+            clerk_identities=clerk_identities,
+            storage_prefixes=storage_prefixes,
+            clerk_target_count=len(clerk_identities),
+            storage_prefix_count=len(storage_prefixes),
+            max_attempts=settings.deletion_cleanup_max_attempts,
+        )
+        db.add(cleanup_job)
+        await db.flush()
+
+        for identity in clerk_identities:
+            db.add(
+                DeletedAuthIdentity(
+                    deletion_job_id=cleanup_job.id,
+                    issuer=identity["issuer"],
+                    clerk_user_id_hash=hash_auth_identity(
+                        identity["issuer"], identity["clerk_user_id"]
+                    ),
+                )
+            )
 
         if collection_ids:
-            await db.execute(delete(CollectionRecipe).where(CollectionRecipe.collection_id.in_(collection_ids)))
+            await db.execute(
+                delete(CollectionRecipe).where(
+                    CollectionRecipe.collection_id.in_(collection_ids)
+                )
+            )
 
         if recipe_ids:
-            await db.execute(delete(CollectionRecipe).where(CollectionRecipe.recipe_id.in_(recipe_ids)))
-            await db.execute(delete(RecipeVersion).where(RecipeVersion.recipe_id.in_(recipe_ids)))
+            await db.execute(
+                delete(CollectionRecipe).where(CollectionRecipe.recipe_id.in_(recipe_ids))
+            )
+            await db.execute(
+                delete(RecipeVersion).where(RecipeVersion.recipe_id.in_(recipe_ids))
+            )
             await db.execute(delete(RecipeNote).where(RecipeNote.recipe_id.in_(recipe_ids)))
             await db.execute(delete(SavedRecipe).where(SavedRecipe.recipe_id.in_(recipe_ids)))
-            await db.execute(delete(ExtractionJob).where(ExtractionJob.recipe_id.in_(recipe_ids)))
-            await db.execute(delete(MealPlanEntry).where(MealPlanEntry.recipe_id.in_(recipe_ids)))
+            await db.execute(
+                delete(ExtractionJob).where(
+                    or_(
+                        ExtractionJob.recipe_id.in_(recipe_ids),
+                        ExtractionJob.target_recipe_id.in_(recipe_ids),
+                    )
+                )
+            )
+            await db.execute(
+                delete(MealPlanEntry).where(MealPlanEntry.recipe_id.in_(recipe_ids))
+            )
 
-        # User-owned/supporting data.
+        # Remove or anonymize every remaining user reference before AppUser.
         await db.execute(delete(SavedRecipe).where(SavedRecipe.user_id == user_id))
         await db.execute(delete(RecipeNote).where(RecipeNote.user_id == user_id))
         await db.execute(delete(MealPlanEntry).where(MealPlanEntry.user_id == user_id))
         await db.execute(delete(ExtractionJob).where(ExtractionJob.user_id == user_id))
         await db.execute(delete(Collection).where(Collection.user_id == user_id))
         await db.execute(delete(GroceryItem).where(GroceryItem.user_id == user_id))
-        await db.execute(delete(GroceryListInvite).where(GroceryListInvite.created_by == user_id))
+        await db.execute(
+            delete(GroceryListInvite).where(
+                or_(
+                    GroceryListInvite.created_by == user_id,
+                    GroceryListInvite.accepted_by == user_id,
+                )
+            )
+        )
         await db.execute(delete(GroceryListMember).where(GroceryListMember.user_id == user_id))
+        await db.execute(
+            update(RecipeVersion)
+            .where(RecipeVersion.created_by == user_id)
+            .values(created_by=None)
+        )
         await db.execute(delete(Recipe).where(Recipe.user_id == user_id))
-        await db.execute(delete(ClerkIdentity).where(ClerkIdentity.app_user_id == user_id))
-        await db.execute(delete(AppUser).where(AppUser.id == user_id))
 
-        # Delete grocery lists that are now empty after this user leaves/deletes account.
         if list_ids:
             remaining_members = await db.execute(
                 select(GroceryListMember.list_id).where(GroceryListMember.list_id.in_(list_ids))
             )
-            non_empty_list_ids = {row[0] for row in remaining_members.all()}
+            non_empty_list_ids = set(remaining_members.scalars().all())
             empty_list_ids = [list_id for list_id in list_ids if list_id not in non_empty_list_ids]
             if empty_list_ids:
-                await db.execute(delete(GroceryListInvite).where(GroceryListInvite.list_id.in_(empty_list_ids)))
-                await db.execute(delete(GroceryItem).where(GroceryItem.list_id.in_(empty_list_ids)))
+                await db.execute(
+                    delete(GroceryListInvite).where(
+                        GroceryListInvite.list_id.in_(empty_list_ids)
+                    )
+                )
+                await db.execute(
+                    delete(GroceryItem).where(GroceryItem.list_id.in_(empty_list_ids))
+                )
                 await db.execute(delete(GroceryList).where(GroceryList.id.in_(empty_list_ids)))
 
+        await db.execute(delete(ClerkIdentity).where(ClerkIdentity.app_user_id == user_id))
+        await db.execute(delete(AppUser).where(AppUser.id == user_id))
         await db.commit()
-
-    except Exception as e:
+    except HTTPException:
         await db.rollback()
-        sentry_sdk.capture_exception(e)
-        print(f"❌ Failed to delete local account data for {user_id}: {e}")
+        raise
+    except Exception as error:
+        await db.rollback()
+        sentry_sdk.capture_exception(error)
         raise HTTPException(
             status_code=500,
             detail="Failed to delete account. Please try again.",
-        )
+        ) from error
 
-    return {
-        "message": "Account deleted successfully",
-        "deleted": {
-            "recipes": len(recipe_ids),
-            "collections": len(collection_ids),
-        },
-        "clerk_deleted": clerk_deleted,
-    }
+    deletion_cleanup_worker.wake()
+    return _account_cleanup_response(cleanup_job, len(recipe_ids))

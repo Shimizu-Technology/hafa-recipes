@@ -27,7 +27,7 @@ Product context: [PRODUCT-AND-SYSTEM.md](./PRODUCT-AND-SYSTEM.md)
 
 ## Implementation record — 2026-08-19
 
-The first canonical-monorepo implementation slice is in review. It delivers:
+The first canonical-monorepo implementation slice shipped in PR #9. It delivers:
 
 - the configurable OpenAI model registry, startup validation, kill switches,
   deprecated-model removal, Luna routine defaults, and Terra fallback wiring;
@@ -53,6 +53,25 @@ comparative model evaluation/provenance system, explicit fail-closed development
 environment work, first-publish review, durable account/media cleanup, broader
 data-integrity work, analytics/observability, accessibility expansion, product
 navigation work, and the focused admin portal remain scheduled below.
+
+The second implementation slice adds the durable deletion and media-lifecycle
+foundation in B6:
+
+- local account erasure and its external cleanup intent commit atomically;
+- hash-only authentication tombstones prevent a deleted Clerk subject from
+  lazily recreating an application identity while remote deletion is pending;
+- a PostgreSQL cleanup queue uses cross-replica row locks, fenced leases,
+  bounded exponential retries, stale-lease recovery, and terminal failure;
+- every issuer-scoped Clerk alias and every S3 prefix is attempted independently;
+- recipe and account deletion cover legacy and content-addressed thumbnails,
+  account chat media, meal plans, extraction targets, invites, and remaining
+  user references;
+- completed jobs discard raw external target snapshots while retaining bounded
+  operational audit metadata;
+- recipe image writes use immutable content-addressed keys, so image changes
+  immediately produce a new cache-safe URL; and
+- admin diagnostics expose cleanup-queue counts. Safe admin reconciliation UI
+  remains part of C7.
 
 ## Release A: Production safety
 
@@ -331,12 +350,13 @@ Work:
 
 - [ ] Add video duration/download/audio-size/concurrency limits.
 - [ ] Terminate timed-out subprocesses and clean temporary directories in `finally`.
-- [ ] Replace the shared `/tmp/instagram_cookies.txt` credential path with a unique restrictive temporary file and guaranteed `finally` deletion.
-- [ ] Validate all image upload bytes, types, and dimensions.
-- [ ] Use versioned/content-addressed recipe image keys.
+- [x] Replace the shared `/tmp/instagram_cookies.txt` credential path with a unique restrictive temporary file and guaranteed `finally` deletion.
+- [x] Validate all image upload bytes, types, and dimensions.
+- [x] Use versioned/content-addressed recipe image keys.
 - [ ] Use signed delivery for private recipe images.
-- [ ] Delete recipe media on recipe deletion.
-- [ ] Make account deletion idempotent and durable: commit authoritative local deletion, persist external-cleanup state, retry S3/Clerk failures, and expose reconciliation through the admin audit trail.
+- [x] Delete recipe media on recipe deletion through durable cleanup.
+- [x] Make account deletion idempotent and durable: commit authoritative local deletion, persist external-cleanup state, and retry S3/Clerk failures.
+- [ ] Expose safe failed-cleanup reconciliation through the focused admin audit trail.
 
 Acceptance criteria:
 
