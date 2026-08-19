@@ -92,6 +92,7 @@ and re-run native simulator/device checks.
 | --- | --- | --- |
 | Development | `development` | Local/private host unless exceptional override is explicit |
 | Preview | `preview` | Explicit HTTPS `EXPO_PUBLIC_API_BASE_URL` required |
+| Android internal APK | `preview` | Explicit production API target; always shows the preview banner |
 | Production | `production` | Defaults to the Render production API; HTTPS overrides only |
 
 There is no staging row by design. See ADR-002.
