@@ -5,7 +5,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import String, delete, desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -381,6 +381,13 @@ class RecipeEdit(BaseModel):
     nutrition: Optional[ManualNutrition] = None
     nutrition_recalculated: bool = False
     nutrition_model: Optional[str] = None
+
+    @model_validator(mode="after")
+    def require_recalculated_nutrition_payload(self) -> "RecipeEdit":
+        """A freshness claim is valid only when replacement values are supplied."""
+        if self.nutrition_recalculated and self.nutrition is None:
+            raise ValueError("nutrition is required when nutrition_recalculated is true")
+        return self
 
 
 class ManualRecipeCreate(BaseModel):

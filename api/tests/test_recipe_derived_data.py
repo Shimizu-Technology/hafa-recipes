@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from app.recipe_derived_data import (
     dependency_fingerprint,
     ensure_derived_metadata,
@@ -120,6 +123,16 @@ def test_recipe_edit_clears_unsupported_nutrients_after_recalculation():
     assert result["nutrition"]["total"] == {}
     assert result["derivedData"]["nutrition"]["status"] == "current"
     assert result["derivedData"]["nutrition"]["model"] == "gpt-5.6-luna"
+
+
+def test_recalculation_flag_requires_replacement_nutrition_values():
+    with pytest.raises(ValidationError, match="nutrition is required"):
+        RecipeEdit(
+            title="Invalid freshness claim",
+            ingredients=[{"name": "rice"}],
+            steps=["Cook"],
+            nutrition_recalculated=True,
+        )
 
 
 def test_component_aware_edit_preserves_sections_and_legacy_flat_fields():
