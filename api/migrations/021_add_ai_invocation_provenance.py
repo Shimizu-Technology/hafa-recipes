@@ -42,6 +42,123 @@ async def run_migration() -> None:
             )
         """)
         )
+        column_definitions = (
+            "id UUID",
+            "request_id VARCHAR(64)",
+            "user_id VARCHAR(64)",
+            "job_id UUID",
+            "capability VARCHAR(32)",
+            "provider VARCHAR(24) DEFAULT 'openai'",
+            "model VARCHAR(96)",
+            "prompt_version VARCHAR(64)",
+            "schema_version VARCHAR(64)",
+            "rollout_variant VARCHAR(24) DEFAULT 'primary'",
+            "fallback_reason VARCHAR(64)",
+            "status VARCHAR(32)",
+            "error_code VARCHAR(64)",
+            "provider_request_id VARCHAR(128)",
+            "latency_ms INTEGER",
+            "input_tokens INTEGER",
+            "cached_input_tokens INTEGER",
+            "output_tokens INTEGER",
+            "reasoning_tokens INTEGER",
+            "estimated_cost_microusd BIGINT",
+            "created_at TIMESTAMPTZ DEFAULT NOW()",
+        )
+        for definition in column_definitions:
+            await conn.execute(
+                text(f"ALTER TABLE ai_invocations ADD COLUMN IF NOT EXISTS {definition}")
+            )
+
+        await conn.execute(
+            text("""
+            ALTER TABLE ai_invocations
+                ALTER COLUMN id SET NOT NULL,
+                ALTER COLUMN request_id SET NOT NULL,
+                ALTER COLUMN capability SET NOT NULL,
+                ALTER COLUMN provider SET DEFAULT 'openai',
+                ALTER COLUMN provider SET NOT NULL,
+                ALTER COLUMN model SET NOT NULL,
+                ALTER COLUMN prompt_version SET NOT NULL,
+                ALTER COLUMN rollout_variant SET DEFAULT 'primary',
+                ALTER COLUMN rollout_variant SET NOT NULL,
+                ALTER COLUMN status SET NOT NULL,
+                ALTER COLUMN latency_ms SET NOT NULL,
+                ALTER COLUMN created_at SET DEFAULT NOW(),
+                ALTER COLUMN created_at SET NOT NULL
+        """)
+        )
+        await conn.execute(
+            text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint c
+                    JOIN pg_attribute a
+                      ON a.attrelid = c.conrelid
+                     AND a.attnum = c.conkey[1]
+                    WHERE c.conrelid = 'ai_invocations'::regclass
+                      AND c.contype = 'p'
+                      AND cardinality(c.conkey) = 1
+                      AND a.attname = 'id'
+                ) THEN
+                    ALTER TABLE ai_invocations
+                    ADD CONSTRAINT pk_ai_invocations PRIMARY KEY (id);
+                END IF;
+            END $$
+        """)
+        )
+        await conn.execute(
+            text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint c
+                    JOIN pg_attribute a
+                      ON a.attrelid = c.conrelid
+                     AND a.attnum = c.conkey[1]
+                    WHERE c.conrelid = 'ai_invocations'::regclass
+                      AND c.contype = 'f'
+                      AND cardinality(c.conkey) = 1
+                      AND a.attname = 'user_id'
+                      AND c.confrelid = 'app_users'::regclass
+                      AND c.confdeltype = 'c'
+                      AND c.convalidated
+                ) THEN
+                    ALTER TABLE ai_invocations
+                    ADD CONSTRAINT fk_ai_invocations_user_id_app_users
+                    FOREIGN KEY (user_id) REFERENCES app_users(id) ON DELETE CASCADE;
+                END IF;
+            END $$
+        """)
+        )
+        await conn.execute(
+            text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint c
+                    JOIN pg_attribute a
+                      ON a.attrelid = c.conrelid
+                     AND a.attnum = c.conkey[1]
+                    WHERE c.conrelid = 'ai_invocations'::regclass
+                      AND c.contype = 'f'
+                      AND cardinality(c.conkey) = 1
+                      AND a.attname = 'job_id'
+                      AND c.confrelid = 'extraction_jobs'::regclass
+                      AND c.confdeltype = 'n'
+                      AND c.convalidated
+                ) THEN
+                    ALTER TABLE ai_invocations
+                    ADD CONSTRAINT fk_ai_invocations_job_id_extraction_jobs
+                    FOREIGN KEY (job_id) REFERENCES extraction_jobs(id) ON DELETE SET NULL;
+                END IF;
+            END $$
+        """)
+        )
         await conn.execute(
             text("""
             CREATE INDEX IF NOT EXISTS ix_ai_invocations_request_id

@@ -363,14 +363,43 @@ async def verify_ai_governance_schema(session_factory=None) -> None:
                       ])
                 )
                 AND EXISTS (
-                    SELECT 1 FROM pg_constraint
-                    WHERE conname = 'fk_ai_invocations_user_id_app_users'
-                      AND convalidated
+                    SELECT 1
+                    FROM pg_constraint c
+                    JOIN pg_attribute a
+                      ON a.attrelid = c.conrelid
+                     AND a.attnum = c.conkey[1]
+                    WHERE c.conrelid = to_regclass('public.ai_invocations')
+                      AND c.contype = 'p'
+                      AND cardinality(c.conkey) = 1
+                      AND a.attname = 'id'
                 )
                 AND EXISTS (
-                    SELECT 1 FROM pg_constraint
-                    WHERE conname = 'fk_ai_invocations_job_id_extraction_jobs'
-                      AND convalidated
+                    SELECT 1
+                    FROM pg_constraint c
+                    JOIN pg_attribute a
+                      ON a.attrelid = c.conrelid
+                     AND a.attnum = c.conkey[1]
+                    WHERE c.conrelid = to_regclass('public.ai_invocations')
+                      AND c.contype = 'f'
+                      AND cardinality(c.conkey) = 1
+                      AND a.attname = 'user_id'
+                      AND c.confrelid = to_regclass('public.app_users')
+                      AND c.confdeltype = 'c'
+                      AND c.convalidated
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM pg_constraint c
+                    JOIN pg_attribute a
+                      ON a.attrelid = c.conrelid
+                     AND a.attnum = c.conkey[1]
+                    WHERE c.conrelid = to_regclass('public.ai_invocations')
+                      AND c.contype = 'f'
+                      AND cardinality(c.conkey) = 1
+                      AND a.attname = 'job_id'
+                      AND c.confrelid = to_regclass('public.extraction_jobs')
+                      AND c.confdeltype = 'n'
+                      AND c.convalidated
                 )
         """)
         )

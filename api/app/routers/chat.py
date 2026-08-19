@@ -408,12 +408,12 @@ async def chat_about_recipe(
                         reasoning_effort=settings.openai_reasoning_effort,
                         extra_body={"safety_identifier": public_contributor_id(user.id)},
                     )
-                assistant_message = response.choices[0].message.content
-                if not assistant_message:
-                    invocation.fail("empty_response", response)
-                    raise RuntimeError("AI provider returned an empty response")
-                invocation.succeed(response)
-                return ChatResponse(response=assistant_message)
+                    assistant_message = response.choices[0].message.content
+                    if not assistant_message:
+                        invocation.fail("empty_response", response)
+                        raise RuntimeError("AI provider returned an empty response")
+                    invocation.succeed(response)
+                    return ChatResponse(response=assistant_message)
     except RateLimitExceeded as exc:
         raise _rate_limit_http_exception(exc) from exc
     except HTTPException:
@@ -510,29 +510,29 @@ Example response: ["italian", "dinner", "pasta", "quick", "vegetarian"]
                         extra_body={"safety_identifier": public_contributor_id(user.id)},
                     )
 
-                result = response.choices[0].message.content.strip()
-                try:
-                    if result.startswith("```"):
-                        result = result.split("```")[1]
-                        if result.startswith("json"):
-                            result = result[4:]
+                    result = response.choices[0].message.content.strip()
+                    try:
+                        if result.startswith("```"):
+                            result = result.split("```")[1]
+                            if result.startswith("json"):
+                                result = result[4:]
 
-                    tags = json.loads(result)
-                    if isinstance(tags, list):
-                        clean_tags = [
-                            tag.strip().lower()[:50]
-                            for tag in tags
-                            if isinstance(tag, str) and tag.strip()
-                        ]
-                        invocation.succeed(response)
-                        return SuggestTagsResponse(tags=clean_tags[:10])
-                except json.JSONDecodeError:
-                    tags = [t.strip().lower().strip("\"'") for t in result.split(",")]
-                    invocation.outcome("repaired", "invalid_json", response)
-                    return SuggestTagsResponse(tags=tags[:10])
+                        tags = json.loads(result)
+                        if isinstance(tags, list):
+                            clean_tags = [
+                                tag.strip().lower()[:50]
+                                for tag in tags
+                                if isinstance(tag, str) and tag.strip()
+                            ]
+                            invocation.succeed(response)
+                            return SuggestTagsResponse(tags=clean_tags[:10])
+                    except json.JSONDecodeError:
+                        tags = [t.strip().lower().strip("\"'") for t in result.split(",")]
+                        invocation.outcome("repaired", "invalid_json", response)
+                        return SuggestTagsResponse(tags=tags[:10])
 
-                invocation.fail("invalid_schema", response)
-                return SuggestTagsResponse(tags=[])
+                    invocation.fail("invalid_schema", response)
+                    return SuggestTagsResponse(tags=[])
 
     except RateLimitExceeded as exc:
         raise _rate_limit_http_exception(exc) from exc
@@ -596,34 +596,34 @@ Example: {{"calories": 350, "protein": 25, "carbs": 30, "fat": 12}}
                         extra_body={"safety_identifier": public_contributor_id(user.id)},
                     )
 
-                result = response.choices[0].message.content.strip()
-                try:
-                    if result.startswith("```"):
-                        result = result.split("```")[1]
-                        if result.startswith("json"):
-                            result = result[4:]
+                    result = response.choices[0].message.content.strip()
+                    try:
+                        if result.startswith("```"):
+                            result = result.split("```")[1]
+                            if result.startswith("json"):
+                                result = result[4:]
 
-                    json_match = result
-                    if "{" in result:
-                        start = result.index("{")
-                        end = result.rindex("}") + 1
-                        json_match = result[start:end]
+                        json_match = result
+                        if "{" in result:
+                            start = result.index("{")
+                            end = result.rindex("}") + 1
+                            json_match = result[start:end]
 
-                    nutrition = json.loads(json_match)
-                    parsed = NutritionEstimate(
-                        calories=int(nutrition.get("calories", 0)),
-                        protein=int(nutrition.get("protein", 0)),
-                        carbs=int(nutrition.get("carbs", 0)),
-                        fat=int(nutrition.get("fat", 0)),
-                    )
-                    invocation.succeed(response)
-                    return EstimateNutritionResponse(nutrition=parsed)
-                except (json.JSONDecodeError, ValueError):
-                    invocation.fail("invalid_schema", response)
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Failed to parse nutrition data. Please try again.",
-                    )
+                        nutrition = json.loads(json_match)
+                        parsed = NutritionEstimate(
+                            calories=int(nutrition.get("calories", 0)),
+                            protein=int(nutrition.get("protein", 0)),
+                            carbs=int(nutrition.get("carbs", 0)),
+                            fat=int(nutrition.get("fat", 0)),
+                        )
+                        invocation.succeed(response)
+                        return EstimateNutritionResponse(nutrition=parsed)
+                    except (json.JSONDecodeError, ValueError):
+                        invocation.fail("invalid_schema", response)
+                        raise HTTPException(
+                            status_code=500,
+                            detail="Failed to parse nutrition data. Please try again.",
+                        )
 
     except RateLimitExceeded as exc:
         raise _rate_limit_http_exception(exc) from exc
@@ -700,12 +700,12 @@ async def chat_cooking_assistant(
                         reasoning_effort=settings.openai_reasoning_effort,
                         extra_body={"safety_identifier": public_contributor_id(user.id)},
                     )
-                assistant_message = response.choices[0].message.content
-                if not assistant_message:
-                    invocation.fail("empty_response", response)
-                    raise RuntimeError("AI provider returned an empty response")
-                invocation.succeed(response)
-                return ChatResponse(response=assistant_message)
+                    assistant_message = response.choices[0].message.content
+                    if not assistant_message:
+                        invocation.fail("empty_response", response)
+                        raise RuntimeError("AI provider returned an empty response")
+                    invocation.succeed(response)
+                    return ChatResponse(response=assistant_message)
     except RateLimitExceeded as exc:
         raise _rate_limit_http_exception(exc) from exc
     except HTTPException:

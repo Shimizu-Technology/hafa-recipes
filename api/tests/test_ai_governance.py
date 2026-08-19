@@ -2,9 +2,11 @@
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from uuid import UUID
 
 import pytest
 
+import app.routers.chat as chat_router_module
 from app import ai_governance
 from app.ai_governance import (
     AIInvocationTracker,
@@ -13,8 +15,10 @@ from app.ai_governance import (
     extract_token_usage,
     select_ai_model,
 )
+from app.auth import ClerkUser
 from app.config import Settings
 from app.models.ai import AIInvocation
+from app.routers.chat import ChatRequest, chat_about_recipe
 from app.services.llm_client import LLMService
 
 
@@ -132,6 +136,52 @@ async def test_tracker_records_safe_context_and_validated_outcome(monkeypatch):
     assert kwargs["status"] == "failed"
     assert kwargs["error_code"] == "invalid_schema"
     assert "private_output" not in kwargs
+
+
+@pytest.mark.asyncio
+async def test_recipe_chat_marks_success_before_tracker_exits(monkeypatch):
+    recipe = SimpleNamespace(
+        user_id="user_chat_tracker",
+        is_public=False,
+        extracted={"title": "Soup", "components": []},
+    )
+
+    class FakeResult:
+        def scalar_one_or_none(self):
+            return recipe
+
+    class FakeDatabase:
+        async def execute(self, _statement):
+            return FakeResult()
+
+    provider_response = SimpleNamespace(
+        id="provider_request",
+        choices=[SimpleNamespace(message=SimpleNamespace(content="Use low heat."))],
+        usage=None,
+    )
+    monkeypatch.setattr(
+        chat_router_module.openai_client.chat.completions,
+        "create",
+        AsyncMock(return_value=provider_response),
+    )
+    recorded = AsyncMock()
+    monkeypatch.setattr(ai_governance, "record_ai_invocation", recorded)
+
+    response = await chat_about_recipe(
+        UUID("31111111-1111-4111-8111-111111111111"),
+        ChatRequest(message="How should I heat this?"),
+        db=FakeDatabase(),
+        user=ClerkUser(
+            id="user_chat_tracker",
+            clerk_user_id="clerk_chat_tracker",
+            clerk_issuer="https://example.clerk.accounts.dev",
+            clerk_environment="development",
+        ),
+    )
+
+    assert response.response == "Use low heat."
+    assert recorded.await_args.kwargs["status"] == "success"
+    assert recorded.await_args.kwargs["error_code"] is None
 
 
 def test_provenance_schema_has_no_prompt_or_content_columns():
