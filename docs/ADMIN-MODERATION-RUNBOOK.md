@@ -2,12 +2,12 @@
 
 Last reviewed: 2026-08-19
 
-This runbook describes the server-side foundation for Håfa Recipes moderation. It is intentionally narrower than a database console: operators can review reports, reverse public visibility, curate featured recipes, and recover extraction jobs through explicit domain actions. They cannot browse private recipe bodies, personal notes, chat history, reassign ownership, impersonate users, execute arbitrary SQL, or hard-delete content through these APIs.
+This runbook describes the Håfa Recipes moderation system and its focused `admin/` client. It is intentionally narrower than a database console: operators can review reports, reverse public visibility, curate featured recipes, and recover extraction jobs through explicit domain actions. They cannot browse private recipe bodies, personal notes, chat history, reassign ownership, impersonate users, execute arbitrary SQL, or hard-delete content through these APIs.
 
 ## Trust boundaries
 
 - Clerk authenticates the operator. The JWT must include `public_metadata.role = "admin"`.
-- FastAPI enforces the admin role on every `/api/admin/*` route. The future `admin/` client is not an authorization boundary.
+- FastAPI enforces the admin role on every `/api/admin/*` route. The `admin/` client is not an authorization boundary.
 - Non-admin attempts receive `403` and create a bounded structured warning containing actor ID, method, and route only.
 - Admin searches return public recipe metadata or redacted placeholders. Extraction jobs expose the source hostname, never the full URL, query string, user notes, or provider error body.
 - Normal users can report only currently public, active content and cannot report themselves. A personal block does not prevent a subsequent report, so “block and report” works in either order.
@@ -69,6 +69,14 @@ Render runs the versioned `python -m migrations.run` entrypoint, which currently
 
 The active legacy Render service currently keeps the repository root as its service root, so its dashboard command is `cd api && python -m migrations.run`. The checked-in Blueprint sets `rootDir: api` and therefore uses `python -m migrations.run`. Tests require both configurations to point at the same versioned runner and fail when a newer numbered migration file is not registered.
 
+The admin portal deploys independently from `admin/` as a static Netlify site.
+Its checked-in configuration sets SPA routing, immutable hashed assets, a
+no-store shell, security headers, and the Clerk/API content-security policy.
+Production requires the Clerk browser key and HTTPS API URL at build time. Add
+the exact deployed admin origin to API CORS and any enabled Clerk origin
+restrictions; never use a wildcard. See `admin/README.md` for setup and build
+verification.
+
 Local verification:
 
 ```bash
@@ -93,11 +101,10 @@ After deploy:
 
 Prefer application rollback while leaving migration 022 and its history in place. The new columns and tables are additive; old application code ignores them. Do not drop audit records or disable the append-only trigger as a routine rollback. If public visibility is unexpectedly restrictive, disable the affected release, inspect the shared policy and moderation rows, and restore only through an explicit admin action with a reason.
 
-## Remaining UI work
+## Remaining product and policy work
 
 The backend foundation does not replace the accepted product work:
 
-- build the separate accessible `admin/` desktop interface with confirmations;
 - add intuitive report/block/appeal controls to signed-in consumer surfaces;
 - align support, policy, App Store, Play Store, and website links;
 - obtain appropriate legal/privacy review before publishing changed terms.
