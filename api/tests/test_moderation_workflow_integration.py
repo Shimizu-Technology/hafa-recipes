@@ -2,7 +2,7 @@
 
 import importlib
 import os
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -36,8 +36,12 @@ from app.routers.admin import (
 )
 from app.routers.collections import get_collection_recipes, get_collections
 from app.routers.community_safety import ReportCreate, block_contributor, create_report
-from app.routers.meal_plans import get_week_plan
-from app.routers.recipes import get_public_recipes, get_saved_recipes
+from app.routers.meal_plans import copy_week, get_week_plan
+from app.routers.recipes import (
+    get_public_recipes,
+    get_saved_recipes,
+    get_saved_recipes_count,
+)
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
@@ -179,6 +183,7 @@ async def test_report_block_moderate_and_recover_workflow(monkeypatch):
             assert blocked_view.total == 0
             saved_view = await get_saved_recipes(20, 0, db, reporter)
             assert saved_view.total == 0
+            assert (await get_saved_recipes_count(db, reporter))["count"] == 0
             collections = await get_collections(reporter, db)
             assert collections[0].recipe_count == 0
             assert await get_collection_recipes(str(collection_id), reporter, db) == []
@@ -187,6 +192,16 @@ async def test_report_block_moderate_and_recover_workflow(monkeypatch):
                 day.breakfast or day.lunch or day.dinner or day.snack
                 for day in week.days
             )
+            copied = await copy_week(
+                date.today(), date.today() + timedelta(days=7), db, reporter
+            )
+            assert copied["entries_copied"] == 0
+            assert await db.scalar(
+                select(func.count(MealPlanEntry.id)).where(
+                    MealPlanEntry.user_id == reporter.id,
+                    MealPlanEntry.date >= date.today() + timedelta(days=7),
+                )
+            ) == 0
 
             await review_report(
                 report.id,

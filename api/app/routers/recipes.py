@@ -2197,7 +2197,9 @@ async def get_saved_recipes_count(
     """
     result = await db.execute(
         select(func.count(SavedRecipe.id))
+        .join(Recipe, Recipe.id == SavedRecipe.recipe_id)
         .where(SavedRecipe.user_id == user.id)
+        .where(*public_recipe_conditions(user.id))
     )
     count = result.scalar()
 

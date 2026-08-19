@@ -446,10 +446,12 @@ async def copy_week(
     # Get source week entries
     result = await db.execute(
         select(MealPlanEntry)
+        .join(Recipe, Recipe.id == MealPlanEntry.recipe_id)
         .where(
             MealPlanEntry.user_id == user.id,
             MealPlanEntry.date >= source_start,
-            MealPlanEntry.date <= source_end
+            MealPlanEntry.date <= source_end,
+            *accessible_recipe_conditions(user.id),
         )
     )
     source_entries = result.scalars().all()
