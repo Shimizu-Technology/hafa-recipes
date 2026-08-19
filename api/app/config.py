@@ -157,11 +157,25 @@ class Settings(BaseSettings):
         if self.job_expiry_hours < 1:
             raise ValueError("JOB_EXPIRY_HOURS must be at least 1")
         if not self.database_use_ssl:
-            database_host = urlsplit(self.database_url).hostname
+            parsed_database_url = urlsplit(self.database_url)
+            database_host = parsed_database_url.hostname
             local_database_hosts = {None, "localhost", "127.0.0.1", "::1"}
+            query_hosts = [
+                value
+                for key, value in parse_qsl(
+                    parsed_database_url.query,
+                    keep_blank_values=True,
+                )
+                if key.lower() == "host"
+            ]
+            query_hosts_are_local = all(
+                host in {"localhost", "127.0.0.1", "::1"} or host.startswith("/")
+                for host in query_hosts
+            )
             if (
                 self.environment.lower() != "development"
                 or database_host not in local_database_hosts
+                or not query_hosts_are_local
             ):
                 raise ValueError(
                     "DATABASE_USE_SSL can only be disabled for a local development database"

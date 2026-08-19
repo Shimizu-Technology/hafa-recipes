@@ -122,10 +122,28 @@ def test_remote_database_cannot_disable_ssl_under_default_environment():
 @pytest.mark.parametrize(
     "database_url",
     [
+        "postgresql:///hafa?host=production.example",
+        "postgresql://localhost/hafa?host=production.example",
+    ],
+)
+def test_remote_host_query_cannot_override_local_tls_guard(database_url):
+    with pytest.raises(ValidationError, match="local development database"):
+        Settings(
+            database_url=database_url,
+            database_use_ssl=False,
+            openai_api_key="test-openai-key",
+            environment="development",
+        )
+
+
+@pytest.mark.parametrize(
+    "database_url",
+    [
         "postgresql://localhost/hafa_test",
         "postgresql://127.0.0.1/hafa_test",
         "postgresql://[::1]/hafa_test",
         "postgresql:///hafa_test",
+        "postgresql:///hafa_test?host=%2Fvar%2Frun%2Fpostgresql",
     ],
 )
 def test_ssl_can_only_be_disabled_for_explicitly_local_urls(database_url):
