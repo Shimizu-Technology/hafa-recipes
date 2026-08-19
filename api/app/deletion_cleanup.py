@@ -247,12 +247,12 @@ class DurableDeletionCleanupWorker:
 
         try:
             failures = []
-            for operation in (
-                self._delete_storage_prefixes(storage_prefixes),
-                self._delete_clerk_identities(clerk_identities),
+            for operation, targets in (
+                (self._delete_storage_prefixes, storage_prefixes),
+                (self._delete_clerk_identities, clerk_identities),
             ):
                 try:
-                    await operation
+                    await operation(targets)
                 except Exception as error:
                     failures.append(error)
                     sentry_sdk.capture_exception(error)
