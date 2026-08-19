@@ -9,6 +9,7 @@ from app.auth import ClerkUser, get_current_user
 from app.config import get_settings
 from app.db import get_db
 from app.deletion_cleanup import deletion_cleanup_worker, hash_auth_identity
+from app.media_lifecycle import acquire_recipe_media_lock
 from app.models.deletion import DeletedAuthIdentity, DeletionCleanupJob
 from app.models.grocery import GroceryItem, GroceryList, GroceryListInvite, GroceryListMember
 from app.models.identity import AppUser, ClerkIdentity
@@ -81,6 +82,8 @@ async def delete_account(
 
         recipe_result = await db.execute(select(Recipe.id).where(Recipe.user_id == user_id))
         recipe_ids = [row[0] for row in recipe_result.all()]
+        for recipe_id in sorted(recipe_ids, key=str):
+            await acquire_recipe_media_lock(db, recipe_id)
         collection_result = await db.execute(
             select(Collection.id).where(Collection.user_id == user_id)
         )

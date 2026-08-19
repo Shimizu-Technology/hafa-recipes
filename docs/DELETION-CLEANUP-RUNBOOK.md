@@ -46,6 +46,12 @@ lease token, and recovers expired leases after deploys or process exits. Each
 attempt visits every storage prefix and Clerk alias even if another target
 fails. S3 prefix deletion and Clerk `404` responses are idempotent.
 
+Recipe thumbnail writes and recipe/account deletion share a transaction-scoped
+PostgreSQL advisory lock per recipe. A delete waits for an in-progress write;
+after deletion commits, a waiting or newly started upload re-checks recipe
+existence and is rejected before S3. This prevents an overlapping edit or
+re-extraction from recreating media after the worker's prefix scan.
+
 Retries use exponential backoff beginning at 15 seconds, capped at one hour and
 at `DELETION_CLEANUP_MAX_ATTEMPTS` (default 20). Error records store only the
 exception class, not provider responses, credentials, or subjects.

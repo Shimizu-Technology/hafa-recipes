@@ -66,6 +66,8 @@ foundation in B6:
 - recipe and account deletion cover legacy and content-addressed thumbnails,
   account chat media, meal plans, extraction targets, invites, and remaining
   user references;
+- recipe media writes and deletion share a cross-replica advisory lock so a
+  late edit/re-extraction upload cannot escape the cleanup scan;
 - completed jobs discard raw external target snapshots while retaining bounded
   operational audit metadata;
 - recipe image writes use immutable content-addressed keys, so image changes

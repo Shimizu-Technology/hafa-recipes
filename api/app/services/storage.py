@@ -15,6 +15,7 @@ from app.image_validation import (
     decode_and_validate_base64_image,
     validate_image_bytes,
 )
+from app.media_lifecycle import recipe_media_upload_guard
 from app.security import PublicHTTPTransport
 
 MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024
@@ -143,16 +144,18 @@ class StorageService:
             image_hash = hashlib.sha256(image_data).hexdigest()
             s3_key = f"thumbnails/{recipe_id}/{image_hash}.{extension}"
             
-            print(f"📤 Uploading to S3: {s3_key}")
-            
-            self.client.put_object(
-                Bucket=self.bucket_name,
-                Key=s3_key,
-                Body=image_data,
-                ContentType=content_type,
-                CacheControl="public, max-age=31536000, immutable",
-                # Note: Public access is controlled by bucket policy, not ACL
-            )
+            async with recipe_media_upload_guard(recipe_id) as recipe_exists:
+                if not recipe_exists:
+                    return None
+                print(f"📤 Uploading to S3: {s3_key}")
+                self.client.put_object(
+                    Bucket=self.bucket_name,
+                    Key=s3_key,
+                    Body=image_data,
+                    ContentType=content_type,
+                    CacheControl="public, max-age=31536000, immutable",
+                    # Note: Public access is controlled by bucket policy, not ACL
+                )
             
             # Generate public URL
             settings = get_settings()
@@ -287,15 +290,17 @@ class StorageService:
             image_hash = hashlib.sha256(image_data).hexdigest()
             s3_key = f"thumbnails/{recipe_id}/{image_hash}.{extension}"
             
-            print(f"📤 Uploading to S3: {s3_key}")
-            
-            self.client.put_object(
-                Bucket=self.bucket_name,
-                Key=s3_key,
-                Body=image_data,
-                ContentType=content_type,
-                CacheControl="public, max-age=31536000, immutable",
-            )
+            async with recipe_media_upload_guard(recipe_id) as recipe_exists:
+                if not recipe_exists:
+                    return None
+                print(f"📤 Uploading to S3: {s3_key}")
+                self.client.put_object(
+                    Bucket=self.bucket_name,
+                    Key=s3_key,
+                    Body=image_data,
+                    ContentType=content_type,
+                    CacheControl="public, max-age=31536000, immutable",
+                )
             
             # Generate public URL
             settings = get_settings()

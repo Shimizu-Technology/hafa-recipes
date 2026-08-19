@@ -1,5 +1,6 @@
 import hashlib
 import io
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -7,6 +8,11 @@ from PIL import Image
 
 import app.services.storage as storage
 from app.services.storage import StorageCleanupError, StorageService
+
+
+@asynccontextmanager
+async def _existing_recipe_guard(_recipe_id):
+    yield True
 
 
 def _png_bytes(color: str) -> bytes:
@@ -37,6 +43,7 @@ async def test_thumbnail_upload_uses_content_hash_and_immutable_cache(monkeypatc
             aws_secret_access_key="secret",
         ),
     )
+    monkeypatch.setattr(storage, "recipe_media_upload_guard", _existing_recipe_guard)
     service = StorageService()
     service._client = fake_s3
     first_image = _png_bytes("red")
@@ -55,6 +62,36 @@ async def test_thumbnail_upload_uses_content_hash_and_immutable_cache(monkeypatc
     assert second_url and second_url.endswith(f"/thumbnails/recipe-id/{second_hash}.png")
     assert first_url != second_url
     assert fake_s3.puts[0]["CacheControl"] == "public, max-age=31536000, immutable"
+
+
+@pytest.mark.asyncio
+async def test_thumbnail_upload_is_rejected_after_recipe_deletion(monkeypatch):
+    @asynccontextmanager
+    async def deleted_recipe_guard(_recipe_id):
+        yield False
+
+    fake_s3 = RecordingS3()
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_enabled=True,
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+        ),
+    )
+    monkeypatch.setattr(storage, "recipe_media_upload_guard", deleted_recipe_guard)
+    service = StorageService()
+    service._client = fake_s3
+
+    result = await service.upload_thumbnail_from_bytes(
+        _png_bytes("red"),
+        "11111111-1111-4111-8111-111111111111",
+        "image/png",
+    )
+
+    assert result is None
+    assert fake_s3.puts == []
 
 
 class DeletingS3:

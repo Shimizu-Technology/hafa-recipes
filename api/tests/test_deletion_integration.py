@@ -1,5 +1,6 @@
 """PostgreSQL integration coverage for authoritative local deletion."""
 
+import asyncio
 import os
 from datetime import date
 
@@ -8,6 +9,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.deletion_cleanup as cleanup
+import app.media_lifecycle as media_lifecycle
 from app.auth import ClerkUser
 from app.config import Settings
 from app.db.database import Base
@@ -313,3 +315,37 @@ async def test_worker_retries_failed_storage_after_still_attempting_clerk(
         assert retrying.next_attempt_at is not None
         assert retrying.storage_prefixes == [f"thumbnails/{recipe_id}/"]
     assert deleted_subjects == ["clerk_subject"]
+
+
+@pytest.mark.asyncio
+async def test_recipe_delete_waits_for_upload_and_blocks_late_uploads(
+    deletion_database,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        media_lifecycle,
+        "AsyncSessionLocal",
+        deletion_database,
+    )
+    async with deletion_database() as setup:
+        setup.add(AppUser(id="stable_user"))
+        recipe = _recipe("stable_user", "Race-safe")
+        setup.add(recipe)
+        await setup.commit()
+        recipe_id = recipe.id
+
+    async def delete_in_separate_transaction():
+        async with deletion_database() as db:
+            return await delete_recipe(recipe_id=recipe_id, db=db, user=_user())
+
+    async with media_lifecycle.recipe_media_upload_guard(recipe_id) as recipe_exists:
+        assert recipe_exists is True
+        deletion_task = asyncio.create_task(delete_in_separate_transaction())
+        await asyncio.sleep(0.1)
+        assert deletion_task.done() is False
+
+    response = await deletion_task
+    assert response["cleanup"]["status"] == "queued"
+
+    async with media_lifecycle.recipe_media_upload_guard(recipe_id) as recipe_exists:
+        assert recipe_exists is False

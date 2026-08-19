@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.db import get_db
 from app.deletion_cleanup import deletion_cleanup_worker
 from app.image_validation import ImageValidationError, ValidatedImage, validate_image_bytes
+from app.media_lifecycle import acquire_recipe_media_lock
 from app.models.deletion import DeletionCleanupJob
 from app.models.meal_plan import MealPlanEntry
 from app.models.recipe import (
@@ -1585,6 +1586,7 @@ async def delete_recipe(
 
     Only the recipe owner can delete it.
     """
+    await acquire_recipe_media_lock(db, recipe_id)
     result = await db.execute(
         select(Recipe).where(Recipe.id == recipe_id).with_for_update()
     )
