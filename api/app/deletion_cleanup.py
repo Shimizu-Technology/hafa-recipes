@@ -65,6 +65,14 @@ def is_allowed_cleanup_prefix(prefix: str) -> bool:
     return False
 
 
+def capture_sanitized_cleanup_failure(error: Exception) -> None:
+    """Report failure type without sending provider URLs or target identifiers."""
+    sentry_sdk.capture_message(
+        f"Deletion cleanup target failed: {type(error).__name__}",
+        level="error",
+    )
+
+
 def apply_cleanup_claim(job: DeletionCleanupJob, now: datetime) -> None:
     """Claim an already locked cleanup row with a fenced lease."""
     job.status = "processing"
@@ -255,7 +263,7 @@ class DurableDeletionCleanupWorker:
                     await operation(targets)
                 except Exception as error:
                     failures.append(error)
-                    sentry_sdk.capture_exception(error)
+                    capture_sanitized_cleanup_failure(error)
             if failures:
                 raise RuntimeError("One or more external cleanup targets failed")
         except asyncio.CancelledError:
@@ -302,7 +310,7 @@ class DurableDeletionCleanupWorker:
                 await storage_service.delete_prefix(prefix)
             except Exception as error:
                 failures += 1
-                sentry_sdk.capture_exception(error)
+                capture_sanitized_cleanup_failure(error)
         if failures:
             raise StorageCleanupError(
                 f"Unable to clean {failures} object-storage target(s)"
@@ -326,7 +334,7 @@ class DurableDeletionCleanupWorker:
                     raise RuntimeError("Clerk account deletion was not confirmed")
             except Exception as error:
                 failures += 1
-                sentry_sdk.capture_exception(error)
+                capture_sanitized_cleanup_failure(error)
         if failures:
             raise RuntimeError(f"Unable to clean {failures} Clerk account target(s)")
 

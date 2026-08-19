@@ -11,6 +11,7 @@ from app.deletion_cleanup import (
     DurableDeletionCleanupWorker,
     apply_cleanup_claim,
     apply_cleanup_retry,
+    capture_sanitized_cleanup_failure,
     claimable_cleanup_query,
     hash_auth_identity,
     is_allowed_cleanup_prefix,
@@ -61,6 +62,22 @@ def test_cleanup_prefixes_are_narrowly_allowlisted():
     assert is_allowed_cleanup_prefix("chat-images/") is False
     assert is_allowed_cleanup_prefix("chat-images/user/child/") is False
     assert is_allowed_cleanup_prefix("../") is False
+
+
+def test_cleanup_failure_reporting_excludes_provider_details(monkeypatch):
+    captured = []
+    monkeypatch.setattr(
+        cleanup.sentry_sdk,
+        "capture_message",
+        lambda message, *, level: captured.append((message, level)),
+    )
+
+    capture_sanitized_cleanup_failure(
+        RuntimeError("https://provider.example/users/private_subject")
+    )
+
+    assert captured == [("Deletion cleanup target failed: RuntimeError", "error")]
+    assert "private_subject" not in captured[0][0]
 
 
 def test_cleanup_claim_uses_fenced_lease_and_increments_attempt():
