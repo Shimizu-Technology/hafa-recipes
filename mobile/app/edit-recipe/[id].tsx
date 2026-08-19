@@ -78,7 +78,7 @@ export default function EditRecipeScreen() {
   const [totalTime, setTotalTime] = useState('');
   const [notes, setNotes] = useState('');
   const [tags, setTags] = useState('');
-  const [isPublic, setIsPublic] = useState(true);
+  const [isPublic, setIsPublic] = useState(false);
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [newImageUri, setNewImageUri] = useState<string | null>(null);
   
@@ -1164,4 +1164,3 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
 });
-

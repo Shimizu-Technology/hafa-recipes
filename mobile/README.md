@@ -61,9 +61,9 @@ cutover release; the app also verifies that it matches the `pk_test_` or
 - **Save/Bookmark** - Save others' recipes to your collection
 
 ### AI-Powered
-- **Video Extraction** - Gemini 2.0 Flash extracts from cooking videos
-- **Photo OCR** - Gemini 2.0 Flash Vision reads handwritten/printed recipes
-- **Recipe Chat** - Ask questions, get substitutions, scaling tips (GPT-4o)
+- **Video Extraction** - OpenAI extracts structured recipes from cooking videos
+- **Photo OCR** - OpenAI vision reads handwritten and printed recipes
+- **Recipe Chat** - Ask questions and get substitutions or scaling tips
 - **Auto Tags** - AI-suggested tags for manual recipes
 - **Nutrition Estimation** - AI estimates nutrition for manual recipes
 

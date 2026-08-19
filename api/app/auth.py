@@ -326,7 +326,7 @@ async def get_optional_user(
 ) -> ClerkUser | None:
     if credentials is None:
         return None
-    try:
-        return await get_current_user(credentials=credentials, db=db)
-    except HTTPException:
-        return None
+    # Supplying an invalid or expired credential is not the same as making an
+    # anonymous request. Preserve the 401 so clients can recover their session
+    # instead of silently receiving guest-shaped data.
+    return await get_current_user(credentials=credentials, db=db)

@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from app.config import Settings
 
 
@@ -87,3 +90,75 @@ def test_unconfigured_legacy_clerk_settings_do_not_create_placeholder_issuer():
 
     assert settings.clerk_issuer == ""
     assert settings.clerk_environments == ()
+
+
+def test_local_database_can_disable_ssl_but_production_cannot():
+    local = Settings(
+        database_url="postgresql://localhost/hafa_test",
+        database_use_ssl=False,
+        openai_api_key="test-openai-key",
+        environment="development",
+    )
+    assert local.database_use_ssl is False
+
+    with pytest.raises(ValidationError, match="DATABASE_USE_SSL"):
+        Settings(
+            database_url="postgresql://production.example/hafa",
+            database_use_ssl=False,
+            openai_api_key="test-openai-key",
+            environment="production",
+        )
+
+
+def test_remote_database_cannot_disable_ssl_under_default_environment():
+    with pytest.raises(ValidationError, match="local development database"):
+        Settings(
+            database_url="postgresql://production.example/hafa",
+            database_use_ssl=False,
+            openai_api_key="test-openai-key",
+        )
+
+
+@pytest.mark.parametrize(
+    "database_url",
+    [
+        "postgresql:///hafa?host=production.example",
+        "postgresql://localhost/hafa?host=production.example",
+        "postgresql:///hafa?hostaddr=203.0.113.10",
+        "postgresql://localhost/hafa?hostaddr=203.0.113.10",
+        "postgresql:///hafa?service=production",
+        "postgresql://localhost/hafa?servicefile=%2Ftmp%2Fpg_service.conf",
+        "postgresql:///hafa",
+    ],
+)
+def test_remote_query_target_cannot_override_local_tls_guard(database_url):
+    with pytest.raises(ValidationError, match="local development database"):
+        Settings(
+            database_url=database_url,
+            database_use_ssl=False,
+            openai_api_key="test-openai-key",
+            environment="development",
+        )
+
+
+@pytest.mark.parametrize(
+    "database_url",
+    [
+        "postgresql://localhost/hafa_test",
+        "postgresql://127.0.0.1/hafa_test",
+        "postgresql://[::1]/hafa_test",
+        "postgresql:///hafa_test?host=%2Fvar%2Frun%2Fpostgresql",
+        "postgresql:///hafa_test?hostaddr=127.0.0.1",
+        "postgresql://localhost/hafa_test?hostaddr=127.0.0.1",
+        "postgresql://localhost/hafa_test?hostaddr=%3A%3A1",
+    ],
+)
+def test_ssl_can_only_be_disabled_for_explicitly_local_urls(database_url):
+    settings = Settings(
+        database_url=database_url,
+        database_use_ssl=False,
+        openai_api_key="test-openai-key",
+        environment="development",
+    )
+
+    assert settings.database_use_ssl is False

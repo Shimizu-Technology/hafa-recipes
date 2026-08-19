@@ -144,3 +144,24 @@ def test_verify_clerk_token_allows_missing_party_for_native_tokens_by_default(
     verified = auth.verify_clerk_token("header.payload.signature")
 
     assert verified.subject == "user_prod"
+
+
+@pytest.mark.asyncio
+async def test_optional_user_allows_requests_without_credentials():
+    assert await auth.get_optional_user(credentials=None, db=SimpleNamespace()) is None
+
+
+@pytest.mark.asyncio
+async def test_optional_user_preserves_invalid_credential_error(monkeypatch):
+    async def reject_credentials(**_kwargs):
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    monkeypatch.setattr(auth, "get_current_user", reject_credentials)
+
+    with pytest.raises(HTTPException) as error:
+        await auth.get_optional_user(
+            credentials=SimpleNamespace(credentials="expired-token"),
+            db=SimpleNamespace(),
+        )
+
+    assert error.value.status_code == 401

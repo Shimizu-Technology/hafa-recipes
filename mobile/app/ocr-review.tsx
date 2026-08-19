@@ -272,6 +272,10 @@ export default function OCRReviewScreen() {
           ]}
           onPress={() => setIsPublic(!isPublic)}
           activeOpacity={0.7}
+          accessibilityRole="switch"
+          accessibilityLabel="Share recipe to the public library"
+          accessibilityHint="Off keeps this recipe visible only to you"
+          accessibilityState={{ checked: isPublic }}
         >
           <RNView style={styles.shareToggleContent}>
             <Ionicons
@@ -291,6 +295,7 @@ export default function OCRReviewScreen() {
           <Switch
             value={isPublic}
             onValueChange={setIsPublic}
+            accessibilityLabel="Share recipe to the public library"
             trackColor={{ false: colors.border, true: colors.tint }}
             thumbColor="#FFFFFF"
           />
@@ -497,4 +502,3 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
-

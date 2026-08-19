@@ -60,8 +60,11 @@ export default function AllContributorsModal({
     setSearchQuery('');
   };
 
+  const getContributorId = (contributor: Contributor) =>
+    contributor.contributor_id ?? contributor.user_id;
+
   const renderContributor = ({ item }: { item: Contributor }) => {
-    const isSelected = selectedContributorId === item.user_id;
+    const isSelected = selectedContributorId === getContributorId(item);
     
     return (
       <TouchableOpacity
@@ -162,7 +165,7 @@ export default function AllContributorsModal({
             <FlatList
               data={filteredContributors}
               renderItem={renderContributor}
-              keyExtractor={(item) => item.user_id}
+              keyExtractor={getContributorId}
               contentContainerStyle={styles.list}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
@@ -266,4 +269,3 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
   },
 });
-

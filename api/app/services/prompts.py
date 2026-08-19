@@ -1,4 +1,4 @@
-"""Extraction prompts for GPT-4o-mini recipe extraction."""
+"""Provider-neutral prompts for structured recipe extraction."""
 
 
 def get_recipe_extraction_prompt(source_url: str, content: str, location: str = "Guam") -> str:
@@ -111,7 +111,6 @@ Return a JSON object with this structure:
     "total": {{"calories": 800, "protein": 40, "carbs": 120, "fat": 20, "fiber": 8, "sugar": 4, "sodium": 1200}}
   }}
 }}"""
-
 
 # Schema definition for structured output
 RECIPE_SCHEMA = {
@@ -422,4 +421,3 @@ Return a JSON object with this structure:
     "total": {{"calories": 800, "protein": 40, "carbs": 120, "fat": 20, "fiber": 8, "sugar": 4, "sodium": 1200}}
   }}
 }}"""
-

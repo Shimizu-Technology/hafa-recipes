@@ -24,6 +24,8 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { TimerProvider } from '@/contexts/TimerContext';
+import { ExtractionProvider } from '@/contexts/ExtractionContext';
+import { shouldClearPrivateQueryCache } from '@/lib/authCache';
 import { queryClient } from '@/lib/queryClient';
 import { tokenCache, CLERK_PUBLISHABLE_KEY } from '@/lib/auth';
 import { api } from '@/lib/api';
@@ -153,8 +155,8 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
   const { getToken, isSignedIn, isLoaded } = useAuth();
   const { user } = useUser();
   
-  // Track the previous user ID to detect user changes
-  const previousUserIdRef = useRef<string | null>(null);
+  // `undefined` means Clerk has not produced the first loaded identity yet.
+  const previousUserIdRef = useRef<string | null | undefined>(undefined);
 
   // Use useLayoutEffect to set token getter BEFORE children render/effects run
   // This ensures token is available before any API calls
@@ -173,25 +175,23 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
     }
   }, [isSignedIn, isLoaded, getToken]);
 
-  // CRITICAL: Clear cache when user changes to prevent data leakage
-  // This handles the case where someone signs out and a different user signs in
-  useEffect(() => {
+  // Clear before descendants run effects for every loaded identity boundary:
+  // user -> signed out, signed out -> user, and direct account switches.
+  useLayoutEffect(() => {
     if (!isLoaded) return;
-    
+
     const currentUserId = user?.id ?? null;
     const previousUserId = previousUserIdRef.current;
-    
-    // If user changed (including sign out -> sign in as different user)
-    if (previousUserId !== null && currentUserId !== null && previousUserId !== currentUserId) {
-      console.log('User changed, clearing cached data');
+
+    if (shouldClearPrivateQueryCache(previousUserId, currentUserId)) {
+      void queryClient.cancelQueries();
       queryClient.clear();
       addBreadcrumb('auth', 'Query cache cleared due to user change', {
-        previousUserId,
+        previousUserId: previousUserId ?? 'signed-out',
         newUserId: currentUserId,
       });
     }
-    
-    // Update the ref for next comparison
+
     previousUserIdRef.current = currentUserId;
   }, [user?.id, isLoaded]);
 
@@ -234,44 +234,46 @@ function RootLayoutNav() {
     <QueryClientProvider client={queryClient}>
       <NavigationThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <TimerProvider>
-        <AuthTokenSync>
-          <AuthProtection>
-            <ShareIntentHandler>
-            {/* Global offline indicator */}
-            <OfflineBanner />
-            {/* Floating timer when leaving cook mode with active timers */}
-            <FloatingTimerOverlay />
-            {/* Floating chat button for cooking assistant */}
-            <FloatingChatButton />
-            <Stack
-              screenOptions={{
-                headerStyle: { backgroundColor: colors.background },
-                headerTintColor: colors.tint,
-                headerTitleStyle: { color: colors.text, fontWeight: '600', fontFamily: 'DMSans_600SemiBold' },
-                headerShadowVisible: false,
-                headerBackTitle: 'Back',
-              }}
-            >
-              <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen 
-                name="recipe/[id]" 
-                options={{ 
-                  headerTitle: 'Recipe',
-                }} 
-              />
-              <Stack.Screen 
-                name="add-recipe" 
-                options={{ 
-                  headerTitle: 'Add Recipe',
-                  presentation: 'modal',
-                }} 
-              />
-              <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-            </Stack>
-            </ShareIntentHandler>
-          </AuthProtection>
-        </AuthTokenSync>
+          <AuthTokenSync>
+            <ExtractionProvider>
+              <AuthProtection>
+                <ShareIntentHandler>
+                  {/* Global offline indicator */}
+                  <OfflineBanner />
+                  {/* Floating timer when leaving cook mode with active timers */}
+                  <FloatingTimerOverlay />
+                  {/* Floating chat button for cooking assistant */}
+                  <FloatingChatButton />
+                  <Stack
+                    screenOptions={{
+                      headerStyle: { backgroundColor: colors.background },
+                      headerTintColor: colors.tint,
+                      headerTitleStyle: { color: colors.text, fontWeight: '600', fontFamily: 'DMSans_600SemiBold' },
+                      headerShadowVisible: false,
+                      headerBackTitle: 'Back',
+                    }}
+                  >
+                    <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+                    <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                    <Stack.Screen
+                      name="recipe/[id]"
+                      options={{
+                        headerTitle: 'Recipe',
+                      }}
+                    />
+                    <Stack.Screen
+                      name="add-recipe"
+                      options={{
+                        headerTitle: 'Add Recipe',
+                        presentation: 'modal',
+                      }}
+                    />
+                    <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+                  </Stack>
+                </ShareIntentHandler>
+              </AuthProtection>
+            </ExtractionProvider>
+          </AuthTokenSync>
         </TimerProvider>
       </NavigationThemeProvider>
     </QueryClientProvider>

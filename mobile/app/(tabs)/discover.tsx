@@ -60,6 +60,10 @@ import Animated, {
 
 const ITEMS_PER_PAGE = 20;
 
+function getContributorId(value: { contributor_id?: string | null; user_id?: string | null }): string | null {
+  return value.contributor_id ?? value.user_id ?? null;
+}
+
 // Save/Bookmark button component with heart pulse animation
 function SaveButton({
   recipeId,
@@ -177,14 +181,15 @@ function RecipeCard({
           : 'globe-outline';
 
   const showPlaceholder = !recipe.thumbnail_url || imageError;
-  const isOwner = recipe.user_id === currentUserId;
+  const isOwner = recipe.is_owner ?? recipe.user_id === currentUserId;
+  const contributorId = getContributorId(recipe);
 
   // Format attribution text
   const relativeTime = formatRelativeTime(recipe.created_at);
   const extractorName = isOwner
     ? 'you'
     : recipe.extractor_display_name || null;
-  const canFilterByUser = !isOwner && recipe.extractor_display_name && recipe.user_id;
+  const canFilterByUser = !isOwner && recipe.extractor_display_name && contributorId;
 
   return (
     <ScalePressable
@@ -271,7 +276,7 @@ function RecipeCard({
                   <TouchableOpacity
                     onPress={(e) => {
                       e.stopPropagation?.();
-                      onUserPress(recipe.user_id!, recipe.extractor_display_name!);
+                      onUserPress(contributorId!, recipe.extractor_display_name!);
                     }}
                     hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                   >
@@ -317,8 +322,9 @@ function GridRecipeCard({
   const showPlaceholder = !recipe.thumbnail_url || imageError;
 
   // Can filter by this user if they have a user_id and display name, and it's not the current user
-  const canFilterByUser = recipe.user_id && recipe.extractor_display_name && recipe.user_id !== currentUserId;
-  const isOwner = recipe.user_id === currentUserId;
+  const contributorId = getContributorId(recipe);
+  const isOwner = recipe.is_owner ?? recipe.user_id === currentUserId;
+  const canFilterByUser = contributorId && recipe.extractor_display_name && !isOwner;
 
   return (
     <ScalePressable
@@ -371,7 +377,7 @@ function GridRecipeCard({
                 onPress={(e) => {
                   e.stopPropagation?.();
                   haptics.light();
-                  onUserPress(recipe.user_id!, recipe.extractor_display_name!);
+                  onUserPress(contributorId!, recipe.extractor_display_name!);
                 }}
                 hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
               >
@@ -538,7 +544,7 @@ export default function DiscoverScreen() {
 
     // Filter out user's own recipes if toggle is on
     if (hideMyRecipes && userId && result) {
-      result = result.filter(recipe => recipe.user_id !== userId);
+      result = result.filter(recipe => !(recipe.is_owner ?? recipe.user_id === userId));
     }
 
     return result;
@@ -961,11 +967,11 @@ export default function DiscoverScreen() {
             </Text>
             {matchingContributors.map((contributor) => (
               <TouchableOpacity
-                key={contributor.user_id}
+                key={getContributorId(contributor)}
                 style={[styles.usernameSuggestionItem, { borderColor: colors.border }]}
                 onPress={() => {
                   haptics.light();
-                  setSelectedExtractor({ id: contributor.user_id, name: contributor.display_name });
+                  setSelectedExtractor({ id: getContributorId(contributor)!, name: contributor.display_name });
                   setSearchQuery('');
                   setDisplayCount(ITEMS_PER_PAGE);
                 }}
@@ -1067,11 +1073,12 @@ export default function DiscoverScreen() {
               contentContainerStyle={styles.contributorsScroll}
               keyboardShouldPersistTaps="handled"
             >
-              {topContributors.map((contributor: { user_id: string; display_name: string; recipe_count: number }) => {
-                const isSelected = selectedExtractor?.id === contributor.user_id;
+              {topContributors.map((contributor: { user_id: string; contributor_id?: string; display_name: string; recipe_count: number }) => {
+                const contributorId = getContributorId(contributor)!;
+                const isSelected = selectedExtractor?.id === contributorId;
                 return (
                   <TouchableOpacity
-                    key={contributor.user_id}
+                    key={contributorId}
                     style={[
                       styles.contributorChip,
                       {
@@ -1084,7 +1091,7 @@ export default function DiscoverScreen() {
                       if (isSelected) {
                         clearExtractorFilter();
                       } else {
-                        setSelectedExtractor({ id: contributor.user_id, name: contributor.display_name });
+                        setSelectedExtractor({ id: contributorId, name: contributor.display_name });
                         setDisplayCount(ITEMS_PER_PAGE);
                       }
                     }}
@@ -1156,7 +1163,7 @@ export default function DiscoverScreen() {
         visible={showAllContributors}
         onClose={() => setShowAllContributors(false)}
         onSelectContributor={(contributor) => {
-          setSelectedExtractor({ id: contributor.user_id, name: contributor.display_name });
+          setSelectedExtractor({ id: getContributorId(contributor)!, name: contributor.display_name });
           setDisplayCount(ITEMS_PER_PAGE);
         }}
         selectedContributorId={selectedExtractor?.id}
@@ -1737,4 +1744,3 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
 });
-

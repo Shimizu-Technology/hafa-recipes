@@ -5,8 +5,8 @@ from typing import Optional
 
 import sentry_sdk
 
-from app.services.llm_client import llm_service  # New: Gemini + GPT fallback
-from app.services.openai_client import openai_service  # Still used for Whisper
+from app.services.llm_client import llm_service
+from app.services.openai_client import openai_service  # Used for transcription
 from app.services.video import VideoMetadata, VideoService, video_service
 
 
@@ -380,7 +380,7 @@ class RecipeExtractor:
         if audio_file_path:
             video_service.cleanup_audio_file(audio_file_path)
         
-        # Step 4: Extract recipe with LLM (Gemini primary, GPT fallback)
+        # Step 4: Extract the recipe with the configured OpenAI model chain.
         if not combined_content.strip():
             # If we had an audio error with a specific cause, use that
             if audio_error_code and audio_friendly_error:
@@ -403,7 +403,7 @@ class RecipeExtractor:
                     extras={
                         "url": url,
                         "platform": platform,
-                        "has_cookies": video_service._get_instagram_cookies_path() is not None,
+                        "has_cookies": video_service.instagram_cookies_configured,
                     },
                     tags={
                         "platform": "instagram",
@@ -494,7 +494,7 @@ class RecipeExtractor:
         Extract recipe from a TikTok photo/slideshow post using vision AI.
         
         TikTok photo posts are image carousels without audio, so we use
-        Gemini 2.0 Flash Vision to analyze the images directly.
+        the configured multimodal extraction model to analyze the images directly.
         """
         print(f"📸 Starting TikTok photo extraction for: {url}")
         
@@ -626,4 +626,3 @@ class RecipeExtractor:
 
 # Singleton instance
 recipe_extractor = RecipeExtractor()
-
