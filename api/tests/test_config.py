@@ -126,6 +126,9 @@ def test_remote_database_cannot_disable_ssl_under_default_environment():
         "postgresql://localhost/hafa?host=production.example",
         "postgresql:///hafa?hostaddr=203.0.113.10",
         "postgresql://localhost/hafa?hostaddr=203.0.113.10",
+        "postgresql:///hafa?service=production",
+        "postgresql://localhost/hafa?servicefile=%2Ftmp%2Fpg_service.conf",
+        "postgresql:///hafa",
     ],
 )
 def test_remote_query_target_cannot_override_local_tls_guard(database_url):
@@ -144,8 +147,8 @@ def test_remote_query_target_cannot_override_local_tls_guard(database_url):
         "postgresql://localhost/hafa_test",
         "postgresql://127.0.0.1/hafa_test",
         "postgresql://[::1]/hafa_test",
-        "postgresql:///hafa_test",
         "postgresql:///hafa_test?host=%2Fvar%2Frun%2Fpostgresql",
+        "postgresql:///hafa_test?hostaddr=127.0.0.1",
         "postgresql://localhost/hafa_test?hostaddr=127.0.0.1",
         "postgresql://localhost/hafa_test?hostaddr=%3A%3A1",
     ],
