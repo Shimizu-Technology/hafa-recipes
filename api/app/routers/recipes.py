@@ -472,11 +472,11 @@ def _build_edited_extracted(
                 "protein": edit.nutrition.protein if edit.nutrition else old_per_serving.get("protein"),
                 "carbs": edit.nutrition.carbs if edit.nutrition else old_per_serving.get("carbs"),
                 "fat": edit.nutrition.fat if edit.nutrition else old_per_serving.get("fat"),
-                "fiber": old_per_serving.get("fiber"),
-                "sugar": old_per_serving.get("sugar"),
-                "sodium": old_per_serving.get("sodium"),
+                "fiber": None if edit.nutrition_recalculated else old_per_serving.get("fiber"),
+                "sugar": None if edit.nutrition_recalculated else old_per_serving.get("sugar"),
+                "sodium": None if edit.nutrition_recalculated else old_per_serving.get("sodium"),
             },
-            "total": old_nutrition.get("total") or {},
+            "total": {} if edit.nutrition_recalculated else old_nutrition.get("total") or {},
         },
     }
     return invalidate_changed_inputs(

@@ -78,6 +78,8 @@ def test_editing_dependencies_marks_preserved_estimates_stale():
 
 def test_explicit_nutrition_recalculation_marks_only_nutrition_current():
     old = mark_fresh(recipe(), "nutrition", "cost", source="ai_extraction")
+    old["nutrition"]["perServing"]["fiber"] = 8
+    old["nutrition"]["total"] = {"calories": 800, "fiber": 32}
 
     result = invalidate_changed_inputs(
         old,
@@ -88,6 +90,36 @@ def test_explicit_nutrition_recalculation_marks_only_nutrition_current():
     assert result["derivedData"]["nutrition"]["status"] == "current"
     assert result["derivedData"]["nutrition"]["source"] == "ai_estimate"
     assert result["derivedData"]["cost"]["status"] == "stale"
+
+
+def test_recipe_edit_clears_unsupported_nutrients_after_recalculation():
+    old = recipe()
+    old["nutrition"]["perServing"].update({"fiber": 8, "sugar": 4, "sodium": 250})
+    old["nutrition"]["total"] = {"calories": 800, "fiber": 32}
+    edit = RecipeEdit(
+        title="Updated",
+        servings=4,
+        ingredients=[{"name": "rice"}],
+        steps=["Cook"],
+        nutrition={"calories": 210, "protein": 4, "carbs": 45, "fat": 1},
+        nutrition_recalculated=True,
+        nutrition_model="gpt-5.6-luna",
+    )
+
+    result = _build_edited_extracted(old, edit)
+
+    assert result["nutrition"]["perServing"] == {
+        "calories": 210,
+        "protein": 4,
+        "carbs": 45,
+        "fat": 1,
+        "fiber": None,
+        "sugar": None,
+        "sodium": None,
+    }
+    assert result["nutrition"]["total"] == {}
+    assert result["derivedData"]["nutrition"]["status"] == "current"
+    assert result["derivedData"]["nutrition"]["model"] == "gpt-5.6-luna"
 
 
 def test_component_aware_edit_preserves_sections_and_legacy_flat_fields():
