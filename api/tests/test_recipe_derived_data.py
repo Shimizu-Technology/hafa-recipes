@@ -125,12 +125,28 @@ def test_recipe_edit_clears_unsupported_nutrients_after_recalculation():
     assert result["derivedData"]["nutrition"]["model"] == "gpt-5.6-luna"
 
 
-def test_recalculation_flag_requires_replacement_nutrition_values():
-    with pytest.raises(ValidationError, match="nutrition is required"):
+@pytest.mark.parametrize(
+    ("nutrition", "message"),
+    [
+        (None, "nutrition is required"),
+        ({}, "calories, protein, carbs, and fat are required"),
+        (
+            {"calories": 200, "protein": 5, "carbs": 40},
+            "calories, protein, carbs, and fat are required",
+        ),
+        (
+            {"calories": -1, "protein": 5, "carbs": 40, "fat": 2},
+            "greater than or equal to 0",
+        ),
+    ],
+)
+def test_recalculation_flag_requires_complete_replacement_nutrition(nutrition, message):
+    with pytest.raises(ValidationError, match=message):
         RecipeEdit(
             title="Invalid freshness claim",
             ingredients=[{"name": "rice"}],
             steps=["Cook"],
+            nutrition=nutrition,
             nutrition_recalculated=True,
         )
 

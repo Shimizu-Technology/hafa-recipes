@@ -5,7 +5,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import String, delete, desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -359,10 +359,10 @@ class ManualComponent(BaseModel):
 
 class ManualNutrition(BaseModel):
     """Nutrition data for manual recipe entry."""
-    calories: Optional[int] = None
-    protein: Optional[int] = None
-    carbs: Optional[int] = None
-    fat: Optional[int] = None
+    calories: Optional[int] = Field(default=None, ge=0, le=100_000)
+    protein: Optional[int] = Field(default=None, ge=0, le=10_000)
+    carbs: Optional[int] = Field(default=None, ge=0, le=10_000)
+    fat: Optional[int] = Field(default=None, ge=0, le=10_000)
 
 
 class RecipeEdit(BaseModel):
@@ -387,6 +387,17 @@ class RecipeEdit(BaseModel):
         """A freshness claim is valid only when replacement values are supplied."""
         if self.nutrition_recalculated and self.nutrition is None:
             raise ValueError("nutrition is required when nutrition_recalculated is true")
+        if self.nutrition_recalculated and self.nutrition is not None:
+            values = (
+                self.nutrition.calories,
+                self.nutrition.protein,
+                self.nutrition.carbs,
+                self.nutrition.fat,
+            )
+            if any(value is None for value in values):
+                raise ValueError(
+                    "calories, protein, carbs, and fat are required for recalculated nutrition"
+                )
         return self
 
 
