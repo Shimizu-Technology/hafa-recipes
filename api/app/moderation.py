@@ -74,21 +74,23 @@ async def verify_moderation_schema(session_factory=AsyncSessionLocal) -> None:
                 """))
             ).scalars().all()
         )
-        report_constraints_current = await db.scalar(text("""
-            SELECT
-                position(
-                    'appeal' IN pg_get_constraintdef(category_constraint.oid)
-                ) > 0
-                AND position(
-                    'IS NOT NULL' IN pg_get_constraintdef(target_constraint.oid)
-                ) = 0
-            FROM pg_constraint AS category_constraint
-            JOIN pg_constraint AS target_constraint
-              ON target_constraint.conrelid = category_constraint.conrelid
-            WHERE category_constraint.conrelid = 'content_reports'::regclass
-              AND category_constraint.conname = 'ck_content_reports_category'
-              AND target_constraint.conname = 'ck_content_reports_target'
-        """))
+        report_constraints_current = False
+        if "content_reports" in required_tables:
+            report_constraints_current = bool(await db.scalar(text("""
+                SELECT
+                    position(
+                        'appeal' IN pg_get_constraintdef(category_constraint.oid)
+                    ) > 0
+                    AND position(
+                        'IS NOT NULL' IN pg_get_constraintdef(target_constraint.oid)
+                    ) = 0
+                FROM pg_constraint AS category_constraint
+                JOIN pg_constraint AS target_constraint
+                  ON target_constraint.conrelid = category_constraint.conrelid
+                WHERE category_constraint.conrelid = 'content_reports'::regclass
+                  AND category_constraint.conname = 'ck_content_reports_category'
+                  AND target_constraint.conname = 'ck_content_reports_target'
+            """)))
         featured_order_index = await db.scalar(text("""
             SELECT EXISTS (
                 SELECT 1 FROM pg_indexes
@@ -96,14 +98,16 @@ async def verify_moderation_schema(session_factory=AsyncSessionLocal) -> None:
                   AND indexname = 'uq_recipes_featured_order'
             )
         """))
-        append_only_trigger = await db.scalar(text("""
-            SELECT EXISTS (
-                SELECT 1 FROM pg_trigger
-                WHERE tgname = 'admin_audit_events_append_only'
-                  AND tgrelid = 'admin_audit_events'::regclass
-                  AND NOT tgisinternal
-            )
-        """))
+        append_only_trigger = False
+        if "admin_audit_events" in required_tables:
+            append_only_trigger = bool(await db.scalar(text("""
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_trigger
+                    WHERE tgname = 'admin_audit_events_append_only'
+                      AND tgrelid = 'admin_audit_events'::regclass
+                      AND NOT tgisinternal
+                )
+            """)))
         if (
             not migration_applied
             or required_tables != {"content_reports", "user_blocks", "admin_audit_events"}
