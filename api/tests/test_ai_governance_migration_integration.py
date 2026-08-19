@@ -17,10 +17,13 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("precreate_partial_table", [False, True])
+@pytest.mark.parametrize(
+    "preexisting_table",
+    ["none", "legacy_constraint_names", "canonical_constraint_collision"],
+)
 async def test_ai_provenance_migration_is_idempotent_repairs_and_cascades_user_data(
     monkeypatch,
-    precreate_partial_table,
+    preexisting_table,
 ):
     assert TEST_DATABASE_URL
     engine = create_async_engine(TEST_DATABASE_URL)
@@ -53,7 +56,7 @@ async def test_ai_provenance_migration_is_idempotent_repairs_and_cascades_user_d
                 VALUES ('11111111-1111-4111-8111-111111111111', 'owner')
             """)
             )
-            if precreate_partial_table:
+            if preexisting_table == "legacy_constraint_names":
                 await conn.execute(
                     text("""
                     CREATE TABLE ai_invocations (
@@ -65,6 +68,22 @@ async def test_ai_provenance_migration_is_idempotent_repairs_and_cascades_user_d
                             FOREIGN KEY (user_id) REFERENCES app_users(id) ON DELETE CASCADE,
                         CONSTRAINT legacy_ai_job_fk
                             FOREIGN KEY (job_id) REFERENCES extraction_jobs(id) ON DELETE SET NULL
+                    )
+                """)
+                )
+            elif preexisting_table == "canonical_constraint_collision":
+                await conn.execute(
+                    text("""
+                    CREATE TABLE ai_invocations (
+                        id UUID,
+                        request_id VARCHAR(64),
+                        user_id VARCHAR(64),
+                        job_id UUID,
+                        CONSTRAINT pk_ai_invocations UNIQUE (id),
+                        CONSTRAINT fk_ai_invocations_user_id_app_users
+                            FOREIGN KEY (user_id) REFERENCES app_users(id) ON DELETE SET NULL,
+                        CONSTRAINT fk_ai_invocations_job_id_extraction_jobs
+                            FOREIGN KEY (job_id) REFERENCES extraction_jobs(id) ON DELETE CASCADE
                     )
                 """)
                 )

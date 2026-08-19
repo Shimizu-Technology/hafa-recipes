@@ -103,6 +103,14 @@ async def run_migration() -> None:
                       AND cardinality(c.conkey) = 1
                       AND a.attname = 'id'
                 ) THEN
+                    IF EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conrelid = 'ai_invocations'::regclass
+                          AND conname = 'pk_ai_invocations'
+                    ) THEN
+                        ALTER TABLE ai_invocations
+                        DROP CONSTRAINT pk_ai_invocations;
+                    END IF;
                     ALTER TABLE ai_invocations
                     ADD CONSTRAINT pk_ai_invocations PRIMARY KEY (id);
                 END IF;
@@ -127,6 +135,14 @@ async def run_migration() -> None:
                       AND c.confdeltype = 'c'
                       AND c.convalidated
                 ) THEN
+                    IF EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conrelid = 'ai_invocations'::regclass
+                          AND conname = 'fk_ai_invocations_user_id_app_users'
+                    ) THEN
+                        ALTER TABLE ai_invocations
+                        DROP CONSTRAINT fk_ai_invocations_user_id_app_users;
+                    END IF;
                     ALTER TABLE ai_invocations
                     ADD CONSTRAINT fk_ai_invocations_user_id_app_users
                     FOREIGN KEY (user_id) REFERENCES app_users(id) ON DELETE CASCADE;
@@ -152,6 +168,14 @@ async def run_migration() -> None:
                       AND c.confdeltype = 'n'
                       AND c.convalidated
                 ) THEN
+                    IF EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conrelid = 'ai_invocations'::regclass
+                          AND conname = 'fk_ai_invocations_job_id_extraction_jobs'
+                    ) THEN
+                        ALTER TABLE ai_invocations
+                        DROP CONSTRAINT fk_ai_invocations_job_id_extraction_jobs;
+                    END IF;
                     ALTER TABLE ai_invocations
                     ADD CONSTRAINT fk_ai_invocations_job_id_extraction_jobs
                     FOREIGN KEY (job_id) REFERENCES extraction_jobs(id) ON DELETE SET NULL;
