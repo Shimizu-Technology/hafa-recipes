@@ -154,6 +154,7 @@ async def test_report_block_moderate_and_recover_workflow(monkeypatch):
             )
             assert visible.total == 1
 
+            await block_contributor(public_contributor_id(contributor.id), db, reporter)
             report = await create_report(
                 ReportCreate(
                     target_type="recipe",
@@ -165,7 +166,6 @@ async def test_report_block_moderate_and_recover_workflow(monkeypatch):
                 reporter,
             )
             assert report.target_id == str(recipe_id)
-            await block_contributor(public_contributor_id(contributor.id), db, reporter)
             blocked_view = await get_public_recipes(
                 limit=20,
                 offset=0,

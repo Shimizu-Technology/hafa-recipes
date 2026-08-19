@@ -126,7 +126,7 @@ async def create_report(
         if (
             recipe is None
             or recipe.user_id == user.id
-            or not await is_publicly_viewable(db, recipe, user.id)
+            or not await is_publicly_viewable(db, recipe, None)
         ):
             raise HTTPException(status_code=404, detail="Report target not found")
         recipe_id = recipe.id
@@ -136,7 +136,7 @@ async def create_report(
         target_user_id = await _resolve_contributor(
             db,
             payload.contributor_id,
-            viewer_user_id=user.id,
+            viewer_user_id=None,
             require_visible=True,
         )
         if target_user_id is None or target_user_id == user.id:

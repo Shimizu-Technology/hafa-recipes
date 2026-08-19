@@ -10,7 +10,7 @@ This runbook describes the server-side foundation for Håfa Recipes moderation. 
 - FastAPI enforces the admin role on every `/api/admin/*` route. The future `admin/` client is not an authorization boundary.
 - Non-admin attempts receive `403` and create a bounded structured warning containing actor ID, method, and route only.
 - Admin searches return public recipe metadata or redacted placeholders. Extraction jobs expose the source hostname, never the full URL, query string, user notes, or provider error body.
-- Normal users can report only content they can currently view and cannot report themselves.
+- Normal users can report only currently public, active content and cannot report themselves. A personal block does not prevent a subsequent report, so “block and report” works in either order.
 - A block changes only the blocker’s views. It does not modify or delete the contributor’s data.
 
 ## Moderation semantics
