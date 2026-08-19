@@ -302,13 +302,18 @@ class ApiClient {
     return data;
   }
 
-  async startReExtraction(recipeId: string, location: string = "Guam"): Promise<{
+  async startReExtraction(recipeId: string, location: string = "Guam", idempotencyKey?: string): Promise<{
     job_id: string | null;
     status: string;
     message: string;
     recipe_id: string;
+    is_existing?: boolean;
   }> {
-    const { data } = await this.client.post(`/api/re-extract/${recipeId}/async`, { location });
+    const { data } = await this.client.post(
+      `/api/re-extract/${recipeId}/async`,
+      { location },
+      idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined,
+    );
     return data;
   }
 
@@ -449,14 +454,14 @@ class ApiClient {
     return data;
   }
 
-  async getTopContributors(limit = 8): Promise<{ user_id: string; display_name: string; recipe_count: number }[]> {
+  async getTopContributors(limit = 8): Promise<{ user_id: string; contributor_id?: string; display_name: string; recipe_count: number }[]> {
     const { data } = await this.client.get('/api/recipes/discover/contributors', {
       params: { limit },
     });
     return data;
   }
 
-  async getAllContributors(): Promise<{ user_id: string; display_name: string; recipe_count: number }[]> {
+  async getAllContributors(): Promise<{ user_id: string; contributor_id?: string; display_name: string; recipe_count: number }[]> {
     const { data } = await this.client.get('/api/recipes/discover/contributors', {
       params: { limit: 100 },
     });
@@ -479,20 +484,31 @@ class ApiClient {
       url: request.url,
       location: request.location || 'Guam',
       notes: request.notes || '',
-      is_public: request.is_public ?? true,  // Public by default
+      is_public: request.is_public ?? false,
     });
     return data;
   }
 
   async startAsyncExtraction(
-    request: ExtractRequest
-  ): Promise<{ job_id: string; status: string; message?: string }> {
-    const { data } = await this.client.post('/api/extract/async', {
-      url: request.url,
-      location: request.location || 'Guam',
-      notes: request.notes || '',
-      is_public: request.is_public ?? true,  // Public by default
-    });
+    request: ExtractRequest,
+    idempotencyKey?: string,
+  ): Promise<{
+    job_id: string | null;
+    status: string;
+    message?: string;
+    recipe_id?: string;
+    is_existing?: boolean;
+  }> {
+    const { data } = await this.client.post(
+      '/api/extract/async',
+      {
+        url: request.url,
+        location: request.location || 'Guam',
+        notes: request.notes || '',
+        is_public: request.is_public ?? false,
+      },
+      idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined,
+    );
     return data;
   }
 
@@ -602,7 +618,7 @@ class ApiClient {
   }): Promise<Recipe> {
     const { data } = await this.client.post('/api/recipes/from-ocr', {
       extracted: params.extracted,
-      is_public: params.is_public ?? true,
+      is_public: params.is_public ?? false,
     });
     return data;
   }

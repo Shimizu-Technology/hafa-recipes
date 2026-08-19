@@ -29,12 +29,18 @@ Create a `.env` file:
 ```bash
 # Database (required)
 DATABASE_URL=postgresql://user:pass@host/dbname
+DATABASE_USE_SSL=true
 
-# OpenAI - Whisper transcription + GPT chat (required)
+# OpenAI - pinned recipe AI, transcription, and speech (required)
 OPENAI_API_KEY=sk-...
-
-# OpenRouter - Gemini extraction (required)
-OPENROUTER_API_KEY=sk-or-...
+RECIPE_EXTRACTION_MODEL=gpt-5.6-luna
+RECIPE_EXTRACTION_FALLBACK_MODEL=gpt-5.6-terra
+OCR_MODEL=gpt-5.6-luna
+OCR_FALLBACK_MODEL=gpt-5.6-terra
+RECIPE_CHAT_MODEL=gpt-5.6-luna
+COOKING_CHAT_MODEL=gpt-5.6-luna
+ENRICHMENT_MODEL=gpt-5.6-luna
+AI_DISABLED_CAPABILITIES=
 
 # Clerk Auth (required; both are accepted during the migration)
 CLERK_DEVELOPMENT_ISSUER=https://your-development-instance.clerk.accounts.dev
@@ -99,7 +105,7 @@ Instagram requires authentication to extract videos. To enable:
 ### Video Extraction
 ```
 User pastes video URL → yt-dlp downloads audio → Whisper transcribes
-    → Gemini extracts recipe → Thumbnail uploaded to S3 → Saved to PostgreSQL
+    → Luna extracts recipe (Terra fallback) → Thumbnail uploaded to S3 → Saved to PostgreSQL
 ```
 
 ### Website Extraction
@@ -109,17 +115,37 @@ User pastes website URL → Fetch HTML → Parse JSON-LD (or AI fallback)
     → Split combined steps → Thumbnail uploaded to S3 → Saved to PostgreSQL
 ```
 
+### Durable async extraction
+
+`POST /api/extract/async` and `POST /api/re-extract/{id}/async` persist the
+complete request before returning. A database-backed worker moves each job
+through `queued → claimed → processing → completed`, using row locks, renewable
+leases, bounded retries, and stale-lease recovery so deploys do not lose work.
+Terminal states are `completed`, `failed`, `cancelled`, and `expired`.
+
+Clients should send a new UUID in the `Idempotency-Key` header for each user
+action, retain the returned job ID, and poll `GET /api/jobs/{id}` until any
+terminal state. Retrying the same request with the same key returns the original
+job; reusing a key for a different payload returns `409`.
+
 Supported sites: AllRecipes, Budget Bytes, Half Baked Harvest, Delish, Pinch of Yum, Sally's Baking, and hundreds more.
 
 **AI Stack:**
 | Task | Model |
 |------|-------|
-| Transcription | OpenAI Whisper |
-| Recipe Extraction (Video) | Gemini 2.0 Flash (primary), GPT-4o-mini (fallback) |
-| Recipe Extraction (Website) | JSON-LD parsing (primary), GPT-4o-mini (fallback) |
-| Recipe Extraction (OCR) | Gemini 2.0 Flash Vision (primary), GPT-4o Vision (fallback) |
-| Recipe Chat | GPT-4o |
-| Tag/Nutrition AI | GPT-4o-mini |
+| Transcription | `whisper-1` |
+| Recipe Extraction (Video) | GPT-5.6 Luna (routine), GPT-5.6 Terra (fallback) |
+| Recipe Extraction (Website) | JSON-LD parsing (primary), Luna/Terra AI fallback |
+| Recipe Extraction (OCR) | GPT-5.6 Luna (routine), GPT-5.6 Terra (fallback) |
+| Recipe and Cooking Chat | GPT-5.6 Luna |
+| Tag/Nutrition AI | GPT-5.6 Luna |
+| Text-to-Speech | `tts-1` |
+
+Model IDs are environment-pinned rather than provider aliases. Routine AI uses
+`reasoning_effort=none`; Terra is not called unless extraction/OCR needs a
+fallback. `AI_DISABLED_CAPABILITIES` can stop one paid capability (or `all`)
+without a deploy. Chat inputs are bounded, image bytes are decoded and checked,
+and per-user request/concurrency limits protect provider spend.
 
 ## Project Structure
 
@@ -140,8 +166,8 @@ app/
     ├── extractor.py  # Main extraction orchestrator
     ├── video.py      # yt-dlp audio download
     ├── website.py    # Website recipe extraction (JSON-LD, HTML parsing)
-    ├── llm_client.py # Gemini/GPT extraction
-    ├── openai_client.py  # Whisper + chat
+    ├── llm_client.py # Luna/Terra extraction and OCR
+    ├── openai_client.py  # Whisper + direct extraction
     └── storage.py    # S3 uploads
 ```
 
@@ -172,6 +198,15 @@ app/
 | POST | `/api/recipes/{id}/save` | Bookmark recipe |
 | DELETE | `/api/recipes/{id}/save` | Remove bookmark |
 | POST | `/api/recipes/{id}/restore` | Restore original version |
+
+New recipes are private by default across extraction, OCR, and manual creation.
+Publishing is an explicit user action through the share controls. Public recipe
+responses expose a stable `contributor_id` (`chef_...`) and `is_owner` instead
+of exposing another user's Clerk subject. The legacy `user_id` field remains
+temporarily available for client compatibility, but contains the opaque public
+contributor ID unless the authenticated viewer owns the recipe. Public detail
+responses also omit extraction source text; owners still receive their own
+source text for editing and diagnostics.
 
 ### Personal Notes
 | Method | Endpoint | Description |
@@ -218,7 +253,8 @@ app/
 
 ## Admin Setup
 
-Admins can re-extract any recipe. Set via Clerk:
+Admins can re-extract any recipe and read bounded operational diagnostics. Set
+the role via Clerk:
 
 1. **Clerk Dashboard** → Users → Select user
 2. **Public metadata** → Add:
@@ -239,6 +275,7 @@ This repo uses simple numbered migration scripts in `migrations/` rather than Al
 # Run a migration against the configured DATABASE_URL
 uv run python -m migrations.016_add_stable_clerk_identities
 uv run python -m migrations.017_add_clerk_migration_grants
+uv run python -m migrations.018_add_durable_extraction_jobs
 ```
 
 Run migrations intentionally for each environment; do not run production migrations from a local shell unless you have confirmed the target database.
@@ -268,11 +305,19 @@ The redeem request carries the grant in the `Authorization: Bearer` header so
 standard HTTP/Sentry secret scrubbing applies. Raw grants and tickets must never
 be logged.
 
+Migration 018 expands the existing extraction-job table into the durable queue
+state machine. It is idempotent and intentionally leaves job history in place.
+Apply it before enabling `JOB_WORKER_ENABLED`; the API startup preflight refuses
+to run the worker against an incomplete queue schema. See
+`docs/DURABLE_EXTRACTION_QUEUE_RUNBOOK.md` for rollout and rollback steps.
+
 ## Deployment (Render)
 
 1. Connect GitHub repo to Render
 2. Set environment variables in dashboard
-3. Auto-deploys on push to `main`
+3. Run migrations 016, 017, and 018 in the pre-deploy command
+4. Set the health-check path to `/up`
+5. Auto-deploys on push to `main`
 
 **Build Command:** `pip install -r requirements.txt`  
 **Start Command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`

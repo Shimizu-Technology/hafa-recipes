@@ -31,11 +31,11 @@ import {
   useIsRecipeSaved,
   useSaveRecipe,
   useUnsaveRecipe,
-  useAsyncExtraction,
   useRecipeNote,
   useUpdateRecipeNote,
   useSimilarRecipes,
 } from '@/hooks/useRecipes';
+import { useAsyncExtraction } from '@/contexts/ExtractionContext';
 import { RecipeListItem } from '@/types/recipe';
 import { useAddFromRecipe } from '@/hooks/useGrocery';
 import { SkeletonSimilarRecipes } from '@/components/Skeleton';

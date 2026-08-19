@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # ============================================================
 # Nested Types (matching TypeScript interfaces)
@@ -121,6 +121,8 @@ class RecipeResponse(BaseModel):
     has_audio_transcript: bool = False
     created_at: datetime
     user_id: Optional[str] = None
+    contributor_id: Optional[str] = None
+    is_owner: bool = False
     extractor_display_name: Optional[str] = None
     is_public: bool = False
     
@@ -143,6 +145,8 @@ class RecipeListItem(BaseModel):
     total_time: Optional[str] = None
     created_at: datetime
     user_id: Optional[str] = None
+    contributor_id: Optional[str] = None
+    is_owner: bool = False
     is_public: bool = False
     extractor_display_name: Optional[str] = None  # For attribution on Discover
     
@@ -210,10 +214,17 @@ class ExtractionJobResponse(BaseModel):
 # ============================================================
 
 class HealthResponse(BaseModel):
-    """Health check response."""
-    status: str = "healthy"
+    """Public process-liveness response with no dependency detail."""
+    status: str = "ok"
+
+
+class DiagnosticResponse(BaseModel):
+    """Admin-only dependency configuration and reachability response."""
+    status: str
     environment: str
-    database: str = "connected"
+    dependencies: dict[str, str]
+    disabled_ai_capabilities: list[str]
+    job_queue: dict[str, int] = Field(default_factory=dict)
 
 
 class ErrorResponse(BaseModel):
@@ -229,4 +240,3 @@ class PaginatedResponse(BaseModel):
     page: int
     per_page: int
     has_more: bool
-

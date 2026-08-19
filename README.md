@@ -75,7 +75,9 @@ Run the complete repository gate with:
 - Clerk, Neon, S3, Sentry, AI-provider, Render, Netlify, and EAS secrets remain
   in their provider dashboards and are never committed.
 
-Read [the architecture and migration program](docs/ARCHITECTURE_AND_MIGRATION_PROGRAM.md)
+Start with [the documentation index](docs/README.md) for product intent, the
+full-system audit, accepted decisions, the implementation roadmap, and current
+runbooks. Read [the architecture and migration program](docs/ARCHITECTURE_AND_MIGRATION_PROGRAM.md)
 before changing authentication, ownership, deployment sources, or database
-schema. The standalone repositories are retained as migration archives; this
-repository becomes canonical only after the provider cutover is verified.
+schema. The standalone repositories are retained only as migration archives;
+this monorepo is the canonical source.

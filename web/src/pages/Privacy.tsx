@@ -36,7 +36,6 @@ export default function Privacy() {
         <ul>
           <li><strong>Clerk:</strong> For secure authentication (email, Google, Apple sign-in)</li>
           <li><strong>OpenAI:</strong> For AI-powered recipe extraction, nutrition estimates, text-to-speech, and chat features</li>
-          <li><strong>OpenRouter / Google Gemini:</strong> For AI-powered recipe extraction and photo scanning</li>
           <li><strong>Amazon S3:</strong> For secure storage of recipe and chat images</li>
           <li><strong>Render and Neon:</strong> For hosting our backend API and database</li>
           <li><strong>Sentry:</strong> For crash reporting and diagnostics</li>
@@ -87,4 +86,3 @@ export default function Privacy() {
     </div>
   );
 }
-

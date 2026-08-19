@@ -15,6 +15,12 @@ interface ExtractionProgressProps {
   message: string;
   elapsedTime: number; // seconds
   error?: string | null;
+  terminalStatus?: 'failed' | 'cancelled' | 'expired' | null;
+  connectionNotice?: string | null;
+  isRetrying?: boolean;
+  nextAttemptAt?: string | null;
+  attemptCount?: number;
+  maxAttempts?: number;
   isWebsite?: boolean; // true for website extraction, false for video
   lowConfidence?: boolean; // true if extraction quality is uncertain
   confidenceWarning?: string | null; // Warning message for user
@@ -86,6 +92,12 @@ export default function ExtractionProgress({
   message,
   elapsedTime,
   error,
+  terminalStatus,
+  connectionNotice,
+  isRetrying = false,
+  nextAttemptAt,
+  attemptCount = 0,
+  maxAttempts = 0,
   isWebsite = false,
   lowConfidence = false,
   confidenceWarning,
@@ -96,7 +108,11 @@ export default function ExtractionProgress({
   // Use website or video step config based on extraction type
   const STEP_CONFIG = isWebsite ? WEBSITE_STEP_CONFIG : VIDEO_STEP_CONFIG;
   const STEPS = isWebsite ? WEBSITE_STEPS : VIDEO_STEPS;
-  const currentStepOrder = STEP_CONFIG[currentStep]?.order ?? 0;
+  const retryStep = currentStep === 'retrying'
+    ? STEPS[Math.min(STEPS.length - 1, Math.floor((progress / 100) * STEPS.length))]
+    : null;
+  const effectiveCurrentStep = retryStep || currentStep;
+  const currentStepOrder = STEP_CONFIG[effectiveCurrentStep]?.order ?? 0;
   
   // Animated progress value for smooth transitions
   const animatedProgress = useRef(new Animated.Value(0)).current;
@@ -121,11 +137,20 @@ export default function ExtractionProgress({
   }, [progress]);
 
   if (error) {
+    const isCancelled = terminalStatus === 'cancelled';
+    const isExpired = terminalStatus === 'expired';
+    const errorTitle = isCancelled
+      ? 'Extraction Cancelled'
+      : isExpired
+        ? 'Extraction Expired'
+        : 'Extraction Needs Attention';
+    const errorIcon = isCancelled ? 'close-circle' : isExpired ? 'time' : 'alert-circle';
+    const terminalColor = isCancelled ? colors.textMuted : isExpired ? '#d97706' : '#ef4444';
     return (
       <View style={[styles.container, { backgroundColor: colors.cardBackground }]}>
-        <View style={styles.errorContainer}>
-          <Ionicons name="alert-circle" size={48} color="#ef4444" />
-          <Text style={styles.errorTitle}>Extraction Failed</Text>
+        <View style={styles.errorContainer} accessibilityLiveRegion="assertive">
+          <Ionicons name={errorIcon} size={48} color={terminalColor} />
+          <Text style={[styles.errorTitle, { color: terminalColor }]}>{errorTitle}</Text>
           <Text style={[styles.errorMessage, { color: colors.text }]}>{error}</Text>
         </View>
       </View>
@@ -141,6 +166,28 @@ export default function ExtractionProgress({
   return (
     <View style={[styles.container, { backgroundColor: colors.cardBackground }]}>
       <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
+
+      {connectionNotice && (
+        <View style={styles.connectionBanner} accessibilityLiveRegion="polite">
+          <Ionicons name="cloud-offline-outline" size={20} color="#075985" style={styles.bannerIcon} />
+          <Text style={styles.connectionText}>{connectionNotice}</Text>
+        </View>
+      )}
+
+      {!connectionNotice && isRetrying && (
+        <View style={styles.retryBanner} accessibilityLiveRegion="polite">
+          <Ionicons name="refresh" size={20} color="#92400e" style={styles.bannerIcon} />
+          <View style={styles.bannerCopy}>
+            <Text style={styles.retryTitle}>Retrying automatically</Text>
+            <Text style={styles.retryText}>
+              {nextAttemptAt && new Date(nextAttemptAt).getTime() > Date.now()
+                ? `Next check in ${Math.max(1, Math.ceil((new Date(nextAttemptAt).getTime() - Date.now()) / 1000))}s`
+                : 'The next attempt will begin shortly'}
+              {maxAttempts > 0 ? ` · Attempt ${Math.min(attemptCount + 1, maxAttempts)} of ${maxAttempts}` : ''}
+            </Text>
+          </View>
+        </View>
+      )}
       
       {/* Show warning banner for low confidence extractions */}
       {isComplete && lowConfidence && confidenceWarning && (
@@ -155,7 +202,7 @@ export default function ExtractionProgress({
         {STEPS.map((step, index) => {
           const stepInfo = STEP_CONFIG[step];
           const isCompleted = currentStepOrder > stepInfo.order;
-          const isCurrent = currentStep === step;
+          const isCurrent = effectiveCurrentStep === step;
           
           return (
             <View key={step} style={styles.stepRow}>
@@ -218,7 +265,7 @@ export default function ExtractionProgress({
         <View style={styles.timeItem}>
           <Ionicons name="hourglass-outline" size={16} color={colors.text} style={{ opacity: 0.6 }} />
           <Text style={[styles.timeText, { color: colors.text }]}>
-            {getEstimatedRemaining(progress, elapsedTime)} remaining
+            {isRetrying ? 'Retry scheduled' : `${getEstimatedRemaining(progress, elapsedTime)} remaining`}
           </Text>
         </View>
       </View>
@@ -331,5 +378,44 @@ const styles = StyleSheet.create({
     color: '#92400e',
     lineHeight: 18,
   },
+  connectionBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#e0f2fe',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  connectionText: {
+    flex: 1,
+    color: '#075985',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  retryBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#fef3c7',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  bannerIcon: {
+    marginRight: 10,
+    marginTop: 1,
+  },
+  bannerCopy: {
+    flex: 1,
+  },
+  retryTitle: {
+    color: '#78350f',
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  retryText: {
+    color: '#92400e',
+    fontSize: 13,
+    lineHeight: 18,
+  },
 });
-

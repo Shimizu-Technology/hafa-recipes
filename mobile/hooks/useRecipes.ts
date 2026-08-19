@@ -5,13 +5,51 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData, useInfiniteQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuth } from '@clerk/clerk-expo';
+import { AppState, AppStateStatus } from 'react-native';
 import { api } from '../lib/api';
 import { ExtractRequest, JobStatus, RecipeListItem, PaginatedRecipes } from '../types/recipe';
 
 // Page size for infinite scroll
 const PAGE_SIZE = 20;
 
-const ACTIVE_JOB_KEY = 'active_extraction_job';
+const LEGACY_ACTIVE_JOB_KEY = 'active_extraction_job';
+const ACTIVE_JOB_KEY_PREFIX = 'active_extraction_job_v2';
+const MAX_STORED_JOB_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const SUCCESS_POLL_DELAY_MS = 2_500;
+const MAX_RETRY_POLL_DELAY_MS = 30_000;
+
+type StoredExtractionRequest =
+  | { kind: 'extract'; payload: ExtractRequest }
+  | { kind: 'reextract'; recipeId: string; location: string };
+
+type StoredExtractionJob = {
+  userId: string;
+  jobId: string | null;
+  idempotencyKey: string;
+  startTime: number;
+  request: StoredExtractionRequest;
+};
+
+const activeJobKey = (userId: string) =>
+  `${ACTIVE_JOB_KEY_PREFIX}:${encodeURIComponent(userId)}`;
+
+const createIdempotencyKey = (kind: StoredExtractionRequest['kind']) =>
+  `${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+
+const transportRetryDelay = (failureCount: number) => {
+  const exponential = Math.min(
+    MAX_RETRY_POLL_DELAY_MS,
+    SUCCESS_POLL_DELAY_MS * (2 ** Math.min(failureCount, 4)),
+  );
+  return Math.round(exponential * (0.8 + Math.random() * 0.4));
+};
+
+const serverAwarePollDelay = (status: JobStatus) => {
+  if (!status.next_attempt_at) return SUCCESS_POLL_DELAY_MS;
+  const untilRetry = new Date(status.next_attempt_at).getTime() - Date.now();
+  return Math.min(15_000, Math.max(SUCCESS_POLL_DELAY_MS, untilRetry + 500));
+};
 
 // Query keys
 // Filter types
@@ -228,305 +266,412 @@ export function useExtractRecipe() {
  * Async extraction with progress polling.
  * Supports background extraction - user can leave and come back.
  */
-export function useAsyncExtraction() {
+export function useAsyncExtractionController() {
   const queryClient = useQueryClient();
+  const { userId, isLoaded: isAuthLoaded } = useAuth();
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const [isPolling, setIsPolling] = useState(false);
-  const [isStarting, setIsStarting] = useState(false); // Immediate loading state
+  const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [connectionNotice, setConnectionNotice] = useState<string | null>(null);
+  const [terminalState, setTerminalState] = useState<'failed' | 'cancelled' | 'expired' | null>(null);
+  const [canRetryStart, setCanRetryStart] = useState(false);
+  const [jobKind, setJobKind] = useState<StoredExtractionRequest['kind']>('extract');
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollingGenerationRef = useRef(0);
+  const pollInFlightRef = useRef(false);
+  const currentJobIdRef = useRef<string | null>(null);
+  const currentStartTimeRef = useRef<number | null>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
-  // Load any existing job on mount
-  useEffect(() => {
-    loadActiveJob();
-    return () => {
-      // Cleanup intervals on unmount
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-    };
+  const stopPollingTimers = useCallback((updateState = true) => {
+    pollingGenerationRef.current += 1;
+    if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    pollTimeoutRef.current = null;
+    timerIntervalRef.current = null;
+    if (updateState) setIsPolling(false);
   }, []);
 
-  // Load active job from storage
-  const loadActiveJob = async () => {
+  const clearActiveJob = useCallback(async () => {
+    if (!userId) return;
     try {
-      const stored = await AsyncStorage.getItem(ACTIVE_JOB_KEY);
-      if (stored) {
-        const { jobId: storedJobId, startTime: storedStartTime } = JSON.parse(stored);
-        
-        // Don't try to resume jobs older than 10 minutes - they're likely stale
-        const MAX_JOB_AGE_MS = 10 * 60 * 1000; // 10 minutes
-        const jobAge = Date.now() - storedStartTime;
-        
-        if (jobAge > MAX_JOB_AGE_MS) {
-          console.warn(`Stale job found (${Math.round(jobAge / 1000 / 60)} min old) - clearing`);
-          await clearActiveJob();
-          return;
-        }
-        
-        setJobId(storedJobId);
-        setStartTime(storedStartTime);
-        // Start polling for this job
-        startPolling(storedJobId, storedStartTime);
-      }
+      await AsyncStorage.removeItem(activeJobKey(userId));
     } catch {
-      // Non-critical: active job will restart on next extraction
+      // Non-critical: a terminal entry is ignored once it ages out or is replaced.
     }
-  };
+  }, [userId]);
 
-  // Save active job to storage
-  const saveActiveJob = async (id: string, start: number) => {
+  const saveActiveJob = useCallback(async (storedJob: StoredExtractionJob) => {
     try {
-      await AsyncStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify({ jobId: id, startTime: start }));
+      await AsyncStorage.setItem(activeJobKey(storedJob.userId), JSON.stringify(storedJob));
     } catch {
-      // Non-critical: job will still complete, just won't persist across app restart
+      // The server still owns the durable job if local persistence is unavailable.
     }
-  };
+  }, []);
 
-  // Clear active job from storage
-  const clearActiveJob = async () => {
-    try {
-      await AsyncStorage.removeItem(ACTIVE_JOB_KEY);
-    } catch {
-      // Non-critical: stale job entry will be overwritten on next extraction
+  const invalidateCompletedRecipe = useCallback((recipeId?: string | null) => {
+    queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
+    queryClient.invalidateQueries({ queryKey: recipeKeys.recent() });
+    queryClient.invalidateQueries({ queryKey: recipeKeys.count() });
+    if (recipeId) {
+      queryClient.invalidateQueries({ queryKey: recipeKeys.detail(recipeId) });
     }
-  };
+  }, [queryClient]);
 
-  // Start polling for job status
-  const startPolling = useCallback((id: string, start: number) => {
+  const startPolling = useCallback((id: string, startedAt: number) => {
+    stopPollingTimers(false);
+    const generation = pollingGenerationRef.current;
+    currentJobIdRef.current = id;
+    currentStartTimeRef.current = startedAt;
+    setJobId(id);
+    setStartTime(startedAt);
+    setElapsedTime(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
     setIsPolling(true);
-    setElapsedTime(Math.floor((Date.now() - start) / 1000));
-    
-    // Track consecutive auth errors
-    let consecutiveAuthErrors = 0;
-    const maxAuthErrors = 5;
 
-    // Update elapsed time every second
     timerIntervalRef.current = setInterval(() => {
-      setElapsedTime(Math.floor((Date.now() - start) / 1000));
-    }, 1000);
+      setElapsedTime(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    }, 1_000);
 
-    // Poll job status every 2 seconds
-    const poll = async () => {
+    const scheduleNext = (poll: (failures: number) => Promise<void>, delay: number, failures: number) => {
+      if (generation !== pollingGenerationRef.current || appStateRef.current !== 'active') return;
+      pollTimeoutRef.current = setTimeout(() => void poll(failures), delay);
+    };
+
+    const poll = async (consecutiveFailures = 0): Promise<void> => {
+      if (generation !== pollingGenerationRef.current || appStateRef.current !== 'active') return;
+      if (pollInFlightRef.current) {
+        scheduleNext(poll, 500, consecutiveFailures);
+        return;
+      }
+
+      pollInFlightRef.current = true;
       try {
         const status = await api.getJobStatus(id);
+        if (generation !== pollingGenerationRef.current) return;
+
         setJobStatus(status);
-        consecutiveAuthErrors = 0; // Reset on successful request
+        setConnectionNotice(null);
+        setError(null);
+        setTerminalState(null);
 
-        if (status.status === 'completed' || status.status === 'failed') {
-          // Stop polling
-          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-          if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-          setIsPolling(false);
+        if (status.status === 'completed') {
+          stopPollingTimers();
           await clearActiveJob();
-
-          if (status.status === 'completed') {
-            // Invalidate queries to show new/updated recipe
-            queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
-            queryClient.invalidateQueries({ queryKey: recipeKeys.recent() });
-            queryClient.invalidateQueries({ queryKey: recipeKeys.count() });
-            // Also invalidate the specific recipe (important for re-extraction)
-            if (status.recipe_id) {
-              queryClient.invalidateQueries({ queryKey: recipeKeys.detail(status.recipe_id) });
-            }
-          } else if (status.status === 'failed') {
-            setError(status.error_message || 'Extraction failed');
-          }
-        }
-      } catch (e: any) {
-        const status = e?.response?.status;
-        
-        // Handle 404 - job doesn't exist (was cancelled, server restarted, etc.)
-        if (status === 404) {
-          console.warn('Job not found (404) - stopping polling');
-          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-          if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-          setIsPolling(false);
-          setIsStarting(false);
-          await clearActiveJob();
-          // Don't show an error - user likely cancelled or can just try again
+          invalidateCompletedRecipe(status.recipe_id);
           return;
         }
-        
-        if (status === 401) {
-          consecutiveAuthErrors++;
-          console.warn(`Poll auth error ${consecutiveAuthErrors}/${maxAuthErrors} - network might be slow`);
-          
-          if (consecutiveAuthErrors >= maxAuthErrors) {
-            // Stop polling after too many auth failures
-            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-            if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-            setIsPolling(false);
-            setError('Connection issue. The extraction may still complete - check your recipes later.');
-            return;
+
+        if (status.status === 'failed' || status.status === 'cancelled' || status.status === 'expired') {
+          stopPollingTimers();
+          await clearActiveJob();
+          setTerminalState(status.status);
+          if (status.status === 'cancelled') {
+            setError('This extraction was cancelled. You can start it again whenever you are ready.');
+          } else if (status.status === 'expired') {
+            setError('This extraction expired before it finished. Please start a new extraction.');
+          } else {
+            setError(status.error_message || 'We could not finish this extraction. Please try again.');
           }
+          return;
         }
-        // Continue polling for non-fatal errors - job may still be running
+
+        scheduleNext(poll, serverAwarePollDelay(status), 0);
+      } catch (pollError: any) {
+        if (generation !== pollingGenerationRef.current) return;
+        const responseStatus = pollError?.response?.status;
+
+        if (responseStatus === 404) {
+          stopPollingTimers();
+          await clearActiveJob();
+          setTerminalState('failed');
+          setError('We could not find this extraction. It may have expired; please start it again.');
+          return;
+        }
+
+        const nextFailureCount = consecutiveFailures + 1;
+        setConnectionNotice(
+          responseStatus === 401
+            ? 'Your session is reconnecting. The extraction is still safe on the server.'
+            : 'Connection is unstable. The extraction is still running and we will keep checking.',
+        );
+        scheduleNext(poll, transportRetryDelay(nextFailureCount), nextFailureCount);
+      } finally {
+        pollInFlightRef.current = false;
       }
     };
 
-    // Poll immediately
-    poll();
-    // Then poll every 2 seconds (slightly longer to be more forgiving on slow networks)
-    pollIntervalRef.current = setInterval(poll, 2500);
-  }, [queryClient]);
+    void poll();
+  }, [clearActiveJob, invalidateCompletedRecipe, stopPollingTimers]);
 
-  // Start a new extraction
-  const startExtraction = async (request: ExtractRequest) => {
-    // If already extracting, cancel the current job first
-    if (isPolling || isStarting) {
-      console.log('Extraction already in progress - cancelling before starting new one');
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-      // Try to cancel the backend job (don't await - best effort)
-      if (jobId) {
-        api.cancelJob(jobId).catch(() => {});
-      }
-    }
-    
+  const beginStoredRequest = useCallback(async (storedJob: StoredExtractionJob) => {
+    setIsStarting(true);
+    setCanRetryStart(false);
     setError(null);
-    setJobStatus(null);
-    setIsPolling(false); // Reset polling state before starting
-    setIsStarting(true); // Show loading immediately
+    setConnectionNotice(null);
+    setTerminalState(null);
+    setJobKind(storedJob.request.kind);
 
     try {
-      const result = await api.startAsyncExtraction(request);
+      const result = storedJob.request.kind === 'extract'
+        ? await api.startAsyncExtraction(storedJob.request.payload, storedJob.idempotencyKey)
+        : await api.startReExtraction(
+            storedJob.request.recipeId,
+            storedJob.request.location,
+            storedJob.idempotencyKey,
+          );
 
-      // If recipe already exists, return immediately
       if (result.status === 'completed' && !result.job_id) {
+        if (!result.recipe_id) throw new Error('The completed extraction did not include a recipe.');
+        await clearActiveJob();
         setIsStarting(false);
+        invalidateCompletedRecipe(result.recipe_id);
+        setJobStatus({
+          id: '',
+          url: storedJob.request.kind === 'extract' ? storedJob.request.payload.url : '',
+          status: 'completed',
+          progress: 100,
+          current_step: 'complete',
+          message: 'Recipe already exists',
+          recipe_id: result.recipe_id,
+          error_message: null,
+        });
         return {
           status: 'completed' as const,
-          recipeId: (result as any).recipe_id,
+          recipeId: result.recipe_id,
           isExisting: true,
         };
       }
 
-      // New job started
-      const start = Date.now();
+      if (!result.job_id) throw new Error('The server did not return an extraction job.');
+
+      const confirmedJob = { ...storedJob, jobId: result.job_id };
+      await saveActiveJob(confirmedJob);
       setJobId(result.job_id);
-      setStartTime(start);
-      // Start polling FIRST, then clear isStarting to avoid flicker
-      // (ensures isPolling=true before isStarting=false)
-      startPolling(result.job_id, start);
+      setStartTime(storedJob.startTime);
+      startPolling(result.job_id, storedJob.startTime);
       setIsStarting(false);
-      await saveActiveJob(result.job_id, start);
-
-      return {
-        status: 'processing' as const,
-        jobId: result.job_id,
-        isExisting: false,
-      };
-    } catch (e: any) {
-      setIsStarting(false); // Clear on error
-      const errorMsg = e.response?.data?.detail || e.message || 'Failed to start extraction';
-      setError(errorMsg);
-      throw new Error(errorMsg);
-    }
-  };
-
-  // Start re-extraction for an existing recipe
-  const startReExtraction = async (recipeId: string, location: string = 'Guam') => {
-    setError(null);
-    setJobStatus(null);
-
-    try {
-      const result = await api.startReExtraction(recipeId, location);
-
-      if (!result.job_id) {
-        throw new Error('Failed to start re-extraction');
-      }
-
-      // Job started
-      const start = Date.now();
-      setJobId(result.job_id);
-      setStartTime(start);
-      await saveActiveJob(result.job_id, start);
-      startPolling(result.job_id, start);
 
       return {
         status: 'processing' as const,
         jobId: result.job_id,
         recipeId: result.recipe_id,
+        isExisting: Boolean(result.is_existing),
       };
-    } catch (e: any) {
-      const errorMsg = e.response?.data?.detail || e.message || 'Failed to start re-extraction';
-      setError(errorMsg);
-      throw new Error(errorMsg);
+    } catch (startError: any) {
+      setIsStarting(false);
+      const responseStatus = startError?.response?.status as number | undefined;
+      const definitivelyRejected = responseStatus !== undefined &&
+        [400, 403, 404, 409, 422].includes(responseStatus);
+      if (definitivelyRejected) {
+        await clearActiveJob();
+      } else {
+        setCanRetryStart(true);
+      }
+      const message = definitivelyRejected
+        ? startError.response?.data?.detail || 'We could not start this extraction.'
+        : responseStatus === 401
+          ? 'Your session needs to reconnect. Reconnect to safely check the same extraction request.'
+          : responseStatus === 429
+            ? 'The extraction service is busy. Reconnect shortly to safely check the same request.'
+            : 'We could not confirm the start because the connection dropped. Reconnect to safely check the same request.';
+      setTerminalState('failed');
+      setError(message);
+      throw new Error(message);
     }
-  };
+  }, [clearActiveJob, invalidateCompletedRecipe, saveActiveJob, startPolling]);
 
-  // Reset state without cancelling the backend job
-  const reset = async () => {
-    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+  const retryPendingStart = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const raw = await AsyncStorage.getItem(activeJobKey(userId));
+      if (!raw) {
+        setCanRetryStart(false);
+        setError('The pending extraction is no longer available. Please start again.');
+        return;
+      }
+      const storedJob = JSON.parse(raw) as StoredExtractionJob;
+      if (storedJob.userId !== userId || storedJob.jobId) {
+        setCanRetryStart(false);
+        if (storedJob.jobId) startPolling(storedJob.jobId, storedJob.startTime);
+        return;
+      }
+      await beginStoredRequest(storedJob);
+    } catch {
+      // beginStoredRequest already preserves the pending key and friendly error.
+    }
+  }, [beginStoredRequest, startPolling, userId]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const wasActive = appStateRef.current === 'active';
+      appStateRef.current = nextState;
+
+      if (nextState === 'active' && !wasActive) {
+        if (currentJobIdRef.current && currentStartTimeRef.current) {
+          startPolling(currentJobIdRef.current, currentStartTimeRef.current);
+        }
+      } else if (nextState !== 'active' && wasActive) {
+        // The durable server worker continues; pause network/timer work locally.
+        stopPollingTimers(false);
+      }
+    });
+    return () => subscription.remove();
+  }, [startPolling, stopPollingTimers]);
+
+  useEffect(() => {
+    stopPollingTimers();
+    currentJobIdRef.current = null;
+    currentStartTimeRef.current = null;
     setJobId(null);
     setJobStatus(null);
-    setIsPolling(false);
+    setError(null);
+    setConnectionNotice(null);
+    setTerminalState(null);
+    setCanRetryStart(false);
+    setStartTime(null);
+    setElapsedTime(0);
+
+    if (!isAuthLoaded || !userId) return;
+
+    let cancelled = false;
+    const load = async () => {
+      try {
+        // The legacy entry was not account-scoped and cannot be resumed safely.
+        await AsyncStorage.removeItem(LEGACY_ACTIVE_JOB_KEY);
+        const raw = await AsyncStorage.getItem(activeJobKey(userId));
+        if (!raw || cancelled) return;
+        const storedJob = JSON.parse(raw) as StoredExtractionJob;
+        if (storedJob.userId !== userId || Date.now() - storedJob.startTime > MAX_STORED_JOB_AGE_MS) {
+          await AsyncStorage.removeItem(activeJobKey(userId));
+          return;
+        }
+
+        setJobKind(storedJob.request.kind);
+        if (storedJob.jobId) {
+          startPolling(storedJob.jobId, storedJob.startTime);
+        } else {
+          setCanRetryStart(true);
+          setTerminalState('failed');
+          setError('The app did not receive the job confirmation. Reconnect to safely check the same request.');
+        }
+      } catch {
+        // A malformed/stale local entry must never block a new extraction.
+        await AsyncStorage.removeItem(activeJobKey(userId));
+      }
+    };
+    void load();
+
+    return () => {
+      cancelled = true;
+      stopPollingTimers();
+    };
+  }, [isAuthLoaded, startPolling, stopPollingTimers, userId]);
+
+  const startExtraction = async (request: ExtractRequest) => {
+    if (!userId) throw new Error('Please sign in before extracting a recipe.');
+    if (isPolling || isStarting) throw new Error('An extraction is already in progress.');
+
+    const storedJob: StoredExtractionJob = {
+      userId,
+      jobId: null,
+      idempotencyKey: createIdempotencyKey('extract'),
+      startTime: Date.now(),
+      request: { kind: 'extract', payload: request },
+    };
+    await saveActiveJob(storedJob);
+    return beginStoredRequest(storedJob);
+  };
+
+  const startReExtraction = async (recipeId: string, location = 'Guam') => {
+    if (!userId) throw new Error('Please sign in before re-extracting a recipe.');
+    if (isPolling || isStarting) throw new Error('Another extraction is already in progress.');
+
+    const storedJob: StoredExtractionJob = {
+      userId,
+      jobId: null,
+      idempotencyKey: createIdempotencyKey('reextract'),
+      startTime: Date.now(),
+      request: { kind: 'reextract', recipeId, location },
+    };
+    await saveActiveJob(storedJob);
+    return beginStoredRequest(storedJob);
+  };
+
+  const reset = async () => {
+    stopPollingTimers();
+    currentJobIdRef.current = null;
+    currentStartTimeRef.current = null;
+    setJobId(null);
+    setJobStatus(null);
     setIsStarting(false);
     setError(null);
+    setConnectionNotice(null);
+    setTerminalState(null);
+    setCanRetryStart(false);
     setStartTime(null);
     setElapsedTime(0);
     await clearActiveJob();
   };
 
-  // Cancel the backend job AND reset state
   const cancel = async () => {
-    // Try to cancel the backend job
     if (jobId) {
       try {
         await api.cancelJob(jobId);
-        console.log('Job cancelled on backend');
-      } catch (error: any) {
-        // Job might already be completed or not found - that's okay
-        console.log('Could not cancel job:', error.response?.status === 404 ? 'not found' : error.message);
+      } catch (cancelError: any) {
+        if (cancelError?.response?.status !== 404) throw cancelError;
       }
     }
-    // Reset frontend state
     await reset();
   };
 
-  // Determine if this is a website extraction based on URL
   const sourceUrl = jobStatus?.url || '';
-  // Re-extraction jobs use "re-extract:{recipe_id}" format - these are always video extractions
-  // (since re-extraction is primarily used for video recipes)
-  const isReExtraction = sourceUrl.startsWith('re-extract:');
-  const isWebsiteExtraction = sourceUrl && !isReExtraction ? (
+  const isWebsiteExtraction = Boolean(sourceUrl) && (
     !sourceUrl.toLowerCase().includes('tiktok.com') &&
     !sourceUrl.toLowerCase().includes('youtube.com') &&
     !sourceUrl.toLowerCase().includes('youtu.be') &&
     !sourceUrl.toLowerCase().includes('instagram.com')
-  ) : false;
+  );
+  const resolvedTerminalState = jobStatus?.status === 'failed' ||
+    jobStatus?.status === 'cancelled' || jobStatus?.status === 'expired'
+    ? jobStatus.status
+    : terminalState;
 
   return {
-    // State
     jobId,
     jobStatus,
+    jobKind,
     isPolling,
     isStarting,
     error,
+    connectionNotice,
+    canRetryStart,
     elapsedTime,
-    // Computed
-    isExtracting: isPolling || isStarting, // Show progress UI immediately when starting
+    isExtracting: isPolling || isStarting,
     isComplete: jobStatus?.status === 'completed',
-    isFailed: jobStatus?.status === 'failed',
+    isFailed: Boolean(resolvedTerminalState),
+    terminalStatus: resolvedTerminalState,
+    isRetrying: jobStatus?.current_step === 'retrying' || Boolean(jobStatus?.next_attempt_at),
     recipeId: jobStatus?.recipe_id,
     progress: jobStatus?.progress || 0,
     currentStep: jobStatus?.current_step || '',
     message: jobStatus?.message || '',
-    sourceUrl, // The URL being extracted (useful for re-extractions)
-    isWebsiteExtraction, // true for website, false for video (TikTok/YouTube/Instagram)
-    // Confidence info
+    nextAttemptAt: jobStatus?.next_attempt_at || null,
+    attemptCount: jobStatus?.attempt_count || 0,
+    maxAttempts: jobStatus?.max_attempts || 0,
+    sourceUrl,
+    isWebsiteExtraction,
     lowConfidence: jobStatus?.low_confidence || false,
     confidenceWarning: jobStatus?.confidence_warning || null,
-    // Actions
     startExtraction,
     startReExtraction,
+    retryPendingStart,
     reset,
-    cancel, // New: actually cancels the backend job
+    cancel,
   };
 }
 
@@ -794,7 +939,12 @@ export function usePopularTags(scope: 'user' | 'public' = 'user', enabled = true
 /**
  * Get top contributors (users with most public recipes)
  */
-export type Contributor = { user_id: string; display_name: string; recipe_count: number };
+export type Contributor = {
+  user_id: string;
+  contributor_id?: string;
+  display_name: string;
+  recipe_count: number;
+};
 
 export function useTopContributors(enabled = true) {
   return useQuery<Contributor[]>({

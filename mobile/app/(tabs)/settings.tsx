@@ -612,10 +612,10 @@ export default function SettingsScreen() {
                 • OpenAI Whisper (transcription)
               </Text>
               <Text style={[styles.techItem, { color: colors.textSecondary }]}>
-                • Gemini 2.0 Flash (extraction)
+                • OpenAI recipe extraction and photo scanning
               </Text>
               <Text style={[styles.techItem, { color: colors.textSecondary }]}>
-                • GPT-4o (recipe chat)
+                • OpenAI recipe and cooking chat
               </Text>
               <Text style={[styles.techItem, { color: colors.textSecondary }]}>
                 • FastAPI + React Native

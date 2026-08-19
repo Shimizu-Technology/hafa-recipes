@@ -86,7 +86,7 @@ export default function AddRecipeScreen() {
   const [totalTime, setTotalTime] = useState('');
   const [notes, setNotes] = useState('');
   const [tags, setTags] = useState('');
-  const [isPublic, setIsPublic] = useState(true);
+  const [isPublic, setIsPublic] = useState(false);
   const [imageUri, setImageUri] = useState<string | null>(null);
   
   // Dynamic lists
@@ -782,22 +782,31 @@ export default function AddRecipeScreen() {
               ]}
               onPress={() => setIsPublic(!isPublic)}
               activeOpacity={0.7}
+              accessibilityRole="switch"
+              accessibilityLabel="Share recipe to the public library"
+              accessibilityHint="Off keeps this recipe visible only to you"
+              accessibilityState={{ checked: isPublic }}
             >
               <Ionicons
-                name={isPublic ? 'globe' : 'globe-outline'}
+                name={isPublic ? 'globe' : 'lock-closed'}
                 size={20}
                 color={isPublic ? colors.success : colors.textSecondary}
               />
-              <Text
-                style={[
-                  styles.publicToggleText,
-                  { color: isPublic ? colors.success : colors.text },
-                ]}
-              >
-                {isPublic ? 'Share to Library' : 'Keep Private'}
-              </Text>
+              <RNView style={styles.publicToggleText}>
+                <Text
+                  style={[
+                    styles.publicToggleTitle,
+                    { color: isPublic ? colors.success : colors.text },
+                  ]}
+                >
+                  {isPublic ? 'Share to Library' : 'Keep Private'}
+                </Text>
+                <Text style={[styles.publicToggleSubtitle, { color: colors.textMuted }]}>
+                  {isPublic ? 'Others can discover this recipe' : 'Only visible to you'}
+                </Text>
+              </RNView>
               <Ionicons
-                name={isPublic ? 'checkmark-circle' : 'add-circle-outline'}
+                name={isPublic ? 'checkmark-circle' : 'lock-closed-outline'}
                 size={18}
                 color={isPublic ? colors.success : colors.textMuted}
               />
@@ -1031,9 +1040,14 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   publicToggleText: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
     flex: 1,
   },
+  publicToggleTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
+  publicToggleSubtitle: {
+    fontSize: fontSize.sm,
+    marginTop: 2,
+  },
 });
-

@@ -22,7 +22,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { View, Text, Input, Button, Chip, useColors } from '@/components/Themed';
 import ExtractionProgress from '@/components/ExtractionProgress';
 import { SignInBanner } from '@/components/SignInBanner';
-import { useAsyncExtraction, useLocations, useCheckDuplicate } from '@/hooks/useRecipes';
+import { useLocations, useCheckDuplicate } from '@/hooks/useRecipes';
+import { useAsyncExtraction } from '@/contexts/ExtractionContext';
 import { BrandMark } from '@/components/BrandMark';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import { api } from '@/lib/api';
@@ -42,7 +43,7 @@ export default function ExtractScreen() {
   const [url, setUrl] = useState('');
   const [notes, setNotes] = useState('');
   const [selectedLocation, setSelectedLocation] = useState('Guam');
-  const [isPublic, setIsPublic] = useState(true);
+  const [isPublic, setIsPublic] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
   const [isOcrExtracting, setIsOcrExtracting] = useState(false);
   const [ocrProgress, setOcrProgress] = useState('');
@@ -194,7 +195,7 @@ export default function ExtractScreen() {
         extraction.reset();
         setUrl('');
         setNotes('');
-        setIsPublic(true);
+        setIsPublic(false);
         setExtractingAsWebsite(false);
       };
 
@@ -244,7 +245,7 @@ export default function ExtractScreen() {
         router.push(`/recipe/${result.recipeId}`);
         setUrl('');
         setNotes('');
-        setIsPublic(true);  // Reset to default
+        setIsPublic(false);  // New extractions are private by default
       }
       // Otherwise, polling has started and progress UI will show
     } catch (error: any) {
@@ -252,6 +253,19 @@ export default function ExtractScreen() {
         'Extraction Failed',
         error.message || 'Something went wrong. Please try again.'
       );
+    }
+  };
+
+  const cancelCurrentExtraction = async () => {
+    try {
+      await extraction.cancel();
+      return true;
+    } catch {
+      Alert.alert(
+        'Could Not Cancel',
+        'We could not reach the server, so the extraction may still be running. We will keep it here and try again when your connection improves.'
+      );
+      return false;
     }
   };
 
@@ -272,7 +286,8 @@ export default function ExtractScreen() {
             text: 'Start New',
             style: 'destructive',
             onPress: async () => {
-              await extraction.cancel();
+              const cancelled = await cancelCurrentExtraction();
+              if (!cancelled) return;
               // Small delay to ensure state is reset
               setTimeout(() => handleExtract(), 100);
             }
@@ -366,7 +381,8 @@ export default function ExtractScreen() {
           style: 'destructive',
           onPress: async () => {
             // Cancel the backend job (prevents recipe from being saved)
-            await extraction.cancel();
+            const cancelled = await cancelCurrentExtraction();
+            if (!cancelled) return;
             setUrl('');
             setExtractingAsWebsite(false);
           }
@@ -482,8 +498,8 @@ export default function ExtractScreen() {
     );
   }
 
-  // Show progress UI when extracting
-  // Only show failed state if there's an actual error message (prevents brief flash)
+  // Show progress UI when extracting.
+  // Only show failed state if there's an actual error message (prevents brief flash).
   const showExtractionUI = extraction.isExtracting || (extraction.isFailed && extraction.error);
   if (showExtractionUI) {
     return (
@@ -498,6 +514,12 @@ export default function ExtractScreen() {
             message={extraction.message}
             elapsedTime={extraction.elapsedTime}
             error={extraction.error}
+            terminalStatus={extraction.terminalStatus}
+            connectionNotice={extraction.connectionNotice}
+            isRetrying={extraction.isRetrying}
+            nextAttemptAt={extraction.nextAttemptAt}
+            attemptCount={extraction.attemptCount}
+            maxAttempts={extraction.maxAttempts}
             isWebsite={extraction.sourceUrl ? extraction.isWebsiteExtraction : extractingAsWebsite}
             lowConfidence={extraction.lowConfidence}
             confidenceWarning={extraction.confidenceWarning}
@@ -506,8 +528,8 @@ export default function ExtractScreen() {
           {extraction.isFailed ? (
             <RNView style={styles.buttonRow}>
               <Button
-                title="Try Again"
-                onPress={handleRetry}
+                title={extraction.canRetryStart ? 'Reconnect' : 'Start Again'}
+                onPress={extraction.canRetryStart ? extraction.retryPendingStart : handleRetry}
                 size="lg"
               />
             </RNView>
@@ -523,7 +545,9 @@ export default function ExtractScreen() {
           )}
 
           <Text style={[styles.backgroundHint, { color: colors.textMuted }]}>
-            You can leave this screen — extraction continues in the background
+            {extraction.isFailed
+              ? 'Your recipe URL and options are still here, ready when you are.'
+              : 'You can leave this screen — extraction continues in the background'}
           </Text>
         </ScrollView>
       </RNView>
@@ -665,6 +689,10 @@ export default function ExtractScreen() {
             onPress={() => !isLoading && setIsPublic(!isPublic)}
             activeOpacity={0.7}
             disabled={isLoading}
+            accessibilityRole="switch"
+            accessibilityLabel="Share recipe to the public library"
+            accessibilityHint="Off keeps this recipe visible only to you"
+            accessibilityState={{ checked: isPublic, disabled: isLoading }}
           >
             <RNView style={styles.shareToggleContent}>
               <Ionicons
@@ -685,6 +713,7 @@ export default function ExtractScreen() {
               value={isPublic}
               onValueChange={setIsPublic}
               disabled={isLoading}
+              accessibilityLabel="Share recipe to the public library"
               trackColor={{ false: colors.border, true: colors.tint }}
               thumbColor="#FFFFFF"
             />
@@ -753,7 +782,7 @@ export default function ExtractScreen() {
           {/* Footer */}
           <RNView style={styles.footer}>
             <Text style={[styles.footerText, { color: colors.textMuted }]}>
-              Powered by AI • Gemini 2.0 & OpenAI
+              Powered by OpenAI
             </Text>
           </RNView>
         </ScrollView>
