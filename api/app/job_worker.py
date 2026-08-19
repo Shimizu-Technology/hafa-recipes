@@ -131,6 +131,28 @@ def claimable_job_query(now: datetime):
     )
 
 
+def unclaimable_job_query(now: datetime):
+    """Select jobs that cannot run without interrupting a healthy final lease."""
+    return (
+        select(ExtractionJob)
+        .where(
+            ExtractionJob.status.in_(tuple(ACTIVE_JOB_STATUSES)),
+            or_(
+                ExtractionJob.expires_at <= now,
+                and_(
+                    ExtractionJob.attempt_count >= ExtractionJob.max_attempts,
+                    or_(
+                        ExtractionJob.status == "queued",
+                        ExtractionJob.leased_until.is_(None),
+                        ExtractionJob.leased_until <= now,
+                    ),
+                ),
+            ),
+        )
+        .with_for_update(skip_locked=True)
+    )
+
+
 class DurableJobWorker:
     """Claim and execute persisted jobs safely across deploys and API replicas."""
 
@@ -222,17 +244,7 @@ class DurableJobWorker:
         return claimed_job_id
 
     async def _expire_unclaimable_jobs(self, db, now: datetime) -> None:
-        result = await db.execute(
-            select(ExtractionJob)
-            .where(
-                ExtractionJob.status.in_(tuple(ACTIVE_JOB_STATUSES)),
-                or_(
-                    ExtractionJob.expires_at <= now,
-                    ExtractionJob.attempt_count >= ExtractionJob.max_attempts,
-                ),
-            )
-            .with_for_update(skip_locked=True)
-        )
+        result = await db.execute(unclaimable_job_query(now))
         for job in result.scalars().all():
             if job.expires_at and job.expires_at <= now:
                 job.status = "expired"

@@ -108,3 +108,32 @@ def test_local_database_can_disable_ssl_but_production_cannot():
             openai_api_key="test-openai-key",
             environment="production",
         )
+
+
+def test_remote_database_cannot_disable_ssl_under_default_environment():
+    with pytest.raises(ValidationError, match="local development database"):
+        Settings(
+            database_url="postgresql://production.example/hafa",
+            database_use_ssl=False,
+            openai_api_key="test-openai-key",
+        )
+
+
+@pytest.mark.parametrize(
+    "database_url",
+    [
+        "postgresql://localhost/hafa_test",
+        "postgresql://127.0.0.1/hafa_test",
+        "postgresql://[::1]/hafa_test",
+        "postgresql:///hafa_test",
+    ],
+)
+def test_ssl_can_only_be_disabled_for_explicitly_local_urls(database_url):
+    settings = Settings(
+        database_url=database_url,
+        database_use_ssl=False,
+        openai_api_key="test-openai-key",
+        environment="development",
+    )
+
+    assert settings.database_use_ssl is False

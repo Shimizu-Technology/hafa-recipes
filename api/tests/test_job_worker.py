@@ -13,6 +13,7 @@ from app.job_worker import (
     missing_worker_columns,
     settings,
     should_retry_extraction_error,
+    unclaimable_job_query,
 )
 from app.models.recipe import ExtractionJob
 
@@ -122,6 +123,22 @@ def test_claim_query_uses_postgres_skip_locked_and_stale_lease_recovery():
     assert "extraction_jobs.status IN ('claimed', 'processing')" in sql
     assert "extraction_jobs.leased_until <" in sql
     assert "extraction_jobs.attempt_count < extraction_jobs.max_attempts" in sql
+
+
+def test_cleanup_does_not_fail_a_healthy_final_attempt_lease():
+    now = datetime(2026, 8, 18, tzinfo=timezone.utc)
+    sql = str(
+        unclaimable_job_query(now).compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+
+    assert "extraction_jobs.attempt_count >= extraction_jobs.max_attempts" in sql
+    assert "extraction_jobs.status = 'queued'" in sql
+    assert "extraction_jobs.leased_until IS NULL" in sql
+    assert "extraction_jobs.leased_until <=" in sql
+    assert "FOR UPDATE SKIP LOCKED" in sql
 
 
 def test_worker_schema_preflight_requires_migration_018_columns():

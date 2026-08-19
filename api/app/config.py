@@ -156,8 +156,16 @@ class Settings(BaseSettings):
             raise ValueError("JOB_MAX_ATTEMPTS must be at least 1")
         if self.job_expiry_hours < 1:
             raise ValueError("JOB_EXPIRY_HOURS must be at least 1")
-        if self.environment.lower() != "development" and not self.database_use_ssl:
-            raise ValueError("DATABASE_USE_SSL cannot be disabled outside development")
+        if not self.database_use_ssl:
+            database_host = urlsplit(self.database_url).hostname
+            local_database_hosts = {None, "localhost", "127.0.0.1", "::1"}
+            if (
+                self.environment.lower() != "development"
+                or database_host not in local_database_hosts
+            ):
+                raise ValueError(
+                    "DATABASE_USE_SSL can only be disabled for a local development database"
+                )
         return self
 
     @property
