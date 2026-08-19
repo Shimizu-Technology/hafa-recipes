@@ -8,13 +8,14 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.auth import ClerkUser, get_current_user
 from app.config import get_settings
+from app.database_invariants import next_recipe_version_number
 from app.db import get_db
 from app.image_validation import ImageValidationError, validate_image_bytes
 from app.job_worker import (
@@ -26,6 +27,7 @@ from app.models.recipe import ExtractionJob, Recipe, RecipeVersion
 from app.services import recipe_extractor, storage_service, video_service
 from app.services.extractor import ExtractionProgress
 from app.services.llm_client import llm_service
+from app.source_urls import canonicalize_source
 
 MAX_OCR_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_OCR_TOTAL_BYTES = 40 * 1024 * 1024
@@ -43,6 +45,35 @@ def _normalized_idempotency_key(value: str | None) -> str | None:
     if not normalized:
         raise HTTPException(status_code=400, detail="Idempotency-Key cannot be blank")
     return normalized
+
+
+async def _commit_external_recipe(
+    db: AsyncSession,
+    recipe: Recipe,
+) -> tuple[Recipe, bool]:
+    """Commit one external recipe or return the winner of a concurrent insert."""
+
+    db.add(recipe)
+    try:
+        await db.commit()
+        await db.refresh(recipe)
+        return recipe, False
+    except IntegrityError:
+        await db.rollback()
+        existing = None
+        if recipe.canonical_source_key:
+            existing = await db.scalar(
+                select(Recipe).where(
+                    Recipe.user_id == recipe.user_id,
+                    Recipe.canonical_source_key == recipe.canonical_source_key,
+                )
+            )
+        if existing:
+            return existing, True
+        raise HTTPException(
+            status_code=409,
+            detail="The account changed while saving. Please sign in again and retry.",
+        ) from None
 
 
 def _validate_idempotent_job(
@@ -402,14 +433,25 @@ async def extract_recipe(
     
     If the user already has a recipe with this URL, returns the existing recipe.
     """
-    url = request.url.strip()
+    original_url = request.url.strip()
+    url = await video_service.normalize_url(original_url)
+    canonical_source = canonicalize_source(url)
+    url = canonical_source.url
     
     # Check for existing recipe FROM THIS USER
     result = await db.execute(
-        select(Recipe).where(
-            Recipe.source_url == url,
-            Recipe.user_id == user.id
+        select(Recipe)
+        .where(
+            Recipe.user_id == user.id,
+            or_(
+                Recipe.canonical_source_key == canonical_source.key
+                if canonical_source.key
+                else Recipe.source_url == url,
+                Recipe.source_url.in_({original_url, url}),
+            ),
         )
+        .order_by(Recipe.canonical_source_key.is_(None), Recipe.created_at)
+        .limit(1)
     )
     existing = result.scalar_one_or_none()
     
@@ -450,6 +492,7 @@ async def extract_recipe(
         # Save to database
         new_recipe = Recipe(
             source_url=url,
+            canonical_source_key=canonical_source.key,
             source_type="website",
             raw_text=extraction_result.raw_text,
             extracted=extraction_result.recipe,
@@ -463,9 +506,13 @@ async def extract_recipe(
             total_minutes=_compute_total_minutes(extraction_result.recipe),
         )
         
-        db.add(new_recipe)
-        await db.commit()
-        await db.refresh(new_recipe)
+        new_recipe, raced_existing = await _commit_external_recipe(db, new_recipe)
+        if raced_existing:
+            return ExtractResponse(
+                id=new_recipe.id,
+                recipe=new_recipe.extracted,
+                is_existing=True,
+            )
         
         # Upload thumbnail to S3 for permanent storage
         if extraction_result.thumbnail_url:
@@ -504,6 +551,7 @@ async def extract_recipe(
     # Save to database with user_id and display name
     new_recipe = Recipe(
         source_url=url,
+        canonical_source_key=canonical_source.key,
         source_type=platform,
         raw_text=extraction_result.raw_text,
         extracted=extraction_result.recipe,
@@ -517,9 +565,13 @@ async def extract_recipe(
         total_minutes=_compute_total_minutes(extraction_result.recipe),
     )
     
-    db.add(new_recipe)
-    await db.commit()
-    await db.refresh(new_recipe)
+    new_recipe, raced_existing = await _commit_external_recipe(db, new_recipe)
+    if raced_existing:
+        return ExtractResponse(
+            id=new_recipe.id,
+            recipe=new_recipe.extracted,
+            is_existing=True,
+        )
     
     # Upload thumbnail to S3 for permanent storage
     if extraction_result.thumbnail_url:
@@ -566,6 +618,8 @@ async def start_extraction_job(
     
     # Normalize the URL (resolve TikTok short URLs, etc.)
     url = await VideoService.normalize_url(original_url)
+    canonical_source = canonicalize_source(url)
+    url = canonical_source.url
     print(f"📎 Normalized URL: {original_url} → {url}")
 
     if idempotency_key:
@@ -595,10 +649,18 @@ async def start_extraction_job(
     
     # Check for existing recipe FROM THIS USER (check both original and normalized)
     result = await db.execute(
-        select(Recipe).where(
-            or_(Recipe.source_url == original_url, Recipe.source_url == url),
-            Recipe.user_id == user.id
+        select(Recipe)
+        .where(
+            Recipe.user_id == user.id,
+            or_(
+                Recipe.canonical_source_key == canonical_source.key
+                if canonical_source.key
+                else Recipe.source_url == url,
+                Recipe.source_url.in_({original_url, url}),
+            ),
         )
+        .order_by(Recipe.canonical_source_key.is_(None), Recipe.created_at)
+        .limit(1)
     )
     existing = result.scalar_one_or_none()
     
@@ -847,8 +909,10 @@ async def run_extraction_job(
                 saved_extracted = dict(extracted_data)
                 
                 # Save recipe WITH USER ID and display name
+                canonical_source_key = canonicalize_source(url).key
                 new_recipe = Recipe(
                     source_url=url,
+                    canonical_source_key=canonical_source_key,
                     source_type=platform,
                     raw_text=result.raw_text,
                     extracted=extracted_data,
@@ -862,7 +926,38 @@ async def run_extraction_job(
                     total_minutes=_compute_total_minutes(extracted_data),
                 )
                 db.add(new_recipe)
-                await db.flush()
+                try:
+                    await db.flush()
+                except IntegrityError:
+                    await db.rollback()
+                    existing_recipe = None
+                    if canonical_source_key:
+                        existing_recipe = await db.scalar(
+                            select(Recipe).where(
+                                Recipe.user_id == user_id,
+                                Recipe.canonical_source_key == canonical_source_key,
+                            )
+                        )
+                    raced_job = await db.scalar(
+                        select(ExtractionJob)
+                        .where(
+                            ExtractionJob.id == job_id,
+                            ExtractionJob.lease_token == lease_token,
+                        )
+                        .with_for_update()
+                    )
+                    if not existing_recipe or not raced_job:
+                        raise
+                    raced_job.recipe_id = existing_recipe.id
+                    raced_job.status = "completed"
+                    raced_job.progress = 100
+                    raced_job.current_step = "complete"
+                    raced_job.message = "Recipe was already in your collection"
+                    raced_job.completed_at = datetime.now(timezone.utc)
+                    raced_job.lease_token = None
+                    raced_job.leased_until = None
+                    await db.commit()
+                    return
                 # Commit the recipe and durable job link atomically. If the
                 # process exits afterward, stale recovery completes this job
                 # instead of creating a duplicate recipe.
@@ -1390,15 +1485,11 @@ async def run_re_extraction_job(
                 change_summary = _generate_reextract_change_summary(old_extracted, new_extracted)
                 
                 # Create version snapshot with OLD state and change comparison
-                version_result = await db.execute(
-                    select(func.max(RecipeVersion.version_number))
-                    .where(RecipeVersion.recipe_id == recipe.id)
-                )
-                max_version = version_result.scalar() or 0
+                next_version = await next_recipe_version_number(db, recipe.id)
                 
                 version = RecipeVersion(
                     recipe_id=recipe.id,
-                    version_number=max_version + 1,
+                    version_number=next_version,
                     extracted=old_extracted,  # Store OLD state
                     thumbnail_url=old_thumbnail,
                     change_type="re-extract",

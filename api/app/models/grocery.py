@@ -32,7 +32,13 @@ class GroceryListMember(Base):
     __tablename__ = "grocery_list_members"
     
     list_id = Column(UUID(as_uuid=True), ForeignKey("grocery_lists.id", ondelete="CASCADE"), primary_key=True)
-    user_id = Column(String(64), nullable=False, primary_key=True, index=True)
+    user_id = Column(
+        String(64),
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=False,
+        primary_key=True,
+        index=True,
+    )
     display_name = Column(String(255), nullable=True)
     joined_at = Column(DateTime(timezone=True), server_default=func.now())
     
@@ -48,9 +54,17 @@ class GroceryListInvite(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     list_id = Column(UUID(as_uuid=True), ForeignKey("grocery_lists.id", ondelete="CASCADE"), nullable=False)
     invite_code = Column(String(20), unique=True, nullable=False, index=True)
-    created_by = Column(String(64), nullable=False)
+    created_by = Column(
+        String(64),
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    accepted_by = Column(String(64), nullable=True)
+    accepted_by = Column(
+        String(64),
+        ForeignKey("app_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     accepted_at = Column(DateTime(timezone=True), nullable=True)
     
     # Relationships
@@ -63,7 +77,12 @@ class GroceryItem(Base):
     __tablename__ = "grocery_items"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(String(64), nullable=False, index=True)
+    user_id = Column(
+        String(64),
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     list_id = Column(UUID(as_uuid=True), ForeignKey("grocery_lists.id", ondelete="CASCADE"), nullable=True, index=True)
     name = Column(String(255), nullable=False)
     quantity = Column(String(50), nullable=True)
@@ -79,4 +98,3 @@ class GroceryItem(Base):
     
     # Relationships
     grocery_list = relationship("GroceryList", back_populates="items")
-

@@ -82,7 +82,7 @@ async def test_account_delete_commits_local_erasure_with_cleanup_intent(
 ):
     issuer = "https://development.clerk.accounts.dev"
     async with deletion_database() as db:
-        db.add(AppUser(id="stable_user"))
+        db.add_all([AppUser(id="stable_user"), AppUser(id="other_user")])
         db.add(
             ClerkIdentity(
                 app_user_id="stable_user",

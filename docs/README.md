@@ -40,7 +40,10 @@ Last reviewed: 2026-08-19
    - Why one model should not handle every AI task
    - Evaluation and rollout criteria
 
-8. [Deletion cleanup operations runbook](./DELETION-CLEANUP-RUNBOOK.md)
+8. [Database invariants and canonical sources runbook](./DATABASE-INVARIANTS-RUNBOOK.md)
+   - Canonical URL rules, concurrency constraints, schema verification, deployment, and rollback
+
+9. [Deletion cleanup operations runbook](./DELETION-CLEANUP-RUNBOOK.md)
    - Durable account and recipe cleanup behavior
    - Queue states, alerts, verification, and safe recovery
 

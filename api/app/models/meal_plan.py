@@ -24,7 +24,12 @@ class MealPlanEntry(Base):
     __tablename__ = "meal_plan_entries"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(String(64), nullable=False, index=True)
+    user_id = Column(
+        String(64),
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     date = Column(Date, nullable=False, index=True)
     meal_type = Column(String(20), nullable=False)  # breakfast, lunch, dinner, snack
     recipe_id = Column(UUID(as_uuid=True), ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False)
@@ -42,4 +47,3 @@ class MealPlanEntry(Base):
         # Users might want 2 side dishes for dinner
         {},
     )
-

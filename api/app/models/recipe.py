@@ -2,7 +2,16 @@
 
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -25,6 +34,7 @@ class Recipe(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     source_url = Column(Text, nullable=False)
+    canonical_source_key = Column(String(96), nullable=True, index=True)
     source_type = Column(String(32), nullable=False)  # youtube|tiktok|instagram|web|manual
     raw_text = Column(Text, nullable=True)
     extracted = Column(JSONB, nullable=False)
@@ -35,8 +45,13 @@ class Recipe(Base):
     has_audio_transcript = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
-    # User ownership (Clerk user ID) - nullable for legacy recipes
-    user_id = Column(String(64), nullable=True, index=True)
+    # Stable application-user ownership - nullable for legacy recipes
+    user_id = Column(
+        String(64),
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     
     # Display name of the user who extracted this recipe
     # Shown on Discover cards as "by Alanna" or "by lmshimizu"
@@ -71,12 +86,21 @@ class SavedRecipe(Base):
     __tablename__ = "saved_recipes"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(String(64), nullable=False, index=True)
+    user_id = Column(
+        String(64),
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     recipe_id = Column(UUID(as_uuid=True), ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationship to recipe
     recipe = relationship("Recipe")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "recipe_id", name="uq_saved_recipes_user_recipe"),
+    )
     
     def __repr__(self):
         return f"<SavedRecipe user={self.user_id} recipe={self.recipe_id}>"
@@ -91,7 +115,12 @@ class Collection(Base):
     __tablename__ = "collections"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(String(64), nullable=False, index=True)
+    user_id = Column(
+        String(64),
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     name = Column(String(100), nullable=False)
     emoji = Column(String(10), nullable=True)  # Optional emoji icon
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -129,7 +158,12 @@ class RecipeNote(Base):
     __tablename__ = "recipe_notes"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(String(64), nullable=False, index=True)
+    user_id = Column(
+        String(64),
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     recipe_id = Column(UUID(as_uuid=True), ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False, index=True)
     note_text = Column(Text, nullable=False, default="")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -158,11 +192,23 @@ class RecipeVersion(Base):
     thumbnail_url = Column(Text, nullable=True)
     change_type = Column(String(32), nullable=False, default="edit")  # initial, edit, re-extract
     change_summary = Column(Text, nullable=True)  # Optional description of changes
-    created_by = Column(String(64), nullable=True)  # User who made the change
+    created_by = Column(
+        String(64),
+        ForeignKey("app_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )  # User who made the change
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationship to recipe
     recipe = relationship("Recipe", backref="versions")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "recipe_id",
+            "version_number",
+            name="uq_recipe_versions_recipe_number",
+        ),
+    )
     
     def __repr__(self):
         return f"<RecipeVersion recipe={self.recipe_id} v{self.version_number}>"
@@ -178,7 +224,12 @@ class ExtractionJob(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     url = Column(Text, nullable=False, index=True)
-    user_id = Column(String(64), nullable=True, index=True)
+    user_id = Column(
+        String(64),
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     location = Column(Text, nullable=False, default="Guam")
     notes = Column(Text, nullable=False, default="")
     status = Column(String(16), nullable=False, default="queued", server_default="queued")
