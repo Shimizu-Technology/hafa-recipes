@@ -38,6 +38,24 @@ export interface Nutrition {
   total: NutritionValues;
 }
 
+export type DerivedValueStatus = 'current' | 'stale' | 'unverified' | 'unavailable';
+
+export interface DerivedValueMetadata {
+  status: DerivedValueStatus;
+  source: string;
+  model?: string | null;
+  dataVersion: string;
+  calculatedAt?: string | null;
+  dependencyFingerprint: string;
+}
+
+export interface RecipeDerivedData {
+  nutrition: DerivedValueMetadata;
+  cost: DerivedValueMetadata;
+  tags: DerivedValueMetadata;
+  times: DerivedValueMetadata;
+}
+
 export interface Media {
   thumbnail: string | null;
 }
@@ -58,6 +76,7 @@ export interface RecipeExtracted {
   totalEstimatedCost: number | null;
   costLocation: string;
   nutrition: Nutrition;
+  derivedData?: RecipeDerivedData;
   // Confidence info (set when extraction quality is uncertain)
   lowConfidence?: boolean;
   confidenceWarning?: string | null;

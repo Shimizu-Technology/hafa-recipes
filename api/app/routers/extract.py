@@ -25,6 +25,7 @@ from app.job_worker import (
     should_retry_extraction_error,
 )
 from app.models.recipe import ExtractionJob, Recipe, RecipeVersion
+from app.recipe_derived_data import mark_fresh
 from app.services import recipe_extractor, storage_service, video_service
 from app.services.extractor import ExtractionProgress
 from app.services.llm_client import llm_service
@@ -490,13 +491,21 @@ async def extract_recipe(
                 detail=extraction_result.error or "We couldn't extract a recipe from this website.",
             )
         
+        extracted_recipe = mark_fresh(
+            extraction_result.recipe,
+            "nutrition",
+            "cost",
+            "tags",
+            "times",
+            source="ai_extraction",
+        )
         # Save to database
         new_recipe = Recipe(
             source_url=url,
             canonical_source_key=canonical_source.key,
             source_type="website",
             raw_text=extraction_result.raw_text,
-            extracted=extraction_result.recipe,
+            extracted=extracted_recipe,
             thumbnail_url=extraction_result.thumbnail_url,
             extraction_method=extraction_result.extraction_method,
             extraction_quality=extraction_result.extraction_quality,
@@ -504,7 +513,7 @@ async def extract_recipe(
             user_id=user.id,
             extractor_display_name=user.display_name,
             is_public=request.is_public,
-            total_minutes=_compute_total_minutes(extraction_result.recipe),
+            total_minutes=_compute_total_minutes(extracted_recipe),
         )
         
         new_recipe, raced_existing = await _commit_external_recipe(db, new_recipe)
@@ -549,13 +558,21 @@ async def extract_recipe(
             detail=error_detail
         )
     
+    extracted_recipe = mark_fresh(
+        extraction_result.recipe,
+        "nutrition",
+        "cost",
+        "tags",
+        "times",
+        source="ai_extraction",
+    )
     # Save to database with user_id and display name
     new_recipe = Recipe(
         source_url=url,
         canonical_source_key=canonical_source.key,
         source_type=platform,
         raw_text=extraction_result.raw_text,
-        extracted=extraction_result.recipe,
+        extracted=extracted_recipe,
         thumbnail_url=extraction_result.thumbnail_url,
         extraction_method=extraction_result.extraction_method,
         extraction_quality=extraction_result.extraction_quality,
@@ -563,7 +580,7 @@ async def extract_recipe(
         user_id=user.id,  # Assign to current user
         extractor_display_name=user.display_name,  # Store display name for attribution
         is_public=request.is_public,
-        total_minutes=_compute_total_minutes(extraction_result.recipe),
+        total_minutes=_compute_total_minutes(extracted_recipe),
     )
     
     new_recipe, raced_existing = await _commit_external_recipe(db, new_recipe)
@@ -904,6 +921,14 @@ async def run_extraction_job(
                 if result.low_confidence:
                     extracted_data['lowConfidence'] = True
                     extracted_data['confidenceWarning'] = result.confidence_warning
+                extracted_data = mark_fresh(
+                    extracted_data,
+                    "nutrition",
+                    "cost",
+                    "tags",
+                    "times",
+                    source="ai_extraction",
+                )
                 
                 # Keep a copy of extracted_data before any DB operations
                 # This protects against session state issues
@@ -1472,7 +1497,14 @@ async def run_re_extraction_job(
             
             if result.success:
                 new_extracted = result.recipe
-                final_extracted = dict(new_extracted)
+                final_extracted = mark_fresh(
+                    dict(new_extracted),
+                    "nutrition",
+                    "cost",
+                    "tags",
+                    "times",
+                    source="ai_reextraction",
+                )
                 if result.low_confidence:
                     final_extracted['lowConfidence'] = True
                     final_extracted['confidenceWarning'] = result.confidence_warning

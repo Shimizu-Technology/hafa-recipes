@@ -4,8 +4,8 @@ import json
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from pydantic import BaseModel, ConfigDict
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import String, delete, desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +34,11 @@ from app.models.schemas import (
     RecipeResponse,
 )
 from app.public_identity import public_contributor_id, visible_recipe_user_id
+from app.recipe_derived_data import (
+    ensure_derived_metadata,
+    invalidate_changed_inputs,
+    mark_fresh,
+)
 from app.services.storage import storage_service
 from app.source_urls import canonicalize_source
 
@@ -69,7 +74,8 @@ def normalize_recipe_data(recipe: Recipe) -> Recipe:
         extracted["times"] = {}
         modified = True
 
-    if modified:
+    extracted = ensure_derived_metadata(extracted)
+    if modified or extracted != recipe.extracted:
         recipe.extracted = extracted
 
     return recipe
@@ -329,19 +335,9 @@ class RecipeUpdate(BaseModel):
     is_public: Optional[bool] = None
 
 
-class RecipeEdit(BaseModel):
-    """Full recipe edit request."""
-    title: str
-    servings: Optional[int] = None
-    prep_time: Optional[str] = None
-    cook_time: Optional[str] = None
-    total_time: Optional[str] = None
-    ingredients: List["ManualIngredient"]
-    steps: List[str]
-    notes: Optional[str] = None
-    tags: Optional[List[str]] = None
-    is_public: Optional[bool] = None
-    nutrition: Optional["ManualNutrition"] = None
+class RecipeSharingUpdate(BaseModel):
+    """Explicit sharing state avoids accidental double-toggle races."""
+    is_public: bool
 
 
 class ManualIngredient(BaseModel):
@@ -350,14 +346,59 @@ class ManualIngredient(BaseModel):
     quantity: Optional[str] = None
     unit: Optional[str] = None
     notes: Optional[str] = None
+    estimatedCost: Optional[float] = None
+
+
+class ManualComponent(BaseModel):
+    """Editable recipe section that keeps its ingredients and steps together."""
+    name: str
+    ingredients: List[ManualIngredient]
+    steps: List[str]
+    notes: Optional[str] = None
 
 
 class ManualNutrition(BaseModel):
     """Nutrition data for manual recipe entry."""
-    calories: Optional[int] = None
-    protein: Optional[int] = None
-    carbs: Optional[int] = None
-    fat: Optional[int] = None
+    calories: Optional[int] = Field(default=None, ge=0, le=100_000)
+    protein: Optional[int] = Field(default=None, ge=0, le=10_000)
+    carbs: Optional[int] = Field(default=None, ge=0, le=10_000)
+    fat: Optional[int] = Field(default=None, ge=0, le=10_000)
+
+
+class RecipeEdit(BaseModel):
+    """Full recipe edit request with component-aware and legacy inputs."""
+    title: str
+    servings: Optional[int] = None
+    prep_time: Optional[str] = None
+    cook_time: Optional[str] = None
+    total_time: Optional[str] = None
+    components: Optional[List[ManualComponent]] = None
+    ingredients: Optional[List[ManualIngredient]] = None
+    steps: Optional[List[str]] = None
+    notes: Optional[str] = None
+    tags: Optional[List[str]] = None
+    is_public: Optional[bool] = None
+    nutrition: Optional[ManualNutrition] = None
+    nutrition_recalculated: bool = False
+    nutrition_model: Optional[str] = None
+
+    @model_validator(mode="after")
+    def require_recalculated_nutrition_payload(self) -> "RecipeEdit":
+        """A freshness claim is valid only when replacement values are supplied."""
+        if self.nutrition_recalculated and self.nutrition is None:
+            raise ValueError("nutrition is required when nutrition_recalculated is true")
+        if self.nutrition_recalculated and self.nutrition is not None:
+            values = (
+                self.nutrition.calories,
+                self.nutrition.protein,
+                self.nutrition.carbs,
+                self.nutrition.fat,
+            )
+            if any(value is None for value in values):
+                raise ValueError(
+                    "calories, protein, carbs, and fat are required for recalculated nutrition"
+                )
+        return self
 
 
 class ManualRecipeCreate(BaseModel):
@@ -374,6 +415,94 @@ class ManualRecipeCreate(BaseModel):
     is_public: bool = False
     nutrition: Optional[ManualNutrition] = None
     source_type: Optional[str] = "manual"  # Can be "manual" or "photo" (for edited OCR)
+
+
+def _serialize_edit_components(edit: RecipeEdit) -> list[dict]:
+    """Serialize canonical components while accepting the previous flat client."""
+    def serialize_ingredient(ingredient: ManualIngredient) -> dict:
+        value = ingredient.model_dump()
+        if value["estimatedCost"] is None:
+            value.pop("estimatedCost")
+        return value
+
+    if edit.components is not None:
+        components = [
+            {
+                "name": component.name,
+                "ingredients": [serialize_ingredient(item) for item in component.ingredients],
+                "steps": component.steps,
+                "notes": component.notes,
+            }
+            for component in edit.components
+        ]
+    else:
+        components = [
+            {
+                "name": "Main",
+                "ingredients": [serialize_ingredient(ingredient) for ingredient in (edit.ingredients or [])],
+                "steps": edit.steps or [],
+                "notes": None,
+            }
+        ]
+
+    if not any(component["ingredients"] for component in components):
+        raise HTTPException(status_code=422, detail="Add at least one ingredient")
+    if not any(component["steps"] for component in components):
+        raise HTTPException(status_code=422, detail="Add at least one instruction")
+    return components
+
+
+def _build_edited_extracted(
+    old_extracted: dict,
+    edit: RecipeEdit,
+    *,
+    thumbnail_url: str | None = None,
+) -> dict:
+    """Build an edited recipe without flattening component associations."""
+    components = _serialize_edit_components(edit)
+    ingredients = [item for component in components for item in component["ingredients"]]
+    steps = [item for component in components for item in component["steps"]]
+    old_nutrition = old_extracted.get("nutrition") or {}
+    old_per_serving = old_nutrition.get("perServing") or {}
+
+    new_extracted = {
+        "title": edit.title,
+        "sourceUrl": old_extracted.get("sourceUrl", ""),
+        "servings": edit.servings,
+        "times": {"prep": edit.prep_time, "cook": edit.cook_time, "total": edit.total_time},
+        "components": components,
+        # Keep flattened fields synchronized for older app versions and search.
+        "ingredients": ingredients,
+        "steps": steps,
+        "equipment": old_extracted.get("equipment", []),
+        "notes": edit.notes,
+        "tags": edit.tags or [],
+        "media": (
+            {"thumbnail": thumbnail_url}
+            if thumbnail_url is not None
+            else old_extracted.get("media", {"thumbnail": None})
+        ),
+        "totalEstimatedCost": old_extracted.get("totalEstimatedCost"),
+        "costLocation": old_extracted.get("costLocation", ""),
+        "nutrition": {
+            "perServing": {
+                "calories": edit.nutrition.calories if edit.nutrition else old_per_serving.get("calories"),
+                "protein": edit.nutrition.protein if edit.nutrition else old_per_serving.get("protein"),
+                "carbs": edit.nutrition.carbs if edit.nutrition else old_per_serving.get("carbs"),
+                "fat": edit.nutrition.fat if edit.nutrition else old_per_serving.get("fat"),
+                "fiber": None if edit.nutrition_recalculated else old_per_serving.get("fiber"),
+                "sugar": None if edit.nutrition_recalculated else old_per_serving.get("sugar"),
+                "sodium": None if edit.nutrition_recalculated else old_per_serving.get("sodium"),
+            },
+            "total": {} if edit.nutrition_recalculated else old_nutrition.get("total") or {},
+        },
+    }
+    return invalidate_changed_inputs(
+        old_extracted,
+        new_extracted,
+        nutrition_recalculated=edit.nutrition_recalculated,
+        nutrition_model=edit.nutrition_model,
+    )
 
 
 def recipe_to_list_item(
@@ -540,6 +669,13 @@ async def create_manual_recipe(
             },
         },
     }
+    extracted = mark_fresh(
+        extracted,
+        "nutrition",
+        "tags",
+        "times",
+        source="user_provided",
+    )
 
     # Create the recipe
     # source_type can be "manual" or "photo" (for edited OCR recipes)
@@ -599,7 +735,7 @@ async def save_ocr_recipe(
 
     Accepts the full extracted JSON and saves it as a new recipe.
     """
-    extracted = ocr_data.extracted
+    extracted = ensure_derived_metadata(ocr_data.extracted)
 
     # Ensure sourceUrl is set
     if not extracted.get("sourceUrl"):
@@ -1514,7 +1650,8 @@ async def update_recipe(
         raise HTTPException(status_code=403, detail="You can only update your own recipes")
 
     # Update the extracted JSONB with new values
-    extracted = dict(recipe.extracted) if recipe.extracted else {}
+    old_extracted = dict(recipe.extracted) if recipe.extracted else {}
+    extracted = dict(old_extracted)
 
     if update.title is not None:
         extracted["title"] = update.title
@@ -1525,7 +1662,7 @@ async def update_recipe(
     if update.tags is not None:
         extracted["tags"] = update.tags
 
-    recipe.extracted = extracted
+    recipe.extracted = invalidate_changed_inputs(old_extracted, extracted)
 
     # Update is_public if provided
     if update.is_public is not None:
@@ -1540,6 +1677,7 @@ async def update_recipe(
 @router.post("/{recipe_id}/share")
 async def toggle_recipe_sharing(
     recipe_id: UUID,
+    sharing: RecipeSharingUpdate | None = Body(default=None),
     db: AsyncSession = Depends(get_db),
     user: ClerkUser = Depends(get_current_user),
 ):
@@ -1557,8 +1695,9 @@ async def toggle_recipe_sharing(
     if recipe.user_id != user.id:
         raise HTTPException(status_code=403, detail="You can only share your own recipes")
 
-    # Toggle is_public
-    recipe.is_public = not recipe.is_public
+    # Older released app builds sent no body. Keep that path temporarily while
+    # new clients use an explicit, retry-safe target state.
+    recipe.is_public = sharing.is_public if sharing is not None else not recipe.is_public
     await db.commit()
 
     return {
@@ -1675,57 +1814,9 @@ async def edit_recipe(
     if recipe.user_id != user.id:
         raise HTTPException(status_code=403, detail="You can only edit your own recipes")
 
-    # Build the new extracted structure FIRST (for change comparison)
-    ingredients_list = [
-        {
-            "name": ing.name,
-            "quantity": ing.quantity,
-            "unit": ing.unit,
-            "notes": ing.notes,
-        }
-        for ing in edit.ingredients
-    ]
-
     # Preserve some fields from original extracted data
     old_extracted = recipe.extracted or {}
-
-    new_extracted = {
-        "title": edit.title,
-        "sourceUrl": old_extracted.get("sourceUrl", ""),
-        "servings": edit.servings,
-        "times": {
-            "prep": edit.prep_time,
-            "cook": edit.cook_time,
-            "total": edit.total_time,
-        },
-        "components": [
-            {
-                "name": "Main",
-                "ingredients": ingredients_list,
-                "steps": edit.steps,
-            }
-        ],
-        "ingredients": ingredients_list,  # Legacy field
-        "steps": edit.steps,  # Legacy field
-        "equipment": old_extracted.get("equipment", []),
-        "notes": edit.notes,
-        "tags": edit.tags or [],
-        "media": old_extracted.get("media", {"thumbnail": None}),
-        "totalEstimatedCost": old_extracted.get("totalEstimatedCost"),
-        "costLocation": old_extracted.get("costLocation", ""),
-        "nutrition": {
-            "perServing": {
-                "calories": edit.nutrition.calories if edit.nutrition else old_extracted.get("nutrition", {}).get("perServing", {}).get("calories"),
-                "protein": edit.nutrition.protein if edit.nutrition else old_extracted.get("nutrition", {}).get("perServing", {}).get("protein"),
-                "carbs": edit.nutrition.carbs if edit.nutrition else old_extracted.get("nutrition", {}).get("perServing", {}).get("carbs"),
-                "fat": edit.nutrition.fat if edit.nutrition else old_extracted.get("nutrition", {}).get("perServing", {}).get("fat"),
-                "fiber": old_extracted.get("nutrition", {}).get("perServing", {}).get("fiber"),
-                "sugar": old_extracted.get("nutrition", {}).get("perServing", {}).get("sugar"),
-                "sodium": old_extracted.get("nutrition", {}).get("perServing", {}).get("sodium"),
-            },
-            "total": old_extracted.get("nutrition", {}).get("total", {}),
-        },
-    }
+    new_extracted = _build_edited_extracted(old_extracted, edit)
 
     # Create a version snapshot BEFORE applying changes (with change comparison)
     await create_recipe_version(
@@ -1810,56 +1901,12 @@ async def edit_recipe_with_image(
         if uploaded_url:
             thumbnail_url = uploaded_url
 
-    # Build the new extracted structure FIRST (for change comparison)
-    ingredients_list = [
-        {
-            "name": ing.name,
-            "quantity": ing.quantity,
-            "unit": ing.unit,
-            "notes": ing.notes,
-        }
-        for ing in edit.ingredients
-    ]
-
     old_extracted = recipe.extracted or {}
-
-    new_extracted = {
-        "title": edit.title,
-        "sourceUrl": old_extracted.get("sourceUrl", ""),
-        "servings": edit.servings,
-        "times": {
-            "prep": edit.prep_time,
-            "cook": edit.cook_time,
-            "total": edit.total_time,
-        },
-        "components": [
-            {
-                "name": "Main",
-                "ingredients": ingredients_list,
-                "steps": edit.steps,
-            }
-        ],
-        "ingredients": ingredients_list,
-        "steps": edit.steps,
-        "equipment": old_extracted.get("equipment", []),
-        "notes": edit.notes,
-        "tags": edit.tags or [],
-        "media": {"thumbnail": thumbnail_url},
-        "totalEstimatedCost": old_extracted.get("totalEstimatedCost"),
-        "costLocation": old_extracted.get("costLocation", ""),
-        "nutrition": {
-            "perServing": {
-                "calories": edit.nutrition.calories if edit.nutrition else old_extracted.get("nutrition", {}).get("perServing", {}).get("calories"),
-                "protein": edit.nutrition.protein if edit.nutrition else old_extracted.get("nutrition", {}).get("perServing", {}).get("protein"),
-                "carbs": edit.nutrition.carbs if edit.nutrition else old_extracted.get("nutrition", {}).get("perServing", {}).get("carbs"),
-                "fat": edit.nutrition.fat if edit.nutrition else old_extracted.get("nutrition", {}).get("perServing", {}).get("fat"),
-                "fiber": old_extracted.get("nutrition", {}).get("perServing", {}).get("fiber"),
-                "sugar": old_extracted.get("nutrition", {}).get("perServing", {}).get("sugar"),
-                "sodium": old_extracted.get("nutrition", {}).get("perServing", {}).get("sodium"),
-            },
-            "total": old_extracted.get("nutrition", {}).get("total", {}),
-        },
-    }
+    new_extracted = _build_edited_extracted(
+        old_extracted,
+        edit,
+        thumbnail_url=thumbnail_url,
+    )
 
     # Create a version snapshot BEFORE applying changes (with change comparison)
     await create_recipe_version(

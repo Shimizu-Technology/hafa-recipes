@@ -8,7 +8,7 @@ These schemas match the TypeScript types from the Next.js app:
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -68,6 +68,24 @@ class Nutrition(BaseModel):
         )
 
 
+class DerivedValueMetadata(BaseModel):
+    """Freshness and provenance for a value computed from recipe inputs."""
+    status: Literal["current", "stale", "unverified", "unavailable"]
+    source: str = "unknown"
+    model: Optional[str] = None
+    dataVersion: str
+    calculatedAt: Optional[datetime] = None
+    dependencyFingerprint: str
+
+
+class RecipeDerivedData(BaseModel):
+    """Lifecycle state for estimates and other derived recipe fields."""
+    nutrition: DerivedValueMetadata
+    cost: DerivedValueMetadata
+    tags: DerivedValueMetadata
+    times: DerivedValueMetadata
+
+
 class Media(BaseModel):
     """Media attachments for recipe."""
     thumbnail: Optional[str] = None
@@ -99,6 +117,7 @@ class RecipeExtracted(BaseModel):
     totalEstimatedCost: Optional[float] = None
     costLocation: str = "US Average"
     nutrition: Nutrition = Nutrition()
+    derivedData: Optional[RecipeDerivedData] = None
     # Confidence/quality indicators for low-quality extractions
     lowConfidence: Optional[bool] = None
     confidenceWarning: Optional[str] = None

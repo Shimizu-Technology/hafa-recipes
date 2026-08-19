@@ -987,9 +987,9 @@ export function useToggleRecipeSharing() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => api.toggleRecipeSharing(id),
+    mutationFn: ({ id, isPublic }: { id: string; isPublic: boolean }) => api.setRecipeSharing(id, isPublic),
     // Optimistic update - toggle immediately in UI
-    onMutate: async (id) => {
+    onMutate: async ({ id, isPublic }) => {
       // Cancel any outgoing refetches
       await queryClient.cancelQueries({ queryKey: recipeKeys.detail(id) });
 
@@ -999,19 +999,19 @@ export function useToggleRecipeSharing() {
       // Optimistically update the recipe detail
       queryClient.setQueryData(recipeKeys.detail(id), (old: any) => {
         if (!old) return old;
-        return { ...old, is_public: !old.is_public };
+        return { ...old, is_public: isPublic };
       });
 
       // Return context with the snapshotted value
       return { previousRecipe };
     },
-    onError: (err, id, context) => {
+    onError: (err, { id }, context) => {
       // Rollback on error
       if (context?.previousRecipe) {
         queryClient.setQueryData(recipeKeys.detail(id), context.previousRecipe);
       }
     },
-    onSettled: (data, error, id) => {
+    onSettled: (data, error, { id }) => {
       // Sync with server state
       queryClient.invalidateQueries({ queryKey: recipeKeys.detail(id) });
       // Invalidate discover lists as the recipe may now be visible/hidden

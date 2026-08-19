@@ -172,11 +172,13 @@ Priority: P0
 
 Work:
 
-- [ ] Default manual and OCR recipes to private in API and mobile.
-- [ ] Decide whether imported public-source recipes remain public-by-default or become private-by-default.
-- [ ] Add first-publish confirmation and preview.
-- [ ] Add an owner-facing review for existing public manual/OCR recipes.
-- [ ] Separate public recipe notes from private extraction instructions.
+- [x] Default manual and OCR recipes to private in API and mobile.
+- [x] Make imported public-source recipes private-by-default until their owner publishes them.
+- [x] Add first-publish confirmation and a field/attribution visibility preview.
+- [x] Add an owner-facing public-field review before an existing recipe is made private.
+- [x] Keep public recipe notes distinct from personal notes and private extraction instructions.
+
+Implemented in the publishing-clarity slice: sharing now uses an explicit target state (with a temporary no-body compatibility path for older app builds), and every mobile path that can first-publish a recipe explains the visible recipe fields, source/photo presence, notes, and contributor attribution before proceeding.
 
 Acceptance criteria:
 
@@ -338,10 +340,10 @@ Priority: P1
 
 Work:
 
-- [ ] Make components the canonical editable structure.
-- [ ] Remove the editor's forced `Main` reconstruction.
-- [ ] Preserve component order and ingredient/step associations.
-- [ ] Migrate or normalize legacy flat recipes safely.
+- [x] Make components the canonical editable structure while retaining synchronized legacy fields for older clients.
+- [x] Remove the editor's forced `Main` reconstruction.
+- [x] Preserve component order, notes, estimated costs, and ingredient/step associations.
+- [x] Normalize legacy flat recipes to one `Main` component when they are edited.
 
 Acceptance criteria:
 
@@ -356,11 +358,13 @@ Priority: P1
 
 Work:
 
-- [ ] Add calculation status, source/model/data version, and calculated timestamp.
-- [ ] Invalidate nutrition/cost/tags/time caches when dependent fields change.
+- [x] Add calculation status, source/model/data version, dependency fingerprint, and calculated timestamp.
+- [x] Invalidate nutrition/cost/tags/time values when their specific dependent fields change.
 - [ ] Add explicit nutrition/cost recalculation.
-- [ ] Label estimates in the UI.
+- [x] Label estimates and surface stale/unverified states in the UI.
 - [ ] Evaluate deterministic nutrition data and a Guam-specific price catalog.
+
+Implemented so far: new AI extractions and nutrition recalculations persist freshness/provenance metadata; legacy values are labeled `unverified`; dependency-changing edits mark only the affected values `stale`. Nutrition has an explicit recalculation action. Explicit cost recalculation and deterministic nutrition/Guam price-source evaluation remain open and should ship together so the UI does not imply a price precision the data source cannot support.
 
 Acceptance criteria:
 

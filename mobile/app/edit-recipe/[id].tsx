@@ -26,19 +26,29 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { View, Text, useColors } from '@/components/Themed';
 import { api } from '@/lib/api';
+import { formatPublishDisclosure, getPublishDisclosure } from '@/lib/recipePublishing';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
 interface IngredientInput {
   id: string;
+  componentId: string;
   name: string;
   quantity: string;
   unit: string;
   notes: string;
+  estimatedCost?: number | null;
 }
 
 interface StepInput {
   id: string;
+  componentId: string;
   text: string;
+}
+
+interface ComponentInput {
+  id: string;
+  name: string;
+  notes: string;
 }
 
 // Common unit options including "to taste" style options
@@ -83,12 +93,18 @@ export default function EditRecipeScreen() {
   const [newImageUri, setNewImageUri] = useState<string | null>(null);
   
   // Dynamic lists
+  const [recipeComponents, setRecipeComponents] = useState<ComponentInput[]>([
+    { id: 'component-1', name: 'Main', notes: '' },
+  ]);
   const [ingredients, setIngredients] = useState<IngredientInput[]>([
-    { id: '1', name: '', quantity: '', unit: '', notes: '' },
+    { id: 'ingredient-1', componentId: 'component-1', name: '', quantity: '', unit: '', notes: '' },
   ]);
   const [steps, setSteps] = useState<StepInput[]>([
-    { id: '1', text: '' },
+    { id: 'step-1', componentId: 'component-1', text: '' },
   ]);
+  const [nutritionRecalculated, setNutritionRecalculated] = useState(false);
+  const [nutritionModel, setNutritionModel] = useState<string | null>(null);
+  const [estimateInputsChanged, setEstimateInputsChanged] = useState(false);
   
   // AI feature states
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
@@ -130,6 +146,9 @@ export default function EditRecipeScreen() {
       setTags((extracted.tags || []).join(', '));
       setIsPublic(recipe.is_public);
       setThumbnailUrl(recipe.thumbnail_url || null);
+      setEstimateInputsChanged(false);
+      setNutritionRecalculated(false);
+      setNutritionModel(extracted.derivedData?.nutrition?.model || null);
       
       // Set nutrition if available
       if (nutrition.calories || nutrition.protein || nutrition.carbs || nutrition.fat) {
@@ -141,37 +160,48 @@ export default function EditRecipeScreen() {
         });
       }
       
-      // Get ingredients from components or legacy field
-      const components = extracted.components || [];
-      let allIngredients: any[] = [];
-      if (components.length > 0) {
-        allIngredients = components.flatMap((c: any) => c.ingredients || []);
-      } else if (extracted.ingredients) {
-        allIngredients = extracted.ingredients;
-      }
+      // Normalize legacy flat recipes once, then keep component associations intact.
+      const components = extracted.components?.length
+        ? extracted.components
+        : [{ name: 'Main', ingredients: extracted.ingredients || [], steps: extracted.steps || [] }];
+      const componentInputs = components.map((component: any, index: number) => ({
+        id: `component-${index + 1}`,
+        name: component.name || `Part ${index + 1}`,
+        notes: component.notes || '',
+      }));
+      setRecipeComponents(componentInputs);
+      const allIngredients = components.flatMap((component: any, componentIndex: number) =>
+        (component.ingredients || []).map((ingredient: any) => ({
+          ingredient,
+          componentId: componentInputs[componentIndex].id,
+        }))
+      );
       
       if (allIngredients.length > 0) {
-        setIngredients(allIngredients.map((ing: any, idx: number) => ({
-          id: (idx + 1).toString(),
-          name: ing.name || '',
-          quantity: ing.quantity || '',
-          unit: ing.unit || '',
-          notes: ing.notes || '',
+        setIngredients(allIngredients.map(({ ingredient, componentId }: any, idx: number) => ({
+          id: `ingredient-${idx + 1}`,
+          componentId,
+          name: ingredient.name || '',
+          quantity: ingredient.quantity || '',
+          unit: ingredient.unit || '',
+          notes: ingredient.notes || '',
+          estimatedCost: ingredient.estimatedCost ?? null,
         })));
       }
       
       // Get steps from components or legacy field
-      let allSteps: string[] = [];
-      if (components.length > 0) {
-        allSteps = components.flatMap((c: any) => c.steps || []);
-      } else if (extracted.steps) {
-        allSteps = extracted.steps;
-      }
+      const allSteps = components.flatMap((component: any, componentIndex: number) =>
+        (component.steps || []).map((text: string) => ({
+          text,
+          componentId: componentInputs[componentIndex].id,
+        }))
+      );
       
       if (allSteps.length > 0) {
-        setSteps(allSteps.map((step: string, idx: number) => ({
-          id: (idx + 1).toString(),
-          text: step,
+        setSteps(allSteps.map((step: any, idx: number) => ({
+          id: `step-${idx + 1}`,
+          componentId: step.componentId,
+          text: step.text,
         })));
       }
     }
@@ -194,6 +224,25 @@ export default function EditRecipeScreen() {
         .filter(step => step.text.trim())
         .map(step => step.text.trim());
 
+      const validComponents = recipeComponents
+        .map(component => ({
+          name: component.name.trim() || 'Main',
+          notes: component.notes.trim() || null,
+          ingredients: ingredients
+            .filter(ingredient => ingredient.componentId === component.id && ingredient.name.trim())
+            .map(ingredient => ({
+              name: ingredient.name.trim(),
+              quantity: ingredient.quantity.trim() || null,
+              unit: ingredient.unit.trim() || null,
+              notes: ingredient.notes.trim() || null,
+              estimatedCost: ingredient.estimatedCost ?? null,
+            })),
+          steps: steps
+            .filter(step => step.componentId === component.id && step.text.trim())
+            .map(step => step.text.trim()),
+        }))
+        .filter(component => component.ingredients.length > 0 || component.steps.length > 0);
+
       if (validIngredients.length === 0) {
         throw new Error('Please add at least one ingredient');
       }
@@ -214,12 +263,15 @@ export default function EditRecipeScreen() {
           prep_time: prepTime.trim() || null,
           cook_time: cookTime.trim() || null,
           total_time: totalTime.trim() || null,
+          components: validComponents,
           ingredients: validIngredients,
           steps: validSteps,
           notes: notes.trim() || null,
           tags: tagList.length > 0 ? tagList : null,
           is_public: isPublic,
           nutrition: estimatedNutrition,
+          nutrition_recalculated: nutritionRecalculated,
+          nutrition_model: nutritionModel,
         },
         newImageUri
       );
@@ -363,6 +415,9 @@ export default function EditRecipeScreen() {
         carbs: response.nutrition.carbs,
         fat: response.nutrition.fat,
       });
+      setNutritionRecalculated(true);
+      setNutritionModel(response.model);
+      setEstimateInputsChanged(false);
     } catch (error) {
       Alert.alert('Error', 'Failed to estimate nutrition. Please try again.');
     } finally {
@@ -426,27 +481,31 @@ export default function EditRecipeScreen() {
   };
 
   // Ingredient helpers
-  const addIngredient = () => {
-    const newId = (ingredients.length + 1).toString();
-    setIngredients([...ingredients, { id: newId, name: '', quantity: '', unit: '', notes: '' }]);
+  const addIngredient = (componentId: string) => {
+    const newId = `ingredient-${Date.now()}`;
+    setIngredients([...ingredients, { id: newId, componentId, name: '', quantity: '', unit: '', notes: '', estimatedCost: null }]);
+    setEstimateInputsChanged(true);
+    setNutritionRecalculated(false);
   };
 
   const updateIngredient = (id: string, field: keyof IngredientInput, value: string) => {
     setIngredients(ingredients.map(ing => 
       ing.id === id ? { ...ing, [field]: value } : ing
     ));
+    setEstimateInputsChanged(true);
+    setNutritionRecalculated(false);
   };
 
   const removeIngredient = (id: string) => {
-    if (ingredients.length > 1) {
-      setIngredients(ingredients.filter(ing => ing.id !== id));
-    }
+    setIngredients(ingredients.filter(ing => ing.id !== id));
+    setEstimateInputsChanged(true);
+    setNutritionRecalculated(false);
   };
 
   // Step helpers
-  const addStep = () => {
-    const newId = (steps.length + 1).toString();
-    setSteps([...steps, { id: newId, text: '' }]);
+  const addStep = (componentId: string) => {
+    const newId = `step-${Date.now()}`;
+    setSteps([...steps, { id: newId, componentId, text: '' }]);
   };
 
   const updateStep = (id: string, text: string) => {
@@ -456,9 +515,84 @@ export default function EditRecipeScreen() {
   };
 
   const removeStep = (id: string) => {
-    if (steps.length > 1) {
-      setSteps(steps.filter(step => step.id !== id));
+    setSteps(steps.filter(step => step.id !== id));
+  };
+
+  const addComponent = () => {
+    const componentId = `component-${Date.now()}`;
+    setRecipeComponents([
+      ...recipeComponents,
+      { id: componentId, name: `Part ${recipeComponents.length + 1}`, notes: '' },
+    ]);
+    setIngredients([
+      ...ingredients,
+      { id: `ingredient-${Date.now()}`, componentId, name: '', quantity: '', unit: '', notes: '', estimatedCost: null },
+    ]);
+    setSteps([...steps, { id: `step-${Date.now()}`, componentId, text: '' }]);
+  };
+
+  const removeComponent = (componentId: string) => {
+    if (recipeComponents.length === 1) return;
+    setRecipeComponents(recipeComponents.filter(component => component.id !== componentId));
+    setIngredients(ingredients.filter(ingredient => ingredient.componentId !== componentId));
+    setSteps(steps.filter(step => step.componentId !== componentId));
+  };
+
+  const selectComponent = (title: string, onSelect: (componentId: string) => void) => {
+    if (recipeComponents.length === 1) {
+      onSelect(recipeComponents[0].id);
+      return;
     }
+    Alert.alert(title, 'Choose the recipe part this belongs to.', [
+      ...recipeComponents.map(component => ({
+        text: component.name || 'Unnamed part',
+        onPress: () => onSelect(component.id),
+      })),
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const componentName = (componentId: string) =>
+    recipeComponents.find(component => component.id === componentId)?.name || 'Main';
+
+  const handlePublicToggle = () => {
+    if (isPublic) {
+      Alert.alert(
+        'Review public recipe',
+        recipe
+          ? `${formatPublishDisclosure(getPublishDisclosure(recipe))}\n\nMaking it private will remove it from the shared library when you save.`
+          : 'Making it private will remove it from the shared library when you save.',
+        [
+          { text: 'Keep shared', style: 'cancel' },
+          { text: 'Make private', style: 'destructive', onPress: () => setIsPublic(false) },
+        ],
+      );
+      return;
+    }
+
+    if (!recipe) return;
+    const previewRecipe = {
+      ...recipe,
+      extracted: {
+        ...recipe.extracted,
+        title: title.trim() || recipe.extracted.title,
+        components: recipeComponents.map(component => ({
+          name: component.name,
+          notes: component.notes || null,
+          ingredients: ingredients.filter(ingredient => ingredient.componentId === component.id && ingredient.name.trim()),
+          steps: steps.filter(step => step.componentId === component.id && step.text.trim()).map(step => step.text),
+        })),
+      },
+      thumbnail_url: newImageUri || thumbnailUrl,
+    };
+    Alert.alert(
+      'Preview before publishing',
+      formatPublishDisclosure(getPublishDisclosure(previewRecipe)),
+      [
+        { text: 'Not yet', style: 'cancel' },
+        { text: 'Share when saved', onPress: () => setIsPublic(true) },
+      ],
+    );
   };
 
   if (isLoadingRecipe) {
@@ -544,7 +678,11 @@ export default function EditRecipeScreen() {
                 <TextInput
                   style={[styles.input, styles.smallInput, { backgroundColor: colors.backgroundSecondary, color: colors.text, borderColor: colors.border }]}
                   value={servings}
-                  onChangeText={setServings}
+                  onChangeText={(value) => {
+                    setServings(value);
+                    setEstimateInputsChanged(true);
+                    setNutritionRecalculated(false);
+                  }}
                   placeholder="4"
                   placeholderTextColor={colors.textMuted}
                   keyboardType="numeric"
@@ -586,6 +724,51 @@ export default function EditRecipeScreen() {
               </RNView>
             </RNView>
 
+            {/* Canonical recipe components */}
+            <RNView style={styles.section}>
+              <RNView style={styles.sectionHeader}>
+                <RNView style={styles.sectionHeadingCopy}>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>Recipe Parts</Text>
+                  <Text style={[styles.sectionHint, { color: colors.textMuted }]}>Keep sauces, fillings, and sides organized.</Text>
+                </RNView>
+                <TouchableOpacity onPress={addComponent} style={styles.compactAddButton} accessibilityRole="button">
+                  <Ionicons name="add" size={18} color={colors.tint} />
+                  <Text style={[styles.compactAddText, { color: colors.tint }]}>Add part</Text>
+                </TouchableOpacity>
+              </RNView>
+              {recipeComponents.map((component, index) => (
+                <RNView key={component.id} style={[styles.componentEditor, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
+                  <RNView style={styles.componentTitleRow}>
+                    <Text style={[styles.componentNumber, { color: colors.tint }]}>Part {index + 1}</Text>
+                    {recipeComponents.length > 1 && (
+                      <TouchableOpacity
+                        onPress={() => removeComponent(component.id)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove ${component.name || `part ${index + 1}`}`}
+                      >
+                        <Ionicons name="trash-outline" size={18} color={colors.error} />
+                      </TouchableOpacity>
+                    )}
+                  </RNView>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                    value={component.name}
+                    onChangeText={(name) => setRecipeComponents(recipeComponents.map(item => item.id === component.id ? { ...item, name } : item))}
+                    placeholder="e.g., Sauce, Filling, Main"
+                    placeholderTextColor={colors.textMuted}
+                    accessibilityLabel={`Name for recipe part ${index + 1}`}
+                  />
+                  <TextInput
+                    style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                    value={component.notes}
+                    onChangeText={(componentNotes) => setRecipeComponents(recipeComponents.map(item => item.id === component.id ? { ...item, notes: componentNotes } : item))}
+                    placeholder="Optional notes for this part"
+                    placeholderTextColor={colors.textMuted}
+                  />
+                </RNView>
+              ))}
+            </RNView>
+
             {/* Ingredients Section */}
             <RNView style={styles.section}>
               <RNView style={styles.sectionHeader}>
@@ -599,8 +782,23 @@ export default function EditRecipeScreen() {
                 >
                   {/* Header row with number and delete */}
                   <RNView style={styles.ingredientHeader}>
-                    <RNView style={[styles.ingredientBadge, { backgroundColor: colors.tint + '20' }]}>
-                      <Text style={[styles.ingredientBadgeText, { color: colors.tint }]}>{index + 1}</Text>
+                    <RNView style={styles.ingredientIdentity}>
+                      <RNView style={[styles.ingredientBadge, { backgroundColor: colors.tint + '20' }]}>
+                        <Text style={[styles.ingredientBadgeText, { color: colors.tint }]}>{index + 1}</Text>
+                      </RNView>
+                      <TouchableOpacity
+                        style={[styles.componentPill, { backgroundColor: colors.background, borderColor: colors.border }]}
+                        onPress={() => selectComponent('Move ingredient', componentId => {
+                          setIngredients(ingredients.map(item => item.id === ingredient.id ? { ...item, componentId } : item));
+                        })}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Recipe part: ${componentName(ingredient.componentId)}`}
+                      >
+                        <Text style={[styles.componentPillText, { color: colors.textSecondary }]} numberOfLines={1}>
+                          {componentName(ingredient.componentId)}
+                        </Text>
+                        <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+                      </TouchableOpacity>
                     </RNView>
                     {ingredients.length > 1 && (
                       <TouchableOpacity
@@ -672,7 +870,7 @@ export default function EditRecipeScreen() {
               
               <TouchableOpacity
                 style={[styles.addButton, { borderColor: colors.tint }]}
-                onPress={addIngredient}
+                onPress={() => selectComponent('Add ingredient', addIngredient)}
               >
                 <Ionicons name="add" size={20} color={colors.tint} />
                 <Text style={[styles.addButtonText, { color: colors.tint }]}>Add Ingredient</Text>
@@ -687,7 +885,21 @@ export default function EditRecipeScreen() {
               
               {steps.map((step, index) => (
                 <RNView key={step.id} style={styles.stepRow}>
-                  <Text style={[styles.stepNumber, { color: colors.tint }]}>{index + 1}.</Text>
+                  <RNView style={styles.stepIdentity}>
+                    <Text style={[styles.stepNumber, { color: colors.tint }]}>{index + 1}.</Text>
+                    <TouchableOpacity
+                      style={[styles.stepComponentButton, { borderColor: colors.border }]}
+                      onPress={() => selectComponent('Move instruction', componentId => {
+                        setSteps(steps.map(item => item.id === step.id ? { ...item, componentId } : item));
+                      })}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Recipe part: ${componentName(step.componentId)}`}
+                    >
+                      <Text style={[styles.stepComponentText, { color: colors.textMuted }]} numberOfLines={1}>
+                        {componentName(step.componentId)}
+                      </Text>
+                    </TouchableOpacity>
+                  </RNView>
                   <TextInput
                     style={[styles.input, styles.stepInput, { backgroundColor: colors.backgroundSecondary, color: colors.text, borderColor: colors.border }]}
                     value={step.text}
@@ -709,7 +921,7 @@ export default function EditRecipeScreen() {
               
               <TouchableOpacity
                 style={[styles.addButton, { borderColor: colors.tint }]}
-                onPress={addStep}
+                onPress={() => selectComponent('Add instruction', addStep)}
               >
                 <Ionicons name="add" size={20} color={colors.tint} />
                 <Text style={[styles.addButtonText, { color: colors.tint }]}>Add Step</Text>
@@ -763,6 +975,14 @@ export default function EditRecipeScreen() {
                   )}
                 </TouchableOpacity>
               </RNView>
+              {estimatedNutrition && estimateInputsChanged && !nutritionRecalculated && (
+                <RNView style={[styles.freshnessWarning, { backgroundColor: colors.warning + '14', borderColor: colors.warning }]}>
+                  <Ionicons name="alert-circle-outline" size={20} color={colors.warning} />
+                  <Text style={[styles.freshnessWarningText, { color: colors.textSecondary }]}>
+                    Ingredients or servings changed. Recalculate to refresh this estimate, or save it clearly marked as out of date.
+                  </Text>
+                </RNView>
+              )}
               
               {estimatedNutrition ? (
                 <RNView style={[styles.nutritionCard, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
@@ -793,7 +1013,7 @@ export default function EditRecipeScreen() {
                     </RNView>
                   </RNView>
                   <Text style={[styles.nutritionDisclaimer, { color: colors.textMuted }]}>
-                    Per serving • Values are approximate
+                    Per serving • AI estimate • Values are approximate
                   </Text>
                 </RNView>
               ) : (
@@ -822,7 +1042,9 @@ export default function EditRecipeScreen() {
             {/* Public Toggle */}
             <TouchableOpacity
               style={[styles.toggleRow, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
-              onPress={() => setIsPublic(!isPublic)}
+              onPress={handlePublicToggle}
+              accessibilityRole="button"
+              accessibilityLabel={isPublic ? 'Shared to library. Tap to make private.' : 'Private recipe. Tap to publish.'}
             >
               <RNView style={styles.toggleInfo}>
                 <Ionicons 
@@ -947,6 +1169,44 @@ const styles = StyleSheet.create({
     fontSize: fontSize.lg,
     fontWeight: fontWeight.semibold,
   },
+  sectionHeadingCopy: {
+    flex: 1,
+    paddingRight: spacing.sm,
+  },
+  sectionHint: {
+    fontSize: fontSize.xs,
+    marginTop: 2,
+  },
+  compactAddButton: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: spacing.xs,
+  },
+  compactAddText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+  },
+  componentEditor: {
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  componentTitleRow: {
+    minHeight: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  componentNumber: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+  },
   label: {
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
@@ -981,6 +1241,28 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.xs,
+  },
+  ingredientIdentity: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingRight: spacing.sm,
+  },
+  componentPill: {
+    maxWidth: 180,
+    minHeight: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    borderWidth: 1,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.sm,
+  },
+  componentPillText: {
+    flexShrink: 1,
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
   },
   ingredientBadge: {
     width: 28,
@@ -1057,6 +1339,21 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     gap: spacing.sm,
   },
+  stepIdentity: {
+    width: 76,
+    alignItems: 'flex-start',
+  },
+  stepComponentButton: {
+    maxWidth: 76,
+    minHeight: 32,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  stepComponentText: {
+    fontSize: 11,
+  },
   stepNumber: {
     fontSize: fontSize.lg,
     fontWeight: fontWeight.bold,
@@ -1115,6 +1412,20 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: radius.md,
     borderWidth: 1,
+  },
+  freshnessWarning: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  freshnessWarningText: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    lineHeight: 20,
   },
   nutritionRow: {
     flexDirection: 'row',

@@ -39,6 +39,7 @@ import { useAsyncExtraction } from '@/contexts/ExtractionContext';
 import { RecipeListItem } from '@/types/recipe';
 import { useAddFromRecipe } from '@/hooks/useGrocery';
 import { SkeletonSimilarRecipes } from '@/components/Skeleton';
+import { formatPublishDisclosure, getPublishDisclosure } from '@/lib/recipePublishing';
 import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
 import { useTextSize } from '@/hooks/useTextSize';
 import { useAuth, useUser } from '@clerk/clerk-expo';
@@ -223,6 +224,8 @@ export default function RecipeDetailScreen() {
     recipe.extracted.nutrition.perServing.carbs ||
     recipe.extracted.nutrition.perServing.fat
   );
+  const nutritionStatus = recipe?.extracted.derivedData?.nutrition?.status;
+  const costStatus = recipe?.extracted.derivedData?.cost?.status;
 
   const handleAddToGrocery = () => {
     if (!recipe) return;
@@ -527,11 +530,34 @@ export default function RecipeDetailScreen() {
 
   const handleToggleSharing = async () => {
     if (!recipe) return;
-    try {
-      await toggleSharingMutation.mutateAsync(id);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to update sharing settings');
+    const updateSharing = async () => {
+      try {
+        await toggleSharingMutation.mutateAsync({ id, isPublic: !recipe.is_public });
+      } catch {
+        Alert.alert('Error', 'Failed to update sharing settings');
+      }
+    };
+
+    if (recipe.is_public) {
+      Alert.alert(
+        'Review public recipe',
+        `${formatPublishDisclosure(getPublishDisclosure(recipe))}\n\nMaking it private means people who saved it will no longer be able to open it.`,
+        [
+          { text: 'Keep shared', style: 'cancel' },
+          { text: 'Make private', style: 'destructive', onPress: updateSharing },
+        ],
+      );
+      return;
     }
+
+    Alert.alert(
+      'Preview before publishing',
+      formatPublishDisclosure(getPublishDisclosure(recipe)),
+      [
+        { text: 'Not yet', style: 'cancel' },
+        { text: 'Publish recipe', onPress: updateSharing },
+      ],
+    );
   };
 
   if (isLoading) {
@@ -1060,6 +1086,29 @@ export default function RecipeDetailScreen() {
 
               {activeTab === 'nutrition' && (
                 <>
+                  {hasNutritionData && nutritionStatus && nutritionStatus !== 'current' && (
+                    <RNView style={[
+                      styles.estimateNotice,
+                      {
+                        backgroundColor: nutritionStatus === 'stale' ? colors.warning + '14' : colors.backgroundSecondary,
+                        borderColor: nutritionStatus === 'stale' ? colors.warning : colors.border,
+                      },
+                    ]}>
+                      <Ionicons
+                        name={nutritionStatus === 'stale' ? 'alert-circle-outline' : 'information-circle-outline'}
+                        size={20}
+                        color={nutritionStatus === 'stale' ? colors.warning : colors.textMuted}
+                      />
+                      <RNView style={styles.estimateNoticeCopy}>
+                        <Text style={[styles.estimateNoticeTitle, { color: colors.text }]}>Estimated nutrition</Text>
+                        <Text style={[styles.estimateNoticeText, { color: colors.textSecondary }]}>
+                          {nutritionStatus === 'stale'
+                            ? 'Ingredients or servings changed. Recalculate in Edit Recipe before relying on these values.'
+                            : 'This estimate predates freshness tracking. Recalculate it in Edit Recipe when accuracy matters.'}
+                        </Text>
+                      </RNView>
+                    </RNView>
+                  )}
                   {/* Empty state for no nutrition data */}
                   {!hasNutritionData && (
                     <RNView style={styles.emptyNutritionState}>
@@ -1078,7 +1127,7 @@ export default function RecipeDetailScreen() {
                     <RNView style={styles.nutritionTotalCard}>
                       <RNView style={[styles.nutritionTotalBox, { backgroundColor: colors.tint }]}>
                         <Text style={styles.nutritionTotalLabel}>
-                          Full Recipe {isScaled ? `(${currentServings} servings)` : `(${originalServings} servings)`}
+                          Estimated full recipe {isScaled ? `(${currentServings} servings)` : `(${originalServings} servings)`}
                         </Text>
                         <Text style={styles.nutritionTotalValue}>
                           {Math.round((extracted.nutrition.perServing.calories || 0) * currentServings)} cal
@@ -1202,6 +1251,25 @@ export default function RecipeDetailScreen() {
 
               {activeTab === 'cost' && extracted.totalEstimatedCost && (
                 <>
+                  {costStatus && costStatus !== 'current' && (
+                    <RNView style={[
+                      styles.estimateNotice,
+                      {
+                        backgroundColor: costStatus === 'stale' ? colors.warning + '14' : colors.backgroundSecondary,
+                        borderColor: costStatus === 'stale' ? colors.warning : colors.border,
+                      },
+                    ]}>
+                      <Ionicons name="pricetag-outline" size={20} color={costStatus === 'stale' ? colors.warning : colors.textMuted} />
+                      <RNView style={styles.estimateNoticeCopy}>
+                        <Text style={[styles.estimateNoticeTitle, { color: colors.text }]}>Estimated cost</Text>
+                        <Text style={[styles.estimateNoticeText, { color: colors.textSecondary }]}>
+                          {costStatus === 'stale'
+                            ? 'Ingredients or servings changed, so this earlier cost estimate may no longer match.'
+                            : 'Prices vary by store and this older estimate has not been freshness-verified.'}
+                        </Text>
+                      </RNView>
+                    </RNView>
+                  )}
                   {/* Cost Summary */}
                   <RNView style={styles.costSummaryCard}>
                     <RNView style={[styles.costTotalBox, { backgroundColor: colors.tint }]}>
@@ -1834,6 +1902,27 @@ const styles = StyleSheet.create({
   },
   nutritionSection: {
     marginBottom: spacing.xl,
+  },
+  estimateNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  estimateNoticeCopy: {
+    flex: 1,
+  },
+  estimateNoticeTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    marginBottom: 2,
+  },
+  estimateNoticeText: {
+    fontSize: fontSize.sm,
+    lineHeight: 20,
   },
   emptyNutritionState: {
     alignItems: 'center',
