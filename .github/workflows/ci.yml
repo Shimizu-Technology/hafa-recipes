@@ -116,3 +116,39 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  admin:
+    name: Admin website
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22.22.2"
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Test
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: pk_test_ci_placeholder
+          VITE_API_BASE_URL: https://recipe-api-x5na.onrender.com
+        run: npm run build
