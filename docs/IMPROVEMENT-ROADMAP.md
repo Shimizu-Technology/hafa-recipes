@@ -98,6 +98,23 @@ The fourth implementation slice establishes the AI governance foundation:
   stores metrics but never provider output; and
 - provider-neutral mobile copy with an automated Expo/npm version-consistency gate.
 
+The fifth implementation slice completes A5 and A7's environment and release
+hygiene foundation:
+
+- a one-command local environment uses loopback-only PostgreSQL and synthetic
+  seed data without copying production content;
+- development API, database, and paid-AI access fail closed, while exceptional
+  remote development targets require explicit acknowledgement and HTTPS;
+- every release build declares development, preview, or production explicitly,
+  preview targets require an explicit HTTPS API, and non-production builds show
+  their environment and API host in the app;
+- CI and the local gate now block incompatible Expo dependencies, unexpected
+  production-dependency advisories, and website high-severity advisories;
+- Clerk, Markdown, and audio playback moved off deprecated or abandoned packages
+  while retaining existing authentication, chat, TTS, and timer behavior; and
+- a dated dependency runbook records the seven accepted upstream build/unused-path
+  advisories, their reachability, interim controls, and owner.
+
 ## Release A: Production safety
 
 Goal: remove immediate privacy, model, auth-transition, and environment risks before adding functionality.
@@ -212,13 +229,13 @@ Priority: P0
 
 Work:
 
-- [ ] Create explicit local/development and production API configuration.
-- [ ] Use local PostgreSQL or a disposable non-production Neon branch/database for development.
-- [ ] Use budget-limited development provider credentials where paid external calls are needed.
-- [ ] Remove production fallback from development.
-- [ ] Require preview builds, if used, to declare their backend target explicitly; do not maintain a dedicated staging deployment.
-- [ ] Add a visible development/non-production environment indicator.
-- [ ] Document safe intern setup with seed data.
+- [x] Create explicit local/development and production API configuration.
+- [x] Use local PostgreSQL or a disposable non-production Neon branch/database for development.
+- [x] Use budget-limited development provider credentials where paid external calls are needed.
+- [x] Remove production fallback from development.
+- [x] Require preview builds, if used, to declare their backend target explicitly; do not maintain a dedicated staging deployment.
+- [x] Add a visible development/non-production environment indicator.
+- [x] Document safe intern setup with seed data.
 
 Acceptance criteria:
 
@@ -255,12 +272,12 @@ Priority: P0/P1
 
 Work:
 
-- [ ] Apply Expo-compatible patch upgrades reported by Expo Doctor.
-- [ ] Upgrade the marketing build Node version to a supported release.
-- [ ] Apply non-breaking website advisory fixes and verify build.
-- [ ] Upgrade the marketing site's React Router packages past the currently reported high-severity advisory range.
-- [ ] Triage mobile advisories into runtime-reachable, build-only, and blocked-upstream categories.
-- [ ] Make Expo Doctor blocking after the mismatch is fixed.
+- [x] Apply Expo-compatible patch upgrades reported by Expo Doctor.
+- [x] Upgrade the marketing build Node version to a supported release.
+- [x] Apply non-breaking website advisory fixes and verify build.
+- [x] Upgrade the marketing site's React Router packages past the currently reported high-severity advisory range.
+- [x] Triage mobile advisories into runtime-reachable, build-only, and blocked-upstream categories.
+- [x] Make Expo Doctor blocking after the mismatch is fixed.
 
 Acceptance criteria:
 

@@ -7,19 +7,15 @@ React Native app that transforms cooking videos, recipe websites, and recipe pho
 ## Quick Start
 
 ```bash
-# Install dependencies
-npm install
+# From the repository root, install dependencies and create the isolated database
+./scripts/setup-dev.sh
+# Then add your Clerk development publishable key to mobile/.env.local
 
-# Copy environment template
-cp .env.example .env
-# Add your Clerk key
+# Start the API, website, and Expo dev server together
+./scripts/dev.sh
 
-# Start Expo dev server
-npx expo start
-
-# Checks
-npm run typecheck
-npm run doctor
+# Complete repository checks
+./scripts/check.sh
 ```
 
 Scan QR with Expo Go, or press `i` for iOS simulator.
@@ -30,7 +26,9 @@ Scan QR with Expo Go, or press `i` for iOS simulator.
 # Clerk Auth (required)
 EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
 EXPO_PUBLIC_CLERK_ENVIRONMENT=development
-EXPO_PUBLIC_API_BASE_URL=https://recipe-api-x5na.onrender.com
+EXPO_PUBLIC_APP_ENV=development
+# Usually auto-detected; set only if the simulator/device cannot find the host
+# EXPO_PUBLIC_API_BASE_URL=http://localhost:8000
 
 # Sentry Error Monitoring (optional but recommended for production)
 EXPO_PUBLIC_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
@@ -45,9 +43,13 @@ cutover release; the app also verifies that it matches the `pk_test_` or
 
 ## API Configuration
 
-- **Development:** Auto-detects your machine's IP, or uses
-  `EXPO_PUBLIC_API_BASE_URL` when explicitly set
+- **Development:** Auto-detects a local/private machine address. It never falls
+  back to production; a remote target requires an explicit exceptional override.
+- **Preview:** Requires an explicit HTTPS `EXPO_PUBLIC_API_BASE_URL`.
 - **Production:** Uses `https://recipe-api-x5na.onrender.com`
+
+Non-production builds display their environment and API host at the top of the
+app so testers can immediately see where changes are going.
 
 ## Features
 

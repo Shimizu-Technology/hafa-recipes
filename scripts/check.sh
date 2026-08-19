@@ -15,6 +15,7 @@ repository_root="$(cd "$(dirname "$0")/.." && pwd)"
   npm test
   npm run typecheck
   npm run doctor
+  npm run audit:runtime
 )
 
 (

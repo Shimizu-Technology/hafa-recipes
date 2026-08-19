@@ -166,7 +166,9 @@ export function setTag(key: string, value: string) {
  * Wrap a component with Sentry error boundary.
  * Re-exported for convenience.
  */
-export const withSentry = Sentry.wrap;
+export const withSentry: typeof Sentry.wrap = SENTRY_DSN
+  ? Sentry.wrap
+  : ((Component) => Component);
 
 /**
  * Export Sentry for advanced usage.

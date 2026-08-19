@@ -2,6 +2,20 @@
 
 All notable changes to Recipe Extractor.
 
+## [Unreleased]
+
+### Improved
+- Development and preview builds now show their environment and API host and
+  cannot silently fall back to production services.
+- Migrated sign-in infrastructure to Clerk Core 3 and timer/TTS playback to
+  Expo Audio while preserving the existing user flows.
+- Updated chat Markdown rendering and restricted assistant links to safe web
+  protocols.
+
+### Developer experience
+- Added one-command isolated local setup with PostgreSQL and synthetic seed data.
+- Added blocking Expo health and reviewed production-dependency audit gates.
+
 ## [2.4.0] - August 2026
 
 ### Improved

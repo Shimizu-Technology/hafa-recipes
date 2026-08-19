@@ -110,6 +110,42 @@ def test_local_database_can_disable_ssl_but_production_cannot():
         )
 
 
+def test_development_rejects_remote_database_without_exceptional_override():
+    with pytest.raises(ValidationError, match="Development must use local PostgreSQL"):
+        Settings(
+            database_url="postgresql://production.example/hafa",
+            openai_api_key="test-openai-key",
+            environment="development",
+        )
+
+    settings = Settings(
+        database_url="postgresql://disposable-development.example/hafa",
+        openai_api_key="test-openai-key",
+        environment="development",
+        allow_remote_database_in_development=True,
+    )
+    assert settings.allow_remote_database_in_development is True
+
+
+def test_paid_ai_is_disabled_by_default_in_development():
+    local = Settings(
+        database_url="postgresql://localhost/hafa",
+        database_use_ssl=False,
+        openai_api_key="local-disabled",
+        environment="development",
+    )
+    assert local.is_ai_capability_enabled("recipe_extraction") is False
+
+    explicitly_budgeted = Settings(
+        database_url="postgresql://localhost/hafa",
+        database_use_ssl=False,
+        openai_api_key="budget-limited-development-key",
+        environment="development",
+        allow_paid_ai_in_development=True,
+    )
+    assert explicitly_budgeted.is_ai_capability_enabled("recipe_extraction") is True
+
+
 def test_remote_database_cannot_disable_ssl_under_default_environment():
     with pytest.raises(ValidationError, match="local development database"):
         Settings(
@@ -132,7 +168,7 @@ def test_remote_database_cannot_disable_ssl_under_default_environment():
     ],
 )
 def test_remote_query_target_cannot_override_local_tls_guard(database_url):
-    with pytest.raises(ValidationError, match="local development database"):
+    with pytest.raises(ValidationError, match="local PostgreSQL|local development database"):
         Settings(
             database_url=database_url,
             database_use_ssl=False,

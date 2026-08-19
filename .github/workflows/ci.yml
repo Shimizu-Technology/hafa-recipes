@@ -84,6 +84,9 @@ jobs:
       - name: Check Expo dependency health
         run: npm run doctor
 
+      - name: Audit production dependency changes
+        run: npm run audit:runtime
+
   web:
     name: Marketing website
     runs-on: ubuntu-latest

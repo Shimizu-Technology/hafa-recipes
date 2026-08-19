@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Audio } from 'expo-av';
+import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
 
 const TIMER_SOUND_KEY = '@timer_sound_preference';
 
@@ -70,7 +70,7 @@ export function getTimerSoundFile(preference: TimerSoundOption) {
 }
 
 // Track currently playing preview sound so we can stop it
-let currentPreviewSound: Audio.Sound | null = null;
+let currentPreviewSound: AudioPlayer | null = null;
 
 /**
  * Play a preview of the timer sound.
@@ -82,8 +82,8 @@ export async function playTimerSoundPreview(preference: TimerSoundOption): Promi
   // Stop and unload any currently playing preview
   if (currentPreviewSound) {
     try {
-      await currentPreviewSound.stopAsync();
-      await currentPreviewSound.unloadAsync();
+      currentPreviewSound.pause();
+      currentPreviewSound.remove();
     } catch (e) {
       // Sound may already be unloaded, that's ok
     }
@@ -91,24 +91,21 @@ export async function playTimerSoundPreview(preference: TimerSoundOption): Promi
   }
   
   try {
-    const { sound } = await Audio.Sound.createAsync(
-      SOUND_FILES[preference],
-      { shouldPlay: true }
-    );
+    const sound = createAudioPlayer(SOUND_FILES[preference]);
     
     currentPreviewSound = sound;
     
     // Unload after playing
-    sound.setOnPlaybackStatusUpdate((status) => {
-      if (status.isLoaded && status.didJustFinish) {
-        sound.unloadAsync();
+    sound.addListener('playbackStatusUpdate', (status) => {
+      if (status.didJustFinish) {
+        sound.remove();
         if (currentPreviewSound === sound) {
           currentPreviewSound = null;
         }
       }
     });
+    sound.play();
   } catch (e) {
     console.log('Failed to play timer sound preview');
   }
 }
-

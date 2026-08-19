@@ -7,3 +7,4 @@ os.environ.setdefault(
     "postgresql://test:test@localhost:5432/hafa_recipes_test",
 )
 os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
+os.environ.setdefault("ENVIRONMENT", "test")

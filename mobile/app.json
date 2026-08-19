@@ -57,6 +57,7 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      "@clerk/expo",
       "expo-web-browser",
       [
         "expo-build-properties",
@@ -108,7 +109,9 @@
           ]
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-audio",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true

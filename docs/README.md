@@ -48,6 +48,11 @@ Last reviewed: 2026-08-19
    - Durable account and recipe cleanup behavior
    - Queue states, alerts, verification, and safe recovery
 
+11. [Development isolation and dependency runbook](./DEVELOPMENT-AND-DEPENDENCY-RUNBOOK.md)
+   - Local PostgreSQL and synthetic seed setup
+   - Preview/production target rules and visible environment labels
+   - Dependency audit triage and accepted upstream findings
+
 ## Source-of-truth policy
 
 - The documents above describe the current product and active plan.
