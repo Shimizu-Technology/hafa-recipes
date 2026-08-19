@@ -16,6 +16,7 @@ import httpx
 
 from app.config import get_settings
 from app.security import PublicHTTPTransport
+from app.source_urls import canonicalize_source
 
 settings = get_settings()
 
@@ -258,7 +259,7 @@ class VideoService:
                         if '?' in resolved_url:
                             resolved_url = resolved_url.split('?')[0]
                         
-                        return resolved_url
+                        return canonicalize_source(resolved_url).url
                 except Exception as e:
                     print(f"⚠️ Failed to resolve TikTok URL: {e}")
                     return url
@@ -266,7 +267,7 @@ class VideoService:
                 # Already a full URL, just clean up query params
                 if '?' in url:
                     url = url.split('?')[0]
-                return url
+                return canonicalize_source(url).url
         
         elif platform == "youtube":
             # Normalize YouTube URLs to a standard format
@@ -274,8 +275,7 @@ class VideoService:
             if video_id:
                 return f"https://www.youtube.com/watch?v={video_id}"
         
-        # For other platforms, return as-is
-        return url
+        return canonicalize_source(url).url
     
     @staticmethod
     def extract_tiktok_video_id(url: str) -> Optional[str]:

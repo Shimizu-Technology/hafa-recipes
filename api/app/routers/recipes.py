@@ -7,10 +7,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import String, delete, desc, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import ClerkUser, get_current_user, get_optional_user
 from app.config import get_settings
+from app.database_invariants import next_recipe_version_number
 from app.db import get_db
 from app.deletion_cleanup import deletion_cleanup_worker
 from app.image_validation import ImageValidationError, ValidatedImage, validate_image_bytes
@@ -33,6 +35,7 @@ from app.models.schemas import (
 )
 from app.public_identity import public_contributor_id, visible_recipe_user_id
 from app.services.storage import storage_service
+from app.source_urls import canonicalize_source
 
 MAX_RECIPE_UPLOAD_BYTES = 10 * 1024 * 1024
 settings = get_settings()
@@ -275,13 +278,8 @@ async def create_recipe_version(
     Returns:
         The created RecipeVersion
     """
-    # Get the next version number
-    result = await db.execute(
-        select(func.max(RecipeVersion.version_number))
-        .where(RecipeVersion.recipe_id == recipe.id)
-    )
-    max_version = result.scalar() or 0
-    next_version = max_version + 1
+    next_version = await next_recipe_version_number(db, recipe.id)
+    await db.refresh(recipe)
 
     # Auto-generate change summary if new_extracted is provided
     if change_summary is None and new_extracted is not None:
@@ -1405,32 +1403,26 @@ async def check_duplicate(
 
     # Normalize the URL (resolve TikTok short URLs, etc.)
     normalized_url = await VideoService.normalize_url(url)
+    canonical_source = canonicalize_source(normalized_url)
     print(f"🔍 Normalized URL: {normalized_url}")
     print(f"🔍 User ID: {user.id}")
 
-    # For TikTok, extract video ID or photo ID for matching
-    video_id = VideoService.extract_tiktok_video_id(normalized_url)
-    photo_id = VideoService.extract_tiktok_photo_id(normalized_url)
-    print(f"🔍 TikTok Video ID: {video_id}")
-    print(f"🔍 TikTok Photo ID: {photo_id}")
-
-    # Build query conditions - match by exact URL or by video/photo ID pattern
-    if video_id:
-        # For TikTok videos, match any URL containing this video ID
-        url_condition = Recipe.source_url.like(f"%/video/{video_id}%")
-    elif photo_id:
-        # For TikTok photos, match any URL containing this photo ID
-        url_condition = Recipe.source_url.like(f"%/photo/{photo_id}%")
-    else:
-        # For other platforms, match exact URL or normalized URL
-        url_condition = or_(Recipe.source_url == url, Recipe.source_url == normalized_url)
+    url_condition = or_(
+        Recipe.canonical_source_key == canonical_source.key
+        if canonical_source.key
+        else Recipe.source_url == normalized_url,
+        Recipe.source_url.in_({url, normalized_url}),
+    )
 
     # First, check if the current user already has this recipe
     user_result = await db.execute(
-        select(Recipe).where(
+        select(Recipe)
+        .where(
             url_condition,
-            Recipe.user_id == user.id
+            Recipe.user_id == user.id,
         )
+        .order_by(Recipe.canonical_source_key.is_(None), Recipe.created_at)
+        .limit(1)
     )
     user_recipe = user_result.scalar_one_or_none()
     print(f"🔍 User recipe found: {user_recipe is not None}")
@@ -2005,7 +1997,22 @@ async def save_recipe(
     # Create the save
     saved = SavedRecipe(user_id=user.id, recipe_id=recipe_id)
     db.add(saved)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raced = await db.scalar(
+            select(SavedRecipe).where(
+                SavedRecipe.user_id == user.id,
+                SavedRecipe.recipe_id == recipe_id,
+            )
+        )
+        if raced:
+            return {"saved": True, "message": "Recipe already saved"}
+        raise HTTPException(
+            status_code=409,
+            detail="The recipe or account changed while saving. Please refresh and try again.",
+        ) from None
 
     return {"saved": True, "message": "Recipe saved to your collection"}
 
@@ -2177,14 +2184,6 @@ async def re_extract_recipe(
             detail="Cannot re-extract manual recipes. Please edit them directly."
         )
 
-    # Save the old extracted data BEFORE extraction for comparison
-    old_extracted = dict(recipe.extracted) if recipe.extracted else {}
-    old_thumbnail = recipe.thumbnail_url
-
-    # Store original if not already stored
-    if not recipe.original_extracted:
-        recipe.original_extracted = recipe.extracted.copy() if recipe.extracted else None
-
     # Run extraction
     try:
         extraction_result = await recipe_extractor.extract(
@@ -2201,24 +2200,31 @@ async def re_extract_recipe(
 
         new_extracted = extraction_result.recipe
 
-        # Create version snapshot with comparison AFTER we have the new data
-        # We store the OLD state and compare to NEW state for the summary
+        uploaded_thumbnail_url = None
+        if extraction_result.thumbnail_url:
+            uploaded_thumbnail_url = await storage_service.upload_thumbnail_from_url(
+                extraction_result.thumbnail_url,
+                str(recipe.id),
+            )
+
+        next_version = await next_recipe_version_number(db, recipe.id)
+        await db.refresh(recipe)
+        old_extracted = dict(recipe.extracted) if recipe.extracted else {}
+        old_thumbnail = recipe.thumbnail_url
+        if not recipe.original_extracted:
+            recipe.original_extracted = (
+                recipe.extracted.copy() if recipe.extracted else None
+            )
+
         change_summary = generate_change_summary(old_extracted, new_extracted)
         if change_summary == "Minor updates":
             change_summary = "Re-extracted with AI (no significant changes detected)"
         else:
             change_summary = f"Re-extracted with AI:\n{change_summary}"
 
-        # Get the next version number
-        result = await db.execute(
-            select(func.max(RecipeVersion.version_number))
-            .where(RecipeVersion.recipe_id == recipe.id)
-        )
-        max_version = result.scalar() or 0
-
         version = RecipeVersion(
             recipe_id=recipe.id,
-            version_number=max_version + 1,
+            version_number=next_version,
             extracted=old_extracted,  # Store the OLD state
             thumbnail_url=old_thumbnail,
             change_type="re-extract",
@@ -2234,16 +2240,10 @@ async def re_extract_recipe(
         recipe.extraction_quality = extraction_result.extraction_quality
         recipe.has_audio_transcript = extraction_result.has_audio_transcript
 
-        # Update thumbnail if we got a new one
-        if extraction_result.thumbnail_url:
-            s3_url = await storage_service.upload_thumbnail_from_url(
-                extraction_result.thumbnail_url,
-                str(recipe.id)
-            )
-            if s3_url:
-                recipe.thumbnail_url = s3_url
-                if recipe.extracted and "media" in recipe.extracted:
-                    recipe.extracted["media"]["thumbnail"] = s3_url
+        if uploaded_thumbnail_url:
+            recipe.thumbnail_url = uploaded_thumbnail_url
+            if recipe.extracted and "media" in recipe.extracted:
+                recipe.extracted["media"]["thumbnail"] = uploaded_thumbnail_url
 
         await db.commit()
         await db.refresh(recipe)

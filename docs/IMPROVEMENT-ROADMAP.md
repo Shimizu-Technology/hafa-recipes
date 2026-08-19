@@ -75,6 +75,20 @@ foundation in B6:
 - admin diagnostics expose cleanup-queue counts. Safe admin reconciliation UI
   remains part of C7.
 
+The third implementation slice completes B3's database-invariant foundation:
+
+- external source URLs receive deterministic, privacy-safe canonical identities;
+- same-user external imports, saved recipes, and recipe version numbers are
+  protected by database uniqueness rather than check-then-insert timing;
+- recipe version allocation holds the recipe row lock through the mutation
+  transaction;
+- every business-data ownership/actor column now references the stable
+  `app_users` identity, closing late-write races with account deletion;
+- migration 020 introduces tracked schema state and application startup refuses
+  to serve an incomplete schema; and
+- disposable PostgreSQL tests exercise migration replay and real concurrent
+  transactions.
+
 ## Release A: Production safety
 
 Goal: remove immediate privacy, model, auth-transition, and environment risks before adding functionality.
@@ -293,12 +307,12 @@ Priority: P1
 
 Work:
 
-- [ ] Define URL canonicalization rules by source.
-- [ ] Add idempotency keys to extraction starts.
-- [ ] Add applicable composite uniqueness constraints for saved recipes and versions.
-- [ ] Make version creation transactional.
-- [ ] Decide duplicate/fork semantics for recipes from the same source.
-- [ ] Adopt a tracked migration system or strengthen numbered-script tracking and schema verification.
+- [x] Define URL canonicalization rules by source.
+- [x] Add idempotency keys to extraction starts.
+- [x] Add applicable composite uniqueness constraints for saved recipes and versions.
+- [x] Make version creation transactional.
+- [x] Decide duplicate/fork semantics for recipes from the same source.
+- [x] Adopt a tracked migration system or strengthen numbered-script tracking and schema verification.
 
 Acceptance criteria:
 

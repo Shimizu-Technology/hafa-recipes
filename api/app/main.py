@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
+from app.database_invariants import verify_database_invariants
 from app.deletion_cleanup import deletion_cleanup_worker
 from app.job_worker import job_worker
 from app.routers import (
@@ -91,6 +92,7 @@ async def startup():
     print(f"🚀 {settings.api_title} v{settings.api_version}")
     print(f"📍 Environment: {settings.environment}")
     print("📚 Docs: http://localhost:8000/docs")
+    await verify_database_invariants()
     await job_worker.start()
     await deletion_cleanup_worker.start()
 
