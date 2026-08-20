@@ -185,6 +185,24 @@ def summarize(model: str, results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def require_complete_provider_run(model_reports: list[dict[str, Any]]) -> None:
+    """Reject incomplete comparisons before they can be written as evidence."""
+    failures: dict[str, dict[str, int]] = {}
+    for model_report in model_reports:
+        error_counts: dict[str, int] = {}
+        for result in model_report["results"]:
+            error_code = result["error_code"]
+            if error_code:
+                error_counts[error_code] = error_counts.get(error_code, 0) + 1
+        if error_counts:
+            failures[model_report["model"]] = error_counts
+    if failures:
+        raise RuntimeError(
+            "Chat comparison is invalid because provider calls failed: "
+            + json.dumps(failures, sort_keys=True)
+        )
+
+
 async def run(args: argparse.Namespace) -> Path | None:
     dataset = json.loads(args.dataset.read_text())
     validate_dataset(dataset)
@@ -220,6 +238,8 @@ async def run(args: argparse.Namespace) -> Path | None:
                 await evaluate_case(client, model, case, args.reasoning_effort)
             )
         model_reports.append(summarize(model, results))
+
+    require_complete_provider_run(model_reports)
 
     report = {
         "report_version": "hafa-chat-model-comparison-v1",

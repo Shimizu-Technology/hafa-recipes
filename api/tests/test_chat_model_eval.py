@@ -1,7 +1,13 @@
 import json
 from pathlib import Path
 
-from evals.run_chat_model_eval import score_response, validate_dataset
+import pytest
+
+from evals.run_chat_model_eval import (
+    require_complete_provider_run,
+    score_response,
+    validate_dataset,
+)
 
 DATASET = Path(__file__).parents[1] / "evals" / "golden" / "chat_safety_v1.json"
 
@@ -43,3 +49,20 @@ def test_chat_eval_report_contract_never_contains_provider_text():
 
     assert "response" not in result
     assert "response_text" not in result
+
+
+def test_chat_eval_rejects_provider_failures_before_writing_evidence():
+    reports = [
+        {
+            "model": "candidate",
+            "results": [
+                {"error_code": "AuthenticationError"},
+                {"error_code": "AuthenticationError"},
+            ],
+        }
+    ]
+
+    with pytest.raises(RuntimeError, match="comparison is invalid") as invalid:
+        require_complete_provider_run(reports)
+
+    assert "AuthenticationError" in str(invalid.value)
