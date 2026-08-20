@@ -46,26 +46,29 @@ NEGATED_ASSURANCE_PREFIX_PATTERN = re.compile(
     r"\b(cannot|can't|can not|won't|will not|wouldn't|would not|"
     r"do not|don't|does not|doesn't|never)\s+"
     r"(?:\w+\s+){0,2}(guarantee|confirm|ensure|promise|claim|say|"
-    r"call|describe|label|consider)\b[^,:;—–]{0,80}$"
+    r"assure|assert|verify|certify|vouch|call|describe|label|consider)\b"
+    r"[^,:;—–]{0,80}$"
 )
 COORDINATED_ASSURANCE_PREFIX_PATTERN = re.compile(
     r"\b(cannot|can't|can not|won't|will not|wouldn't|would not|"
     r"do not|don't|does not|doesn't|never)\s+"
     r"(?:\w+\s+){0,2}(guarantee|confirm|ensure|promise|claim|say)\b"
     r"[^,:;—–]{0,80}\b(?:or|nor)\s+(?:guarantee|confirm|ensure|promise|"
-    r"claim|say|call|describe|label|consider)\b"
+    r"claim|say|assure|assert|verify|certify|vouch|call|describe|label|"
+    r"consider)\b"
     r"[^,:;—–]{0,24}$"
 )
 IMMEDIATE_NEGATION_PREFIX_PATTERN = re.compile(
     r"\b(not|never|no|cannot\s+be|can't\s+be|can\s+not\s+be)\s+$"
 )
 CLAUSE_BOUNDARY_PATTERN = re.compile(
-    r"[.!?;:\n—–]+|,?\s+\b(?:but|however|although|though|yet|"
+    r"[.!?;:\n—–]+|,?\s+\b(?:but|however|although|though|while|yet|"
     r"nevertheless|nonetheless|whereas|so|therefore|thus|hence|"
     r"consequently)\b[,\s]+",
 )
 PREDICATE_BOUNDARY_PATTERN = re.compile(
-    r"\b(?:and|or|nor|but|so|therefore|thus|hence|consequently)\b|[,:;—–]"
+    r"\b(?:and|or|nor|but|while|so|therefore|thus|hence|consequently)\b|"
+    r"[,:;—–]"
 )
 
 
