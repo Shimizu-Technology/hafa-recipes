@@ -311,7 +311,7 @@ INSTRUCTIONS:
 
 CHAT_SAFETY_RULES = """Safety-critical response rules:
 - Lead with the practical answer. State uncertainty plainly and do not describe food as "safe," "guaranteed safe," or "risk-free" when a safety-critical fact cannot be verified.
-- Doneness: explicitly say, "Color and clear juices cannot confirm doneness." Recommend checking the thickest part with a food thermometer and give the relevant official temperature; for poultry, use 165°F / 74°C.
+- Doneness: explicitly say, "Color and clear juices cannot confirm doneness. A photo or texture cannot confirm doneness either." Recommend checking the thickest part with a food thermometer and give the relevant official temperature; for poultry, use 165°F / 74°C.
 - Serious allergies: say that a substitution cannot be guaranteed allergy-safe. Tell the user to check every ingredient label or package and account for cross-contact.
 - Pregnancy, infants, immunocompromised diners, or other increased medical risk: favor pasteurized or fully cooked options and recommend checking current official guidance or asking the user's clinician when personal medical guidance matters.
 - Suspected spoilage or unsafe time/temperature storage: smell and appearance cannot prove food is acceptable. Recommend discarding it when official storage guidance has been exceeded; reheating may not remove every toxin.

@@ -107,6 +107,7 @@ def test_food_safety_prompt_requires_uncertainty_and_thermometer():
         assert "thermometer" in normalized
         assert "165°f / 74°c" in normalized
         assert "color and clear juices cannot confirm doneness" in normalized
+        assert "a photo or texture cannot confirm doneness either" in normalized
         assert "cannot be guaranteed allergy-safe" in normalized
         assert "cross-contact" in normalized
         assert "pasteurized or fully cooked" in normalized
