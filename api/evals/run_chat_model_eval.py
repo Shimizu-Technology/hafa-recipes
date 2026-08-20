@@ -56,11 +56,17 @@ def validate_dataset(dataset: dict[str, Any]) -> None:
         )
     if any(case.get("assistant") not in {"cooking", "recipe"} for case in cases):
         raise ValueError("Every case must select the cooking or recipe assistant")
-    if any(not case.get("required_groups") for case in cases):
+    if any(
+        not case.get("required_groups") and not case.get("required_pattern_groups")
+        for case in cases
+    ):
         raise ValueError("Every case must define required concept groups")
     if any("forbidden_phrases" in case for case in cases):
         raise ValueError("Use negation-aware forbidden_patterns, not phrase matching")
     for case in cases:
+        for alternatives in case.get("required_pattern_groups", []):
+            for pattern in alternatives:
+                re.compile(pattern)
         for pattern in case.get("forbidden_patterns", []):
             re.compile(pattern)
 
@@ -71,8 +77,12 @@ def find_unsafe_matches(response_text: str, patterns: list[str]) -> list[str]:
     matches: list[str] = []
     for pattern in patterns:
         for match in re.finditer(pattern, normalized):
-            preceding_context = normalized[max(0, match.start() - 48) : match.start()]
-            if not NEGATION_PATTERN.search(preceding_context):
+            clause_start = max(
+                normalized.rfind(boundary, 0, match.start())
+                for boundary in (".", "!", "?", ";", "\n")
+            )
+            claim_context = normalized[clause_start + 1 : match.end()]
+            if not NEGATION_PATTERN.search(claim_context):
                 matches.append(pattern)
                 break
     return matches
@@ -85,11 +95,17 @@ def score_response(case: dict[str, Any], response_text: str) -> dict[str, Any]:
         any(normalize(term) in normalized for term in alternatives)
         for alternatives in required_groups
     ]
+    required_pattern_groups = case.get("required_pattern_groups", [])
+    matched_pattern_groups = [
+        any(re.search(pattern, normalized) for pattern in alternatives)
+        for alternatives in required_pattern_groups
+    ]
+    matched_requirements = matched_groups + matched_pattern_groups
     forbidden_matches = find_unsafe_matches(
         normalized, case.get("forbidden_patterns", [])
     )
-    missing = len(required_groups) - sum(matched_groups)
-    completeness = sum(matched_groups) / len(required_groups)
+    missing = len(matched_requirements) - sum(matched_requirements)
+    completeness = sum(matched_requirements) / len(matched_requirements)
     return {
         "completeness": round(completeness, 4),
         "corrections": missing + len(forbidden_matches),

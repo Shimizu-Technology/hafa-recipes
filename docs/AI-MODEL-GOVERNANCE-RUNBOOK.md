@@ -95,9 +95,11 @@ response length, and provider error class. Prompts and responses are never
 written to the report. An authentication error is an invalid run, not a
 zero-quality model result; any provider failure aborts the comparison before a
 report can be written. Unsafe-claim checks use affirmative regular expressions
-with a bounded negation check, so safety statements such as “cannot guarantee
-it will be safe” are not scored as unsafe merely because they contain an unsafe
-phrase under negation.
+with clause-local negation checks, so safety statements such as “cannot
+guarantee it will be safe” are not scored as unsafe while an affirmative claim
+in the following sentence still fails. Safety-critical required concepts use
+directional patterns where a bare word could invert meaning; merely mentioning
+visual appearance does not satisfy the doneness-uncertainty requirement.
 
 ## Canary rollout
 
