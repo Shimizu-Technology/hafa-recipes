@@ -35,6 +35,11 @@ export function DashboardPage() {
               <strong>{data.jobs_needing_attention}</strong>
               <small>Failed, expired, or stale</small>
             </Link>
+            <Link className="metric-card" to="/cleanup">
+              <span>Deletion cleanup failures</span>
+              <strong>{data.cleanup_jobs_needing_attention}</strong>
+              <small>Required external erasure</small>
+            </Link>
             <Link className="metric-card" to="/recipes?status=hidden">
               <span>Hidden recipes</span>
               <strong>{data.hidden_recipes}</strong>

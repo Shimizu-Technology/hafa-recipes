@@ -17,6 +17,8 @@ describe('DashboardPage', () => {
 
     expect(await screen.findByText('Open reports')).toBeVisible()
     expect(screen.getByText('Jobs needing attention')).toBeVisible()
+    expect(screen.getByText('Deletion cleanup failures')).toBeVisible()
     expect(screen.getByRole('link', { name: /Open reports/ })).toHaveAttribute('href', '/reports')
+    expect(screen.getByRole('link', { name: /Deletion cleanup failures/ })).toHaveAttribute('href', '/cleanup')
   })
 })

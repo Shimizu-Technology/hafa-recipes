@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.auth import ClerkUser
 from app.db.database import Base
 from app.models import ai, deletion, grocery, identity, meal_plan, moderation, recipe  # noqa: F401
+from app.models.deletion import DeletionCleanupJob
 from app.models.identity import AppUser
 from app.models.meal_plan import MealPlanEntry
 from app.models.moderation import AdminAuditEvent
@@ -28,6 +29,7 @@ from app.routers.admin import (
     RecipeModerationUpdate,
     ReportReviewUpdate,
     moderate_recipe,
+    retry_cleanup_job,
     retry_job,
     review_report,
 )
@@ -70,6 +72,7 @@ async def test_report_block_moderate_and_recover_workflow(monkeypatch):
     admin = _user("workflow_admin", "admin")
     recipe_id = uuid4()
     job_id = uuid4()
+    cleanup_job_id = uuid4()
     collection_id = uuid4()
 
     try:
@@ -118,6 +121,29 @@ async def test_report_block_moderate_and_recover_workflow(monkeypatch):
                     error_code="TIMEOUT",
                     attempt_count=3,
                     max_attempts=3,
+                    created_at=datetime.now(UTC),
+                    updated_at=datetime.now(UTC),
+                )
+            )
+            db.add(
+                DeletionCleanupJob(
+                    id=cleanup_job_id,
+                    kind="account",
+                    app_user_id="deleted_workflow_user",
+                    status="failed",
+                    clerk_identities=[
+                        {
+                            "issuer": "https://clerk.example.test",
+                            "subject": "deleted_clerk_user",
+                        }
+                    ],
+                    storage_prefixes=["chat-images/deleted_workflow_user/"],
+                    clerk_target_count=1,
+                    storage_prefix_count=1,
+                    attempt_count=20,
+                    max_attempts=20,
+                    last_error="StorageCleanupError",
+                    completed_at=datetime.now(UTC),
                     created_at=datetime.now(UTC),
                     updated_at=datetime.now(UTC),
                 )
@@ -242,7 +268,28 @@ async def test_report_block_moderate_and_recover_workflow(monkeypatch):
                 job_id, AdminReason(reason="Synthetic recovery cancel"), db, admin
             )
             assert cancelled.status == "cancelled"
-            assert await db.scalar(select(func.count(AdminAuditEvent.id))) == 4
+            cleanup_retry = await retry_cleanup_job(
+                cleanup_job_id,
+                AdminReason(reason="Synthetic external erasure retry"),
+                db,
+                admin,
+            )
+            assert cleanup_retry.status == "queued"
+            assert cleanup_retry.attempt_count == 0
+            assert cleanup_retry.target_count == 2
+            cleanup_row = await db.get(DeletionCleanupJob, cleanup_job_id)
+            assert cleanup_row is not None
+            assert cleanup_row.clerk_identities[0]["subject"] == "deleted_clerk_user"
+            assert cleanup_row.storage_prefixes == ["chat-images/deleted_workflow_user/"]
+            cleanup_audit = await db.scalar(
+                select(AdminAuditEvent).where(
+                    AdminAuditEvent.action == "deletion_cleanup_retried"
+                )
+            )
+            assert cleanup_audit is not None
+            assert "deleted_workflow_user" not in str(cleanup_audit.before_summary)
+            assert "deleted_clerk_user" not in str(cleanup_audit.after_summary)
+            assert await db.scalar(select(func.count(AdminAuditEvent.id))) == 5
     finally:
         async with engine.begin() as connection:
             await connection.execute(text("DROP SCHEMA public CASCADE"))

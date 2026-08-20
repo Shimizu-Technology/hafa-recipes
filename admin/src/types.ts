@@ -2,6 +2,7 @@ export type ModerationStatus = 'active' | 'hidden'
 export type ReportStatus = 'open' | 'reviewing' | 'resolved' | 'dismissed'
 export type ReportFilter = 'all' | ReportStatus
 export type JobFilter = 'attention' | 'failed' | 'expired' | 'stale' | 'all'
+export type CleanupJobFilter = 'attention' | 'failed' | 'queued' | 'processing' | 'completed' | 'all'
 
 export interface AuditEvent {
   id: string
@@ -20,6 +21,7 @@ export interface Dashboard {
   hidden_recipes: number
   hidden_contributors: number
   jobs_needing_attention: number
+  cleanup_jobs_needing_attention: number
   recent_actions: AuditEvent[]
 }
 
@@ -70,6 +72,23 @@ export interface JobPreview {
   leased_until: string | null
 }
 
+export interface CleanupJobPreview {
+  id: string
+  kind: string
+  status: string
+  clerk_target_count: number
+  storage_prefix_count: number
+  target_count: number
+  attempt_count: number
+  max_attempts: number
+  error_code: string | null
+  next_attempt_at: string | null
+  leased_until: string | null
+  created_at: string
+  updated_at: string
+  completed_at: string | null
+}
+
 export interface RecipeModerationPayload {
   moderation_status: ModerationStatus
   is_featured: boolean
@@ -88,5 +107,7 @@ export interface AdminApi {
   jobs(status: JobFilter, signal?: AbortSignal): Promise<JobPreview[]>
   retryJob(id: string, reason: string): Promise<JobPreview>
   cancelJob(id: string, reason: string): Promise<JobPreview>
+  cleanupJobs(status: CleanupJobFilter, signal?: AbortSignal): Promise<CleanupJobPreview[]>
+  retryCleanupJob(id: string, reason: string): Promise<CleanupJobPreview>
   audit(action: string, targetId: string, signal?: AbortSignal): Promise<AuditEvent[]>
 }

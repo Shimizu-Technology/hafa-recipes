@@ -8,6 +8,7 @@ const navigation = [
   { to: '/recipes', label: 'Recipes' },
   { to: '/contributors', label: 'Contributors' },
   { to: '/jobs', label: 'Extraction jobs' },
+  { to: '/cleanup', label: 'Deletion cleanup' },
   { to: '/audit', label: 'Audit history' },
 ]
 

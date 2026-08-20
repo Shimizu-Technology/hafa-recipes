@@ -6,6 +6,7 @@ import { AdminApiProvider } from './context/AdminApiContext'
 import { createAdminApi } from './lib/api'
 import { AuditPage } from './pages/AuditPage'
 import { ContributorsPage } from './pages/ContributorsPage'
+import { CleanupJobsPage } from './pages/CleanupJobsPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { JobsPage } from './pages/JobsPage'
 import { RecipesPage } from './pages/RecipesPage'
@@ -20,6 +21,7 @@ export function AdminRoutes({ preview = false }: { preview?: boolean }) {
         <Route path="recipes" element={<RecipesPage />} />
         <Route path="contributors" element={<ContributorsPage />} />
         <Route path="jobs" element={<JobsPage />} />
+        <Route path="cleanup" element={<CleanupJobsPage />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

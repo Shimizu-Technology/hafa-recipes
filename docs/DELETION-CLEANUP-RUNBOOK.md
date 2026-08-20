@@ -1,6 +1,6 @@
 # Durable Deletion Cleanup Runbook
 
-Last reviewed: 2026-08-19
+Last reviewed: 2026-08-20
 
 ## Purpose
 
@@ -66,6 +66,13 @@ the deleted subject cannot be lazily adopted again.
 Authenticated admins can read queue counts in
 `GET /api/admin/diagnostics` under `deletion_cleanup_queue`.
 
+The focused admin portal also exposes a privacy-bounded queue at
+`GET /api/admin/cleanup-jobs`. It returns job kind, state, bounded target
+counts, attempts, timestamps, and the sanitized exception class only. It never
+returns the stable app user ID, Clerk issuer/subject pairs, storage prefixes,
+lease token, or provider response bodies. The overview count includes only
+terminal `failed` jobs; queued and expired-lease work remains worker-owned.
+
 Investigate when:
 
 - `failed` increases;
@@ -100,16 +107,22 @@ test identity and verify all linked Clerk aliases before deletion.
 - `queued`: no action unless backlog is growing; the worker will retry when due.
 - `processing`: wait through the lease window; an expired lease is recovered
   automatically.
-- `failed`: preserve the row and investigate provider configuration or outage.
-  The focused admin portal will provide an authenticated, audited retry action
-  under C7. Until then, recovery is an operator procedure and must be recorded
-  in the incident/change log; do not delete the row or its tombstones.
+- `failed`: investigate and correct the provider configuration or outage, then
+  use **Deletion cleanup → Retry** in the focused admin portal. A reason is
+  required and permanently audited. The action locks the row, clears only
+  bounded failure/lease state, resets the attempt budget, and wakes the durable
+  worker. It does not restore locally deleted data and cannot cancel required
+  erasure. If the job has no remaining external targets, the API rejects the
+  retry for investigation rather than inventing work.
 - startup schema error: apply migration 019, then restart. Do not disable the
   worker to bypass the preflight in production.
 
 Never remove an authentication tombstone merely to make sign-in work. That can
 recreate a deliberately deleted account and must be treated as a new-account or
 support decision instead.
+
+Do not copy raw cleanup targets into an admin reason, incident title, or support
+ticket. Reference the bounded cleanup job ID shown in the portal.
 
 ## Rollback
 

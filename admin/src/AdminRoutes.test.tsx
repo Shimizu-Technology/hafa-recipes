@@ -27,6 +27,7 @@ describe('AdminRoutes', () => {
       ['Recipes', 'Recipe moderation'],
       ['Contributors', 'Contributor moderation'],
       ['Extraction jobs', 'Extraction jobs'],
+      ['Deletion cleanup', 'Deletion cleanup'],
       ['Audit history', 'Audit history'],
     ]) {
       await user.click(screen.getByRole('link', { name: link }))
@@ -52,5 +53,20 @@ describe('AdminRoutes', () => {
     await user.type(screen.getByLabelText('Featured position'), '2')
     expect(screen.getByLabelText('Featured position')).toHaveAttribute('aria-invalid', 'false')
     expect(apply).toBeEnabled()
+  })
+
+  it('requires an audited reason before retrying failed deletion cleanup', async () => {
+    const user = userEvent.setup()
+    renderAdmin()
+    await user.click(screen.getByRole('link', { name: 'Deletion cleanup' }))
+
+    const failedRow = await screen.findByRole('row', { name: /StorageCleanupError/ })
+    await user.click(within(failedRow).getByRole('button', { name: 'Retry' }))
+    const queueRetry = screen.getByRole('button', { name: 'Queue cleanup retry' })
+    expect(queueRetry).toBeDisabled()
+    await user.type(screen.getByLabelText(/Reason/), 'Provider credentials restored')
+    expect(queueRetry).toBeEnabled()
+    await user.click(queueRetry)
+    expect(await screen.findByText('Deletion cleanup queued for an administrator-approved retry.')).toBeVisible()
   })
 })

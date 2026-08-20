@@ -6,9 +6,11 @@ import { AdminApiProvider } from '../context/AdminApiContext'
 import { mockAdminApi } from './mockApi'
 import '../styles.css'
 
+const initialEntry = window.location.hash.replace(/^#/, '') || '/'
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <AdminApiProvider api={mockAdminApi}>
         <AdminRoutes preview />
       </AdminApiProvider>

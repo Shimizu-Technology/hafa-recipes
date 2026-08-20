@@ -1,4 +1,4 @@
-import type { AdminApi, AuditEvent, ContributorPreview, Dashboard, JobPreview, RecipePreview, ReportPreview } from '../types'
+import type { AdminApi, AuditEvent, CleanupJobPreview, ContributorPreview, Dashboard, JobPreview, RecipePreview, ReportPreview } from '../types'
 
 const now = new Date()
 const hoursAgo = (hours: number) => new Date(now.getTime() - hours * 3_600_000).toISOString()
@@ -52,13 +52,18 @@ const jobs: JobPreview[] = [
   { id: 'job-fd2810ce-3', job_kind: 'extract', status: 'queued', source_host: 'youtube.com', error_code: null, attempt_count: 0, max_attempts: 3, created_at: hoursAgo(1), updated_at: hoursAgo(1), leased_until: null },
 ]
 
+const cleanupJobs: CleanupJobPreview[] = [
+  { id: '53bf99a9-bd76-47b5-9f51-06ca37e5081c', kind: 'account', status: 'failed', clerk_target_count: 1, storage_prefix_count: 2, target_count: 3, attempt_count: 20, max_attempts: 20, error_code: 'StorageCleanupError', next_attempt_at: null, leased_until: null, created_at: hoursAgo(36), updated_at: hoursAgo(2), completed_at: hoursAgo(2) },
+  { id: 'e47173f1-b462-47c5-aa1c-da82c68e6401', kind: 'recipe', status: 'queued', clerk_target_count: 0, storage_prefix_count: 2, target_count: 2, attempt_count: 1, max_attempts: 20, error_code: 'StorageCleanupError', next_attempt_at: hoursAgo(-1), leased_until: null, created_at: hoursAgo(3), updated_at: hoursAgo(1), completed_at: null },
+]
+
 const wait = async () => new Promise((resolve) => setTimeout(resolve, 160))
 const copy = <T,>(value: T): T => structuredClone(value)
 
 export const mockAdminApi: AdminApi = {
   async dashboard() {
     await wait()
-    const value: Dashboard = { open_reports: reports.filter((item) => ['open', 'reviewing'].includes(item.status)).length, hidden_recipes: recipes.filter((item) => item.moderation_status === 'hidden').length, hidden_contributors: contributors.filter((item) => item.moderation_status === 'hidden').length, jobs_needing_attention: jobs.filter((item) => ['failed', 'expired', 'queued'].includes(item.status)).length, recent_actions: auditEvents }
+    const value: Dashboard = { open_reports: reports.filter((item) => ['open', 'reviewing'].includes(item.status)).length, hidden_recipes: recipes.filter((item) => item.moderation_status === 'hidden').length, hidden_contributors: contributors.filter((item) => item.moderation_status === 'hidden').length, jobs_needing_attention: jobs.filter((item) => ['failed', 'expired', 'queued'].includes(item.status)).length, cleanup_jobs_needing_attention: cleanupJobs.filter((item) => item.status === 'failed').length, recent_actions: auditEvents }
     return copy(value)
   },
   async reports(status) { await wait(); return copy(status === 'all' ? reports : status === 'open' ? reports.filter((item) => ['open', 'reviewing'].includes(item.status)) : reports.filter((item) => item.status === status)) },
@@ -70,5 +75,7 @@ export const mockAdminApi: AdminApi = {
   async jobs(status) { await wait(); return copy(status === 'all' || status === 'attention' ? jobs : status === 'stale' ? jobs.filter((item) => item.status === 'queued') : jobs.filter((item) => item.status === status)) },
   async retryJob(id) { await wait(); const item = jobs.find((job) => job.id === id)!; item.status = 'queued'; item.attempt_count = 0; item.error_code = null; return copy(item) },
   async cancelJob(id) { await wait(); const item = jobs.find((job) => job.id === id)!; item.status = 'cancelled'; return copy(item) },
+  async cleanupJobs(status) { await wait(); return copy(status === 'all' ? cleanupJobs : status === 'attention' ? cleanupJobs.filter((item) => item.status === 'failed') : cleanupJobs.filter((item) => item.status === status)) },
+  async retryCleanupJob(id) { await wait(); const item = cleanupJobs.find((job) => job.id === id)!; item.status = 'queued'; item.attempt_count = 0; item.error_code = null; item.next_attempt_at = new Date().toISOString(); item.completed_at = null; return copy(item) },
   async audit(action, targetId) { await wait(); return copy(auditEvents.filter((item) => (!action || item.action === action) && (!targetId || item.target_id === targetId))) },
 }
