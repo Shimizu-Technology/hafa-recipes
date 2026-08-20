@@ -52,7 +52,8 @@ COORDINATED_ASSURANCE_PREFIX_PATTERN = re.compile(
     r"\b(cannot|can't|can not|won't|will not|wouldn't|would not|"
     r"do not|don't|does not|doesn't|never)\s+"
     r"(?:\w+\s+){0,2}(guarantee|confirm|ensure|promise|claim|say)\b"
-    r"[^,:;—–]{0,80}\bor\s+(?:call|describe|label|consider)\b"
+    r"[^,:;—–]{0,80}\b(?:or|nor)\s+(?:guarantee|confirm|ensure|promise|"
+    r"claim|say|call|describe|label|consider)\b"
     r"[^,:;—–]{0,24}$"
 )
 IMMEDIATE_NEGATION_PREFIX_PATTERN = re.compile(
@@ -64,7 +65,7 @@ CLAUSE_BOUNDARY_PATTERN = re.compile(
     r"consequently)\b[,\s]+",
 )
 PREDICATE_BOUNDARY_PATTERN = re.compile(
-    r"\b(?:and|or|but|so|therefore|thus|hence|consequently)\b|[,:;—–]"
+    r"\b(?:and|or|nor|but|so|therefore|thus|hence|consequently)\b|[,:;—–]"
 )
 
 
