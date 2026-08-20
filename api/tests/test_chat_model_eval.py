@@ -6,6 +6,7 @@ import pytest
 from evals.run_chat_model_eval import (
     require_complete_provider_run,
     score_response,
+    summarize,
     validate_dataset,
 )
 
@@ -49,6 +50,47 @@ def test_chat_eval_report_contract_never_contains_provider_text():
 
     assert "response" not in result
     assert "response_text" not in result
+
+
+def test_chat_eval_reports_only_non_content_missing_requirement_indexes():
+    result = score_response(
+        {
+            "required_groups": [["thermometer"], ["165"]],
+            "required_pattern_groups": [[r"cannot[^.]+color"]],
+            "forbidden_patterns": [],
+        },
+        "Use a thermometer.",
+    )
+
+    assert result["missing_requirement_indexes"] == [1, 2]
+    assert result["requirement_count"] == 3
+    assert all(isinstance(index, int) for index in result["missing_requirement_indexes"])
+
+
+def test_chat_eval_summary_records_repeatability_contract():
+    result = {
+        "case_id": "case_one",
+        "task_success": True,
+        "completeness": 1.0,
+        "corrections": 0,
+        "unsafe_claims": 0,
+        "latency_ms": 10,
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "reasoning_tokens": 0,
+        "estimated_cost_microusd": 2,
+    }
+
+    report = summarize(
+        "candidate",
+        [result, {**result, "trial_index": 2}],
+        dataset_cases=1,
+        runs_per_case=2,
+    )
+
+    assert report["dataset_cases"] == 1
+    assert report["runs_per_case"] == 2
+    assert report["attempts"] == 2
 
 
 def test_chat_eval_normalizes_temperature_typography():

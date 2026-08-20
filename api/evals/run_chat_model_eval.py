@@ -190,6 +190,10 @@ def score_response(case: dict[str, Any], response_text: str) -> dict[str, Any]:
     return {
         "completeness": round(completeness, 4),
         "corrections": missing + len(forbidden_matches),
+        "missing_requirement_indexes": [
+            index for index, matched in enumerate(matched_requirements) if not matched
+        ],
+        "requirement_count": len(matched_requirements),
         "unsafe_claims": len(forbidden_matches),
         "task_success": missing == 0 and not forbidden_matches,
     }
@@ -214,6 +218,7 @@ async def evaluate_case(
     model: str,
     case: dict[str, Any],
     reasoning_effort: str,
+    trial_index: int,
 ) -> dict[str, Any]:
     from app.ai_governance import estimate_cost_microusd, extract_token_usage
 
@@ -238,6 +243,7 @@ async def evaluate_case(
             "case_id": case["id"],
             "category": case["category"],
             "assistant": case["assistant"],
+            "trial_index": trial_index,
             "latency_ms": latency_ms,
             **usage,
             "estimated_cost_microusd": cost,
@@ -250,6 +256,7 @@ async def evaluate_case(
             "case_id": case["id"],
             "category": case["category"],
             "assistant": case["assistant"],
+            "trial_index": trial_index,
             "latency_ms": round((time.perf_counter() - started) * 1000),
             "input_tokens": None,
             "cached_input_tokens": None,
@@ -260,12 +267,20 @@ async def evaluate_case(
             "error_code": type(exc).__name__,
             "completeness": 0.0,
             "corrections": 1,
+            "missing_requirement_indexes": [],
+            "requirement_count": 0,
             "unsafe_claims": 0,
             "task_success": False,
         }
 
 
-def summarize(model: str, results: list[dict[str, Any]]) -> dict[str, Any]:
+def summarize(
+    model: str,
+    results: list[dict[str, Any]],
+    *,
+    dataset_cases: int,
+    runs_per_case: int,
+) -> dict[str, Any]:
     successes = [result for result in results if result["task_success"]]
     costs = [
         result["estimated_cost_microusd"]
@@ -274,7 +289,9 @@ def summarize(model: str, results: list[dict[str, Any]]) -> dict[str, Any]:
     ]
     return {
         "model": model,
-        "cases": len(results),
+        "dataset_cases": dataset_cases,
+        "runs_per_case": runs_per_case,
+        "attempts": len(results),
         "task_success_rate": round(len(successes) / len(results), 4),
         "mean_completeness": round(
             statistics.mean(result["completeness"] for result in results), 4
@@ -349,16 +366,30 @@ async def run(args: argparse.Namespace) -> Path | None:
     model_reports = []
     for model in args.models:
         results = []
-        for case in dataset["cases"]:
-            results.append(
-                await evaluate_case(client, model, case, args.reasoning_effort)
+        for trial_index in range(1, args.runs_per_case + 1):
+            for case in dataset["cases"]:
+                results.append(
+                    await evaluate_case(
+                        client,
+                        model,
+                        case,
+                        args.reasoning_effort,
+                        trial_index,
+                    )
+                )
+        model_reports.append(
+            summarize(
+                model,
+                results,
+                dataset_cases=len(dataset["cases"]),
+                runs_per_case=args.runs_per_case,
             )
-        model_reports.append(summarize(model, results))
+        )
 
     require_complete_provider_run(model_reports)
 
     report = {
-        "report_version": "hafa-chat-model-comparison-v1",
+        "report_version": "hafa-chat-model-comparison-v2",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "dataset_version": dataset["dataset_version"],
         "privacy": dataset["privacy"],
@@ -367,6 +398,7 @@ async def run(args: argparse.Namespace) -> Path | None:
             "cooking_chat": PROMPT_VERSIONS["cooking_chat"],
         },
         "reasoning_effort": args.reasoning_effort,
+        "runs_per_case": args.runs_per_case,
         "models": model_reports,
         "contains_provider_outputs": False,
     }
@@ -393,10 +425,14 @@ def parse_args() -> argparse.Namespace:
         "--models", nargs="+", default=["gpt-5.6-luna", "gpt-5.6-terra"]
     )
     parser.add_argument("--reasoning-effort", default="none")
+    parser.add_argument("--runs-per-case", type=int, default=1)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--env-file", type=Path)
     parser.add_argument("--dry-run", action="store_true")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.runs_per_case < 1:
+        parser.error("--runs-per-case must be at least 1")
+    return args
 
 
 if __name__ == "__main__":
