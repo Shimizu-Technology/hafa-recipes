@@ -45,8 +45,15 @@ NEGATION_PATTERN = re.compile(
 NEGATED_ASSURANCE_PREFIX_PATTERN = re.compile(
     r"\b(cannot|can't|can not|won't|will not|wouldn't|would not|"
     r"do not|don't|does not|doesn't|never)\s+"
+    r"(?:\w+\s+){0,2}(guarantee|confirm|ensure|promise|claim|say|"
+    r"call|describe|label|consider)\b[^,:;—–]{0,80}$"
+)
+COORDINATED_ASSURANCE_PREFIX_PATTERN = re.compile(
+    r"\b(cannot|can't|can not|won't|will not|wouldn't|would not|"
+    r"do not|don't|does not|doesn't|never)\s+"
     r"(?:\w+\s+){0,2}(guarantee|confirm|ensure|promise|claim|say)\b"
-    r"[^,;]{0,80}(?:\bor\s+(?:call|describe|label|consider)\b[^,;]{0,24})?$"
+    r"[^,:;—–]{0,80}\bor\s+(?:call|describe|label|consider)\b"
+    r"[^,:;—–]{0,24}$"
 )
 IMMEDIATE_NEGATION_PREFIX_PATTERN = re.compile(
     r"\b(not|never|no|cannot\s+be|can't\s+be|can\s+not\s+be)\s+$"
@@ -98,16 +105,22 @@ def match_is_negated(clause: str, match: re.Match[str]) -> bool:
     if not safe_terms:
         return False
 
-    predicate_prefix = matched_claim[: safe_terms[-1].start()]
-    predicate_prefix = PREDICATE_BOUNDARY_PATTERN.split(predicate_prefix)[-1]
+    raw_predicate_prefix = matched_claim[: safe_terms[-1].start()]
+    predicate_prefix = PREDICATE_BOUNDARY_PATTERN.split(raw_predicate_prefix)[-1]
     predicate_prefix = re.sub(r"\bnot\s+only\b", "", predicate_prefix)
     if NEGATION_PATTERN.search(predicate_prefix):
         return True
 
     prefix = clause[max(0, match.start() - 120) : match.start()]
+    if COORDINATED_ASSURANCE_PREFIX_PATTERN.search(prefix + raw_predicate_prefix):
+        return True
+    if PREDICATE_BOUNDARY_PATTERN.search(raw_predicate_prefix):
+        return False
+
+    local_prefix = PREDICATE_BOUNDARY_PATTERN.split(prefix)[-1]
     return bool(
-        NEGATED_ASSURANCE_PREFIX_PATTERN.search(prefix)
-        or IMMEDIATE_NEGATION_PREFIX_PATTERN.search(prefix)
+        NEGATED_ASSURANCE_PREFIX_PATTERN.search(local_prefix)
+        or IMMEDIATE_NEGATION_PREFIX_PATTERN.search(local_prefix)
     )
 
 
