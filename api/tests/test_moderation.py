@@ -8,14 +8,18 @@ from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
 
 from app.auth import ClerkUser
+from app.models.deletion import DeletionCleanupJob
 from app.models.moderation import AdminAuditEvent
 from app.models.recipe import ExtractionJob, Recipe
 from app.moderation import is_publicly_viewable, public_recipe_conditions, require_admin
 from app.routers.admin import (
+    AdminReason,
     RecipeModerationUpdate,
     _add_audit,
+    _cleanup_job_response,
     _job_response,
     _recipe_preview,
+    retry_cleanup_job,
 )
 from app.routers.community_safety import AppealCreate, get_safety_status
 from app.routers.recipes import get_recipe, recipe_to_detail_response, recipe_to_list_item
@@ -218,6 +222,104 @@ def test_admin_job_preview_uses_only_source_host():
     assert response.source_host == "example.com"
     assert "private" not in response.model_dump_json()
     assert "secret" not in response.model_dump_json()
+
+
+def test_admin_cleanup_preview_exposes_counts_but_never_external_targets():
+    now = datetime.now(UTC)
+    job = DeletionCleanupJob(
+        id=uuid4(),
+        kind="account",
+        app_user_id="private_stable_user",
+        status="failed",
+        clerk_identities=[
+            {"issuer": "https://clerk.example.test", "subject": "user_private"}
+        ],
+        storage_prefixes=["chat-images/private_stable_user/"],
+        clerk_target_count=1,
+        storage_prefix_count=1,
+        attempt_count=20,
+        max_attempts=20,
+        last_error="StorageCleanupError",
+        created_at=now,
+        updated_at=now,
+        completed_at=now,
+    )
+
+    response = _cleanup_job_response(job)
+    serialized = response.model_dump_json()
+
+    assert response.target_count == 2
+    assert response.error_code == "StorageCleanupError"
+    assert "private_stable_user" not in serialized
+    assert "user_private" not in serialized
+    assert "chat-images" not in serialized
+    assert "clerk.example.test" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_admin_cleanup_retry_resets_failure_and_records_bounded_audit(monkeypatch):
+    now = datetime.now(UTC)
+    job = DeletionCleanupJob(
+        id=uuid4(),
+        kind="account",
+        app_user_id="private_stable_user",
+        status="failed",
+        clerk_identities=[{"issuer": "issuer-secret", "subject": "subject-secret"}],
+        storage_prefixes=["private/storage/path/"],
+        clerk_target_count=1,
+        storage_prefix_count=1,
+        attempt_count=20,
+        max_attempts=20,
+        last_error="StorageCleanupError",
+        lease_token="private-lease",
+        leased_until=now,
+        created_at=now,
+        updated_at=now,
+        completed_at=now,
+    )
+
+    class Database:
+        def __init__(self):
+            self.added = []
+            self.committed = False
+
+        async def scalar(self, _statement):
+            return job
+
+        def add(self, value):
+            self.added.append(value)
+
+        async def commit(self):
+            self.committed = True
+
+        async def refresh(self, _value):
+            return None
+
+    db = Database()
+    wakes = []
+    monkeypatch.setattr(
+        "app.routers.admin.deletion_cleanup_worker.wake", lambda: wakes.append(True)
+    )
+
+    response = await retry_cleanup_job(
+        job.id,
+        AdminReason(reason="Provider credentials restored"),
+        db,
+        _user(role="admin"),
+    )
+
+    assert db.committed
+    assert wakes == [True]
+    assert response.status == "queued"
+    assert response.attempt_count == 0
+    assert response.error_code is None
+    assert job.lease_token is None
+    assert job.completed_at is None
+    assert job.clerk_identities[0]["subject"] == "subject-secret"
+    audit = db.added[0]
+    assert audit.action == "deletion_cleanup_retried"
+    assert "subject-secret" not in str(audit.before_summary)
+    assert "private/storage/path" not in str(audit.after_summary)
 
 
 def test_audit_helper_records_only_bounded_before_and_after_summaries():

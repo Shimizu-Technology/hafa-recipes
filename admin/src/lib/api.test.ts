@@ -43,6 +43,21 @@ describe('createAdminApi', () => {
     )
   })
 
+  it('sends an encoded audited cleanup retry request', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const api = createAdminApi(async () => 'session-token', 'https://api.example.test')
+
+    await api.retryCleanupJob('job/id', 'Provider access restored')
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.example.test/api/admin/cleanup-jobs/job%2Fid/retry')
+    expect(init.method).toBe('POST')
+    expect(init.body).toBe(JSON.stringify({ reason: 'Provider access restored' }))
+  })
+
   it('does not call the API without a session token', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)

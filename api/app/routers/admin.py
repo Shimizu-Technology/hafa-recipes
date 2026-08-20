@@ -14,7 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import ClerkUser
 from app.config import get_settings
 from app.db import get_db
+from app.deletion_cleanup import deletion_cleanup_worker
 from app.job_worker import ACTIVE_JOB_STATUSES, job_worker
+from app.models.deletion import DeletionCleanupJob
 from app.models.identity import AppUser
 from app.models.moderation import AdminAuditEvent, ContentReport
 from app.models.recipe import ExtractionJob, Recipe
@@ -100,6 +102,25 @@ class AdminJobResponse(BaseModel):
     leased_until: datetime | None
 
 
+class AdminCleanupJobResponse(BaseModel):
+    """Privacy-bounded view of required external deletion work."""
+
+    id: UUID
+    kind: str
+    status: str
+    clerk_target_count: int
+    storage_prefix_count: int
+    target_count: int
+    attempt_count: int
+    max_attempts: int
+    error_code: str | None
+    next_attempt_at: datetime | None
+    leased_until: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None
+
+
 class AdminAuditResponse(BaseModel):
     id: UUID
     actor_user_id: str
@@ -119,6 +140,7 @@ class AdminDashboardResponse(BaseModel):
     hidden_recipes: int
     hidden_contributors: int
     jobs_needing_attention: int
+    cleanup_jobs_needing_attention: int
     recent_actions: list[AdminAuditResponse]
 
 
@@ -159,6 +181,28 @@ def _job_response(job: ExtractionJob) -> AdminJobResponse:
         created_at=job.created_at,
         updated_at=job.updated_at,
         leased_until=job.leased_until,
+    )
+
+
+def _cleanup_job_response(job: DeletionCleanupJob) -> AdminCleanupJobResponse:
+    """Return operational state without identities, user IDs, or storage keys."""
+    clerk_target_count = max(0, job.clerk_target_count or 0)
+    storage_prefix_count = max(0, job.storage_prefix_count or 0)
+    return AdminCleanupJobResponse(
+        id=job.id,
+        kind=job.kind,
+        status=job.status,
+        clerk_target_count=clerk_target_count,
+        storage_prefix_count=storage_prefix_count,
+        target_count=clerk_target_count + storage_prefix_count,
+        attempt_count=job.attempt_count or 0,
+        max_attempts=job.max_attempts or 0,
+        error_code=job.last_error[:128] if job.last_error else None,
+        next_attempt_at=job.next_attempt_at,
+        leased_until=job.leased_until,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        completed_at=job.completed_at,
     )
 
 
@@ -243,6 +287,11 @@ async def admin_dashboard(
             )
         )
     )
+    cleanup_jobs_needing_attention = await db.scalar(
+        select(func.count(DeletionCleanupJob.id)).where(
+            DeletionCleanupJob.status == "failed"
+        )
+    )
     recent = (
         await db.execute(
             select(AdminAuditEvent).order_by(AdminAuditEvent.created_at.desc()).limit(10)
@@ -253,6 +302,7 @@ async def admin_dashboard(
         "hidden_recipes": hidden_recipes or 0,
         "hidden_contributors": hidden_contributors or 0,
         "jobs_needing_attention": jobs_needing_attention or 0,
+        "cleanup_jobs_needing_attention": cleanup_jobs_needing_attention or 0,
         "recent_actions": [AdminAuditResponse.model_validate(item) for item in recent],
     }
 
@@ -644,6 +694,92 @@ async def cancel_job(
     await db.commit()
     await db.refresh(job)
     return _job_response(job)
+
+
+@router.get("/cleanup-jobs", response_model=list[AdminCleanupJobResponse])
+async def admin_cleanup_jobs(
+    status: Literal[
+        "attention", "failed", "queued", "processing", "completed", "all"
+    ] = "attention",
+    limit: int = Query(default=50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    admin: ClerkUser = Depends(require_admin),
+):
+    del admin
+    query = select(DeletionCleanupJob)
+    if status == "attention":
+        query = query.where(DeletionCleanupJob.status == "failed")
+    elif status != "all":
+        query = query.where(DeletionCleanupJob.status == status)
+    jobs = (
+        await db.execute(
+            query.order_by(DeletionCleanupJob.updated_at.desc()).limit(limit)
+        )
+    ).scalars().all()
+    return [_cleanup_job_response(job) for job in jobs]
+
+
+@router.post(
+    "/cleanup-jobs/{job_id}/retry", response_model=AdminCleanupJobResponse
+)
+async def retry_cleanup_job(
+    job_id: UUID,
+    payload: AdminReason,
+    db: AsyncSession = Depends(get_db),
+    admin: ClerkUser = Depends(require_admin),
+):
+    job = await db.scalar(
+        select(DeletionCleanupJob)
+        .where(DeletionCleanupJob.id == job_id)
+        .with_for_update()
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail="Cleanup job not found")
+    if job.status != "failed":
+        raise HTTPException(status_code=409, detail="Only failed cleanup jobs can be retried")
+    if not (job.clerk_identities or job.storage_prefixes):
+        raise HTTPException(
+            status_code=409,
+            detail="This cleanup job has no remaining external targets",
+        )
+
+    before = {
+        "status": job.status,
+        "error_code": job.last_error[:128] if job.last_error else None,
+        "attempt_count": job.attempt_count or 0,
+        "clerk_target_count": job.clerk_target_count or 0,
+        "storage_prefix_count": job.storage_prefix_count or 0,
+    }
+    now = datetime.now(timezone.utc)
+    job.status = "queued"
+    job.attempt_count = 0
+    job.next_attempt_at = now
+    job.lease_token = None
+    job.leased_until = None
+    job.last_error = None
+    job.completed_at = None
+    job.updated_at = now
+    after = {
+        "status": job.status,
+        "error_code": None,
+        "attempt_count": 0,
+        "clerk_target_count": job.clerk_target_count or 0,
+        "storage_prefix_count": job.storage_prefix_count or 0,
+    }
+    _add_audit(
+        db,
+        actor=admin,
+        action="deletion_cleanup_retried",
+        target_type="deletion_cleanup_job",
+        target_id=str(job.id),
+        reason=payload.reason,
+        before=before,
+        after=after,
+    )
+    await db.commit()
+    await db.refresh(job)
+    deletion_cleanup_worker.wake()
+    return _cleanup_job_response(job)
 
 
 @router.get("/audit", response_model=list[AdminAuditResponse])

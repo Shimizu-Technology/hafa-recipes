@@ -1,6 +1,8 @@
 import type {
   AdminApi,
   AuditEvent,
+  CleanupJobFilter,
+  CleanupJobPreview,
   ContributorPreview,
   Dashboard,
   JobFilter,
@@ -138,6 +140,13 @@ export function createAdminApi(
       }),
     cancelJob: (id: string, reason: string) =>
       request<JobPreview>(`/api/admin/jobs/${encodeURIComponent(id)}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+    cleanupJobs: (status: CleanupJobFilter, signal) =>
+      request<CleanupJobPreview[]>(`/api/admin/cleanup-jobs${query({ status })}`, { signal }),
+    retryCleanupJob: (id: string, reason: string) =>
+      request<CleanupJobPreview>(`/api/admin/cleanup-jobs/${encodeURIComponent(id)}/retry`, {
         method: 'POST',
         body: JSON.stringify({ reason }),
       }),

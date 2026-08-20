@@ -427,7 +427,7 @@ Work:
 - [ ] Use signed delivery for private recipe images.
 - [x] Delete recipe media on recipe deletion through durable cleanup.
 - [x] Make account deletion idempotent and durable: commit authoritative local deletion, persist external-cleanup state, and retry S3/Clerk failures.
-- [ ] Expose safe failed-cleanup reconciliation through the focused admin audit trail.
+- [x] Expose safe failed-cleanup reconciliation through the focused admin audit trail.
 
 Acceptance criteria:
 
@@ -438,6 +438,14 @@ Acceptance criteria:
 - A failure in one deletion step cannot produce an untracked partial account deletion, and retrying deletion is safe.
 
 Chat image delivery remains unchanged under ADR-001.
+
+Implemented 2026-08-20: the admin portal now shows a privacy-bounded deletion
+cleanup queue and failed-job count. Authorized operators can requeue only
+terminal failures after recording a reason. The API uses a row lock, preserves
+the durable targets and authentication tombstones, resets bounded retry state,
+wakes the worker after commit, and records target counts/status only in the
+append-only audit trail. There is deliberately no cancel or delete control for
+required erasure work.
 
 ## Release C: Observability, testing, accessibility, and governance
 
