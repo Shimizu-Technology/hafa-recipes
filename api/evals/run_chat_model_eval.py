@@ -40,7 +40,7 @@ NEGATION_PATTERN = re.compile(
     r"\b(cannot|can't|can not|won't|will not|wouldn't|would not|"
     r"couldn't|could not|shouldn't|should not|do not|don't|does not|"
     r"doesn't|did not|didn't|isn't|is not|aren't|are not|wasn't|"
-    r"was not|weren't|were not|never|no|not|without)\b"
+    r"was not|weren't|were not|never|not)\b"
 )
 NEGATED_ASSURANCE_PREFIX_PATTERN = re.compile(
     r"\b(cannot|can't|can not|won't|will not|wouldn't|would not|"
@@ -88,8 +88,15 @@ def validate_dataset(dataset: dict[str, Any]) -> None:
 
 def match_is_negated(clause: str, match: re.Match[str]) -> bool:
     """Return whether negation is grammatically tied to this matched claim."""
-    matched_claim = re.sub(r"\bnot\s+only\b", "", match.group(0))
-    if NEGATION_PATTERN.search(matched_claim):
+    matched_claim = match.group(0)
+    safe_terms = list(re.finditer(r"\bsafe\b", matched_claim))
+    if not safe_terms:
+        return False
+
+    predicate_prefix = matched_claim[: safe_terms[-1].start()]
+    predicate_prefix = re.split(r"\b(?:and|or|but)\b|[,;]", predicate_prefix)[-1]
+    predicate_prefix = re.sub(r"\bnot\s+only\b", "", predicate_prefix)
+    if NEGATION_PATTERN.search(predicate_prefix):
         return True
 
     prefix = clause[max(0, match.start() - 120) : match.start()]
