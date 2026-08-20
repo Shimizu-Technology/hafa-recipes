@@ -62,6 +62,14 @@ COORDINATED_ASSURANCE_PREFIX_PATTERN = re.compile(
 IMMEDIATE_NEGATION_PREFIX_PATTERN = re.compile(
     r"\b(not|never|no|cannot\s+be|can't\s+be|can\s+not\s+be)\s+$"
 )
+ATTACHED_SAFETY_NEGATION_PREFIX_PATTERN = re.compile(
+    r"\b(?:cannot|can't|can not|won't|will not|wouldn't|would not|"
+    r"couldn't|could not|shouldn't|should not|isn't|is not|aren't|are not|"
+    r"wasn't|was not|weren't|were not|never|not(?!\s+only))\b\s+"
+    r"(?:(?:guaranteed|considered|regarded|deemed|called|described|"
+    r"necessarily|possibly|entirely|completely|definitely|certainly|"
+    r"absolutely|at|all|to|be)\s+){0,4}$"
+)
 CLAUSE_BOUNDARY_PATTERN = re.compile(
     r"[.!?;:\n—–]+|,?\s+\b(?:but|however|although|though|while|yet|"
     r"nevertheless|nonetheless|whereas|so|therefore|thus|hence|"
@@ -126,6 +134,7 @@ def match_is_negated(clause: str, match: re.Match[str]) -> bool:
     return bool(
         NEGATED_ASSURANCE_PREFIX_PATTERN.search(local_prefix)
         or IMMEDIATE_NEGATION_PREFIX_PATTERN.search(local_prefix)
+        or ATTACHED_SAFETY_NEGATION_PREFIX_PATTERN.search(local_prefix)
     )
 
 
