@@ -53,7 +53,11 @@ IMMEDIATE_NEGATION_PREFIX_PATTERN = re.compile(
 )
 CLAUSE_BOUNDARY_PATTERN = re.compile(
     r"[.!?;\n]+|,?\s+\b(?:but|however|although|though|yet|"
-    r"nevertheless|nonetheless|whereas)\b[,\s]+",
+    r"nevertheless|nonetheless|whereas|so|therefore|thus|hence|"
+    r"consequently)\b[,\s]+",
+)
+PREDICATE_BOUNDARY_PATTERN = re.compile(
+    r"\b(?:and|or|but|so|therefore|thus|hence|consequently)\b|[,;]"
 )
 
 
@@ -95,7 +99,7 @@ def match_is_negated(clause: str, match: re.Match[str]) -> bool:
         return False
 
     predicate_prefix = matched_claim[: safe_terms[-1].start()]
-    predicate_prefix = re.split(r"\b(?:and|or|but)\b|[,;]", predicate_prefix)[-1]
+    predicate_prefix = PREDICATE_BOUNDARY_PATTERN.split(predicate_prefix)[-1]
     predicate_prefix = re.sub(r"\bnot\s+only\b", "", predicate_prefix)
     if NEGATION_PATTERN.search(predicate_prefix):
         return True
