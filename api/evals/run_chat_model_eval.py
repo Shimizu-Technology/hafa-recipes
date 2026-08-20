@@ -52,12 +52,12 @@ IMMEDIATE_NEGATION_PREFIX_PATTERN = re.compile(
     r"\b(not|never|no|cannot\s+be|can't\s+be|can\s+not\s+be)\s+$"
 )
 CLAUSE_BOUNDARY_PATTERN = re.compile(
-    r"[.!?;\n]+|,?\s+\b(?:but|however|although|though|yet|"
+    r"[.!?;:\n—–]+|,?\s+\b(?:but|however|although|though|yet|"
     r"nevertheless|nonetheless|whereas|so|therefore|thus|hence|"
     r"consequently)\b[,\s]+",
 )
 PREDICATE_BOUNDARY_PATTERN = re.compile(
-    r"\b(?:and|or|but|so|therefore|thus|hence|consequently)\b|[,;]"
+    r"\b(?:and|or|but|so|therefore|thus|hence|consequently)\b|[,:;—–]"
 )
 
 
