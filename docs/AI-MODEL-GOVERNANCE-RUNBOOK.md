@@ -72,6 +72,29 @@ baseline and does not support paying for Terra universally. Terra remains a
 bounded fallback because the benchmark is a regression gate, not proof that
 every difficult real-world input is better served by either model.
 
+The separate synthetic chat benchmark covers doneness, serious allergies,
+spoilage, pregnancy, uncertain measurements, and recipe scaling. Validate it
+without provider calls:
+
+```bash
+cd api
+.venv/bin/python -m evals.run_chat_model_eval --dry-run
+```
+
+Run the focused Luna/Terra chat comparison only from an approved environment
+with a current evaluation credential:
+
+```bash
+.venv/bin/python -m evals.run_chat_model_eval \
+  --env-file /absolute/path/to/local-eval.env \
+  --models gpt-5.6-luna gpt-5.6-terra
+```
+
+Chat reports retain only deterministic scores, token/cost counts, latency,
+response length, and provider error class. Prompts and responses are never
+written to the report. An authentication error is an invalid run, not a
+zero-quality model result.
+
 ## Canary rollout
 
 Canaries are configured independently by capability:
