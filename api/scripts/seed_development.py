@@ -54,6 +54,7 @@ async def seed() -> None:
                     is_public=True,
                     extracted={
                         "title": "Development Chamorro Red Rice",
+                        "sourceUrl": SEED_SOURCE_URL,
                         "servings": 6,
                         "times": {"prep": "10 min", "cook": "30 min", "total": "40 min"},
                         "components": [
@@ -82,6 +83,13 @@ async def seed() -> None:
                     },
                 )
             )
+        elif not existing.extracted.get("sourceUrl"):
+            # Keep existing developer databases compatible when the response
+            # contract gains a required field.
+            existing.extracted = {
+                **existing.extracted,
+                "sourceUrl": SEED_SOURCE_URL,
+            }
         await session.commit()
 
     print("Local schema ready; synthetic development recipe is available in Discover.")

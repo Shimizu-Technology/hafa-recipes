@@ -61,6 +61,7 @@ app so testers can immediately see where changes are going.
 - **My Recipes** - Personal collection with search & filter
 - **Discover** - Browse public recipes from all users
 - **Save/Bookmark** - Save others' recipes to your collection
+- **Safety Controls** - Privately report recipes or contributors, block/unblock contributors, track reviews, and appeal moderation holds
 
 ### AI-Powered
 - **Video Extraction** - OpenAI extracts structured recipes from cooking videos

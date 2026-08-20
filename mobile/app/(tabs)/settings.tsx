@@ -315,6 +315,16 @@ export default function SettingsScreen() {
           />
         </RNView>
 
+        <RNView style={styles.section}>
+          <SectionHeader title="Safety" />
+          <MenuItem
+            icon="shield-checkmark-outline"
+            label="Safety Center"
+            onPress={() => router.push('/safety' as any)}
+            colors={colors}
+          />
+        </RNView>
+
         {/* Appearance Section - Combined Theme + Text Size */}
         <RNView style={styles.section}>
           <SectionHeader title="Appearance" />

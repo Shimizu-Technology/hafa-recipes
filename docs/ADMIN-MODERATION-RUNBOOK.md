@@ -33,11 +33,14 @@ The shared visibility policy applies to Discover, public search/counts/tags/cont
 | `POST` | `/api/reports` | Report a visible recipe or contributor. |
 | `GET` | `/api/reports/mine` | Follow the status of the caller’s reports and appeals. |
 | `POST` | `/api/appeals` | Appeal a moderation hold on the caller’s recipe or contributor account. |
+| `GET` | `/api/safety/status` | Read only the caller’s appeal-relevant account moderation state. |
 | `GET` | `/api/blocks` | List contributors blocked by the caller. |
 | `POST` | `/api/blocks/{contributor_id}` | Block a public contributor idempotently. |
 | `DELETE` | `/api/blocks/{contributor_id}` | Unblock a contributor idempotently. |
 
 Report categories are `spam`, `unsafe`, `inappropriate`, `copyright`, `impersonation`, and `other`. `appeal` is reserved for `/api/appeals`. Open duplicates from the same reporter are returned instead of creating another queue item, and a caller with 50 active reports/appeals must wait for review before adding more.
+
+The mobile recipe menu exposes report-recipe, report-contributor, and block actions only for non-owned public content. Blocking immediately invalidates recipe, Discover, saved, recommendation, and contributor caches so hidden content does not linger locally. Settings → Safety Center lists the caller’s blocked contributors and report/appeal statuses, supports unblock, and offers an account appeal only while the account is held. Owners receive their own recipe moderation status so a held recipe can explain its public visibility and offer an appeal; that status is never populated for a non-owner response.
 
 ## Admin endpoints
 
@@ -103,8 +106,7 @@ Prefer application rollback while leaving migration 022 and its history in place
 
 ## Remaining product and policy work
 
-The backend foundation does not replace the accepted product work:
+The implemented backend and consumer controls do not replace the remaining policy work:
 
-- add intuitive report/block/appeal controls to signed-in consumer surfaces;
 - align support, policy, App Store, Play Store, and website links;
 - obtain appropriate legal/privacy review before publishing changed terms.

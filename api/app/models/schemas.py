@@ -144,6 +144,7 @@ class RecipeResponse(BaseModel):
     is_owner: bool = False
     extractor_display_name: Optional[str] = None
     is_public: bool = False
+    moderation_status: Optional[Literal["active", "hidden"]] = None
     
     class Config:
         from_attributes = True
@@ -168,6 +169,7 @@ class RecipeListItem(BaseModel):
     is_owner: bool = False
     is_public: bool = False
     extractor_display_name: Optional[str] = None  # For attribution on Discover
+    moderation_status: Optional[Literal["active", "hidden"]] = None
     
     class Config:
         from_attributes = True

@@ -514,6 +514,7 @@ def recipe_to_list_item(
     extracted = recipe.extracted or {}
     times = extracted.get("times") or {}
 
+    is_owner = bool(recipe.user_id and recipe.user_id == viewer_user_id)
     return RecipeListItem(
         id=recipe.id,
         title=extracted.get("title", "Untitled Recipe"),
@@ -530,8 +531,12 @@ def recipe_to_list_item(
         is_public=recipe.is_public,
         user_id=visible_recipe_user_id(recipe.user_id, viewer_user_id),
         contributor_id=public_contributor_id(recipe.user_id),
-        is_owner=bool(recipe.user_id and recipe.user_id == viewer_user_id),
+        is_owner=is_owner,
         extractor_display_name=recipe.extractor_display_name,
+        # A moderation hold is private operational state. Owners need it to
+        # understand why their recipe is absent from Discover and to appeal;
+        # other viewers never receive it.
+        moderation_status=recipe.moderation_status if is_owner else None,
     )
 
 
@@ -553,6 +558,7 @@ def recipe_to_detail_response(
             "user_id": visible_recipe_user_id(recipe.user_id, viewer_user_id),
             "contributor_id": public_contributor_id(recipe.user_id),
             "is_owner": is_owner,
+            "moderation_status": recipe.moderation_status if is_owner else None,
         }
     )
 

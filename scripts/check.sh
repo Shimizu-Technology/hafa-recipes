@@ -6,7 +6,14 @@ repository_root="$(cd "$(dirname "$0")/.." && pwd)"
 (
   cd "$repository_root/api"
   uv run ruff check app migrations tests
-  uv run pytest
+)
+
+# Run unit tests from the repository root so a developer's api/.env cannot
+# override the isolated settings constructed by configuration/auth tests.
+(
+  cd "$repository_root"
+  PYTHONPATH="$repository_root/api" \
+    uv run --project "$repository_root/api" pytest "$repository_root/api/tests"
 )
 
 (

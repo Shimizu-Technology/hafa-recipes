@@ -230,6 +230,7 @@ app/
 | POST | `/api/reports` | Report a visible recipe or contributor |
 | GET | `/api/reports/mine` | Track the caller's reports and appeals |
 | POST | `/api/appeals` | Appeal a moderation hold on owned content/account |
+| GET | `/api/safety/status` | Read the caller's appeal-relevant account state |
 | GET/POST/DELETE | `/api/blocks` | List, add, or remove contributor blocks |
 
 ### Admin moderation

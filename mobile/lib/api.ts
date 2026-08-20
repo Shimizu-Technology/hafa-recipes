@@ -29,6 +29,13 @@ import {
   DayMeals,
   WeekPlan,
 } from '../types/recipe';
+import type {
+  AppealCreatePayload,
+  BlockedContributor,
+  ReportCreatePayload,
+  SafetyReport,
+  SafetyStatus,
+} from '../types/communitySafety';
 
 // Token getter function type - will be set by the app
 type TokenGetter = () => Promise<string | null>;
@@ -466,6 +473,44 @@ class ApiClient {
       params: { limit: 100 },
     });
     return data;
+  }
+
+  // ============================================================
+  // Community safety
+  // ============================================================
+
+  async createReport(payload: ReportCreatePayload): Promise<SafetyReport> {
+    const { data } = await this.client.post('/api/reports', payload);
+    return data;
+  }
+
+  async getMyReports(): Promise<SafetyReport[]> {
+    const { data } = await this.client.get('/api/reports/mine');
+    return data;
+  }
+
+  async createAppeal(payload: AppealCreatePayload): Promise<SafetyReport> {
+    const { data } = await this.client.post('/api/appeals', payload);
+    return data;
+  }
+
+  async getSafetyStatus(): Promise<SafetyStatus> {
+    const { data } = await this.client.get('/api/safety/status');
+    return data;
+  }
+
+  async getBlockedContributors(): Promise<BlockedContributor[]> {
+    const { data } = await this.client.get('/api/blocks');
+    return data;
+  }
+
+  async blockContributor(contributorId: string): Promise<BlockedContributor> {
+    const { data } = await this.client.post(`/api/blocks/${encodeURIComponent(contributorId)}`);
+    return data;
+  }
+
+  async unblockContributor(contributorId: string): Promise<void> {
+    await this.client.delete(`/api/blocks/${encodeURIComponent(contributorId)}`);
   }
 
   async getSimilarRecipes(recipeId: string, limit = 6): Promise<RecipeListItem[]> {

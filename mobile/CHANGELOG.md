@@ -4,7 +4,16 @@ All notable changes to Recipe Extractor.
 
 ## [Unreleased]
 
+### Added
+- Added private recipe/contributor reporting and reversible contributor blocking
+  to the recipe options menu.
+- Added a Safety Center for blocked contributors, report and appeal status, and
+  account moderation appeals.
+- Added owner-only recipe hold notices with a direct appeal path.
+
 ### Improved
+- Manual and photo recipes no longer expose unusable internal source links;
+  sharing them sends the complete recipe directly.
 - Development and preview builds now show their environment and API host and
   cannot silently fall back to production services.
 - Migrated sign-in infrastructure to Clerk Core 3 and timer/TTS playback to

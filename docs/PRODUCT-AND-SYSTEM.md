@@ -159,7 +159,7 @@ TikTok / Instagram / YouTube / website / photo / manual form
  Library / Discover / Planner / Grocery / Cook Mode / Chat
 ```
 
-The admin system provides server-enforced `/api/admin/*` actions for bounded dashboard/search data, reports and appeals, reversible moderation, featured ordering, extraction recovery, and append-only audit history. A shared policy removes hidden or blocked-contributor recipes from every non-owner surface while preserving owner access and sharing intent. The separate lightweight `admin/` web interface uses Clerk authentication and the existing admin claim, while treating FastAPI as the authorization boundary. It requires a reason and confirmation for every mutation and exposes no arbitrary database editor or private-content browser. The consumer mobile bundle does not contain the moderation experience, and the legacy Next.js app is not being revived for it.
+The admin system provides server-enforced `/api/admin/*` actions for bounded dashboard/search data, reports and appeals, reversible moderation, featured ordering, extraction recovery, and append-only audit history. A shared policy removes hidden or blocked-contributor recipes from every non-owner surface while preserving owner access and sharing intent. The separate lightweight `admin/` web interface uses Clerk authentication and the existing admin claim, while treating FastAPI as the authorization boundary. It requires a reason and confirmation for every mutation and exposes no arbitrary database editor or private-content browser. The consumer mobile app contains only self-service report, block, unblock, status, and appeal controls; operator moderation remains isolated in `admin/`, and the legacy Next.js app is not being revived for it.
 
 ## Environment strategy
 
