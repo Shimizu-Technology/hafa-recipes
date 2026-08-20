@@ -7,7 +7,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -105,8 +105,7 @@ class GroceryItemResponse(BaseModel):
     added_by_name: Optional[str] = None
     created_at: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AddFromRecipeRequest(BaseModel):
@@ -123,8 +122,7 @@ class GroceryListMemberResponse(BaseModel):
     joined_at: datetime
     is_you: bool = False
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class GroceryListResponse(BaseModel):
@@ -135,8 +133,7 @@ class GroceryListResponse(BaseModel):
     members: list[GroceryListMemberResponse]
     created_at: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class GroceryListInviteResponse(BaseModel):
@@ -758,4 +755,3 @@ async def clear_recipe_items(
         "count": len(deleted_ids),
         "recipe_id": str(recipe_id)
     }
-

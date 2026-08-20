@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,8 +41,7 @@ class CollectionResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CollectionWithRecipesResponse(BaseModel):
@@ -54,8 +53,7 @@ class CollectionWithRecipesResponse(BaseModel):
     updated_at: datetime
     preview_thumbnails: List[Optional[str]]  # First 4 recipe thumbnails
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RecipeInCollection(BaseModel):

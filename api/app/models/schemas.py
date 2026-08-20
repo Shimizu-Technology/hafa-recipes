@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # ============================================================
 # Nested Types (matching TypeScript interfaces)
@@ -146,8 +146,7 @@ class RecipeResponse(BaseModel):
     is_public: bool = False
     moderation_status: Optional[Literal["active", "hidden"]] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RecipeListItem(BaseModel):
@@ -171,8 +170,7 @@ class RecipeListItem(BaseModel):
     extractor_display_name: Optional[str] = None  # For attribution on Discover
     moderation_status: Optional[Literal["active", "hidden"]] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RecipeSearchResult(BaseModel):
@@ -226,8 +224,7 @@ class ExtractionJobResponse(BaseModel):
     updated_at: datetime
     completed_at: Optional[datetime] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============================================================
