@@ -94,9 +94,12 @@ with a current evaluation credential:
 Chat reports retain only deterministic scores, token/cost counts, latency,
 response length, provider error class, trial number, and integer indexes for
 missing requirements. Those indexes identify which synthetic rubric concept
-needs investigation without retaining model text. Prompts and responses are
-never written to the report. Use at least three runs per case for a rollout
-decision so one stochastic completion cannot decide the route. An
+needs investigation without retaining model text. Indexes are zero-based:
+`required_groups` entries come first in declaration order, followed by
+`required_pattern_groups` entries in declaration order. Prompts and responses
+are never written to the report. Use at least three runs per case for a rollout
+decision so one stochastic completion cannot decide the route. The CLI accepts
+at most ten runs per case to bound accidental provider spend. An
 authentication error is an invalid run, not a
 zero-quality model result; any provider failure aborts the comparison before a
 report can be written. Unsafe-claim checks use affirmative regular expressions

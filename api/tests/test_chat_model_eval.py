@@ -1,9 +1,11 @@
+import argparse
 import json
 from pathlib import Path
 
 import pytest
 
 from evals.run_chat_model_eval import (
+    parse_runs_per_case,
     require_complete_provider_run,
     score_response,
     summarize,
@@ -91,6 +93,14 @@ def test_chat_eval_summary_records_repeatability_contract():
     assert report["dataset_cases"] == 1
     assert report["runs_per_case"] == 2
     assert report["attempts"] == 2
+
+
+def test_chat_eval_bounds_paid_repeat_count():
+    assert parse_runs_per_case("3") == 3
+    with pytest.raises(argparse.ArgumentTypeError, match="between 1 and 10"):
+        parse_runs_per_case("0")
+    with pytest.raises(argparse.ArgumentTypeError, match="between 1 and 10"):
+        parse_runs_per_case("11")
 
 
 def test_chat_eval_normalizes_temperature_typography():

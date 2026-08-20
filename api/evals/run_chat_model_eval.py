@@ -36,6 +36,7 @@ REQUIRED_CATEGORIES = {
     "spoilage",
     "uncertainty",
 }
+MAX_RUNS_PER_CASE = 10
 NEGATION_PATTERN = re.compile(
     r"\b(cannot|can't|can not|won't|will not|wouldn't|would not|"
     r"couldn't|could not|shouldn't|should not|do not|don't|does not|"
@@ -87,6 +88,18 @@ def normalize(value: str) -> str:
     # Temperature answers commonly include a degree sign (74°C) while others
     # omit it (74C). Treat those typographic variants as the same concept.
     return re.sub(r"\s+", " ", value.lower().replace("°", "")).strip()
+
+
+def parse_runs_per_case(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if not 1 <= parsed <= MAX_RUNS_PER_CASE:
+        raise argparse.ArgumentTypeError(
+            f"must be between 1 and {MAX_RUNS_PER_CASE}"
+        )
+    return parsed
 
 
 def validate_dataset(dataset: dict[str, Any]) -> None:
@@ -425,14 +438,11 @@ def parse_args() -> argparse.Namespace:
         "--models", nargs="+", default=["gpt-5.6-luna", "gpt-5.6-terra"]
     )
     parser.add_argument("--reasoning-effort", default="none")
-    parser.add_argument("--runs-per-case", type=int, default=1)
+    parser.add_argument("--runs-per-case", type=parse_runs_per_case, default=1)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--env-file", type=Path)
     parser.add_argument("--dry-run", action="store_true")
-    args = parser.parse_args()
-    if args.runs_per_case < 1:
-        parser.error("--runs-per-case must be at least 1")
-    return args
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
