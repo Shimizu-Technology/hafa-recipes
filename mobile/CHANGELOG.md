@@ -4,6 +4,8 @@ All notable changes to Recipe Extractor.
 
 ## [Unreleased]
 
+## [2.5.0] - August 2026
+
 ### Added
 - Added private recipe/contributor reporting and reversible contributor blocking
   to the recipe options menu.
