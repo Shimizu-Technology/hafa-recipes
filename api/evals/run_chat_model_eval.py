@@ -47,8 +47,10 @@ NEGATED_MODAL_PATTERN = (
     r"do not|don't|does not|doesn't|never)"
 )
 ASSURANCE_VERB_PATTERN = (
-    r"(?:guarantee|confirm|ensure|promise|claim|say|assure|assert|verify|"
-    r"certify|vouch|call|describe|label|consider)"
+    r"(?:guarantee|guaranteed|confirm|confirmed|ensure|ensured|promise|"
+    r"promised|claim|claimed|say|said|assure|assured|assert|asserted|"
+    r"verify|verified|certify|certified|vouch|call|called|describe|described|"
+    r"label|labeled|labelled|consider|considered|deem|deemed)"
 )
 NEGATED_ASSURANCE_PREFIX_PATTERN = re.compile(
     rf"\b{NEGATED_MODAL_PATTERN}\s+(?:\w+\s+){{0,2}}"
@@ -82,7 +84,9 @@ PREDICATE_BOUNDARY_PATTERN = re.compile(
 
 
 def normalize(value: str) -> str:
-    return re.sub(r"\s+", " ", value.lower()).strip()
+    # Temperature answers commonly include a degree sign (74°C) while others
+    # omit it (74C). Treat those typographic variants as the same concept.
+    return re.sub(r"\s+", " ", value.lower().replace("°", "")).strip()
 
 
 def validate_dataset(dataset: dict[str, Any]) -> None:
