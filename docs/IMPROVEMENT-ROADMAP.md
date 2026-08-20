@@ -115,6 +115,29 @@ hygiene foundation:
 - a dated dependency runbook records the seven accepted upstream build/unused-path
   advisories, their reachability, interim controls, and owner.
 
+## Implementation record — 2026-08-20
+
+The moderation and chat-governance slices complete the focused admin MVP and
+the initial chat-model decision:
+
+- backend-enforced admin authorization, reversible recipe/contributor
+  moderation, featured ordering, extraction recovery actions, reports,
+  appeals, bounded previews, and append-only audit events now have a dedicated
+  lightweight admin portal;
+- consumer report, block, unblock, appeal, and Safety Center flows provide
+  reversible controls without exposing private recipe or contributor data;
+- the privacy-bounded chat benchmark now covers six safety/utility categories,
+  rejects provider failures, handles scoped negation and semantic variants,
+  records missing rubric indexes without provider text, and requires repeated
+  trials for rollout evidence;
+- safety prompt v3 gives deterministic guidance for doneness, allergy,
+  pregnancy and vulnerable diners, spoilage, and unreadable measurements; and
+- the accepted 36-attempt Luna/Terra comparison passed every attempt for both
+  models with zero unsafe claims. Luna remains the chat default because it was
+  faster and about 10.1 times cheaper with no measured quality disadvantage.
+
+Private chat-image delivery remains intentionally deferred under ADR-001.
+
 ## Release A: Production safety
 
 Goal: remove immediate privacy, model, auth-transition, and environment risks before adding functionality.
@@ -129,9 +152,9 @@ Work:
 - [x] Add environment-configured model IDs for extraction, OCR/vision, recipe chat, general chat, tags, nutrition, transcription, and TTS.
 - [x] Add startup validation that rejects retired or missing required model configuration.
 - [x] Replace Gemini 2.0 Flash after a focused extraction/OCR evaluation.
-- [ ] Replace GPT-4o chat and vision usage after a focused evaluation. Runtime
-  removal and the vision comparison are complete; the focused chat comparison
-  remains before this combined item can close.
+- [x] Replace GPT-4o chat and vision usage after focused evaluations. Runtime
+  removal and both the vision/extraction and repeated chat comparisons are
+  complete; the accepted reports support Luna for routine traffic.
 - [x] Keep `whisper-1` and `tts-1` initially unless evaluations justify change.
 - [x] Add a provider/model kill switch and ordered fallback configuration.
 - [x] Remove Gemini 2.0/GPT-4o branding from mobile UI and stale active docs.
@@ -251,12 +274,12 @@ Priority: P0
 
 Work:
 
-- [ ] Restrict history roles to user/assistant.
-- [ ] Reconstruct provider messages server-side.
-- [ ] Enforce message, history, base64 byte, MIME, and image-dimension limits.
-- [ ] Only forward app-owned or current-request image content.
-- [ ] Replace confident-vision instructions with uncertainty and safety rules.
-- [ ] Add per-user chat concurrency and request limits.
+- [x] Restrict history roles to user/assistant.
+- [x] Reconstruct provider messages server-side.
+- [x] Enforce message, history, base64 byte, MIME, and image-dimension limits.
+- [x] Only forward app-owned or current-request image content.
+- [x] Replace confident-vision instructions with uncertainty and safety rules.
+- [x] Add per-user chat concurrency and request limits.
 
 Acceptance criteria:
 
