@@ -5,8 +5,8 @@ import os
 import re
 import shutil
 import signal
-import subprocess
 import tempfile
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -19,6 +19,10 @@ from app.security import PublicHTTPTransport
 from app.source_urls import canonicalize_source
 
 settings = get_settings()
+
+
+class MediaCapacityExceeded(Exception):
+    """The bounded local media process pool did not become available in time."""
 
 
 def _redact_sensitive_values(text: str) -> str:
@@ -211,6 +215,35 @@ class VideoService:
     """Service for extracting audio and metadata from video platforms."""
     
     SUPPORTED_PLATFORMS = ["youtube", "tiktok", "instagram"]
+
+    def __init__(
+        self,
+        *,
+        max_concurrency: int | None = None,
+        queue_timeout_seconds: float | None = None,
+    ) -> None:
+        self._media_slots = asyncio.BoundedSemaphore(
+            max_concurrency or settings.video_max_concurrency
+        )
+        self._queue_timeout_seconds = (
+            queue_timeout_seconds
+            if queue_timeout_seconds is not None
+            else settings.video_queue_timeout_seconds
+        )
+
+    @asynccontextmanager
+    async def _media_slot(self):
+        try:
+            await asyncio.wait_for(
+                self._media_slots.acquire(),
+                timeout=self._queue_timeout_seconds,
+            )
+        except asyncio.TimeoutError as error:
+            raise MediaCapacityExceeded from error
+        try:
+            yield
+        finally:
+            self._media_slots.release()
     
     @staticmethod
     def detect_platform(url: str) -> str:
@@ -323,17 +356,24 @@ class VideoService:
             
             print(f"🔍 Executing: {' '.join(command)}")
             
-            result = await asyncio.to_thread(
-                subprocess.run,
-                command,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
+            async with self._media_slot():
+                process = await asyncio.create_subprocess_exec(
+                    *command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    start_new_session=os.name == "posix",
+                )
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(),
+                        timeout=settings.video_metadata_timeout_seconds,
+                    )
+                finally:
+                    await _terminate_process(process)
             
-            if result.returncode == 0 and result.stdout:
+            if process.returncode == 0 and stdout:
                 import json
-                data = json.loads(result.stdout)
+                data = json.loads(stdout.decode())
                 
                 image_urls = []
                 
@@ -360,10 +400,13 @@ class VideoService:
                 print(f"✅ Found {len(image_urls)} images from TikTok photo post")
                 return image_urls
             else:
-                print(f"⚠️ yt-dlp metadata extraction failed: {result.stderr}")
+                safe_error = _redact_sensitive_values(stderr.decode() if stderr else "")
+                print(f"⚠️ yt-dlp metadata extraction failed: {safe_error}")
                 
-        except subprocess.TimeoutExpired:
+        except asyncio.TimeoutError:
             print("⚠️ yt-dlp timed out fetching photo metadata")
+        except MediaCapacityExceeded:
+            print("⚠️ Media process capacity unavailable for photo metadata")
         except Exception as e:
             print(f"⚠️ Error fetching TikTok photo images: {e}")
         
@@ -713,6 +756,18 @@ class VideoService:
                 return None
 
     async def download_audio(self, url: str) -> AudioExtractionResult:
+        try:
+            async with self._media_slot():
+                return await self._download_audio(url)
+        except MediaCapacityExceeded:
+            return AudioExtractionResult(
+                success=False,
+                error="Media process capacity unavailable",
+                error_code="MEDIA_BUSY",
+                friendly_error="Video processing is busy. Please try again shortly.",
+            )
+
+    async def _download_audio(self, url: str) -> AudioExtractionResult:
         """
         Download audio from video using yt-dlp.
         
@@ -908,6 +963,14 @@ class VideoService:
         return None
     
     async def get_video_metadata_ytdlp(self, url: str) -> VideoMetadata:
+        try:
+            async with self._media_slot():
+                return await self._get_video_metadata_ytdlp(url)
+        except MediaCapacityExceeded:
+            print("⚠️ Media process capacity unavailable for video metadata")
+            return VideoMetadata()
+
+    async def _get_video_metadata_ytdlp(self, url: str) -> VideoMetadata:
         """Get video metadata using yt-dlp (no download)."""
         platform = self.detect_platform(url)
         credential_file: Optional[CredentialFile] = None

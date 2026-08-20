@@ -294,34 +294,37 @@ class RecipeExtractor:
             
             if audio_result.success and audio_result.file_path:
                 audio_file_path = audio_result.file_path
-                
-                if progress_callback:
-                    await progress_callback(ExtractionProgress(
-                        step="transcribing",
-                        progress=50,
-                        message="Transcribing audio with Whisper..."
-                    ))
-                
-                # Transcribe with Whisper
-                transcription = await openai_service.transcribe_audio(audio_file_path)
-                
-                if transcription.success and transcription.text:
-                    print(f"✅ Whisper transcription: {len(transcription.text)} chars")
+                try:
+                    if progress_callback:
+                        await progress_callback(ExtractionProgress(
+                            step="transcribing",
+                            progress=50,
+                            message="Transcribing audio with Whisper..."
+                        ))
                     
-                    # Build combined content
-                    content_parts = []
-                    if metadata.title:
-                        content_parts.append(f"VIDEO TITLE: {metadata.title}")
-                    if metadata.description:
-                        content_parts.append(f"VIDEO DESCRIPTION: {metadata.description}")
-                    content_parts.append(f"SPOKEN CONTENT (from audio):\n{transcription.text}")
+                    # Transcribe with Whisper
+                    transcription = await openai_service.transcribe_audio(audio_file_path)
                     
-                    combined_content = "\n\n".join(content_parts)
-                    extraction_method = "whisper"
-                    extraction_quality = "high"
-                    has_audio_transcript = True
-                else:
-                    print(f"⚠️ Whisper failed: {transcription.error}")
+                    if transcription.success and transcription.text:
+                        print(f"✅ Whisper transcription: {len(transcription.text)} chars")
+
+                        # Build combined content
+                        content_parts = []
+                        if metadata.title:
+                            content_parts.append(f"VIDEO TITLE: {metadata.title}")
+                        if metadata.description:
+                            content_parts.append(f"VIDEO DESCRIPTION: {metadata.description}")
+                        content_parts.append(f"SPOKEN CONTENT (from audio):\n{transcription.text}")
+
+                        combined_content = "\n\n".join(content_parts)
+                        extraction_method = "whisper"
+                        extraction_quality = "high"
+                        has_audio_transcript = True
+                    else:
+                        print(f"⚠️ Whisper failed: {transcription.error}")
+                finally:
+                    video_service.cleanup_audio_file(audio_file_path)
+                    audio_file_path = None
             else:
                 print(f"⚠️ Audio download failed: {audio_result.error}")
                 
@@ -375,10 +378,6 @@ class RecipeExtractor:
         # Add user notes if provided
         if notes:
             combined_content = f"{combined_content}\n\nADDITIONAL NOTES FROM USER:\n{notes}"
-        
-        # Clean up audio file
-        if audio_file_path:
-            video_service.cleanup_audio_file(audio_file_path)
         
         # Step 4: Extract the recipe with the configured OpenAI model chain.
         if not combined_content.strip():

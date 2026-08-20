@@ -419,8 +419,8 @@ Priority: P1
 
 Work:
 
-- [ ] Add video duration/download/audio-size/concurrency limits.
-- [ ] Terminate timed-out subprocesses and clean temporary directories in `finally`.
+- [x] Add video duration/download/audio-size/concurrency limits.
+- [x] Terminate timed-out subprocesses and clean temporary directories in `finally`.
 - [x] Replace the shared `/tmp/instagram_cookies.txt` credential path with a unique restrictive temporary file and guaranteed `finally` deletion.
 - [x] Validate all image upload bytes, types, and dimensions.
 - [x] Use versioned/content-addressed recipe image keys.
@@ -446,6 +446,15 @@ the durable targets and authentication tombstones, resets bounded retry state,
 wakes the worker after commit, and records target counts/status only in the
 append-only audit trail. There is deliberately no cancel or delete control for
 required erasure work.
+
+Implemented 2026-08-20: all yt-dlp audio and metadata work now shares a bounded
+per-process media pool with a short queue timeout; unsafe timeout, duration,
+audio-size, and concurrency configuration is rejected at startup. Audio
+downloads remain capped both in yt-dlp and after download. TikTok slideshow
+metadata moved from a thread-wrapped blocking subprocess to an async,
+process-group-fenced subprocess. Timeouts and task cancellation kill the media
+process tree, and successful audio is removed in the caller's `finally` block
+even when progress reporting or transcription is cancelled.
 
 ## Release C: Observability, testing, accessibility, and governance
 

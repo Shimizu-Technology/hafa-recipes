@@ -139,10 +139,16 @@ class Settings(BaseSettings):
     # YouTube blocks datacenter IPs, so a residential proxy is needed
     # Format: http://username:password@p.webshare.io:80
     youtube_proxy: str | None = None
-    video_download_timeout_seconds: int = 120
-    video_metadata_timeout_seconds: int = 30
-    video_max_duration_seconds: int = 3_600
-    audio_max_bytes: int = 25 * 1024 * 1024
+    video_download_timeout_seconds: int = Field(default=120, ge=10, le=900)
+    video_metadata_timeout_seconds: int = Field(default=30, ge=5, le=120)
+    video_max_duration_seconds: int = Field(default=3_600, ge=30, le=14_400)
+    audio_max_bytes: int = Field(
+        default=25 * 1024 * 1024,
+        ge=1_024,
+        le=25 * 1024 * 1024,
+    )
+    video_max_concurrency: int = Field(default=2, ge=1, le=4)
+    video_queue_timeout_seconds: int = Field(default=5, ge=1, le=60)
 
     # Durable database-backed extraction worker
     job_worker_enabled: bool = True
