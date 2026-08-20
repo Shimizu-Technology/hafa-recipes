@@ -97,9 +97,11 @@ zero-quality model result; any provider failure aborts the comparison before a
 report can be written. Unsafe-claim checks use affirmative regular expressions
 with clause-local negation checks, so safety statements such as “cannot
 guarantee it will be safe” are not scored as unsafe while an affirmative claim
-in the following sentence still fails. Safety-critical required concepts use
-directional patterns where a bare word could invert meaning; merely mentioning
-visual appearance does not satisfy the doneness-uncertainty requirement.
+after punctuation or a contrast conjunction still fails. Safety-critical
+required concepts use narrow directional patterns where a bare word or generic
+negation could invert meaning; merely mentioning visual appearance—or saying it
+is “not the only thing” to check—does not satisfy the doneness-uncertainty
+requirement.
 
 ## Canary rollout
 
