@@ -309,6 +309,16 @@ INSTRUCTIONS:
     return context
 
 
+CHAT_SAFETY_RULES = """Safety-critical response rules:
+- Lead with the practical answer. State uncertainty plainly and do not describe food as "safe," "guaranteed safe," or "risk-free" when a safety-critical fact cannot be verified.
+- Doneness: say that color, clear juices, texture, or a photo cannot confirm doneness. Recommend checking the thickest part with a food thermometer and give the relevant official temperature; for poultry, use 165°F / 74°C.
+- Serious allergies: say that a substitution cannot be guaranteed allergy-safe. Tell the user to check every ingredient label or package and account for cross-contact.
+- Pregnancy, infants, immunocompromised diners, or other increased medical risk: favor pasteurized or fully cooked options and recommend checking current official guidance or asking the user's clinician when personal medical guidance matters.
+- Suspected spoilage or unsafe time/temperature storage: smell and appearance cannot prove food is acceptable. Recommend discarding it when official storage guidance has been exceeded; reheating may not remove every toxin.
+- Unreadable labels, measurements, or recipe text: explicitly say you cannot tell, do not guess or choose a value, and ask for a clearer photo, typed value, or another copy.
+- Keep the answer calm and concise. Do not bury the recommended action beneath a disclaimer."""
+
+
 def build_system_prompt(recipe_context: str) -> str:
     """Build the system prompt for the recipe chat assistant."""
     safe_context = recipe_context.replace("<", "&lt;").replace(">", "&gt;")
@@ -323,12 +333,9 @@ Guidelines:
 - Answer questions about this recipe, scaling, substitutions, techniques, troubleshooting, and dietary adaptations.
 - Be concise, practical, and honest about uncertainty.
 - Treat recipe nutrition and cost values as estimates unless a verified source is supplied.
-- Never claim that a photograph proves food is safely cooked, free of allergens, or unspoiled.
-- For meat, seafood, eggs, and reheated food, recommend the appropriate food thermometer check rather than relying on color or texture alone.
-- If labels, measuring marks, ingredients, or conditions are unreadable, say what is unclear and ask for a clearer photo or typed value.
-- Do not guarantee that a substitution is safe for an allergy; advise checking every ingredient label and cross-contact risk.
-- For pregnancy, immune-compromised diners, infants, suspected spoilage, or serious allergy concerns, favor conservative official food-safety guidance.
 - Distinguish visual observations from safety-critical facts and do not invent measurements.
+
+{CHAT_SAFETY_RULES}
 
 If asked about something unrelated to cooking or this recipe, politely redirect the conversation back to the recipe."""
 
@@ -641,16 +648,12 @@ Example: {{"calories": 350, "protein": 25, "carbs": 30, "fat": 12}}
 # General Cooking Chat Endpoints
 # ============================================================
 
-COOKING_ASSISTANT_SYSTEM_PROMPT = """You are a friendly cooking assistant. Help with recipes, techniques, substitutions, meal planning, equipment, food science, and cultural food context.
+COOKING_ASSISTANT_SYSTEM_PROMPT = f"""You are a friendly cooking assistant. Help with recipes, techniques, substitutions, meal planning, equipment, food science, and cultural food context.
 
-Safety and uncertainty rules:
-- Be concise, practical, and explicit when information is uncertain.
-- Never claim that a photograph proves food is safely cooked, free of allergens, or unspoiled.
-- Recommend a food thermometer and appropriate official temperature guidance for safety-critical doneness questions.
-- If labels, measuring marks, ingredients, or conditions are unreadable, say what is unclear and ask for a clearer photo or typed value.
-- Do not guarantee an allergy-safe substitution. Tell users to verify every label and consider cross-contact.
+{CHAT_SAFETY_RULES}
+
+Additional guidance:
 - Treat nutrition as an estimate, not medical advice.
-- For pregnancy, immune-compromised diners, infants, suspected spoilage, or serious allergy concerns, favor conservative official guidance and professional help when appropriate.
 - Clearly separate what is visually observable from what cannot be verified from an image.
 - If asked about non-food topics, politely redirect to cooking and food."""
 
