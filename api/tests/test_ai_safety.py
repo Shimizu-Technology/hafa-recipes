@@ -28,7 +28,14 @@ from app.routers.chat import (
     build_system_prompt,
 )
 from app.routers.health import liveness_check
-from app.services.video import CredentialFile, VideoService, _terminate_process
+from app.services.extractor import RecipeExtractor
+from app.services.video import (
+    AudioExtractionResult,
+    CredentialFile,
+    VideoMetadata,
+    VideoService,
+    _terminate_process,
+)
 from app.services.video import settings as video_settings
 
 
@@ -129,7 +136,7 @@ def test_chat_prompt_versions_change_with_safety_contract():
 
 def test_model_registry_defaults_and_kill_switch():
     configured = Settings(
-        database_url="postgresql://user:pass@example.com/db",
+        database_url="postgresql://user:pass@127.0.0.1/db",
         openai_api_key="test-openai-key",
         ai_disabled_capabilities="ocr, recipe_chat",
     )
@@ -141,10 +148,23 @@ def test_model_registry_defaults_and_kill_switch():
 
     with pytest.raises(ValidationError, match="retired or deprecated"):
         Settings(
-            database_url="postgresql://user:pass@example.com/db",
+            database_url="postgresql://user:pass@127.0.0.1/db",
             openai_api_key="test-openai-key",
             recipe_chat_model="gpt-4o-mini",
         )
+
+
+def test_media_resource_limits_reject_unsafe_configuration():
+    base = {
+        "database_url": "postgresql://user:pass@127.0.0.1/db",
+        "openai_api_key": "test-openai-key",
+    }
+    with pytest.raises(ValidationError):
+        Settings(**base, video_max_concurrency=0)
+    with pytest.raises(ValidationError):
+        Settings(**base, audio_max_bytes=25 * 1024 * 1024 + 1)
+    with pytest.raises(ValidationError):
+        Settings(**base, video_download_timeout_seconds=0)
 
 
 @pytest.mark.asyncio
@@ -367,4 +387,91 @@ async def test_video_task_cancellation_terminates_process_before_cleanup(monkeyp
     assert process.killed is True
     assert process.waited is True
     assert not credential_path.exists()
+    assert not audio_dir.exists()
+    async with service._media_slot():
+        pass
+
+
+@pytest.mark.asyncio
+async def test_video_capacity_fails_fast_before_creating_temp_work(monkeypatch):
+    service = VideoService(max_concurrency=1, queue_timeout_seconds=0.01)
+    monkeypatch.setattr(
+        "app.services.video.tempfile.mkdtemp",
+        lambda **_kwargs: pytest.fail("overloaded media work must not create temp files"),
+    )
+    await service._media_slots.acquire()
+    try:
+        result = await service.download_audio(
+            "https://www.youtube.com/watch?v=synthetic"
+        )
+    finally:
+        service._media_slots.release()
+
+    assert result.success is False
+    assert result.error_code == "MEDIA_BUSY"
+
+
+@pytest.mark.asyncio
+async def test_tiktok_photo_metadata_uses_killable_async_process(monkeypatch):
+    class FakeProcess:
+        returncode = None
+
+        async def communicate(self):
+            self.returncode = 0
+            return (
+                b'{"entries":[{"url":"https://cdn.example.test/photo.jpg"}]}',
+                b"",
+            )
+
+    process = FakeProcess()
+    spawn_kwargs = {}
+
+    async def fake_create_subprocess_exec(*_args, **kwargs):
+        spawn_kwargs.update(kwargs)
+        return process
+
+    monkeypatch.setattr(
+        "app.services.video.asyncio.create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    images = await VideoService().fetch_tiktok_photo_images(
+        "https://www.tiktok.com/@cook/photo/123"
+    )
+
+    assert images == ["https://cdn.example.test/photo.jpg"]
+    assert spawn_kwargs["start_new_session"] is (os.name == "posix")
+
+
+@pytest.mark.asyncio
+async def test_extractor_cancellation_cleans_successful_audio(monkeypatch, tmp_path):
+    audio_dir = tmp_path / "successful-audio"
+    audio_dir.mkdir()
+    audio_path = audio_dir / "audio.mp3"
+    audio_path.write_bytes(b"synthetic audio")
+
+    async def fetch_oembed(_url, _platform):
+        return VideoMetadata(
+            title="Synthetic recipe",
+            description="Ingredients and directions are present.",
+            thumbnail="https://cdn.example.test/thumb.jpg",
+        )
+
+    async def download_audio(_url):
+        return AudioExtractionResult(success=True, file_path=str(audio_path))
+
+    async def progress(update):
+        if update.step == "transcribing":
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr("app.services.extractor.video_service.fetch_oembed", fetch_oembed)
+    monkeypatch.setattr("app.services.extractor.video_service.download_audio", download_audio)
+
+    with pytest.raises(asyncio.CancelledError):
+        await RecipeExtractor().extract(
+            "https://www.youtube.com/watch?v=synthetic",
+            progress_callback=progress,
+        )
+
+    assert not audio_path.exists()
     assert not audio_dir.exists()
