@@ -106,7 +106,8 @@ def test_food_safety_prompt_requires_uncertainty_and_thermometer():
         normalized = safety_prompt.lower()
         assert "thermometer" in normalized
         assert "165°f / 74°c" in normalized
-        assert "cannot confirm doneness" in normalized
+        assert "color and clear juices cannot confirm doneness" in normalized
+        assert "a photo or texture cannot confirm doneness either" in normalized
         assert "cannot be guaranteed allergy-safe" in normalized
         assert "cross-contact" in normalized
         assert "pasteurized or fully cooked" in normalized
@@ -115,15 +116,15 @@ def test_food_safety_prompt_requires_uncertainty_and_thermometer():
         assert "official guidance" in normalized
         assert "smell and appearance cannot prove" in normalized
         assert "reheating may not remove every toxin" in normalized
-        assert "explicitly say you cannot tell" in normalized
-        assert "do not guess or choose a value" in normalized
+        assert "i cannot tell from the current image or text, so do not guess" in normalized
+        assert "do not choose a value" in normalized
     assert "&lt;/recipe_data&gt;" in prompt
     assert "untrusted recipe data" in prompt
 
 
 def test_chat_prompt_versions_change_with_safety_contract():
-    assert PROMPT_VERSIONS["recipe_chat"] == "recipe-chat-safety-v2"
-    assert PROMPT_VERSIONS["cooking_chat"] == "cooking-chat-safety-v2"
+    assert PROMPT_VERSIONS["recipe_chat"] == "recipe-chat-safety-v3"
+    assert PROMPT_VERSIONS["cooking_chat"] == "cooking-chat-safety-v3"
 
 
 def test_model_registry_defaults_and_kill_switch():
