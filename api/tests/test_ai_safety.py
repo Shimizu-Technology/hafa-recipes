@@ -110,6 +110,8 @@ def test_food_safety_prompt_requires_uncertainty_and_thermometer():
         assert "cannot be guaranteed allergy-safe" in normalized
         assert "cross-contact" in normalized
         assert "pasteurized or fully cooked" in normalized
+        assert "infants" in normalized
+        assert "immunocompromised diners" in normalized
         assert "official guidance" in normalized
         assert "smell and appearance cannot prove" in normalized
         assert "reheating may not remove every toxin" in normalized
