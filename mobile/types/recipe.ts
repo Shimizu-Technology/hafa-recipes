@@ -98,6 +98,7 @@ export interface Recipe {
   is_owner?: boolean;
   extractor_display_name: string | null;
   is_public: boolean;
+  moderation_status?: 'active' | 'hidden' | null;
 }
 
 export interface RecipeListItem {
@@ -118,6 +119,7 @@ export interface RecipeListItem {
   is_owner?: boolean;
   extractor_display_name: string | null;
   is_public: boolean;
+  moderation_status?: 'active' | 'hidden' | null;
 }
 
 export interface PaginatedRecipes {

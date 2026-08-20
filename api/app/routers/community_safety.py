@@ -57,6 +57,10 @@ class BlockedContributorResponse(BaseModel):
     created_at: datetime
 
 
+class SafetyStatusResponse(BaseModel):
+    account_moderation_status: Literal["active", "hidden"]
+
+
 def _report_response(report: ContentReport) -> ReportResponse:
     target_id = (
         str(report.recipe_id)
@@ -186,6 +190,18 @@ async def list_my_reports(
         .limit(100)
     )
     return [_report_response(report) for report in result.scalars().all()]
+
+
+@router.get("/safety/status", response_model=SafetyStatusResponse)
+async def get_safety_status(
+    db: AsyncSession = Depends(get_db),
+    user: ClerkUser = Depends(get_current_user),
+):
+    """Return only the caller's appeal-relevant account state."""
+    account = await db.get(AppUser, user.id)
+    return SafetyStatusResponse(
+        account_moderation_status=(account.moderation_status if account else "active")
+    )
 
 
 @router.post("/appeals", response_model=ReportResponse, status_code=201)

@@ -17,8 +17,8 @@ from app.routers.admin import (
     _job_response,
     _recipe_preview,
 )
-from app.routers.community_safety import AppealCreate
-from app.routers.recipes import get_recipe
+from app.routers.community_safety import AppealCreate, get_safety_status
+from app.routers.recipes import get_recipe, recipe_to_detail_response, recipe_to_list_item
 
 
 def _user(*, role: str | None = None) -> ClerkUser:
@@ -36,13 +36,14 @@ def _recipe(**overrides) -> Recipe:
         "id": uuid4(),
         "source_url": "https://example.com/recipe",
         "source_type": "website",
-        "extracted": {"title": "Red Rice"},
+        "extracted": {"title": "Red Rice", "sourceUrl": "https://example.com/recipe"},
         "user_id": "contributor_user",
         "extractor_display_name": "Test Cook",
         "is_public": True,
         "moderation_status": "active",
         "is_featured": False,
         "featured_order": None,
+        "has_audio_transcript": False,
         "created_at": datetime.now(UTC),
     }
     values.update(overrides)
@@ -152,6 +153,35 @@ def test_appeal_requires_meaningful_context():
             featured_order=None,
             reason="Missing order",
         )
+
+
+def test_recipe_moderation_status_is_visible_only_to_owner():
+    recipe = _recipe(moderation_status="hidden")
+
+    owner_list_item = recipe_to_list_item(recipe, recipe.user_id)
+    public_list_item = recipe_to_list_item(recipe, "another_user")
+    owner_detail = recipe_to_detail_response(recipe, recipe.user_id)
+    public_detail = recipe_to_detail_response(recipe, "another_user")
+
+    assert owner_list_item.moderation_status == "hidden"
+    assert owner_detail.moderation_status == "hidden"
+    assert public_list_item.moderation_status is None
+    assert public_detail.moderation_status is None
+
+
+@pytest.mark.asyncio
+async def test_safety_status_returns_only_callers_account_state():
+    hidden_account = SimpleNamespace(moderation_status="hidden")
+
+    class Database:
+        async def get(self, model, user_id):
+            assert model.__name__ == "AppUser"
+            assert user_id == "stable_user"
+            return hidden_account
+
+    response = await get_safety_status(Database(), _user())
+
+    assert response.model_dump() == {"account_moderation_status": "hidden"}
 
 
 def test_admin_preview_never_exposes_private_recipe_metadata():

@@ -561,19 +561,19 @@ Work:
 - [x] Add backend-enforced `/api/admin/*` authorization using Clerk admin metadata. A hidden route or client-side role check is not authorization.
 - [x] Add a compact dashboard for reports, stuck/failed jobs, and recent admin actions.
 - [x] Add recipe/contributor search with public/owner-safe previews.
-- [ ] Add recipe/user reporting and contributor blocking. Server contracts and consistent visibility enforcement are complete; intuitive consumer controls remain.
+- [x] Add recipe/user reporting and contributor blocking with recipe-menu actions and a reversible Safety Center.
 - [x] Add moderation state and an admin review queue API.
 - [x] Add reversible hide/unhide and feature/unfeature actions with reasons.
 - [x] Add curated featured-order controls for the intended meaning of “moving things around.”
 - [x] Add safe retry/cancel actions for stale or failed extraction jobs.
 - [x] Record an append-only audit event for every admin action, including actor, target, reason, timestamp, and a bounded before/after summary.
 - [x] Require confirmation and an audit reason for every mutation; omit hard delete, arbitrary ownership changes, user impersonation, and a general database editor from the MVP.
-- [ ] Add takedown and appeal/support workflow. Server-side contracts and the operator report/appeal queue are complete; intuitive consumer follow-up and appeal controls remain.
+- [x] Add takedown and appeal/support workflow across owner hold notices, recipe/account appeals, and status tracking.
 - [ ] Add terms covering public recipes and source attribution.
 - [ ] Align website, in-app, App Store, and Play privacy/support URLs.
 - [ ] Obtain appropriate legal/privacy review before publishing policy changes.
 
-Implemented (2026-08-19): migration 022 adds reversible recipe/contributor moderation, unique featured ordering, reports, blocks, appeals, and database-enforced append-only audit history. All public and signed-in recipe surfaces share one moderation/block visibility policy. Admin APIs provide bounded dashboard, search, report review, job recovery, and audit data without exposing private recipe bodies, notes, chat history, full extraction URLs, or provider error bodies. The separate Clerk-authenticated `admin/` client provides the bounded operator workflow with semantic tables, explicit statuses, keyboard-safe confirmations, required reasons, and production security headers. Startup and CI verify the boundary. Consumer report/block/appeal controls remain. See `ADMIN-MODERATION-RUNBOOK.md`.
+Implemented (2026-08-20): migration 022 adds reversible recipe/contributor moderation, unique featured ordering, reports, blocks, appeals, and database-enforced append-only audit history. All public and signed-in recipe surfaces share one moderation/block visibility policy. Admin APIs provide bounded dashboard, search, report review, job recovery, and audit data without exposing private recipe bodies, notes, chat history, full extraction URLs, or provider error bodies. The separate Clerk-authenticated `admin/` client provides the bounded operator workflow with semantic tables, explicit statuses, keyboard-safe confirmations, required reasons, and production security headers. The mobile recipe menu now provides private reporting and reversible contributor blocking, while Settings → Safety Center provides unblock, report/appeal tracking, and account appeals. Owners see a clear hold notice and recipe appeal action without exposing moderation state to other viewers. Startup and CI verify the boundary. See `ADMIN-MODERATION-RUNBOOK.md`.
 
 Acceptance criteria:
 

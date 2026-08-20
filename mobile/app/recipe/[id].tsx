@@ -14,6 +14,8 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Keyboard,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,6 +26,7 @@ import AddIngredientsModal from '@/components/AddIngredientsModal';
 import RecipeChatModal from '@/components/RecipeChatModal';
 import AddToCollectionModal from '@/components/AddToCollectionModal';
 import VersionHistoryModal from '@/components/VersionHistoryModal';
+import { SafetyActionModal } from '@/components/SafetyActionModal';
 import { 
   useRecipe, 
   useDeleteRecipe, 
@@ -45,8 +48,20 @@ import { useTextSize } from '@/hooks/useTextSize';
 import { useAuth, useUser } from '@clerk/expo';
 import { Ingredient } from '@/types/recipe';
 import { useScaledServings, scaleQuantity, scaleIngredient } from '@/hooks/useScaledServings';
+import {
+  useBlockContributor,
+  useCreateSafetyAppeal,
+  useCreateSafetyReport,
+} from '@/hooks/useCommunitySafety';
+import { getSafetyErrorMessage } from '@/lib/communitySafety';
+import type { ReportCategory, SafetyTargetType } from '@/types/communitySafety';
 
 type TabType = 'ingredients' | 'steps' | 'nutrition' | 'cost';
+type RecipeMenuAction = {
+  label: string;
+  onPress: () => void;
+  destructive?: boolean;
+};
 
 /**
  * Similar Recipe Card with proper image error handling
@@ -115,6 +130,9 @@ export default function RecipeDetailScreen() {
   const [showChatModal, setShowChatModal] = useState(false);
   const [showCollectionModal, setShowCollectionModal] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [reportTarget, setReportTarget] = useState<SafetyTargetType | null>(null);
+  const [showRecipeAppeal, setShowRecipeAppeal] = useState(false);
+  const [androidMenuActions, setAndroidMenuActions] = useState<RecipeMenuAction[] | null>(null);
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [showIngredientsRef, setShowIngredientsRef] = useState(false); // Collapsed by default
   const [noteText, setNoteText] = useState('');
@@ -123,6 +141,9 @@ export default function RecipeDetailScreen() {
   const [notesSectionY, setNotesSectionY] = useState(0);
   const { userId } = useAuth();
   const { user } = useUser();
+  const reportMutation = useCreateSafetyReport();
+  const appealMutation = useCreateSafetyAppeal();
+  const blockMutation = useBlockContributor();
   
   // Check if user is admin (from Clerk public metadata)
   const isAdmin = (user?.publicMetadata as any)?.role === 'admin';
@@ -181,9 +202,13 @@ export default function RecipeDetailScreen() {
 
   // Check if the current user owns this recipe
   const isOwner = recipe?.user_id === userId;
+  const contributorId = recipe?.contributor_id ?? null;
+  const contributorName = recipe?.extractor_display_name || 'this contributor';
   
-  // Check if recipe can be re-extracted (has a valid source URL, not manual)
-  const canReExtract = recipe?.source_url && !recipe.source_url.startsWith('manual://');
+  const hasExternalSource = /^https?:\/\//i.test(recipe?.source_url || '');
+  // Re-extraction requires a fetchable source URL; manual and photo recipes
+  // intentionally keep their internal source markers out of user actions.
+  const canReExtract = hasExternalSource;
 
   const handleReExtract = () => {
     if (!recipe || !canReExtract) return;
@@ -303,101 +328,98 @@ export default function RecipeDetailScreen() {
     }
   };
 
-  const handleMoreOptions = () => {
-    // Admin can re-extract any recipe, owner can re-extract their own
-    const canShowReExtract = canReExtract && (isOwner || isAdmin);
-    
-    if (Platform.OS === 'ios') {
-      if (isOwner) {
-        // Owner options: Add to Collection, Edit, Version History, Re-extract (if applicable), Delete
-        const options = ['Cancel', 'Add to Collection', 'Edit Recipe', 'Version History'];
-        let reExtractIndex = -1;
-        let deleteIndex = 4;
-        
-        if (canReExtract) {
-          options.push('Re-extract with AI');
-          reExtractIndex = 4;
-          deleteIndex = 5;
-        }
-        options.push('Delete Recipe');
-        
-        ActionSheetIOS.showActionSheetWithOptions(
-          {
-            options,
-            destructiveButtonIndex: deleteIndex,
-            cancelButtonIndex: 0,
-          },
-          (buttonIndex) => {
-            if (buttonIndex === 1) {
-              setShowCollectionModal(true);
-            } else if (buttonIndex === 2) {
-              router.push(`/edit-recipe/${id}`);
-            } else if (buttonIndex === 3) {
-              setShowVersionHistory(true);
-            } else if (buttonIndex === reExtractIndex) {
-              handleReExtract();
-            } else if (buttonIndex === deleteIndex) {
-              handleDelete();
-            }
-          }
-        );
-      } else {
-        // Non-owner options: Save/Unsave, Add to Collection, Re-extract (admin only)
-        const saveText = isSaved ? 'Remove from Saved' : 'Save to My Recipes';
-        const options = ['Cancel', saveText, 'Add to Collection'];
-        let reExtractIndex = -1;
-        
-        if (canShowReExtract) {
-          options.push('Re-extract with AI');
-          reExtractIndex = 3;
-        }
-        
-        ActionSheetIOS.showActionSheetWithOptions(
-          {
-            options,
-            cancelButtonIndex: 0,
-          },
-          (buttonIndex) => {
-            if (buttonIndex === 1) {
-              handleSaveToggle();
-            } else if (buttonIndex === 2) {
-              setShowCollectionModal(true);
-            } else if (buttonIndex === reExtractIndex) {
-              handleReExtract();
-            }
-          }
-        );
-      }
-    } else {
-      // Android fallback using Alert
-      if (isOwner) {
-        const options: any[] = [
-          { text: 'Add to Collection', onPress: () => setShowCollectionModal(true) },
-          { text: 'Edit Recipe', onPress: () => router.push(`/edit-recipe/${id}`) },
-          { text: 'Version History', onPress: () => setShowVersionHistory(true) },
-        ];
-        if (canReExtract) {
-          options.push({ text: 'Re-extract with AI', onPress: handleReExtract });
-        }
-        options.push({ text: 'Delete Recipe', style: 'destructive', onPress: handleDelete });
-        options.push({ text: 'Cancel', style: 'cancel' });
-        
-        Alert.alert('Recipe Options', '', options);
-      } else {
-        // Non-owner options
-        const saveText = isSaved ? 'Remove from Saved' : 'Save to My Recipes';
-        const options: any[] = [
-          { text: saveText, onPress: handleSaveToggle },
-          { text: 'Add to Collection', onPress: () => setShowCollectionModal(true) },
-        ];
-        if (canShowReExtract) {
-          options.push({ text: 'Re-extract with AI', onPress: handleReExtract });
-        }
-        options.push({ text: 'Cancel', style: 'cancel' });
-        
-        Alert.alert('Recipe Options', '', options);
-      }
+  const requireSafetySignIn = (onSignedIn: () => void) => {
+    if (userId) {
+      onSignedIn();
+      return;
     }
+    Alert.alert(
+      'Sign in required',
+      'Sign in to report content or manage blocked contributors.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign In', onPress: () => router.push('/(auth)/sign-in') },
+      ],
+    );
+  };
+
+  const handleBlockContributor = () => {
+    if (!contributorId) return;
+    requireSafetySignIn(() => {
+      Alert.alert(
+        `Block ${contributorName}?`,
+        'Their public recipes will disappear from Discover, search, saved lists, and recommendations. You can unblock them in Settings.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Block',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await blockMutation.mutateAsync(contributorId);
+                router.back();
+                Alert.alert('Contributor blocked', 'You will no longer see their public recipes.');
+              } catch (error) {
+                Alert.alert('Couldn’t block contributor', getSafetyErrorMessage(error));
+              }
+            },
+          },
+        ],
+      );
+    });
+  };
+
+  const handleMoreOptions = () => {
+    if (!recipe) return;
+    const canShowReExtract = canReExtract && (isOwner || isAdmin);
+    const actions: RecipeMenuAction[] = isOwner
+      ? [
+          { label: 'Add to Collection', onPress: () => setShowCollectionModal(true) },
+          { label: 'Edit Recipe', onPress: () => router.push(`/edit-recipe/${id}`) },
+          { label: 'Version History', onPress: () => setShowVersionHistory(true) },
+          ...(canReExtract ? [{ label: 'Re-extract with AI', onPress: handleReExtract }] : []),
+          ...(recipe.moderation_status === 'hidden'
+            ? [{ label: 'Appeal Moderation Hold', onPress: () => setShowRecipeAppeal(true) }]
+            : []),
+          { label: 'Delete Recipe', onPress: handleDelete, destructive: true },
+        ]
+      : [
+          { label: isSaved ? 'Remove from Saved' : 'Save to My Recipes', onPress: handleSaveToggle },
+          { label: 'Add to Collection', onPress: () => setShowCollectionModal(true) },
+          ...(canShowReExtract ? [{ label: 'Re-extract with AI', onPress: handleReExtract }] : []),
+          ...(recipe.is_public
+            ? [{
+                label: 'Report Recipe',
+                onPress: () => requireSafetySignIn(() => setReportTarget('recipe')),
+              }]
+            : []),
+          ...(recipe.is_public && contributorId
+            ? [
+                {
+                  label: 'Report Contributor',
+                  onPress: () => requireSafetySignIn(() => setReportTarget('contributor')),
+                },
+                { label: `Block ${contributorName}`, onPress: handleBlockContributor, destructive: true },
+              ]
+            : []),
+        ];
+
+    if (Platform.OS === 'ios') {
+      const destructiveIndex = actions.findIndex((action) => action.destructive);
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', ...actions.map((action) => action.label)],
+          cancelButtonIndex: 0,
+          destructiveButtonIndex: destructiveIndex >= 0 ? destructiveIndex + 1 : undefined,
+        },
+        (buttonIndex) => {
+          if (buttonIndex > 0) actions[buttonIndex - 1]?.onPress();
+        },
+      );
+      return;
+    }
+
+    setAndroidMenuActions(actions);
   };
 
   const formatRecipeAsText = () => {
@@ -478,14 +500,25 @@ export default function RecipeDetailScreen() {
     
     // Source
     text += '\n' + '━'.repeat(30) + '\n';
-    text += `Source: ${recipe.source_url}\n`;
-    text += `Extracted with Håfa Recipes`;
+    if (hasExternalSource) {
+      text += `Source: ${recipe.source_url}\n`;
+    }
+    text += `${hasExternalSource ? 'Extracted' : 'Created'} with Håfa Recipes`;
     
     return text;
   };
 
   const handleShare = async () => {
     if (!recipe) return;
+
+    if (!hasExternalSource) {
+      try {
+        await Share.share({ message: formatRecipeAsText() });
+      } catch {
+        // Share cancelled by user - not an error
+      }
+      return;
+    }
     
     Alert.alert(
       'Share Recipe',
@@ -629,13 +662,28 @@ export default function RecipeDetailScreen() {
           headerTitle: 'Recipe',
           headerRight: () => (
             <RNView style={styles.headerButtons}>
-              <TouchableOpacity onPress={() => setShowChatModal(true)} style={styles.headerButton}>
+              <TouchableOpacity
+                onPress={() => setShowChatModal(true)}
+                style={styles.headerButton}
+                accessibilityRole="button"
+                accessibilityLabel="Ask about this recipe"
+              >
                 <Ionicons name="chatbubbles-outline" size={22} color={colors.tint} />
               </TouchableOpacity>
-              <TouchableOpacity onPress={handleShare} style={styles.headerButton}>
+              <TouchableOpacity
+                onPress={handleShare}
+                style={styles.headerButton}
+                accessibilityRole="button"
+                accessibilityLabel="Share recipe"
+              >
                 <Ionicons name="share-outline" size={22} color={colors.tint} />
               </TouchableOpacity>
-              <TouchableOpacity onPress={handleMoreOptions} style={styles.headerButton}>
+              <TouchableOpacity
+                onPress={handleMoreOptions}
+                style={styles.headerButton}
+                accessibilityRole="button"
+                accessibilityLabel="More recipe options"
+              >
                 <Ionicons name="ellipsis-horizontal" size={22} color={colors.tint} />
               </TouchableOpacity>
             </RNView>
@@ -673,6 +721,21 @@ export default function RecipeDetailScreen() {
             <Text style={[styles.title, { color: colors.text }]}>
               {extracted.title}
             </Text>
+
+            {isOwner && recipe.moderation_status === 'hidden' && (
+              <RNView style={[styles.moderationNotice, { backgroundColor: `${colors.warning}20`, borderColor: colors.warning }]}>
+                <Ionicons name="alert-circle-outline" size={22} color={colors.warning} />
+                <RNView style={styles.moderationNoticeCopy}>
+                  <Text style={[styles.moderationNoticeTitle, { color: colors.text }]}>Hidden from public view</Text>
+                  <Text style={[styles.moderationNoticeText, { color: colors.textSecondary }]}>
+                    You can still use this recipe while the moderation hold is active.
+                  </Text>
+                </RNView>
+                <TouchableOpacity onPress={() => setShowRecipeAppeal(true)} accessibilityRole="button">
+                  <Text style={[styles.moderationAppealText, { color: colors.tint }]}>Appeal</Text>
+                </TouchableOpacity>
+              </RNView>
+            )}
             
             {/* Meta Row */}
             <RNView style={styles.metaRow}>
@@ -863,17 +926,21 @@ export default function RecipeDetailScreen() {
             )}
 
             {/* Source Button */}
-            <TouchableOpacity 
-              style={[styles.sourceButton, { borderColor: colors.border }]} 
-              onPress={handleOpenSource}
-              activeOpacity={0.7}
-            >
-              <Ionicons name={sourceIcon as any} size={20} color={colors.textSecondary} />
-              <Text style={[styles.sourceButtonText, { color: colors.text }]}>
-                View on {sourceLabel}
-              </Text>
-              <Ionicons name="open-outline" size={18} color={colors.textMuted} />
-            </TouchableOpacity>
+            {hasExternalSource && (
+              <TouchableOpacity
+                style={[styles.sourceButton, { borderColor: colors.border }]}
+                onPress={handleOpenSource}
+                activeOpacity={0.7}
+                accessibilityRole="link"
+                accessibilityLabel={`View recipe on ${sourceLabel}`}
+              >
+                <Ionicons name={sourceIcon as any} size={20} color={colors.textSecondary} />
+                <Text style={[styles.sourceButtonText, { color: colors.text }]}>
+                  View on {sourceLabel}
+                </Text>
+                <Ionicons name="open-outline" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+            )}
 
             {/* Share to Library Toggle - only show for owner */}
             {isOwner && (
@@ -1450,6 +1517,113 @@ export default function RecipeDetailScreen() {
           currentTitle={extracted?.title}
         />
       )}
+
+      {recipe && reportTarget && (
+        <SafetyActionModal
+          visible
+          mode="report"
+          targetType={reportTarget}
+          targetLabel={reportTarget === 'recipe' ? recipe.extracted.title : contributorName}
+          isSubmitting={reportMutation.isPending}
+          onClose={() => setReportTarget(null)}
+          onSubmit={async ({ category, details }) => {
+            if (!category) return;
+            try {
+              await reportMutation.mutateAsync({
+                target_type: reportTarget,
+                category: category as ReportCategory,
+                details: details || undefined,
+                ...(reportTarget === 'recipe'
+                  ? { recipe_id: recipe.id }
+                  : { contributor_id: contributorId || undefined }),
+              });
+              setReportTarget(null);
+              Alert.alert('Report submitted', 'Thank you. You can track its status in Settings → Safety Center.');
+            } catch (error) {
+              Alert.alert('Couldn’t submit report', getSafetyErrorMessage(error));
+            }
+          }}
+        />
+      )}
+
+      {recipe && (
+        <SafetyActionModal
+          visible={showRecipeAppeal}
+          mode="appeal"
+          targetType="recipe"
+          targetLabel={recipe.extracted.title}
+          isSubmitting={appealMutation.isPending}
+          onClose={() => setShowRecipeAppeal(false)}
+          onSubmit={async ({ details }) => {
+            try {
+              await appealMutation.mutateAsync({
+                target_type: 'recipe',
+                recipe_id: recipe.id,
+                details,
+              });
+              setShowRecipeAppeal(false);
+              Alert.alert('Appeal submitted', 'You can track its status in Settings → Safety Center.');
+            } catch (error) {
+              Alert.alert('Couldn’t submit appeal', getSafetyErrorMessage(error));
+            }
+          }}
+        />
+      )}
+
+      <Modal
+        visible={androidMenuActions !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAndroidMenuActions(null)}
+      >
+        <Pressable
+          style={styles.optionsBackdrop}
+          onPress={() => setAndroidMenuActions(null)}
+          accessibilityRole="button"
+          accessibilityLabel="Close recipe options"
+        >
+          <Pressable
+            style={[
+              styles.optionsSheet,
+              {
+                backgroundColor: colors.background,
+                paddingBottom: Math.max(insets.bottom, spacing.md),
+              },
+            ]}
+            onPress={(event) => event.stopPropagation()}
+          >
+            <RNView style={styles.optionsHandle} />
+            <Text style={[styles.optionsTitle, { color: colors.text }]}>Recipe options</Text>
+            {androidMenuActions?.map((action) => (
+              <TouchableOpacity
+                key={action.label}
+                style={[styles.optionsAction, { borderTopColor: colors.border }]}
+                accessibilityRole="button"
+                onPress={() => {
+                  setAndroidMenuActions(null);
+                  setTimeout(action.onPress, 150);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.optionsActionText,
+                    { color: action.destructive ? colors.error : colors.text },
+                  ]}
+                >
+                  {action.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={[styles.optionsCancel, { backgroundColor: colors.backgroundSecondary }]}
+              accessibilityRole="button"
+              onPress={() => setAndroidMenuActions(null)}
+            >
+              <Text style={[styles.optionsCancelText, { color: colors.text }]}>Cancel</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </>
   );
 }
@@ -1460,6 +1634,64 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 100, // Extra padding for floating button
+  },
+  moderationNotice: {
+    marginTop: spacing.md,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  moderationNoticeCopy: { flex: 1, gap: 2 },
+  moderationNoticeTitle: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold },
+  moderationNoticeText: { fontSize: fontSize.xs, lineHeight: 17 },
+  moderationAppealText: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold },
+  optionsBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(15, 23, 42, 0.48)',
+  },
+  optionsSheet: {
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    ...shadows.strong,
+  },
+  optionsHandle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(148, 163, 184, 0.55)',
+    marginBottom: spacing.md,
+  },
+  optionsTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    marginBottom: spacing.sm,
+  },
+  optionsAction: {
+    minHeight: 52,
+    justifyContent: 'center',
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  optionsActionText: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
+  optionsCancel: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+    marginTop: spacing.sm,
+  },
+  optionsCancelText: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
   },
   centerContainer: {
     flex: 1,
