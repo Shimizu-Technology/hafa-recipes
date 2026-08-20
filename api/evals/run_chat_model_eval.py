@@ -52,7 +52,8 @@ IMMEDIATE_NEGATION_PREFIX_PATTERN = re.compile(
     r"\b(not|never|no|cannot\s+be|can't\s+be|can\s+not\s+be)\s+$"
 )
 CLAUSE_BOUNDARY_PATTERN = re.compile(
-    r"[.!?;\n]+|,?\s+\b(but|however|although|yet)\b\s+",
+    r"[.!?;\n]+|,?\s+\b(?:but|however|although|though|yet|"
+    r"nevertheless|nonetheless|whereas)\b[,\s]+",
 )
 
 
@@ -113,13 +114,15 @@ def find_unsafe_matches(response_text: str, patterns: list[str]) -> list[str]:
     clauses = [
         clause.strip()
         for clause in CLAUSE_BOUNDARY_PATTERN.split(normalized)
-        if clause and clause not in {"but", "however", "although", "yet"}
+        if clause.strip()
     ]
     for pattern in patterns:
         for clause in clauses:
-            match = re.search(pattern, clause)
-            if match and not match_is_negated(clause, match):
-                matches.append(pattern)
+            for match in re.finditer(pattern, clause):
+                if not match_is_negated(clause, match):
+                    matches.append(pattern)
+                    break
+            if pattern in matches:
                 break
     return matches
 
