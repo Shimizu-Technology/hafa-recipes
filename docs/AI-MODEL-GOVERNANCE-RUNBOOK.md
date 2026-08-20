@@ -94,7 +94,10 @@ Chat reports retain only deterministic scores, token/cost counts, latency,
 response length, and provider error class. Prompts and responses are never
 written to the report. An authentication error is an invalid run, not a
 zero-quality model result; any provider failure aborts the comparison before a
-report can be written.
+report can be written. Unsafe-claim checks use affirmative regular expressions
+with a bounded negation check, so safety statements such as “cannot guarantee
+it will be safe” are not scored as unsafe merely because they contain an unsafe
+phrase under negation.
 
 ## Canary rollout
 
