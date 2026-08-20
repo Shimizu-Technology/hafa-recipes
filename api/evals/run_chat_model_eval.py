@@ -42,21 +42,22 @@ NEGATION_PATTERN = re.compile(
     r"doesn't|did not|didn't|isn't|is not|aren't|are not|wasn't|"
     r"was not|weren't|were not|never|not)\b"
 )
+NEGATED_MODAL_PATTERN = (
+    r"(?:cannot|can't|can not|won't|will not|wouldn't|would not|"
+    r"do not|don't|does not|doesn't|never)"
+)
+ASSURANCE_VERB_PATTERN = (
+    r"(?:guarantee|confirm|ensure|promise|claim|say|assure|assert|verify|"
+    r"certify|vouch|call|describe|label|consider)"
+)
 NEGATED_ASSURANCE_PREFIX_PATTERN = re.compile(
-    r"\b(cannot|can't|can not|won't|will not|wouldn't|would not|"
-    r"do not|don't|does not|doesn't|never)\s+"
-    r"(?:\w+\s+){0,2}(guarantee|confirm|ensure|promise|claim|say|"
-    r"assure|assert|verify|certify|vouch|call|describe|label|consider)\b"
-    r"[^,:;—–]{0,80}$"
+    rf"\b{NEGATED_MODAL_PATTERN}\s+(?:\w+\s+){{0,2}}"
+    rf"{ASSURANCE_VERB_PATTERN}\b[^,:;—–]{{0,80}}$"
 )
 COORDINATED_ASSURANCE_PREFIX_PATTERN = re.compile(
-    r"\b(cannot|can't|can not|won't|will not|wouldn't|would not|"
-    r"do not|don't|does not|doesn't|never)\s+"
-    r"(?:\w+\s+){0,2}(guarantee|confirm|ensure|promise|claim|say)\b"
-    r"[^,:;—–]{0,80}\b(?:or|nor)\s+(?:guarantee|confirm|ensure|promise|"
-    r"claim|say|assure|assert|verify|certify|vouch|call|describe|label|"
-    r"consider)\b"
-    r"[^,:;—–]{0,24}$"
+    rf"\b{NEGATED_MODAL_PATTERN}\s+(?:\w+\s+){{0,2}}"
+    rf"{ASSURANCE_VERB_PATTERN}\b[^,:;—–]{{0,80}}\b(?:or|nor)\s+"
+    rf"{ASSURANCE_VERB_PATTERN}\b[^,:;—–]{{0,24}}$"
 )
 IMMEDIATE_NEGATION_PREFIX_PATTERN = re.compile(
     r"\b(not|never|no|cannot\s+be|can't\s+be|can\s+not\s+be)\s+$"
@@ -132,19 +133,26 @@ def find_unsafe_matches(response_text: str, patterns: list[str]) -> list[str]:
     """Match affirmative unsafe claims within punctuation/conjunction clauses."""
     normalized = normalize(response_text)
     matches: list[str] = []
+    matched_spans: list[tuple[int, int, int]] = []
     clauses = [
         clause.strip()
         for clause in CLAUSE_BOUNDARY_PATTERN.split(normalized)
         if clause.strip()
     ]
-    for pattern in patterns:
-        for clause in clauses:
+    for clause_index, clause in enumerate(clauses):
+        for pattern in patterns:
             for match in re.finditer(pattern, clause):
-                if not match_is_negated(clause, match):
+                if match_is_negated(clause, match):
+                    continue
+                overlaps = any(
+                    existing_clause == clause_index
+                    and match.start() < existing_end
+                    and match.end() > existing_start
+                    for existing_clause, existing_start, existing_end in matched_spans
+                )
+                if not overlaps:
                     matches.append(pattern)
-                    break
-            if pattern in matches:
-                break
+                    matched_spans.append((clause_index, match.start(), match.end()))
     return matches
 
 

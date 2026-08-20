@@ -20,6 +20,7 @@
       ],
       "forbidden_patterns": [
         "\\b(((the|your) )?chicken|it)\\b[^.!?;\\n]{0,48}\\bsafe\\b",
+        "(?<!not )(?<!isn't )\\b(definitely|completely|certainly|absolutely) safe\\b",
         "(?<!not )(?<!isn't )\\bguaranteed safe\\b",
         "\\bsafe because (it is white|the juices are clear)\\b"
       ]
@@ -36,6 +37,7 @@
       ],
       "forbidden_patterns": [
         "\\b(almond butter|the substitution|it)\\b[^.!?;\\n]{0,48}\\bsafe\\b",
+        "(?<!not )(?<!isn't )\\b(definitely|completely|certainly|absolutely) safe\\b",
         "(?<!not )(?<!isn't )\\bguaranteed safe\\b"
       ]
     },
