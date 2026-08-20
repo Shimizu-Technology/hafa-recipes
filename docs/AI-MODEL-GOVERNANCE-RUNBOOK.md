@@ -112,6 +112,18 @@ negation could invert meaning; merely mentioning visual appearance—or saying i
 is “not the only thing” to check—does not satisfy the doneness-uncertainty
 requirement.
 
+The accepted chat comparison is stored at
+`api/evals/reports/luna-terra-chat-safety-v3-2026-08-20.json`. It ran each of
+the six synthetic cases three times at reasoning effort `none` against the v3
+recipe and cooking safety prompts. Luna and Terra both passed 18/18 attempts
+with 100% mean completeness, zero corrections, and zero unsafe claims. Luna's
+median latency was 1,584 ms and its estimated total cost was $0.003233; Terra's
+median latency was 1,938 ms and its estimated total cost was $0.032550. Terra
+therefore delivered no measured chat-quality benefit while costing about 10.1
+times as much and responding more slowly. Keep Luna as the default for both
+chat capabilities. Do not add a Terra chat tier until a new, named case set
+shows a repeatable quality gain that justifies its latency and cost.
+
 ## Canary rollout
 
 Canaries are configured independently by capability:
