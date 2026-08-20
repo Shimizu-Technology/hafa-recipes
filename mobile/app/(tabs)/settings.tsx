@@ -19,13 +19,14 @@ import { useTimerSoundPreference, TIMER_SOUNDS, TimerSoundOption, playTimerSound
 import { useTTSVoice, TTS_VOICES, TTSVoice } from '@/hooks/useTTS';
 import { useTextSize, TEXT_SIZE_LABELS, TextSizeOption } from '@/hooks/useTextSize';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { resolveAppVersion } from '@/lib/appVersion';
 
 const APP_STORE_URL = 'https://apps.apple.com/us/app/recipe-extractor-gu/id6755892896';
 const WEBSITE_URL = 'https://hafa-recipes.com';
 const PRIVACY_URL = 'https://hafa-recipes.com/privacy';
 const SUPPORT_URL = 'https://hafa-recipes.com/support';
 const DEVELOPER_URL = 'https://shimizu-technology.com';
-const APP_VERSION = Constants.expoConfig?.version ?? '2.4.0';
+const APP_VERSION = resolveAppVersion(Constants.expoConfig?.version);
 
 interface MenuItemProps {
   icon: keyof typeof Ionicons.glyphMap;
