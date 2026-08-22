@@ -7,12 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "hafarecipes",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/images/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#101411"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.shimizutechnology.recipeextractor",
@@ -30,7 +24,6 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#FFF7EC"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.shimizutechnology.recipeextractor",
       "versionCode": 15,
@@ -56,6 +49,14 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#101411"
+        }
+      ],
       "expo-secure-store",
       "@clerk/expo",
       "expo-web-browser",
@@ -111,7 +112,8 @@
       ],
       "expo-font",
       "expo-audio",
-      "expo-asset"
+      "expo-asset",
+      "expo-status-bar"
     ],
     "experiments": {
       "typedRoutes": true

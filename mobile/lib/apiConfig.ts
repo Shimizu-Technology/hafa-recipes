@@ -17,7 +17,7 @@ export function getApiBaseUrl(): string {
   const sourceCodeUrl = sourceCode?.scriptURL || sourceCode?.getConstants?.().scriptURL;
   const developmentHost =
     Constants.expoConfig?.hostUri ||
-    Constants.manifest?.debuggerHost ||
+    Constants.expoGoConfig?.debuggerHost ||
     Constants.experienceUrl ||
     Constants.linkingUri ||
     Constants.intentUri ||
