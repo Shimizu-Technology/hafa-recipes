@@ -11,6 +11,11 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.shimizutechnology.recipeextractor",
       "buildNumber": "32",
+      "privacyManifests": {
+        "NSPrivacyTracking": false,
+        "NSPrivacyCollectedDataTypes": [],
+        "NSPrivacyAccessedAPITypes": []
+      },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Håfa Recipes needs access to your camera to take photos of your recipes. For example, you can photograph a handwritten family recipe or a dish you've prepared to add as a recipe image.",
@@ -68,6 +73,7 @@
           }
         }
       ],
+      "./plugins/withHafaGroceryWidget",
       [
         "expo-share-intent",
         {

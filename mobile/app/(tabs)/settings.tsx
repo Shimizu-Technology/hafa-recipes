@@ -15,6 +15,7 @@ import { captureMessage, captureError } from '@/lib/sentry';
 import { useTheme, ThemePreference } from '@/contexts/ThemeContext';
 import { clearAllOfflineGroceryData } from '@/lib/offlineStorage';
 import { markMigrationSignedOut } from '@/lib/clerkMigration';
+import { clearGroceryWidgetSession } from '@/lib/groceryWidget';
 import { useTimerSoundPreference, TIMER_SOUNDS, TimerSoundOption, playTimerSoundPreview } from '@/hooks/useTimerSound';
 import { useTTSVoice, TTS_VOICES, TTSVoice } from '@/hooks/useTTS';
 import { useTextSize, TEXT_SIZE_LABELS, TextSizeOption } from '@/hooks/useTextSize';
@@ -139,6 +140,12 @@ export default function SettingsScreen() {
               return;
             }
 
+            await clearGroceryWidgetSession(true).catch((error) =>
+              captureError(error instanceof Error ? error : new Error(String(error)), {
+                tags: { operation: 'clearGroceryWidgetOnSignOut' },
+              }),
+            );
+
             // IMPORTANT: Remove token getter FIRST to prevent new authenticated requests
             api.setTokenGetter(null);
 
@@ -182,6 +189,11 @@ export default function SettingsScreen() {
                       if (sessionId) {
                         await markMigrationSignedOut(sessionId).catch(() => undefined);
                       }
+                      await clearGroceryWidgetSession(false).catch((error) =>
+                        captureError(error instanceof Error ? error : new Error(String(error)), {
+                          tags: { operation: 'clearGroceryWidgetOnAccountDelete' },
+                        }),
+                      );
 
                       // Remove token getter FIRST
                       api.setTokenGetter(null);

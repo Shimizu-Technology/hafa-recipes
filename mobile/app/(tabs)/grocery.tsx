@@ -17,7 +17,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/expo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -222,6 +222,8 @@ export default function GroceryScreen() {
   const insets = useSafeAreaInsets();
   const { isSignedIn } = useAuth();
   const { scaleFontSize } = useTextSize();
+  const router = useRouter();
+  const { focusAdd } = useLocalSearchParams<{ focusAdd?: string }>();
   
   // Ref for the add item input to maintain focus
   const addItemInputRef = useRef<TextInput>(null);
@@ -264,7 +266,14 @@ export default function GroceryScreen() {
         // This ensures we don't show stale cache data
         refetch();
       }
-    }, [isSignedIn, refetch])
+      if (isSignedIn && focusAdd === '1') {
+        const focusTimer = setTimeout(() => {
+          addItemInputRef.current?.focus();
+          router.setParams({ focusAdd: undefined });
+        }, 150);
+        return () => clearTimeout(focusTimer);
+      }
+    }, [focusAdd, isSignedIn, refetch, router])
   );
   const toggleMutation = useToggleGroceryItem();
   const deleteMutation = useDeleteGroceryItem();
