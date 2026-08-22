@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+import app.routers.grocery as grocery_router_module
 from app.auth import ClerkUser, get_current_user
 from app.db import get_db
 from app.db.database import Base
@@ -19,6 +20,7 @@ from app.models import grocery, identity, recipe  # noqa: F401
 from app.models.grocery import (
     GroceryItem,
     GroceryList,
+    GroceryListInvite,
     GroceryListMember,
     GroceryMutationReceipt,
 )
@@ -28,6 +30,7 @@ from app.routers.grocery import (
     GroceryMutationRequest,
     add_grocery_item,
     get_grocery_snapshot,
+    join_list,
     sync_grocery_mutation,
     toggle_grocery_item,
 )
@@ -91,6 +94,18 @@ async def _seed_list(sessions, *user_ids: str) -> GroceryList:
         )
         await db.commit()
         return grocery_list
+
+
+async def _seed_invite(sessions, grocery_list: GroceryList, creator_id: str, code: str):
+    async with sessions() as db:
+        db.add(
+            GroceryListInvite(
+                list_id=grocery_list.id,
+                invite_code=code,
+                created_by=creator_id,
+            )
+        )
+        await db.commit()
 
 
 @pytest.mark.asyncio
@@ -343,3 +358,99 @@ async def test_http_contract_serializes_snapshot_and_replay(grocery_database):
     assert snapshot.status_code == 200
     assert snapshot.json()["list"]["revision"] == 1
     assert snapshot.json()["items"][0]["name"] == "Coffee"
+
+
+@pytest.mark.asyncio
+async def test_sync_revalidates_scope_after_overlapping_membership_change(
+    grocery_database,
+    monkeypatch,
+):
+    old_list = await _seed_list(grocery_database, "moving_user")
+    target_list = await _seed_list(grocery_database, "target_owner")
+    await _seed_invite(grocery_database, target_list, "target_owner", "MOVE1234")
+    list_locks_acquired = asyncio.Event()
+    allow_join_to_finish = asyncio.Event()
+    original_lock_many = grocery_router_module._lock_grocery_lists
+
+    async def delayed_lock_many(db, list_ids):
+        locked = await original_lock_many(db, list_ids)
+        list_locks_acquired.set()
+        await allow_join_to_finish.wait()
+        return locked
+
+    monkeypatch.setattr(grocery_router_module, "_lock_grocery_lists", delayed_lock_many)
+
+    async def move_user():
+        async with grocery_database() as db:
+            return await join_list("MOVE1234", db, _user("moving_user"))
+
+    stale_request = GroceryMutationRequest(
+        mutation_id=uuid4(),
+        operation="add",
+        list_id=old_list.id,
+        item_id=uuid4(),
+        item={"name": "Must not cross lists"},
+    )
+
+    async def send_stale_mutation():
+        async with grocery_database() as db:
+            return await sync_grocery_mutation(stale_request, db, _user("moving_user"))
+
+    join_task = asyncio.create_task(move_user())
+    await asyncio.wait_for(list_locks_acquired.wait(), timeout=2)
+    sync_task = asyncio.create_task(send_stale_mutation())
+    await asyncio.sleep(0.05)
+    assert sync_task.done() is False
+    allow_join_to_finish.set()
+    await asyncio.wait_for(join_task, timeout=2)
+    with pytest.raises(HTTPException) as conflict:
+        await asyncio.wait_for(sync_task, timeout=2)
+
+    assert conflict.value.status_code == 409
+    async with grocery_database() as db:
+        moved_membership = await db.scalar(
+            select(GroceryListMember.list_id).where(
+                GroceryListMember.user_id == "moving_user"
+            )
+        )
+        item_count = await db.scalar(select(func.count()).select_from(GroceryItem))
+    assert moved_membership == target_list.id
+    assert item_count == 0
+
+
+@pytest.mark.asyncio
+async def test_reciprocal_joins_lock_lists_in_one_order_without_deadlock(grocery_database):
+    first_list = await _seed_list(grocery_database, "first_user", "first_anchor")
+    second_list = await _seed_list(grocery_database, "second_user", "second_anchor")
+    await _seed_invite(grocery_database, first_list, "first_anchor", "FIRST123")
+    await _seed_invite(grocery_database, second_list, "second_anchor", "SECOND12")
+
+    async def join(code: str, user_id: str):
+        async with grocery_database() as db:
+            return await join_list(code, db, _user(user_id))
+
+    responses = await asyncio.wait_for(
+        asyncio.gather(
+            join("SECOND12", "first_user"),
+            join("FIRST123", "second_user"),
+        ),
+        timeout=3,
+    )
+
+    assert {response["message"] for response in responses} == {
+        "Successfully joined the grocery list!"
+    }
+    async with grocery_database() as db:
+        memberships = dict(
+            (
+                await db.execute(
+                    select(GroceryListMember.user_id, GroceryListMember.list_id).where(
+                        GroceryListMember.user_id.in_({"first_user", "second_user"})
+                    )
+                )
+            ).all()
+        )
+    assert memberships == {
+        "first_user": second_list.id,
+        "second_user": first_list.id,
+    }

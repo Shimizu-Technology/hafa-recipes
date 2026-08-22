@@ -56,3 +56,7 @@ Application rollback is safe because the schema is additive and legacy endpoints
 Receipts add one small row per accepted durable mutation. They are retained for now because the product's mutation volume is low and indefinite replay protection is safer than a premature cleanup policy. Add a measured retention job only after production volume and maximum offline duration establish a safe window.
 
 Before the migration is applied in production, create and record a database restore point. Run the migration through the checked-in versioned migration runner, verify startup, then test snapshot, add, check, replay, and shared-list isolation with authenticated non-production data.
+
+## Production rollout record
+
+On 2026-08-22, before PR 30 could merge, Neon branch `pre-grocery-sync-2026-08-22` (`br-misty-resonance-a16c95sh`) was forked from `production` with data and schema. Auto-delete is disabled. Retain this branch until migration 023, API startup, and authenticated grocery smoke checks have all been verified in production.

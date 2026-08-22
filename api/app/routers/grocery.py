@@ -55,18 +55,21 @@ async def get_user_list(db: AsyncSession, user_id: str) -> Optional[GroceryList]
     return result.scalar_one_or_none()
 
 
+async def _lock_membership_owner(db: AsyncSession, user_id: str) -> None:
+    """Serialize list resolution with every transition for this stable account."""
+
+    await db.scalar(
+        select(AppUser.id).where(AppUser.id == user_id).with_for_update()
+    )
+
+
 async def get_or_create_user_list(db: AsyncSession, user: ClerkUser) -> GroceryList:
     """Get the user's list, or create one if they don't have one."""
+    # Account deletion and every membership transition lock this same row.
+    # Keep it through list resolution so callers cannot retain stale access.
+    await _lock_membership_owner(db, user.id)
     grocery_list = await get_user_list(db, user.id)
     
-    if not grocery_list:
-        # Stable app-user row is the serialization point for first-list creation.
-        # Re-check after acquiring it so concurrent first requests cannot create
-        # two memberships for the same account.
-        await db.scalar(
-            select(AppUser.id).where(AppUser.id == user.id).with_for_update()
-        )
-        grocery_list = await get_user_list(db, user.id)
     if not grocery_list:
         # Create a new list for this user
         grocery_list = GroceryList(name="Grocery List")
@@ -81,7 +84,13 @@ async def get_or_create_user_list(db: AsyncSession, user: ClerkUser) -> GroceryL
         )
         db.add(member)
         await db.commit()
-        await db.refresh(grocery_list)
+        # Commit is required because read endpoints may create the first list.
+        # Reacquire the account lock and resolve again so a transition that won
+        # the small post-commit window cannot leave the caller with stale scope.
+        await _lock_membership_owner(db, user.id)
+        grocery_list = await get_user_list(db, user.id)
+        if grocery_list is None:
+            raise RuntimeError("Grocery list membership disappeared during creation")
     
     return grocery_list
 
@@ -253,6 +262,7 @@ async def get_list_info(
 ):
     """Get info about the user's grocery list, including members."""
     grocery_list = await get_or_create_user_list(db, user)
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)
     
     # Get members with display names
     members_result = await db.execute(
@@ -359,9 +369,7 @@ async def join_list(
     user: ClerkUser = Depends(get_current_user)
 ):
     """Accept an invite and join a shared grocery list."""
-    await db.scalar(
-        select(AppUser.id).where(AppUser.id == user.id).with_for_update()
-    )
+    await _lock_membership_owner(db, user.id)
     # Find the invite
     result = await db.execute(
         select(GroceryListInvite)
@@ -371,7 +379,6 @@ async def join_list(
     
     if not invite:
         raise HTTPException(status_code=404, detail="Invite not found or expired")
-    target_list = await _lock_grocery_list(db, invite.list_id)
     
     # Check if user is already a member
     existing_member = await db.execute(
@@ -385,8 +392,15 @@ async def join_list(
     
     # Archive user's current personal items (if they have any)
     current_list = await get_user_list(db, user.id)
+    list_ids = {invite.list_id}
     if current_list:
-        current_list = await _lock_grocery_list(db, current_list.id)
+        list_ids.add(current_list.id)
+    locked_lists = await _lock_grocery_lists(db, list_ids)
+    target_list = locked_lists.get(invite.list_id)
+    if target_list is None:
+        raise HTTPException(status_code=404, detail="Invite not found or expired")
+    if current_list:
+        current_list = locked_lists[current_list.id]
         # Archive their personal items
         await db.execute(
             update(GroceryItem)
@@ -439,9 +453,7 @@ async def leave_list(
     user: ClerkUser = Depends(get_current_user)
 ):
     """Leave a shared grocery list. Your archived personal items will be restored."""
-    await db.scalar(
-        select(AppUser.id).where(AppUser.id == user.id).with_for_update()
-    )
+    await _lock_membership_owner(db, user.id)
     current_list = await get_user_list(db, user.id)
     
     if not current_list:
@@ -502,9 +514,7 @@ async def remove_member(
     user: ClerkUser = Depends(get_current_user)
 ):
     """Remove a member from the shared grocery list."""
-    await db.scalar(
-        select(AppUser.id).where(AppUser.id == member_user_id).with_for_update()
-    )
+    await _lock_membership_owner(db, member_user_id)
     current_list = await get_user_list(db, user.id)
     
     if not current_list:
@@ -651,6 +661,24 @@ async def _lock_grocery_list(
             .execution_options(populate_existing=True)
         )
     ).scalar_one()
+
+
+async def _lock_grocery_lists(
+    db: AsyncSession,
+    list_ids: set[UUID],
+) -> dict[UUID, GroceryList]:
+    """Lock multiple lists in UUID order to prevent reciprocal-join deadlocks."""
+
+    lists = (
+        await db.execute(
+            select(GroceryList)
+            .where(GroceryList.id.in_(list_ids))
+            .order_by(GroceryList.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalars().all()
+    return {grocery_list.id: grocery_list for grocery_list in lists}
 
 
 @router.get("/snapshot", response_model=GrocerySnapshotResponse)
@@ -800,6 +828,7 @@ async def get_grocery_count(
 ):
     """Get count of grocery items (total and unchecked)."""
     grocery_list = await get_or_create_user_list(db, user)
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)
     
     # Total count
     total_result = await db.execute(
