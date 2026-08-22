@@ -1,6 +1,12 @@
 from .ai import AIInvocation
 from .deletion import DeletedAuthIdentity, DeletionCleanupJob
-from .grocery import GroceryItem, GroceryList, GroceryListInvite, GroceryListMember
+from .grocery import (
+    GroceryItem,
+    GroceryList,
+    GroceryListInvite,
+    GroceryListMember,
+    GroceryMutationReceipt,
+)
 from .identity import AppUser, ClerkIdentity
 from .meal_plan import MealPlanEntry
 from .moderation import AdminAuditEvent, ContentReport, UserBlock
@@ -14,6 +20,7 @@ __all__ = [
     "GroceryList",
     "GroceryListMember",
     "GroceryListInvite",
+    "GroceryMutationReceipt",
     "AppUser",
     "ClerkIdentity",
     "DeletionCleanupJob",

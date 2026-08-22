@@ -2,19 +2,28 @@
 
 import secrets
 import string
-from datetime import datetime
+from datetime import datetime, timezone
+from enum import Enum
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import ClerkUser, get_current_user
 from app.db import get_db
-from app.models.grocery import GroceryItem, GroceryList, GroceryListInvite, GroceryListMember
+from app.grocery_sync import grocery_account_scope_id, grocery_mutation_hash
+from app.models.grocery import (
+    GroceryItem,
+    GroceryList,
+    GroceryListInvite,
+    GroceryListMember,
+    GroceryMutationReceipt,
+)
+from app.models.identity import AppUser
 
 router = APIRouter(prefix="/api/grocery", tags=["grocery"])
 
@@ -46,8 +55,19 @@ async def get_user_list(db: AsyncSession, user_id: str) -> Optional[GroceryList]
     return result.scalar_one_or_none()
 
 
+async def _lock_membership_owner(db: AsyncSession, user_id: str) -> None:
+    """Serialize list resolution with every transition for this stable account."""
+
+    await db.scalar(
+        select(AppUser.id).where(AppUser.id == user_id).with_for_update()
+    )
+
+
 async def get_or_create_user_list(db: AsyncSession, user: ClerkUser) -> GroceryList:
     """Get the user's list, or create one if they don't have one."""
+    # Account deletion and every membership transition lock this same row.
+    # Keep it through list resolution so callers cannot retain stale access.
+    await _lock_membership_owner(db, user.id)
     grocery_list = await get_user_list(db, user.id)
     
     if not grocery_list:
@@ -64,7 +84,13 @@ async def get_or_create_user_list(db: AsyncSession, user: ClerkUser) -> GroceryL
         )
         db.add(member)
         await db.commit()
-        await db.refresh(grocery_list)
+        # Commit is required because read endpoints may create the first list.
+        # Reacquire the account lock and resolve again so a transition that won
+        # the small post-commit window cannot leave the caller with stale scope.
+        await _lock_membership_owner(db, user.id)
+        grocery_list = await get_user_list(db, user.id)
+        if grocery_list is None:
+            raise RuntimeError("Grocery list membership disappeared during creation")
     
     return grocery_list
 
@@ -104,6 +130,7 @@ class GroceryItemResponse(BaseModel):
     recipe_title: Optional[str] = None
     added_by_name: Optional[str] = None
     created_at: datetime
+    updated_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -131,7 +158,9 @@ class GroceryListResponse(BaseModel):
     name: str
     is_shared: bool
     members: list[GroceryListMemberResponse]
+    revision: int
     created_at: datetime
+    updated_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -154,6 +183,74 @@ class InvitePreviewResponse(BaseModel):
     already_member: bool = False
 
 
+class GroceryMutationOperation(str, Enum):
+    """Replay-safe operations supported by the synchronization contract."""
+
+    ADD = "add"
+    UPDATE = "update"
+    SET_CHECKED = "set_checked"
+    DELETE = "delete"
+
+
+class GroceryMutationRequest(BaseModel):
+    """One idempotent, desired-state grocery mutation."""
+
+    mutation_id: UUID
+    operation: GroceryMutationOperation
+    list_id: UUID
+    item_id: UUID
+    item: Optional[GroceryItemCreate] = None
+    changes: Optional[GroceryItemUpdate] = None
+    checked: Optional[bool] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def validate_operation_payload(self):
+        if self.operation is GroceryMutationOperation.ADD:
+            valid = self.item is not None and self.changes is None and self.checked is None
+        elif self.operation is GroceryMutationOperation.UPDATE:
+            valid = (
+                self.item is None
+                and self.changes is not None
+                and bool(self.changes.model_fields_set)
+                and "checked" not in self.changes.model_fields_set
+                and self.checked is None
+                and not (
+                    "name" in self.changes.model_fields_set
+                    and self.changes.name is None
+                )
+            )
+        elif self.operation is GroceryMutationOperation.SET_CHECKED:
+            valid = self.item is None and self.changes is None and self.checked is not None
+        else:
+            valid = self.item is None and self.changes is None and self.checked is None
+
+        if not valid:
+            raise ValueError(f"Invalid payload for grocery operation '{self.operation.value}'")
+        return self
+
+
+class GrocerySnapshotResponse(BaseModel):
+    """Atomic account/list scope and item state for offline clients and widgets."""
+
+    account_scope_id: str
+    list: GroceryListResponse
+    items: list[GroceryItemResponse]
+    total: int
+    unchecked: int
+    checked: int
+    server_time: datetime
+
+
+class GroceryMutationResponse(BaseModel):
+    """Mutation acknowledgement plus the authoritative post-mutation state."""
+
+    mutation_id: UUID
+    replayed: bool
+    snapshot: GrocerySnapshotResponse
+
+
 # ============================================================
 # List Management Endpoints
 # ============================================================
@@ -165,6 +262,7 @@ async def get_list_info(
 ):
     """Get info about the user's grocery list, including members."""
     grocery_list = await get_or_create_user_list(db, user)
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)
     
     # Get members with display names
     members_result = await db.execute(
@@ -185,7 +283,9 @@ async def get_list_info(
             )
             for m in members
         ],
-        created_at=grocery_list.created_at
+        revision=grocery_list.revision,
+        created_at=grocery_list.created_at,
+        updated_at=grocery_list.updated_at,
     )
 
 
@@ -269,6 +369,7 @@ async def join_list(
     user: ClerkUser = Depends(get_current_user)
 ):
     """Accept an invite and join a shared grocery list."""
+    await _lock_membership_owner(db, user.id)
     # Find the invite
     result = await db.execute(
         select(GroceryListInvite)
@@ -291,7 +392,15 @@ async def join_list(
     
     # Archive user's current personal items (if they have any)
     current_list = await get_user_list(db, user.id)
+    list_ids = {invite.list_id}
     if current_list:
+        list_ids.add(current_list.id)
+    locked_lists = await _lock_grocery_lists(db, list_ids)
+    target_list = locked_lists.get(invite.list_id)
+    if target_list is None:
+        raise HTTPException(status_code=404, detail="Invite not found or expired")
+    if current_list:
+        current_list = locked_lists[current_list.id]
         # Archive their personal items
         await db.execute(
             update(GroceryItem)
@@ -317,6 +426,8 @@ async def join_list(
         )
         if remaining_members.scalar() == 0:
             await db.execute(delete(GroceryList).where(GroceryList.id == current_list.id))
+        else:
+            current_list.revision += 1
     
     # Add user to the new list
     new_member = GroceryListMember(
@@ -328,7 +439,8 @@ async def join_list(
     
     # Mark invite as accepted
     invite.accepted_by = user.id
-    invite.accepted_at = datetime.utcnow()
+    invite.accepted_at = datetime.now(timezone.utc)
+    target_list.revision += 1
     
     await db.commit()
     
@@ -341,10 +453,12 @@ async def leave_list(
     user: ClerkUser = Depends(get_current_user)
 ):
     """Leave a shared grocery list. Your archived personal items will be restored."""
+    await _lock_membership_owner(db, user.id)
     current_list = await get_user_list(db, user.id)
     
     if not current_list:
         raise HTTPException(status_code=404, detail="You're not in a grocery list")
+    current_list = await _lock_grocery_list(db, current_list.id)
     
     # Get member count
     members_result = await db.execute(
@@ -386,6 +500,7 @@ async def leave_list(
         )
         .values(archived=False, list_id=new_list.id)
     )
+    current_list.revision += 1
     
     await db.commit()
     
@@ -399,10 +514,12 @@ async def remove_member(
     user: ClerkUser = Depends(get_current_user)
 ):
     """Remove a member from the shared grocery list."""
+    await _lock_membership_owner(db, member_user_id)
     current_list = await get_user_list(db, user.id)
     
     if not current_list:
         raise HTTPException(status_code=404, detail="You're not in a grocery list")
+    current_list = await _lock_grocery_list(db, current_list.id)
     
     # Check if target user is a member
     target_member = await db.execute(
@@ -446,6 +563,7 @@ async def remove_member(
         )
         .values(archived=False, list_id=new_list.id)
     )
+    current_list.revision += 1
     
     await db.commit()
     
@@ -455,6 +573,222 @@ async def remove_member(
 # ============================================================
 # Item Endpoints
 # ============================================================
+
+
+async def _build_grocery_snapshot(
+    db: AsyncSession,
+    grocery_list: GroceryList,
+    user: ClerkUser,
+) -> GrocerySnapshotResponse:
+    """Read one authoritative list snapshot inside the caller's transaction."""
+
+    members = (
+        await db.execute(
+            select(GroceryListMember)
+            .where(GroceryListMember.list_id == grocery_list.id)
+            .order_by(GroceryListMember.joined_at, GroceryListMember.user_id)
+        )
+    ).scalars().all()
+    items = (
+        await db.execute(
+            select(GroceryItem)
+            .where(
+                GroceryItem.list_id == grocery_list.id,
+                GroceryItem.archived.is_(False),
+            )
+            .order_by(GroceryItem.checked, GroceryItem.created_at.desc(), GroceryItem.id)
+        )
+    ).scalars().all()
+    unchecked = sum(not item.checked for item in items)
+
+    return GrocerySnapshotResponse(
+        account_scope_id=grocery_account_scope_id(user.id),
+        list=GroceryListResponse(
+            id=grocery_list.id,
+            name=grocery_list.name,
+            is_shared=len(members) > 1,
+            members=[
+                GroceryListMemberResponse(
+                    user_id=member.user_id,
+                    display_name=member.display_name,
+                    joined_at=member.joined_at,
+                    is_you=member.user_id == user.id,
+                )
+                for member in members
+            ],
+            revision=grocery_list.revision,
+            created_at=grocery_list.created_at,
+            updated_at=grocery_list.updated_at,
+        ),
+        items=[GroceryItemResponse.model_validate(item) for item in items],
+        total=len(items),
+        unchecked=unchecked,
+        checked=len(items) - unchecked,
+        server_time=datetime.now(timezone.utc),
+    )
+
+
+async def _mutation_item(
+    db: AsyncSession,
+    grocery_list: GroceryList,
+    item_id: UUID,
+) -> GroceryItem:
+    item = (
+        await db.execute(
+            select(GroceryItem).where(
+                GroceryItem.id == item_id,
+                GroceryItem.list_id == grocery_list.id,
+                GroceryItem.archived.is_(False),
+            )
+        )
+    ).scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return item
+
+
+async def _lock_grocery_list(
+    db: AsyncSession,
+    list_id: UUID,
+) -> GroceryList:
+    """Serialize all list mutations so revision increments cannot be lost."""
+
+    return (
+        await db.execute(
+            select(GroceryList)
+            .where(GroceryList.id == list_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+
+
+async def _lock_grocery_lists(
+    db: AsyncSession,
+    list_ids: set[UUID],
+) -> dict[UUID, GroceryList]:
+    """Lock multiple lists in UUID order to prevent reciprocal-join deadlocks."""
+
+    lists = (
+        await db.execute(
+            select(GroceryList)
+            .where(GroceryList.id.in_(list_ids))
+            .order_by(GroceryList.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalars().all()
+    return {grocery_list.id: grocery_list for grocery_list in lists}
+
+
+@router.get("/snapshot", response_model=GrocerySnapshotResponse)
+async def get_grocery_snapshot(
+    db: AsyncSession = Depends(get_db),
+    user: ClerkUser = Depends(get_current_user),
+):
+    """Return account-scoped list metadata, revision, counts, and items atomically."""
+
+    grocery_list = await get_or_create_user_list(db, user)
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)
+    return await _build_grocery_snapshot(db, grocery_list, user)
+
+
+@router.post("/sync", response_model=GroceryMutationResponse)
+async def sync_grocery_mutation(
+    mutation: GroceryMutationRequest,
+    db: AsyncSession = Depends(get_db),
+    user: ClerkUser = Depends(get_current_user),
+):
+    """Apply a hash-bound mutation once and return the authoritative list snapshot."""
+
+    grocery_list = await get_or_create_user_list(db, user)
+    if grocery_list.id != mutation.list_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Grocery list scope changed; refresh before retrying",
+        )
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)
+    payload_hash = grocery_mutation_hash(
+        mutation.model_dump(
+            mode="json",
+            exclude={"mutation_id"},
+            exclude_none=True,
+            exclude_unset=True,
+        )
+    )
+    receipt = await db.get(
+        GroceryMutationReceipt,
+        {"list_id": grocery_list.id, "mutation_id": mutation.mutation_id},
+    )
+    if receipt:
+        if (
+            receipt.actor_user_id != user.id
+            or receipt.operation != mutation.operation.value
+            or receipt.request_hash != payload_hash
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Mutation ID was already used with different input",
+            )
+        return GroceryMutationResponse(
+            mutation_id=mutation.mutation_id,
+            replayed=True,
+            snapshot=await _build_grocery_snapshot(db, grocery_list, user),
+        )
+
+    if mutation.operation is GroceryMutationOperation.ADD:
+        existing_item = await db.get(GroceryItem, mutation.item_id)
+        if existing_item:
+            raise HTTPException(status_code=409, detail="Item ID already exists")
+        assert mutation.item is not None
+        db.add(
+            GroceryItem(
+                id=mutation.item_id,
+                user_id=user.id,
+                list_id=grocery_list.id,
+                name=mutation.item.name,
+                quantity=mutation.item.quantity,
+                unit=mutation.item.unit,
+                notes=mutation.item.notes,
+                recipe_id=mutation.item.recipe_id,
+                recipe_title=mutation.item.recipe_title,
+                added_by_name=user.display_name,
+                checked=False,
+            )
+        )
+    elif mutation.operation is GroceryMutationOperation.UPDATE:
+        item = await _mutation_item(db, grocery_list, mutation.item_id)
+        assert mutation.changes is not None
+        for field, value in mutation.changes.model_dump(exclude_unset=True).items():
+            setattr(item, field, value)
+    elif mutation.operation is GroceryMutationOperation.SET_CHECKED:
+        item = await _mutation_item(db, grocery_list, mutation.item_id)
+        assert mutation.checked is not None
+        item.checked = mutation.checked
+    else:
+        item = await _mutation_item(db, grocery_list, mutation.item_id)
+        await db.delete(item)
+
+    grocery_list.revision += 1
+    db.add(
+        GroceryMutationReceipt(
+            list_id=grocery_list.id,
+            mutation_id=mutation.mutation_id,
+            actor_user_id=user.id,
+            operation=mutation.operation.value,
+            request_hash=payload_hash,
+        )
+    )
+    await db.flush()
+    await db.refresh(grocery_list)
+    snapshot = await _build_grocery_snapshot(db, grocery_list, user)
+    await db.commit()
+    return GroceryMutationResponse(
+        mutation_id=mutation.mutation_id,
+        replayed=False,
+        snapshot=snapshot,
+    )
+
 
 @router.get("/", response_model=list[GroceryItemResponse])
 async def get_grocery_items(
@@ -494,6 +828,7 @@ async def get_grocery_count(
 ):
     """Get count of grocery items (total and unchecked)."""
     grocery_list = await get_or_create_user_list(db, user)
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)
     
     # Total count
     total_result = await db.execute(
@@ -529,6 +864,7 @@ async def add_grocery_item(
 ):
     """Add a single item to the grocery list."""
     grocery_list = await get_or_create_user_list(db, user)
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)
     
     new_item = GroceryItem(
         user_id=user.id,
@@ -544,6 +880,7 @@ async def add_grocery_item(
     )
     
     db.add(new_item)
+    grocery_list.revision += 1
     await db.commit()
     await db.refresh(new_item)
     
@@ -562,6 +899,7 @@ async def add_from_recipe(
     This is a batch operation that adds multiple items at once.
     """
     grocery_list = await get_or_create_user_list(db, user)
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)
     new_items = []
     
     for ingredient in request.ingredients:
@@ -580,6 +918,7 @@ async def add_from_recipe(
         db.add(new_item)
         new_items.append(new_item)
     
+    grocery_list.revision += 1
     await db.commit()
     
     # Refresh all items to get their IDs
@@ -598,6 +937,7 @@ async def update_grocery_item(
 ):
     """Update a grocery item. Any member of the shared list can update items."""
     grocery_list = await get_or_create_user_list(db, user)
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)
     
     result = await db.execute(
         select(GroceryItem).where(
@@ -623,6 +963,7 @@ async def update_grocery_item(
     if item_update.checked is not None:
         item.checked = item_update.checked
     
+    grocery_list.revision += 1
     await db.commit()
     await db.refresh(item)
     
@@ -637,6 +978,7 @@ async def toggle_grocery_item(
 ):
     """Toggle the checked status of a grocery item. Any member can toggle."""
     grocery_list = await get_or_create_user_list(db, user)
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)
     
     result = await db.execute(
         select(GroceryItem).where(
@@ -651,6 +993,7 @@ async def toggle_grocery_item(
         raise HTTPException(status_code=404, detail="Item not found")
     
     item.checked = not item.checked
+    grocery_list.revision += 1
     await db.commit()
     await db.refresh(item)
     
@@ -665,6 +1008,7 @@ async def delete_grocery_item(
 ):
     """Delete a single grocery item. Any member can delete items."""
     grocery_list = await get_or_create_user_list(db, user)
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)
     
     result = await db.execute(
         select(GroceryItem).where(
@@ -679,6 +1023,7 @@ async def delete_grocery_item(
         raise HTTPException(status_code=404, detail="Item not found")
     
     await db.delete(item)
+    grocery_list.revision += 1
     await db.commit()
     
     return {"message": "Item deleted", "id": str(item_id)}
@@ -691,6 +1036,7 @@ async def clear_checked_items(
 ):
     """Delete all checked items from the grocery list."""
     grocery_list = await get_or_create_user_list(db, user)
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)
     
     result = await db.execute(
         delete(GroceryItem).where(
@@ -700,6 +1046,7 @@ async def clear_checked_items(
         ).returning(GroceryItem.id)
     )
     deleted_ids = result.scalars().all()
+    grocery_list.revision += 1
     await db.commit()
     
     return {
@@ -715,6 +1062,7 @@ async def clear_all_items(
 ):
     """Delete all items from the grocery list."""
     grocery_list = await get_or_create_user_list(db, user)
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)
     
     result = await db.execute(
         delete(GroceryItem).where(
@@ -723,6 +1071,7 @@ async def clear_all_items(
         ).returning(GroceryItem.id)
     )
     deleted_ids = result.scalars().all()
+    grocery_list.revision += 1
     await db.commit()
     
     return {
@@ -739,6 +1088,7 @@ async def clear_recipe_items(
 ):
     """Delete all items from a specific recipe in the grocery list."""
     grocery_list = await get_or_create_user_list(db, user)
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)
     
     result = await db.execute(
         delete(GroceryItem).where(
@@ -748,6 +1098,7 @@ async def clear_recipe_items(
         ).returning(GroceryItem.id)
     )
     deleted_ids = result.scalars().all()
+    grocery_list.revision += 1
     await db.commit()
     
     return {

@@ -2,7 +2,17 @@
 
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    PrimaryKeyConstraint,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -17,6 +27,10 @@ class GroceryList(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False, default="Grocery List")
+    # Monotonic change token used by mobile clients and WidgetKit snapshots.
+    # Every mutation through the durable sync contract increments this value
+    # while holding a row lock on the list.
+    revision = Column(BigInteger, nullable=False, default=0, server_default="0")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
@@ -44,6 +58,10 @@ class GroceryListMember(Base):
     
     # Relationships
     grocery_list = relationship("GroceryList", back_populates="members")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_grocery_list_members_user_id"),
+    )
 
 
 class GroceryListInvite(Base):
@@ -98,3 +116,45 @@ class GroceryItem(Base):
     
     # Relationships
     grocery_list = relationship("GroceryList", back_populates="items")
+
+
+class GroceryMutationReceipt(Base):
+    """Hash-bound receipt that makes client grocery mutations replay-safe."""
+
+    __tablename__ = "grocery_mutation_receipts"
+
+    list_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "grocery_lists.id",
+            ondelete="CASCADE",
+            name="fk_grocery_mutation_receipts_list",
+        ),
+        nullable=False,
+    )
+    mutation_id = Column(UUID(as_uuid=True), nullable=False)
+    actor_user_id = Column(
+        String(64),
+        ForeignKey(
+            "app_users.id",
+            ondelete="CASCADE",
+            name="fk_grocery_mutation_receipts_actor",
+        ),
+        nullable=False,
+        index=True,
+    )
+    operation = Column(String(24), nullable=False)
+    request_hash = Column(String(64), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        PrimaryKeyConstraint(
+            "list_id",
+            "mutation_id",
+            name="pk_grocery_mutation_receipts",
+        ),
+        CheckConstraint(
+            "operation IN ('add', 'update', 'set_checked', 'delete')",
+            name="ck_grocery_mutation_receipts_operation",
+        ),
+    )

@@ -68,7 +68,7 @@ Allowed actions are recorded in the database. Denied authenticated attempts are 
 
 ## Deployment and verification
 
-Render runs the versioned `python -m migrations.run` entrypoint, which currently applies migrations 016–022 in order. Adding a migration requires updating that checked-in runner, not hand-editing a provider command chain. The migrations are additive and idempotent. Startup refuses to serve if migration 022's marker, required columns/tables, validated constraints, featured-order uniqueness, current appeal/target checks, or append-only trigger are missing.
+Render runs the versioned `python -m migrations.run` entrypoint, which currently applies migrations 016–023 in order. Adding a migration requires updating that checked-in runner, not hand-editing a provider command chain. The migrations are additive and idempotent. Startup refuses to serve if migration 022's moderation marker, required columns/tables, validated constraints, featured-order uniqueness, current appeal/target checks, or append-only trigger are missing; the grocery synchronization boundary separately verifies migration 023.
 
 The active legacy Render service currently keeps the repository root as its service root, so its dashboard command is `cd api && python -m migrations.run`. The checked-in Blueprint sets `rootDir: api` and therefore uses `python -m migrations.run`. Tests require both configurations to point at the same versioned runner and fail when a newer numbered migration file is not registered.
 

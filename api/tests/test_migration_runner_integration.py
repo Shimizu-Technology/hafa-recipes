@@ -50,9 +50,13 @@ async def test_active_chain_replays_on_current_base_schema(monkeypatch):
         await migration_runner.run_migrations()
 
         async with engine.connect() as connection:
-            marker = await connection.scalar(text("""
-                SELECT COUNT(*) FROM schema_migrations WHERE version = 22
-            """))
+            marker = await connection.scalar(
+                text("""
+                    SELECT COUNT(*) FROM schema_migrations
+                    WHERE version = :latest_version
+                """),
+                {"latest_version": migration_runner.LATEST_MIGRATION},
+            )
             identity = await connection.scalar(text("""
                 SELECT COUNT(*) FROM clerk_identities
                 WHERE app_user_id = 'migration_runner_user'
