@@ -6,6 +6,7 @@ from .grocery import (
     GroceryListInvite,
     GroceryListMember,
     GroceryMutationReceipt,
+    GroceryWidgetCredential,
 )
 from .identity import AppUser, ClerkIdentity
 from .meal_plan import MealPlanEntry
@@ -21,6 +22,7 @@ __all__ = [
     "GroceryListMember",
     "GroceryListInvite",
     "GroceryMutationReceipt",
+    "GroceryWidgetCredential",
     "AppUser",
     "ClerkIdentity",
     "DeletionCleanupJob",

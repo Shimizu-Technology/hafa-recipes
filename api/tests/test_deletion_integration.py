@@ -2,7 +2,7 @@
 
 import asyncio
 import os
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from sqlalchemy import func, select, text
@@ -15,7 +15,12 @@ from app.config import Settings
 from app.db.database import Base
 from app.deletion_cleanup import DurableDeletionCleanupWorker, hash_auth_identity
 from app.models.deletion import DeletedAuthIdentity, DeletionCleanupJob
-from app.models.grocery import GroceryList, GroceryListInvite, GroceryListMember
+from app.models.grocery import (
+    GroceryList,
+    GroceryListInvite,
+    GroceryListMember,
+    GroceryWidgetCredential,
+)
 from app.models.identity import AppUser, ClerkIdentity
 from app.models.meal_plan import MealPlanEntry
 from app.models.recipe import ExtractionJob, Recipe, RecipeVersion
@@ -119,6 +124,17 @@ async def test_account_delete_commits_local_erasure_with_cleanup_intent(
                 accepted_by="stable_user",
             )
         )
+        now = cleanup.utc_now()
+        db.add(
+            GroceryWidgetCredential(
+                app_user_id="stable_user",
+                list_id=grocery_list.id,
+                installation_hash="a" * 64,
+                token_hash="b" * 64,
+                issued_at=now,
+                expires_at=now + timedelta(days=90),
+            )
+        )
         await db.commit()
         owned_recipe_id = owned_recipe.id
         other_version_id = other_version.id
@@ -133,6 +149,10 @@ async def test_account_delete_commits_local_erasure_with_cleanup_intent(
         assert remaining_version is not None
         assert remaining_version.created_by is None
         assert await db.scalar(select(func.count()).select_from(GroceryListInvite)) == 0
+        assert (
+            await db.scalar(select(func.count()).select_from(GroceryWidgetCredential))
+            == 0
+        )
 
         cleanup_job = await db.scalar(
             select(DeletionCleanupJob).where(
