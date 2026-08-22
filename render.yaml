@@ -6,6 +6,12 @@ services:
     branch: main
     autoDeployTrigger: commit
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    preDeployCommand: python -m migrations.run
+    preDeployCommand: >-
+      python -m app.grocery_membership_repair
+      --apply
+      --repair-id grocery-empty-list-dedup-2026-08-22
+      --expected-users 11
+      --expected-memberships 31
+      && python -m migrations.run
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /up
