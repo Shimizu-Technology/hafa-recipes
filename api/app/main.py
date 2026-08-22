@@ -23,12 +23,14 @@ from app.routers import (
     cooking_chat_router,
     extract_router,
     grocery_router,
+    grocery_widget_router,
     health_router,
     meal_plans_router,
     recipes_router,
     tts_router,
     users_router,
 )
+from app.widget_credentials import verify_widget_credential_schema
 
 settings = get_settings()
 
@@ -88,6 +90,7 @@ app.include_router(admin_router)
 app.include_router(recipes_router)
 app.include_router(extract_router)
 app.include_router(grocery_router)
+app.include_router(grocery_widget_router)
 app.include_router(chat_router)
 app.include_router(clerk_transition_router)
 app.include_router(cooking_chat_router)
@@ -123,6 +126,8 @@ async def startup():
     print("Moderation schema ready")
     await verify_grocery_sync_schema()
     print("Grocery synchronization schema ready")
+    await verify_widget_credential_schema()
+    print("Grocery widget credential schema ready")
     await job_worker.start()
     await deletion_cleanup_worker.start()
 

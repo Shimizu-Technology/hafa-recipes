@@ -158,3 +158,64 @@ class GroceryMutationReceipt(Base):
             name="ck_grocery_mutation_receipts_operation",
         ),
     )
+
+
+class GroceryWidgetCredential(Base):
+    """Revocable, device-scoped capability for the iOS grocery widget.
+
+    Only a digest of the opaque bearer secret is stored. The credential is
+    bound to the stable application user and the exact list membership that
+    existed when it was issued.
+    """
+
+    __tablename__ = "grocery_widget_credentials"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    app_user_id = Column(
+        String(64),
+        ForeignKey(
+            "app_users.id",
+            ondelete="CASCADE",
+            name="fk_grocery_widget_credentials_user",
+        ),
+        nullable=False,
+        index=True,
+    )
+    list_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "grocery_lists.id",
+            ondelete="CASCADE",
+            name="fk_grocery_widget_credentials_list",
+        ),
+        nullable=False,
+        index=True,
+    )
+    installation_hash = Column(String(64), nullable=False)
+    token_hash = Column(String(64), nullable=False, unique=True)
+    scope = Column(
+        String(64),
+        nullable=False,
+        default="grocery:read grocery:set_checked",
+        server_default="grocery:read grocery:set_checked",
+    )
+    issued_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "app_user_id",
+            "installation_hash",
+            name="uq_grocery_widget_credential_user_installation",
+        ),
+        CheckConstraint(
+            "scope = 'grocery:read grocery:set_checked'",
+            name="ck_grocery_widget_credentials_scope",
+        ),
+        CheckConstraint(
+            "expires_at > issued_at",
+            name="ck_grocery_widget_credentials_expiry",
+        ),
+    )

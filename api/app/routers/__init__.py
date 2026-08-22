@@ -6,6 +6,7 @@ from .collections import router as collections_router
 from .community_safety import router as community_safety_router
 from .extract import router as extract_router
 from .grocery import router as grocery_router
+from .grocery_widget import router as grocery_widget_router
 from .health import router as health_router
 from .meal_plans import router as meal_plans_router
 from .recipes import router as recipes_router
@@ -21,6 +22,7 @@ __all__ = [
     "cooking_chat_router",
     "extract_router",
     "grocery_router",
+    "grocery_widget_router",
     "health_router",
     "meal_plans_router",
     "recipes_router",
