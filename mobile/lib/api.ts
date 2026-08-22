@@ -18,6 +18,9 @@ import {
   GroceryItemCreate,
   GroceryCount,
   GroceryListInfo,
+  GrocerySnapshot,
+  GroceryMutationRequest,
+  GroceryMutationResponse,
   GroceryInvite,
   InvitePreview,
   ChatMessage,
@@ -686,6 +689,18 @@ class ApiClient {
 
   async getGroceryCount(): Promise<GroceryCount> {
     const { data } = await this.client.get('/api/grocery/count');
+    return data;
+  }
+
+  async getGrocerySnapshot(): Promise<GrocerySnapshot> {
+    const { data } = await this.client.get('/api/grocery/snapshot');
+    return data;
+  }
+
+  async syncGroceryMutation(
+    mutation: GroceryMutationRequest
+  ): Promise<GroceryMutationResponse> {
+    const { data } = await this.client.post('/api/grocery/sync', mutation);
     return data;
   }
 

@@ -18,7 +18,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { useQueryClient } from '@tanstack/react-query';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/expo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -37,9 +36,9 @@ import {
   useAddGroceryItem,
   useGrocerySync,
   useGroceryListInfo,
-  groceryKeys,
+  useDeleteGroceryItems,
+  useUpdateGroceryItem,
 } from '@/hooks/useGrocery';
-import { api } from '@/lib/api';
 import { GroceryItem } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { useTextSize } from '@/hooks/useTextSize';
@@ -223,7 +222,6 @@ export default function GroceryScreen() {
   const insets = useSafeAreaInsets();
   const { isSignedIn } = useAuth();
   const { scaleFontSize } = useTextSize();
-  const queryClient = useQueryClient();
   
   // Ref for the add item input to maintain focus
   const addItemInputRef = useRef<TextInput>(null);
@@ -231,7 +229,6 @@ export default function GroceryScreen() {
   const [newItemName, setNewItemName] = useState('');
   const [showChecked, setShowChecked] = useState(true);
   const [editingItem, setEditingItem] = useState<GroceryItem | null>(null);
-  const [isUpdating, setIsUpdating] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const [showSettings, setShowSettings] = useState(false);
 
@@ -256,7 +253,7 @@ export default function GroceryScreen() {
 
   // Pass isSignedIn to prevent queries from running when not authenticated
   const { data: groceryItems, isLoading, refetch, isRefetching } = useGroceryList(showChecked, isSignedIn);
-  const { data: countData, refetch: refetchCount } = useGroceryCount(isSignedIn);
+  const { data: countData } = useGroceryCount(isSignedIn);
 
   // Refetch when tab gains focus to ensure we always have fresh data
   // This is critical for shared lists where others may have made changes
@@ -266,15 +263,16 @@ export default function GroceryScreen() {
         // Force refetch to get the latest data from server
         // This ensures we don't show stale cache data
         refetch();
-        refetchCount();
       }
-    }, [isSignedIn, refetch, refetchCount])
+    }, [isSignedIn, refetch])
   );
   const toggleMutation = useToggleGroceryItem();
   const deleteMutation = useDeleteGroceryItem();
   const clearCheckedMutation = useClearCheckedItems();
   const clearAllMutation = useClearAllItems();
   const addItemMutation = useAddGroceryItem();
+  const deleteItemsMutation = useDeleteGroceryItems();
+  const updateItemMutation = useUpdateGroceryItem();
 
   // Load collapsed sections from AsyncStorage on mount
   useEffect(() => {
@@ -368,9 +366,12 @@ export default function GroceryScreen() {
     refetch();
   }, [refetch]);
   
-  const handleToggle = (id: string) => {
+  const handleToggle = (item: GroceryItem) => {
     haptics.light();
-    toggleMutation.mutate(id);
+    toggleMutation.mutate(
+      { id: item.id, checked: !item.checked },
+      { onError: () => Alert.alert('Error', 'Failed to update item') },
+    );
   };
 
   const handleDelete = (id: string, name: string) => {
@@ -380,7 +381,10 @@ export default function GroceryScreen() {
       {
         text: 'Delete',
         style: 'destructive',
-        onPress: () => deleteMutation.mutate(id),
+        onPress: () =>
+          deleteMutation.mutate(id, {
+            onError: () => Alert.alert('Error', 'Failed to delete item'),
+          }),
       },
     ]);
   };
@@ -396,7 +400,10 @@ export default function GroceryScreen() {
         {
           text: 'Clear',
           style: 'destructive',
-          onPress: () => clearCheckedMutation.mutate(),
+          onPress: () =>
+            clearCheckedMutation.mutate(undefined, {
+              onError: () => Alert.alert('Error', 'Failed to clear checked items'),
+            }),
         },
       ]
     );
@@ -415,7 +422,10 @@ export default function GroceryScreen() {
         {
           text: 'Clear All',
           style: 'destructive',
-          onPress: () => clearAllMutation.mutate(),
+          onPress: () =>
+            clearAllMutation.mutate(undefined, {
+              onError: () => Alert.alert('Error', 'Failed to clear the grocery list'),
+            }),
         },
       ]
     );
@@ -432,49 +442,12 @@ export default function GroceryScreen() {
         {
           text: 'Clear',
           style: 'destructive',
-          onPress: async () => {
+          onPress: () => {
             haptics.medium();
-            
-            // Optimistic update: immediately remove items from cache
-            // Get all list queries (there might be variations with includeChecked param)
-            const listQueries = queryClient.getQueriesData<GroceryItem[]>({ queryKey: groceryKeys.list() });
-            const previousCount = queryClient.getQueryData(groceryKeys.count());
-            
-            // Update all grocery list caches
-            listQueries.forEach(([queryKey]) => {
-              queryClient.setQueryData<GroceryItem[]>(queryKey, (old) => {
-                if (!old) return old;
-                return old.filter(item => item.recipe_id !== section.recipeId);
-              });
-            });
-            
-            // Update count cache
-            queryClient.setQueryData(groceryKeys.count(), (old: any) => {
-              if (!old) return old;
-              const removedCount = section.totalCount;
-              const removedChecked = section.checkedCount;
-              return {
-                total: Math.max(0, old.total - removedCount),
-                unchecked: Math.max(0, old.unchecked - (removedCount - removedChecked)),
-                checked: Math.max(0, old.checked - removedChecked),
-              };
-            });
-            
-            try {
-              await api.clearRecipeGroceryItems(section.recipeId!);
-              // Success - cache is already updated
-            } catch {
-              // Revert optimistic update on error
-              listQueries.forEach(([queryKey, data]) => {
-                if (data) {
-                  queryClient.setQueryData(queryKey, data);
-                }
-              });
-              if (previousCount) {
-                queryClient.setQueryData(groceryKeys.count(), previousCount);
-              }
-              Alert.alert('Error', 'Failed to clear recipe items');
-            }
+            deleteItemsMutation.mutate(
+              section.data.map((item) => item.id),
+              { onError: () => Alert.alert('Error', 'Failed to clear recipe items') },
+            );
           },
         },
       ]
@@ -506,6 +479,7 @@ export default function GroceryScreen() {
             addItemInputRef.current?.focus();
           }, 100);
         },
+        onError: () => Alert.alert('Error', 'Failed to add item'),
       }
     );
   };
@@ -587,20 +561,19 @@ export default function GroceryScreen() {
   const handleSaveEdit = async (updates: { name: string; quantity: string; unit: string; notes: string }) => {
     if (!editingItem) return;
     
-    setIsUpdating(true);
     try {
-      await api.updateGroceryItem(editingItem.id, {
-        name: updates.name,
-        quantity: updates.quantity || null,
-        unit: updates.unit || null,
-        notes: updates.notes || null,
+      await updateItemMutation.mutateAsync({
+        id: editingItem.id,
+        changes: {
+          name: updates.name,
+          quantity: updates.quantity || null,
+          unit: updates.unit || null,
+          notes: updates.notes || null,
+        },
       });
-      await refetch();
       setEditingItem(null);
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to update item');
-    } finally {
-      setIsUpdating(false);
     }
   };
 
@@ -615,7 +588,7 @@ export default function GroceryScreen() {
         <GroceryItemRow
           item={item}
           colors={colors}
-          onToggle={() => handleToggle(item.id)}
+          onToggle={() => handleToggle(item)}
           onDelete={() => handleDelete(item.id, item.name)}
           onEdit={() => handleEdit(item)}
           showRecipeLabel={false}
@@ -717,7 +690,6 @@ export default function GroceryScreen() {
               onPress={() => {
                 haptics.light();
                 refetch();
-                refetchCount();
               }} 
               style={styles.headerIconButton}
               disabled={isRefetching}
@@ -832,7 +804,7 @@ export default function GroceryScreen() {
         onClose={() => setEditingItem(null)}
         onSave={handleSaveEdit}
         item={editingItem}
-        isLoading={isUpdating}
+        isLoading={updateItemMutation.isPending}
       />
 
       {/* Settings Modal */}

@@ -200,6 +200,7 @@ export interface GroceryItem {
   recipe_title: string | null;
   added_by_name: string | null;  // Who added this item (for shared lists)
   created_at: string;
+  updated_at: string;
 }
 
 export interface GroceryItemCreate {
@@ -233,7 +234,41 @@ export interface GroceryListInfo {
   name: string;
   is_shared: boolean;
   members: GroceryListMember[];
+  revision: number;
   created_at: string;
+  updated_at: string;
+}
+
+export interface GrocerySnapshot {
+  account_scope_id: string;
+  list: GroceryListInfo;
+  items: GroceryItem[];
+  total: number;
+  unchecked: number;
+  checked: number;
+  server_time: string;
+}
+
+export type GroceryMutationOperation = 'add' | 'update' | 'set_checked' | 'delete';
+
+export type GroceryItemChanges = Partial<
+  Pick<GroceryItemCreate, 'name' | 'quantity' | 'unit' | 'notes'>
+>;
+
+export interface GroceryMutationRequest {
+  mutation_id: string;
+  operation: GroceryMutationOperation;
+  list_id: string;
+  item_id: string;
+  item?: GroceryItemCreate;
+  changes?: GroceryItemChanges;
+  checked?: boolean;
+}
+
+export interface GroceryMutationResponse {
+  mutation_id: string;
+  replayed: boolean;
+  snapshot: GrocerySnapshot;
 }
 
 export interface GroceryInvite {
