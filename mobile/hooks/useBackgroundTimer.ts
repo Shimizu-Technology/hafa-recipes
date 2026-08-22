@@ -32,14 +32,14 @@ interface ScheduledNotification {
  * Request notification permissions
  */
 export async function requestNotificationPermissions(): Promise<boolean> {
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
+  const { granted: alreadyGranted } = await Notifications.getPermissionsAsync();
   
-  if (existingStatus === 'granted') {
+  if (alreadyGranted) {
     return true;
   }
   
-  const { status } = await Notifications.requestPermissionsAsync();
-  return status === 'granted';
+  const { granted } = await Notifications.requestPermissionsAsync();
+  return granted;
 }
 
 /**
@@ -53,8 +53,8 @@ export function useBackgroundTimer() {
   // Check permissions on mount
   useEffect(() => {
     const checkPermissions = async () => {
-      const { status } = await Notifications.getPermissionsAsync();
-      setHasPermission(status === 'granted');
+      const { granted } = await Notifications.getPermissionsAsync();
+      setHasPermission(granted);
     };
     checkPermissions();
   }, []);

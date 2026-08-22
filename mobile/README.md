@@ -6,6 +6,10 @@ React Native app that transforms cooking videos, recipe websites, and recipe pho
 
 ## Quick Start
 
+Use Node.js 22.13 or newer. Native features such as the share extension require
+a development build; Expo Go is not the supported runtime for this app. The
+current Clerk native SDK sets the minimum supported iOS version to 17.0.
+
 ```bash
 # From the repository root, install dependencies and create the isolated database
 ./scripts/setup-dev.sh
@@ -18,7 +22,8 @@ React Native app that transforms cooking videos, recipe websites, and recipe pho
 ./scripts/check.sh
 ```
 
-Scan QR with Expo Go, or press `i` for iOS simulator.
+Run `npx expo run:ios` once to generate and install the iOS development build,
+then use `npm start` for subsequent Metro sessions.
 
 ## Environment Variables
 

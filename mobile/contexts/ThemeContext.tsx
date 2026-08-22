@@ -6,8 +6,10 @@
  */
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { useColorScheme as useSystemColorScheme, ColorSchemeName } from 'react-native';
+import { useColorScheme as useSystemColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import { normalizeColorScheme } from '@/lib/theme';
 
 const THEME_STORAGE_KEY = '@theme_preference';
 
@@ -61,7 +63,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // Resolve the actual color scheme
   const colorScheme: 'light' | 'dark' = 
     themePreference === 'system' 
-      ? (systemColorScheme ?? 'light')
+      ? normalizeColorScheme(systemColorScheme)
       : themePreference;
 
   return (
@@ -90,13 +92,13 @@ export function useTheme() {
  * Drop-in replacement for react-native's useColorScheme.
  * Uses our ThemeContext to support manual override.
  */
-export function useColorScheme(): ColorSchemeName {
+export function useColorScheme(): 'light' | 'dark' {
   const context = useContext(ThemeContext);
   // Fallback to system if not wrapped in provider (shouldn't happen)
   const systemScheme = useSystemColorScheme();
   
   if (context === undefined) {
-    return systemScheme;
+    return normalizeColorScheme(systemScheme);
   }
   
   return context.colorScheme;
