@@ -25,6 +25,7 @@ vi.mock('expo-crypto', () => ({
 
 import {
   addToSyncQueue,
+  assertGroceryStorageLease,
   bindOfflineGroceryIdentity,
   cacheGrocerySnapshot,
   cacheServerGrocerySnapshot,
@@ -101,6 +102,7 @@ describe('account-scoped offline grocery storage', () => {
     expect(await getCachedGrocerySnapshot(newLease)).toBeNull();
     expect(await getPendingSyncQueue(newLease)).toEqual([]);
     await expect(cacheGrocerySnapshot(snapshot(), oldLease)).rejects.toThrow('identity');
+    expect(() => assertGroceryStorageLease(oldLease)).toThrow('identity');
   });
 
   it('drops the previous list queue when server membership changes scope', async () => {

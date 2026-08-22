@@ -2,7 +2,7 @@
  * API client for the Recipe Extractor FastAPI backend.
  */
 
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { captureError, captureMessage, addBreadcrumb } from './sentry';
 import { API_BASE_URL } from './apiConfig';
 import {
@@ -42,6 +42,11 @@ import type {
 
 // Token getter function type - will be set by the app
 type TokenGetter = () => Promise<string | null>;
+export type RequestGuard = () => void;
+
+type GuardedRequestConfig = AxiosRequestConfig & {
+  requestGuard?: RequestGuard;
+};
 
 class ApiClient {
   private client: AxiosInstance;
@@ -100,6 +105,7 @@ class ApiClient {
             config.headers.Authorization = `Bearer ${token}`;
           }
         }
+        (config as GuardedRequestConfig).requestGuard?.();
         return config;
       },
       (error) => Promise.reject(error)
@@ -698,9 +704,12 @@ class ApiClient {
   }
 
   async syncGroceryMutation(
-    mutation: GroceryMutationRequest
+    mutation: GroceryMutationRequest,
+    requestGuard?: RequestGuard,
   ): Promise<GroceryMutationResponse> {
-    const { data } = await this.client.post('/api/grocery/sync', mutation);
+    const { data } = await this.client.post('/api/grocery/sync', mutation, {
+      requestGuard,
+    } as GuardedRequestConfig);
     return data;
   }
 
@@ -764,8 +773,12 @@ class ApiClient {
     return data;
   }
 
-  async createGroceryInvite(): Promise<GroceryInvite> {
-    const { data } = await this.client.post('/api/grocery/list/invite');
+  async createGroceryInvite(requestGuard?: RequestGuard): Promise<GroceryInvite> {
+    const { data } = await this.client.post(
+      '/api/grocery/list/invite',
+      undefined,
+      { requestGuard } as GuardedRequestConfig,
+    );
     return data;
   }
 
@@ -774,18 +787,29 @@ class ApiClient {
     return data;
   }
 
-  async joinGroceryList(code: string): Promise<{ message: string }> {
-    const { data } = await this.client.post(`/api/grocery/list/join/${code}`);
+  async joinGroceryList(code: string, requestGuard?: RequestGuard): Promise<{ message: string }> {
+    const { data } = await this.client.post(
+      `/api/grocery/list/join/${code}`,
+      undefined,
+      { requestGuard } as GuardedRequestConfig,
+    );
     return data;
   }
 
-  async leaveGroceryList(): Promise<{ message: string }> {
-    const { data } = await this.client.delete('/api/grocery/list/leave');
+  async leaveGroceryList(requestGuard?: RequestGuard): Promise<{ message: string }> {
+    const { data } = await this.client.delete('/api/grocery/list/leave', {
+      requestGuard,
+    } as GuardedRequestConfig);
     return data;
   }
 
-  async removeGroceryListMember(userId: string): Promise<{ message: string }> {
-    const { data } = await this.client.delete(`/api/grocery/list/members/${userId}`);
+  async removeGroceryListMember(
+    userId: string,
+    requestGuard?: RequestGuard,
+  ): Promise<{ message: string }> {
+    const { data } = await this.client.delete(`/api/grocery/list/members/${userId}`, {
+      requestGuard,
+    } as GuardedRequestConfig);
     return data;
   }
 

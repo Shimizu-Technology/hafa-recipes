@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import {
   addToSyncQueue,
+  assertGroceryStorageLease,
   cacheGrocerySnapshot,
   cacheServerGrocerySnapshot,
   clearActiveGroceryScope,
@@ -128,10 +129,11 @@ async function baseSnapshot(
 async function commitMutations(
   queryClient: ReturnType<typeof useQueryClient>,
   confirmedOffline: boolean,
+  lease: GroceryStorageLease,
   prepare: (snapshot: GrocerySnapshot) => GroceryMutationRequest[],
 ): Promise<GrocerySnapshot> {
   return serializeGroceryMutation(async () => {
-    const lease = getGroceryStorageLease();
+    assertGroceryStorageLease(lease);
     let snapshot = await baseSnapshot(queryClient, confirmedOffline, lease);
     const mutations = prepare(snapshot);
     if (mutations.length === 0) return snapshot;
@@ -149,7 +151,7 @@ async function commitMutations(
     for (const [index, mutation] of mutations.entries()) {
       try {
         const response = await sendGroceryMutationWithRetry(mutation, (request) =>
-          api.syncGroceryMutation(request),
+          api.syncGroceryMutation(request, () => assertGroceryStorageLease(lease)),
         );
         await removeFromSyncQueue(mutation.mutation_id, lease);
         snapshot = mutations
@@ -190,10 +192,12 @@ function useDurableMutation<T>(
   const queryClient = useQueryClient();
   const { isApiReachable } = useNetworkStatus();
   return useMutation({
-    mutationFn: (variables: T) =>
-      commitMutations(queryClient, isApiReachable === false, (snapshot) =>
+    mutationFn: (variables: T) => {
+      const lease = getGroceryStorageLease();
+      return commitMutations(queryClient, isApiReachable === false, lease, (snapshot) =>
         prepare(snapshot, variables),
-      ),
+      );
+    },
     retry: 0,
   });
 }
@@ -316,7 +320,7 @@ export function useGrocerySync() {
       for (const [index, entry] of queued.entries()) {
         try {
           const response = await sendGroceryMutationWithRetry(entry.mutation, (request) =>
-            api.syncGroceryMutation(request),
+            api.syncGroceryMutation(request, () => assertGroceryStorageLease(lease)),
           );
           serverSnapshot = response.snapshot;
           await removeFromSyncQueue(entry.mutation.mutation_id, lease);
@@ -396,7 +400,12 @@ export function usePendingGrocerySync() {
 }
 
 export function useCreateGroceryInvite() {
-  return useMutation({ mutationFn: () => api.createGroceryInvite() });
+  return useMutation({
+    mutationFn: () => {
+      const lease = getGroceryStorageLease();
+      return api.createGroceryInvite(() => assertGroceryStorageLease(lease));
+    },
+  });
 }
 
 export function useInvitePreview(code: string, enabled = true) {
@@ -408,15 +417,22 @@ export function useInvitePreview(code: string, enabled = true) {
   });
 }
 
-function useMembershipMutation<T>(mutationFn: (variables: T) => Promise<unknown>) {
+function useMembershipMutation<T>(
+  mutationFn: (variables: T, requestGuard: () => void) => Promise<unknown>,
+) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (variables: T) =>
-      serializeGroceryMutation(async () => {
-        const result = await mutationFn(variables);
-        await clearActiveGroceryScope(getGroceryStorageLease());
+    mutationFn: (variables: T) => {
+      const lease = getGroceryStorageLease();
+      return serializeGroceryMutation(async () => {
+        assertGroceryStorageLease(lease);
+        const result = await mutationFn(variables, () =>
+          assertGroceryStorageLease(lease),
+        );
+        await clearActiveGroceryScope(lease);
         return result;
-      }),
+      });
+    },
     onSuccess: async () => {
       queryClient.removeQueries({ queryKey: groceryKeys.all });
       await queryClient.invalidateQueries({ queryKey: groceryKeys.snapshot() });
@@ -425,17 +441,22 @@ function useMembershipMutation<T>(mutationFn: (variables: T) => Promise<unknown>
 }
 
 export function useJoinGroceryList() {
-  return useMembershipMutation<string>((code) => api.joinGroceryList(code));
+  return useMembershipMutation<string>((code, guard) => api.joinGroceryList(code, guard));
 }
 
 export function useLeaveGroceryList() {
-  return useMembershipMutation<void>(() => api.leaveGroceryList());
+  return useMembershipMutation<void>((_variables, guard) => api.leaveGroceryList(guard));
 }
 
 export function useRemoveGroceryMember() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (userId: string) => api.removeGroceryListMember(userId),
+    mutationFn: (userId: string) => {
+      const lease = getGroceryStorageLease();
+      return api.removeGroceryListMember(userId, () =>
+        assertGroceryStorageLease(lease),
+      );
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: groceryKeys.snapshot() }),
   });
 }

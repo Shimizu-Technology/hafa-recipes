@@ -31,7 +31,7 @@ let identityEpoch = 0;
 let scopeEpoch = 0;
 let identityReady = false;
 
-function assertLease(lease: GroceryStorageLease): void {
+export function assertGroceryStorageLease(lease: GroceryStorageLease): void {
   if (
     !identityReady ||
     lease.identityEpoch !== identityEpoch ||
@@ -43,7 +43,7 @@ function assertLease(lease: GroceryStorageLease): void {
 
 export function getGroceryStorageLease(): GroceryStorageLease {
   const lease = { identityEpoch, scopeEpoch };
-  assertLease(lease);
+  assertGroceryStorageLease(lease);
   return lease;
 }
 
@@ -134,7 +134,7 @@ export function cacheGrocerySnapshot(
   lease: GroceryStorageLease,
 ): Promise<void> {
   return serialized(async () => {
-    assertLease(lease);
+    assertGroceryStorageLease(lease);
     const scope = scopeFromSnapshot(snapshot);
     await setActiveScopeUnsafe(scope);
     await AsyncStorage.multiSet([
@@ -150,7 +150,7 @@ export function cacheServerGrocerySnapshot(
   lease: GroceryStorageLease,
 ): Promise<GrocerySnapshot> {
   return serialized(async () => {
-    assertLease(lease);
+    assertGroceryStorageLease(lease);
     const serverScope = scopeFromSnapshot(serverSnapshot);
     const activeScope = await getActiveScopeUnsafe();
     let snapshot = serverSnapshot;
@@ -184,7 +184,7 @@ export function getCachedGrocerySnapshot(
   lease: GroceryStorageLease,
 ): Promise<GrocerySnapshot | null> {
   return serialized(async () => {
-    assertLease(lease);
+    assertGroceryStorageLease(lease);
     const scope = await getActiveScopeUnsafe();
     if (!scope) return null;
     const raw = await AsyncStorage.getItem(snapshotKey(scope));
@@ -201,7 +201,7 @@ export function getCachedGrocerySnapshot(
 
 export function getLastSyncTime(lease: GroceryStorageLease): Promise<string | null> {
   return serialized(async () => {
-    assertLease(lease);
+    assertGroceryStorageLease(lease);
     const scope = await getActiveScopeUnsafe();
     return scope ? AsyncStorage.getItem(lastSyncKey(scope)) : null;
   });
@@ -212,7 +212,7 @@ export function applyLocalGroceryMutation(
   lease: GroceryStorageLease,
 ): Promise<GrocerySnapshot> {
   return serialized(async () => {
-    assertLease(lease);
+    assertGroceryStorageLease(lease);
     const scope = await getActiveScopeUnsafe();
     if (!scope || scope.listId !== mutation.list_id) throw new Error('No matching grocery snapshot is available offline.');
     const raw = await AsyncStorage.getItem(snapshotKey(scope));
@@ -229,7 +229,7 @@ export function addToSyncQueue(
   lease: GroceryStorageLease,
 ): Promise<void> {
   return serialized(async () => {
-    assertLease(lease);
+    assertGroceryStorageLease(lease);
     const scope = await getActiveScopeUnsafe();
     if (!scope || scope.listId !== mutation.list_id) throw new Error('Cannot queue a grocery mutation for an inactive list.');
     const key = queueKey(scope);
@@ -246,7 +246,7 @@ export function getPendingSyncQueue(
   lease: GroceryStorageLease,
 ): Promise<PendingGroceryMutation[]> {
   return serialized(async () => {
-    assertLease(lease);
+    assertGroceryStorageLease(lease);
     const scope = await getActiveScopeUnsafe();
     if (!scope) return [];
     const raw = await AsyncStorage.getItem(queueKey(scope));
@@ -265,7 +265,7 @@ export function removeFromSyncQueue(
   lease: GroceryStorageLease,
 ): Promise<void> {
   return serialized(async () => {
-    assertLease(lease);
+    assertGroceryStorageLease(lease);
     const scope = await getActiveScopeUnsafe();
     if (!scope) return;
     const key = queueKey(scope);
@@ -277,7 +277,7 @@ export function removeFromSyncQueue(
 
 export function clearSyncQueue(lease: GroceryStorageLease): Promise<void> {
   return serialized(async () => {
-    assertLease(lease);
+    assertGroceryStorageLease(lease);
     const scope = await getActiveScopeUnsafe();
     if (scope) await AsyncStorage.removeItem(queueKey(scope));
   });
@@ -288,7 +288,7 @@ export async function hasPendingSync(lease: GroceryStorageLease): Promise<boolea
 }
 
 export function clearActiveGroceryScope(lease: GroceryStorageLease): Promise<void> {
-  assertLease(lease);
+  assertGroceryStorageLease(lease);
   ++scopeEpoch;
   return serialized(async () => {
     const scope = await getActiveScopeUnsafe();
