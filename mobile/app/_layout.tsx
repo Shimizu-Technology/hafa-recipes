@@ -217,8 +217,10 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
         captureError(error instanceof Error ? error : new Error(String(error)), {
           tags: { operation: 'bindOfflineGroceryIdentity' },
         });
+        if (identityEpochRef.current !== epoch) return;
         try {
           await clearAllOfflineGroceryData();
+          if (identityEpochRef.current !== epoch) return;
           await bindOfflineGroceryIdentity(currentUserId);
         } catch (recoveryError) {
           captureError(
