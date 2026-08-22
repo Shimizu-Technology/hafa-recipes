@@ -29,7 +29,7 @@ import { shouldClearPrivateQueryCache } from '@/lib/authCache';
 import { queryClient } from '@/lib/queryClient';
 import { tokenCache, CLERK_PUBLISHABLE_KEY } from '@/lib/auth';
 import { api } from '@/lib/api';
-import { bindOfflineGroceryIdentity, clearAllOfflineGroceryData } from '@/lib/offlineStorage';
+import { bindOfflineGroceryIdentity } from '@/lib/offlineStorage';
 import { AppLoadingSkeleton } from '@/components/Skeleton';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { EnvironmentBanner } from '@/components/EnvironmentBanner';
@@ -219,8 +219,6 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
         });
         if (identityEpochRef.current !== epoch) return;
         try {
-          await clearAllOfflineGroceryData();
-          if (identityEpochRef.current !== epoch) return;
           await bindOfflineGroceryIdentity(currentUserId);
         } catch (recoveryError) {
           captureError(
