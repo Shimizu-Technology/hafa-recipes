@@ -289,12 +289,8 @@ export async function hasPendingSync(lease: GroceryStorageLease): Promise<boolea
 
 export function clearActiveGroceryScope(lease: GroceryStorageLease): Promise<void> {
   assertLease(lease);
-  const expectedIdentityEpoch = identityEpoch;
   ++scopeEpoch;
   return serialized(async () => {
-    if (!identityReady || identityEpoch !== expectedIdentityEpoch) {
-      throw new Error('Grocery storage identity changed.');
-    }
     const scope = await getActiveScopeUnsafe();
     if (scope) await AsyncStorage.multiRemove([snapshotKey(scope), queueKey(scope), lastSyncKey(scope), ACTIVE_SCOPE_KEY]);
     else await AsyncStorage.removeItem(ACTIVE_SCOPE_KEY);
