@@ -15,8 +15,8 @@ import {
 } from '@expo-google-fonts/fraunces';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useLayoutEffect, useRef } from 'react';
-import { View } from 'react-native';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Button, Text, View } from 'react-native';
 import 'react-native-reanimated';
 import { ShareIntentProvider } from 'expo-share-intent';
 
@@ -29,13 +29,14 @@ import { shouldClearPrivateQueryCache } from '@/lib/authCache';
 import { queryClient } from '@/lib/queryClient';
 import { tokenCache, CLERK_PUBLISHABLE_KEY } from '@/lib/auth';
 import { api } from '@/lib/api';
+import { bindOfflineGroceryIdentity } from '@/lib/offlineStorage';
 import { AppLoadingSkeleton } from '@/components/Skeleton';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { EnvironmentBanner } from '@/components/EnvironmentBanner';
 import { FloatingTimerOverlay } from '@/components/FloatingTimerOverlay';
 import FloatingChatButton from '@/components/FloatingChatButton';
 import { ClerkMigrationBridge } from '@/components/ClerkMigrationBridge';
-import { initSentry, setSentryUser, addBreadcrumb, withSentry } from '@/lib/sentry';
+import { initSentry, setSentryUser, addBreadcrumb, captureError, withSentry } from '@/lib/sentry';
 import { useHandleShareIntent } from '@/hooks/useShareIntent';
 
 // Initialize Sentry as early as possible
@@ -158,6 +159,12 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
   
   // `undefined` means Clerk has not produced the first loaded identity yet.
   const previousUserIdRef = useRef<string | null | undefined>(undefined);
+  const identityEpochRef = useRef(0);
+  const [boundOfflineIdentity, setBoundOfflineIdentity] = useState<string | null | undefined>(
+    undefined,
+  );
+  const [offlineIdentityBindingFailed, setOfflineIdentityBindingFailed] = useState(false);
+  const [offlineIdentityBindingAttempt, setOfflineIdentityBindingAttempt] = useState(0);
 
   // Use useLayoutEffect to set token getter BEFORE children render/effects run
   // This ensures token is available before any API calls
@@ -196,6 +203,38 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
     previousUserIdRef.current = currentUserId;
   }, [user?.id, isLoaded]);
 
+  // Bind private on-device grocery data before descendants can query it.
+  useLayoutEffect(() => {
+    if (!isLoaded) return;
+    const currentUserId = user?.id ?? null;
+    const epoch = ++identityEpochRef.current;
+    setOfflineIdentityBindingFailed(false);
+
+    void (async () => {
+      try {
+        await bindOfflineGroceryIdentity(currentUserId);
+      } catch (error) {
+        captureError(error instanceof Error ? error : new Error(String(error)), {
+          tags: { operation: 'bindOfflineGroceryIdentity' },
+        });
+        if (identityEpochRef.current !== epoch) return;
+        try {
+          await bindOfflineGroceryIdentity(currentUserId);
+        } catch (recoveryError) {
+          captureError(
+            recoveryError instanceof Error
+              ? recoveryError
+              : new Error(String(recoveryError)),
+            { tags: { operation: 'recoverOfflineGroceryIdentity' } },
+          );
+          if (identityEpochRef.current === epoch) setOfflineIdentityBindingFailed(true);
+          return;
+        }
+      }
+      if (identityEpochRef.current === epoch) setBoundOfflineIdentity(currentUserId);
+    })();
+  }, [isLoaded, user?.id, offlineIdentityBindingAttempt]);
+
   // Sync user context with Sentry
   useEffect(() => {
     if (!isLoaded) return;
@@ -214,6 +253,31 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
       }
     }
   }, [isSignedIn, isLoaded, user]);
+
+  const currentUserId = isLoaded ? user?.id ?? null : undefined;
+  if (offlineIdentityBindingFailed) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 16,
+          padding: 32,
+          backgroundColor: '#101411',
+        }}
+      >
+        <Text style={{ color: '#FFFFFF', fontSize: 17, textAlign: 'center' }}>
+          We couldn&apos;t prepare private offline storage for this account.
+        </Text>
+        <Button
+          title="Retry"
+          onPress={() => setOfflineIdentityBindingAttempt((attempt) => attempt + 1)}
+        />
+      </View>
+    );
+  }
+  if (boundOfflineIdentity !== currentUserId) return null;
 
   return <>{children}</>;
 }

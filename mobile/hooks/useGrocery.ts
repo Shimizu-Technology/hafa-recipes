@@ -1,727 +1,462 @@
-/**
- * React Query hooks for grocery list operations.
- * 
- * Includes offline support via AsyncStorage caching.
- * Changes made offline are queued and synced when back online.
- */
+/** Durable, account-scoped grocery synchronization hooks. */
 
-import { useQuery, useMutation, useQueryClient, useIsFetching } from '@tanstack/react-query';
-import { useState, useEffect, useCallback } from 'react';
-import { api } from '../lib/api';
-import { GroceryItem, GroceryItemCreate, Ingredient } from '../types/recipe';
-import { useNetworkStatus, useOnlineCallback } from './useNetworkStatus';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+import { api } from '@/lib/api';
 import {
-  cacheGroceryList,
-  getCachedGroceryList,
-  cacheGroceryCount,
-  getCachedGroceryCount,
   addToSyncQueue,
+  assertGroceryStorageLease,
+  cacheGrocerySnapshot,
+  cacheServerGrocerySnapshot,
+  clearActiveGroceryScope,
+  getGroceryStorageLease,
+  getCachedGrocerySnapshot,
   getPendingSyncQueue,
-  removeFromSyncQueue,
-  clearSyncQueue,
-  applyLocalToggle,
-  applyLocalDelete,
-  applyLocalAdd,
-  applyLocalClearChecked,
-  applyLocalClearAll,
-  replaceTempId,
   hasPendingSync,
-} from '../lib/offlineStorage';
+  removeFromSyncQueue,
+  type GroceryStorageLease,
+} from '@/lib/offlineStorage';
+import {
+  applyOptimisticGroceryMutation,
+  createAddMutation,
+  createCheckedMutation,
+  createDeleteMutation,
+  createUpdateMutation,
+  isRetryableGroceryError,
+  sendGroceryMutationWithRetry,
+} from '@/lib/grocerySync';
+import type {
+  GroceryItemChanges,
+  GroceryItemCreate,
+  GroceryMutationRequest,
+  GrocerySnapshot,
+  Ingredient,
+} from '@/types/recipe';
+import { useNetworkStatus, useOnlineCallback } from './useNetworkStatus';
 
-// Query keys
 export const groceryKeys = {
   all: ['grocery'] as const,
-  list: () => [...groceryKeys.all, 'list'] as const,
-  count: () => [...groceryKeys.all, 'count'] as const,
+  snapshot: () => [...groceryKeys.all, 'snapshot'] as const,
+  pending: () => [...groceryKeys.all, 'pendingSync'] as const,
 };
 
-/**
- * Fetch the grocery list with offline support
- */
+let groceryMutationChain: Promise<unknown> = Promise.resolve();
+
+function serializeGroceryMutation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = groceryMutationChain.then(operation, operation);
+  groceryMutationChain = result.then(() => undefined, () => undefined);
+  return result;
+}
+
+async function fetchAndCacheSnapshot(
+  lease = getGroceryStorageLease(),
+): Promise<GrocerySnapshot> {
+  const serverSnapshot = await api.getGrocerySnapshot();
+  return cacheServerGrocerySnapshot(serverSnapshot, lease);
+}
+
+function useSnapshotQuery(isSignedIn: boolean) {
+  const { isApiReachable } = useNetworkStatus();
+  return useQuery({
+    queryKey: groceryKeys.snapshot(),
+    queryFn: () =>
+      serializeGroceryMutation(async () => {
+        const lease = getGroceryStorageLease();
+        if (isApiReachable === false) {
+          const cached = await getCachedGrocerySnapshot(lease);
+          if (cached) return cached;
+          throw new Error('Your grocery list has not been saved for offline use yet.');
+        }
+        try {
+          return await fetchAndCacheSnapshot(lease);
+        } catch (error) {
+          const cached = await getCachedGrocerySnapshot(lease);
+          if (cached) return cached;
+          throw error;
+        }
+      }),
+    enabled: isSignedIn,
+    staleTime: 10_000,
+    retry: 2,
+    refetchOnReconnect: true,
+    refetchOnMount: 'always',
+  });
+}
+
 export function useGroceryList(includeChecked = true, isSignedIn = true) {
-  const { isApiReachable } = useNetworkStatus();
-  const queryClient = useQueryClient();
-
-  return useQuery({
-    queryKey: [...groceryKeys.list(), includeChecked],
-    queryFn: async () => {
-      // IMPORTANT: Only use offline mode if we've CONFIRMED we're offline
-      // (isApiReachable === false, not null which means "unknown")
-      const confirmedOffline = isApiReachable === false;
-      
-      if (confirmedOffline) {
-        // Confirmed offline - use cache
-        console.log('Offline mode: using cached grocery list');
-        const cached = await getCachedGroceryList();
-        if (cached) {
-          return includeChecked ? cached : cached.filter(item => !item.checked);
-        }
-        return [];
-      }
-
-      // Online or status unknown - ALWAYS try to fetch fresh data from server
-      try {
-        const data = await api.getGroceryList(includeChecked);
-        
-        // Cache the full list for offline use
-        if (includeChecked) {
-          await cacheGroceryList(data);
-        }
-        
-        return data;
-      } catch (error) {
-        // If API fails (timeout, server error, etc.), fall back to cache
-        // This prevents showing an error screen when we have usable cached data
-        console.log('API fetch failed, trying cache fallback');
-        const cached = await getCachedGroceryList();
-        if (cached && cached.length > 0) {
-          console.log(`Using cached data (${cached.length} items)`);
-          return includeChecked ? cached : cached.filter(item => !item.checked);
-        }
-        // No cache available - re-throw the error
-        throw error;
-      }
-    },
-    // DON'T use placeholderData - it can show stale cache while fetching
-    // Instead, just show loading state until we have fresh data
-    // This prevents the "partial data" issue where cache shows incomplete list
-    
-    // Only run query when user is signed in
-    enabled: isSignedIn,
-    // Reduce staleTime to ensure fresher data
-    staleTime: 10 * 1000, // 10 seconds instead of 30
-    retry: 3,
-    // Refetch when network comes back online
-    refetchOnReconnect: true,
-    // Retry on mount to ensure fresh data
-    refetchOnMount: 'always',
-  });
+  const query = useSnapshotQuery(isSignedIn);
+  return {
+    ...query,
+    data: query.data
+      ? includeChecked
+        ? query.data.items
+        : query.data.items.filter((item) => !item.checked)
+      : undefined,
+  };
 }
 
-/**
- * Get grocery item counts with offline support
- */
 export function useGroceryCount(isSignedIn = true) {
-  const { isApiReachable } = useNetworkStatus();
+  const query = useSnapshotQuery(isSignedIn);
+  return {
+    ...query,
+    data: query.data
+      ? { total: query.data.total, checked: query.data.checked, unchecked: query.data.unchecked }
+      : undefined,
+  };
+}
 
-  return useQuery({
-    queryKey: groceryKeys.count(),
-    queryFn: async () => {
-      // IMPORTANT: Only use offline mode if we've CONFIRMED we're offline
-      const confirmedOffline = isApiReachable === false;
-      
-      if (confirmedOffline) {
-        console.log('Offline mode: using cached grocery count');
-        const cached = await getCachedGroceryCount();
-        if (cached) {
-          return cached;
-        }
-        return { total: 0, checked: 0, unchecked: 0 };
-      }
+export function useGroceryListInfo(isSignedIn = true) {
+  const query = useSnapshotQuery(isSignedIn);
+  return { ...query, data: query.data?.list };
+}
 
-      // Online or status unknown - ALWAYS fetch fresh data
+async function baseSnapshot(
+  queryClient: ReturnType<typeof useQueryClient>,
+  confirmedOffline: boolean,
+  lease: GroceryStorageLease,
+): Promise<GrocerySnapshot> {
+  const memory = queryClient.getQueryData<GrocerySnapshot>(groceryKeys.snapshot());
+  if (memory) return memory;
+  const cached = await getCachedGrocerySnapshot(lease);
+  if (cached) return cached;
+  if (confirmedOffline) throw new Error('Open your grocery list online before editing it offline.');
+  const snapshot = await fetchAndCacheSnapshot(lease);
+  queryClient.setQueryData(groceryKeys.snapshot(), snapshot);
+  return snapshot;
+}
+
+async function commitMutations(
+  queryClient: ReturnType<typeof useQueryClient>,
+  confirmedOffline: boolean,
+  lease: GroceryStorageLease,
+  prepare: (snapshot: GrocerySnapshot) => GroceryMutationRequest[],
+): Promise<GrocerySnapshot> {
+  return serializeGroceryMutation(async () => {
+    assertGroceryStorageLease(lease);
+    let snapshot = await baseSnapshot(queryClient, confirmedOffline, lease);
+    const mutations = prepare(snapshot);
+    if (mutations.length === 0) return snapshot;
+
+    for (const mutation of mutations) {
+      await addToSyncQueue(mutation, lease);
+      snapshot = applyOptimisticGroceryMutation(snapshot, mutation);
+      await cacheGrocerySnapshot(snapshot, lease);
+      queryClient.setQueryData(groceryKeys.snapshot(), snapshot);
+    }
+    await queryClient.invalidateQueries({ queryKey: groceryKeys.pending() });
+
+    if (confirmedOffline) return snapshot;
+
+    for (const [index, mutation] of mutations.entries()) {
       try {
-        const data = await api.getGroceryCount();
-        await cacheGroceryCount(data);
-        return data;
+        const response = await sendGroceryMutationWithRetry(mutation, (request) =>
+          api.syncGroceryMutation(request, () => assertGroceryStorageLease(lease)),
+        );
+        await removeFromSyncQueue(mutation.mutation_id, lease);
+        snapshot = mutations
+          .slice(index + 1)
+          .reduce(
+            (current, pending) => applyOptimisticGroceryMutation(current, pending),
+            response.snapshot,
+          );
+        await cacheGrocerySnapshot(snapshot, lease);
+        queryClient.setQueryData(groceryKeys.snapshot(), snapshot);
       } catch (error) {
-        // Fall back to cache if API fails
-        const cached = await getCachedGroceryCount();
-        if (cached) {
-          return cached;
+        if (isRetryableGroceryError(error)) return snapshot;
+        await removeFromSyncQueue(mutation.mutation_id, lease);
+        try {
+          const serverSnapshot = await fetchAndCacheSnapshot(lease);
+          snapshot = mutations
+            .slice(index + 1)
+            .reduce(
+              (current, pending) => applyOptimisticGroceryMutation(current, pending),
+              serverSnapshot,
+            );
+          await cacheGrocerySnapshot(snapshot, lease);
+          queryClient.setQueryData(groceryKeys.snapshot(), snapshot);
+        } catch {
+          // The queued mutation was rejected permanently; retain the last safe snapshot.
         }
         throw error;
       }
-    },
-    // Only run query when user is signed in
-    enabled: isSignedIn,
-    staleTime: 10 * 1000, // 10 seconds
-    retry: 3,
-    refetchOnReconnect: true,
-    refetchOnMount: 'always',
+    }
+    await queryClient.invalidateQueries({ queryKey: groceryKeys.pending() });
+    return snapshot;
   });
 }
 
-/**
- * Add a single grocery item with offline support and optimistic updates
- */
+function useDurableMutation<T>(
+  prepare: (snapshot: GrocerySnapshot, variables: T) => GroceryMutationRequest[],
+) {
+  const queryClient = useQueryClient();
+  const { isApiReachable } = useNetworkStatus();
+  return useMutation({
+    mutationFn: (variables: T) => {
+      const lease = getGroceryStorageLease();
+      return commitMutations(queryClient, isApiReachable === false, lease, (snapshot) =>
+        prepare(snapshot, variables),
+      );
+    },
+    retry: 0,
+  });
+}
+
 export function useAddGroceryItem() {
-  const queryClient = useQueryClient();
-  const { isOnline } = useNetworkStatus();
-
-  return useMutation({
-    mutationFn: async (item: GroceryItemCreate) => {
-      if (!isOnline) {
-        const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        await applyLocalAdd(item, tempId);
-        // Convert null to undefined for sync queue type compatibility
-        await addToSyncQueue({ 
-          type: 'ADD_ITEM', 
-          payload: { 
-            ...item, 
-            tempId,
-            recipe_id: item.recipe_id ?? undefined,
-            recipe_title: item.recipe_title ?? undefined,
-          } 
-        });
-        
-        return {
-          id: tempId,
-          ...item,
-          checked: false,
-          created_at: new Date().toISOString(),
-        } as GroceryItem;
-      }
-
-      return api.addGroceryItem(item);
-    },
-    onMutate: async (newItem) => {
-      // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: groceryKeys.list() });
-      await queryClient.cancelQueries({ queryKey: groceryKeys.count() });
-
-      // Snapshot previous data
-      const previousListTrue = queryClient.getQueryData<GroceryItem[]>([...groceryKeys.list(), true]);
-      const previousListFalse = queryClient.getQueryData<GroceryItem[]>([...groceryKeys.list(), false]);
-      const previousCount = queryClient.getQueryData<{ total: number; checked: number; unchecked: number }>(groceryKeys.count());
-
-      // Create optimistic item
-      const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const optimisticItem: GroceryItem = {
-        id: tempId,
-        name: newItem.name,
-        quantity: newItem.quantity ?? null,
-        unit: newItem.unit ?? null,
-        notes: newItem.notes ?? null,
-        checked: false,
-        recipe_id: newItem.recipe_id ?? null,
-        recipe_title: newItem.recipe_title ?? null,
-        added_by_name: null,
-        created_at: new Date().toISOString(),
-      };
-
-      // Update list cache - add to TOP of list
-      if (previousListTrue) {
-        queryClient.setQueryData<GroceryItem[]>([...groceryKeys.list(), true], [optimisticItem, ...previousListTrue]);
-      } else {
-        queryClient.setQueryData<GroceryItem[]>([...groceryKeys.list(), true], [optimisticItem]);
-      }
-
-      if (previousListFalse) {
-        queryClient.setQueryData<GroceryItem[]>([...groceryKeys.list(), false], [optimisticItem, ...previousListFalse]);
-      }
-
-      // Update count cache
-      if (previousCount) {
-        queryClient.setQueryData(groceryKeys.count(), {
-          total: previousCount.total + 1,
-          checked: previousCount.checked,
-          unchecked: previousCount.unchecked + 1,
-        });
-      }
-
-      return { previousListTrue, previousListFalse, previousCount, tempId };
-    },
-    onSuccess: (serverItem, variables, context) => {
-      // Replace temp item with real server item
-      if (context?.tempId && serverItem) {
-        queryClient.setQueryData<GroceryItem[]>([...groceryKeys.list(), true], (old) => {
-          if (!old) return [serverItem];
-          return old.map(item => item.id === context.tempId ? serverItem : item);
-        });
-        queryClient.setQueryData<GroceryItem[]>([...groceryKeys.list(), false], (old) => {
-          if (!old) return undefined;
-          return old.map(item => item.id === context.tempId ? serverItem : item);
-        });
-      }
-    },
-    onError: (err, newItem, context) => {
-      // Rollback on error
-      if (context?.previousListTrue !== undefined) {
-        queryClient.setQueryData([...groceryKeys.list(), true], context.previousListTrue);
-      }
-      if (context?.previousListFalse !== undefined) {
-        queryClient.setQueryData([...groceryKeys.list(), false], context.previousListFalse);
-      }
-      if (context?.previousCount) {
-        queryClient.setQueryData(groceryKeys.count(), context.previousCount);
-      }
-    },
-  });
+  return useDurableMutation<GroceryItemCreate>((snapshot, item) => [
+    createAddMutation(snapshot.list.id, item),
+  ]);
 }
 
-/**
- * Add ingredients from a recipe to the grocery list
- */
 export function useAddFromRecipe() {
-  const queryClient = useQueryClient();
-  const { isOnline } = useNetworkStatus();
-
-  return useMutation({
-    mutationFn: async ({
-      recipeId,
-      recipeTitle,
-      ingredients,
-    }: {
-      recipeId: string;
-      recipeTitle: string;
-      ingredients: Ingredient[];
-    }) => {
-      const items: GroceryItemCreate[] = ingredients.map((ing) => ({
-        name: ing.name,
-        quantity: ing.quantity,
-        unit: ing.unit,
-        notes: ing.notes,
-      }));
-
-      if (!isOnline) {
-        // Offline: apply each item locally and queue for sync
-        for (const item of items) {
-          const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-          await applyLocalAdd({ ...item, recipe_id: recipeId, recipe_title: recipeTitle }, tempId);
-        }
-        await addToSyncQueue({ 
-          type: 'ADD_FROM_RECIPE', 
-          payload: { recipeId, recipeTitle, items } 
-        });
-        return;
-      }
-
-      return api.addGroceryItemsFromRecipe(recipeId, recipeTitle, items);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: groceryKeys.list() });
-      queryClient.invalidateQueries({ queryKey: groceryKeys.count() });
-    },
-  });
+  return useDurableMutation<{
+    recipeId: string;
+    recipeTitle: string;
+    ingredients: Ingredient[];
+  }>((snapshot, { recipeId, recipeTitle, ingredients }) =>
+    ingredients.map((ingredient) =>
+      createAddMutation(snapshot.list.id, {
+        name: ingredient.name,
+        quantity: ingredient.quantity,
+        unit: ingredient.unit,
+        notes: ingredient.notes,
+        recipe_id: recipeId,
+        recipe_title: recipeTitle,
+      }),
+    ),
+  );
 }
 
-/**
- * Toggle a grocery item's checked status with offline support
- */
 export function useToggleGroceryItem() {
-  const queryClient = useQueryClient();
-  const { isOnline } = useNetworkStatus();
-
-  return useMutation({
-    mutationFn: async (id: string) => {
-      // Always apply locally first (optimistic)
-      await applyLocalToggle(id);
-
-      if (!isOnline) {
-        // Queue for sync
-        await addToSyncQueue({ type: 'TOGGLE_ITEM', payload: { id } });
-        return;
-      }
-
-      // Online: send to server
-      return api.toggleGroceryItem(id);
-    },
-    onMutate: async (id) => {
-      // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: groceryKeys.list() });
-
-      // Get all grocery list queries
-      const queries = queryClient.getQueriesData({ queryKey: groceryKeys.list() });
-      
-      // Store previous values
-      const previousData: Array<{ queryKey: any; data: any }> = [];
-      
-      // Optimistically update ALL grocery list queries
-      queries.forEach(([queryKey, data]) => {
-        if (data) {
-          previousData.push({ queryKey, data });
-          
-          queryClient.setQueryData(queryKey, (old: any) => {
-            if (!old || !Array.isArray(old)) return old;
-            return old.map((item: any) =>
-              item.id === id ? { ...item, checked: !item.checked } : item
-            );
-          });
-        }
-      });
-
-      // Also update the count optimistically
-      const countData = queryClient.getQueryData(groceryKeys.count()) as any;
-      if (countData) {
-        const allItems = queries[0]?.[1] as any[];
-        const item = allItems?.find((i: any) => i.id === id);
-        
-        if (item) {
-          const wasChecked = item.checked;
-          queryClient.setQueryData(groceryKeys.count(), {
-            ...countData,
-            checked: wasChecked ? countData.checked - 1 : countData.checked + 1,
-            unchecked: wasChecked ? countData.unchecked + 1 : countData.unchecked - 1,
-          });
-        }
-      }
-
-      return { previousData, previousCount: countData };
-    },
-    onError: (err, id, context) => {
-      // Roll back on error
-      if (context?.previousData) {
-        context.previousData.forEach(({ queryKey, data }) => {
-          queryClient.setQueryData(queryKey, data);
-        });
-      }
-      if (context?.previousCount) {
-        queryClient.setQueryData(groceryKeys.count(), context.previousCount);
-      }
-    },
-    onSuccess: (data, id, context) => {
-      // Don't invalidate immediately - the optimistic update is already correct
-      // Only sync count after a small delay to avoid flashing
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: groceryKeys.count() });
-      }, 500);
-    },
-  });
+  return useDurableMutation<{ id: string; checked: boolean }>((snapshot, { id, checked }) => [
+    createCheckedMutation(snapshot.list.id, id, checked),
+  ]);
 }
 
-/**
- * Delete a grocery item with offline support
- */
+export function useUpdateGroceryItem() {
+  return useDurableMutation<{ id: string; changes: GroceryItemChanges }>(
+    (snapshot, { id, changes }) => [createUpdateMutation(snapshot.list.id, id, changes)],
+  );
+}
+
 export function useDeleteGroceryItem() {
-  const queryClient = useQueryClient();
-  const { isOnline } = useNetworkStatus();
-
-  return useMutation({
-    mutationFn: async (id: string) => {
-      // Always apply locally first
-      await applyLocalDelete(id);
-
-      if (!isOnline) {
-        // Don't queue delete for temp items (they were never synced)
-        if (!id.startsWith('temp_')) {
-          await addToSyncQueue({ type: 'DELETE_ITEM', payload: { id } });
-        }
-        return;
-      }
-
-      // Online: send to server (unless it's a temp item)
-      if (!id.startsWith('temp_')) {
-        return api.deleteGroceryItem(id);
-      }
-    },
-    onMutate: async (id) => {
-      await queryClient.cancelQueries({ queryKey: groceryKeys.list() });
-      await queryClient.cancelQueries({ queryKey: groceryKeys.count() });
-
-      const queries = queryClient.getQueriesData({ queryKey: groceryKeys.list() });
-      const previousData: Array<{ queryKey: any; data: any }> = [];
-      let deletedItem: any = null;
-      
-      queries.forEach(([queryKey, data]) => {
-        if (data && Array.isArray(data)) {
-          previousData.push({ queryKey, data });
-          
-          if (!deletedItem) {
-            deletedItem = data.find((item: any) => item.id === id);
-          }
-          
-          queryClient.setQueryData(queryKey, (old: any) => {
-            if (!old || !Array.isArray(old)) return old;
-            return old.filter((item: any) => item.id !== id);
-          });
-        }
-      });
-
-      const countData = queryClient.getQueryData(groceryKeys.count()) as any;
-      if (countData && deletedItem) {
-        queryClient.setQueryData(groceryKeys.count(), {
-          ...countData,
-          total: countData.total - 1,
-          checked: deletedItem.checked ? countData.checked - 1 : countData.checked,
-          unchecked: deletedItem.checked ? countData.unchecked : countData.unchecked - 1,
-        });
-      }
-
-      return { previousData, previousCount: countData };
-    },
-    onError: (err, id, context) => {
-      if (context?.previousData) {
-        context.previousData.forEach(({ queryKey, data }) => {
-          queryClient.setQueryData(queryKey, data);
-        });
-      }
-      if (context?.previousCount) {
-        queryClient.setQueryData(groceryKeys.count(), context.previousCount);
-      }
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: groceryKeys.count() });
-    },
-  });
+  return useDurableMutation<string>((snapshot, id) => [
+    createDeleteMutation(snapshot.list.id, id),
+  ]);
 }
 
-/**
- * Clear all checked items with offline support
- */
+export function useDeleteGroceryItems() {
+  return useDurableMutation<string[]>((snapshot, ids) =>
+    ids.map((id) => createDeleteMutation(snapshot.list.id, id)),
+  );
+}
+
 export function useClearCheckedItems() {
-  const queryClient = useQueryClient();
-  const { isOnline } = useNetworkStatus();
-
-  return useMutation({
-    mutationFn: async () => {
-      await applyLocalClearChecked();
-
-      if (!isOnline) {
-        await addToSyncQueue({ type: 'CLEAR_CHECKED' });
-        return;
-      }
-
-      return api.clearCheckedGroceryItems();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: groceryKeys.list() });
-      queryClient.invalidateQueries({ queryKey: groceryKeys.count() });
-    },
-  });
+  return useDurableMutation<void>((snapshot) =>
+    snapshot.items
+      .filter((item) => item.checked)
+      .map((item) => createDeleteMutation(snapshot.list.id, item.id)),
+  );
 }
 
-/**
- * Clear all grocery items with offline support
- */
 export function useClearAllItems() {
-  const queryClient = useQueryClient();
-  const { isOnline } = useNetworkStatus();
-
-  return useMutation({
-    mutationFn: async () => {
-      await applyLocalClearAll();
-
-      if (!isOnline) {
-        await addToSyncQueue({ type: 'CLEAR_ALL' });
-        return;
-      }
-
-      return api.clearAllGroceryItems();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: groceryKeys.list() });
-      queryClient.invalidateQueries({ queryKey: groceryKeys.count() });
-    },
-  });
+  return useDurableMutation<void>((snapshot) =>
+    snapshot.items.map((item) => createDeleteMutation(snapshot.list.id, item.id)),
+  );
 }
 
-/**
- * Result of a sync operation
- */
 export interface SyncResult {
   synced: number;
   failed: number;
   failedItems: string[];
 }
 
-/**
- * Hook to sync pending changes when coming back online
- */
 export function useGrocerySync() {
   const queryClient = useQueryClient();
   const { isOnline } = useNetworkStatus();
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
+  const syncingRef = useRef<Promise<SyncResult> | null>(null);
 
   const syncPendingChanges = useCallback(async (): Promise<SyncResult> => {
-    const result: SyncResult = { synced: 0, failed: 0, failedItems: [] };
-    
-    if (!isOnline) return result;
-
-    const queue = await getPendingSyncQueue();
-    if (queue.length === 0) return result;
-
-    console.log(`[Grocery Sync] Syncing ${queue.length} pending changes...`);
-
-    for (const item of queue) {
+    if (syncingRef.current) return syncingRef.current;
+    const sync = serializeGroceryMutation(async () => {
+      const result: SyncResult = { synced: 0, failed: 0, failedItems: [] };
+      if (!isOnline) return result;
+      const lease = getGroceryStorageLease();
+      const queued = await getPendingSyncQueue(lease);
+      let serverSnapshot: GrocerySnapshot;
       try {
-        switch (item.action.type) {
-          case 'TOGGLE_ITEM':
-            // Skip if it's a temp item
-            if (!item.action.payload.id.startsWith('temp_')) {
-              await api.toggleGroceryItem(item.action.payload.id);
-            }
-            break;
-
-          case 'DELETE_ITEM':
-            if (!item.action.payload.id.startsWith('temp_')) {
-              await api.deleteGroceryItem(item.action.payload.id);
-            }
-            break;
-
-          case 'ADD_ITEM': {
-            const { tempId, ...itemData } = item.action.payload;
-            const addResult = await api.addGroceryItem(itemData);
-            // Replace temp ID with real ID in cache
-            await replaceTempId(tempId, addResult.id);
-            break;
-          }
-
-          case 'ADD_FROM_RECIPE':
-            const items = item.action.payload.items.map(i => ({
-              name: i.name,
-              quantity: i.quantity,
-              unit: i.unit,
-              notes: i.notes,
-            }));
-            await api.addGroceryItemsFromRecipe(
-              item.action.payload.recipeId,
-              item.action.payload.recipeTitle,
-              items
-            );
-            break;
-
-          case 'CLEAR_CHECKED':
-            await api.clearCheckedGroceryItems();
-            break;
-
-          case 'CLEAR_ALL':
-            await api.clearAllGroceryItems();
-            break;
+        serverSnapshot = await api.getGrocerySnapshot();
+      } catch {
+        if (queued.length > 0) {
+          result.failed = queued.length;
+          result.failedItems.push('The grocery service is unavailable');
+          setLastSyncResult(result);
         }
-
-        // Remove from queue after successful sync
-        await removeFromSyncQueue(item.id);
-        result.synced++;
-        console.log(`[Grocery Sync] Synced: ${item.action.type}`);
-      } catch (error: any) {
-        console.warn(`[Grocery Sync] Failed to sync ${item.action.type}:`, error);
-        result.failed++;
-        result.failedItems.push(item.action.type);
-        
-        // For 404 errors (item not found), remove from queue - the item no longer exists
-        if (error?.response?.status === 404) {
-          await removeFromSyncQueue(item.id);
-          console.log(`[Grocery Sync] Removed stale item from queue: ${item.action.type}`);
-        }
-        // Keep other errors in queue for next sync attempt
+        return result;
       }
-    }
+      if (queued.length === 0) {
+        await cacheGrocerySnapshot(serverSnapshot, lease);
+        queryClient.setQueryData(groceryKeys.snapshot(), serverSnapshot);
+        return result;
+      }
 
-    // After syncing, refresh from server to get latest state
-    await queryClient.invalidateQueries({ queryKey: groceryKeys.all });
-    
-    // Store the result
-    setLastSyncResult(result);
-    
-    console.log(`[Grocery Sync] Complete: ${result.synced} synced, ${result.failed} failed`);
-    return result;
+      if (queued.some((entry) => entry.mutation.list_id !== serverSnapshot.list.id)) {
+        await cacheGrocerySnapshot(serverSnapshot, lease);
+        queryClient.setQueryData(groceryKeys.snapshot(), serverSnapshot);
+        result.failed = queued.length;
+        result.failedItems.push('Your active grocery list changed');
+        setLastSyncResult(result);
+        return result;
+      }
+
+      let displayedSnapshot = queued.reduce(
+        (current, entry) => applyOptimisticGroceryMutation(current, entry.mutation),
+        serverSnapshot,
+      );
+      await cacheGrocerySnapshot(displayedSnapshot, lease);
+      queryClient.setQueryData(groceryKeys.snapshot(), displayedSnapshot);
+
+      for (const [index, entry] of queued.entries()) {
+        try {
+          const response = await sendGroceryMutationWithRetry(entry.mutation, (request) =>
+            api.syncGroceryMutation(request, () => assertGroceryStorageLease(lease)),
+          );
+          serverSnapshot = response.snapshot;
+          await removeFromSyncQueue(entry.mutation.mutation_id, lease);
+          displayedSnapshot = queued
+            .slice(index + 1)
+            .reduce(
+              (current, pending) =>
+                applyOptimisticGroceryMutation(current, pending.mutation),
+              serverSnapshot,
+            );
+          await cacheGrocerySnapshot(displayedSnapshot, lease);
+          queryClient.setQueryData(groceryKeys.snapshot(), displayedSnapshot);
+          result.synced += 1;
+        } catch (error) {
+          result.failed += 1;
+          result.failedItems.push(entry.mutation.operation);
+          const status = (error as { response?: { status?: number } })?.response?.status;
+          if (isRetryableGroceryError(error)) break;
+          if (status !== undefined) {
+            await removeFromSyncQueue(entry.mutation.mutation_id, lease);
+            displayedSnapshot = queued
+              .slice(index + 1)
+              .reduce(
+                (current, pending) =>
+                  applyOptimisticGroceryMutation(current, pending.mutation),
+                serverSnapshot,
+              );
+            await cacheGrocerySnapshot(displayedSnapshot, lease);
+            queryClient.setQueryData(groceryKeys.snapshot(), displayedSnapshot);
+          }
+        }
+      }
+      await queryClient.invalidateQueries({ queryKey: groceryKeys.pending() });
+      setLastSyncResult(result);
+      return result;
+    });
+    syncingRef.current = sync;
+    try {
+      return await sync;
+    } finally {
+      syncingRef.current = null;
+    }
   }, [isOnline, queryClient]);
 
-  // Sync when coming back online
-  useOnlineCallback(syncPendingChanges);
-
-  // Also sync on mount if there are pending changes
+  useOnlineCallback(() => {
+    void syncPendingChanges().catch((error) =>
+      console.warn('[Grocery Sync] Failed to start synchronization:', error),
+    );
+  });
   useEffect(() => {
     if (isOnline) {
-      hasPendingSync().then(pending => {
+      void hasPendingSync(getGroceryStorageLease()).then((pending) => {
         if (pending) {
-          syncPendingChanges();
+          void syncPendingChanges().catch((error) =>
+            console.warn('[Grocery Sync] Failed to start synchronization:', error),
+          );
         }
       });
     }
   }, [isOnline, syncPendingChanges]);
 
-  return { 
+  return {
     syncPendingChanges,
     lastSyncResult,
     clearSyncResult: () => setLastSyncResult(null),
   };
 }
 
-/**
- * Hook to check if there are pending offline changes
- */
 export function usePendingGrocerySync() {
   const { isOnline } = useNetworkStatus();
-  
   return useQuery({
-    queryKey: ['grocery', 'pendingSync'],
-    queryFn: () => hasPendingSync(),
-    // Only check when offline
+    queryKey: groceryKeys.pending(),
+    queryFn: () => hasPendingSync(getGroceryStorageLease()),
     enabled: !isOnline,
-    refetchInterval: !isOnline ? 5000 : false, // Check every 5s when offline
+    refetchInterval: !isOnline ? 5_000 : false,
   });
 }
 
-// ============================================================
-// Shared Grocery List Hooks
-// ============================================================
-
-/**
- * Get info about the user's grocery list (members, shared status)
- */
-export function useGroceryListInfo(isSignedIn = true) {
-  return useQuery({
-    queryKey: [...groceryKeys.all, 'listInfo'],
-    queryFn: () => api.getGroceryListInfo(),
-    enabled: isSignedIn,
-    staleTime: 30 * 1000,
-  });
-}
-
-/**
- * Create an invite link for sharing the grocery list
- */
 export function useCreateGroceryInvite() {
   return useMutation({
-    mutationFn: () => api.createGroceryInvite(),
+    mutationFn: () => {
+      const lease = getGroceryStorageLease();
+      return api.createGroceryInvite(() => assertGroceryStorageLease(lease));
+    },
   });
 }
 
-/**
- * Get preview of an invite (for join confirmation screen)
- */
 export function useInvitePreview(code: string, enabled = true) {
   return useQuery({
     queryKey: ['grocery', 'invite', code],
     queryFn: () => api.getInvitePreview(code),
     enabled: enabled && !!code,
-    staleTime: 60 * 1000,
+    staleTime: 60_000,
   });
 }
 
-/**
- * Join a shared grocery list via invite code
- */
+function useMembershipMutation<T>(
+  mutationFn: (variables: T, requestGuard: () => void) => Promise<unknown>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (variables: T) => {
+      const lease = getGroceryStorageLease();
+      return serializeGroceryMutation(async () => {
+        assertGroceryStorageLease(lease);
+        const result = await mutationFn(variables, () =>
+          assertGroceryStorageLease(lease),
+        );
+        await clearActiveGroceryScope(lease);
+        return result;
+      });
+    },
+    onSuccess: async () => {
+      queryClient.removeQueries({ queryKey: groceryKeys.all });
+      await queryClient.invalidateQueries({ queryKey: groceryKeys.snapshot() });
+    },
+  });
+}
+
 export function useJoinGroceryList() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: (code: string) => api.joinGroceryList(code),
-    onSuccess: () => {
-      // Invalidate all grocery queries to refresh with new list
-      queryClient.invalidateQueries({ queryKey: groceryKeys.all });
-    },
-  });
+  return useMembershipMutation<string>((code, guard) => api.joinGroceryList(code, guard));
 }
 
-/**
- * Leave a shared grocery list
- */
 export function useLeaveGroceryList() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: () => api.leaveGroceryList(),
-    onSuccess: () => {
-      // Invalidate all grocery queries to refresh with personal list
-      queryClient.invalidateQueries({ queryKey: groceryKeys.all });
-    },
-  });
+  return useMembershipMutation<void>((_variables, guard) => api.leaveGroceryList(guard));
 }
 
-/**
- * Remove a member from the grocery list
- */
 export function useRemoveGroceryMember() {
   const queryClient = useQueryClient();
-  
   return useMutation({
-    mutationFn: (userId: string) => api.removeGroceryListMember(userId),
-    onSuccess: () => {
-      // Refresh list info to update members
-      queryClient.invalidateQueries({ queryKey: [...groceryKeys.all, 'listInfo'] });
+    mutationFn: (userId: string) => {
+      const lease = getGroceryStorageLease();
+      return api.removeGroceryListMember(userId, () =>
+        assertGroceryStorageLease(lease),
+      );
     },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: groceryKeys.snapshot() }),
   });
 }

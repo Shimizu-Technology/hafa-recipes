@@ -17,9 +17,8 @@ export const queryClient = new QueryClient({
       refetchOnWindowFocus: true,
     },
     mutations: {
-      // Retry mutations once on failure
-      retry: 1,
+      // Mutations opt into safe retries only when they carry an idempotency key.
+      retry: 0,
     },
   },
 });
-
