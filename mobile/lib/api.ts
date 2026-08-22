@@ -21,6 +21,7 @@ import {
   GrocerySnapshot,
   GroceryMutationRequest,
   GroceryMutationResponse,
+  GroceryWidgetCredential,
   GroceryInvite,
   InvitePreview,
   ChatMessage,
@@ -711,6 +712,27 @@ class ApiClient {
       requestGuard,
     } as GuardedRequestConfig);
     return data;
+  }
+
+  async issueGroceryWidgetCredential(
+    installationId: string,
+    requestGuard?: RequestGuard,
+  ): Promise<GroceryWidgetCredential> {
+    const { data } = await this.client.post(
+      '/api/grocery/widget/credentials',
+      { installation_id: installationId },
+      { requestGuard } as GuardedRequestConfig,
+    );
+    return data;
+  }
+
+  async revokeGroceryWidgetCredential(
+    credentialId: string,
+    requestGuard?: RequestGuard,
+  ): Promise<void> {
+    await this.client.delete(`/api/grocery/widget/credentials/${credentialId}`, {
+      requestGuard,
+    } as GuardedRequestConfig);
   }
 
   async addGroceryItem(item: GroceryItemCreate): Promise<GroceryItem> {

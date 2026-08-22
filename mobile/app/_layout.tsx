@@ -36,6 +36,8 @@ import { EnvironmentBanner } from '@/components/EnvironmentBanner';
 import { FloatingTimerOverlay } from '@/components/FloatingTimerOverlay';
 import FloatingChatButton from '@/components/FloatingChatButton';
 import { ClerkMigrationBridge } from '@/components/ClerkMigrationBridge';
+import { GroceryWidgetCoordinator } from '@/components/GroceryWidgetCoordinator';
+import { bindGroceryWidgetIdentity } from '@/lib/groceryWidget';
 import { initSentry, setSentryUser, addBreadcrumb, captureError, withSentry } from '@/lib/sentry';
 import { useHandleShareIntent } from '@/hooks/useShareIntent';
 
@@ -212,6 +214,7 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
 
     void (async () => {
       try {
+        await bindGroceryWidgetIdentity(currentUserId);
         await bindOfflineGroceryIdentity(currentUserId);
       } catch (error) {
         captureError(error instanceof Error ? error : new Error(String(error)), {
@@ -219,6 +222,7 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
         });
         if (identityEpochRef.current !== epoch) return;
         try {
+          await bindGroceryWidgetIdentity(currentUserId);
           await bindOfflineGroceryIdentity(currentUserId);
         } catch (recoveryError) {
           captureError(
@@ -268,7 +272,7 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
         }}
       >
         <Text style={{ color: '#FFFFFF', fontSize: 17, textAlign: 'center' }}>
-          We couldn&apos;t prepare private offline storage for this account.
+          We couldn&apos;t prepare private on-device data for this account.
         </Text>
         <Button
           title="Retry"
@@ -300,6 +304,7 @@ function RootLayoutNav() {
       <NavigationThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <TimerProvider>
           <AuthTokenSync>
+            <GroceryWidgetCoordinator />
             <ExtractionProvider>
               <AuthProtection>
                 <ShareIntentHandler>

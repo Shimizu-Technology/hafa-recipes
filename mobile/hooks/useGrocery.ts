@@ -26,6 +26,10 @@ import {
   isRetryableGroceryError,
   sendGroceryMutationWithRetry,
 } from '@/lib/grocerySync';
+import {
+  publishConfirmedGrocerySnapshot,
+  requestGroceryWidgetRefresh,
+} from '@/lib/groceryWidget';
 import type {
   GroceryItemChanges,
   GroceryItemCreate,
@@ -53,6 +57,9 @@ async function fetchAndCacheSnapshot(
   lease = getGroceryStorageLease(),
 ): Promise<GrocerySnapshot> {
   const serverSnapshot = await api.getGrocerySnapshot();
+  void publishConfirmedGrocerySnapshot(serverSnapshot).catch((error) =>
+    console.warn('[Grocery Widget] Failed to publish snapshot:', error),
+  );
   return cacheServerGrocerySnapshot(serverSnapshot, lease);
 }
 
@@ -152,6 +159,9 @@ async function commitMutations(
       try {
         const response = await sendGroceryMutationWithRetry(mutation, (request) =>
           api.syncGroceryMutation(request, () => assertGroceryStorageLease(lease)),
+        );
+        void publishConfirmedGrocerySnapshot(response.snapshot).catch((error) =>
+          console.warn('[Grocery Widget] Failed to publish mutation:', error),
         );
         await removeFromSyncQueue(mutation.mutation_id, lease);
         snapshot = mutations
@@ -287,6 +297,9 @@ export function useGrocerySync() {
       let serverSnapshot: GrocerySnapshot;
       try {
         serverSnapshot = await api.getGrocerySnapshot();
+        void publishConfirmedGrocerySnapshot(serverSnapshot).catch((error) =>
+          console.warn('[Grocery Widget] Failed to publish synchronization:', error),
+        );
       } catch {
         if (queued.length > 0) {
           result.failed = queued.length;
@@ -323,6 +336,9 @@ export function useGrocerySync() {
             api.syncGroceryMutation(request, () => assertGroceryStorageLease(lease)),
           );
           serverSnapshot = response.snapshot;
+          void publishConfirmedGrocerySnapshot(serverSnapshot).catch((error) =>
+            console.warn('[Grocery Widget] Failed to publish queued mutation:', error),
+          );
           await removeFromSyncQueue(entry.mutation.mutation_id, lease);
           displayedSnapshot = queued
             .slice(index + 1)
@@ -436,6 +452,7 @@ function useMembershipMutation<T>(
     onSuccess: async () => {
       queryClient.removeQueries({ queryKey: groceryKeys.all });
       await queryClient.invalidateQueries({ queryKey: groceryKeys.snapshot() });
+      requestGroceryWidgetRefresh();
     },
   });
 }

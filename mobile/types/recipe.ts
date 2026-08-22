@@ -271,6 +271,16 @@ export interface GroceryMutationResponse {
   snapshot: GrocerySnapshot;
 }
 
+export interface GroceryWidgetCredential {
+  credential_id: string;
+  token: string;
+  list_id: string;
+  account_scope_id: string;
+  scopes: string[];
+  issued_at: string;
+  expires_at: string;
+}
+
 export interface GroceryInvite {
   invite_code: string;
   deep_link: string;
