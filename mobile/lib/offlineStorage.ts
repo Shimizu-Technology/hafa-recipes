@@ -24,16 +24,19 @@ export interface PendingGroceryMutation {
 export interface GroceryStorageLease {
   readonly identityEpoch: number;
   readonly scopeEpoch: number;
+  readonly identityHash: string;
 }
 
 let storageChain: Promise<unknown> = Promise.resolve();
 let identityEpoch = 0;
 let scopeEpoch = 0;
 let identityReady = false;
+let boundIdentityHash: string | null = null;
 
 export function assertGroceryStorageLease(lease: GroceryStorageLease): void {
   if (
     !identityReady ||
+    lease.identityHash !== boundIdentityHash ||
     lease.identityEpoch !== identityEpoch ||
     lease.scopeEpoch !== scopeEpoch
   ) {
@@ -42,7 +45,8 @@ export function assertGroceryStorageLease(lease: GroceryStorageLease): void {
 }
 
 export function getGroceryStorageLease(): GroceryStorageLease {
-  const lease = { identityEpoch, scopeEpoch };
+  if (!boundIdentityHash) throw new Error('Grocery storage identity is not bound.');
+  const lease = { identityEpoch, scopeEpoch, identityHash: boundIdentityHash };
   assertGroceryStorageLease(lease);
   return lease;
 }
@@ -116,6 +120,7 @@ export function bindOfflineGroceryIdentity(clerkUserId: string | null): Promise<
     if (requestedIdentityEpoch !== identityEpoch) return;
     if (!clerkUserId) {
       await clearPrivateGroceryStorage();
+      boundIdentityHash = null;
       identityReady = true;
       return;
     }
@@ -125,7 +130,10 @@ export function bindOfflineGroceryIdentity(clerkUserId: string | null): Promise<
     if (previousHash !== identityHash) await clearPrivateGroceryStorage();
     await AsyncStorage.setItem(IDENTITY_KEY, identityHash);
     await AsyncStorage.multiRemove(LEGACY_KEYS);
-    if (requestedIdentityEpoch === identityEpoch) identityReady = true;
+    if (requestedIdentityEpoch === identityEpoch) {
+      boundIdentityHash = identityHash;
+      identityReady = true;
+    }
   });
 }
 
@@ -288,9 +296,13 @@ export async function hasPendingSync(lease: GroceryStorageLease): Promise<boolea
 }
 
 export function clearActiveGroceryScope(lease: GroceryStorageLease): Promise<void> {
-  assertGroceryStorageLease(lease);
-  ++scopeEpoch;
   return serialized(async () => {
+    // A membership request may already have reached the server when Clerk starts
+    // rebinding the same account. Wait for that bind, then clean only if this is
+    // still the originating identity. A different account must remain untouched.
+    const currentIdentityHash = await AsyncStorage.getItem(IDENTITY_KEY);
+    if (currentIdentityHash !== lease.identityHash) return;
+    ++scopeEpoch;
     const scope = await getActiveScopeUnsafe();
     if (scope) await AsyncStorage.multiRemove([snapshotKey(scope), queueKey(scope), lastSyncKey(scope), ACTIVE_SCOPE_KEY]);
     else await AsyncStorage.removeItem(ACTIVE_SCOPE_KEY);
@@ -301,5 +313,6 @@ export function clearAllOfflineGroceryData(): Promise<void> {
   ++identityEpoch;
   ++scopeEpoch;
   identityReady = false;
+  boundIdentityHash = null;
   return serialized(clearPrivateGroceryStorage);
 }

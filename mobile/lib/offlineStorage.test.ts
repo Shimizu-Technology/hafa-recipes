@@ -173,18 +173,33 @@ describe('account-scoped offline grocery storage', () => {
     expect(refreshed).toMatchObject({ checked: 1, unchecked: 0 });
   });
 
-  it('finishes an already-queued membership cleanup before a same-identity rebind', async () => {
+  it('finishes membership cleanup when a same-identity rebind starts before cleanup', async () => {
     await bindOfflineGroceryIdentity('clerk-user-a');
     const oldLease = getGroceryStorageLease();
     await cacheGrocerySnapshot(snapshot(), oldLease);
     await addToSyncQueue(mutation(), oldLease);
 
-    const cleanup = clearActiveGroceryScope(oldLease);
     const rebind = bindOfflineGroceryIdentity('clerk-user-a');
+    const cleanup = clearActiveGroceryScope(oldLease);
     await Promise.all([cleanup, rebind]);
 
     const reboundLease = getGroceryStorageLease();
     expect(await getCachedGrocerySnapshot(reboundLease)).toBeNull();
     expect(await getPendingSyncQueue(reboundLease)).toEqual([]);
+  });
+
+  it('does not let a completed request from another identity clear the current scope', async () => {
+    await bindOfflineGroceryIdentity('clerk-user-a');
+    const oldLease = getGroceryStorageLease();
+    await cacheGrocerySnapshot(snapshot(), oldLease);
+
+    await bindOfflineGroceryIdentity('clerk-user-b');
+    const currentLease = getGroceryStorageLease();
+    await cacheGrocerySnapshot(snapshot('account-b', 'list-b'), currentLease);
+    await clearActiveGroceryScope(oldLease);
+
+    expect(await getCachedGrocerySnapshot(currentLease)).toEqual(
+      snapshot('account-b', 'list-b'),
+    );
   });
 });
