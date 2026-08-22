@@ -163,12 +163,12 @@ private struct HafaGroceryWidgetView: View {
             itemRow(item, listID: snapshot.list.id)
           }
         }
-        .privacySensitive()
       }
 
       Spacer(minLength: 5)
       footer(snapshot)
     }
+    .privacySensitive()
   }
 
   private func header(_ snapshot: HafaWidgetSnapshot) -> some View {

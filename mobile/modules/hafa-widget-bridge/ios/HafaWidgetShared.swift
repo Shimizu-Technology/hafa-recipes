@@ -307,7 +307,7 @@ final class HafaWidgetStore {
       state.apiBaseURL = baseURL.absoluteString
       state.accountScopeID = snapshot.accountScopeID
       if scopeChanged { state.pending = [] }
-      state.snapshot = applying(state.pending, to: snapshot)
+      state.snapshot = merging(snapshot, into: state)
       state.lastError = nil
       state.requiresReconnect = false
     }
@@ -334,7 +334,7 @@ final class HafaWidgetStore {
         return
       }
       state.accountScopeID = snapshot.accountScopeID
-      state.snapshot = applying(state.pending, to: snapshot)
+      state.snapshot = merging(snapshot, into: state)
       state.lastError = nil
       state.requiresReconnect = false
     }
@@ -445,6 +445,25 @@ final class HafaWidgetStore {
       snapshot.setChecked(itemID: mutation.itemID, checked: mutation.checked)
     }
     return snapshot
+  }
+
+  private func merging(
+    _ incoming: HafaWidgetSnapshot,
+    into state: HafaWidgetState
+  ) -> HafaWidgetSnapshot {
+    // App and widget requests run in separate processes. An app fetch can
+    // begin before a widget mutation commits and arrive afterward, so only
+    // advance confirmed state monotonically by the server-owned list revision.
+    let confirmed: HafaWidgetSnapshot
+    if let current = state.snapshot,
+       current.accountScopeID == incoming.accountScopeID,
+       current.list.id == incoming.list.id,
+       current.list.revision > incoming.list.revision {
+      confirmed = current
+    } else {
+      confirmed = incoming
+    }
+    return applying(state.pending, to: confirmed)
   }
 
   private static func isLocalDevelopmentHost(_ host: String) -> Bool {
