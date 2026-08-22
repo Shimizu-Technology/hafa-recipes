@@ -27,8 +27,10 @@ import {
   addToSyncQueue,
   bindOfflineGroceryIdentity,
   cacheGrocerySnapshot,
+  cacheServerGrocerySnapshot,
   clearActiveGroceryScope,
   getCachedGrocerySnapshot,
+  getGroceryStorageLease,
   getPendingSyncQueue,
 } from './offlineStorage';
 import type { GroceryMutationRequest, GrocerySnapshot } from '../types/recipe';
@@ -79,46 +81,93 @@ describe('account-scoped offline grocery storage', () => {
 
   it('persists a snapshot and exact durable mutation within its server scope', async () => {
     await bindOfflineGroceryIdentity('clerk-user-a');
-    await cacheGrocerySnapshot(snapshot());
+    const lease = getGroceryStorageLease();
+    await cacheGrocerySnapshot(snapshot(), lease);
     const request = mutation();
-    await addToSyncQueue(request);
+    await addToSyncQueue(request, lease);
 
-    expect(await getCachedGrocerySnapshot()).toEqual(snapshot());
-    expect((await getPendingSyncQueue())[0].mutation).toEqual(request);
+    expect(await getCachedGrocerySnapshot(lease)).toEqual(snapshot());
+    expect((await getPendingSyncQueue(lease))[0].mutation).toEqual(request);
   });
 
   it('scrubs private data on direct account switch', async () => {
     await bindOfflineGroceryIdentity('clerk-user-a');
-    await cacheGrocerySnapshot(snapshot());
-    await addToSyncQueue(mutation());
+    const oldLease = getGroceryStorageLease();
+    await cacheGrocerySnapshot(snapshot(), oldLease);
+    await addToSyncQueue(mutation(), oldLease);
     await bindOfflineGroceryIdentity('clerk-user-b');
+    const newLease = getGroceryStorageLease();
 
-    expect(await getCachedGrocerySnapshot()).toBeNull();
-    expect(await getPendingSyncQueue()).toEqual([]);
+    expect(await getCachedGrocerySnapshot(newLease)).toBeNull();
+    expect(await getPendingSyncQueue(newLease)).toEqual([]);
+    await expect(cacheGrocerySnapshot(snapshot(), oldLease)).rejects.toThrow('identity');
   });
 
   it('drops the previous list queue when server membership changes scope', async () => {
     await bindOfflineGroceryIdentity('clerk-user-a');
-    await cacheGrocerySnapshot(snapshot());
-    await addToSyncQueue(mutation());
-    await cacheGrocerySnapshot(snapshot('account-a', 'list-b'));
+    const lease = getGroceryStorageLease();
+    await cacheGrocerySnapshot(snapshot(), lease);
+    await addToSyncQueue(mutation(), lease);
+    await cacheGrocerySnapshot(snapshot('account-a', 'list-b'), lease);
 
-    expect((await getCachedGrocerySnapshot())?.list.id).toBe('list-b');
-    expect(await getPendingSyncQueue()).toEqual([]);
+    expect((await getCachedGrocerySnapshot(lease))?.list.id).toBe('list-b');
+    expect(await getPendingSyncQueue(lease)).toEqual([]);
   });
 
   it('refuses to queue a mutation for an inactive list', async () => {
     await bindOfflineGroceryIdentity('clerk-user-a');
-    await cacheGrocerySnapshot(snapshot());
-    await expect(addToSyncQueue(mutation('list-b'))).rejects.toThrow('inactive list');
+    const lease = getGroceryStorageLease();
+    await cacheGrocerySnapshot(snapshot(), lease);
+    await expect(addToSyncQueue(mutation('list-b'), lease)).rejects.toThrow('inactive list');
   });
 
   it('clears the active scope without removing the bound identity marker', async () => {
     await bindOfflineGroceryIdentity('clerk-user-a');
-    await cacheGrocerySnapshot(snapshot());
-    await clearActiveGroceryScope();
+    const oldLease = getGroceryStorageLease();
+    await cacheGrocerySnapshot(snapshot(), oldLease);
+    await clearActiveGroceryScope(oldLease);
+    const newLease = getGroceryStorageLease();
 
-    expect(await getCachedGrocerySnapshot()).toBeNull();
+    expect(await getCachedGrocerySnapshot(newLease)).toBeNull();
     expect(storage.values.get('@hafa_grocery_identity_v2')).toBe('hash:clerk-user-a');
+    await expect(cacheGrocerySnapshot(snapshot(), oldLease)).rejects.toThrow('scope changed');
+  });
+
+  it('atomically reapplies queued desired state over a server refresh', async () => {
+    await bindOfflineGroceryIdentity('clerk-user-a');
+    const lease = getGroceryStorageLease();
+    const initial = snapshot();
+    initial.items = [
+      {
+        id: 'item-a',
+        name: 'Milk',
+        quantity: null,
+        unit: null,
+        notes: null,
+        checked: false,
+        recipe_id: null,
+        recipe_title: null,
+        added_by_name: null,
+        created_at: '2026-08-20T00:00:00Z',
+        updated_at: '2026-08-20T00:00:00Z',
+      },
+    ];
+    initial.total = 1;
+    initial.unchecked = 1;
+    await cacheGrocerySnapshot(initial, lease);
+    await addToSyncQueue(
+      {
+        mutation_id: 'check-a',
+        operation: 'set_checked',
+        list_id: 'list-a',
+        item_id: 'item-a',
+        checked: true,
+      },
+      lease,
+    );
+
+    const refreshed = await cacheServerGrocerySnapshot(initial, lease);
+    expect(refreshed.items[0].checked).toBe(true);
+    expect(refreshed).toMatchObject({ checked: 1, unchecked: 0 });
   });
 });

@@ -7,11 +7,14 @@ import { api } from '@/lib/api';
 import {
   addToSyncQueue,
   cacheGrocerySnapshot,
+  cacheServerGrocerySnapshot,
   clearActiveGroceryScope,
+  getGroceryStorageLease,
   getCachedGrocerySnapshot,
   getPendingSyncQueue,
   hasPendingSync,
   removeFromSyncQueue,
+  type GroceryStorageLease,
 } from '@/lib/offlineStorage';
 import {
   applyOptimisticGroceryMutation,
@@ -45,30 +48,33 @@ function serializeGroceryMutation<T>(operation: () => Promise<T>): Promise<T> {
   return result;
 }
 
-async function fetchAndCacheSnapshot(): Promise<GrocerySnapshot> {
-  const snapshot = await api.getGrocerySnapshot();
-  await cacheGrocerySnapshot(snapshot);
-  return snapshot;
+async function fetchAndCacheSnapshot(
+  lease = getGroceryStorageLease(),
+): Promise<GrocerySnapshot> {
+  const serverSnapshot = await api.getGrocerySnapshot();
+  return cacheServerGrocerySnapshot(serverSnapshot, lease);
 }
 
 function useSnapshotQuery(isSignedIn: boolean) {
   const { isApiReachable } = useNetworkStatus();
   return useQuery({
     queryKey: groceryKeys.snapshot(),
-    queryFn: async () => {
-      if (isApiReachable === false) {
-        const cached = await getCachedGrocerySnapshot();
-        if (cached) return cached;
-        throw new Error('Your grocery list has not been saved for offline use yet.');
-      }
-      try {
-        return await fetchAndCacheSnapshot();
-      } catch (error) {
-        const cached = await getCachedGrocerySnapshot();
-        if (cached) return cached;
-        throw error;
-      }
-    },
+    queryFn: () =>
+      serializeGroceryMutation(async () => {
+        const lease = getGroceryStorageLease();
+        if (isApiReachable === false) {
+          const cached = await getCachedGrocerySnapshot(lease);
+          if (cached) return cached;
+          throw new Error('Your grocery list has not been saved for offline use yet.');
+        }
+        try {
+          return await fetchAndCacheSnapshot(lease);
+        } catch (error) {
+          const cached = await getCachedGrocerySnapshot(lease);
+          if (cached) return cached;
+          throw error;
+        }
+      }),
     enabled: isSignedIn,
     staleTime: 10_000,
     retry: 2,
@@ -107,13 +113,14 @@ export function useGroceryListInfo(isSignedIn = true) {
 async function baseSnapshot(
   queryClient: ReturnType<typeof useQueryClient>,
   confirmedOffline: boolean,
+  lease: GroceryStorageLease,
 ): Promise<GrocerySnapshot> {
   const memory = queryClient.getQueryData<GrocerySnapshot>(groceryKeys.snapshot());
   if (memory) return memory;
-  const cached = await getCachedGrocerySnapshot();
+  const cached = await getCachedGrocerySnapshot(lease);
   if (cached) return cached;
   if (confirmedOffline) throw new Error('Open your grocery list online before editing it offline.');
-  const snapshot = await fetchAndCacheSnapshot();
+  const snapshot = await fetchAndCacheSnapshot(lease);
   queryClient.setQueryData(groceryKeys.snapshot(), snapshot);
   return snapshot;
 }
@@ -124,14 +131,15 @@ async function commitMutations(
   prepare: (snapshot: GrocerySnapshot) => GroceryMutationRequest[],
 ): Promise<GrocerySnapshot> {
   return serializeGroceryMutation(async () => {
-    let snapshot = await baseSnapshot(queryClient, confirmedOffline);
+    const lease = getGroceryStorageLease();
+    let snapshot = await baseSnapshot(queryClient, confirmedOffline, lease);
     const mutations = prepare(snapshot);
     if (mutations.length === 0) return snapshot;
 
     for (const mutation of mutations) {
-      await addToSyncQueue(mutation);
+      await addToSyncQueue(mutation, lease);
       snapshot = applyOptimisticGroceryMutation(snapshot, mutation);
-      await cacheGrocerySnapshot(snapshot);
+      await cacheGrocerySnapshot(snapshot, lease);
       queryClient.setQueryData(groceryKeys.snapshot(), snapshot);
     }
     await queryClient.invalidateQueries({ queryKey: groceryKeys.pending() });
@@ -143,27 +151,27 @@ async function commitMutations(
         const response = await sendGroceryMutationWithRetry(mutation, (request) =>
           api.syncGroceryMutation(request),
         );
-        await removeFromSyncQueue(mutation.mutation_id);
+        await removeFromSyncQueue(mutation.mutation_id, lease);
         snapshot = mutations
           .slice(index + 1)
           .reduce(
             (current, pending) => applyOptimisticGroceryMutation(current, pending),
             response.snapshot,
           );
-        await cacheGrocerySnapshot(snapshot);
+        await cacheGrocerySnapshot(snapshot, lease);
         queryClient.setQueryData(groceryKeys.snapshot(), snapshot);
       } catch (error) {
         if (isRetryableGroceryError(error)) return snapshot;
-        await removeFromSyncQueue(mutation.mutation_id);
+        await removeFromSyncQueue(mutation.mutation_id, lease);
         try {
-          const serverSnapshot = await fetchAndCacheSnapshot();
+          const serverSnapshot = await fetchAndCacheSnapshot(lease);
           snapshot = mutations
             .slice(index + 1)
             .reduce(
               (current, pending) => applyOptimisticGroceryMutation(current, pending),
               serverSnapshot,
             );
-          await cacheGrocerySnapshot(snapshot);
+          await cacheGrocerySnapshot(snapshot, lease);
           queryClient.setQueryData(groceryKeys.snapshot(), snapshot);
         } catch {
           // The queued mutation was rejected permanently; retain the last safe snapshot.
@@ -270,10 +278,11 @@ export function useGrocerySync() {
     const sync = serializeGroceryMutation(async () => {
       const result: SyncResult = { synced: 0, failed: 0, failedItems: [] };
       if (!isOnline) return result;
-      const queued = await getPendingSyncQueue();
+      const lease = getGroceryStorageLease();
+      const queued = await getPendingSyncQueue(lease);
       let serverSnapshot: GrocerySnapshot;
       try {
-        serverSnapshot = await fetchAndCacheSnapshot();
+        serverSnapshot = await api.getGrocerySnapshot();
       } catch {
         if (queued.length > 0) {
           result.failed = queued.length;
@@ -283,11 +292,14 @@ export function useGrocerySync() {
         return result;
       }
       if (queued.length === 0) {
+        await cacheGrocerySnapshot(serverSnapshot, lease);
         queryClient.setQueryData(groceryKeys.snapshot(), serverSnapshot);
         return result;
       }
 
       if (queued.some((entry) => entry.mutation.list_id !== serverSnapshot.list.id)) {
+        await cacheGrocerySnapshot(serverSnapshot, lease);
+        queryClient.setQueryData(groceryKeys.snapshot(), serverSnapshot);
         result.failed = queued.length;
         result.failedItems.push('Your active grocery list changed');
         setLastSyncResult(result);
@@ -298,7 +310,7 @@ export function useGrocerySync() {
         (current, entry) => applyOptimisticGroceryMutation(current, entry.mutation),
         serverSnapshot,
       );
-      await cacheGrocerySnapshot(displayedSnapshot);
+      await cacheGrocerySnapshot(displayedSnapshot, lease);
       queryClient.setQueryData(groceryKeys.snapshot(), displayedSnapshot);
 
       for (const [index, entry] of queued.entries()) {
@@ -307,7 +319,7 @@ export function useGrocerySync() {
             api.syncGroceryMutation(request),
           );
           serverSnapshot = response.snapshot;
-          await removeFromSyncQueue(entry.mutation.mutation_id);
+          await removeFromSyncQueue(entry.mutation.mutation_id, lease);
           displayedSnapshot = queued
             .slice(index + 1)
             .reduce(
@@ -315,7 +327,7 @@ export function useGrocerySync() {
                 applyOptimisticGroceryMutation(current, pending.mutation),
               serverSnapshot,
             );
-          await cacheGrocerySnapshot(displayedSnapshot);
+          await cacheGrocerySnapshot(displayedSnapshot, lease);
           queryClient.setQueryData(groceryKeys.snapshot(), displayedSnapshot);
           result.synced += 1;
         } catch (error) {
@@ -324,7 +336,7 @@ export function useGrocerySync() {
           const status = (error as { response?: { status?: number } })?.response?.status;
           if (isRetryableGroceryError(error)) break;
           if (status !== undefined) {
-            await removeFromSyncQueue(entry.mutation.mutation_id);
+            await removeFromSyncQueue(entry.mutation.mutation_id, lease);
             displayedSnapshot = queued
               .slice(index + 1)
               .reduce(
@@ -332,7 +344,7 @@ export function useGrocerySync() {
                   applyOptimisticGroceryMutation(current, pending.mutation),
                 serverSnapshot,
               );
-            await cacheGrocerySnapshot(displayedSnapshot);
+            await cacheGrocerySnapshot(displayedSnapshot, lease);
             queryClient.setQueryData(groceryKeys.snapshot(), displayedSnapshot);
           }
         }
@@ -356,7 +368,7 @@ export function useGrocerySync() {
   });
   useEffect(() => {
     if (isOnline) {
-      void hasPendingSync().then((pending) => {
+      void hasPendingSync(getGroceryStorageLease()).then((pending) => {
         if (pending) {
           void syncPendingChanges().catch((error) =>
             console.warn('[Grocery Sync] Failed to start synchronization:', error),
@@ -377,7 +389,7 @@ export function usePendingGrocerySync() {
   const { isOnline } = useNetworkStatus();
   return useQuery({
     queryKey: groceryKeys.pending(),
-    queryFn: hasPendingSync,
+    queryFn: () => hasPendingSync(getGroceryStorageLease()),
     enabled: !isOnline,
     refetchInterval: !isOnline ? 5_000 : false,
   });
@@ -399,9 +411,13 @@ export function useInvitePreview(code: string, enabled = true) {
 function useMembershipMutation<T>(mutationFn: (variables: T) => Promise<unknown>) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn,
+    mutationFn: (variables: T) =>
+      serializeGroceryMutation(async () => {
+        const result = await mutationFn(variables);
+        await clearActiveGroceryScope(getGroceryStorageLease());
+        return result;
+      }),
     onSuccess: async () => {
-      await clearActiveGroceryScope();
       queryClient.removeQueries({ queryKey: groceryKeys.all });
       await queryClient.invalidateQueries({ queryKey: groceryKeys.snapshot() });
     },

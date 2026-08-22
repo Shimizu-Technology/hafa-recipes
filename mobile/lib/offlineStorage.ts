@@ -21,7 +21,31 @@ export interface PendingGroceryMutation {
   queued_at: string;
 }
 
+export interface GroceryStorageLease {
+  readonly identityEpoch: number;
+  readonly scopeEpoch: number;
+}
+
 let storageChain: Promise<unknown> = Promise.resolve();
+let identityEpoch = 0;
+let scopeEpoch = 0;
+let identityReady = false;
+
+function assertLease(lease: GroceryStorageLease): void {
+  if (
+    !identityReady ||
+    lease.identityEpoch !== identityEpoch ||
+    lease.scopeEpoch !== scopeEpoch
+  ) {
+    throw new Error('Grocery storage identity or list scope changed.');
+  }
+}
+
+export function getGroceryStorageLease(): GroceryStorageLease {
+  const lease = { identityEpoch, scopeEpoch };
+  assertLease(lease);
+  return lease;
+}
 
 function serialized<T>(operation: () => Promise<T>): Promise<T> {
   const result = storageChain.then(operation, operation);
@@ -85,21 +109,32 @@ async function clearPrivateGroceryStorage(): Promise<void> {
 
 /** Clerk is only a local privacy boundary; the API's stable scope owns data. */
 export function bindOfflineGroceryIdentity(clerkUserId: string | null): Promise<void> {
+  const requestedIdentityEpoch = ++identityEpoch;
+  ++scopeEpoch;
+  identityReady = false;
   return serialized(async () => {
+    if (requestedIdentityEpoch !== identityEpoch) return;
     if (!clerkUserId) {
       await clearPrivateGroceryStorage();
+      identityReady = true;
       return;
     }
     const identityHash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, clerkUserId);
+    if (requestedIdentityEpoch !== identityEpoch) return;
     const previousHash = await AsyncStorage.getItem(IDENTITY_KEY);
     if (previousHash !== identityHash) await clearPrivateGroceryStorage();
     await AsyncStorage.setItem(IDENTITY_KEY, identityHash);
     await AsyncStorage.multiRemove(LEGACY_KEYS);
+    if (requestedIdentityEpoch === identityEpoch) identityReady = true;
   });
 }
 
-export function cacheGrocerySnapshot(snapshot: GrocerySnapshot): Promise<void> {
+export function cacheGrocerySnapshot(
+  snapshot: GrocerySnapshot,
+  lease: GroceryStorageLease,
+): Promise<void> {
   return serialized(async () => {
+    assertLease(lease);
     const scope = scopeFromSnapshot(snapshot);
     await setActiveScopeUnsafe(scope);
     await AsyncStorage.multiSet([
@@ -109,8 +144,47 @@ export function cacheGrocerySnapshot(snapshot: GrocerySnapshot): Promise<void> {
   });
 }
 
-export function getCachedGrocerySnapshot(): Promise<GrocerySnapshot | null> {
+/** Atomically overlay the current durable queue onto a fresh server snapshot. */
+export function cacheServerGrocerySnapshot(
+  serverSnapshot: GrocerySnapshot,
+  lease: GroceryStorageLease,
+): Promise<GrocerySnapshot> {
   return serialized(async () => {
+    assertLease(lease);
+    const serverScope = scopeFromSnapshot(serverSnapshot);
+    const activeScope = await getActiveScopeUnsafe();
+    let snapshot = serverSnapshot;
+    if (activeScope && sameScope(activeScope, serverScope)) {
+      const raw = await AsyncStorage.getItem(queueKey(activeScope));
+      if (raw) {
+        try {
+          const queue = JSON.parse(raw) as PendingGroceryMutation[];
+          snapshot = queue
+            .filter((entry) => entry.mutation?.list_id === serverScope.listId)
+            .reduce(
+              (current, entry) =>
+                applyOptimisticGroceryMutation(current, entry.mutation),
+              serverSnapshot,
+            );
+        } catch {
+          // A corrupt queue is ignored; the authoritative server state wins.
+        }
+      }
+    }
+    await setActiveScopeUnsafe(serverScope);
+    await AsyncStorage.multiSet([
+      [snapshotKey(serverScope), JSON.stringify(snapshot)],
+      [lastSyncKey(serverScope), new Date().toISOString()],
+    ]);
+    return snapshot;
+  });
+}
+
+export function getCachedGrocerySnapshot(
+  lease: GroceryStorageLease,
+): Promise<GrocerySnapshot | null> {
+  return serialized(async () => {
+    assertLease(lease);
     const scope = await getActiveScopeUnsafe();
     if (!scope) return null;
     const raw = await AsyncStorage.getItem(snapshotKey(scope));
@@ -125,15 +199,20 @@ export function getCachedGrocerySnapshot(): Promise<GrocerySnapshot | null> {
   });
 }
 
-export function getLastSyncTime(): Promise<string | null> {
+export function getLastSyncTime(lease: GroceryStorageLease): Promise<string | null> {
   return serialized(async () => {
+    assertLease(lease);
     const scope = await getActiveScopeUnsafe();
     return scope ? AsyncStorage.getItem(lastSyncKey(scope)) : null;
   });
 }
 
-export function applyLocalGroceryMutation(mutation: GroceryMutationRequest): Promise<GrocerySnapshot> {
+export function applyLocalGroceryMutation(
+  mutation: GroceryMutationRequest,
+  lease: GroceryStorageLease,
+): Promise<GrocerySnapshot> {
   return serialized(async () => {
+    assertLease(lease);
     const scope = await getActiveScopeUnsafe();
     if (!scope || scope.listId !== mutation.list_id) throw new Error('No matching grocery snapshot is available offline.');
     const raw = await AsyncStorage.getItem(snapshotKey(scope));
@@ -145,8 +224,12 @@ export function applyLocalGroceryMutation(mutation: GroceryMutationRequest): Pro
   });
 }
 
-export function addToSyncQueue(mutation: GroceryMutationRequest): Promise<void> {
+export function addToSyncQueue(
+  mutation: GroceryMutationRequest,
+  lease: GroceryStorageLease,
+): Promise<void> {
   return serialized(async () => {
+    assertLease(lease);
     const scope = await getActiveScopeUnsafe();
     if (!scope || scope.listId !== mutation.list_id) throw new Error('Cannot queue a grocery mutation for an inactive list.');
     const key = queueKey(scope);
@@ -159,8 +242,11 @@ export function addToSyncQueue(mutation: GroceryMutationRequest): Promise<void> 
   });
 }
 
-export function getPendingSyncQueue(): Promise<PendingGroceryMutation[]> {
+export function getPendingSyncQueue(
+  lease: GroceryStorageLease,
+): Promise<PendingGroceryMutation[]> {
   return serialized(async () => {
+    assertLease(lease);
     const scope = await getActiveScopeUnsafe();
     if (!scope) return [];
     const raw = await AsyncStorage.getItem(queueKey(scope));
@@ -174,8 +260,12 @@ export function getPendingSyncQueue(): Promise<PendingGroceryMutation[]> {
   });
 }
 
-export function removeFromSyncQueue(mutationId: string): Promise<void> {
+export function removeFromSyncQueue(
+  mutationId: string,
+  lease: GroceryStorageLease,
+): Promise<void> {
   return serialized(async () => {
+    assertLease(lease);
     const scope = await getActiveScopeUnsafe();
     if (!scope) return;
     const key = queueKey(scope);
@@ -185,19 +275,26 @@ export function removeFromSyncQueue(mutationId: string): Promise<void> {
   });
 }
 
-export function clearSyncQueue(): Promise<void> {
+export function clearSyncQueue(lease: GroceryStorageLease): Promise<void> {
   return serialized(async () => {
+    assertLease(lease);
     const scope = await getActiveScopeUnsafe();
     if (scope) await AsyncStorage.removeItem(queueKey(scope));
   });
 }
 
-export async function hasPendingSync(): Promise<boolean> {
-  return (await getPendingSyncQueue()).length > 0;
+export async function hasPendingSync(lease: GroceryStorageLease): Promise<boolean> {
+  return (await getPendingSyncQueue(lease)).length > 0;
 }
 
-export function clearActiveGroceryScope(): Promise<void> {
+export function clearActiveGroceryScope(lease: GroceryStorageLease): Promise<void> {
+  assertLease(lease);
+  const expectedIdentityEpoch = identityEpoch;
+  ++scopeEpoch;
   return serialized(async () => {
+    if (!identityReady || identityEpoch !== expectedIdentityEpoch) {
+      throw new Error('Grocery storage identity changed.');
+    }
     const scope = await getActiveScopeUnsafe();
     if (scope) await AsyncStorage.multiRemove([snapshotKey(scope), queueKey(scope), lastSyncKey(scope), ACTIVE_SCOPE_KEY]);
     else await AsyncStorage.removeItem(ACTIVE_SCOPE_KEY);
@@ -205,5 +302,8 @@ export function clearActiveGroceryScope(): Promise<void> {
 }
 
 export function clearAllOfflineGroceryData(): Promise<void> {
+  ++identityEpoch;
+  ++scopeEpoch;
+  identityReady = false;
   return serialized(clearPrivateGroceryStorage);
 }
