@@ -60,3 +60,18 @@ Before the migration is applied in production, create and record a database rest
 ## Production rollout record
 
 On 2026-08-22, before PR 30 could merge, Neon branch `pre-grocery-sync-2026-08-22` (`br-misty-resonance-a16c95sh`) was forked from `production` with data and schema. Auto-delete is disabled. Retain this branch until migration 023, API startup, and authenticated grocery smoke checks have all been verified in production.
+
+The first production attempt of migration 023 stopped before schema changes
+because 11 stable users had 31 memberships. A read-only production audit on
+2026-08-22 proved that all 31 affected lists were private, default-named, and
+contained no active or archived items and no invites. The timestamps match a
+legacy migration-concurrency artifact; no shared or user-authored grocery data
+is involved.
+
+`python -m app.grocery_membership_repair` is dry-run by default. Apply mode is
+transactional and requires the exact audited user and membership counts plus a
+stable repair ID. It locks all grocery write tables, rechecks every precondition,
+keeps the oldest empty list for each affected user, removes only the redundant
+empty containers, and writes one immutable audit row per removed list without
+storing a raw user ID. Any data, member, invite, name, or count drift stops the
+repair. Re-running the same production pre-deploy step after success is a no-op.
