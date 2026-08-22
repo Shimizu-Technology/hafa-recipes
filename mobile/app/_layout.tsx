@@ -16,7 +16,7 @@ import {
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { Button, Text, View } from 'react-native';
 import 'react-native-reanimated';
 import { ShareIntentProvider } from 'expo-share-intent';
 
@@ -163,6 +163,8 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
   const [boundOfflineIdentity, setBoundOfflineIdentity] = useState<string | null | undefined>(
     undefined,
   );
+  const [offlineIdentityBindingFailed, setOfflineIdentityBindingFailed] = useState(false);
+  const [offlineIdentityBindingAttempt, setOfflineIdentityBindingAttempt] = useState(0);
 
   // Use useLayoutEffect to set token getter BEFORE children render/effects run
   // This ensures token is available before any API calls
@@ -206,18 +208,32 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
     if (!isLoaded) return;
     const currentUserId = user?.id ?? null;
     const epoch = ++identityEpochRef.current;
+    setOfflineIdentityBindingFailed(false);
 
-    void bindOfflineGroceryIdentity(currentUserId)
-      .catch(async (error) => {
+    void (async () => {
+      try {
+        await bindOfflineGroceryIdentity(currentUserId);
+      } catch (error) {
         captureError(error instanceof Error ? error : new Error(String(error)), {
           tags: { operation: 'bindOfflineGroceryIdentity' },
         });
-        await clearAllOfflineGroceryData();
-      })
-      .then(() => {
-        if (identityEpochRef.current === epoch) setBoundOfflineIdentity(currentUserId);
-      });
-  }, [isLoaded, user?.id]);
+        try {
+          await clearAllOfflineGroceryData();
+          await bindOfflineGroceryIdentity(currentUserId);
+        } catch (recoveryError) {
+          captureError(
+            recoveryError instanceof Error
+              ? recoveryError
+              : new Error(String(recoveryError)),
+            { tags: { operation: 'recoverOfflineGroceryIdentity' } },
+          );
+          if (identityEpochRef.current === epoch) setOfflineIdentityBindingFailed(true);
+          return;
+        }
+      }
+      if (identityEpochRef.current === epoch) setBoundOfflineIdentity(currentUserId);
+    })();
+  }, [isLoaded, user?.id, offlineIdentityBindingAttempt]);
 
   // Sync user context with Sentry
   useEffect(() => {
@@ -239,6 +255,28 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
   }, [isSignedIn, isLoaded, user]);
 
   const currentUserId = isLoaded ? user?.id ?? null : undefined;
+  if (offlineIdentityBindingFailed) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 16,
+          padding: 32,
+          backgroundColor: '#101411',
+        }}
+      >
+        <Text style={{ color: '#FFFFFF', fontSize: 17, textAlign: 'center' }}>
+          We couldn&apos;t prepare private offline storage for this account.
+        </Text>
+        <Button
+          title="Retry"
+          onPress={() => setOfflineIdentityBindingAttempt((attempt) => attempt + 1)}
+        />
+      </View>
+    );
+  }
   if (boundOfflineIdentity !== currentUserId) return null;
 
   return <>{children}</>;
