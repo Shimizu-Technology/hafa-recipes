@@ -13,8 +13,9 @@ ACTIVE_MIGRATIONS = (
     "migrations.020_add_database_invariants",
     "migrations.021_add_ai_invocation_provenance",
     "migrations.022_add_admin_moderation",
+    "migrations.023_add_grocery_sync_contract",
 )
-LATEST_MIGRATION = 22
+LATEST_MIGRATION = 23
 
 
 async def run_migrations() -> None:

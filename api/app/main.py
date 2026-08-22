@@ -11,6 +11,7 @@ from app.ai_governance import ai_request_context, verify_ai_governance_schema
 from app.config import get_settings
 from app.database_invariants import verify_database_invariants
 from app.deletion_cleanup import deletion_cleanup_worker
+from app.grocery_sync import verify_grocery_sync_schema
 from app.job_worker import job_worker
 from app.moderation import verify_moderation_schema
 from app.routers import (
@@ -120,6 +121,8 @@ async def startup():
     print("AI governance schema ready")
     await verify_moderation_schema()
     print("Moderation schema ready")
+    await verify_grocery_sync_schema()
+    print("Grocery synchronization schema ready")
     await job_worker.start()
     await deletion_cleanup_worker.start()
 
