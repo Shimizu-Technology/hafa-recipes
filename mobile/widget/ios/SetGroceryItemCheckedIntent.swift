@@ -1,5 +1,4 @@
 import AppIntents
-import WidgetKit
 
 @available(iOS 17.0, *)
 struct SetGroceryItemCheckedIntent: AppIntent {
@@ -35,7 +34,6 @@ struct SetGroceryItemCheckedIntent: AppIntent {
       itemID: itemID,
       checked: checked
     )
-    WidgetCenter.shared.reloadTimelines(ofKind: HafaWidgetConstants.widgetKind)
     return .result()
   }
 }

@@ -1,5 +1,4 @@
 import AppIntents
-import WidgetKit
 
 @available(iOS 17.0, *)
 struct ChangeGroceryWidgetPageIntent: AppIntent {
@@ -39,8 +38,8 @@ struct ChangeGroceryWidgetPageIntent: AppIntent {
         familyKey: familyKey,
         direction: direction
       )
+      state.markTimelineCacheFresh()
     }
-    WidgetCenter.shared.reloadTimelines(ofKind: HafaWidgetConstants.widgetKind)
     return .result()
   }
 }

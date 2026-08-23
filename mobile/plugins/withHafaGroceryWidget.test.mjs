@@ -1,7 +1,11 @@
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
+const mobileRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const plugin = require('./withHafaGroceryWidget.js');
 const {
   APP_GROUP,
@@ -89,6 +93,32 @@ describe('Håfa grocery widget config plugin', () => {
   it('compiles the paging intent and helper into the widget target', () => {
     expect(SOURCE_FILES).toContain('HafaWidgetPaging.swift');
     expect(SOURCE_FILES).toContain('ChangeGroceryWidgetPageIntent.swift');
+  });
+
+  it('keeps interactive widget reloads cache-first with immediate feedback', () => {
+    const widgetSource = readFileSync(
+      join(mobileRoot, 'widget/ios/HafaGroceryWidget.swift'),
+      'utf8',
+    );
+    const sharedSource = readFileSync(
+      join(mobileRoot, 'modules/hafa-widget-bridge/ios/HafaWidgetShared.swift'),
+      'utf8',
+    );
+    const pageIntentSource = readFileSync(
+      join(mobileRoot, 'widget/ios/ChangeGroceryWidgetPageIntent.swift'),
+      'utf8',
+    );
+    const checkIntentSource = readFileSync(
+      join(mobileRoot, 'widget/ios/SetGroceryItemCheckedIntent.swift'),
+      'utf8',
+    );
+
+    expect(widgetSource).toContain('if cachedState.shouldUseCachedTimeline()');
+    expect(widgetSource).toContain('Toggle(');
+    expect(widgetSource).toContain('.invalidatableContent()');
+    expect(sharedSource).toContain('state.markTimelineCacheFresh()');
+    expect(pageIntentSource).not.toContain('reloadTimelines');
+    expect(checkIntentSource).not.toContain('reloadTimelines');
   });
 
   it('keeps the app-private keychain group ahead of the shared widget group', () => {
