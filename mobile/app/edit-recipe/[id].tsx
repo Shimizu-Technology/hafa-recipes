@@ -14,6 +14,7 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   View as RNView,
   ActivityIndicator,
@@ -88,7 +89,7 @@ export default function EditRecipeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
-  const { requestPublishing } = usePublishingDisclosure();
+  const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
 
   // Form state
   const [title, setTitle] = useState('');
@@ -352,6 +353,7 @@ export default function EditRecipeScreen() {
   };
 
   const submitEdit = async () => {
+    Keyboard.dismiss();
     let snapshot: EditSnapshot;
     try {
       snapshot = createEditSnapshot();
@@ -648,10 +650,10 @@ export default function EditRecipeScreen() {
           headerRight: () => (
             <TouchableOpacity
               onPress={handleSubmit}
-              disabled={editMutation.isPending}
+              disabled={editMutation.isPending || isCheckingDisclosure}
               style={styles.saveButton}
             >
-              {editMutation.isPending ? (
+              {editMutation.isPending || isCheckingDisclosure ? (
                 <ActivityIndicator size="small" color={colors.tint} />
               ) : (
                 <Text style={[styles.saveButtonText, { color: colors.tint }]}>Save</Text>
@@ -665,7 +667,10 @@ export default function EditRecipeScreen() {
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <View style={styles.container}>
+        <View
+          style={styles.container}
+          pointerEvents={isCheckingDisclosure ? 'none' : 'auto'}
+        >
           <ScrollView
             showsVerticalScrollIndicator={false}
             contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
