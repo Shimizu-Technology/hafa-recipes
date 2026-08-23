@@ -35,6 +35,7 @@ from app.models.schemas import (
 )
 from app.moderation import is_publicly_viewable, public_recipe_conditions
 from app.public_identity import public_contributor_id, visible_recipe_user_id
+from app.publishing import require_current_publishing_disclosure
 from app.recipe_derived_data import (
     ensure_derived_metadata,
     invalidate_changed_inputs,
@@ -689,6 +690,9 @@ async def create_manual_recipe(
     source_type = recipe_input.source_type or "manual"
     source_url = "photo-upload" if source_type == "photo" else "manual://user-created"
 
+    if recipe_input.is_public:
+        await require_current_publishing_disclosure(db, user.id)
+
     new_recipe = Recipe(
         source_url=source_url,
         source_type=source_type,
@@ -747,6 +751,9 @@ async def save_ocr_recipe(
     # Ensure sourceUrl is set
     if not extracted.get("sourceUrl"):
         extracted["sourceUrl"] = "photo-upload"
+
+    if ocr_data.is_public:
+        await require_current_publishing_disclosure(db, user.id)
 
     # Create the recipe
     new_recipe = Recipe(
@@ -1684,6 +1691,10 @@ async def update_recipe(
     if recipe.user_id != user.id:
         raise HTTPException(status_code=403, detail="You can only update your own recipes")
 
+    target_is_public = update.is_public if update.is_public is not None else recipe.is_public
+    if target_is_public:
+        await require_current_publishing_disclosure(db, user.id)
+
     # Update the extracted JSONB with new values
     old_extracted = dict(recipe.extracted) if recipe.extracted else {}
     extracted = dict(old_extracted)
@@ -1732,7 +1743,10 @@ async def toggle_recipe_sharing(
 
     # Older released app builds sent no body. Keep that path temporarily while
     # new clients use an explicit, retry-safe target state.
-    recipe.is_public = sharing.is_public if sharing is not None else not recipe.is_public
+    target_is_public = sharing.is_public if sharing is not None else not recipe.is_public
+    if target_is_public:
+        await require_current_publishing_disclosure(db, user.id)
+    recipe.is_public = target_is_public
     await db.commit()
 
     return {
@@ -1849,6 +1863,10 @@ async def edit_recipe(
     if recipe.user_id != user.id:
         raise HTTPException(status_code=403, detail="You can only edit your own recipes")
 
+    target_is_public = edit.is_public if edit.is_public is not None else recipe.is_public
+    if target_is_public:
+        await require_current_publishing_disclosure(db, user.id)
+
     # Preserve some fields from original extracted data
     old_extracted = recipe.extracted or {}
     new_extracted = _build_edited_extracted(old_extracted, edit)
@@ -1915,6 +1933,10 @@ async def edit_recipe_with_image(
     # Only owner can edit
     if recipe.user_id != user.id:
         raise HTTPException(status_code=403, detail="You can only edit your own recipes")
+
+    target_is_public = edit.is_public if edit.is_public is not None else recipe.is_public
+    if target_is_public:
+        await require_current_publishing_disclosure(db, user.id)
 
     # Handle image upload first
     thumbnail_url = recipe.thumbnail_url

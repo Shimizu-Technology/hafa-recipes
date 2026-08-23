@@ -24,13 +24,11 @@ from app.models.recipe import (
     RecipeVersion,
     SavedRecipe,
 )
+from app.publishing import PUBLISHING_DISCLOSURE_VERSION
 from app.services.storage import storage_service
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 settings = get_settings()
-
-PUBLISHING_DISCLOSURE_VERSION = 1
-
 
 class PublishingDisclosureStatus(BaseModel):
     current_version: int

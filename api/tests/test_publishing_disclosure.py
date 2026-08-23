@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from app.auth import ClerkUser
 from app.models.identity import AppUser
+from app.publishing import require_current_publishing_disclosure
 from app.routers.users import (
     PUBLISHING_DISCLOSURE_VERSION,
     PublishingDisclosureAcceptance,
@@ -75,3 +76,33 @@ async def test_stale_or_future_disclosure_version_is_rejected():
 
     assert error.value.status_code == 409
     db.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_public_write_rechecks_current_acceptance_under_account_lock():
+    db = AsyncMock()
+    result = Mock()
+    result.scalar_one_or_none.return_value = AppUser(
+        id="stable_user", publishing_disclosure_version=PUBLISHING_DISCLOSURE_VERSION - 1
+    )
+    db.execute.return_value = result
+
+    with pytest.raises(HTTPException) as error:
+        await require_current_publishing_disclosure(db, "stable_user")
+
+    assert error.value.status_code == 409
+    db.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_public_write_accepts_current_version_under_account_lock():
+    db = AsyncMock()
+    result = Mock()
+    result.scalar_one_or_none.return_value = AppUser(
+        id="stable_user", publishing_disclosure_version=PUBLISHING_DISCLOSURE_VERSION
+    )
+    db.execute.return_value = result
+
+    await require_current_publishing_disclosure(db, "stable_user")
+
+    db.execute.assert_awaited_once()
