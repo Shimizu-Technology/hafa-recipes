@@ -234,6 +234,11 @@ export default function ExtractScreen() {
 
   // Proceed with extraction (called after duplicate check or when user chooses "Extract Anyway")
   const proceedWithExtraction = async () => {
+    if (isPublic && !(await requestPublishing())) {
+      setIsPublic(false);
+      return;
+    }
+
     try {
       // Determine extraction type BEFORE starting (to prevent UI flicker)
       const trimmedUrl = url.trim().toLowerCase();

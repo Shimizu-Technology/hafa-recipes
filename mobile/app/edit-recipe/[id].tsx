@@ -316,6 +316,36 @@ export default function EditRecipeScreen() {
     },
   });
 
+  const publishPreview = () => {
+    if (!recipe) return null;
+    const previewRecipe = {
+      ...recipe,
+      extracted: {
+        ...recipe.extracted,
+        title: title.trim() || recipe.extracted.title,
+        components: recipeComponents.map(component => ({
+          name: component.name,
+          notes: component.notes || null,
+          ingredients: ingredients.filter(ingredient => ingredient.componentId === component.id && ingredient.name.trim()),
+          steps: steps.filter(step => step.componentId === component.id && step.text.trim()).map(step => step.text),
+        })),
+      },
+      thumbnail_url: newImageUri || thumbnailUrl,
+    };
+    return formatPublishDisclosure(getPublishDisclosure(previewRecipe));
+  };
+
+  const submitEdit = async () => {
+    if (isPublic) {
+      const preview = publishPreview();
+      if (!preview || !(await requestPublishing(preview))) {
+        if (!recipe?.is_public) setIsPublic(false);
+        return;
+      }
+    }
+    editMutation.mutate();
+  };
+
   const handleSubmit = () => {
     if (!title.trim()) {
       Alert.alert('Missing Title', 'Please enter a recipe title.');
@@ -338,7 +368,7 @@ export default function EditRecipeScreen() {
         'Add AI-Powered Info?',
         `Would you like AI to suggest ${missingItems.join(' and ')} for your recipe? This helps with search and discovery.`,
         [
-          { text: 'Skip', style: 'cancel', onPress: () => editMutation.mutate() },
+          { text: 'Skip', style: 'cancel', onPress: () => void submitEdit() },
           { 
             text: 'Add AI Info', 
             onPress: async () => {
@@ -353,7 +383,7 @@ export default function EditRecipeScreen() {
       return;
     }
     
-    editMutation.mutate();
+    void submitEdit();
   };
 
   const handleRestoreOriginal = () => {
@@ -572,22 +602,8 @@ export default function EditRecipeScreen() {
       return;
     }
 
-    if (!recipe) return;
-    const previewRecipe = {
-      ...recipe,
-      extracted: {
-        ...recipe.extracted,
-        title: title.trim() || recipe.extracted.title,
-        components: recipeComponents.map(component => ({
-          name: component.name,
-          notes: component.notes || null,
-          ingredients: ingredients.filter(ingredient => ingredient.componentId === component.id && ingredient.name.trim()),
-          steps: steps.filter(step => step.componentId === component.id && step.text.trim()).map(step => step.text),
-        })),
-      },
-      thumbnail_url: newImageUri || thumbnailUrl,
-    };
-    if (await requestPublishing(formatPublishDisclosure(getPublishDisclosure(previewRecipe)))) {
+    const preview = publishPreview();
+    if (preview && await requestPublishing(preview)) {
       setIsPublic(true);
     }
   };
