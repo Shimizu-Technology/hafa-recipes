@@ -13,6 +13,8 @@ import {
   View as RNView,
   Alert,
   TextInput,
+  Keyboard,
+  Platform,
   Share,
   ActivityIndicator,
 } from 'react-native';
@@ -235,7 +237,7 @@ export default function GroceryScreen() {
   const [showSettings, setShowSettings] = useState(false);
 
   // Set up offline sync (syncs pending changes when back online)
-  const { lastSyncResult, clearSyncResult } = useGrocerySync();
+  const { lastSyncResult, clearSyncResult } = useGrocerySync(!!isSignedIn);
   
   // Show alert when sync has failures
   useEffect(() => {
@@ -463,7 +465,7 @@ export default function GroceryScreen() {
     );
   };
 
-  const handleAddItem = () => {
+  const handleAddItem = (keepInputFocused = false) => {
     if (!newItemName.trim()) return;
     
     haptics.success();
@@ -483,10 +485,15 @@ export default function GroceryScreen() {
       {
         onSuccess: () => {
           setNewItemName('');
-          // Keep focus on input so user can quickly add more items
-          setTimeout(() => {
-            addItemInputRef.current?.focus();
-          }, 100);
+          if (keepInputFocused) {
+            // The visible add button supports rapid, repeated entry. The
+            // keyboard's Done key intentionally ends entry and stays blurred.
+            setTimeout(() => {
+              addItemInputRef.current?.focus();
+            }, 100);
+          } else {
+            Keyboard.dismiss();
+          }
         },
         onError: () => Alert.alert('Error', 'Failed to add item'),
       }
@@ -744,18 +751,21 @@ export default function GroceryScreen() {
             placeholderTextColor={colors.textMuted}
             value={newItemName}
             onChangeText={setNewItemName}
-            onSubmitEditing={handleAddItem}
+            onSubmitEditing={() => handleAddItem(false)}
             returnKeyType="done"
-            blurOnSubmit={false}
+            submitBehavior="blurAndSubmit"
             maxLength={255}
+            accessibilityLabel="Add grocery item"
           />
           <TouchableOpacity
-            onPress={handleAddItem}
+            onPress={() => handleAddItem(true)}
             disabled={!newItemName.trim()}
             style={[
               styles.addButton,
               { backgroundColor: newItemName.trim() ? colors.tint : colors.border },
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="Add item and keep typing"
           >
             <Ionicons name="add" size={24} color="#FFFFFF" />
           </TouchableOpacity>
@@ -798,6 +808,9 @@ export default function GroceryScreen() {
         contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom, 80) + spacing.xl + (isSignedIn ? 0 : 100) }]}
         showsVerticalScrollIndicator={false}
         stickySectionHeadersEnabled={false}
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        keyboardShouldPersistTaps="handled"
+        onTouchStart={() => Keyboard.dismiss()}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}

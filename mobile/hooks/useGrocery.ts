@@ -281,7 +281,7 @@ export interface SyncResult {
   failedItems: string[];
 }
 
-export function useGrocerySync() {
+export function useGrocerySync(enabled = true) {
   const queryClient = useQueryClient();
   const { isOnline } = useNetworkStatus();
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
@@ -291,7 +291,7 @@ export function useGrocerySync() {
     if (syncingRef.current) return syncingRef.current;
     const sync = serializeGroceryMutation(async () => {
       const result: SyncResult = { synced: 0, failed: 0, failedItems: [] };
-      if (!isOnline) return result;
+      if (!enabled || !isOnline) return result;
       const lease = getGroceryStorageLease();
       const queued = await getPendingSyncQueue(lease);
       let serverSnapshot: GrocerySnapshot;
@@ -379,7 +379,7 @@ export function useGrocerySync() {
     } finally {
       syncingRef.current = null;
     }
-  }, [isOnline, queryClient]);
+  }, [enabled, isOnline, queryClient]);
 
   useOnlineCallback(() => {
     void syncPendingChanges().catch((error) =>
@@ -387,7 +387,7 @@ export function useGrocerySync() {
     );
   });
   useEffect(() => {
-    if (isOnline) {
+    if (enabled && isOnline) {
       void hasPendingSync(getGroceryStorageLease()).then((pending) => {
         if (pending) {
           void syncPendingChanges().catch((error) =>
@@ -396,7 +396,7 @@ export function useGrocerySync() {
         }
       });
     }
-  }, [isOnline, syncPendingChanges]);
+  }, [enabled, isOnline, syncPendingChanges]);
 
   return {
     syncPendingChanges,
