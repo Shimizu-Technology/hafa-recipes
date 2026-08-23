@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatPublishDisclosure, getPublishDisclosure } from './recipePublishing';
+import {
+  formatPublishDisclosure,
+  getPublishDisclosure,
+  PUBLISHING_DISCLOSURE_MESSAGE,
+  PUBLISHING_DISCLOSURE_VERSION,
+} from './recipePublishing';
 
 describe('recipe publishing disclosure', () => {
+  it('versions a reusable account-level disclosure without claiming private data is shared', () => {
+    expect(PUBLISHING_DISCLOSURE_VERSION).toBe(1);
+    expect(PUBLISHING_DISCLOSURE_MESSAGE).toContain('can appear in Discover and search');
+    expect(PUBLISHING_DISCLOSURE_MESSAGE).toContain('Personal notes and extraction details stay private');
+  });
   it('counts every component without exposing private extraction details', () => {
     const disclosure = getPublishDisclosure({
       extracted: {

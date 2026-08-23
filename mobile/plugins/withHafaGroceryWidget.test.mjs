@@ -112,6 +112,14 @@ describe('Håfa grocery widget config plugin', () => {
       join(mobileRoot, 'widget/ios/SetGroceryItemCheckedIntent.swift'),
       'utf8',
     );
+    const pagingSource = readFileSync(
+      join(mobileRoot, 'widget/ios/HafaWidgetPaging.swift'),
+      'utf8',
+    );
+    const sharedSourceText = readFileSync(
+      join(mobileRoot, 'modules/hafa-widget-bridge/ios/HafaWidgetShared.swift'),
+      'utf8',
+    );
 
     expect(widgetSource).toContain('if cachedState.shouldUseCachedTimeline()');
     expect(widgetSource).toContain('Toggle(');
@@ -119,6 +127,10 @@ describe('Håfa grocery widget config plugin', () => {
     expect(sharedSource).toContain('state.markTimelineCacheFresh()');
     expect(pageIntentSource).not.toContain('reloadTimelines');
     expect(checkIntentSource).not.toContain('reloadTimelines');
+    expect(widgetSource).toContain('dynamicTypeSize.isAccessibilitySize');
+    expect(widgetSource).toContain('Text(item.displayName)');
+    expect(pagingSource).toContain('accessibilitySize ? 6 : 8');
+    expect(sharedSourceText).toContain('var displayName: String');
   });
 
   it('keeps the app-private keychain group ahead of the shared widget group', () => {

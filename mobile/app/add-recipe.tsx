@@ -26,6 +26,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { View, Text, useColors } from '@/components/Themed';
 import { api } from '@/lib/api';
 import { formatPublishDisclosure } from '@/lib/recipePublishing';
+import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
+import { invalidateCreatedRecipeQueries } from '@/hooks/useRecipes';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
 interface IngredientInput {
@@ -68,9 +70,10 @@ export default function AddRecipeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
+  const { requestPublishing } = usePublishingDisclosure();
   
   // Get initial data from route params (for OCR pre-fill)
-  const { initialData, fromOcr } = useLocalSearchParams<{
+  const { initialData, isPublic: isPublicParam, fromOcr } = useLocalSearchParams<{
     initialData?: string;
     isPublic?: string;
     fromOcr?: string;
@@ -113,8 +116,8 @@ export default function AddRecipeScreen() {
         if (data.notes) setNotes(data.notes);
         if (data.tags?.length) setTags(data.tags.join(', '));
         
-        // New recipes stay private until this screen shows the publish disclosure.
-        setIsPublic(false);
+        // Preserve the visibility choice made on the OCR review screen.
+        setIsPublic(isPublicParam === 'true');
         
         // Ingredients - flatten from components
         const allIngredients: IngredientInput[] = [];
@@ -173,7 +176,7 @@ export default function AddRecipeScreen() {
         // Non-critical: form will be empty, user can fill manually
       }
     }
-  }, [initialData]);
+  }, [initialData, isPublicParam]);
   
   // AI feature states
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
@@ -233,9 +236,7 @@ export default function AddRecipeScreen() {
       );
     },
     onSuccess: (recipe) => {
-      // Invalidate recipe queries to refresh lists
-      queryClient.invalidateQueries({ queryKey: ['recipes'] });
-      queryClient.invalidateQueries({ queryKey: ['recipeCount'] });
+      invalidateCreatedRecipeQueries(queryClient, recipe.id);
       
       Alert.alert('Success!', 'Your recipe has been created.', [
         { text: 'View Recipe', onPress: () => router.replace(`/recipe/${recipe.id}`) },
@@ -369,7 +370,7 @@ export default function AddRecipeScreen() {
     createMutation.mutate();
   };
 
-  const handlePublicToggle = () => {
+  const handlePublicToggle = async () => {
     if (isPublic) {
       setIsPublic(false);
       return;
@@ -382,14 +383,7 @@ export default function AddRecipeScreen() {
       hasSourceLink: false,
       contributorName: 'your contributor name',
     };
-    Alert.alert(
-      'Preview before publishing',
-      formatPublishDisclosure(disclosure),
-      [
-        { text: 'Keep private', style: 'cancel' },
-        { text: 'Share when saved', onPress: () => setIsPublic(true) },
-      ],
-    );
+    if (await requestPublishing(formatPublishDisclosure(disclosure))) setIsPublic(true);
   };
 
   const handleSuggestTags = async () => {

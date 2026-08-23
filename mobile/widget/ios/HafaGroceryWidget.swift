@@ -114,6 +114,7 @@ struct HafaGroceryWidget: Widget {
 
 private struct HafaGroceryWidgetView: View {
   @Environment(\.widgetFamily) private var family
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   let entry: HafaGroceryWidgetEntry
 
   var body: some View {
@@ -157,10 +158,15 @@ private struct HafaGroceryWidgetView: View {
   }
 
   private func listView(_ snapshot: HafaWidgetSnapshot, familyKey: String) -> some View {
+    let pageSize = HafaWidgetPaging.pageSize(
+      for: familyKey,
+      accessibilitySize: dynamicTypeSize.isAccessibilitySize
+    ) ?? 1
     let page = HafaWidgetPaging.slice(
       state: entry.state,
       familyKey: familyKey,
-      total: snapshot.items.count
+      total: snapshot.items.count,
+      pageSize: pageSize
     )
     let visibleItems = Array(snapshot.items[page.offset..<page.endOffset])
 
@@ -180,6 +186,7 @@ private struct HafaGroceryWidgetView: View {
         .transition(.opacity)
         .animation(.easeOut(duration: 0.18), value: page.offset)
         .invalidatableContent()
+        .layoutPriority(1)
       }
 
       Spacer(minLength: 5)
@@ -211,6 +218,8 @@ private struct HafaGroceryWidgetView: View {
           .accessibilityLabel("Add grocery item in Håfa Recipes")
       }
     }
+    .fixedSize(horizontal: false, vertical: true)
+    .layoutPriority(2)
   }
 
   private func itemRow(_ item: HafaWidgetItem, listID: String) -> some View {
@@ -229,19 +238,12 @@ private struct HafaGroceryWidgetView: View {
       .accessibilityLabel(item.checked ? "Mark \(item.name) unchecked" : "Mark \(item.name) checked")
 
       Link(destination: editURL(itemID: item.id)) {
-        VStack(alignment: .leading, spacing: 0) {
-          Text(item.name)
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(item.checked ? Color.secondary : Color.primary)
-            .strikethrough(item.checked)
-            .lineLimit(1)
-          if let detail = item.detail {
-            Text(detail)
-              .font(.caption2)
-              .foregroundStyle(.secondary)
-              .lineLimit(1)
-          }
-        }
+        Text(item.displayName)
+          .font(.subheadline.weight(.medium))
+          .foregroundStyle(item.checked ? Color.secondary : Color.primary)
+          .strikethrough(item.checked)
+          .lineLimit(1)
+          .minimumScaleFactor(0.82)
       }
       .accessibilityLabel("Edit \(item.name) in Håfa Recipes")
       Spacer(minLength: 0)
@@ -295,7 +297,8 @@ private struct HafaGroceryWidgetView: View {
           intent: ChangeGroceryWidgetPageIntent(
             listID: snapshot.list.id,
             familyKey: familyKey,
-            direction: -1
+            direction: -1,
+            pageSize: page.pageSize
           )
         ) {
           Image(systemName: "chevron.left")
@@ -321,7 +324,8 @@ private struct HafaGroceryWidgetView: View {
           intent: ChangeGroceryWidgetPageIntent(
             listID: snapshot.list.id,
             familyKey: familyKey,
-            direction: 1
+            direction: 1,
+            pageSize: page.pageSize
           )
         ) {
           Image(systemName: "chevron.right")
@@ -340,6 +344,8 @@ private struct HafaGroceryWidgetView: View {
     }
     .font(.caption2)
     .foregroundStyle(.secondary)
+    .fixedSize(horizontal: false, vertical: true)
+    .layoutPriority(2)
   }
 
   private func editURL(itemID: String) -> URL {

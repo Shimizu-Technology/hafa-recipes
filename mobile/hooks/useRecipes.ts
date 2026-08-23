@@ -2,7 +2,7 @@
  * React Query hooks for recipe operations.
  */
 
-import { useQuery, useMutation, useQueryClient, keepPreviousData, useInfiniteQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData, useInfiniteQuery, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@clerk/expo';
@@ -69,11 +69,13 @@ export const recipeKeys = {
   list: (filters: { limit?: number; offset?: number; sourceType?: string }) =>
     [...recipeKeys.lists(), filters] as const,
   infinite: (sourceType?: string) => [...recipeKeys.all, 'infinite', sourceType] as const,
+  recentRoot: () => [...recipeKeys.all, 'recent'] as const,
   infiniteSearch: (filters: SearchFilters) => [...recipeKeys.all, 'infiniteSearch', filters] as const,
   recent: (limit?: number) => [...recipeKeys.all, 'recent', limit] as const,
   search: (filters: SearchFilters) => [...recipeKeys.all, 'search', filters] as const,
   details: () => [...recipeKeys.all, 'detail'] as const,
   detail: (id: string) => [...recipeKeys.details(), id] as const,
+  countRoot: () => [...recipeKeys.all, 'count'] as const,
   count: (sourceType?: string) => [...recipeKeys.all, 'count', sourceType] as const,
   popularTags: (scope: 'user' | 'public') => [...recipeKeys.all, 'popularTags', scope] as const,
   // Saved recipes
@@ -92,6 +94,16 @@ export const recipeKeys = {
   byIngredients: (ingredients: string[], includeSaved: boolean, includePublic: boolean) => 
     [...recipeKeys.all, 'byIngredients', ingredients.join(','), includeSaved, includePublic] as const,
 };
+
+export function invalidateCreatedRecipeQueries(queryClient: QueryClient, recipeId?: string | null) {
+  queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
+  queryClient.invalidateQueries({ queryKey: recipeKeys.recentRoot() });
+  queryClient.invalidateQueries({ queryKey: recipeKeys.countRoot() });
+  queryClient.invalidateQueries({ queryKey: recipeKeys.discover() });
+  queryClient.invalidateQueries({ queryKey: recipeKeys.popularTags('public') });
+  queryClient.invalidateQueries({ queryKey: recipeKeys.topContributors() });
+  if (recipeId) queryClient.invalidateQueries({ queryKey: recipeKeys.detail(recipeId) });
+}
 
 // ============================================================
 // Query Hooks
@@ -253,12 +265,7 @@ export function useExtractRecipe() {
 
   return useMutation({
     mutationFn: (request: ExtractRequest) => api.extractRecipe(request),
-    onSuccess: () => {
-      // Invalidate recipe lists to refetch with new recipe
-      queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: recipeKeys.recent() });
-      queryClient.invalidateQueries({ queryKey: recipeKeys.count() });
-    },
+    onSuccess: (recipe) => invalidateCreatedRecipeQueries(queryClient, recipe.id),
   });
 }
 
@@ -315,12 +322,7 @@ export function useAsyncExtractionController() {
   }, []);
 
   const invalidateCompletedRecipe = useCallback((recipeId?: string | null) => {
-    queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
-    queryClient.invalidateQueries({ queryKey: recipeKeys.recent() });
-    queryClient.invalidateQueries({ queryKey: recipeKeys.count() });
-    if (recipeId) {
-      queryClient.invalidateQueries({ queryKey: recipeKeys.detail(recipeId) });
-    }
+    invalidateCreatedRecipeQueries(queryClient, recipeId);
   }, [queryClient]);
 
   const startPolling = useCallback((id: string, startedAt: number) => {
@@ -1012,12 +1014,7 @@ export function useToggleRecipeSharing() {
       }
     },
     onSettled: (data, error, { id }) => {
-      // Sync with server state
-      queryClient.invalidateQueries({ queryKey: recipeKeys.detail(id) });
-      // Invalidate discover lists as the recipe may now be visible/hidden
-      queryClient.invalidateQueries({ queryKey: recipeKeys.discover() });
-      // Invalidate my recipes list
-      queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
+      invalidateCreatedRecipeQueries(queryClient, id);
     },
   });
 }
@@ -1168,8 +1165,7 @@ export function useSaveOcrRecipe() {
     mutationFn: (params: { extracted: any; is_public?: boolean }) => 
       api.saveOcrRecipe(params),
     onSuccess: (data) => {
-      // Invalidate recipe list queries to include the new recipe
-      queryClient.invalidateQueries({ queryKey: ['recipes'] });
+      invalidateCreatedRecipeQueries(queryClient, data.id);
       queryClient.invalidateQueries({ queryKey: ['myRecipes'] });
       console.log('OCR recipe saved successfully:', data.id);
     },

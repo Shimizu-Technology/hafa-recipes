@@ -2,6 +2,7 @@
 
 import sentry_sdk
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +28,66 @@ from app.services.storage import storage_service
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 settings = get_settings()
+
+PUBLISHING_DISCLOSURE_VERSION = 1
+
+
+class PublishingDisclosureStatus(BaseModel):
+    current_version: int
+    accepted_version: int
+    requires_acceptance: bool
+
+
+class PublishingDisclosureAcceptance(BaseModel):
+    version: int = Field(ge=1)
+
+
+def _publishing_disclosure_status(app_user: AppUser) -> PublishingDisclosureStatus:
+    accepted_version = app_user.publishing_disclosure_version or 0
+    return PublishingDisclosureStatus(
+        current_version=PUBLISHING_DISCLOSURE_VERSION,
+        accepted_version=accepted_version,
+        requires_acceptance=accepted_version < PUBLISHING_DISCLOSURE_VERSION,
+    )
+
+
+@router.get("/me/publishing-disclosure", response_model=PublishingDisclosureStatus)
+async def get_publishing_disclosure(
+    db: AsyncSession = Depends(get_db),
+    user: ClerkUser = Depends(get_current_user),
+):
+    app_user = await db.get(AppUser, user.id)
+    if app_user is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return _publishing_disclosure_status(app_user)
+
+
+@router.post("/me/publishing-disclosure", response_model=PublishingDisclosureStatus)
+async def accept_publishing_disclosure(
+    acceptance: PublishingDisclosureAcceptance,
+    db: AsyncSession = Depends(get_db),
+    user: ClerkUser = Depends(get_current_user),
+):
+    if acceptance.version != PUBLISHING_DISCLOSURE_VERSION:
+        raise HTTPException(
+            status_code=409,
+            detail="Publishing disclosure version is no longer current",
+        )
+
+    result = await db.execute(
+        select(AppUser).where(AppUser.id == user.id).with_for_update()
+    )
+    app_user = result.scalar_one_or_none()
+    if app_user is None:
+        await db.rollback()
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    app_user.publishing_disclosure_version = max(
+        app_user.publishing_disclosure_version or 0,
+        PUBLISHING_DISCLOSURE_VERSION,
+    )
+    await db.commit()
+    return _publishing_disclosure_status(app_user)
 
 
 def _account_cleanup_response(job: DeletionCleanupJob, recipe_count: int = 0) -> dict:

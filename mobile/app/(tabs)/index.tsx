@@ -8,7 +8,6 @@ import {
   Platform,
   ScrollView,
   View as RNView,
-  Switch,
   ActivityIndicator,
   Image,
 } from 'react-native';
@@ -27,6 +26,7 @@ import { useAsyncExtraction } from '@/contexts/ExtractionContext';
 import { BrandMark } from '@/components/BrandMark';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import { api } from '@/lib/api';
+import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 
 export default function ExtractScreen() {
   const router = useRouter();
@@ -54,6 +54,16 @@ export default function ExtractScreen() {
   const { data: locationsData } = useLocations();
   const extraction = useAsyncExtraction();
   const checkDuplicate = useCheckDuplicate();
+  const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
+
+  const handlePublicToggle = async () => {
+    if (!isSignedIn) return;
+    if (isPublic) {
+      setIsPublic(false);
+      return;
+    }
+    if (await requestPublishing()) setIsPublic(true);
+  };
 
   // Handle shared URL from iOS Share Extension
   useEffect(() => {
@@ -686,13 +696,13 @@ export default function ExtractScreen() {
                 borderColor: isPublic ? colors.tint : colors.border,
               }
             ]}
-            onPress={() => !isLoading && setIsPublic(!isPublic)}
+            onPress={handlePublicToggle}
             activeOpacity={0.7}
-            disabled={isLoading}
+            disabled={!isSignedIn || isLoading || isCheckingDisclosure}
             accessibilityRole="switch"
             accessibilityLabel="Share recipe to the public library"
             accessibilityHint="Off keeps this recipe visible only to you"
-            accessibilityState={{ checked: isPublic, disabled: isLoading }}
+            accessibilityState={{ checked: isPublic, disabled: !isSignedIn || isLoading || isCheckingDisclosure }}
           >
             <RNView style={styles.shareToggleContent}>
               <Ionicons
@@ -709,13 +719,10 @@ export default function ExtractScreen() {
                 </Text>
               </RNView>
             </RNView>
-            <Switch
-              value={isPublic}
-              onValueChange={setIsPublic}
-              disabled={isLoading}
-              accessibilityLabel="Share recipe to the public library"
-              trackColor={{ false: colors.border, true: colors.tint }}
-              thumbColor="#FFFFFF"
+            <Ionicons
+              name={isPublic ? 'checkmark-circle' : 'ellipse-outline'}
+              size={26}
+              color={isPublic ? colors.tint : colors.textMuted}
             />
           </TouchableOpacity>
 

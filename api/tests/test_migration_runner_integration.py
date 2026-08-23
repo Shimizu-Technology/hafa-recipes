@@ -61,9 +61,19 @@ async def test_active_chain_replays_on_current_base_schema(monkeypatch):
                 SELECT COUNT(*) FROM clerk_identities
                 WHERE app_user_id = 'migration_runner_user'
             """))
+            disclosure_version = await connection.scalar(text("""
+                SELECT publishing_disclosure_version FROM app_users
+                WHERE id = 'migration_runner_user'
+            """))
+            disclosure_constraint = await connection.scalar(text("""
+                SELECT COUNT(*) FROM pg_constraint
+                WHERE conname = 'ck_app_users_publishing_disclosure_version'
+            """))
 
         assert marker == 1
         assert identity == 1
+        assert disclosure_version == 0
+        assert disclosure_constraint == 1
     finally:
         async with engine.begin() as connection:
             await connection.execute(text("DROP SCHEMA public CASCADE"))

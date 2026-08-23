@@ -27,6 +27,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { View, Text, useColors } from '@/components/Themed';
 import { api } from '@/lib/api';
 import { formatPublishDisclosure, getPublishDisclosure } from '@/lib/recipePublishing';
+import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
 interface IngredientInput {
@@ -79,6 +80,7 @@ export default function EditRecipeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
+  const { requestPublishing } = usePublishingDisclosure();
 
   // Form state
   const [title, setTitle] = useState('');
@@ -555,7 +557,7 @@ export default function EditRecipeScreen() {
   const componentName = (componentId: string) =>
     recipeComponents.find(component => component.id === componentId)?.name || 'Main';
 
-  const handlePublicToggle = () => {
+  const handlePublicToggle = async () => {
     if (isPublic) {
       Alert.alert(
         'Review public recipe',
@@ -585,14 +587,9 @@ export default function EditRecipeScreen() {
       },
       thumbnail_url: newImageUri || thumbnailUrl,
     };
-    Alert.alert(
-      'Preview before publishing',
-      formatPublishDisclosure(getPublishDisclosure(previewRecipe)),
-      [
-        { text: 'Not yet', style: 'cancel' },
-        { text: 'Share when saved', onPress: () => setIsPublic(true) },
-      ],
-    );
+    if (await requestPublishing(formatPublishDisclosure(getPublishDisclosure(previewRecipe)))) {
+      setIsPublic(true);
+    }
   };
 
   if (isLoadingRecipe) {

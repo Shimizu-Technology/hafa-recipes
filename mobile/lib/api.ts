@@ -40,6 +40,7 @@ import type {
   SafetyReport,
   SafetyStatus,
 } from '../types/communitySafety';
+import type { PublishingDisclosureStatus } from './recipePublishing';
 
 // Token getter function type - will be set by the app
 type TokenGetter = () => Promise<string | null>;
@@ -311,6 +312,20 @@ class ApiClient {
 
   async setRecipeSharing(id: string, isPublic: boolean): Promise<{ is_public: boolean; message: string }> {
     const { data } = await this.client.post(`/api/recipes/${id}/share`, { is_public: isPublic });
+    return data;
+  }
+
+  async getPublishingDisclosure(): Promise<PublishingDisclosureStatus> {
+    const { data } = await this.client.get('/api/users/me/publishing-disclosure', { timeout: 10_000 });
+    return data;
+  }
+
+  async acceptPublishingDisclosure(version: number): Promise<PublishingDisclosureStatus> {
+    const { data } = await this.client.post(
+      '/api/users/me/publishing-disclosure',
+      { version },
+      { timeout: 10_000 },
+    );
     return data;
   }
 
