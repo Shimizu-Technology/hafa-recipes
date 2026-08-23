@@ -259,7 +259,13 @@ export default function GroceryScreen() {
   const { data: listInfo } = useGroceryListInfo(!!isSignedIn);
 
   // Pass isSignedIn to prevent queries from running when not authenticated
-  const { data: groceryItems, isLoading, refetch, isRefetching } = useGroceryList(showChecked, isSignedIn);
+  const {
+    data: groceryItems,
+    isLoading,
+    isRefetchError,
+    refetch,
+    isRefetching,
+  } = useGroceryList(showChecked, isSignedIn);
   const { data: countData } = useGroceryCount(isSignedIn);
 
   // Refetch when tab gains focus to ensure we always have fresh data
@@ -291,7 +297,13 @@ export default function GroceryScreen() {
   // Widget rows can open the existing edit sheet for one specific item. Wait
   // for the authenticated snapshot so a cold-start deep link is reliable.
   useEffect(() => {
-    if (!isSignedIn || !editItem || !groceryItems || isRefetching) return;
+    if (
+      !isSignedIn
+      || !editItem
+      || !groceryItems
+      || isRefetching
+      || isRefetchError
+    ) return;
     const requestedItem = groceryItems.find((item) => item.id === editItem);
     if (requestedItem) {
       setEditingItem(requestedItem);
@@ -301,7 +313,15 @@ export default function GroceryScreen() {
       return;
     }
     router.setParams({ editItem: undefined });
-  }, [editItem, groceryItems, isRefetching, isSignedIn, router, showChecked]);
+  }, [
+    editItem,
+    groceryItems,
+    isRefetchError,
+    isRefetching,
+    isSignedIn,
+    router,
+    showChecked,
+  ]);
 
   // Load collapsed sections from AsyncStorage on mount
   useEffect(() => {
