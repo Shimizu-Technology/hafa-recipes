@@ -8,9 +8,12 @@ EAS builds.
 ## Product behavior
 
 - Small: unchecked-item count and a link into the grocery list.
-- Medium/large: the first four/eight items with iOS 17 interactive check-off.
+- Medium/large: four/eight items at a time with iOS 17 interactive check-off
+  and native previous/next controls for browsing the entire saved list.
 - Add: opens `hafarecipes://grocery?focusAdd=1` and focuses the app's text input.
   WidgetKit does not provide free-form text entry inside a home-screen widget.
+- Edit: tapping an item name opens that item's existing edit sheet in the app.
+  Destructive delete remains in the app, where iOS can present confirmation.
 - Freshness: app fetches and mutations publish confirmed snapshots immediately;
   WidgetKit also requests a server snapshot on its budgeted timeline.
 

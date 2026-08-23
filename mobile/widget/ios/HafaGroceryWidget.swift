@@ -115,9 +115,9 @@ private struct HafaGroceryWidgetView: View {
       case .systemSmall:
         smallView(snapshot)
       case .systemLarge:
-        listView(snapshot, itemLimit: 8)
+        listView(snapshot, familyKey: HafaWidgetPaging.largeFamily)
       default:
-        listView(snapshot, itemLimit: 4)
+        listView(snapshot, familyKey: HafaWidgetPaging.mediumFamily)
       }
     } else {
       reconnectView
@@ -149,12 +149,18 @@ private struct HafaGroceryWidgetView: View {
     }
   }
 
-  private func listView(_ snapshot: HafaWidgetSnapshot, itemLimit: Int) -> some View {
-    VStack(alignment: .leading, spacing: 0) {
+  private func listView(_ snapshot: HafaWidgetSnapshot, familyKey: String) -> some View {
+    let page = HafaWidgetPaging.slice(
+      state: entry.state,
+      familyKey: familyKey,
+      total: snapshot.items.count
+    )
+    let visibleItems = Array(snapshot.items[page.offset..<page.endOffset])
+
+    return VStack(alignment: .leading, spacing: 0) {
       header(snapshot)
       Divider().padding(.vertical, 7)
 
-      let visibleItems = Array(snapshot.items.prefix(itemLimit))
       if visibleItems.isEmpty {
         emptyList
       } else {
@@ -166,7 +172,7 @@ private struct HafaGroceryWidgetView: View {
       }
 
       Spacer(minLength: 5)
-      footer(snapshot)
+      footer(snapshot, page: page, familyKey: familyKey)
     }
     .privacySensitive()
   }
@@ -212,19 +218,22 @@ private struct HafaGroceryWidgetView: View {
       .buttonStyle(.plain)
       .accessibilityLabel(item.checked ? "Mark \(item.name) unchecked" : "Mark \(item.name) checked")
 
-      VStack(alignment: .leading, spacing: 0) {
-        Text(item.name)
-          .font(.subheadline.weight(.medium))
-          .foregroundStyle(item.checked ? Color.secondary : Color.primary)
-          .strikethrough(item.checked)
-          .lineLimit(1)
-        if let detail = item.detail {
-          Text(detail)
-            .font(.caption2)
-            .foregroundStyle(.secondary)
+      Link(destination: editURL(itemID: item.id)) {
+        VStack(alignment: .leading, spacing: 0) {
+          Text(item.name)
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(item.checked ? Color.secondary : Color.primary)
+            .strikethrough(item.checked)
             .lineLimit(1)
+          if let detail = item.detail {
+            Text(detail)
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+          }
         }
       }
+      .accessibilityLabel("Edit \(item.name) in Håfa Recipes")
       Spacer(minLength: 0)
     }
     .contentTransition(.opacity)
@@ -250,7 +259,11 @@ private struct HafaGroceryWidgetView: View {
     }
   }
 
-  private func footer(_ snapshot: HafaWidgetSnapshot) -> some View {
+  private func footer(
+    _ snapshot: HafaWidgetSnapshot,
+    page: HafaWidgetPageSlice,
+    familyKey: String
+  ) -> some View {
     HStack(spacing: 5) {
       if !entry.state.pending.isEmpty {
         ProgressView().controlSize(.mini)
@@ -266,14 +279,53 @@ private struct HafaGroceryWidgetView: View {
         Text("Up to date")
       }
       Spacer()
-      Link(destination: URL(string: "hafarecipes://grocery")!) {
-        Text("View all")
+
+      if page.total > page.pageSize {
+        Button(
+          intent: ChangeGroceryWidgetPageIntent(
+            listID: snapshot.list.id,
+            familyKey: familyKey,
+            direction: -1
+          )
+        ) {
+          Image(systemName: "chevron.left")
+            .frame(width: 24, height: 24)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(page.canMovePrevious ? brandOrange : Color.secondary)
+        .disabled(!page.canMovePrevious)
+        .accessibilityLabel("Previous grocery items")
+
+        Text("\(page.offset + 1)–\(page.endOffset) of \(page.total)")
           .fontWeight(.semibold)
-          .foregroundStyle(brandOrange)
+          .monospacedDigit()
+
+        Button(
+          intent: ChangeGroceryWidgetPageIntent(
+            listID: snapshot.list.id,
+            familyKey: familyKey,
+            direction: 1
+          )
+        ) {
+          Image(systemName: "chevron.right")
+            .frame(width: 24, height: 24)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(page.canMoveNext ? brandOrange : Color.secondary)
+        .disabled(!page.canMoveNext)
+        .accessibilityLabel("Next grocery items")
       }
     }
     .font(.caption2)
     .foregroundStyle(.secondary)
+  }
+
+  private func editURL(itemID: String) -> URL {
+    var components = URLComponents()
+    components.scheme = "hafarecipes"
+    components.host = "grocery"
+    components.queryItems = [URLQueryItem(name: "editItem", value: itemID)]
+    return components.url ?? URL(string: "hafarecipes://grocery")!
   }
 
   private var reconnectView: some View {

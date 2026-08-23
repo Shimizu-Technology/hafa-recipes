@@ -8,6 +8,7 @@ const {
   BUNDLE_SUFFIX,
   KEYCHAIN_GROUP,
   RESOURCE_FILES,
+  SOURCE_FILES,
   TARGET_NAME,
   configureEasExtension,
   mainAppKeychainGroups,
@@ -83,6 +84,11 @@ describe('Håfa grocery widget config plugin', () => {
 
   it('uses Apple\'s required privacy manifest basename', () => {
     expect(RESOURCE_FILES).toEqual(['PrivacyInfo.xcprivacy']);
+  });
+
+  it('compiles the paging intent and helper into the widget target', () => {
+    expect(SOURCE_FILES).toContain('HafaWidgetPaging.swift');
+    expect(SOURCE_FILES).toContain('ChangeGroceryWidgetPageIntent.swift');
   });
 
   it('keeps the app-private keychain group ahead of the shared widget group', () => {
