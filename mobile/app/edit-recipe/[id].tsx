@@ -52,6 +52,14 @@ interface ComponentInput {
   notes: string;
 }
 
+type EditRecipeData = Parameters<typeof api.editRecipe>[1];
+
+interface EditSnapshot {
+  data: EditRecipeData;
+  imageUri: string | null;
+  publishingPreview: string | null;
+}
+
 // Common unit options including "to taste" style options
 const UNIT_OPTIONS = [
   '', // Empty for custom input
@@ -209,74 +217,93 @@ export default function EditRecipeScreen() {
     }
   }, [recipe]);
 
+  const createEditSnapshot = (): EditSnapshot => {
+    // Capture and validate one immutable version of the form. The publishing
+    // preview and final mutation must describe the exact same recipe state.
+    const validIngredients = ingredients
+      .filter(ing => ing.name.trim())
+      .map(ing => ({
+        name: ing.name.trim(),
+        quantity: ing.quantity.trim() || null,
+        unit: ing.unit.trim() || null,
+        notes: ing.notes.trim() || null,
+      }));
+
+    const validSteps = steps
+      .filter(step => step.text.trim())
+      .map(step => step.text.trim());
+
+    const validComponents = recipeComponents
+      .map(component => ({
+        name: component.name.trim() || 'Main',
+        notes: component.notes.trim() || null,
+        ingredients: ingredients
+          .filter(ingredient => ingredient.componentId === component.id && ingredient.name.trim())
+          .map(ingredient => ({
+            name: ingredient.name.trim(),
+            quantity: ingredient.quantity.trim() || null,
+            unit: ingredient.unit.trim() || null,
+            notes: ingredient.notes.trim() || null,
+            estimatedCost: ingredient.estimatedCost ?? null,
+          })),
+        steps: steps
+          .filter(step => step.componentId === component.id && step.text.trim())
+          .map(step => step.text.trim()),
+      }))
+      .filter(component => component.ingredients.length > 0 || component.steps.length > 0);
+
+    if (validIngredients.length === 0) {
+      throw new Error('Please add at least one ingredient');
+    }
+    if (validSteps.length === 0) {
+      throw new Error('Please add at least one step');
+    }
+
+    const tagList = tags
+      .split(',')
+      .map(t => t.trim())
+      .filter(t => t);
+
+    const data: EditRecipeData = {
+      title: title.trim(),
+      servings: servings ? parseInt(servings, 10) : null,
+      prep_time: prepTime.trim() || null,
+      cook_time: cookTime.trim() || null,
+      total_time: totalTime.trim() || null,
+      components: validComponents,
+      ingredients: validIngredients,
+      steps: validSteps,
+      notes: notes.trim() || null,
+      tags: tagList.length > 0 ? tagList : null,
+      is_public: isPublic,
+      nutrition: estimatedNutrition,
+      nutrition_recalculated: nutritionRecalculated,
+      nutrition_model: nutritionModel,
+    };
+
+    const previewRecipe = recipe ? {
+      ...recipe,
+      extracted: {
+        ...recipe.extracted,
+        title: data.title || recipe.extracted.title,
+        components: validComponents,
+      },
+      thumbnail_url: newImageUri || thumbnailUrl,
+    } : null;
+
+    return {
+      data,
+      imageUri: newImageUri,
+      publishingPreview: previewRecipe
+        ? formatPublishDisclosure(getPublishDisclosure(previewRecipe))
+        : null,
+    };
+  };
+
   // Edit recipe mutation
   const editMutation = useMutation({
-    mutationFn: async () => {
-      // Filter out empty ingredients and steps
-      const validIngredients = ingredients
-        .filter(ing => ing.name.trim())
-        .map(ing => ({
-          name: ing.name.trim(),
-          quantity: ing.quantity.trim() || null,
-          unit: ing.unit.trim() || null,
-          notes: ing.notes.trim() || null,
-        }));
-
-      const validSteps = steps
-        .filter(step => step.text.trim())
-        .map(step => step.text.trim());
-
-      const validComponents = recipeComponents
-        .map(component => ({
-          name: component.name.trim() || 'Main',
-          notes: component.notes.trim() || null,
-          ingredients: ingredients
-            .filter(ingredient => ingredient.componentId === component.id && ingredient.name.trim())
-            .map(ingredient => ({
-              name: ingredient.name.trim(),
-              quantity: ingredient.quantity.trim() || null,
-              unit: ingredient.unit.trim() || null,
-              notes: ingredient.notes.trim() || null,
-              estimatedCost: ingredient.estimatedCost ?? null,
-            })),
-          steps: steps
-            .filter(step => step.componentId === component.id && step.text.trim())
-            .map(step => step.text.trim()),
-        }))
-        .filter(component => component.ingredients.length > 0 || component.steps.length > 0);
-
-      if (validIngredients.length === 0) {
-        throw new Error('Please add at least one ingredient');
-      }
-      if (validSteps.length === 0) {
-        throw new Error('Please add at least one step');
-      }
-
-      const tagList = tags
-        .split(',')
-        .map(t => t.trim())
-        .filter(t => t);
-
-      return api.editRecipe(
-        id!,
-        {
-          title: title.trim(),
-          servings: servings ? parseInt(servings, 10) : null,
-          prep_time: prepTime.trim() || null,
-          cook_time: cookTime.trim() || null,
-          total_time: totalTime.trim() || null,
-          components: validComponents,
-          ingredients: validIngredients,
-          steps: validSteps,
-          notes: notes.trim() || null,
-          tags: tagList.length > 0 ? tagList : null,
-          is_public: isPublic,
-          nutrition: estimatedNutrition,
-          nutrition_recalculated: nutritionRecalculated,
-          nutrition_model: nutritionModel,
-        },
-        newImageUri
-      );
+    mutationFn: ({ data, imageUri }: EditSnapshot) => {
+      return api.editRecipe(id!, data, imageUri);
     },
     onSuccess: () => {
       // Invalidate recipe queries to refresh
@@ -317,33 +344,29 @@ export default function EditRecipeScreen() {
   });
 
   const publishPreview = () => {
-    if (!recipe) return null;
-    const previewRecipe = {
-      ...recipe,
-      extracted: {
-        ...recipe.extracted,
-        title: title.trim() || recipe.extracted.title,
-        components: recipeComponents.map(component => ({
-          name: component.name,
-          notes: component.notes || null,
-          ingredients: ingredients.filter(ingredient => ingredient.componentId === component.id && ingredient.name.trim()),
-          steps: steps.filter(step => step.componentId === component.id && step.text.trim()).map(step => step.text),
-        })),
-      },
-      thumbnail_url: newImageUri || thumbnailUrl,
-    };
-    return formatPublishDisclosure(getPublishDisclosure(previewRecipe));
+    try {
+      return createEditSnapshot().publishingPreview;
+    } catch {
+      return null;
+    }
   };
 
   const submitEdit = async () => {
-    if (isPublic) {
-      const preview = publishPreview();
-      if (!preview || !(await requestPublishing(preview))) {
+    let snapshot: EditSnapshot;
+    try {
+      snapshot = createEditSnapshot();
+    } catch (error) {
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to prepare recipe');
+      return;
+    }
+
+    if (snapshot.data.is_public) {
+      if (!snapshot.publishingPreview || !(await requestPublishing(snapshot.publishingPreview))) {
         if (!recipe?.is_public) setIsPublic(false);
         return;
       }
     }
-    editMutation.mutate();
+    editMutation.mutate(snapshot);
   };
 
   const handleSubmit = () => {
