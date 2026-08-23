@@ -14,6 +14,7 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   View as RNView,
   ActivityIndicator,
@@ -27,6 +28,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { View, Text, useColors } from '@/components/Themed';
 import { api } from '@/lib/api';
 import { formatPublishDisclosure, getPublishDisclosure } from '@/lib/recipePublishing';
+import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
 interface IngredientInput {
@@ -49,6 +51,14 @@ interface ComponentInput {
   id: string;
   name: string;
   notes: string;
+}
+
+type EditRecipeData = Parameters<typeof api.editRecipe>[1];
+
+interface EditSnapshot {
+  data: EditRecipeData;
+  imageUri: string | null;
+  publishingPreview: string | null;
 }
 
 // Common unit options including "to taste" style options
@@ -79,6 +89,7 @@ export default function EditRecipeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
+  const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
 
   // Form state
   const [title, setTitle] = useState('');
@@ -207,74 +218,93 @@ export default function EditRecipeScreen() {
     }
   }, [recipe]);
 
+  const createEditSnapshot = (): EditSnapshot => {
+    // Capture and validate one immutable version of the form. The publishing
+    // preview and final mutation must describe the exact same recipe state.
+    const validIngredients = ingredients
+      .filter(ing => ing.name.trim())
+      .map(ing => ({
+        name: ing.name.trim(),
+        quantity: ing.quantity.trim() || null,
+        unit: ing.unit.trim() || null,
+        notes: ing.notes.trim() || null,
+      }));
+
+    const validSteps = steps
+      .filter(step => step.text.trim())
+      .map(step => step.text.trim());
+
+    const validComponents = recipeComponents
+      .map(component => ({
+        name: component.name.trim() || 'Main',
+        notes: component.notes.trim() || null,
+        ingredients: ingredients
+          .filter(ingredient => ingredient.componentId === component.id && ingredient.name.trim())
+          .map(ingredient => ({
+            name: ingredient.name.trim(),
+            quantity: ingredient.quantity.trim() || null,
+            unit: ingredient.unit.trim() || null,
+            notes: ingredient.notes.trim() || null,
+            estimatedCost: ingredient.estimatedCost ?? null,
+          })),
+        steps: steps
+          .filter(step => step.componentId === component.id && step.text.trim())
+          .map(step => step.text.trim()),
+      }))
+      .filter(component => component.ingredients.length > 0 || component.steps.length > 0);
+
+    if (validIngredients.length === 0) {
+      throw new Error('Please add at least one ingredient');
+    }
+    if (validSteps.length === 0) {
+      throw new Error('Please add at least one step');
+    }
+
+    const tagList = tags
+      .split(',')
+      .map(t => t.trim())
+      .filter(t => t);
+
+    const data: EditRecipeData = {
+      title: title.trim(),
+      servings: servings ? parseInt(servings, 10) : null,
+      prep_time: prepTime.trim() || null,
+      cook_time: cookTime.trim() || null,
+      total_time: totalTime.trim() || null,
+      components: validComponents,
+      ingredients: validIngredients,
+      steps: validSteps,
+      notes: notes.trim() || null,
+      tags: tagList.length > 0 ? tagList : null,
+      is_public: isPublic,
+      nutrition: estimatedNutrition,
+      nutrition_recalculated: nutritionRecalculated,
+      nutrition_model: nutritionModel,
+    };
+
+    const previewRecipe = recipe ? {
+      ...recipe,
+      extracted: {
+        ...recipe.extracted,
+        title: data.title || recipe.extracted.title,
+        components: validComponents,
+      },
+      thumbnail_url: newImageUri || thumbnailUrl,
+    } : null;
+
+    return {
+      data,
+      imageUri: newImageUri,
+      publishingPreview: previewRecipe
+        ? formatPublishDisclosure(getPublishDisclosure(previewRecipe))
+        : null,
+    };
+  };
+
   // Edit recipe mutation
   const editMutation = useMutation({
-    mutationFn: async () => {
-      // Filter out empty ingredients and steps
-      const validIngredients = ingredients
-        .filter(ing => ing.name.trim())
-        .map(ing => ({
-          name: ing.name.trim(),
-          quantity: ing.quantity.trim() || null,
-          unit: ing.unit.trim() || null,
-          notes: ing.notes.trim() || null,
-        }));
-
-      const validSteps = steps
-        .filter(step => step.text.trim())
-        .map(step => step.text.trim());
-
-      const validComponents = recipeComponents
-        .map(component => ({
-          name: component.name.trim() || 'Main',
-          notes: component.notes.trim() || null,
-          ingredients: ingredients
-            .filter(ingredient => ingredient.componentId === component.id && ingredient.name.trim())
-            .map(ingredient => ({
-              name: ingredient.name.trim(),
-              quantity: ingredient.quantity.trim() || null,
-              unit: ingredient.unit.trim() || null,
-              notes: ingredient.notes.trim() || null,
-              estimatedCost: ingredient.estimatedCost ?? null,
-            })),
-          steps: steps
-            .filter(step => step.componentId === component.id && step.text.trim())
-            .map(step => step.text.trim()),
-        }))
-        .filter(component => component.ingredients.length > 0 || component.steps.length > 0);
-
-      if (validIngredients.length === 0) {
-        throw new Error('Please add at least one ingredient');
-      }
-      if (validSteps.length === 0) {
-        throw new Error('Please add at least one step');
-      }
-
-      const tagList = tags
-        .split(',')
-        .map(t => t.trim())
-        .filter(t => t);
-
-      return api.editRecipe(
-        id!,
-        {
-          title: title.trim(),
-          servings: servings ? parseInt(servings, 10) : null,
-          prep_time: prepTime.trim() || null,
-          cook_time: cookTime.trim() || null,
-          total_time: totalTime.trim() || null,
-          components: validComponents,
-          ingredients: validIngredients,
-          steps: validSteps,
-          notes: notes.trim() || null,
-          tags: tagList.length > 0 ? tagList : null,
-          is_public: isPublic,
-          nutrition: estimatedNutrition,
-          nutrition_recalculated: nutritionRecalculated,
-          nutrition_model: nutritionModel,
-        },
-        newImageUri
-      );
+    mutationFn: ({ data, imageUri }: EditSnapshot) => {
+      return api.editRecipe(id!, data, imageUri);
     },
     onSuccess: () => {
       // Invalidate recipe queries to refresh
@@ -314,6 +344,33 @@ export default function EditRecipeScreen() {
     },
   });
 
+  const publishPreview = () => {
+    try {
+      return createEditSnapshot().publishingPreview;
+    } catch {
+      return null;
+    }
+  };
+
+  const submitEdit = async () => {
+    Keyboard.dismiss();
+    let snapshot: EditSnapshot;
+    try {
+      snapshot = createEditSnapshot();
+    } catch (error) {
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to prepare recipe');
+      return;
+    }
+
+    if (snapshot.data.is_public) {
+      if (!snapshot.publishingPreview || !(await requestPublishing(snapshot.publishingPreview))) {
+        if (!recipe?.is_public) setIsPublic(false);
+        return;
+      }
+    }
+    editMutation.mutate(snapshot);
+  };
+
   const handleSubmit = () => {
     if (!title.trim()) {
       Alert.alert('Missing Title', 'Please enter a recipe title.');
@@ -336,7 +393,7 @@ export default function EditRecipeScreen() {
         'Add AI-Powered Info?',
         `Would you like AI to suggest ${missingItems.join(' and ')} for your recipe? This helps with search and discovery.`,
         [
-          { text: 'Skip', style: 'cancel', onPress: () => editMutation.mutate() },
+          { text: 'Skip', style: 'cancel', onPress: () => void submitEdit() },
           { 
             text: 'Add AI Info', 
             onPress: async () => {
@@ -351,7 +408,7 @@ export default function EditRecipeScreen() {
       return;
     }
     
-    editMutation.mutate();
+    void submitEdit();
   };
 
   const handleRestoreOriginal = () => {
@@ -555,7 +612,7 @@ export default function EditRecipeScreen() {
   const componentName = (componentId: string) =>
     recipeComponents.find(component => component.id === componentId)?.name || 'Main';
 
-  const handlePublicToggle = () => {
+  const handlePublicToggle = async () => {
     if (isPublic) {
       Alert.alert(
         'Review public recipe',
@@ -570,29 +627,10 @@ export default function EditRecipeScreen() {
       return;
     }
 
-    if (!recipe) return;
-    const previewRecipe = {
-      ...recipe,
-      extracted: {
-        ...recipe.extracted,
-        title: title.trim() || recipe.extracted.title,
-        components: recipeComponents.map(component => ({
-          name: component.name,
-          notes: component.notes || null,
-          ingredients: ingredients.filter(ingredient => ingredient.componentId === component.id && ingredient.name.trim()),
-          steps: steps.filter(step => step.componentId === component.id && step.text.trim()).map(step => step.text),
-        })),
-      },
-      thumbnail_url: newImageUri || thumbnailUrl,
-    };
-    Alert.alert(
-      'Preview before publishing',
-      formatPublishDisclosure(getPublishDisclosure(previewRecipe)),
-      [
-        { text: 'Not yet', style: 'cancel' },
-        { text: 'Share when saved', onPress: () => setIsPublic(true) },
-      ],
-    );
+    const preview = publishPreview();
+    if (preview && await requestPublishing(preview)) {
+      setIsPublic(true);
+    }
   };
 
   if (isLoadingRecipe) {
@@ -612,10 +650,10 @@ export default function EditRecipeScreen() {
           headerRight: () => (
             <TouchableOpacity
               onPress={handleSubmit}
-              disabled={editMutation.isPending}
+              disabled={editMutation.isPending || isCheckingDisclosure}
               style={styles.saveButton}
             >
-              {editMutation.isPending ? (
+              {editMutation.isPending || isCheckingDisclosure ? (
                 <ActivityIndicator size="small" color={colors.tint} />
               ) : (
                 <Text style={[styles.saveButtonText, { color: colors.tint }]}>Save</Text>
@@ -629,7 +667,10 @@ export default function EditRecipeScreen() {
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <View style={styles.container}>
+        <View
+          style={styles.container}
+          pointerEvents={isCheckingDisclosure ? 'none' : 'auto'}
+        >
           <ScrollView
             showsVerticalScrollIndicator={false}
             contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}

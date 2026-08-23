@@ -43,6 +43,7 @@ import { RecipeListItem } from '@/types/recipe';
 import { useAddFromRecipe } from '@/hooks/useGrocery';
 import { SkeletonSimilarRecipes } from '@/components/Skeleton';
 import { formatPublishDisclosure, getPublishDisclosure } from '@/lib/recipePublishing';
+import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
 import { useTextSize } from '@/hooks/useTextSize';
 import { useAuth, useUser } from '@clerk/expo';
@@ -144,6 +145,7 @@ export default function RecipeDetailScreen() {
   const reportMutation = useCreateSafetyReport();
   const appealMutation = useCreateSafetyAppeal();
   const blockMutation = useBlockContributor();
+  const { requestPublishing } = usePublishingDisclosure();
   
   // Check if user is admin (from Clerk public metadata)
   const isAdmin = (user?.publicMetadata as any)?.role === 'admin';
@@ -583,14 +585,9 @@ export default function RecipeDetailScreen() {
       return;
     }
 
-    Alert.alert(
-      'Preview before publishing',
-      formatPublishDisclosure(getPublishDisclosure(recipe)),
-      [
-        { text: 'Not yet', style: 'cancel' },
-        { text: 'Publish recipe', onPress: updateSharing },
-      ],
-    );
+    if (await requestPublishing(formatPublishDisclosure(getPublishDisclosure(recipe)))) {
+      await updateSharing();
+    }
   };
 
   if (isLoading) {

@@ -1,0 +1,93 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert } from 'react-native';
+import { useQueryClient } from '@tanstack/react-query';
+import { useFocusEffect } from 'expo-router';
+
+import { api } from '@/lib/api';
+import {
+  PUBLISHING_DISCLOSURE_MESSAGE,
+  type PublishingDisclosureStatus,
+} from '@/lib/recipePublishing';
+
+const publishingDisclosureKey = ['publishingDisclosure'] as const;
+
+export function usePublishingDisclosure() {
+  const queryClient = useQueryClient();
+  const inFlight = useRef(false);
+  const isMounted = useRef(true);
+  const isScreenActive = useRef(false);
+  const [isCheckingDisclosure, setIsCheckingDisclosure] = useState(false);
+
+  useEffect(() => () => {
+    isMounted.current = false;
+  }, []);
+
+  useFocusEffect(useCallback(() => {
+    isScreenActive.current = true;
+    return () => {
+      isScreenActive.current = false;
+    };
+  }, []));
+
+  const requestPublishing = useCallback(async (recipePreview?: string): Promise<boolean> => {
+    if (inFlight.current) return false;
+    inFlight.current = true;
+    setIsCheckingDisclosure(true);
+
+    try {
+      // Always ask the server. A cached acceptance must never outlive a newer
+      // disclosure version introduced while the app is still running.
+      const status = await api.getPublishingDisclosure();
+      queryClient.setQueryData<PublishingDisclosureStatus>(publishingDisclosureKey, status);
+      if (!isScreenActive.current) return false;
+      if (!status.requires_acceptance) return true;
+
+      return await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          'Before you publish recipes',
+          recipePreview
+            ? `${PUBLISHING_DISCLOSURE_MESSAGE}\n\nFor this recipe: ${recipePreview}`
+            : PUBLISHING_DISCLOSURE_MESSAGE,
+          [
+            { text: 'Keep private', style: 'cancel', onPress: () => resolve(false) },
+            {
+              text: 'Agree and publish',
+              onPress: async () => {
+                try {
+                  const accepted = await api.acceptPublishingDisclosure(status.current_version);
+                  queryClient.setQueryData<PublishingDisclosureStatus>(
+                    publishingDisclosureKey,
+                    accepted,
+                  );
+                  resolve(isScreenActive.current);
+                } catch {
+                  if (isScreenActive.current) {
+                    Alert.alert(
+                      'Couldn’t update publishing preference',
+                      'Please check your connection and try again. Your recipe remains private.',
+                    );
+                  }
+                  resolve(false);
+                }
+              },
+            },
+          ],
+          { cancelable: true, onDismiss: () => resolve(false) },
+        );
+      });
+    } catch {
+      if (isScreenActive.current) {
+        Alert.alert(
+          'Couldn’t check publishing preference',
+          'Please check your connection and try again. Your recipe remains private.',
+        );
+      }
+      return false;
+    } finally {
+      inFlight.current = false;
+      if (isMounted.current) setIsCheckingDisclosure(false);
+    }
+  }, [queryClient]);
+
+  return { requestPublishing, isCheckingDisclosure };
+}

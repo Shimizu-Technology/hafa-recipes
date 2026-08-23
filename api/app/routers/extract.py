@@ -25,6 +25,10 @@ from app.job_worker import (
     should_retry_extraction_error,
 )
 from app.models.recipe import ExtractionJob, Recipe, RecipeVersion
+from app.publishing import (
+    PublishingDisclosureRequired,
+    require_current_publishing_disclosure,
+)
 from app.recipe_derived_data import mark_fresh
 from app.services import recipe_extractor, storage_service, video_service
 from app.services.extractor import ExtractionProgress
@@ -515,6 +519,9 @@ async def extract_recipe(
             is_public=request.is_public,
             total_minutes=_compute_total_minutes(extracted_recipe),
         )
+
+        if request.is_public:
+            await require_current_publishing_disclosure(db, user.id)
         
         new_recipe, raced_existing = await _commit_external_recipe(db, new_recipe)
         if raced_existing:
@@ -582,6 +589,9 @@ async def extract_recipe(
         is_public=request.is_public,
         total_minutes=_compute_total_minutes(extracted_recipe),
     )
+
+    if request.is_public:
+        await require_current_publishing_disclosure(db, user.id)
     
     new_recipe, raced_existing = await _commit_external_recipe(db, new_recipe)
     if raced_existing:
@@ -633,6 +643,9 @@ async def start_extraction_job(
     
     original_url = request.url.strip()
     idempotency_key = _normalized_idempotency_key(idempotency_key)
+
+    if request.is_public:
+        await require_current_publishing_disclosure(db, user.id)
     
     # Normalize the URL (resolve TikTok short URLs, etc.)
     url = await VideoService.normalize_url(original_url)
@@ -935,6 +948,8 @@ async def run_extraction_job(
                 saved_extracted = dict(extracted_data)
                 
                 # Save recipe WITH USER ID and display name
+                if is_public:
+                    await require_current_publishing_disclosure(db, user_id)
                 canonical_source_key = canonicalize_source(url).key
                 new_recipe = Recipe(
                     source_url=url,
@@ -1107,6 +1122,9 @@ async def run_extraction_job(
                 if cancelled_recipe:
                     await db.delete(cancelled_recipe)
                 await db.commit()
+        except PublishingDisclosureRequired:
+            await db.rollback()
+            raise
         except Exception as e:
             await db.rollback()
             print(f"❌ Extraction job {job_id} failed: {type(e).__name__}")
@@ -1257,6 +1275,11 @@ async def start_re_extraction_job(
             status_code=400,
             detail="Cannot re-extract manual recipes. Please edit them directly."
         )
+
+    if recipe.is_public:
+        if not recipe.user_id:
+            raise HTTPException(status_code=409, detail="Public recipe has no publishing owner")
+        await require_current_publishing_disclosure(db, recipe.user_id)
 
     idempotency_key = _normalized_idempotency_key(idempotency_key)
     if idempotency_key:
@@ -1564,6 +1587,14 @@ async def run_re_extraction_job(
                 job = terminal_job_result.scalar_one_or_none()
                 if not job:
                     raise ExtractionJobCancelled
+
+                if recipe.is_public:
+                    if not recipe.user_id:
+                        raise HTTPException(
+                            status_code=409,
+                            detail="Public recipe has no publishing owner",
+                        )
+                    await require_current_publishing_disclosure(db, recipe.user_id)
                 
                 # Now apply ALL changes to the recipe object at once
                 print(f"🔵 Final extracted has lowConfidence = {final_extracted.get('lowConfidence')}")
@@ -1625,6 +1656,9 @@ async def run_re_extraction_job(
             
         except ExtractionJobCancelled:
             await db.rollback()
+        except PublishingDisclosureRequired:
+            await db.rollback()
+            raise
         except Exception as e:
             await db.rollback()
             print(f"❌ Re-extraction job {job_id} failed: {type(e).__name__}")

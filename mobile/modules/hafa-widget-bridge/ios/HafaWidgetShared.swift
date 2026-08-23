@@ -62,7 +62,7 @@ struct HafaWidgetItem: Codable, Identifiable, Hashable {
     case updatedAt = "updated_at"
   }
 
-  var detail: String? {
+  var displayName: String {
     let amount = [quantity, unit]
       .compactMap { value in
         guard let value, !value.trimmingCharacters(in: .whitespaces).isEmpty else {
@@ -71,8 +71,7 @@ struct HafaWidgetItem: Codable, Identifiable, Hashable {
         return value
       }
       .joined(separator: " ")
-    if !amount.isEmpty { return amount }
-    return recipeTitle
+    return amount.isEmpty ? name : "\(amount) \(name)"
   }
 }
 

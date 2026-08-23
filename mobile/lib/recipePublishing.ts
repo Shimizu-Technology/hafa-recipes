@@ -1,5 +1,16 @@
 import type { Recipe } from '@/types/recipe';
 
+export const PUBLISHING_DISCLOSURE_VERSION = 1;
+
+export const PUBLISHING_DISCLOSURE_MESSAGE =
+  'Public recipes can appear in Discover and search. People can see the recipe title, ingredients, instructions, recipe notes, photo, source link, and your contributor name. Personal notes and extraction details stay private. You can make a recipe private later.';
+
+export interface PublishingDisclosureStatus {
+  current_version: number;
+  accepted_version: number;
+  requires_acceptance: boolean;
+}
+
 export interface PublishDisclosure {
   title: string;
   ingredientCount: number;

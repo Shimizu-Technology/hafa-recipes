@@ -15,16 +15,21 @@ struct ChangeGroceryWidgetPageIntent: AppIntent {
   @Parameter(title: "Direction")
   var direction: Int
 
+  @Parameter(title: "Page Size")
+  var pageSize: Int
+
   init() {
     listID = ""
     familyKey = ""
     direction = 1
+    pageSize = 1
   }
 
-  init(listID: String, familyKey: String, direction: Int) {
+  init(listID: String, familyKey: String, direction: Int, pageSize: Int) {
     self.listID = listID
     self.familyKey = familyKey
     self.direction = direction
+    self.pageSize = pageSize
   }
 
   func perform() async throws -> some IntentResult {
@@ -36,6 +41,7 @@ struct ChangeGroceryWidgetPageIntent: AppIntent {
       try HafaWidgetPaging.move(
         state: &state,
         familyKey: familyKey,
+        pageSize: pageSize,
         direction: direction
       )
       state.markTimelineCacheFresh()

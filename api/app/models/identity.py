@@ -2,7 +2,15 @@
 
 import uuid
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -29,11 +37,21 @@ class AppUser(Base):
         String(16), nullable=False, default="active", server_default="active", index=True
     )
     moderation_updated_at = Column(DateTime(timezone=True), nullable=True)
+    publishing_disclosure_version = Column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
 
     clerk_identities = relationship(
         "ClerkIdentity",
         back_populates="app_user",
         cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "publishing_disclosure_version >= 0",
+            name="ck_app_users_publishing_disclosure_version",
+        ),
     )
 
 

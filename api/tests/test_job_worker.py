@@ -7,6 +7,7 @@ from app.job_worker import (
     ACTIVE_JOB_STATUSES,
     TERMINAL_JOB_STATUSES,
     apply_claim,
+    apply_publishing_disclosure_failure,
     apply_recovered_completion,
     apply_retry_policy,
     claimable_job_query,
@@ -75,6 +76,24 @@ def test_final_attempt_becomes_terminal_failure():
     assert job.status == "failed"
     assert job.completed_at == now
     assert job.next_attempt_at is None
+
+
+def test_disclosure_failure_is_actionable_and_never_requeued():
+    now = datetime(2026, 8, 18, tzinfo=timezone.utc)
+    job = _job(attempt_count=1)
+    job.status = "processing"
+    job.lease_token = "lease"
+    job.leased_until = now + timedelta(minutes=5)
+
+    apply_publishing_disclosure_failure(job, now)
+
+    assert job.status == "failed"
+    assert job.current_step == "error"
+    assert job.error_code == "PUBLISHING_DISCLOSURE_REQUIRED"
+    assert job.error_message == "Accept the current publishing disclosure, then try again."
+    assert job.next_attempt_at is None
+    assert job.lease_token is None
+    assert job.leased_until is None
 
 
 def test_recipe_link_makes_replay_idempotently_complete():

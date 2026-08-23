@@ -10,7 +10,6 @@ import {
   ScrollView,
   View as RNView,
   Alert,
-  Switch,
   TouchableOpacity,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
@@ -20,6 +19,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { View, Text, Button, Input, useColors } from '@/components/Themed';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { useSaveOcrRecipe } from '@/hooks/useRecipes';
+import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
+import { formatPublishDisclosure } from '@/lib/recipePublishing';
 
 export default function OCRReviewScreen() {
   const router = useRouter();
@@ -36,6 +37,31 @@ export default function OCRReviewScreen() {
   const [isSaving, setIsSaving] = useState(false);
   
   const saveOcrRecipe = useSaveOcrRecipe();
+  const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
+
+  const publishPreview = () => formatPublishDisclosure({
+    title: recipe?.title || 'Untitled recipe',
+    ingredientCount: (recipe?.components || []).reduce(
+      (count: number, component: any) => count + (component.ingredients || []).length,
+      0,
+    ),
+    instructionCount: (recipe?.components || []).reduce(
+      (count: number, component: any) => count + (component.steps || []).length,
+      0,
+    ),
+    hasPhoto: true,
+    hasSourceLink: false,
+    contributorName: 'your contributor name',
+  });
+
+  const handlePublicToggle = async () => {
+    if (isPublic) {
+      setIsPublic(false);
+      return;
+    }
+    if (!recipe) return;
+    if (await requestPublishing(publishPreview())) setIsPublic(true);
+  };
 
   useEffect(() => {
     if (recipeParam) {
@@ -52,6 +78,14 @@ export default function OCRReviewScreen() {
 
   const doSave = async () => {
     if (!recipe) return;
+
+    if (isPublic) {
+      const allowed = await requestPublishing(publishPreview());
+      if (!allowed) {
+        setIsPublic(false);
+        return;
+      }
+    }
 
     setIsSaving(true);
     try {
@@ -270,12 +304,13 @@ export default function OCRReviewScreen() {
               borderColor: isPublic ? colors.tint : colors.border,
             },
           ]}
-          onPress={() => setIsPublic(!isPublic)}
+          onPress={handlePublicToggle}
+          disabled={isCheckingDisclosure}
           activeOpacity={0.7}
           accessibilityRole="switch"
           accessibilityLabel="Share recipe to the public library"
           accessibilityHint="Off keeps this recipe visible only to you"
-          accessibilityState={{ checked: isPublic }}
+          accessibilityState={{ checked: isPublic, disabled: isCheckingDisclosure }}
         >
           <RNView style={styles.shareToggleContent}>
             <Ionicons
@@ -292,12 +327,10 @@ export default function OCRReviewScreen() {
               </Text>
             </RNView>
           </RNView>
-          <Switch
-            value={isPublic}
-            onValueChange={setIsPublic}
-            accessibilityLabel="Share recipe to the public library"
-            trackColor={{ false: colors.border, true: colors.tint }}
-            thumbColor="#FFFFFF"
+          <Ionicons
+            name={isPublic ? 'checkmark-circle' : 'ellipse-outline'}
+            size={26}
+            color={isPublic ? colors.tint : colors.textMuted}
           />
         </TouchableOpacity>
 

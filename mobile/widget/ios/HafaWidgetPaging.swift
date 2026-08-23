@@ -37,22 +37,28 @@ enum HafaWidgetPaging {
   static let mediumFamily = "systemMedium"
   static let largeFamily = "systemLarge"
 
-  static func pageSize(for familyKey: String) -> Int? {
+  static func pageSize(for familyKey: String, accessibilitySize: Bool = false) -> Int? {
     switch familyKey {
-    case mediumFamily: return 4
-    case largeFamily: return 8
+    case mediumFamily: return accessibilitySize ? 3 : 4
+    case largeFamily: return accessibilitySize ? 6 : 8
     default: return nil
     }
+  }
+
+  static func supports(pageSize: Int, for familyKey: String) -> Bool {
+    pageSize == self.pageSize(for: familyKey, accessibilitySize: false)
+      || pageSize == self.pageSize(for: familyKey, accessibilitySize: true)
   }
 
   static func slice(
     state: HafaWidgetState,
     familyKey: String,
-    total: Int
+    total: Int,
+    pageSize: Int
   ) -> HafaWidgetPageSlice {
     HafaWidgetPageSlice(
       total: total,
-      pageSize: pageSize(for: familyKey) ?? 1,
+      pageSize: supports(pageSize: pageSize, for: familyKey) ? pageSize : 1,
       requestedOffset: state.pageOffsets?[familyKey] ?? 0
     )
   }
@@ -60,10 +66,11 @@ enum HafaWidgetPaging {
   static func move(
     state: inout HafaWidgetState,
     familyKey: String,
+    pageSize: Int,
     direction: Int
   ) throws {
     guard direction == -1 || direction == 1,
-          let pageSize = pageSize(for: familyKey),
+          supports(pageSize: pageSize, for: familyKey),
           let snapshot = state.snapshot else {
       throw HafaWidgetError.invalidResponse
     }
