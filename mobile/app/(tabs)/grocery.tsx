@@ -291,7 +291,7 @@ export default function GroceryScreen() {
   // Widget rows can open the existing edit sheet for one specific item. Wait
   // for the authenticated snapshot so a cold-start deep link is reliable.
   useEffect(() => {
-    if (!isSignedIn || !editItem || !groceryItems) return;
+    if (!isSignedIn || !editItem || !groceryItems || isRefetching) return;
     const requestedItem = groceryItems.find((item) => item.id === editItem);
     if (requestedItem) {
       setEditingItem(requestedItem);
@@ -301,7 +301,7 @@ export default function GroceryScreen() {
       return;
     }
     router.setParams({ editItem: undefined });
-  }, [editItem, groceryItems, isSignedIn, router, showChecked]);
+  }, [editItem, groceryItems, isRefetching, isSignedIn, router, showChecked]);
 
   // Load collapsed sections from AsyncStorage on mount
   useEffect(() => {
