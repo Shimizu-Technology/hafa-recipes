@@ -26,17 +26,24 @@ struct HafaGroceryWidgetProvider: TimelineProvider {
     in context: Context,
     completion: @escaping (Timeline<HafaGroceryWidgetEntry>) -> Void
   ) {
+    let cachedState = (try? HafaWidgetStore.shared.readState()) ?? HafaWidgetState()
+    if cachedState.shouldUseCachedTimeline() {
+      completion(timeline(for: cachedState))
+      return
+    }
+
     Task {
       await HafaWidgetSyncClient.shared.refreshSnapshot()
       let state = (try? HafaWidgetStore.shared.readState()) ?? HafaWidgetState()
-      let entry = HafaGroceryWidgetEntry(date: Date(), state: state)
-      completion(
-        Timeline(
-          entries: [entry],
-          policy: .after(Date().addingTimeInterval(30 * 60))
-        )
-      )
+      completion(timeline(for: state))
     }
+  }
+
+  private func timeline(for state: HafaWidgetState) -> Timeline<HafaGroceryWidgetEntry> {
+    Timeline(
+      entries: [HafaGroceryWidgetEntry(date: Date(), state: state)],
+      policy: .after(Date().addingTimeInterval(30 * 60))
+    )
   }
 
   private var previewState: HafaWidgetState {
@@ -169,6 +176,10 @@ private struct HafaGroceryWidgetView: View {
             itemRow(item, listID: snapshot.list.id)
           }
         }
+        .id("\(familyKey)-\(page.offset)")
+        .transition(.opacity)
+        .animation(.easeOut(duration: 0.18), value: page.offset)
+        .invalidatableContent()
       }
 
       Spacer(minLength: 5)
@@ -204,18 +215,17 @@ private struct HafaGroceryWidgetView: View {
 
   private func itemRow(_ item: HafaWidgetItem, listID: String) -> some View {
     HStack(spacing: 8) {
-      Button(
+      Toggle(
+        isOn: item.checked,
         intent: SetGroceryItemCheckedIntent(
           listID: listID,
           itemID: item.id,
           checked: !item.checked
         )
       ) {
-        Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
-          .font(.body.weight(.semibold))
-          .foregroundStyle(item.checked ? brandOrange : Color.secondary)
+        EmptyView()
       }
-      .buttonStyle(.plain)
+      .toggleStyle(HafaWidgetChecklistToggleStyle())
       .accessibilityLabel(item.checked ? "Mark \(item.name) unchecked" : "Mark \(item.name) checked")
 
       Link(destination: editURL(itemID: item.id)) {
@@ -289,7 +299,12 @@ private struct HafaGroceryWidgetView: View {
           )
         ) {
           Image(systemName: "chevron.left")
-            .frame(width: 24, height: 24)
+            .font(.caption.weight(.bold))
+            .frame(width: 28, height: 28)
+            .background(
+              page.canMovePrevious ? brandOrange.opacity(0.12) : Color.clear,
+              in: Circle()
+            )
         }
         .buttonStyle(.plain)
         .foregroundStyle(page.canMovePrevious ? brandOrange : Color.secondary)
@@ -299,6 +314,8 @@ private struct HafaGroceryWidgetView: View {
         Text("\(page.offset + 1)–\(page.endOffset) of \(page.total)")
           .fontWeight(.semibold)
           .monospacedDigit()
+          .contentTransition(.numericText())
+          .invalidatableContent()
 
         Button(
           intent: ChangeGroceryWidgetPageIntent(
@@ -308,7 +325,12 @@ private struct HafaGroceryWidgetView: View {
           )
         ) {
           Image(systemName: "chevron.right")
-            .frame(width: 24, height: 24)
+            .font(.caption.weight(.bold))
+            .frame(width: 28, height: 28)
+            .background(
+              page.canMoveNext ? brandOrange.opacity(0.12) : Color.clear,
+              in: Circle()
+            )
         }
         .buttonStyle(.plain)
         .foregroundStyle(page.canMoveNext ? brandOrange : Color.secondary)
@@ -346,5 +368,22 @@ private struct HafaGroceryWidgetView: View {
           .foregroundStyle(brandOrange)
       }
     }
+  }
+}
+
+private struct HafaWidgetChecklistToggleStyle: ToggleStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    Button {
+      configuration.isOn.toggle()
+    } label: {
+      Image(systemName: configuration.isOn ? "checkmark.circle.fill" : "circle")
+        .font(.body.weight(.semibold))
+        .foregroundStyle(configuration.isOn ? brandOrange : Color.secondary)
+        .frame(width: 28, height: 28)
+        .contentTransition(.symbolEffect)
+        .animation(.easeOut(duration: 0.15), value: configuration.isOn)
+    }
+    .buttonStyle(.plain)
+    .contentShape(Circle())
   }
 }

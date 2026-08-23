@@ -139,6 +139,8 @@ struct HafaWidgetPendingMutation: Codable, Identifiable, Hashable {
 }
 
 struct HafaWidgetState: Codable, Hashable {
+  private static let interactionCacheDuration: TimeInterval = 30
+
   var version = 1
   var apiBaseURL: String?
   var accountScopeID: String?
@@ -146,16 +148,30 @@ struct HafaWidgetState: Codable, Hashable {
   var pending: [HafaWidgetPendingMutation] = []
   // Optional so state written by older app/widget versions remains decodable.
   var pageOffsets: [String: Int]?
+  // Interactive timeline reloads should render the state that was just written
+  // to the app-group container instead of blocking on another network request.
+  // The short expiry keeps scheduled timeline refreshes server-backed.
+  var timelineCacheValidUntil: Date?
   var lastError: String?
   var requiresReconnect = false
 
   enum CodingKeys: String, CodingKey {
     case version, snapshot, pending
     case pageOffsets = "page_offsets"
+    case timelineCacheValidUntil = "timeline_cache_valid_until"
     case apiBaseURL = "api_base_url"
     case accountScopeID = "account_scope_id"
     case lastError = "last_error"
     case requiresReconnect = "requires_reconnect"
+  }
+
+  mutating func markTimelineCacheFresh(now: Date = Date()) {
+    timelineCacheValidUntil = now.addingTimeInterval(Self.interactionCacheDuration)
+  }
+
+  func shouldUseCachedTimeline(at date: Date = Date()) -> Bool {
+    guard let timelineCacheValidUntil else { return false }
+    return timelineCacheValidUntil > date
   }
 }
 
@@ -365,6 +381,7 @@ final class HafaWidgetStore {
         )
       )
       state.snapshot?.setChecked(itemID: itemID, checked: checked)
+      state.markTimelineCacheFresh()
       state.lastError = nil
     }
     return mutationID
@@ -537,6 +554,12 @@ actor HafaWidgetSyncClient {
       await flushPending()
     } catch {
       HafaWidgetStore.shared.recordRetryableError("Open Håfa Recipes to reconnect.")
+    }
+    // Network acknowledgement may approach the request timeout. Refresh the
+    // cache window immediately before the intent returns so WidgetKit's
+    // guaranteed interaction reload never starts a second round trip.
+    try? HafaWidgetStore.shared.mutateState { state in
+      state.markTimelineCacheFresh()
     }
   }
 
