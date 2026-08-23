@@ -16,6 +16,8 @@ const KEYCHAIN_GROUP =
 const SOURCE_FILES = [
   'HafaGroceryWidgetBundle.swift',
   'HafaGroceryWidget.swift',
+  'HafaWidgetPaging.swift',
+  'ChangeGroceryWidgetPageIntent.swift',
   'SetGroceryItemCheckedIntent.swift',
   'HafaWidgetShared.swift',
 ];
@@ -235,6 +237,7 @@ plugin._testing = {
   BUNDLE_SUFFIX,
   KEYCHAIN_GROUP,
   RESOURCE_FILES,
+  SOURCE_FILES,
   TARGET_NAME,
   configureEasExtension,
   mainAppKeychainGroups,

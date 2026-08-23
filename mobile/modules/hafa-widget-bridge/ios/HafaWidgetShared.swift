@@ -144,11 +144,14 @@ struct HafaWidgetState: Codable, Hashable {
   var accountScopeID: String?
   var snapshot: HafaWidgetSnapshot?
   var pending: [HafaWidgetPendingMutation] = []
+  // Optional so state written by older app/widget versions remains decodable.
+  var pageOffsets: [String: Int]?
   var lastError: String?
   var requiresReconnect = false
 
   enum CodingKeys: String, CodingKey {
     case version, snapshot, pending
+    case pageOffsets = "page_offsets"
     case apiBaseURL = "api_base_url"
     case accountScopeID = "account_scope_id"
     case lastError = "last_error"
@@ -306,7 +309,10 @@ final class HafaWidgetStore {
         || state.snapshot?.list.id != snapshot.list.id
       state.apiBaseURL = baseURL.absoluteString
       state.accountScopeID = snapshot.accountScopeID
-      if scopeChanged { state.pending = [] }
+      if scopeChanged {
+        state.pending = []
+        state.pageOffsets = nil
+      }
       state.snapshot = merging(snapshot, into: state)
       state.lastError = nil
       state.requiresReconnect = false
@@ -321,6 +327,7 @@ final class HafaWidgetStore {
          accountScopeID != snapshot.accountScopeID {
         state.snapshot = nil
         state.pending = []
+        state.pageOffsets = nil
         state.accountScopeID = nil
         state.apiBaseURL = nil
         state.requiresReconnect = true
@@ -396,6 +403,7 @@ final class HafaWidgetStore {
       if clearScope {
         state.snapshot = nil
         state.pending = []
+        state.pageOffsets = nil
         state.accountScopeID = nil
         state.apiBaseURL = nil
       }

@@ -225,7 +225,10 @@ export default function GroceryScreen() {
   const { isSignedIn } = useAuth();
   const { scaleFontSize } = useTextSize();
   const router = useRouter();
-  const { focusAdd } = useLocalSearchParams<{ focusAdd?: string }>();
+  const { focusAdd, editItem } = useLocalSearchParams<{
+    focusAdd?: string;
+    editItem?: string;
+  }>();
   
   // Ref for the add item input to maintain focus
   const addItemInputRef = useRef<TextInput>(null);
@@ -256,7 +259,13 @@ export default function GroceryScreen() {
   const { data: listInfo } = useGroceryListInfo(!!isSignedIn);
 
   // Pass isSignedIn to prevent queries from running when not authenticated
-  const { data: groceryItems, isLoading, refetch, isRefetching } = useGroceryList(showChecked, isSignedIn);
+  const {
+    data: groceryItems,
+    isLoading,
+    isRefetchError,
+    refetch,
+    isRefetching,
+  } = useGroceryList(showChecked, isSignedIn);
   const { data: countData } = useGroceryCount(isSignedIn);
 
   // Refetch when tab gains focus to ensure we always have fresh data
@@ -284,6 +293,35 @@ export default function GroceryScreen() {
   const addItemMutation = useAddGroceryItem();
   const deleteItemsMutation = useDeleteGroceryItems();
   const updateItemMutation = useUpdateGroceryItem();
+
+  // Widget rows can open the existing edit sheet for one specific item. Wait
+  // for the authenticated snapshot so a cold-start deep link is reliable.
+  useEffect(() => {
+    if (
+      !isSignedIn
+      || !editItem
+      || !groceryItems
+      || isRefetching
+      || isRefetchError
+    ) return;
+    const requestedItem = groceryItems.find((item) => item.id === editItem);
+    if (requestedItem) {
+      setEditingItem(requestedItem);
+    } else if (!showChecked) {
+      // A checked widget row may target an item hidden by the in-app filter.
+      setShowChecked(true);
+      return;
+    }
+    router.setParams({ editItem: undefined });
+  }, [
+    editItem,
+    groceryItems,
+    isRefetchError,
+    isRefetching,
+    isSignedIn,
+    router,
+    showChecked,
+  ]);
 
   // Load collapsed sections from AsyncStorage on mount
   useEffect(() => {
