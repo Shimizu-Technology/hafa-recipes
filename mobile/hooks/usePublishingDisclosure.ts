@@ -21,11 +21,10 @@ export function usePublishingDisclosure() {
     setIsCheckingDisclosure(true);
 
     try {
-      const status = await queryClient.fetchQuery({
-        queryKey: publishingDisclosureKey,
-        queryFn: () => api.getPublishingDisclosure(),
-        staleTime: Infinity,
-      });
+      // Always ask the server. A cached acceptance must never outlive a newer
+      // disclosure version introduced while the app is still running.
+      const status = await api.getPublishingDisclosure();
+      queryClient.setQueryData<PublishingDisclosureStatus>(publishingDisclosureKey, status);
       if (!status.requires_acceptance) return true;
 
       return await new Promise<boolean>((resolve) => {

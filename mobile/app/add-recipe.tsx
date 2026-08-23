@@ -330,6 +330,23 @@ export default function AddRecipeScreen() {
     ));
   };
 
+  const publishPreview = () => formatPublishDisclosure({
+    title: title.trim() || 'Untitled recipe',
+    ingredientCount: ingredients.filter(ingredient => ingredient.name.trim()).length,
+    instructionCount: steps.filter(step => step.text.trim()).length,
+    hasPhoto: Boolean(imageUri),
+    hasSourceLink: false,
+    contributorName: 'your contributor name',
+  });
+
+  const submitRecipe = async () => {
+    if (isPublic && !(await requestPublishing(publishPreview()))) {
+      setIsPublic(false);
+      return;
+    }
+    createMutation.mutate();
+  };
+
   const handleSubmit = () => {
     if (!title.trim()) {
       Alert.alert('Missing Title', 'Please enter a recipe title.');
@@ -352,7 +369,7 @@ export default function AddRecipeScreen() {
         'Add AI-Powered Info?',
         `Would you like AI to suggest ${missingItems.join(' and ')} for your recipe? This helps with search and discovery.`,
         [
-          { text: 'Skip', style: 'cancel', onPress: () => createMutation.mutate() },
+          { text: 'Skip', style: 'cancel', onPress: () => void submitRecipe() },
           { 
             text: 'Add AI Info', 
             onPress: async () => {
@@ -367,7 +384,7 @@ export default function AddRecipeScreen() {
       return;
     }
     
-    createMutation.mutate();
+    void submitRecipe();
   };
 
   const handlePublicToggle = async () => {
@@ -375,15 +392,7 @@ export default function AddRecipeScreen() {
       setIsPublic(false);
       return;
     }
-    const disclosure = {
-      title: title.trim() || 'Untitled recipe',
-      ingredientCount: ingredients.filter(ingredient => ingredient.name.trim()).length,
-      instructionCount: steps.filter(step => step.text.trim()).length,
-      hasPhoto: Boolean(imageUri),
-      hasSourceLink: false,
-      contributorName: 'your contributor name',
-    };
-    if (await requestPublishing(formatPublishDisclosure(disclosure))) setIsPublic(true);
+    if (await requestPublishing(publishPreview())) setIsPublic(true);
   };
 
   const handleSuggestTags = async () => {

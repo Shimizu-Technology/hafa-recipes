@@ -39,29 +39,28 @@ export default function OCRReviewScreen() {
   const saveOcrRecipe = useSaveOcrRecipe();
   const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
 
+  const publishPreview = () => formatPublishDisclosure({
+    title: recipe?.title || 'Untitled recipe',
+    ingredientCount: (recipe?.components || []).reduce(
+      (count: number, component: any) => count + (component.ingredients || []).length,
+      0,
+    ),
+    instructionCount: (recipe?.components || []).reduce(
+      (count: number, component: any) => count + (component.steps || []).length,
+      0,
+    ),
+    hasPhoto: true,
+    hasSourceLink: false,
+    contributorName: 'your contributor name',
+  });
+
   const handlePublicToggle = async () => {
     if (isPublic) {
       setIsPublic(false);
       return;
     }
     if (!recipe) return;
-    const ingredientCount = (recipe.components || []).reduce(
-      (count: number, component: any) => count + (component.ingredients || []).length,
-      0,
-    );
-    const instructionCount = (recipe.components || []).reduce(
-      (count: number, component: any) => count + (component.steps || []).length,
-      0,
-    );
-    const preview = formatPublishDisclosure({
-      title: recipe.title || 'Untitled recipe',
-      ingredientCount,
-      instructionCount,
-      hasPhoto: true,
-      hasSourceLink: false,
-      contributorName: 'your contributor name',
-    });
-    if (await requestPublishing(preview)) setIsPublic(true);
+    if (await requestPublishing(publishPreview())) setIsPublic(true);
   };
 
   useEffect(() => {
@@ -79,6 +78,14 @@ export default function OCRReviewScreen() {
 
   const doSave = async () => {
     if (!recipe) return;
+
+    if (isPublic) {
+      const allowed = await requestPublishing(publishPreview());
+      if (!allowed) {
+        setIsPublic(false);
+        return;
+      }
+    }
 
     setIsSaving(true);
     try {
