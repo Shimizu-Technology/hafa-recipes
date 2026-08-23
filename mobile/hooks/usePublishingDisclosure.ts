@@ -1,6 +1,7 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
+import { useFocusEffect } from 'expo-router';
 
 import { api } from '@/lib/api';
 import {
@@ -13,7 +14,20 @@ const publishingDisclosureKey = ['publishingDisclosure'] as const;
 export function usePublishingDisclosure() {
   const queryClient = useQueryClient();
   const inFlight = useRef(false);
+  const isMounted = useRef(true);
+  const isScreenActive = useRef(false);
   const [isCheckingDisclosure, setIsCheckingDisclosure] = useState(false);
+
+  useEffect(() => () => {
+    isMounted.current = false;
+  }, []);
+
+  useFocusEffect(useCallback(() => {
+    isScreenActive.current = true;
+    return () => {
+      isScreenActive.current = false;
+    };
+  }, []));
 
   const requestPublishing = useCallback(async (recipePreview?: string): Promise<boolean> => {
     if (inFlight.current) return false;
@@ -25,6 +39,7 @@ export function usePublishingDisclosure() {
       // disclosure version introduced while the app is still running.
       const status = await api.getPublishingDisclosure();
       queryClient.setQueryData<PublishingDisclosureStatus>(publishingDisclosureKey, status);
+      if (!isScreenActive.current) return false;
       if (!status.requires_acceptance) return true;
 
       return await new Promise<boolean>((resolve) => {
@@ -44,12 +59,14 @@ export function usePublishingDisclosure() {
                     publishingDisclosureKey,
                     accepted,
                   );
-                  resolve(true);
+                  resolve(isScreenActive.current);
                 } catch {
-                  Alert.alert(
-                    'Couldn’t update publishing preference',
-                    'Please check your connection and try again. Your recipe remains private.',
-                  );
+                  if (isScreenActive.current) {
+                    Alert.alert(
+                      'Couldn’t update publishing preference',
+                      'Please check your connection and try again. Your recipe remains private.',
+                    );
+                  }
                   resolve(false);
                 }
               },
@@ -59,14 +76,16 @@ export function usePublishingDisclosure() {
         );
       });
     } catch {
-      Alert.alert(
-        'Couldn’t check publishing preference',
-        'Please check your connection and try again. Your recipe remains private.',
-      );
+      if (isScreenActive.current) {
+        Alert.alert(
+          'Couldn’t check publishing preference',
+          'Please check your connection and try again. Your recipe remains private.',
+        );
+      }
       return false;
     } finally {
       inFlight.current = false;
-      setIsCheckingDisclosure(false);
+      if (isMounted.current) setIsCheckingDisclosure(false);
     }
   }, [queryClient]);
 
