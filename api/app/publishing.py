@@ -9,6 +9,16 @@ from app.models.identity import AppUser
 PUBLISHING_DISCLOSURE_VERSION = 1
 
 
+class PublishingDisclosureRequired(HTTPException):
+    """A public write cannot proceed until the owner accepts the current text."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=409,
+            detail="Accept the current publishing disclosure before sharing recipes",
+        )
+
+
 async def require_current_publishing_disclosure(
     db: AsyncSession,
     user_id: str,
@@ -30,7 +40,4 @@ async def require_current_publishing_disclosure(
     if app_user is None:
         raise HTTPException(status_code=404, detail="Account not found")
     if (app_user.publishing_disclosure_version or 0) < PUBLISHING_DISCLOSURE_VERSION:
-        raise HTTPException(
-            status_code=409,
-            detail="Accept the current publishing disclosure before sharing recipes",
-        )
+        raise PublishingDisclosureRequired()

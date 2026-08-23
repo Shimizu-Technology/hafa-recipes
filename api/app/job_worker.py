@@ -11,6 +11,7 @@ from app.ai_governance import ai_request_context
 from app.config import get_settings
 from app.db.database import AsyncSessionLocal
 from app.models.recipe import ExtractionJob
+from app.publishing import PublishingDisclosureRequired
 
 settings = get_settings()
 ACTIVE_JOB_STATUSES = frozenset({"queued", "claimed", "processing"})
@@ -56,6 +57,21 @@ def missing_worker_columns(existing_columns: set[str]) -> list[str]:
 def should_retry_extraction_error(error_code: str | None) -> bool:
     """Return whether a provider/media failure is likely transient."""
     return bool(error_code and error_code.upper() in RETRYABLE_EXTRACTION_ERROR_CODES)
+
+
+def apply_publishing_disclosure_failure(job: ExtractionJob, now: datetime) -> None:
+    """Finish a public job once with an actionable, non-retryable result."""
+    message = "Accept the current publishing disclosure, then try again."
+    job.status = "failed"
+    job.current_step = "error"
+    job.message = message
+    job.error_message = message
+    job.error_code = "PUBLISHING_DISCLOSURE_REQUIRED"
+    job.completed_at = now
+    job.next_attempt_at = None
+    job.lease_token = None
+    job.leased_until = None
+    job.updated_at = now
 
 
 def apply_claim(job: ExtractionJob, now: datetime) -> None:
@@ -337,6 +353,11 @@ class DurableJobWorker:
             # Leave the persisted processing lease intact. A new worker will
             # recover the job after lease expiry without losing the request.
             raise
+        except PublishingDisclosureRequired:
+            await self.fail_for_publishing_disclosure(
+                job_id,
+                expected_lease_token=persisted["lease_token"],
+            )
         except Exception as exc:
             await self.retry_or_fail(
                 job_id,
@@ -347,6 +368,25 @@ class DurableJobWorker:
             heartbeat_task.cancel()
             with suppress(asyncio.CancelledError):
                 await heartbeat_task
+
+    async def fail_for_publishing_disclosure(
+        self,
+        job_id: UUID | str,
+        *,
+        expected_lease_token: str | None = None,
+    ) -> None:
+        """Fail a stale public request without re-running expensive extraction."""
+        async with AsyncSessionLocal() as db:
+            query = select(ExtractionJob).where(ExtractionJob.id == job_id)
+            if expected_lease_token is not None:
+                query = query.where(ExtractionJob.lease_token == expected_lease_token)
+            result = await db.execute(query.with_for_update())
+            job = result.scalar_one_or_none()
+            if not job or job.status in TERMINAL_JOB_STATUSES:
+                return
+
+            apply_publishing_disclosure_failure(job, utc_now())
+            await db.commit()
 
     async def _heartbeat_loop(self, job_id: UUID, lease_token: str) -> None:
         """Renew a live worker's lease independently of progress callbacks."""

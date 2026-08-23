@@ -25,7 +25,10 @@ from app.job_worker import (
     should_retry_extraction_error,
 )
 from app.models.recipe import ExtractionJob, Recipe, RecipeVersion
-from app.publishing import require_current_publishing_disclosure
+from app.publishing import (
+    PublishingDisclosureRequired,
+    require_current_publishing_disclosure,
+)
 from app.recipe_derived_data import mark_fresh
 from app.services import recipe_extractor, storage_service, video_service
 from app.services.extractor import ExtractionProgress
@@ -1119,6 +1122,9 @@ async def run_extraction_job(
                 if cancelled_recipe:
                     await db.delete(cancelled_recipe)
                 await db.commit()
+        except PublishingDisclosureRequired:
+            await db.rollback()
+            raise
         except Exception as e:
             await db.rollback()
             print(f"❌ Extraction job {job_id} failed: {type(e).__name__}")
@@ -1650,6 +1656,9 @@ async def run_re_extraction_job(
             
         except ExtractionJobCancelled:
             await db.rollback()
+        except PublishingDisclosureRequired:
+            await db.rollback()
+            raise
         except Exception as e:
             await db.rollback()
             print(f"❌ Re-extraction job {job_id} failed: {type(e).__name__}")
