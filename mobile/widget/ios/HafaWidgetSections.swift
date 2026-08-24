@@ -152,10 +152,8 @@ enum HafaWidgetSections {
       return "recipe:\(recipeID)"
     }
     guard let title = normalizedTitle(item.recipeTitle) else { return nil }
-    let folded = title
-      .precomposedStringWithCompatibilityMapping
-      .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: comparisonLocale)
-    return "recipe-title:\(folded.lowercased(with: comparisonLocale))"
+    let normalized = title.precomposedStringWithCompatibilityMapping
+    return "recipe-title:\(normalized.lowercased(with: comparisonLocale))"
   }
 
   private static func normalizedTitle(_ value: String?) -> String? {

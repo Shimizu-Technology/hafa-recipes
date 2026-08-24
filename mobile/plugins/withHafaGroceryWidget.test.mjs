@@ -144,6 +144,10 @@ describe('Håfa grocery widget config plugin', () => {
     expect(sectionSource).toContain('Never leave an expanded section header orphaned');
     expect(sectionSource).toContain('recipeID');
     expect(sectionSource).toContain('otherItemsKey');
+    expect(sectionSource).toContain('precomposedStringWithCompatibilityMapping');
+    expect(sectionSource).not.toContain(
+      '.folding(options: [.caseInsensitive, .diacriticInsensitive]',
+    );
     expect(sectionIntentSource).toContain('state.collapsedSectionKeys = collapsed.sorted()');
     expect(sectionIntentSource).toContain('state.markTimelineCacheFresh()');
     expect(widgetSource).toContain('ToggleGroceryWidgetSectionIntent(');

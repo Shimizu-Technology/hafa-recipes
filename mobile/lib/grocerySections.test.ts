@@ -59,4 +59,17 @@ describe('groupGroceryItems', () => {
       recipeId: null,
     });
   });
+
+  it('keeps distinct legacy titles separate when only their diacritics differ', () => {
+    const sections = groupGroceryItems([
+      item({ id: 'accented', name: 'One', recipe_title: 'Crème' }),
+      item({ id: 'plain', name: 'Two', recipe_title: 'Creme' }),
+    ]);
+
+    expect(sections).toHaveLength(2);
+    expect(sections.map((section) => section.key)).toEqual([
+      'recipe-title:creme',
+      'recipe-title:crème',
+    ]);
+  });
 });
