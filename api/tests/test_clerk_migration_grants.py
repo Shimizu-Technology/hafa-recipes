@@ -11,6 +11,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+import app.clerk_transition as transition
 import app.routers.clerk_transition as handoff
 from app.auth import ClerkUser
 from app.config import Settings
@@ -100,6 +101,54 @@ async def _seed_aliases(sessions) -> None:
 
 
 @pytest.mark.asyncio
+async def test_bridge_adoption_report_returns_only_aggregate_coverage(
+    handoff_database,
+):
+    now = datetime.now(timezone.utc)
+    await _seed_aliases(handoff_database)
+
+    async with handoff_database() as db:
+        covered_identity = await db.scalar(
+            select(ClerkIdentity).where(
+                ClerkIdentity.app_user_id == "stable_user",
+                ClerkIdentity.issuer == "https://development.clerk.accounts.dev",
+            )
+        )
+        assert covered_identity is not None
+        covered_identity.last_authenticated_at = now
+        db.add(AppUser(id="uncovered_user"))
+        db.add(
+            ClerkIdentity(
+                app_user_id="uncovered_user",
+                issuer="https://development.clerk.accounts.dev",
+                clerk_user_id="uncovered_development_user",
+                last_authenticated_at=now,
+            )
+        )
+        db.add(
+            ClerkMigrationGrant(
+                app_user_id="stable_user",
+                device_hash="a" * 64,
+                token_hash="b" * 64,
+                created_at=now - timedelta(days=2),
+                expires_at=now + timedelta(days=30),
+                redeemed_at=now,
+            )
+        )
+        await db.commit()
+
+        summary = await transition.bridge_adoption_summary(
+            db,
+            development_issuer="https://development.clerk.accounts.dev",
+            since=now - timedelta(days=1),
+        )
+
+    assert summary.active_users == 2
+    assert summary.covered_users == 1
+    assert summary.coverage_percent == 50.0
+
+
+@pytest.mark.asyncio
 async def test_development_session_creates_hash_at_rest_grant(
     handoff_database,
     monkeypatch,
@@ -118,9 +167,7 @@ async def test_development_session_creates_hash_at_rest_grant(
     assert response.grant.startswith("cmg_")
     assert len(response.grant) >= 40
     assert stored.token_hash == handoff._hash_grant(response.grant)
-    assert stored.device_hash == handoff._hash_grant(
-        _create_payload().installation_id
-    )
+    assert stored.device_hash == handoff._hash_grant(_create_payload().installation_id)
     assert response.grant not in stored.token_hash
     assert stored.redeemed_at is None
     assert response.expires_at > datetime.now(timezone.utc) + timedelta(days=89)
@@ -189,9 +236,7 @@ async def test_concurrent_new_installations_cannot_bypass_per_user_cap(
 
     assert sorted(await asyncio.gather(issue("a"), issue("b"))) == [200, 429]
     async with handoff_database() as db:
-        count = await db.scalar(
-            select(func.count()).select_from(ClerkMigrationGrant)
-        )
+        count = await db.scalar(select(func.count()).select_from(ClerkMigrationGrant))
     assert count == handoff.MAX_ACTIVE_GRANTS_PER_USER
 
 
@@ -288,6 +333,7 @@ async def test_concurrent_redemption_issues_exactly_one_ticket(
             db=db,
             user=_user(),
         )
+
     async def redeem() -> int:
         async with handoff_database() as db:
             try:

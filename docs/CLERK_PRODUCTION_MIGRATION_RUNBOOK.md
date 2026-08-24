@@ -2,9 +2,9 @@
 
 Status: foundation/grant API deployed; 35/35 production aliases provisioned;
 production Apple/Google/email authentication configured; iOS 2.4.0 bridge
-live on the App Store; bridge-adoption observation in progress
+live on the App Store; production-key TestFlight validation approved
 
-Last updated: 2026-08-18
+Last updated: 2026-08-25
 
 ## Objective
 
@@ -166,16 +166,20 @@ Google provider evidence on 2026-08-17:
   pre-provisioned production identity rather than creating a disconnected
   application owner.
 
-The remaining pre-cutover blockers are:
+The remaining physical-device acceptance gates are:
 
 - Apple reached the provider's password/passkey screen, but a complete callback
-  still requires an owner-controlled Apple login. Complete that test before the
-  production-key mobile release;
+  still requires an owner-controlled Apple login. Complete that test in the
+  production-key TestFlight build before App Review;
 - exercise sign-up verification, password recovery, and delivery to an Apple
-  private-relay address in addition to the completed ordinary-email sign-in
-  test; and
-- satisfy the measurable bridge-adoption exit gate below before producing the
-  production-key release candidate.
+  private-relay address in the TestFlight build in addition to the completed
+  ordinary-email sign-in test; and
+- confirm an existing bridge installation either redeems its grant without a
+  sign-in prompt or reaches a normal recoverable sign-in without losing recipes.
+
+These gates block App Review, not creation of the production-key TestFlight
+candidate. TestFlight is the controlled environment needed to finish the native
+provider and upgrade-path checks on a real device.
 
 ## Deferred session-duration improvement
 
@@ -241,9 +245,9 @@ CLERK_PRIMARY_ENVIRONMENT=development
 Run and review the dry-run before applying:
 
 ```bash
-python -m app.clerk_transition provision-production
-python -m app.clerk_transition provision-production --apply
-python -m app.clerk_transition provision-production
+python -m app.clerk_transition provision-production --summary-only
+python -m app.clerk_transition provision-production --apply --summary-only
+python -m app.clerk_transition provision-production --summary-only
 ```
 
 For each stable user the provisioner requires one verified development primary
@@ -435,6 +439,37 @@ re-run the same evidence. Do not silently lower the threshold. Proceeding with
 lower coverage requires an explicit owner decision that accepts additional
 one-time sign-ins for uncovered users, documented in this runbook before the
 production-key build is submitted.
+
+Use the checked-in aggregate-only command for routine evidence so user IDs,
+Clerk subjects, grant hashes, and device hashes never enter retained logs:
+
+```bash
+python -m app.clerk_transition bridge-adoption \
+  --since 2026-08-17T05:24:39Z
+```
+
+### Early TestFlight decision — 2026-08-25
+
+The owner explicitly approved producing the production-key TestFlight
+candidate before the original 14-day calendar gate on 2026-08-31. This is a
+time-window waiver, not a coverage-threshold waiver:
+
+- the 2026-08-25 aggregate check found 2 active bridge users and 2 covered users
+  (100.0% coverage);
+- Render recorded two bridge grant requests after the App Store release, both
+  returning HTTP 200, with no recorded grant-creation error;
+- the production provisioner dry-run returned 35 `unchanged` and no conflict,
+  missing, or failed result;
+- the production branch remains `br-misty-voice-a1ymon2c`, and snapshot
+  `pre-clerk-foundation-2026-08-17` remains retained without expiration; and
+- Render continues accepting both issuers with development primary, so a
+  production-key TestFlight failure does not require an ownership rewrite or
+  API rollback.
+
+Do not submit this candidate to App Review until the owner completes and records
+the physical-device acceptance gates above. Keep development as the API primary
+through TestFlight validation. Switching the primary issuer and retiring the
+bridge path are separate post-validation changes.
 
 ## Rollback
 

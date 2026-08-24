@@ -1,4 +1,13 @@
-from app.clerk_transition import _production_candidate
+import argparse
+from datetime import datetime
+
+import pytest
+
+from app.clerk_transition import (
+    _parse_timestamp,
+    _production_candidate,
+    bridge_adoption_summary,
+)
 from app.services.clerk import ClerkProfile, parse_clerk_profile
 
 
@@ -50,9 +59,7 @@ def test_production_candidate_accepts_one_exact_verified_email_match():
     development = _profile("user_dev", "chef@example.com")
     production = _profile("user_prod", "chef@example.com")
 
-    candidate, conflict = _production_candidate(
-        "user_dev", development, [production]
-    )
+    candidate, conflict = _production_candidate("user_dev", development, [production])
 
     assert candidate == production
     assert conflict is None
@@ -66,9 +73,7 @@ def test_production_candidate_rejects_conflicting_external_id():
         external_id="somebody_else",
     )
 
-    candidate, conflict = _production_candidate(
-        "user_dev", development, [production]
-    )
+    candidate, conflict = _production_candidate("user_dev", development, [production])
 
     assert candidate is None
     assert conflict == "production external ID belongs to another stable user"
@@ -83,9 +88,23 @@ def test_production_candidate_rejects_ambiguous_matches():
         external_id="user_dev",
     )
 
-    candidate, conflict = _production_candidate(
-        "user_dev", development, [by_email, by_external_id]
-    )
+    candidate, conflict = _production_candidate("user_dev", development, [by_email, by_external_id])
 
     assert candidate is None
     assert conflict == "multiple production users match stable ID or verified email"
+
+
+def test_bridge_adoption_timestamp_requires_an_explicit_timezone():
+    assert _parse_timestamp("2026-08-17T05:24:39Z").isoformat() == ("2026-08-17T05:24:39+00:00")
+    with pytest.raises(argparse.ArgumentTypeError, match="timezone"):
+        _parse_timestamp("2026-08-17T05:24:39")
+
+
+@pytest.mark.asyncio
+async def test_bridge_adoption_query_rejects_naive_timestamps():
+    with pytest.raises(ValueError, match="timezone"):
+        await bridge_adoption_summary(
+            object(),
+            development_issuer="https://development.clerk.accounts.dev",
+            since=datetime(2026, 8, 17, 5, 24, 39),
+        )

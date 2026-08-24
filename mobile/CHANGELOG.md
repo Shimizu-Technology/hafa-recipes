@@ -4,6 +4,15 @@ All notable changes to Recipe Extractor.
 
 ## [Unreleased]
 
+### Improved
+- Production builds now fail closed unless they use the Clerk production
+  environment and a matching live publishable key.
+- Updated Expo SDK 57 packages to the current compatible patch set.
+
+### Operations
+- Added a privacy-safe aggregate bridge-adoption report and recorded the
+  production-key TestFlight acceptance gates.
+
 ## [2.5.0] - August 2026
 
 ### Added

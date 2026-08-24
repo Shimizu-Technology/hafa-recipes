@@ -49,16 +49,25 @@ export function clerkEnvironmentForKey(publishableKey: string): ClerkEnvironment
 export function resolveClerkEnvironment(
   publishableKey: string,
   configured = process.env.EXPO_PUBLIC_CLERK_ENVIRONMENT,
+  appEnvironment = process.env.EXPO_PUBLIC_APP_ENV,
 ): ClerkEnvironment {
   const inferred = clerkEnvironmentForKey(publishableKey);
-  if (!configured) return inferred;
-  if (configured === 'development' || configured === 'production') {
-    if (inferred !== 'unknown' && configured !== inferred) {
-      throw new Error('Clerk environment does not match the publishable key');
+  const resolved = (() => {
+    if (!configured) return inferred;
+    if (configured === 'development' || configured === 'production') {
+      if (inferred !== 'unknown' && configured !== inferred) {
+        throw new Error('Clerk environment does not match the publishable key');
+      }
+      return configured;
     }
-    return configured;
+    throw new Error('EXPO_PUBLIC_CLERK_ENVIRONMENT must be development or production');
+  })();
+
+  if (appEnvironment?.trim().toLowerCase() === 'production' && resolved !== 'production') {
+    throw new Error('Production releases must use the Clerk production environment');
   }
-  throw new Error('EXPO_PUBLIC_CLERK_ENVIRONMENT must be development or production');
+
+  return resolved;
 }
 
 export const CLERK_ENVIRONMENT = resolveClerkEnvironment(
