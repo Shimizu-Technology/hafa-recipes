@@ -162,29 +162,32 @@ private struct HafaGroceryWidgetView: View {
       for: familyKey,
       accessibilitySize: dynamicTypeSize.isAccessibilitySize
     ) ?? 1
-    let page = HafaWidgetPaging.slice(
+    let page = HafaWidgetPaging.page(
       state: entry.state,
       familyKey: familyKey,
-      total: snapshot.items.count,
       pageSize: pageSize
     )
-    let visibleItems = Array(snapshot.items[page.offset..<page.endOffset])
 
     return VStack(alignment: .leading, spacing: 0) {
       header(snapshot)
       Divider().padding(.vertical, 7)
 
-      if visibleItems.isEmpty {
+      if page.rows.isEmpty {
         emptyList
       } else {
-        VStack(spacing: family == .systemLarge ? 7 : 5) {
-          ForEach(visibleItems) { item in
-            itemRow(item, listID: snapshot.list.id)
+        VStack(spacing: family == .systemLarge ? 4 : 3) {
+          ForEach(page.rows) { row in
+            displayRow(
+              row,
+              listID: snapshot.list.id,
+              familyKey: familyKey,
+              pageSize: pageSize
+            )
           }
         }
-        .id("\(familyKey)-\(page.offset)")
+        .id("\(familyKey)-\(page.index)-\(entry.state.collapsedSectionKeys ?? [])")
         .transition(.opacity)
-        .animation(.easeOut(duration: 0.18), value: page.offset)
+        .animation(.easeOut(duration: 0.18), value: page.index)
         .invalidatableContent()
         .layoutPriority(1)
       }
@@ -220,6 +223,77 @@ private struct HafaGroceryWidgetView: View {
     }
     .fixedSize(horizontal: false, vertical: true)
     .layoutPriority(2)
+  }
+
+  @ViewBuilder
+  private func displayRow(
+    _ row: HafaWidgetDisplayRow,
+    listID: String,
+    familyKey: String,
+    pageSize: Int
+  ) -> some View {
+    switch row {
+    case let .section(section, continuation):
+      sectionRow(
+        section,
+        continuation: continuation,
+        listID: listID,
+        familyKey: familyKey,
+        pageSize: pageSize
+      )
+    case let .item(_, item):
+      itemRow(item, listID: listID)
+    }
+  }
+
+  private func sectionRow(
+    _ section: HafaWidgetSection,
+    continuation: Bool,
+    listID: String,
+    familyKey: String,
+    pageSize: Int
+  ) -> some View {
+    let isCollapsed = Set(entry.state.collapsedSectionKeys ?? []).contains(section.key)
+    return Button(
+      intent: ToggleGroceryWidgetSectionIntent(
+        listID: listID,
+        sectionKey: section.key,
+        familyKey: familyKey,
+        pageSize: pageSize
+      )
+    ) {
+      HStack(spacing: 5) {
+        Image(
+          systemName: continuation
+            ? "arrow.turn.down.right"
+            : (section.isOtherItems ? "list.bullet" : "fork.knife")
+        )
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(brandOrange)
+        .frame(width: 14)
+        Text(section.title)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.primary)
+          .lineLimit(1)
+        Spacer(minLength: 3)
+        Text("\(section.checkedCount)/\(section.items.count)")
+          .font(.caption2.weight(.semibold))
+          .foregroundStyle(brandOrange)
+          .monospacedDigit()
+        Image(systemName: isCollapsed ? "chevron.down" : "chevron.up")
+          .font(.caption2.weight(.bold))
+          .foregroundStyle(.secondary)
+      }
+      .padding(.horizontal, 6)
+      .frame(maxWidth: .infinity, minHeight: 22)
+      .background(brandOrange.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .invalidatableContent()
+    .accessibilityLabel(
+      "\(isCollapsed ? "Expand" : "Collapse") \(section.title), \(section.checkedCount) of \(section.items.count) checked"
+    )
   }
 
   private func itemRow(_ item: HafaWidgetItem, listID: String) -> some View {
@@ -273,7 +347,7 @@ private struct HafaGroceryWidgetView: View {
 
   private func footer(
     _ snapshot: HafaWidgetSnapshot,
-    page: HafaWidgetPageSlice,
+    page: HafaWidgetSectionPage,
     familyKey: String
   ) -> some View {
     HStack(spacing: 5) {
@@ -292,7 +366,7 @@ private struct HafaGroceryWidgetView: View {
       }
       Spacer()
 
-      if page.total > page.pageSize {
+      if page.totalPages > 1 {
         Button(
           intent: ChangeGroceryWidgetPageIntent(
             listID: snapshot.list.id,
@@ -314,7 +388,7 @@ private struct HafaGroceryWidgetView: View {
         .disabled(!page.canMovePrevious)
         .accessibilityLabel("Previous grocery items")
 
-        Text("\(page.offset + 1)–\(page.endOffset) of \(page.total)")
+        Text("\(page.index + 1) of \(page.totalPages)")
           .fontWeight(.semibold)
           .monospacedDigit()
           .contentTransition(.numericText())

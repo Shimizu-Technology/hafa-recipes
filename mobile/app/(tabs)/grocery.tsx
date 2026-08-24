@@ -46,17 +46,13 @@ import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { useTextSize } from '@/hooks/useTextSize';
 import { haptics } from '@/utils/haptics';
 import { AnimatedListItem, ScalePressable } from '@/components/Animated';
+import {
+  GrocerySection,
+  groupGroceryItems,
+  OTHER_GROCERY_SECTION_KEY,
+} from '@/lib/grocerySections';
 
 const COLLAPSED_SECTIONS_KEY = 'grocery_collapsed_sections';
-const OTHER_ITEMS_KEY = 'Other Items';
-
-interface GrocerySection {
-  title: string;
-  recipeId: string | null;
-  data: GroceryItem[];
-  checkedCount: number;
-  totalCount: number;
-}
 
 function GroceryItemRow({
   item,
@@ -178,7 +174,7 @@ function SectionHeader({
   onClearSection?: () => void;
   colors: ReturnType<typeof useColors>;
 }) {
-  const isOther = section.title === OTHER_ITEMS_KEY;
+  const isOther = section.key === OTHER_GROCERY_SECTION_KEY;
   const icon = isOther ? 'list-outline' : 'restaurant-outline';
   const canClear = section.recipeId !== null; // Only recipe sections can be cleared
   
@@ -347,64 +343,27 @@ export default function GroceryScreen() {
     }
   };
 
-  // Group items by recipe into sections
-  const sections = useMemo((): GrocerySection[] => {
-    if (!groceryItems || groceryItems.length === 0) return [];
+  const sections = useMemo(
+    () => groupGroceryItems(groceryItems ?? []),
+    [groceryItems],
+  );
 
-    const byRecipe: { [key: string]: GroceryItem[] } = {};
-    const otherItems: GroceryItem[] = [];
+  // Title lookup keeps collapse choices saved by older app versions working.
+  const isSectionCollapsed = useCallback(
+    (section: GrocerySection) =>
+      collapsedSections.has(section.key) || collapsedSections.has(section.title),
+    [collapsedSections],
+  );
 
-    groceryItems.forEach(item => {
-      if (item.recipe_title) {
-        const key = item.recipe_title;
-        if (!byRecipe[key]) {
-          byRecipe[key] = [];
-        }
-        byRecipe[key].push(item);
-      } else {
-        otherItems.push(item);
-      }
-    });
-
-    const result: GrocerySection[] = [];
-
-    // Add recipe sections (sorted alphabetically)
-    Object.entries(byRecipe)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .forEach(([title, items]) => {
-        const checkedCount = items.filter(i => i.checked).length;
-        result.push({
-          title,
-          recipeId: items[0]?.recipe_id || null,
-          data: items,
-          checkedCount,
-          totalCount: items.length,
-        });
-      });
-
-    // Add "Other Items" section at the end
-    if (otherItems.length > 0) {
-      const checkedCount = otherItems.filter(i => i.checked).length;
-      result.push({
-        title: OTHER_ITEMS_KEY,
-        recipeId: null,
-        data: otherItems,
-        checkedCount,
-        totalCount: otherItems.length,
-      });
-    }
-
-    return result;
-  }, [groceryItems]);
-
-  const toggleSection = (title: string) => {
+  const toggleSection = (section: GrocerySection) => {
     haptics.light();
     setCollapsedSections(prev => {
       const next = new Set(prev);
-      if (next.has(title)) {
-        next.delete(title);
+      if (next.has(section.key) || next.has(section.title)) {
+        next.delete(section.key);
+        next.delete(section.title);
       } else {
-        next.add(title);
+        next.add(section.key);
       }
       saveCollapsedSections(next);
       return next;
@@ -509,10 +468,14 @@ export default function GroceryScreen() {
     haptics.success();
     
     // Auto-expand "Other Items" section since that's where new items go
-    if (collapsedSections.has(OTHER_ITEMS_KEY)) {
+    if (
+      collapsedSections.has(OTHER_GROCERY_SECTION_KEY) ||
+      collapsedSections.has('Other Items')
+    ) {
       setCollapsedSections(prev => {
         const next = new Set(prev);
-        next.delete(OTHER_ITEMS_KEY);
+        next.delete(OTHER_GROCERY_SECTION_KEY);
+        next.delete('Other Items');
         saveCollapsedSections(next);
         return next;
       });
@@ -541,21 +504,6 @@ export default function GroceryScreen() {
   const formatGroceryListAsText = () => {
     if (!groceryItems || groceryItems.length === 0) return '';
     
-    // Group items by recipe
-    const byRecipe: { [key: string]: typeof groceryItems } = {};
-    const noRecipe: typeof groceryItems = [];
-    
-    groceryItems.forEach(item => {
-      if (item.recipe_title) {
-        if (!byRecipe[item.recipe_title]) {
-          byRecipe[item.recipe_title] = [];
-        }
-        byRecipe[item.recipe_title].push(item);
-      } else {
-        noRecipe.push(item);
-      }
-    });
-
     let text = 'Grocery List\n\n';
     
     // Format items with simple list style
@@ -568,25 +516,13 @@ export default function GroceryScreen() {
       return `${marker} ${qtyUnit}${item.name}${notes}`;
     };
 
-    // Add items grouped by recipe first
-    Object.entries(byRecipe)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .forEach(([recipeName, items], index) => {
-        if (index > 0) text += '\n';
-        text += `${recipeName}\n`;
-        items.forEach(item => {
+    sections.forEach((section, index) => {
+      if (index > 0) text += '\n';
+      text += `${section.title}\n`;
+      section.data.forEach(item => {
           text += formatItem(item) + '\n';
-        });
       });
-
-    // Add items without recipe last
-    if (noRecipe.length > 0) {
-      if (Object.keys(byRecipe).length > 0) text += '\n';
-      text += `Other Items\n`;
-      noRecipe.forEach(item => {
-        text += formatItem(item) + '\n';
-      });
-    }
+    });
 
     return text.trim();
   };
@@ -633,7 +569,7 @@ export default function GroceryScreen() {
 
   const renderItem = ({ item, index, section }: { item: GroceryItem; index: number; section: GrocerySection }) => {
     // Don't render if section is collapsed
-    if (collapsedSections.has(section.title)) {
+    if (isSectionCollapsed(section)) {
       return null;
     }
 
@@ -656,8 +592,8 @@ export default function GroceryScreen() {
   const renderSectionHeader = ({ section }: { section: GrocerySection }) => (
     <SectionHeader
       section={section}
-      isCollapsed={collapsedSections.has(section.title)}
-      onToggle={() => toggleSection(section.title)}
+      isCollapsed={isSectionCollapsed(section)}
+      onToggle={() => toggleSection(section)}
       onClearSection={section.recipeId ? () => handleClearRecipeSection(section) : undefined}
       colors={colors}
     />
