@@ -2,7 +2,7 @@
   "expo": {
     "name": "Håfa Recipes",
     "slug": "recipe-extractor",
-    "version": "2.5.2",
+    "version": "2.5.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "hafarecipes",

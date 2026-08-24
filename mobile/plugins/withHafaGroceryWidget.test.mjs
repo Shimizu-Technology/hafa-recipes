@@ -92,6 +92,7 @@ describe('Håfa grocery widget config plugin', () => {
 
   it('compiles section grouping, collapse, and paging into the widget target', () => {
     expect(SOURCE_FILES).toContain('HafaWidgetSections.swift');
+    expect(SOURCE_FILES).toContain('HafaWidgetPalette.swift');
     expect(SOURCE_FILES).toContain('HafaWidgetPaging.swift');
     expect(SOURCE_FILES).toContain('ChangeGroceryWidgetPageIntent.swift');
     expect(SOURCE_FILES).toContain('ToggleGroceryWidgetSectionIntent.swift');
@@ -152,6 +153,30 @@ describe('Håfa grocery widget config plugin', () => {
     expect(sectionIntentSource).toContain('state.markTimelineCacheFresh()');
     expect(widgetSource).toContain('ToggleGroceryWidgetSectionIntent(');
     expect(widgetSource).toContain('Text("\\(page.index + 1) of \\(page.totalPages)")');
+  });
+
+  it('uses adaptive, contrast-aware widget colors instead of legacy fixed foregrounds', () => {
+    const widgetSource = readFileSync(
+      join(mobileRoot, 'widget/ios/HafaGroceryWidget.swift'),
+      'utf8',
+    );
+    const paletteSource = readFileSync(
+      join(mobileRoot, 'widget/ios/HafaWidgetPalette.swift'),
+      'utf8',
+    );
+
+    expect(widgetSource).toContain('@Environment(\\.colorScheme)');
+    expect(widgetSource).toContain('@Environment(\\.colorSchemeContrast)');
+    expect(widgetSource).toContain('@Environment(\\.widgetRenderingMode)');
+    expect(widgetSource).toContain('.widgetAccentable()');
+    expect(widgetSource).not.toContain('brandGreen');
+    expect(widgetSource).not.toContain('brandOrange');
+    expect(paletteSource).toContain('renderingMode == .fullColor');
+    expect(paletteSource).toContain('contrast == .increased');
+    expect(paletteSource).toContain('#101411');
+    expect(paletteSource).toContain('#FFF7EC');
+    expect(paletteSource).toContain('#FF8A5B');
+    expect(paletteSource).toContain('#B94722');
   });
 
   it('keeps the app-private keychain group ahead of the shared widget group', () => {

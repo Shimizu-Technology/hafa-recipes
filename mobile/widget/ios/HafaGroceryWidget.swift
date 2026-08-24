@@ -1,9 +1,6 @@
 import SwiftUI
 import WidgetKit
 
-private let brandOrange = Color(red: 0.902, green: 0.373, blue: 0.180)
-private let brandGreen = Color(red: 0.063, green: 0.149, blue: 0.102)
-
 struct HafaGroceryWidgetEntry: TimelineEntry {
   let date: Date
   let state: HafaWidgetState
@@ -103,7 +100,7 @@ struct HafaGroceryWidget: Widget {
     StaticConfiguration(kind: kind, provider: HafaGroceryWidgetProvider()) { entry in
       HafaGroceryWidgetView(entry: entry)
         .containerBackground(for: .widget) {
-          Color(uiColor: .systemBackground)
+          HafaWidgetBackground()
         }
     }
     .configurationDisplayName("Håfa Grocery List")
@@ -115,7 +112,18 @@ struct HafaGroceryWidget: Widget {
 private struct HafaGroceryWidgetView: View {
   @Environment(\.widgetFamily) private var family
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+  @Environment(\.widgetRenderingMode) private var widgetRenderingMode
   let entry: HafaGroceryWidgetEntry
+
+  private var palette: HafaWidgetPalette {
+    HafaWidgetPalette(
+      colorScheme: colorScheme,
+      contrast: colorSchemeContrast,
+      renderingMode: widgetRenderingMode
+    )
+  }
 
   var body: some View {
     if let snapshot = entry.state.snapshot {
@@ -137,11 +145,12 @@ private struct HafaGroceryWidgetView: View {
       VStack(alignment: .leading, spacing: 8) {
         Image(systemName: "cart.fill")
           .font(.title2.weight(.semibold))
-          .foregroundStyle(brandOrange)
+          .foregroundStyle(palette.accent)
+          .widgetAccentable()
         Spacer(minLength: 0)
         Text("\(snapshot.unchecked)")
           .font(.system(size: 42, weight: .bold, design: .rounded))
-          .foregroundStyle(brandGreen)
+          .foregroundStyle(.primary)
           .contentTransition(.numericText())
         Text(snapshot.unchecked == 1 ? "item left" : "items left")
           .font(.caption.weight(.semibold))
@@ -151,7 +160,8 @@ private struct HafaGroceryWidgetView: View {
           Image(systemName: "arrow.up.right")
         }
         .font(.caption2.weight(.semibold))
-        .foregroundStyle(brandOrange)
+        .foregroundStyle(palette.accent)
+        .widgetAccentable()
       }
       .privacySensitive()
     }
@@ -175,7 +185,7 @@ private struct HafaGroceryWidgetView: View {
       if page.rows.isEmpty {
         emptyList
       } else {
-        VStack(spacing: family == .systemLarge ? 4 : 3) {
+        VStack(spacing: family == .systemLarge ? 5 : 4) {
           ForEach(page.rows) { row in
             displayRow(
               row,
@@ -201,11 +211,15 @@ private struct HafaGroceryWidgetView: View {
   private func header(_ snapshot: HafaWidgetSnapshot) -> some View {
     HStack(spacing: 8) {
       Image(systemName: snapshot.list.isShared ? "person.2.fill" : "cart.fill")
-        .foregroundStyle(brandOrange)
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(palette.accent)
+        .widgetAccentable()
+        .frame(width: 26, height: 26)
+        .background(palette.sectionSurface, in: Circle())
       VStack(alignment: .leading, spacing: 1) {
         Text(snapshot.list.name)
           .font(.headline)
-          .foregroundStyle(brandGreen)
+          .foregroundStyle(.primary)
           .lineLimit(1)
         Text("\(snapshot.unchecked) remaining")
           .font(.caption2)
@@ -215,9 +229,10 @@ private struct HafaGroceryWidgetView: View {
       Link(destination: URL(string: "hafarecipes://grocery?focusAdd=1")!) {
         Image(systemName: "plus")
           .font(.subheadline.weight(.bold))
-          .foregroundStyle(.white)
-          .frame(width: 28, height: 28)
-          .background(brandOrange, in: Circle())
+          .foregroundStyle(palette.prominentControlForeground)
+          .widgetAccentable()
+          .frame(width: 30, height: 30)
+          .background(palette.prominentControlBackground, in: Circle())
           .accessibilityLabel("Add grocery item in Håfa Recipes")
       }
     }
@@ -262,31 +277,40 @@ private struct HafaGroceryWidgetView: View {
         pageSize: pageSize
       )
     ) {
-      HStack(spacing: 5) {
+      HStack(spacing: 7) {
         Image(
           systemName: continuation
             ? "arrow.turn.down.right"
             : (section.isOtherItems ? "list.bullet" : "fork.knife")
         )
-        .font(.caption2.weight(.semibold))
-        .foregroundStyle(brandOrange)
-        .frame(width: 14)
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(palette.accent)
+        .frame(width: 15)
+        .widgetAccentable()
         Text(section.title)
-          .font(.caption.weight(.semibold))
+          .font(.caption.weight(.medium))
           .foregroundStyle(.primary)
           .lineLimit(1)
-        Spacer(minLength: 3)
+        Spacer(minLength: 4)
         Text("\(section.checkedCount)/\(section.items.count)")
           .font(.caption2.weight(.semibold))
-          .foregroundStyle(brandOrange)
+          .foregroundStyle(palette.accent)
           .monospacedDigit()
+          .widgetAccentable()
+          .padding(.horizontal, 6)
+          .padding(.vertical, 2)
+          .background(palette.controlSurface, in: Capsule())
         Image(systemName: isCollapsed ? "chevron.down" : "chevron.up")
           .font(.caption2.weight(.bold))
           .foregroundStyle(.secondary)
       }
-      .padding(.horizontal, 6)
-      .frame(maxWidth: .infinity, minHeight: 22)
-      .background(brandOrange.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
+      .padding(.horizontal, 8)
+      .frame(maxWidth: .infinity, minHeight: 27)
+      .background(palette.sectionSurface, in: RoundedRectangle(cornerRadius: 8))
+      .overlay {
+        RoundedRectangle(cornerRadius: 8)
+          .stroke(palette.subtleBorder, lineWidth: colorSchemeContrast == .increased ? 1 : 0.5)
+      }
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
@@ -330,11 +354,12 @@ private struct HafaGroceryWidgetView: View {
       HStack(spacing: 10) {
         Image(systemName: "checkmark.seal.fill")
           .font(.title2)
-          .foregroundStyle(brandOrange)
+          .foregroundStyle(palette.accent)
+          .widgetAccentable()
         VStack(alignment: .leading, spacing: 2) {
           Text("All done")
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(brandGreen)
+            .foregroundStyle(.primary)
           Text("Tap to add something")
             .font(.caption2)
             .foregroundStyle(.secondary)
@@ -377,14 +402,15 @@ private struct HafaGroceryWidgetView: View {
         ) {
           Image(systemName: "chevron.left")
             .font(.caption.weight(.bold))
+            .widgetAccentable(page.canMovePrevious)
             .frame(width: 28, height: 28)
             .background(
-              page.canMovePrevious ? brandOrange.opacity(0.12) : Color.clear,
+              page.canMovePrevious ? palette.controlSurface : Color.clear,
               in: Circle()
             )
         }
         .buttonStyle(.plain)
-        .foregroundStyle(page.canMovePrevious ? brandOrange : Color.secondary)
+        .foregroundStyle(page.canMovePrevious ? palette.accent : Color.secondary)
         .disabled(!page.canMovePrevious)
         .accessibilityLabel("Previous grocery items")
 
@@ -404,14 +430,15 @@ private struct HafaGroceryWidgetView: View {
         ) {
           Image(systemName: "chevron.right")
             .font(.caption.weight(.bold))
+            .widgetAccentable(page.canMoveNext)
             .frame(width: 28, height: 28)
             .background(
-              page.canMoveNext ? brandOrange.opacity(0.12) : Color.clear,
+              page.canMoveNext ? palette.controlSurface : Color.clear,
               in: Circle()
             )
         }
         .buttonStyle(.plain)
-        .foregroundStyle(page.canMoveNext ? brandOrange : Color.secondary)
+        .foregroundStyle(page.canMoveNext ? palette.accent : Color.secondary)
         .disabled(!page.canMoveNext)
         .accessibilityLabel("Next grocery items")
       }
@@ -435,35 +462,64 @@ private struct HafaGroceryWidgetView: View {
       VStack(alignment: .leading, spacing: 10) {
         Image(systemName: "cart.fill")
           .font(.title2.weight(.semibold))
-          .foregroundStyle(brandOrange)
+          .foregroundStyle(palette.accent)
+          .widgetAccentable()
         Spacer(minLength: 0)
         Text("Your grocery list, right here")
           .font(.headline)
-          .foregroundStyle(brandGreen)
+          .foregroundStyle(.primary)
         Text("Open Håfa Recipes once to connect this widget.")
           .font(.caption)
           .foregroundStyle(.secondary)
         Text("Open app  →")
           .font(.caption.weight(.bold))
-          .foregroundStyle(brandOrange)
+          .foregroundStyle(palette.accent)
+          .widgetAccentable()
       }
     }
   }
 }
 
 private struct HafaWidgetChecklistToggleStyle: ToggleStyle {
+  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+  @Environment(\.widgetRenderingMode) private var widgetRenderingMode
+
+  private var palette: HafaWidgetPalette {
+    HafaWidgetPalette(
+      colorScheme: colorScheme,
+      contrast: colorSchemeContrast,
+      renderingMode: widgetRenderingMode
+    )
+  }
+
   func makeBody(configuration: Configuration) -> some View {
     Button {
       configuration.isOn.toggle()
     } label: {
       Image(systemName: configuration.isOn ? "checkmark.circle.fill" : "circle")
         .font(.body.weight(.semibold))
-        .foregroundStyle(configuration.isOn ? brandOrange : Color.secondary)
+        .foregroundStyle(configuration.isOn ? palette.accent : Color.secondary)
+        .widgetAccentable(configuration.isOn)
         .frame(width: 28, height: 28)
         .contentTransition(.symbolEffect)
         .animation(.easeOut(duration: 0.15), value: configuration.isOn)
     }
     .buttonStyle(.plain)
     .contentShape(Circle())
+  }
+}
+
+private struct HafaWidgetBackground: View {
+  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+  @Environment(\.widgetRenderingMode) private var widgetRenderingMode
+
+  var body: some View {
+    HafaWidgetPalette(
+      colorScheme: colorScheme,
+      contrast: colorSchemeContrast,
+      renderingMode: widgetRenderingMode
+    ).background
   }
 }
