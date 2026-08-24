@@ -130,7 +130,7 @@ async def test_bridge_adoption_report_returns_only_aggregate_coverage(
                 app_user_id="stable_user",
                 device_hash="a" * 64,
                 token_hash="b" * 64,
-                created_at=now,
+                created_at=now - timedelta(days=2),
                 expires_at=now + timedelta(days=30),
                 redeemed_at=now,
             )

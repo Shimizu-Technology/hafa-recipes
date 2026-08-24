@@ -54,7 +54,6 @@ async def bridge_adoption_summary(
     covered = (
         select(ClerkMigrationGrant.app_user_id.label("app_user_id"))
         .where(
-            ClerkMigrationGrant.created_at >= since,
             or_(
                 ClerkMigrationGrant.redeemed_at.is_not(None),
                 ClerkMigrationGrant.expires_at > func.now(),
