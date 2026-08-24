@@ -16,8 +16,10 @@ const KEYCHAIN_GROUP =
 const SOURCE_FILES = [
   'HafaGroceryWidgetBundle.swift',
   'HafaGroceryWidget.swift',
+  'HafaWidgetSections.swift',
   'HafaWidgetPaging.swift',
   'ChangeGroceryWidgetPageIntent.swift',
+  'ToggleGroceryWidgetSectionIntent.swift',
   'SetGroceryItemCheckedIntent.swift',
   'HafaWidgetShared.swift',
 ];

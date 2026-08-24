@@ -90,9 +90,11 @@ describe('Håfa grocery widget config plugin', () => {
     expect(RESOURCE_FILES).toEqual(['PrivacyInfo.xcprivacy']);
   });
 
-  it('compiles the paging intent and helper into the widget target', () => {
+  it('compiles section grouping, collapse, and paging into the widget target', () => {
+    expect(SOURCE_FILES).toContain('HafaWidgetSections.swift');
     expect(SOURCE_FILES).toContain('HafaWidgetPaging.swift');
     expect(SOURCE_FILES).toContain('ChangeGroceryWidgetPageIntent.swift');
+    expect(SOURCE_FILES).toContain('ToggleGroceryWidgetSectionIntent.swift');
   });
 
   it('keeps interactive widget reloads cache-first with immediate feedback', () => {
@@ -116,6 +118,14 @@ describe('Håfa grocery widget config plugin', () => {
       join(mobileRoot, 'widget/ios/HafaWidgetPaging.swift'),
       'utf8',
     );
+    const sectionSource = readFileSync(
+      join(mobileRoot, 'widget/ios/HafaWidgetSections.swift'),
+      'utf8',
+    );
+    const sectionIntentSource = readFileSync(
+      join(mobileRoot, 'widget/ios/ToggleGroceryWidgetSectionIntent.swift'),
+      'utf8',
+    );
     const sharedSourceText = readFileSync(
       join(mobileRoot, 'modules/hafa-widget-bridge/ios/HafaWidgetShared.swift'),
       'utf8',
@@ -131,6 +141,13 @@ describe('Håfa grocery widget config plugin', () => {
     expect(widgetSource).toContain('Text(item.displayName)');
     expect(pagingSource).toContain('accessibilitySize ? 6 : 8');
     expect(sharedSourceText).toContain('var displayName: String');
+    expect(sectionSource).toContain('Never leave an expanded section header orphaned');
+    expect(sectionSource).toContain('recipeID');
+    expect(sectionSource).toContain('otherItemsKey');
+    expect(sectionIntentSource).toContain('state.collapsedSectionKeys = collapsed.sorted()');
+    expect(sectionIntentSource).toContain('state.markTimelineCacheFresh()');
+    expect(widgetSource).toContain('ToggleGroceryWidgetSectionIntent(');
+    expect(widgetSource).toContain('Text("\\(page.index + 1) of \\(page.totalPages)")');
   });
 
   it('keeps the app-private keychain group ahead of the shared widget group', () => {

@@ -147,6 +147,10 @@ struct HafaWidgetState: Codable, Hashable {
   var pending: [HafaWidgetPendingMutation] = []
   // Optional so state written by older app/widget versions remains decodable.
   var pageOffsets: [String: Int]?
+  // Section-aware paging and collapse state are optional for compatibility
+  // with snapshots written by older app and widget versions.
+  var pageIndices: [String: Int]?
+  var collapsedSectionKeys: [String]?
   // Interactive timeline reloads should render the state that was just written
   // to the app-group container instead of blocking on another network request.
   // The short expiry keeps scheduled timeline refreshes server-backed.
@@ -157,6 +161,8 @@ struct HafaWidgetState: Codable, Hashable {
   enum CodingKeys: String, CodingKey {
     case version, snapshot, pending
     case pageOffsets = "page_offsets"
+    case pageIndices = "page_indices"
+    case collapsedSectionKeys = "collapsed_section_keys"
     case timelineCacheValidUntil = "timeline_cache_valid_until"
     case apiBaseURL = "api_base_url"
     case accountScopeID = "account_scope_id"
@@ -327,6 +333,8 @@ final class HafaWidgetStore {
       if scopeChanged {
         state.pending = []
         state.pageOffsets = nil
+        state.pageIndices = nil
+        state.collapsedSectionKeys = nil
       }
       state.snapshot = merging(snapshot, into: state)
       state.lastError = nil
@@ -343,6 +351,8 @@ final class HafaWidgetStore {
         state.snapshot = nil
         state.pending = []
         state.pageOffsets = nil
+        state.pageIndices = nil
+        state.collapsedSectionKeys = nil
         state.accountScopeID = nil
         state.apiBaseURL = nil
         state.requiresReconnect = true
@@ -420,6 +430,8 @@ final class HafaWidgetStore {
         state.snapshot = nil
         state.pending = []
         state.pageOffsets = nil
+        state.pageIndices = nil
+        state.collapsedSectionKeys = nil
         state.accountScopeID = nil
         state.apiBaseURL = nil
       }
