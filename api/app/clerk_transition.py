@@ -4,15 +4,16 @@ import argparse
 import asyncio
 import json
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import ClerkEnvironment, get_settings
 from app.db.database import AsyncSessionLocal
-from app.models.identity import AppUser, ClerkIdentity
+from app.models.identity import AppUser, ClerkIdentity, ClerkMigrationGrant
 from app.services.clerk import ClerkBackendClient, ClerkProfile
 
 
@@ -24,6 +25,66 @@ class TransitionResult:
     detail: str | None = None
 
 
+@dataclass(frozen=True)
+class BridgeAdoptionSummary:
+    since: str
+    active_users: int
+    covered_users: int
+    coverage_percent: float | None
+
+
+async def bridge_adoption_summary(
+    db: AsyncSession,
+    *,
+    development_issuer: str,
+    since: datetime,
+) -> BridgeAdoptionSummary:
+    """Return aggregate bridge coverage without exposing user or grant identifiers."""
+    if since.tzinfo is None:
+        raise ValueError("bridge adoption timestamp must include a timezone")
+    active = (
+        select(ClerkIdentity.app_user_id.label("app_user_id"))
+        .where(
+            ClerkIdentity.issuer == development_issuer,
+            ClerkIdentity.last_authenticated_at >= since,
+        )
+        .distinct()
+        .subquery()
+    )
+    covered = (
+        select(ClerkMigrationGrant.app_user_id.label("app_user_id"))
+        .where(
+            ClerkMigrationGrant.created_at >= since,
+            ClerkMigrationGrant.redeemed_at.is_(None),
+            ClerkMigrationGrant.expires_at > func.now(),
+        )
+        .distinct()
+        .subquery()
+    )
+    row = (
+        await db.execute(
+            select(
+                func.count(active.c.app_user_id),
+                func.count(covered.c.app_user_id),
+            ).select_from(
+                active.outerjoin(
+                    covered,
+                    active.c.app_user_id == covered.c.app_user_id,
+                )
+            )
+        )
+    ).one()
+    active_users = int(row[0])
+    covered_users = int(row[1])
+    coverage_percent = round(100.0 * covered_users / active_users, 1) if active_users else None
+    return BridgeAdoptionSummary(
+        since=since.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+        active_users=active_users,
+        covered_users=covered_users,
+        coverage_percent=coverage_percent,
+    )
+
+
 async def _app_users(db: AsyncSession) -> list[AppUser]:
     result = await db.execute(select(AppUser).order_by(AppUser.id))
     return list(result.scalars())
@@ -33,9 +94,7 @@ async def _identities_for_issuer(
     db: AsyncSession,
     issuer: str,
 ) -> dict[str, ClerkIdentity]:
-    result = await db.execute(
-        select(ClerkIdentity).where(ClerkIdentity.issuer == issuer)
-    )
+    result = await db.execute(select(ClerkIdentity).where(ClerkIdentity.issuer == issuer))
     return {identity.app_user_id: identity for identity in result.scalars()}
 
 
@@ -49,21 +108,34 @@ async def audit_development(
     if not environment.is_development or not environment.secret_key:
         raise ValueError("A configured development Clerk environment is required")
 
-    remote = {profile.clerk_user_id: profile for profile in await ClerkBackendClient(environment).list_users()}
+    remote = {
+        profile.clerk_user_id: profile
+        for profile in await ClerkBackendClient(environment).list_users()
+    }
     identities = await _identities_for_issuer(db, environment.issuer)
     results: list[TransitionResult] = []
     for app_user in await _app_users(db):
         identity = identities.get(app_user.id)
         if identity and identity.clerk_user_id != app_user.id:
-            results.append(TransitionResult(app_user.id, "conflict", detail="development subject differs from stable ID"))
+            results.append(
+                TransitionResult(
+                    app_user.id, "conflict", detail="development subject differs from stable ID"
+                )
+            )
             continue
 
         profile = remote.get(app_user.id)
         if profile is None:
-            results.append(TransitionResult(app_user.id, "missing", detail="development Clerk user not found"))
+            results.append(
+                TransitionResult(app_user.id, "missing", detail="development Clerk user not found")
+            )
             continue
         if not profile.email_verified:
-            results.append(TransitionResult(app_user.id, "conflict", profile.clerk_user_id, "primary email is not verified"))
+            results.append(
+                TransitionResult(
+                    app_user.id, "conflict", profile.clerk_user_id, "primary email is not verified"
+                )
+            )
             continue
         if identity:
             results.append(TransitionResult(app_user.id, "unchanged", identity.clerk_user_id))
@@ -84,7 +156,11 @@ async def audit_development(
             results.append(TransitionResult(app_user.id, "attached", profile.clerk_user_id))
         except IntegrityError:
             await db.rollback()
-            results.append(TransitionResult(app_user.id, "conflict", profile.clerk_user_id, "identity changed concurrently"))
+            results.append(
+                TransitionResult(
+                    app_user.id, "conflict", profile.clerk_user_id, "identity changed concurrently"
+                )
+            )
     return results
 
 
@@ -200,10 +276,16 @@ async def provision_production(
 
         development_profile = development_profiles.get(app_user.id)
         if development_profile is None:
-            results.append(TransitionResult(app_user.id, "missing", detail="development Clerk user not found"))
+            results.append(
+                TransitionResult(app_user.id, "missing", detail="development Clerk user not found")
+            )
             continue
         if not development_profile.email_verified:
-            results.append(TransitionResult(app_user.id, "conflict", detail="development primary email is not verified"))
+            results.append(
+                TransitionResult(
+                    app_user.id, "conflict", detail="development primary email is not verified"
+                )
+            )
             continue
 
         candidate, conflict = _production_candidate(
@@ -217,8 +299,7 @@ async def provision_production(
 
         existing_identity = production_identities.get(app_user.id)
         if existing_identity and (
-            candidate is None
-            or existing_identity.clerk_user_id != candidate.clerk_user_id
+            candidate is None or existing_identity.clerk_user_id != candidate.clerk_user_id
         ):
             results.append(
                 TransitionResult(
@@ -246,7 +327,11 @@ async def provision_production(
                 or candidate.email != development_profile.email
                 or candidate.external_id != app_user.id
             ):
-                results.append(TransitionResult(app_user.id, "failed", detail="production user creation was not confirmed"))
+                results.append(
+                    TransitionResult(
+                        app_user.id, "failed", detail="production user creation was not confirmed"
+                    )
+                )
                 continue
             production_profiles.append(candidate)
             created = True
@@ -258,13 +343,17 @@ async def provision_production(
                     app_user.id,
                 )
                 if candidate is None or candidate.external_id != app_user.id:
-                    results.append(TransitionResult(app_user.id, "failed", detail="production external ID update was not confirmed"))
+                    results.append(
+                        TransitionResult(
+                            app_user.id,
+                            "failed",
+                            detail="production external ID update was not confirmed",
+                        )
+                    )
                     continue
 
         if existing_identity:
-            results.append(
-                TransitionResult(app_user.id, "unchanged", candidate.clerk_user_id)
-            )
+            results.append(TransitionResult(app_user.id, "unchanged", candidate.clerk_user_id))
             continue
 
         if not apply:
@@ -278,7 +367,14 @@ async def provision_production(
             clerk_user_id=candidate.clerk_user_id,
         )
         if not attached:
-            results.append(TransitionResult(app_user.id, "conflict", candidate.clerk_user_id, "identity could not be attached"))
+            results.append(
+                TransitionResult(
+                    app_user.id,
+                    "conflict",
+                    candidate.clerk_user_id,
+                    "identity could not be attached",
+                )
+            )
             continue
         results.append(
             TransitionResult(
@@ -300,8 +396,26 @@ def _environment(name: str) -> ClerkEnvironment:
     return environment
 
 
-async def _run(command: str, apply: bool) -> int:
+async def _run(
+    command: str,
+    apply: bool,
+    *,
+    summary_only: bool,
+    since: datetime | None,
+) -> int:
     async with AsyncSessionLocal() as db:
+        if command == "bridge-adoption":
+            if since is None:
+                raise ValueError("bridge-adoption requires --since")
+            if apply:
+                raise ValueError("bridge-adoption is read-only and does not accept --apply")
+            summary = await bridge_adoption_summary(
+                db,
+                development_issuer=_environment("development").issuer,
+                since=since,
+            )
+            print(json.dumps(asdict(summary), sort_keys=True))
+            return 0
         if command == "audit-development":
             development = next(
                 (item for item in get_settings().clerk_environments if item.is_development),
@@ -318,8 +432,9 @@ async def _run(command: str, apply: bool) -> int:
                 apply=apply,
             )
 
-    for result in results:
-        print(json.dumps(asdict(result), sort_keys=True))
+    if not summary_only:
+        for result in results:
+            print(json.dumps(asdict(result), sort_keys=True))
     counts: dict[str, int] = {}
     for result in results:
         counts[result.status] = counts.get(result.status, 0) + 1
@@ -327,13 +442,43 @@ async def _run(command: str, apply: bool) -> int:
     return 1 if any(result.status in {"conflict", "failed", "missing"} for result in results) else 0
 
 
+def _parse_timestamp(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be an ISO 8601 timestamp") from error
+    if parsed.tzinfo is None:
+        raise argparse.ArgumentTypeError("must include a timezone")
+    return parsed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("audit-development", "provision-production"))
+    parser.add_argument(
+        "command",
+        choices=("audit-development", "provision-production", "bridge-adoption"),
+    )
     parser.add_argument("--apply", action="store_true", help="Apply the planned additive changes")
+    parser.add_argument(
+        "--summary-only",
+        action="store_true",
+        help="Print only aggregate result counts for identity inventory commands",
+    )
+    parser.add_argument(
+        "--since",
+        type=_parse_timestamp,
+        help="Bridge-release timestamp for the aggregate adoption report",
+    )
     args = parser.parse_args()
     try:
-        exit_code = asyncio.run(_run(args.command, args.apply))
+        exit_code = asyncio.run(
+            _run(
+                args.command,
+                args.apply,
+                summary_only=args.summary_only,
+                since=args.since,
+            )
+        )
     except (ValueError, RuntimeError, httpx.HTTPError) as error:
         print(json.dumps({"error": str(error), "type": type(error).__name__}))
         raise SystemExit(1) from error

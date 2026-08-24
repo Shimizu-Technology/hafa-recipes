@@ -41,10 +41,10 @@ EXPO_PUBLIC_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
 
 For production builds, set these in **Expo Dashboard → Environment variables**.
 
-`EXPO_PUBLIC_CLERK_ENVIRONMENT` is a release safety check. It must be
-`development` for the bridge release and `production` for the final Clerk
-cutover release; the app also verifies that it matches the `pk_test_` or
-`pk_live_` publishable-key prefix.
+`EXPO_PUBLIC_CLERK_ENVIRONMENT` is a release safety check. Production builds
+must use `production` with a matching `pk_live_` publishable key. The historical
+bridge release intentionally used development credentials, but current source
+fails closed if a production build is configured that way again.
 
 ## API Configuration
 
