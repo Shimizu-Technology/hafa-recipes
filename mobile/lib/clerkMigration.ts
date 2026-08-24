@@ -63,7 +63,7 @@ export function resolveClerkEnvironment(
     throw new Error('EXPO_PUBLIC_CLERK_ENVIRONMENT must be development or production');
   })();
 
-  if (appEnvironment === 'production' && resolved !== 'production') {
+  if (appEnvironment?.trim().toLowerCase() === 'production' && resolved !== 'production') {
     throw new Error('Production releases must use the Clerk production environment');
   }
 

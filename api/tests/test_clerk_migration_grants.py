@@ -132,6 +132,7 @@ async def test_bridge_adoption_report_returns_only_aggregate_coverage(
                 token_hash="b" * 64,
                 created_at=now,
                 expires_at=now + timedelta(days=30),
+                redeemed_at=now,
             )
         )
         await db.commit()

@@ -57,6 +57,9 @@ describe('Clerk migration state', () => {
     expect(() =>
       resolveClerkEnvironment('pk_test_example', 'development', 'production'),
     ).toThrow('Production releases must use the Clerk production environment');
+    expect(() =>
+      resolveClerkEnvironment('pk_test_example', 'development', ' Production '),
+    ).toThrow('Production releases must use the Clerk production environment');
     expect(
       resolveClerkEnvironment('pk_live_example', 'production', 'production'),
     ).toBe('production');

@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,8 +55,10 @@ async def bridge_adoption_summary(
         select(ClerkMigrationGrant.app_user_id.label("app_user_id"))
         .where(
             ClerkMigrationGrant.created_at >= since,
-            ClerkMigrationGrant.redeemed_at.is_(None),
-            ClerkMigrationGrant.expires_at > func.now(),
+            or_(
+                ClerkMigrationGrant.redeemed_at.is_not(None),
+                ClerkMigrationGrant.expires_at > func.now(),
+            ),
         )
         .distinct()
         .subquery()
