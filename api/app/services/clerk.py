@@ -18,6 +18,8 @@ class ClerkProfile:
     first_name: str | None
     last_name: str | None
     external_id: str | None
+    verified_providers: tuple[str, ...] = ()
+    password_enabled: bool = False
 
 
 def parse_clerk_profile(payload: object) -> ClerkProfile | None:
@@ -53,6 +55,20 @@ def parse_clerk_profile(payload: object) -> ClerkProfile | None:
     if not email:
         return None
 
+    external_accounts = payload.get("external_accounts")
+    verified_providers = tuple(
+        sorted(
+            {
+                provider.removeprefix("oauth_")
+                for account in external_accounts
+                if isinstance(account, dict)
+                and (provider := str(account.get("provider") or "").strip().lower())
+                and isinstance(account.get("verification"), dict)
+                and account["verification"].get("status") == "verified"
+            }
+        )
+    ) if isinstance(external_accounts, list) else ()
+
     return ClerkProfile(
         clerk_user_id=clerk_user_id,
         email=email,
@@ -60,6 +76,8 @@ def parse_clerk_profile(payload: object) -> ClerkProfile | None:
         first_name=str(payload.get("first_name") or "").strip() or None,
         last_name=str(payload.get("last_name") or "").strip() or None,
         external_id=str(payload.get("external_id") or "").strip() or None,
+        verified_providers=verified_providers,
+        password_enabled=payload.get("password_enabled") is True,
     )
 
 

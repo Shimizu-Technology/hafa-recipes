@@ -55,6 +55,43 @@ def test_parse_clerk_profile_requires_verified_primary_record_to_report_verified
     assert profile.external_id == "user_dev"
 
 
+def test_parse_clerk_profile_keeps_only_verified_social_providers():
+    profile = parse_clerk_profile(
+        {
+            "id": "user_prod",
+            "primary_email_address_id": "email_primary",
+            "email_addresses": [
+                {
+                    "id": "email_primary",
+                    "email_address": "chef@example.com",
+                    "verification": {"status": "verified"},
+                }
+            ],
+            "external_accounts": [
+                {"provider": "oauth_apple", "verification": {"status": "verified"}},
+                {"provider": "google", "verification": {"status": "unverified"}},
+                {"provider": "apple", "verification": {"status": "verified"}},
+                {"provider": "github", "verification": None},
+                "invalid",
+            ],
+            "password_enabled": True,
+        }
+    )
+
+    assert profile is not None
+    assert profile.verified_providers == ("apple",)
+    assert profile.password_enabled is True
+
+
+def test_explicit_production_onboarding_is_a_public_bearer_route():
+    from app.routers.clerk_transition import router
+
+    onboarding = next(route for route in router.routes if route.path.endswith("/onboard"))
+
+    assert "POST" in onboarding.methods
+    assert onboarding.path == "/api/auth/clerk-transition/onboard"
+
+
 def test_production_candidate_accepts_one_exact_verified_email_match():
     development = _profile("user_dev", "chef@example.com")
     production = _profile("user_prod", "chef@example.com")
