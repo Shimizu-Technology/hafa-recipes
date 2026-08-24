@@ -11,7 +11,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +19,7 @@ from app.auth import ClerkUser, get_current_user, verify_clerk_token
 from app.config import ClerkEnvironment, get_settings
 from app.db import get_db
 from app.deletion_cleanup import hash_auth_identity
+from app.identity_lock import lock_clerk_subject
 from app.models.deletion import DeletedAuthIdentity
 from app.models.identity import AppUser, ClerkIdentity, ClerkMigrationGrant
 from app.services.clerk import ClerkBackendClient
@@ -129,12 +130,7 @@ async def onboard_production_user(
     if token.issuer != production.issuer or token.environment_name != "production":
         raise HTTPException(status_code=403, detail="Production authentication is required")
 
-    lock_key = int.from_bytes(
-        hashlib.sha256(f"{token.issuer}\0{token.subject}".encode()).digest()[:8],
-        byteorder="big",
-        signed=True,
-    )
-    await db.execute(text("SELECT pg_advisory_xact_lock(:lock_key)"), {"lock_key": lock_key})
+    await lock_clerk_subject(db, issuer=token.issuer, subject=token.subject)
 
     deleted_identity = await db.scalar(
         select(DeletedAuthIdentity.id).where(

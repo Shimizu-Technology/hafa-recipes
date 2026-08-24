@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import ClerkEnvironment, get_settings
 from app.db.database import AsyncSessionLocal
+from app.identity_lock import lock_clerk_subject
 from app.models.identity import AppUser, ClerkIdentity, ClerkMigrationGrant
 from app.models.moderation import AdminAuditEvent
 from app.services.clerk import ClerkBackendClient, ClerkProfile
@@ -487,6 +488,10 @@ async def rebind_production_identity(
     reason = reason.strip()
     if not 3 <= len(reason) <= 500:
         raise ValueError("Recovery requires an audit reason between 3 and 500 characters")
+
+    # Match onboarding's lock order before taking owner/alias row locks so an
+    # explicit registration cannot claim the replacement account mid-recovery.
+    await lock_clerk_subject(db, issuer=production.issuer, subject=to_clerk_user_id)
 
     owner = await db.scalar(
         select(AppUser).where(AppUser.id == app_user_id).with_for_update()

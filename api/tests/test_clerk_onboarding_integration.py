@@ -368,6 +368,9 @@ def _install_recovery_client(monkeypatch):
         "updates": [],
         "fail_replacement": False,
         "lost_responses": {},
+        "pause_subject": None,
+        "pause_entered": None,
+        "pause_release": None,
     }
 
     class RecoveryClient:
@@ -378,6 +381,10 @@ def _install_recovery_client(monkeypatch):
             return state["profiles"].get(subject)
 
         async def set_external_id(self, subject, external_id):
+            if state["pause_subject"] == subject:
+                state["pause_subject"] = None
+                state["pause_entered"].set()
+                await state["pause_release"].wait()
             state["updates"].append((subject, external_id))
             if (
                 state["fail_replacement"]
@@ -604,6 +611,47 @@ async def test_recovery_confirms_lost_response_while_restoring_original_owner(
     assert result.status == "failed"
     assert state["profiles"]["user_old_shell"].external_id == "user_original_owner"
     assert state["profiles"]["user_new_apple"].external_id.startswith("orphan_")
+
+
+@pytest.mark.asyncio
+async def test_recovery_and_onboarding_share_the_replacement_subject_lock(
+    onboarding_database,
+    monkeypatch,
+):
+    state = _install_recovery_client(monkeypatch)
+    state["pause_subject"] = "user_old_shell"
+    state["pause_entered"] = asyncio.Event()
+    state["pause_release"] = asyncio.Event()
+    monkeypatch.setattr(handoff, "settings", _settings())
+    monkeypatch.setattr(handoff, "verify_clerk_token", lambda _raw: _token("user_new_apple"))
+    monkeypatch.setattr(handoff, "ClerkBackendClient", transition.ClerkBackendClient)
+    await _seed_recovery_owner(onboarding_database)
+
+    async def recover():
+        async with onboarding_database() as db:
+            return await _recover(db, apply=True)
+
+    async def onboard():
+        async with onboarding_database() as db:
+            return await handoff.onboard_production_user(_request(), _credentials(), db)
+
+    recovery_task = asyncio.create_task(recover())
+    await state["pause_entered"].wait()
+    onboarding_task = asyncio.create_task(onboard())
+    try:
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(asyncio.shield(onboarding_task), timeout=0.05)
+    finally:
+        state["pause_release"].set()
+
+    recovered, onboarded = await asyncio.gather(recovery_task, onboarding_task)
+
+    assert recovered.status == "rebound"
+    assert onboarded.status == "existing"
+    assert onboarded.app_user_id == "user_original_owner"
+    assert state["profiles"]["user_new_apple"].external_id == "user_original_owner"
+    async with onboarding_database() as db:
+        assert await db.scalar(select(func.count()).select_from(AppUser)) == 1
 
 
 @pytest.mark.asyncio
