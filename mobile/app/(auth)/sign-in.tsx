@@ -125,7 +125,7 @@ export default function SignInScreen() {
         await setActive({ session: result.sessionId });
         if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)');
       } else if (result.status === 'account_not_found') {
-        setErrorMessage('This Apple account is not connected to an existing recipe library. Use your original sign-in method or contact support.');
+        setErrorMessage('This Apple account is not connected yet. Choose “Find my existing recipes” below to restore your original library.');
       } else if (result.status === 'incomplete') {
         setErrorMessage('Could not finish signing in with Apple. Please try again.');
       }
@@ -156,7 +156,7 @@ export default function SignInScreen() {
         await setActive({ session: result.sessionId });
         if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)');
       } else if (result.status === 'account_not_found') {
-        setErrorMessage('This Google account is not connected to an existing recipe library. Use your original sign-in method or contact support.');
+        setErrorMessage('This Google account is not connected yet. Choose “Find my existing recipes” below to restore your original library.');
       } else if (result.status === 'incomplete') {
         setErrorMessage('Could not finish signing in with Google. Please try again.');
       }
@@ -299,6 +299,28 @@ export default function SignInScreen() {
               loading={isLoading}
               size="lg"
             />
+
+            <Link href={'/(auth)/recover-account' as any} asChild>
+              <TouchableOpacity
+                style={[styles.recoveryButton, {
+                  backgroundColor: colors.backgroundSecondary,
+                  borderColor: colors.border,
+                }]}
+                disabled={isLoading}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="library-outline" size={19} color={colors.tint} />
+                <RNView style={styles.recoveryCopy}>
+                  <Text style={[styles.recoveryTitle, { color: colors.text }]}>
+                    Find my existing recipes
+                  </Text>
+                  <Text style={[styles.recoverySubtitle, { color: colors.textSecondary }]}>
+                    Verify your account with an email code
+                  </Text>
+                </RNView>
+                <Ionicons name="chevron-forward" size={17} color={colors.textMuted} />
+              </TouchableOpacity>
+            </Link>
           </RNView>
 
           {/* Sign Up Link */}
@@ -442,6 +464,17 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
   },
+  recoveryButton: {
+    alignItems: 'center',
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    padding: spacing.md,
+  },
+  recoveryCopy: { flex: 1, gap: 2 },
+  recoveryTitle: { fontFamily: fontFamily.semibold, fontSize: fontSize.sm },
+  recoverySubtitle: { fontFamily: fontFamily.regular, fontSize: fontSize.xs },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',

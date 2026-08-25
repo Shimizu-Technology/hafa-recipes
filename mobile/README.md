@@ -9,6 +9,8 @@ React Native app that transforms cooking videos, recipe websites, and recipe pho
 Use Node.js 22.13 or newer. Native features such as the share extension require
 a development build; Expo Go is not the supported runtime for this app. The
 current Clerk native SDK sets the minimum supported iOS version to 17.0.
+The interactive grocery widget also requires iOS 17. Existing App Store users
+on iOS 15 or 16 cannot install the current release.
 
 ```bash
 # From the repository root, install dependencies and create the isolated database
@@ -45,6 +47,11 @@ For production builds, set these in **Expo Dashboard → Environment variables**
 must use `production` with a matching `pk_live_` publishable key. The historical
 bridge release intentionally used development credentials, but current source
 fails closed if a production build is configured that way again.
+
+Customers who missed the bridge can use **Find my existing recipes** on the
+sign-in screen. It verifies the existing account by email code and never creates
+a replacement recipe library. Apple Hide My Email users should enter their
+existing relay address.
 
 ## API Configuration
 

@@ -140,12 +140,16 @@ class ClerkBackendClient:
         external_id: str,
         first_name: str | None,
         last_name: str | None,
+        password: str | None = None,
     ) -> ClerkProfile | None:
         body = {
             "email_address": [email],
             "external_id": external_id,
-            "skip_password_requirement": True,
         }
+        if password is None:
+            body["skip_password_requirement"] = True
+        else:
+            body["password"] = password
         if first_name:
             body["first_name"] = first_name
         if last_name:

@@ -343,6 +343,15 @@ development Apple credentials and the application's production Apple team.
 Users whose provider cannot be linked to an existing owner require explicit,
 verified recovery before production access is granted.
 
+The production sign-in screen now provides **Find my existing recipes** for
+customers who missed the bridge. It requests an existing-account-only Clerk
+email verification code; successful verification restores the already-mapped
+production identity, and the access gate requires a durable provider or
+password before private data is mounted. Apple Hide My Email customers must use
+their existing relay address, which forwards the code to their inbox. See
+`APP-STORE-RELEASE-RUNBOOK.md` for aggregate launch auditing, dedicated reviewer
+provisioning, and App Store release checks.
+
 ## Apple private-relay incident — 2026-08-25
 
 A production-key TestFlight installation redeemed its one-use migration ticket
