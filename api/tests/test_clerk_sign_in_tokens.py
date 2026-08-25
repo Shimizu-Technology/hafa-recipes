@@ -1,5 +1,7 @@
 """Clerk Backend API sign-in ticket contract tests."""
 
+import json
+
 import httpx
 import pytest
 
@@ -83,3 +85,47 @@ async def test_create_sign_in_token_rejects_malformed_success(monkeypatch):
             "user_production",
             expires_in_seconds=60,
         )
+
+
+@pytest.mark.asyncio
+async def test_create_password_enabled_user_does_not_skip_clerk_password_requirements(monkeypatch):
+    request: dict[str, object] = {}
+
+    async def handler(incoming: httpx.Request) -> httpx.Response:
+        body = json.loads(incoming.content)
+        request.update(body)
+        return httpx.Response(201, json={
+            "id": "user_review",
+            "primary_email_address_id": "email_review",
+            "email_addresses": [{
+                "id": "email_review",
+                "email_address": "reviewer@example.com",
+                "verification": {"status": "verified"},
+            }],
+            "external_id": "app_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "password_enabled": True,
+        })
+
+    transport = httpx.MockTransport(handler)
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda *_args, **kwargs: original_client(
+            transport=transport,
+            timeout=kwargs.get("timeout"),
+        ),
+    )
+
+    profile = await ClerkBackendClient(_environment()).create_user(
+        email="reviewer@example.com",
+        external_id="app_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        first_name="App",
+        last_name="Reviewer",
+        password="a-safe-reviewer-password",
+    )
+
+    assert profile is not None
+    assert profile.password_enabled is True
+    assert request["password"] == "a-safe-reviewer-password"
+    assert "skip_password_requirement" not in request

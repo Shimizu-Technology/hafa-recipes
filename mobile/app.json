@@ -75,6 +75,7 @@
           }
         }
       ],
+      "./plugins/withHafaExtensionBuildVersions",
       "./plugins/withHafaGroceryWidget",
       [
         "expo-share-intent",

@@ -50,7 +50,8 @@
       "ios": {
         "appleId": "shimizutechnology@gmail.com",
         "appleTeamId": "4T358A5S74",
-        "ascAppId": "6755892896"
+        "ascAppId": "6755892896",
+        "metadataPath": "store.config.js"
       },
       "android": {
         "serviceAccountKeyPath": "./google-play-service-account.json",
