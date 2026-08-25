@@ -14,8 +14,10 @@ import { API_BASE_URL } from '@/lib/api';
 import { captureMessage, captureError } from '@/lib/sentry';
 import { useTheme, ThemePreference } from '@/contexts/ThemeContext';
 import { clearAllOfflineGroceryData } from '@/lib/offlineStorage';
-import { markMigrationSignedOut } from '@/lib/clerkMigration';
+import { CLERK_ENVIRONMENT, markMigrationSignedOut } from '@/lib/clerkMigration';
 import { clearGroceryWidgetSession } from '@/lib/groceryWidget';
+import { hasDurableSignInMethod } from '@/lib/accountAccess';
+import { clearAccountOnboarding, clearVerifiedAccountOwner } from '@/lib/accountOnboarding';
 import { useTimerSoundPreference, TIMER_SOUNDS, TimerSoundOption, playTimerSoundPreview } from '@/hooks/useTimerSound';
 import { useTTSVoice, TTS_VOICES, TTSVoice } from '@/hooks/useTTS';
 import { useTextSize, TEXT_SIZE_LABELS, TextSizeOption } from '@/hooks/useTextSize';
@@ -79,7 +81,7 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { isSignedIn, sessionId } = useAuth();
   const { user } = useUser();
-  const { data: countData } = useRecipeCount(undefined, !!isSignedIn);
+  const { data: countData, isError: isCountError, refetch: refetchCount } = useRecipeCount(undefined, !!isSignedIn);
   const { signOut } = useClerk();
   const [isDeleting, setIsDeleting] = useState(false);
   const { api } = require('@/lib/api');
@@ -118,13 +120,16 @@ export default function SettingsScreen() {
   };
 
   const handleSignOut = () => {
+    const unsecuredAccount = CLERK_ENVIRONMENT === 'production' && !hasDurableSignInMethod(user);
     Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
+      unsecuredAccount ? 'Sign-in Method Not Connected' : 'Sign Out',
+      unsecuredAccount
+        ? 'This account has no connected Apple, Google, or password sign-in. Signing out may prevent you from finding your recipes again.'
+        : 'Are you sure you want to sign out?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Sign Out',
+          text: unsecuredAccount ? 'Sign Out Anyway' : 'Sign Out',
           style: 'destructive',
           onPress: async () => {
             // A deliberate sign-out opts this installation out of silent Clerk
@@ -132,6 +137,8 @@ export default function SettingsScreen() {
             try {
               if (!sessionId) throw new Error('Clerk session is unavailable');
               await markMigrationSignedOut(sessionId);
+              await clearVerifiedAccountOwner();
+              await clearAccountOnboarding();
             } catch {
               Alert.alert(
                 'Could Not Sign Out',
@@ -189,6 +196,8 @@ export default function SettingsScreen() {
                       if (sessionId) {
                         await markMigrationSignedOut(sessionId).catch(() => undefined);
                       }
+                      await clearVerifiedAccountOwner();
+                      await clearAccountOnboarding();
                       await clearGroceryWidgetSession(false).catch((error) =>
                         captureError(error instanceof Error ? error : new Error(String(error)), {
                           tags: { operation: 'clearGroceryWidgetOnAccountDelete' },
@@ -311,8 +320,15 @@ export default function SettingsScreen() {
           <RNView style={styles.section}>
             <SectionHeader title="Statistics" />
             <RNView style={[styles.statCard, { backgroundColor: colors.tint }]}>
-              <Text style={styles.statValue}>{countData?.count ?? '...'}</Text>
-              <Text style={styles.statLabel}>Recipes Saved</Text>
+              <Text style={styles.statValue}>{isCountError ? '—' : countData?.count ?? '...'}</Text>
+              <Text style={styles.statLabel}>
+                {isCountError ? 'Couldn’t load recipe count' : 'Recipes Saved'}
+              </Text>
+              {isCountError && (
+                <TouchableOpacity onPress={() => void refetchCount()}>
+                  <Text style={styles.statLabel}>Tap to try again</Text>
+                </TouchableOpacity>
+              )}
             </RNView>
           </RNView>
         )}

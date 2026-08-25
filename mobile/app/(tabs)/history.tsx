@@ -356,6 +356,7 @@ export default function HistoryScreen() {
     recipes,
     total: recipesTotal,
     isLoading: isLoadingRecipes,
+    isError: isRecipesError,
     refetch: refetchRecipes,
     isRefetching: isRefetchingRecipes,
     fetchNextPage: fetchNextRecipes,
@@ -370,6 +371,8 @@ export default function HistoryScreen() {
     hasNextPage: hasMoreSearchResults,
     isFetchingNextPage: isFetchingNextSearchResults,
     isFetching: isSearchFetching,
+    isError: isSearchError,
+    refetch: refetchSearch,
   } = useSearchRecipes({
     query: searchQuery,
     sourceType: sourceTypeParam,
@@ -386,6 +389,7 @@ export default function HistoryScreen() {
   const {
     recipes: savedRecipes,
     isLoading: isLoadingSaved,
+    isError: isSavedRecipesError,
     refetch: refetchSaved,
     isRefetching: isRefetchingSaved,
     fetchNextPage: fetchNextSaved,
@@ -394,11 +398,15 @@ export default function HistoryScreen() {
 
   const isLoading = (showOwnRecipes && isLoadingRecipes) || (showSavedRecipes && isLoadingSaved);
   const isRefetching = (showOwnRecipes && isRefetchingRecipes) || (showSavedRecipes && isRefetchingSaved);
+  const hasPrimaryLoadError = hasActiveFilters
+    ? isSearchError
+    : (showOwnRecipes && isRecipesError) || (showSavedRecipes && isSavedRecipesError);
 
   const handleRefreshAll = useCallback(() => {
+    if (hasActiveFilters) refetchSearch();
     if (showOwnRecipes) refetchRecipes();
     if (showSavedRecipes) refetchSaved();
-  }, [refetchRecipes, refetchSaved, showOwnRecipes, showSavedRecipes]);
+  }, [hasActiveFilters, refetchRecipes, refetchSaved, refetchSearch, showOwnRecipes, showSavedRecipes]);
 
   // Refetch when tab gains focus (handles cache cleared on user change)
   useFocusEffect(
@@ -774,21 +782,23 @@ export default function HistoryScreen() {
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
       <RNView style={[styles.emptyIconContainer, { backgroundColor: colors.tint + '15' }]}>
-        <Ionicons name="restaurant-outline" size={42} color={colors.tint} />
+        <Ionicons name={hasPrimaryLoadError ? 'cloud-offline-outline' : 'restaurant-outline'} size={42} color={colors.tint} />
       </RNView>
       <Text style={[styles.emptyTitle, { color: colors.text }]}>
-        No recipes yet
+        {hasPrimaryLoadError ? 'Couldn’t load your recipes' : 'No recipes yet'}
       </Text>
       <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-        Start building your recipe collection!
+        {hasPrimaryLoadError
+          ? 'Your recipes are still safe. Check your connection and try again.'
+          : 'Start building your recipe collection!'}
       </Text>
       <TouchableOpacity
         style={[styles.emptyButton, { backgroundColor: colors.tint }]}
-        onPress={() => router.push('/(tabs)')}
+        onPress={hasPrimaryLoadError ? handleRefreshAll : () => router.push('/(tabs)')}
         activeOpacity={0.8}
       >
-        <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
-        <Text style={styles.emptyButtonText}>Add Your First Recipe</Text>
+        <Ionicons name={hasPrimaryLoadError ? 'refresh-outline' : 'add-circle-outline'} size={20} color="#FFFFFF" />
+        <Text style={styles.emptyButtonText}>{hasPrimaryLoadError ? 'Try Again' : 'Add Your First Recipe'}</Text>
       </TouchableOpacity>
     </RNView>
   );

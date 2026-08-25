@@ -4,6 +4,8 @@ import hashlib
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
+from typing import Literal
+from uuid import uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -13,9 +15,12 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import ClerkUser, get_current_user
+from app.auth import ClerkUser, get_current_user, verify_clerk_token
 from app.config import ClerkEnvironment, get_settings
 from app.db import get_db
+from app.deletion_cleanup import hash_auth_identity
+from app.identity_lock import lock_clerk_subject
+from app.models.deletion import DeletedAuthIdentity
 from app.models.identity import AppUser, ClerkIdentity, ClerkMigrationGrant
 from app.services.clerk import ClerkBackendClient
 
@@ -27,6 +32,7 @@ MIGRATION_GRANT_TTL = timedelta(days=90)
 SIGN_IN_TICKET_TTL_SECONDS = 60
 MAX_ACTIVE_GRANTS_PER_USER = 10
 GENERIC_INVALID_GRANT = "Migration grant is invalid or unavailable"
+PRODUCTION_APP_USER_PATTERN = re.compile(r"^app_[a-f0-9]{32}$")
 
 
 class MigrationGrantResponse(BaseModel):
@@ -44,6 +50,15 @@ class CreateMigrationGrantRequest(BaseModel):
 
 class SignInTicketResponse(BaseModel):
     ticket: str
+
+
+class ProductionOnboardingRequest(CreateMigrationGrantRequest):
+    intent: Literal["create_account"]
+
+
+class ProductionOnboardingResponse(BaseModel):
+    status: Literal["created", "existing"]
+    app_user_id: str
 
 
 def _production_environment() -> ClerkEnvironment:
@@ -96,6 +111,121 @@ async def _production_identity(
         )
     )
     return result.scalar_one_or_none()
+
+
+@router.post("/onboard", response_model=ProductionOnboardingResponse)
+async def onboard_production_user(
+    payload: ProductionOnboardingRequest,
+    credentials: HTTPAuthorizationCredentials | None = Depends(
+        migration_grant_security
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> ProductionOnboardingResponse:
+    """Synchronously create an application owner only for explicit sign-up."""
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    token = verify_clerk_token(credentials.credentials)
+    production = _production_environment()
+    if token.issuer != production.issuer or token.environment_name != "production":
+        raise HTTPException(status_code=403, detail="Production authentication is required")
+
+    await lock_clerk_subject(db, issuer=token.issuer, subject=token.subject)
+
+    deleted_identity = await db.scalar(
+        select(DeletedAuthIdentity.id).where(
+            DeletedAuthIdentity.issuer == token.issuer,
+            DeletedAuthIdentity.clerk_user_id_hash
+            == hash_auth_identity(token.issuer, token.subject),
+        )
+    )
+    if deleted_identity is not None:
+        await db.rollback()
+        raise HTTPException(status_code=401, detail="Account has been deleted")
+
+    existing = await db.scalar(
+        select(ClerkIdentity).where(
+            ClerkIdentity.issuer == token.issuer,
+            ClerkIdentity.clerk_user_id == token.subject,
+        )
+    )
+    if existing is not None:
+        app_user_id = existing.app_user_id
+        await db.rollback()
+        return ProductionOnboardingResponse(status="existing", app_user_id=app_user_id)
+
+    client = ClerkBackendClient(production)
+    try:
+        profile = await client.get_user(token.subject)
+    except (httpx.HTTPError, RuntimeError, ValueError) as error:
+        await db.rollback()
+        raise HTTPException(status_code=503, detail="Account verification is unavailable") from error
+    if profile is None or profile.clerk_user_id != token.subject:
+        await db.rollback()
+        raise HTTPException(status_code=503, detail="Account verification is unavailable")
+    if not profile.email_verified:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail="A verified email address is required")
+
+    app_user_id = profile.external_id
+    if app_user_id is not None:
+        app_user = await db.get(AppUser, app_user_id)
+        if app_user is not None:
+            existing_owner_identity = await _production_identity(
+                db,
+                app_user_id=app_user_id,
+                issuer=token.issuer,
+            )
+            if existing_owner_identity is not None:
+                await db.rollback()
+                raise HTTPException(status_code=409, detail="Identity conflict")
+        elif PRODUCTION_APP_USER_PATTERN.fullmatch(app_user_id) is None:
+            await db.rollback()
+            raise HTTPException(status_code=409, detail="Identity conflict")
+    else:
+        legacy_owner = await db.scalar(
+            select(ClerkMigrationGrant.app_user_id)
+            .where(ClerkMigrationGrant.device_hash == _hash_grant(payload.installation_id))
+            .limit(1)
+        )
+        if legacy_owner is not None:
+            await db.rollback()
+            raise HTTPException(status_code=409, detail="Account recovery required")
+
+        app_user_id = f"app_{uuid4().hex}"
+        try:
+            updated_profile = await client.set_external_id(token.subject, app_user_id)
+        except (httpx.HTTPError, RuntimeError, ValueError) as error:
+            await db.rollback()
+            raise HTTPException(status_code=503, detail="Account provisioning is unavailable") from error
+        if (
+            updated_profile is None
+            or updated_profile.clerk_user_id != token.subject
+            or not updated_profile.email_verified
+            or updated_profile.external_id != app_user_id
+        ):
+            await db.rollback()
+            raise HTTPException(status_code=503, detail="Account provisioning is unavailable")
+
+    app_user = await db.get(AppUser, app_user_id)
+    if app_user is None:
+        db.add(AppUser(id=app_user_id))
+        await db.flush()
+    db.add(
+        ClerkIdentity(
+            app_user_id=app_user_id,
+            issuer=token.issuer,
+            clerk_user_id=token.subject,
+            last_authenticated_at=datetime.now(timezone.utc),
+        )
+    )
+    try:
+        await db.commit()
+    except IntegrityError as error:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Identity conflict") from error
+
+    return ProductionOnboardingResponse(status="created", app_user_id=app_user_id)
 
 
 @router.post("/grants", response_model=MigrationGrantResponse)

@@ -27,6 +27,7 @@ import {
   getOrCreateInstallationId,
   loadMigrationGrant,
   markMigrationSignedOut,
+  onboardProductionAccount,
   parseStoredMigrationGrant,
   redeemMigrationGrant,
   resolveClerkEnvironment,
@@ -144,6 +145,54 @@ describe('Clerk migration state', () => {
 });
 
 describe('Clerk migration API transport', () => {
+  it('creates an application owner only with explicit signup intent and authenticated identity', async () => {
+    const appUserId = `app_${'c'.repeat(32)}`;
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      expect(init?.headers).toEqual({
+        Authorization: 'Bearer production-token',
+        'Content-Type': 'application/json',
+      });
+      expect(JSON.parse(String(init?.body))).toEqual({
+        installation_id: `cmi_${'b'.repeat(64)}`,
+        intent: 'create_account',
+      });
+      return new Response(JSON.stringify({ status: 'created', app_user_id: appUserId }), {
+        status: 200,
+      });
+    });
+
+    await expect(onboardProductionAccount(
+      'production-token', `cmi_${'b'.repeat(64)}`, fetchImpl,
+    )).resolves.toEqual({ status: 'created', appUserId });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.example.test/api/auth/clerk-transition/onboard',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('preserves device-owner recovery conflicts and rejects malformed setup requests', async () => {
+    const conflict = vi.fn(async () => new Response(
+      JSON.stringify({ detail: 'Account recovery required' }),
+      { status: 409 },
+    ));
+    await expect(onboardProductionAccount(
+      'production-token', `cmi_${'b'.repeat(64)}`, conflict,
+    )).rejects.toMatchObject({ status: 409, message: 'Account recovery required' });
+
+    const neverCalled = vi.fn();
+    await expect(onboardProductionAccount('production-token', 'cmi_invalid', neverCalled))
+      .rejects.toThrow('request is invalid');
+    expect(neverCalled).not.toHaveBeenCalled();
+
+    const malformed = vi.fn(async () => new Response(
+      JSON.stringify({ status: 'created', app_user_id: 'not-a-stable-owner' }),
+      { status: 200 },
+    ));
+    await expect(onboardProductionAccount(
+      'production-token', `cmi_${'b'.repeat(64)}`, malformed,
+    )).rejects.toThrow('response is invalid');
+  });
+
   it('creates a grant with the Clerk JWT in a header and installation ID in JSON', async () => {
     const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       expect(init?.headers).toEqual({

@@ -9,6 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
+      "usesAppleSignIn": true,
       "bundleIdentifier": "com.shimizutechnology.recipeextractor",
       "buildNumber": "32",
       "privacyManifests": {
@@ -63,6 +64,7 @@
         }
       ],
       "expo-secure-store",
+      "expo-apple-authentication",
       "@clerk/expo",
       "expo-web-browser",
       [

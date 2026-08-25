@@ -23,6 +23,7 @@ from app.models.grocery import (
 )
 from app.models.identity import AppUser, ClerkIdentity
 from app.models.meal_plan import MealPlanEntry
+from app.models.moderation import AdminAuditEvent
 from app.models.recipe import ExtractionJob, Recipe, RecipeVersion
 from app.routers.recipes import delete_recipe
 from app.routers.users import delete_account
@@ -171,6 +172,72 @@ async def test_account_delete_commits_local_erasure_with_cleanup_intent(
         assert tombstone.clerk_user_id_hash == hash_auth_identity(
             issuer, "clerk_subject"
         )
+
+
+@pytest.mark.asyncio
+async def test_account_delete_includes_only_verified_retired_identity_history(
+    deletion_database,
+):
+    issuer = "https://clerk.hafa-recipes.com"
+    async with deletion_database() as db:
+        db.add(AppUser(id="stable_user"))
+        await db.flush()
+        db.add(
+            ClerkIdentity(
+                app_user_id="stable_user",
+                issuer=issuer,
+                clerk_user_id="user_current_apple",
+            )
+        )
+        db.add_all(
+            (
+                AdminAuditEvent(
+                    actor_user_id="stable_user",
+                    action="identity.rebound",
+                    target_type="user",
+                    target_id="stable_user",
+                    reason="Owner confirmed account recovery",
+                    before_summary={
+                        "issuer": issuer,
+                        "clerk_user_id": "user_retired_shell",
+                    },
+                    after_summary={
+                        "issuer": issuer,
+                        "clerk_user_id": "user_current_apple",
+                        "retired_external_id": f"retired_{'a' * 32}",
+                    },
+                ),
+                AdminAuditEvent(
+                    actor_user_id="stable_user",
+                    action="identity.rebound",
+                    target_type="user",
+                    target_id="stable_user",
+                    reason="Malformed unrelated audit entry",
+                    before_summary={"issuer": issuer, "clerk_user_id": "user_unrelated"},
+                    after_summary={
+                        "issuer": issuer,
+                        "clerk_user_id": "user_not_owned",
+                        "retired_external_id": f"retired_{'b' * 32}",
+                    },
+                ),
+            )
+        )
+        await db.commit()
+
+        response = await delete_account(db=db, user=_user())
+        cleanup_job = await db.scalar(select(DeletionCleanupJob))
+        tombstones = (await db.execute(select(DeletedAuthIdentity))).scalars().all()
+
+    assert response["cleanup"]["clerk_accounts"] == 2
+    assert cleanup_job is not None
+    assert cleanup_job.clerk_identities == [
+        {"issuer": issuer, "clerk_user_id": "user_current_apple"},
+        {"issuer": issuer, "clerk_user_id": "user_retired_shell"},
+    ]
+    assert {entry.clerk_user_id_hash for entry in tombstones} == {
+        hash_auth_identity(issuer, "user_current_apple"),
+        hash_auth_identity(issuer, "user_retired_shell"),
+    }
 
 
 @pytest.mark.asyncio

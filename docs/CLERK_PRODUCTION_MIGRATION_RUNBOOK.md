@@ -1,8 +1,8 @@
 # Clerk production migration runbook
 
-Status: foundation/grant API deployed; 35/35 production aliases provisioned;
-production Apple/Google/email authentication configured; iOS 2.4.0 bridge
-live on the App Store; production-key TestFlight validation approved
+Status: foundation/grant API deployed; production aliases provisioned;
+iOS 2.4.0 bridge live on the App Store; production-key TestFlight exposed an
+Apple account-linking and new-user onboarding blocker
 
 Last updated: 2026-08-25
 
@@ -28,12 +28,19 @@ to one application-owned identity.
 - Development subjects may be lazily adopted only as their identical stable ID.
 - Unknown production subjects require the matching production Backend API to
   confirm a verified primary email and a pre-provisioned stable `external_id`.
+- Brand-new production accounts must be created only through an explicit,
+  verified sign-up operation. Ordinary sign-in and general API authentication
+  must never create or silently replace an existing application owner.
 - An `azp` claim is validated whenever present. Because valid Expo native tokens
   may omit `azp`, requiring the claim is a separate explicit policy switch for
   clients that guarantee it; a configured browser-only surface should enable it.
 - Inventory and provisioning commands are dry-run by default, idempotent, and
   exit non-zero on missing, failed, or ambiguous records.
 - Provisioning never deletes or merges Clerk users.
+- Operator-approved account recovery may replace one issuer-scoped Clerk alias
+  after verifying both provider records and recording the action. It must never
+  rewrite recipe ownership, delete a provider account, or infer account
+  ownership from a person's name, relay address, or device identifier alone.
 - Migration 017 stores only SHA-256 hashes of device-scoped migration grants.
   Redemption is row-locked, one-use, and produces a 60-second Clerk ticket.
 - Account deletion attempts every issuer alias and keeps local identity/data
@@ -168,14 +175,20 @@ Google provider evidence on 2026-08-17:
 
 The remaining physical-device acceptance gates are:
 
-- Apple reached the provider's password/passkey screen, but a complete callback
-  still requires an owner-controlled Apple login. Complete that test in the
-  production-key TestFlight build before App Review;
-- exercise sign-up verification, password recovery, and delivery to an Apple
-  private-relay address in the TestFlight build in addition to the completed
-  ordinary-email sign-in test; and
-- confirm an existing bridge installation either redeems its grant without a
-  sign-in prompt or reaches a normal recoverable sign-in without losing recipes.
+- complete native Apple sign-in using the production Apple team and registered
+  iOS bundle, not merely the web authorization or password screen;
+- upgrade a previously authenticated Apple private-relay account, verify its
+  original data, sign out, sign in again, and verify the same stable owner and
+  unchanged recipe, collection, grocery, and meal-plan data;
+- verify migrated accounts attach a durable, verified sign-in method before
+  sign-out can strand their production identity;
+- exercise genuinely new Apple, Google, and email sign-ups and confirm each
+  receives exactly one stable production application owner;
+- verify unfamiliar existing-account sign-in cannot silently create a new
+  application owner and that identity failures display an actionable recovery
+  state rather than an empty library; and
+- keep an existing development-key App Store build and the production-key
+  candidate working against their original data at the same time.
 
 These gates block App Review, not creation of the production-key TestFlight
 candidate. TestFlight is the controlled environment needed to finish the native
@@ -250,11 +263,19 @@ python -m app.clerk_transition provision-production --apply --summary-only
 python -m app.clerk_transition provision-production --summary-only
 ```
 
-For each stable user the provisioner requires one verified development primary
-email. It matches production users by stable external ID or exact normalized
-email, rejects multiple candidates, rejects a different external ID, creates a
-production shell only when no candidate exists, sets `external_id` to the stable
-ID, and attaches the production alias only after Clerk confirms the result.
+For each legacy stable user without an established production alias, the
+provisioner requires one verified development primary email. It matches
+production users by stable external ID or exact normalized email, rejects
+multiple candidates, rejects a different external ID, creates a production shell
+only when no candidate exists, sets `external_id` to the stable ID, and attaches
+the production alias only after Clerk confirms the result.
+
+Once a production alias has been verified and recorded, that exact issuer-scoped
+subject and its matching stable `external_id` take precedence over a stale
+email-only shell. An Apple private-relay address can legitimately differ between
+developer teams; an email change alone is not evidence of a new owner and is not
+proof that two unrelated accounts belong together. Verified production-only
+application users are healthy without a development alias.
 
 Stop the rollout on any `missing`, `conflict`, or `failed` result. Investigate
 the source record; do not delete a user or edit an ownership value to make the
@@ -314,10 +335,69 @@ two-release adoption window without leaving a long-lived Clerk ticket on the
 device. A transient Clerk failure does not consume the grant. Raw grants and
 tickets must never enter logs, analytics, crash reports, URLs, or Git.
 
-People who skip the bridge release sign in once with Apple, Google, or email.
-Because their production alias was pre-provisioned to the same stable user, they
-retain the same recipes, collections, grocery data, meal plans, saves, notes,
-and extraction jobs.
+People who skip the bridge release retain their data only when their real,
+verified sign-in method resolves to the existing production identity. An empty
+pre-provisioned Clerk shell is not proof that Apple or Google is attached. In
+particular, Apple private-relay addresses can differ between Clerk's shared
+development Apple credentials and the application's production Apple team.
+Users whose provider cannot be linked to an existing owner require explicit,
+verified recovery before production access is granted.
+
+## Apple private-relay incident — 2026-08-25
+
+A production-key TestFlight installation redeemed its one-use migration ticket
+and initially displayed its existing account correctly. After the person signed
+out, production Sign in with Apple returned a different private-relay address
+from the development Apple configuration. Because the pre-provisioned production
+account had no attached Apple provider, Clerk created a second production user.
+The new subject had no trusted stable `external_id`; the API correctly returned
+403, while the mobile client incorrectly displayed an empty library.
+
+The production owner records remained intact. The incident exposed four release
+blockers:
+
+1. Migration tickets establish a temporary session, not a durable Apple or
+   Google account connection.
+2. Clerk's standard combined Apple and OAuth helpers can initiate sign-up while
+   handling an apparent sign-in; strict existing-account flows must not transfer
+   to sign-up without the person's explicit intent.
+3. Newly created production Clerk users need a verified, idempotent application
+   onboarding path that cannot silently replace a migrated account.
+4. Authorization and identity failures must block private data surfaces with an
+   actionable recovery state instead of presenting them as genuinely empty.
+
+A stored installation identifier proves possession of a particular application
+installation, not ownership of the previous person's account. Shared devices and
+multiple historical migration grants make device-only account reassignment
+unsafe. Recovery requires an owner-approved, audited operator action or another
+independent proof of the existing account owner's identity.
+
+Run approved recovery from a production Render one-off job after the reviewed
+API commit is live. Replace each uppercase placeholder with the exact account
+identifier confirmed during the incident investigation. The first command is a
+dry-run and must report exactly one `would_rebind` result:
+
+```bash
+python -m app.clerk_transition rebind-production \
+  --app-user-id STABLE_APP_USER_ID \
+  --from-clerk-user-id CURRENT_PRODUCTION_CLERK_USER_ID \
+  --to-clerk-user-id VERIFIED_APPLE_CLERK_USER_ID \
+  --actor-user-id APPROVED_OPERATOR_APP_USER_ID \
+  --reason 'Owner-approved Apple account recovery' \
+  --summary-only
+```
+
+Only after confirming the exact dry-run plan, repeat the same command with
+`--apply`. Verify a subsequent dry-run reports `unchanged`, the original
+development alias still works, application ownership counts are unchanged, and
+the Apple-linked production account can load the same data. Recovery locks the
+exact Clerk subject across both onboarding and repair, verifies provider state
+after every remote write, compensates for uncertain provider responses, and
+records the retired shell for eventual account deletion.
+
+Do not promote a production-key build to App Review until every physical-device
+acceptance gate passes, including Apple upgrade, sign-out, re-login, and new
+account creation.
 
 ## Verification gates
 
@@ -329,6 +409,20 @@ and extraction jobs.
 - Concurrent first authentication creates exactly one alias.
 - Concurrent migration-grant redemption creates exactly one Clerk ticket;
   replay and expiry fail with the same terminal response.
+- Native Apple sign-in never creates an account from the sign-in screen;
+  explicit Apple sign-up uses a separate, intentional onboarding path.
+- A migrated private-relay account keeps the same stable owner after upgrade,
+  provider enrollment, sign-out, and native Apple re-login.
+- Unknown production subjects remain rejected until explicit verified sign-up
+  creates one stable application owner; concurrent sign-up retries are
+  idempotent.
+- A previous migration on the same installation blocks silent onboarding of a
+  replacement account without proving ownership of the old account.
+- Provider recovery updates only the exact current production alias, preserves
+  every ownership column and the development identity, records an audit event,
+  and compensates safely for provider-side failures.
+- Existing-account sign-in failures show recovery and retry actions rather than
+  an empty recipe library or repeated unauthorized background requests.
 - Old and new builds can be used concurrently on separate devices.
 - Account deletion removes local data and every configured Clerk alias.
 - Before/after ownership counts and checksums match.
@@ -489,6 +583,9 @@ bridge path are separate post-validation changes.
 - [Migrating users and the development-to-production limitation](https://clerk.com/docs/guides/development/migrating/overview)
 - [Deploying a production Clerk instance](https://clerk.com/docs/guides/development/deployment/production)
 - [Deploying Clerk with Expo](https://clerk.com/docs/guides/development/deployment/expo)
+- [Native Sign in with Apple for Expo](https://clerk.com/docs/expo/guides/configure/auth-strategies/sign-in-with-apple)
+- [Clerk OAuth account linking](https://clerk.com/docs/guides/configure/auth-strategies/social-connections/account-linking)
+- [Manage signed-in external account connections](https://clerk.com/docs/guides/development/custom-flows/account-updates/manage-sso-connections)
 - [Clerk pricing](https://clerk.com/pricing)
 - [Manual JWT verification](https://clerk.com/docs/guides/sessions/manual-jwt-verification)
 - [Session lifetime options](https://clerk.com/docs/guides/secure/session-options)

@@ -1,5 +1,7 @@
 """User management endpoints, including durable account deletion."""
 
+import re
+
 import sentry_sdk
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -15,6 +17,7 @@ from app.models.deletion import DeletedAuthIdentity, DeletionCleanupJob
 from app.models.grocery import GroceryItem, GroceryList, GroceryListInvite, GroceryListMember
 from app.models.identity import AppUser, ClerkIdentity
 from app.models.meal_plan import MealPlanEntry
+from app.models.moderation import AdminAuditEvent
 from app.models.recipe import (
     Collection,
     CollectionRecipe,
@@ -29,6 +32,8 @@ from app.services.storage import storage_service
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 settings = get_settings()
+RECOVERED_CLERK_SUBJECT_PATTERN = re.compile(r"^user_[A-Za-z0-9_-]{1,59}$")
+RETIRED_EXTERNAL_ID_PATTERN = re.compile(r"^retired_[a-f0-9]{32}$")
 
 class PublishingDisclosureStatus(BaseModel):
     current_version: int
@@ -138,6 +143,43 @@ async def delete_account(
             {"issuer": issuer, "clerk_user_id": clerk_user_id}
             for issuer, clerk_user_id in identity_result.all()
         ]
+        recovery_result = await db.execute(
+            select(AdminAuditEvent)
+            .where(
+                AdminAuditEvent.action == "identity.rebound",
+                AdminAuditEvent.target_type == "user",
+                AdminAuditEvent.target_id == user_id,
+            )
+            .order_by(AdminAuditEvent.created_at.desc())
+        )
+        trusted_subjects = {
+            (identity["issuer"], identity["clerk_user_id"])
+            for identity in clerk_identities
+        }
+        for recovery in recovery_result.scalars():
+            before = recovery.before_summary
+            after = recovery.after_summary
+            if not isinstance(before, dict) or not isinstance(after, dict):
+                continue
+            issuer = before.get("issuer")
+            retired_subject = before.get("clerk_user_id")
+            replacement_subject = after.get("clerk_user_id")
+            retired_external_id = after.get("retired_external_id")
+            if (
+                not isinstance(issuer, str)
+                or after.get("issuer") != issuer
+                or not isinstance(retired_subject, str)
+                or RECOVERED_CLERK_SUBJECT_PATTERN.fullmatch(retired_subject) is None
+                or not isinstance(replacement_subject, str)
+                or RECOVERED_CLERK_SUBJECT_PATTERN.fullmatch(replacement_subject) is None
+                or not isinstance(retired_external_id, str)
+                or RETIRED_EXTERNAL_ID_PATTERN.fullmatch(retired_external_id) is None
+                or (issuer, replacement_subject) not in trusted_subjects
+                or (issuer, retired_subject) in trusted_subjects
+            ):
+                continue
+            trusted_subjects.add((issuer, retired_subject))
+            clerk_identities.append({"issuer": issuer, "clerk_user_id": retired_subject})
 
         recipe_result = await db.execute(select(Recipe.id).where(Recipe.user_id == user_id))
         recipe_ids = [row[0] for row in recipe_result.all()]
