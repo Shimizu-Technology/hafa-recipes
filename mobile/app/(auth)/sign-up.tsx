@@ -9,8 +9,10 @@ import {
   Alert,
 } from 'react-native';
 import { useSSO, useClerk } from '@clerk/expo';
-import { useSignIn, useSignUp } from '@clerk/expo/legacy';
+import { useSignUp } from '@clerk/expo/legacy';
 import { useRouter, Link } from 'expo-router';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,6 +21,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { View, Text, Input, Button, useColors } from '@/components/Themed';
 import { BrandMark } from '@/components/BrandMark';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
+import { clerkErrorMessage, isCancelledAppleSignIn } from '@/lib/accountAccess';
+import { beginAccountOnboarding, clearAccountOnboarding, failAccountOnboarding } from '@/lib/accountOnboarding';
+import { CLERK_ENVIRONMENT, getOrCreateInstallationId, onboardProductionAccount } from '@/lib/clerkMigration';
 
 // Required for OAuth to work properly (for Apple Sign-In)
 WebBrowser.maybeCompleteAuthSession();
@@ -29,7 +34,6 @@ WebBrowser.maybeCompleteAuthSession();
 
 export default function SignUpScreen() {
   const { signUp, setActive, isLoaded } = useSignUp();
-  const { signIn } = useSignIn();
   const { startSSOFlow } = useSSO();
   const clerk = useClerk();
   const router = useRouter();
@@ -48,6 +52,46 @@ export default function SignUpScreen() {
 
   // Clear error when user starts typing
   const clearError = () => setErrorMessage(null);
+
+  const completeExplicitSignUp = useCallback(async (
+    sessionId: string,
+    userId: string,
+    activate?: (params: { session: string }) => Promise<void>,
+  ) => {
+    const needsOnboarding = CLERK_ENVIRONMENT === 'production';
+    const activateSession = activate ?? setActive;
+    if (!activateSession) throw new Error('The new account session is unavailable');
+
+    // Establish the intent and exact owner before activating: AuthProtection may
+    // immediately redirect the new session and otherwise mount private queries.
+    if (needsOnboarding) await beginAccountOnboarding(sessionId, userId);
+
+    try {
+      await activateSession({ session: sessionId });
+
+      if (needsOnboarding) {
+        const activeSession = clerk.session;
+        if (!activeSession || activeSession.id !== sessionId || activeSession.user.id !== userId) {
+          throw new Error('The new account could not be securely verified');
+        }
+        const token = await activeSession.getToken({
+          template: 'recipe-extractor-public-metadata',
+        });
+        if (!token) throw new Error('The new account session is unavailable');
+
+        const installationId = await getOrCreateInstallationId();
+        await onboardProductionAccount(token, installationId);
+        await clearAccountOnboarding(sessionId);
+      }
+
+      // The production access gate temporarily unmounts navigation; once it
+      // verifies this owner, AuthProtection redirects from the auth screen.
+      if (!needsOnboarding) router.replace('/(tabs)');
+    } catch (error) {
+      if (needsOnboarding) failAccountOnboarding(sessionId, error);
+      throw error;
+    }
+  }, [clerk, router, setActive]);
 
   // Email/password sign up
   const handleEmailSignUp = async () => {
@@ -118,9 +162,8 @@ export default function SignUpScreen() {
         code: verificationCode,
       });
 
-      if (result.status === 'complete') {
-        await setActive({ session: result.createdSessionId });
-        router.replace('/(tabs)');
+      if (result.status === 'complete' && result.createdSessionId && result.createdUserId) {
+        await completeExplicitSignUp(result.createdSessionId, result.createdUserId);
       } else {
         console.log('Verification result:', result);
         setErrorMessage('Could not complete verification. Please try again.');
@@ -133,40 +176,58 @@ export default function SignUpScreen() {
     }
   };
 
-  // Apple Sign-Up (uses web-based SSO flow - works on both platforms)
+  // Account creation is explicit here; native iOS preserves Apple's relay identity.
   const handleAppleSignUp = useCallback(async () => {
     if (!isLoaded) return;
     setErrorMessage(null);
 
     setIsLoading(true);
     try {
-      const redirectUrl = Linking.createURL('oauth-callback');
+      if (Platform.OS === 'ios') {
+        const credential = await AppleAuthentication.signInAsync({
+          requestedScopes: [
+            AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+            AppleAuthentication.AppleAuthenticationScope.EMAIL,
+          ],
+          nonce: Crypto.randomUUID(),
+        });
+        if (!credential.identityToken) throw new Error('Apple did not provide a sign-up credential');
 
-      const { createdSessionId, setActive: ssoSetActive, signIn: ssoSignIn, signUp: ssoSignUp } = await startSSOFlow({
-        strategy: 'oauth_apple',
-        redirectUrl,
-      });
-
-      if (createdSessionId) {
-        await ssoSetActive!({ session: createdSessionId });
-        router.replace('/(tabs)');
-      } else if (ssoSignIn?.firstFactorVerification?.status === 'transferable') {
-        console.log('User signed in with transferable session');
-      } else if (ssoSignUp?.verifications?.externalAccount?.status === 'transferable') {
-        setErrorMessage('An account with this email already exists. Try signing in with a different method.');
+        const result = await signUp.create({
+          strategy: 'oauth_token_apple',
+          token: credential.identityToken,
+          firstName: credential.fullName?.givenName ?? undefined,
+          lastName: credential.fullName?.familyName ?? undefined,
+        });
+        if (result.status === 'complete' && result.createdSessionId && result.createdUserId) {
+          await completeExplicitSignUp(result.createdSessionId, result.createdUserId);
+        } else if (result.verifications.externalAccount.status === 'transferable') {
+          setErrorMessage('This Apple account already has a recipe library. Please sign in instead.');
+        } else {
+          setErrorMessage('Could not finish creating your Apple account. Please try again.');
+        }
+      } else {
+        const result = await startSSOFlow({
+          strategy: 'oauth_apple',
+          redirectUrl: Linking.createURL('oauth-callback'),
+        });
+        if (
+          result.createdSessionId && result.signUp?.createdSessionId === result.createdSessionId &&
+          result.signUp.createdUserId && result.setActive
+        ) {
+          await completeExplicitSignUp(result.createdSessionId, result.signUp.createdUserId, result.setActive);
+        } else if (result.createdSessionId) {
+          setErrorMessage('This Apple account already has a recipe library. Please sign in instead.');
+        }
       }
-    } catch (error: any) {
-      console.log('Apple OAuth error:', error);
-      const clerkError = error.errors?.[0];
-      if (clerkError?.code === 'session_exists') {
-        router.replace('/(tabs)');
-        return;
+    } catch (error: unknown) {
+      if (!isCancelledAppleSignIn(error)) {
+        setErrorMessage(clerkErrorMessage(error, 'Could not sign up with Apple. Please try again.'));
       }
-      setErrorMessage(clerkError?.longMessage || clerkError?.message || 'Could not sign up with Apple. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  }, [isLoaded, startSSOFlow, router]);
+  }, [isLoaded, signUp, startSSOFlow, completeExplicitSignUp]);
 
   // Google Sign-Up - uses web-based SSO flow on all platforms
   // NOTE: Native Google Sign-In was causing crashes, using web flow for stability
@@ -176,36 +237,25 @@ export default function SignUpScreen() {
 
     setIsLoading(true);
     try {
-      // Use web-based SSO on all platforms
-      const redirectUrl = Linking.createURL('oauth-callback');
-
-      const { createdSessionId, setActive: ssoSetActive, signIn: ssoSignIn, signUp: ssoSignUp } = await startSSOFlow({
+      const result = await startSSOFlow({
         strategy: 'oauth_google',
-        redirectUrl,
+        redirectUrl: Linking.createURL('oauth-callback'),
       });
 
-      if (createdSessionId) {
-        await ssoSetActive!({ session: createdSessionId });
-        router.replace('/(tabs)');
-      } else if (ssoSignIn?.firstFactorVerification?.status === 'transferable') {
-        console.log('User signed in with transferable session');
-      } else if (ssoSignUp?.verifications?.externalAccount?.status === 'transferable') {
-        setErrorMessage('An account with this email already exists. Try signing in with a different method.');
+      if (
+        result.createdSessionId && result.signUp?.createdSessionId === result.createdSessionId &&
+        result.signUp.createdUserId && result.setActive
+      ) {
+        await completeExplicitSignUp(result.createdSessionId, result.signUp.createdUserId, result.setActive);
+      } else if (result.createdSessionId) {
+        setErrorMessage('This Google account already has a recipe library. Please sign in instead.');
       }
-    } catch (error: any) {
-      console.log('Google Sign-Up error:', error);
-
-      // Handle Clerk errors
-      const clerkError = error.errors?.[0];
-      if (clerkError?.code === 'session_exists') {
-        router.replace('/(tabs)');
-        return;
-      }
-      setErrorMessage(clerkError?.longMessage || clerkError?.message || error.message || 'Could not sign up with Google. Please try again.');
+    } catch (error: unknown) {
+      setErrorMessage(clerkErrorMessage(error, 'Could not sign up with Google. Please try again.'));
     } finally {
       setIsLoading(false);
     }
-  }, [isLoaded, startSSOFlow, router]);
+  }, [isLoaded, startSSOFlow, completeExplicitSignUp]);
 
   // Verification screen
   if (pendingVerification) {

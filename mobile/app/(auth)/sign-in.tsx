@@ -10,9 +10,10 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { useSSO, useClerk } from '@clerk/expo';
 import { useSignIn } from '@clerk/expo/legacy';
 import { useRouter, Link } from 'expo-router';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,6 +22,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { View, Text, Input, Button, useColors } from '@/components/Themed';
 import { BrandMark } from '@/components/BrandMark';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
+import { clerkErrorMessage, isCancelledAppleSignIn, shouldNavigateAfterSessionActivation } from '@/lib/accountAccess';
+import { CLERK_ENVIRONMENT } from '@/lib/clerkMigration';
+import { signInWithAppleToken, signInWithBrowserProvider } from '@/lib/socialAuthentication';
 
 // Required for OAuth to work properly (for Apple Sign-In)
 WebBrowser.maybeCompleteAuthSession();
@@ -31,8 +35,6 @@ WebBrowser.maybeCompleteAuthSession();
 
 export default function SignInScreen() {
   const { signIn, setActive, isLoaded } = useSignIn();
-  const { startSSOFlow } = useSSO();
-  const clerk = useClerk();
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -65,7 +67,7 @@ export default function SignInScreen() {
 
       if (result.status === 'complete') {
         await setActive({ session: result.createdSessionId });
-        router.replace('/(tabs)');
+        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)');
       } else if (result.status === 'needs_second_factor') {
         // 2FA is enabled on this account - not currently supported in app
         console.log('Sign in requires 2FA:', result);
@@ -99,40 +101,42 @@ export default function SignInScreen() {
     }
   };
 
-  // Apple Sign-In (uses web-based SSO flow - works on both platforms)
+  // iOS uses Apple's native credential. Neither path is allowed to create an account.
   const handleAppleSignIn = useCallback(async () => {
     if (!isLoaded) return;
     setErrorMessage(null);
 
     setIsLoading(true);
     try {
-      const redirectUrl = Linking.createURL('oauth-callback');
+      const result = Platform.OS === 'ios'
+        ? await (async () => {
+          const credential = await AppleAuthentication.signInAsync({
+            requestedScopes: [
+              AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+              AppleAuthentication.AppleAuthenticationScope.EMAIL,
+            ],
+            nonce: Crypto.randomUUID(),
+          });
+          return signInWithAppleToken(signIn, credential.identityToken ?? '');
+        })()
+        : await signInWithBrowserProvider(signIn, 'oauth_apple', Linking.createURL('oauth-callback'));
 
-      const { createdSessionId, setActive: ssoSetActive, signIn: ssoSignIn, signUp } = await startSSOFlow({
-        strategy: 'oauth_apple',
-        redirectUrl,
-      });
-
-      if (createdSessionId) {
-        await ssoSetActive!({ session: createdSessionId });
-        router.replace('/(tabs)');
-      } else if (ssoSignIn?.firstFactorVerification?.status === 'transferable') {
-        console.log('User signed in with transferable session');
-      } else if (signUp?.verifications?.externalAccount?.status === 'transferable') {
-        setErrorMessage('An account with this email already exists. Try signing in with a different method.');
+      if (result.status === 'complete') {
+        await setActive({ session: result.sessionId });
+        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)');
+      } else if (result.status === 'account_not_found') {
+        setErrorMessage('This Apple account is not connected to an existing recipe library. Use your original sign-in method or contact support.');
+      } else if (result.status === 'incomplete') {
+        setErrorMessage('Could not finish signing in with Apple. Please try again.');
       }
-    } catch (error: any) {
-      console.log('Apple OAuth error:', error);
-      const clerkError = error.errors?.[0];
-      if (clerkError?.code === 'session_exists') {
-        router.replace('/(tabs)');
-        return;
+    } catch (error: unknown) {
+      if (!isCancelledAppleSignIn(error)) {
+        setErrorMessage(clerkErrorMessage(error, 'Could not sign in with Apple. Please try again.'));
       }
-      setErrorMessage(clerkError?.longMessage || clerkError?.message || 'Could not sign in with Apple. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  }, [isLoaded, startSSOFlow, router]);
+  }, [isLoaded, signIn, setActive, router]);
 
   // Google Sign-In - uses web-based SSO flow on all platforms
   // NOTE: Native Google Sign-In was causing crashes, using web flow for stability
@@ -142,36 +146,26 @@ export default function SignInScreen() {
 
     setIsLoading(true);
     try {
-      // Use web-based SSO on all platforms
-      const redirectUrl = Linking.createURL('oauth-callback');
+      const result = await signInWithBrowserProvider(
+        signIn,
+        'oauth_google',
+        Linking.createURL('oauth-callback'),
+      );
 
-      const { createdSessionId, setActive: ssoSetActive, signIn: ssoSignIn, signUp } = await startSSOFlow({
-        strategy: 'oauth_google',
-        redirectUrl,
-      });
-
-      if (createdSessionId) {
-        await ssoSetActive!({ session: createdSessionId });
-        router.replace('/(tabs)');
-      } else if (ssoSignIn?.firstFactorVerification?.status === 'transferable') {
-        console.log('User signed in with transferable session');
-      } else if (signUp?.verifications?.externalAccount?.status === 'transferable') {
-        setErrorMessage('An account with this email already exists. Try signing in with a different method.');
+      if (result.status === 'complete') {
+        await setActive({ session: result.sessionId });
+        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)');
+      } else if (result.status === 'account_not_found') {
+        setErrorMessage('This Google account is not connected to an existing recipe library. Use your original sign-in method or contact support.');
+      } else if (result.status === 'incomplete') {
+        setErrorMessage('Could not finish signing in with Google. Please try again.');
       }
-    } catch (error: any) {
-      console.log('Google Sign-In error:', error);
-
-      // Handle Clerk errors
-      const clerkError = error.errors?.[0];
-      if (clerkError?.code === 'session_exists') {
-        router.replace('/(tabs)');
-        return;
-      }
-      setErrorMessage(clerkError?.longMessage || clerkError?.message || error.message || 'Could not sign in with Google. Please try again.');
+    } catch (error: unknown) {
+      setErrorMessage(clerkErrorMessage(error, 'Could not sign in with Google. Please try again.'));
     } finally {
       setIsLoading(false);
     }
-  }, [isLoaded, startSSOFlow, router]);
+  }, [isLoaded, signIn, setActive, router]);
 
   return (
     <View style={styles.container}>

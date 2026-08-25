@@ -36,6 +36,7 @@ import { EnvironmentBanner } from '@/components/EnvironmentBanner';
 import { FloatingTimerOverlay } from '@/components/FloatingTimerOverlay';
 import FloatingChatButton from '@/components/FloatingChatButton';
 import { ClerkMigrationBridge } from '@/components/ClerkMigrationBridge';
+import { AccountAccessGate } from '@/components/AccountAccessGate';
 import { GroceryWidgetCoordinator } from '@/components/GroceryWidgetCoordinator';
 import { bindGroceryWidgetIdentity } from '@/lib/groceryWidget';
 import { initSentry, setSentryUser, addBreadcrumb, captureError, withSentry } from '@/lib/sentry';
@@ -304,10 +305,11 @@ function RootLayoutNav() {
       <NavigationThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <TimerProvider>
           <AuthTokenSync>
-            <GroceryWidgetCoordinator />
-            <ExtractionProvider>
-              <AuthProtection>
-                <ShareIntentHandler>
+            <AccountAccessGate>
+              <GroceryWidgetCoordinator />
+              <ExtractionProvider>
+                <AuthProtection>
+                  <ShareIntentHandler>
                   <EnvironmentBanner />
                   {/* Global offline indicator */}
                   <OfflineBanner />
@@ -341,9 +343,10 @@ function RootLayoutNav() {
                     />
                     <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
                   </Stack>
-                </ShareIntentHandler>
-              </AuthProtection>
-            </ExtractionProvider>
+                  </ShareIntentHandler>
+                </AuthProtection>
+              </ExtractionProvider>
+            </AccountAccessGate>
           </AuthTokenSync>
         </TimerProvider>
       </NavigationThemeProvider>

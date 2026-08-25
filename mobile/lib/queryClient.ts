@@ -3,6 +3,7 @@
  */
 
 import { QueryClient } from '@tanstack/react-query';
+import { shouldRetryAccountRequest } from './accountAccess';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -11,8 +12,8 @@ export const queryClient = new QueryClient({
       staleTime: 30 * 1000,
       // Cache data for 5 minutes
       gcTime: 5 * 60 * 1000,
-      // Retry failed requests 2 times
-      retry: 2,
+      // Authentication and other permanent client failures cannot heal by retrying.
+      retry: shouldRetryAccountRequest,
       // Refetch on window focus (web) or app focus (mobile)
       refetchOnWindowFocus: true,
     },

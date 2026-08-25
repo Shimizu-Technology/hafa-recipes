@@ -15,6 +15,21 @@ export type MigrationGrantRedemption =
   | { status: 'terminal' }
   | { status: 'retryable' };
 
+export interface ProductionAccountOnboarding {
+  status: 'created' | 'existing';
+  appUserId: string;
+}
+
+export class ProductionAccountOnboardingError extends Error {
+  readonly status: number;
+
+  constructor(status: number, detail: string) {
+    super(detail);
+    this.name = 'ProductionAccountOnboardingError';
+    this.status = status;
+  }
+}
+
 const INSTALLATION_ID_KEY = 'hafa.clerk-transition.installation-id.v1';
 const MIGRATION_GRANT_KEY = 'hafa.clerk-transition.grant.v1';
 const MIGRATION_SIGNED_OUT_KEY = 'hafa.clerk-transition.signed-out.v1';
@@ -271,4 +286,50 @@ export async function redeemMigrationGrant(
   } catch {
     return { status: 'retryable' };
   }
+}
+
+/** Create an application owner only after the person explicitly chose sign-up. */
+export async function onboardProductionAccount(
+  sessionToken: string,
+  installationId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ProductionAccountOnboarding> {
+  if (!sessionToken || !/^cmi_[a-f0-9]{64}$/.test(installationId)) {
+    throw new Error('Account setup request is invalid');
+  }
+
+  const response = await fetchImpl(`${API_BASE_URL}/api/auth/clerk-transition/onboard`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      installation_id: installationId,
+      intent: 'create_account',
+    }),
+  });
+
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail =
+      payload && typeof payload === 'object' && 'detail' in payload &&
+      typeof payload.detail === 'string'
+        ? payload.detail
+        : 'Account setup could not be completed';
+    throw new ProductionAccountOnboardingError(response.status, detail);
+  }
+
+  if (
+    !payload ||
+    typeof payload !== 'object' ||
+    !('status' in payload) ||
+    !('app_user_id' in payload) ||
+    (payload.status !== 'created' && payload.status !== 'existing') ||
+    typeof payload.app_user_id !== 'string' ||
+    !/^app_[a-f0-9]{32}$/.test(payload.app_user_id)
+  ) {
+    throw new Error('Account setup response is invalid');
+  }
+  return { status: payload.status, appUserId: payload.app_user_id };
 }

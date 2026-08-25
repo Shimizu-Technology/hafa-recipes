@@ -14,6 +14,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Input, Button, useColors } from '@/components/Themed';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { shouldNavigateAfterSessionActivation } from '@/lib/accountAccess';
+import { CLERK_ENVIRONMENT } from '@/lib/clerkMigration';
 
 export default function ForgotPasswordScreen() {
   const { signIn, setActive, isLoaded } = useSignIn();
@@ -98,7 +100,7 @@ export default function ForgotPasswordScreen() {
 
       if (result.status === 'complete') {
         await setActive({ session: result.createdSessionId });
-        router.replace('/(tabs)');
+        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)');
       } else {
         console.log('Reset result:', result);
         setErrorMessage('Could not reset password. Please try again.');
