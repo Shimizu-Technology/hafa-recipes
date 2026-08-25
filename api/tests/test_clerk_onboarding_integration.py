@@ -322,6 +322,12 @@ async def test_onboarding_refuses_untrusted_or_already_claimed_external_id(
             await handoff.onboard_production_user(_request(), _credentials(), db)
     assert untrusted.value.status_code == 409
 
+    _install_client(monkeypatch, _profile(external_id=f"orphan_{'a' * 32}"))
+    async with onboarding_database() as db:
+        with pytest.raises(HTTPException) as orphaned:
+            await handoff.onboard_production_user(_request(), _credentials(), db)
+    assert orphaned.value.status_code == 409
+
     _install_client(monkeypatch, _profile(external_id="user_existing_owner"))
     async with onboarding_database() as db:
         db.add(AppUser(id="user_existing_owner"))
@@ -592,6 +598,59 @@ async def test_recovery_compensates_both_provider_changes_after_database_failure
 
 
 @pytest.mark.asyncio
+async def test_recovery_can_retry_a_verified_orphan_after_a_database_failure(
+    onboarding_database,
+    monkeypatch,
+):
+    state = _install_recovery_client(monkeypatch)
+    await _seed_recovery_owner(onboarding_database)
+
+    async with onboarding_database() as db:
+
+        async def reject_commit():
+            raise IntegrityError("UPDATE", {}, RuntimeError("interrupted database commit"))
+
+        monkeypatch.setattr(db, "commit", reject_commit)
+        failed = await _recover(db, apply=True)
+
+    assert failed.status == "failed"
+    assert transition.RECOVERY_ORPHAN_PATTERN.fullmatch(
+        state["profiles"]["user_new_apple"].external_id or ""
+    )
+
+    async with onboarding_database() as db:
+        recovered = await _recover(db, apply=True)
+
+    assert recovered.status == "rebound"
+    assert state["profiles"]["user_new_apple"].external_id == "user_original_owner"
+    async with onboarding_database() as db:
+        identity = await db.scalar(
+            select(ClerkIdentity).where(ClerkIdentity.issuer == PRODUCTION_ISSUER)
+        )
+        assert identity.clerk_user_id == "user_new_apple"
+        assert await db.scalar(select(func.count()).select_from(AdminAuditEvent)) == 1
+
+
+@pytest.mark.asyncio
+async def test_recovery_rejects_untrusted_replacement_external_ids(
+    onboarding_database,
+    monkeypatch,
+):
+    state = _install_recovery_client(monkeypatch)
+    await _seed_recovery_owner(onboarding_database)
+
+    for untrusted_id in ("app_" + "a" * 32, "user_another_owner", "orphan_invalid"):
+        state["profiles"]["user_new_apple"] = replace(
+            state["profiles"]["user_new_apple"], external_id=untrusted_id
+        )
+        async with onboarding_database() as db:
+            rejected = await _recover(db, apply=True)
+        assert rejected.status == "conflict"
+
+    assert state["updates"] == []
+
+
+@pytest.mark.asyncio
 async def test_recovery_confirms_lost_response_while_restoring_original_owner(
     onboarding_database,
     monkeypatch,
@@ -611,6 +670,36 @@ async def test_recovery_confirms_lost_response_while_restoring_original_owner(
     assert result.status == "failed"
     assert state["profiles"]["user_old_shell"].external_id == "user_original_owner"
     assert state["profiles"]["user_new_apple"].external_id.startswith("orphan_")
+
+
+@pytest.mark.asyncio
+async def test_recovery_preserves_a_committed_identity_when_commit_response_is_lost(
+    onboarding_database,
+    monkeypatch,
+):
+    state = _install_recovery_client(monkeypatch)
+    await _seed_recovery_owner(onboarding_database)
+
+    async with onboarding_database() as db:
+        actual_commit = db.commit
+
+        async def commit_then_lose_response():
+            await actual_commit()
+            raise ConnectionError("PostgreSQL commit response was lost")
+
+        monkeypatch.setattr(db, "commit", commit_then_lose_response)
+        result = await _recover(db, apply=True)
+
+    assert result.status == "rebound"
+    assert state["profiles"]["user_old_shell"].external_id.startswith("retired_")
+    assert state["profiles"]["user_new_apple"].external_id == "user_original_owner"
+    assert len(state["updates"]) == 2
+    async with onboarding_database() as db:
+        identity = await db.scalar(
+            select(ClerkIdentity).where(ClerkIdentity.issuer == PRODUCTION_ISSUER)
+        )
+        assert identity.clerk_user_id == "user_new_apple"
+        assert await db.scalar(select(func.count()).select_from(AdminAuditEvent)) == 1
 
 
 @pytest.mark.asyncio

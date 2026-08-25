@@ -22,6 +22,7 @@ from app.services.clerk import ClerkBackendClient, ClerkProfile
 
 PRODUCTION_APP_USER_PATTERN = re.compile(r"^app_[a-f0-9]{32}$")
 CLERK_USER_PATTERN = re.compile(r"^user_[A-Za-z0-9_-]{1,59}$")
+RECOVERY_ORPHAN_PATTERN = re.compile(r"^orphan_[a-f0-9]{32}$")
 RECOVERY_AUDIT_ACTION = "identity.rebound"
 
 
@@ -566,7 +567,9 @@ async def rebind_production_identity(
             from_clerk_user_id,
             "original account is not an empty, trusted migration shell",
         )
-    if new_profile.external_id is not None:
+    if new_profile.external_id is not None and (
+        RECOVERY_ORPHAN_PATTERN.fullmatch(new_profile.external_id) is None
+    ):
         await db.rollback()
         return TransitionResult(
             app_user_id,
@@ -633,6 +636,59 @@ async def rebind_production_identity(
     except Exception as error:
         await db.rollback()
         try:
+            # COMMIT can succeed on PostgreSQL while its response is lost. Take
+            # the same lock again before deciding which side needs repair.
+            await lock_clerk_subject(db, issuer=production.issuer, subject=to_clerk_user_id)
+            restored_owner = await db.scalar(
+                select(AppUser).where(AppUser.id == app_user_id).with_for_update()
+            )
+            persisted_identity = await db.scalar(
+                select(ClerkIdentity)
+                .where(
+                    ClerkIdentity.app_user_id == app_user_id,
+                    ClerkIdentity.issuer == production.issuer,
+                )
+                .with_for_update()
+            )
+            if restored_owner is None or persisted_identity is None:
+                raise RuntimeError("committed application identity could not be confirmed")
+            if persisted_identity.clerk_user_id == to_clerk_user_id:
+                persisted_audits = (
+                    await db.execute(
+                        select(AdminAuditEvent).where(
+                            AdminAuditEvent.action == RECOVERY_AUDIT_ACTION,
+                            AdminAuditEvent.target_type == "user",
+                            AdminAuditEvent.target_id == app_user_id,
+                        )
+                    )
+                ).scalars()
+                matching_audit = any(
+                    isinstance(event.before_summary, dict)
+                    and isinstance(event.after_summary, dict)
+                    and event.before_summary.get("issuer") == production.issuer
+                    and event.before_summary.get("clerk_user_id") == from_clerk_user_id
+                    and event.after_summary.get("issuer") == production.issuer
+                    and event.after_summary.get("clerk_user_id") == to_clerk_user_id
+                    and event.after_summary.get("retired_external_id") == retired_external_id
+                    for event in persisted_audits
+                )
+                committed_old = await client.get_user(from_clerk_user_id)
+                committed_new = await client.get_user(to_clerk_user_id)
+                if (
+                    not matching_audit
+                    or committed_old is None
+                    or committed_old.external_id != retired_external_id
+                    or committed_new is None
+                    or committed_new.external_id != app_user_id
+                    or not committed_new.email_verified
+                    or "apple" not in committed_new.verified_providers
+                ):
+                    raise RuntimeError("committed recovery outcome is inconsistent")
+                await db.rollback()
+                return TransitionResult(app_user_id, "rebound", to_clerk_user_id)
+            if persisted_identity.clerk_user_id != from_clerk_user_id:
+                raise RuntimeError("production identity changed unexpectedly during recovery")
+
             observed_old = await client.get_user(from_clerk_user_id)
             observed_new = await client.get_user(to_clerk_user_id)
             if (
@@ -672,7 +728,9 @@ async def rebind_production_identity(
                 or restored_new.external_id == app_user_id
             ):
                 raise RuntimeError("stable owner restoration could not be confirmed")
+            await db.rollback()
         except Exception as compensation_error:
+            await db.rollback()
             raise RuntimeError(
                 "Recovery compensation failed; stop and inspect production"
             ) from compensation_error
