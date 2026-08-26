@@ -15,6 +15,7 @@ import {
 type GrocerySectionHeaderProps = {
   section: GrocerySection;
   isCollapsed: boolean;
+  isCollapsible?: boolean;
   onToggle: () => void;
   onOpenRecipe?: (recipeId: string) => void;
   onClearSection?: () => void;
@@ -24,6 +25,7 @@ type GrocerySectionHeaderProps = {
 export function GrocerySectionHeader({
   section,
   isCollapsed,
+  isCollapsible = true,
   onToggle,
   onOpenRecipe,
   onClearSection,
@@ -68,19 +70,21 @@ export function GrocerySectionHeader({
         </RNView>
       </RNView>
 
-      <TouchableOpacity
-        style={styles.iconButton}
-        onPress={onToggle}
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        accessibilityRole="button"
-        accessibilityLabel={`${isCollapsed ? 'Expand' : 'Collapse'} ${section.title} grocery section`}
-      >
-        <Ionicons
-          name={isCollapsed ? 'chevron-down' : 'chevron-up'}
-          size={20}
-          color={colors.textMuted}
-        />
-      </TouchableOpacity>
+      {isCollapsible && (
+        <TouchableOpacity
+          style={styles.iconButton}
+          onPress={onToggle}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          accessibilityRole="button"
+          accessibilityLabel={`${isCollapsed ? 'Expand' : 'Collapse'} ${section.title} grocery section`}
+        >
+          <Ionicons
+            name={isCollapsed ? 'chevron-down' : 'chevron-up'}
+            size={20}
+            color={colors.textMuted}
+          />
+        </TouchableOpacity>
+      )}
 
       {canClear && (
         <TouchableOpacity

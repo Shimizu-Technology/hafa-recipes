@@ -112,4 +112,24 @@ describe('GrocerySectionHeader', () => {
 
     expect(onToggle).toHaveBeenCalledOnce();
   });
+
+  it('hides collapse controls while a search is exposing every matching item', async () => {
+    let renderer: ReturnType<typeof create>;
+
+    await act(async () => {
+      renderer = create(React.createElement(GrocerySectionHeader, {
+        section: section(),
+        isCollapsed: false,
+        isCollapsible: false,
+        onOpenRecipe: vi.fn(),
+        onToggle: vi.fn(),
+      }));
+    });
+
+    const buttons = renderer!.root.findAllByType(
+      'TouchableOpacity' as unknown as React.ComponentType,
+    );
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].props.accessibilityLabel).toBe('Open Chicken Kelaguen recipe');
+  });
 });
