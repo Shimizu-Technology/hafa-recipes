@@ -12,8 +12,10 @@ from app.ai_governance import PROMPT_VERSIONS, RECIPE_SCHEMA_VERSION, AIInvocati
 from app.config import get_settings
 from app.services.extraction_confidence import normalize_extraction_confidence
 from app.services.prompts import (
+    PASTED_TEXT_SOURCE_URL,
     get_multi_image_ocr_prompt,
     get_ocr_extraction_prompt,
+    get_pasted_text_recipe_extraction_prompt,
     get_recipe_extraction_prompt,
     get_tiktok_slideshow_prompt,
 )
@@ -129,6 +131,7 @@ class LLMService:
                 source_url=source_url,
                 location=location,
                 fallback_reason=None,
+                prompt_version=PROMPT_VERSIONS["recipe_extraction"],
             )
             
             if result.success:
@@ -146,6 +149,7 @@ class LLMService:
                 source_url=source_url,
                 location=location,
                 fallback_reason=result.error_code or "primary_failed",
+                prompt_version=PROMPT_VERSIONS["recipe_extraction"],
             )
             
             if result.success:
@@ -158,6 +162,53 @@ class LLMService:
             success=False,
             error="All extraction attempts failed"
         )
+
+    async def extract_from_text(
+        self,
+        content: str,
+        location: str = "Guam",
+        use_fallback: bool = True,
+    ) -> ExtractionResult:
+        """Extract a reviewable recipe draft from user-pasted text."""
+        sanitized_content = self._sanitize_pasted_text(content)
+        prompt = get_pasted_text_recipe_extraction_prompt(sanitized_content, location)
+
+        if not settings.is_ai_capability_enabled("recipe_extraction"):
+            return ExtractionResult(
+                success=False,
+                error="Recipe extraction is temporarily unavailable",
+            )
+
+        primary_result: ExtractionResult | None = None
+        if self.openai_api_key:
+            primary_result = await self._try_extraction(
+                config=self.PRIMARY_CONFIG,
+                api_key=self.openai_api_key,
+                prompt=prompt,
+                source_url=PASTED_TEXT_SOURCE_URL,
+                location=location,
+                fallback_reason=None,
+                prompt_version=PROMPT_VERSIONS["pasted_text"],
+            )
+            if primary_result.success:
+                return primary_result
+
+        if use_fallback and self.openai_api_key:
+            fallback_result = await self._try_extraction(
+                config=self.FALLBACK_CONFIG,
+                api_key=self.openai_api_key,
+                prompt=prompt,
+                source_url=PASTED_TEXT_SOURCE_URL,
+                location=location,
+                fallback_reason=(
+                    primary_result.error_code if primary_result else "primary_unavailable"
+                ),
+                prompt_version=PROMPT_VERSIONS["pasted_text"],
+            )
+            if fallback_result.success:
+                return fallback_result
+
+        return ExtractionResult(success=False, error="All extraction attempts failed")
     
     async def extract_from_image(
         self,
@@ -820,6 +871,7 @@ class LLMService:
         source_url: str,
         location: str,
         fallback_reason: str | None,
+        prompt_version: str,
     ) -> ExtractionResult:
         """Try extraction with a specific model, with retries."""
         
@@ -841,6 +893,7 @@ class LLMService:
                     source_url=source_url,
                     location=location,
                     fallback_reason=fallback_reason,
+                    prompt_version=prompt_version,
                 )
                 
                 if result.success:
@@ -868,6 +921,7 @@ class LLMService:
         source_url: str,
         location: str,
         fallback_reason: str | None,
+        prompt_version: str,
     ) -> ExtractionResult:
         """Make a single LLM API call."""
         
@@ -882,7 +936,7 @@ class LLMService:
         async with AIInvocationTracker(
             capability="recipe_extraction",
             primary_model=config["model"],
-            prompt_version=PROMPT_VERSIONS["recipe_extraction"],
+            prompt_version=prompt_version,
             schema_version=RECIPE_SCHEMA_VERSION,
             fallback_reason=fallback_reason,
             allow_canary=config.get("allow_canary", True),
@@ -1039,14 +1093,26 @@ class LLMService:
             ' ', text
         )
         # Replace smart quotes
-        text = text.replace('"', '"').replace('"', '"')
-        text = text.replace(''', "'").replace(''', "'")
+        text = text.replace("\u201c", '"').replace("\u201d", '"')
+        text = text.replace("\u2018", "'").replace("\u2019", "'")
         # Replace ellipsis
         text = text.replace('…', '...')
         # Replace em/en dashes
         text = text.replace('—', '-').replace('–', '-')
         # Normalize whitespace
         text = re.sub(r'\s+', ' ', text)
+        return text.strip()
+
+    @staticmethod
+    def _sanitize_pasted_text(text: str) -> str:
+        """Normalize pasted text without destroying recipe line structure."""
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        text = text.replace("\u201c", '"').replace("\u201d", '"')
+        text = text.replace("\u2018", "'").replace("\u2019", "'")
+        text = text.replace('…', '...').replace('—', '-').replace('–', '-')
+        text = re.sub(r"[^\S\n]+", " ", text)
+        text = re.sub(r" *\n *", "\n", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
     
     def _post_process_recipe(
