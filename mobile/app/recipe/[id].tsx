@@ -26,6 +26,7 @@ import AddIngredientsModal from '@/components/AddIngredientsModal';
 import RecipeChatModal from '@/components/RecipeChatModal';
 import AddToCollectionModal from '@/components/AddToCollectionModal';
 import { RecipeCollectionsCard } from '@/components/RecipeCollectionsCard';
+import { RecipeMealPlanCard } from '@/components/RecipeMealPlanCard';
 import VersionHistoryModal from '@/components/VersionHistoryModal';
 import { SafetyActionModal } from '@/components/SafetyActionModal';
 import { 
@@ -43,6 +44,7 @@ import { useAsyncExtraction } from '@/contexts/ExtractionContext';
 import { RecipeListItem } from '@/types/recipe';
 import { useAddFromRecipe } from '@/hooks/useGrocery';
 import { useCollections, useRecipeCollections } from '@/hooks/useCollections';
+import { useRecipeMealPlanEntries } from '@/hooks/useMealPlan';
 import { SkeletonSimilarRecipes } from '@/components/Skeleton';
 import { formatPublishDisclosure, getPublishDisclosure } from '@/lib/recipePublishing';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
@@ -179,6 +181,10 @@ export default function RecipeDetailScreen() {
     () => collectionsContainingRecipe(collections, recipeCollectionIds),
     [collections, recipeCollectionIds],
   );
+  const {
+    data: recipePlanEntries = [],
+    isLoading: isRecipePlanLoading,
+  } = useRecipeMealPlanEntries(id, !!userId);
   
   // Similar recipes
   const { data: similarRecipes, isLoading: isSimilarLoading } = useSimilarRecipes(id, !!recipe);
@@ -834,6 +840,15 @@ export default function RecipeDetailScreen() {
                 isLoading={isCollectionsLoading || isRecipeCollectionsLoading}
                 onOpenCollection={(collectionId) => router.push(appRoutes.collection(collectionId))}
                 onManageCollections={() => setShowCollectionModal(true)}
+              />
+            )}
+
+            {userId && (
+              <RecipeMealPlanCard
+                entries={recipePlanEntries}
+                isLoading={isRecipePlanLoading}
+                onOpenDate={(date) => router.push(appRoutes.plannerDate(date))}
+                onOpenPlanner={() => router.push(appRoutes.planner)}
               />
             )}
 

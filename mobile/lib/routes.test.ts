@@ -21,4 +21,11 @@ describe('related record routes', () => {
     expect(appRoutes.discover).toBe('/(tabs)/discover');
     expect(appRoutes.planner).toBe('/(tabs)/planner');
   });
+
+  it('builds an exact-date planner route', () => {
+    expect(appRoutes.plannerDate('2026-08-27')).toEqual({
+      pathname: '/(tabs)/planner',
+      params: { date: '2026-08-27' },
+    });
+  });
 });

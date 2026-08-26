@@ -10,8 +10,14 @@ import { MealPlanEntryCreate, WeekPlan, DayMeals, MealPlanEntry, MealType } from
 // Query keys
 export const mealPlanKeys = {
   all: ['meal-plans'] as const,
-  week: (weekOf?: string) => [...mealPlanKeys.all, 'week', weekOf || 'current'] as const,
-  day: (date?: string) => [...mealPlanKeys.all, 'day', date || 'today'] as const,
+  weeks: () => [...mealPlanKeys.all, 'week'] as const,
+  week: (weekOf?: string) => [...mealPlanKeys.weeks(), weekOf || 'current'] as const,
+  days: () => [...mealPlanKeys.all, 'day'] as const,
+  day: (date?: string) => [...mealPlanKeys.days(), date || 'today'] as const,
+  recipes: () => [...mealPlanKeys.all, 'recipe'] as const,
+  recipe: (recipeId: string, startDate: string) => (
+    [...mealPlanKeys.recipes(), recipeId, startDate] as const
+  ),
 };
 
 /**
@@ -36,6 +42,17 @@ export function useMealPlanDay(date?: string) {
   });
 }
 
+/** Get the signed-in user's upcoming plan relationships for one recipe. */
+export function useRecipeMealPlanEntries(recipeId: string, enabled = true) {
+  const startDate = formatDateForApi(new Date());
+  return useQuery({
+    queryKey: mealPlanKeys.recipe(recipeId, startDate),
+    queryFn: () => api.getRecipeMealPlanEntries(recipeId, startDate),
+    enabled: enabled && !!recipeId,
+    staleTime: 30_000,
+  });
+}
+
 /**
  * Add a meal to the plan with optimistic update.
  */
@@ -52,7 +69,7 @@ export function useAddMeal() {
 
       // Snapshot the previous values for all week queries
       const previousWeekQueries = queryClient.getQueriesData<WeekPlan>({
-        queryKey: mealPlanKeys.all,
+        queryKey: mealPlanKeys.weeks(),
       });
 
       // Create optimistic entry with temp ID
@@ -71,7 +88,7 @@ export function useAddMeal() {
 
       // Update all cached week queries
       queryClient.setQueriesData<WeekPlan>(
-        { queryKey: mealPlanKeys.all },
+        { queryKey: mealPlanKeys.weeks() },
         (old) => {
           if (!old) return old;
           
@@ -99,7 +116,7 @@ export function useAddMeal() {
       
       // Replace temp entry with real server response
       queryClient.setQueriesData<WeekPlan>(
-        { queryKey: mealPlanKeys.all },
+        { queryKey: mealPlanKeys.weeks() },
         (old) => {
           if (!old) return old;
           
@@ -119,6 +136,7 @@ export function useAddMeal() {
           };
         }
       );
+      queryClient.invalidateQueries({ queryKey: mealPlanKeys.recipes() });
     },
 
     // On error, roll back to the previous value
@@ -170,12 +188,12 @@ export function useDeleteMeal() {
 
       // Snapshot the previous values
       const previousWeekQueries = queryClient.getQueriesData<WeekPlan>({
-        queryKey: mealPlanKeys.all,
+        queryKey: mealPlanKeys.weeks(),
       });
 
       // Remove from all cached queries
       queryClient.setQueriesData<WeekPlan>(
-        { queryKey: mealPlanKeys.all },
+        { queryKey: mealPlanKeys.weeks() },
         (old) => {
           if (!old) return old;
           
@@ -193,6 +211,10 @@ export function useDeleteMeal() {
       );
 
       return { previousWeekQueries };
+    },
+
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: mealPlanKeys.recipes() });
     },
 
     // On error, roll back

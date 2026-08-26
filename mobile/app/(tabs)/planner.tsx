@@ -6,7 +6,7 @@
  * ingredients to their grocery list.
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   StyleSheet,
   ScrollView,
@@ -18,7 +18,7 @@ import {
   Dimensions,
   ActivityIndicator,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -44,6 +44,7 @@ import {
 import { MealPlanEntry, MealType, RecipeListItem } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import { haptics, lightHaptic, successHaptic } from '@/utils/haptics';
+import { parsePlannerDateParam } from '@/lib/plannerNavigation';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DAY_WIDTH = (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm * 6) / 7;
@@ -250,6 +251,7 @@ function MealSlot({
 
 export default function PlannerScreen() {
   const router = useRouter();
+  const { date: requestedDateParam } = useLocalSearchParams<{ date?: string | string[] }>();
   const insets = useSafeAreaInsets();
   const colors = useColors();
   const { isSignedIn, isLoaded } = useAuth();
@@ -261,6 +263,16 @@ export default function PlannerScreen() {
   // Modal state
   const [pickerVisible, setPickerVisible] = useState(false);
   const [selectedMealType, setSelectedMealType] = useState<MealType>('dinner');
+
+  useEffect(() => {
+    const requestedDate = parsePlannerDateParam(
+      Array.isArray(requestedDateParam) ? requestedDateParam[0] : requestedDateParam,
+    );
+    if (!requestedDate) return;
+
+    setCurrentWeekStart(getWeekStart(requestedDate));
+    setSelectedDate(requestedDate);
+  }, [requestedDateParam]);
 
   // Fetch week data
   const weekOfStr = formatDateForApi(currentWeekStart);
