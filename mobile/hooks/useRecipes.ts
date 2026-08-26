@@ -1155,26 +1155,28 @@ export function useUnsaveRecipe() {
 }
 
 // ============================================================
-// OCR Recipe Saving
+// Captured Recipe Saving
 // ============================================================
 
-export function useSaveOcrRecipe() {
+export function useSaveCapturedRecipe() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (params: { extracted: any; is_public?: boolean }) => 
-      api.saveOcrRecipe(params),
+    mutationFn: (params: {
+      extracted: any;
+      source_type: 'photo' | 'text';
+      is_public?: boolean;
+    }) => api.saveCapturedRecipe(params),
     onSuccess: (data) => {
       invalidateCreatedRecipeQueries(queryClient, data.id);
       queryClient.invalidateQueries({ queryKey: ['myRecipes'] });
-      console.log('OCR recipe saved successfully:', data.id);
+      console.log('Captured recipe saved successfully:', data.id);
     },
     onError: () => {
       // Error handled by caller with Alert
     },
   });
 }
-
 
 // ============================================================
 // Client-Side Filtering Utilities

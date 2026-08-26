@@ -45,6 +45,7 @@ import type { PublishingDisclosureStatus } from './recipePublishing';
 // Token getter function type - will be set by the app
 type TokenGetter = () => Promise<string | null>;
 export type RequestGuard = () => void;
+export type CaptureSourceType = 'photo' | 'text';
 
 type GuardedRequestConfig = AxiosRequestConfig & {
   requestGuard?: RequestGuard;
@@ -372,7 +373,7 @@ class ApiClient {
         carbs?: number;
         fat?: number;
       } | null;
-      source_type?: 'manual' | 'photo'; // 'photo' for edited OCR recipes
+      source_type?: 'manual' | CaptureSourceType;
     },
     imageUri?: string | null
   ): Promise<Recipe> {
@@ -666,6 +667,25 @@ class ApiClient {
     return data;
   }
 
+  /** Extract a reviewable recipe draft from user-pasted text. */
+  async extractRecipeFromText(
+    text: string,
+    location: string = 'Guam'
+  ): Promise<{
+    success: boolean;
+    recipe?: any;
+    error?: string;
+    model_used?: string;
+    latency_seconds?: number;
+  }> {
+    const { data } = await this.client.post(
+      '/api/extract/text',
+      { text, location },
+      { timeout: 90000 },
+    );
+    return data;
+  }
+
   async getJobStatus(jobId: string): Promise<JobStatus> {
     const { data } = await this.client.get(`/api/jobs/${jobId}`);
     return data;
@@ -688,6 +708,20 @@ class ApiClient {
   }): Promise<Recipe> {
     const { data } = await this.client.post('/api/recipes/from-ocr', {
       extracted: params.extracted,
+      is_public: params.is_public ?? false,
+    });
+    return data;
+  }
+
+  /** Save a source-aware recipe created by a photo or pasted-text capture. */
+  async saveCapturedRecipe(params: {
+    extracted: any;
+    source_type: CaptureSourceType;
+    is_public?: boolean;
+  }): Promise<Recipe> {
+    const { data } = await this.client.post('/api/recipes/from-capture', {
+      extracted: params.extracted,
+      source_type: params.source_type,
       is_public: params.is_public ?? false,
     });
     return data;

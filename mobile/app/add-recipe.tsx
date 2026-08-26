@@ -72,15 +72,18 @@ export default function AddRecipeScreen() {
   const queryClient = useQueryClient();
   const { requestPublishing } = usePublishingDisclosure();
   
-  // Get initial data from route params (for OCR pre-fill)
-  const { initialData, isPublic: isPublicParam, fromOcr } = useLocalSearchParams<{
+  // Get initial data from route params for imported-recipe pre-fill.
+  const { initialData, isPublic: isPublicParam, fromOcr, captureSource } = useLocalSearchParams<{
     initialData?: string;
     isPublic?: string;
     fromOcr?: string;
+    captureSource?: 'photo' | 'text';
   }>();
   
-  // Track if this recipe originated from OCR
-  const isFromOcr = fromOcr === 'true';
+  // `fromOcr` preserves navigation compatibility with released photo flows.
+  const importedSource = captureSource === 'text'
+    ? 'text'
+    : (captureSource === 'photo' || fromOcr === 'true' ? 'photo' : 'manual');
 
   // Form state
   const [title, setTitle] = useState('');
@@ -230,7 +233,7 @@ export default function AddRecipeScreen() {
           tags: tagList.length > 0 ? tagList : null,
           is_public: isPublic,
           nutrition: estimatedNutrition,
-          source_type: isFromOcr ? 'photo' : 'manual', // Preserve OCR origin
+          source_type: importedSource,
         },
         imageUri
       );

@@ -72,6 +72,7 @@ export default function FloatingChatButton() {
       '/edit-recipe/',
       '/collection/',
       '/ocr-review',
+      '/paste-recipe',
     ];
     
     const shouldHide = hideOnPaths.some(path => pathname.includes(path));

@@ -341,6 +341,10 @@ function RootLayoutNav() {
                         presentation: 'modal',
                       }}
                     />
+                    <Stack.Screen
+                      name="paste-recipe"
+                      options={{ headerTitle: 'Paste Recipe Text' }}
+                    />
                     <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
                   </Stack>
                   </ShareIntentHandler>

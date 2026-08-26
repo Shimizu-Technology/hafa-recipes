@@ -2,7 +2,7 @@
 
 import json
 import re
-from typing import List, Optional
+from typing import List, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -418,7 +418,7 @@ class ManualRecipeCreate(BaseModel):
     tags: Optional[List[str]] = None
     is_public: bool = False
     nutrition: Optional[ManualNutrition] = None
-    source_type: Optional[str] = "manual"  # Can be "manual" or "photo" (for edited OCR)
+    source_type: Optional[Literal["manual", "photo", "text"]] = "manual"
 
 
 def _serialize_edit_components(edit: RecipeEdit) -> list[dict]:
@@ -688,9 +688,16 @@ async def create_manual_recipe(
     )
 
     # Create the recipe
-    # source_type can be "manual" or "photo" (for edited OCR recipes)
+    # Preserve the capture origin when an imported draft is edited before saving.
     source_type = recipe_input.source_type or "manual"
-    source_url = "photo-upload" if source_type == "photo" else "manual://user-created"
+    source_metadata = {
+        "manual": ("manual://user-created", "manual"),
+        "photo": ("photo-upload", "ocr"),
+        "text": ("manual://pasted-text", "text-ai"),
+    }
+    source_url, extraction_method = source_metadata[source_type]
+    if source_type != "manual":
+        extracted["sourceUrl"] = source_url
 
     if recipe_input.is_public:
         await require_current_publishing_disclosure(db, user.id)
@@ -701,7 +708,7 @@ async def create_manual_recipe(
         raw_text=None,
         extracted=extracted,
         thumbnail_url=None,
-        extraction_method="ocr" if source_type == "photo" else "manual",
+        extraction_method=extraction_method,
         extraction_quality=None,
         has_audio_transcript=False,
         user_id=user.id,
@@ -731,10 +738,75 @@ async def create_manual_recipe(
     return recipe_to_detail_response(new_recipe, user.id)
 
 
-class OCRRecipeCreate(BaseModel):
-    """Request to save an OCR-extracted recipe."""
-    extracted: dict  # The full extracted JSON from OCR
+class CaptureRecipeCreate(BaseModel):
+    """Request to save a recipe draft extracted from a capture input."""
+
+    extracted: dict
     is_public: bool = False
+    source_type: Literal["photo", "text"] = "photo"
+
+
+class OCRRecipeCreate(BaseModel):
+    """Backward-compatible request for older photo-import clients."""
+
+    extracted: dict
+    is_public: bool = False
+
+
+async def _save_captured_recipe(
+    capture_data: CaptureRecipeCreate,
+    db: AsyncSession,
+    user: ClerkUser,
+) -> RecipeResponse:
+    """Save a recipe draft extracted from a photo or pasted text."""
+    source_metadata = {
+        "photo": ("photo-upload", "ocr"),
+        "text": ("manual://pasted-text", "text-ai"),
+    }
+    source_url, extraction_method = source_metadata[capture_data.source_type]
+
+    extracted = ensure_derived_metadata(capture_data.extracted)
+    low_confidence, _ = normalize_extraction_confidence(extracted)
+    extracted["sourceUrl"] = source_url
+
+    if capture_data.is_public:
+        await require_current_publishing_disclosure(db, user.id)
+
+    new_recipe = Recipe(
+        source_url=source_url,
+        source_type=capture_data.source_type,
+        raw_text=None,
+        extracted=extracted,
+        thumbnail_url=None,
+        extraction_method=extraction_method,
+        extraction_quality="low" if low_confidence else "good",
+        has_audio_transcript=False,
+        user_id=user.id,
+        extractor_display_name=user.display_name,  # Store display name for attribution
+        is_public=capture_data.is_public,
+        total_minutes=compute_total_minutes(extracted),  # Compute for SQL filtering
+    )
+
+    db.add(new_recipe)
+    await db.commit()
+    await db.refresh(new_recipe)
+
+    print(
+        f"✅ Captured {capture_data.source_type} recipe saved: "
+        f"{extracted.get('title', 'Untitled')} (ID: {new_recipe.id})"
+    )
+
+    return recipe_to_detail_response(new_recipe, user.id)
+
+
+@router.post("/from-capture", response_model=RecipeResponse)
+async def save_captured_recipe(
+    capture_data: CaptureRecipeCreate,
+    db: AsyncSession = Depends(get_db),
+    user: ClerkUser = Depends(get_current_user),
+):
+    """Save a source-aware recipe draft from the current capture flow."""
+    return await _save_captured_recipe(capture_data, db, user)
 
 
 @router.post("/from-ocr", response_model=RecipeResponse)
@@ -743,44 +815,16 @@ async def save_ocr_recipe(
     db: AsyncSession = Depends(get_db),
     user: ClerkUser = Depends(get_current_user),
 ):
-    """
-    Save a recipe extracted via OCR (photo scanning).
-
-    Accepts the full extracted JSON and saves it as a new recipe.
-    """
-    extracted = ensure_derived_metadata(ocr_data.extracted)
-    low_confidence, _ = normalize_extraction_confidence(extracted)
-
-    # Ensure sourceUrl is set
-    if not extracted.get("sourceUrl"):
-        extracted["sourceUrl"] = "photo-upload"
-
-    if ocr_data.is_public:
-        await require_current_publishing_disclosure(db, user.id)
-
-    # Create the recipe
-    new_recipe = Recipe(
-        source_url="photo-upload",
-        source_type="photo",
-        raw_text=None,
-        extracted=extracted,
-        thumbnail_url=None,
-        extraction_method="ocr",
-        extraction_quality="low" if low_confidence else "good",
-        has_audio_transcript=False,
-        user_id=user.id,
-        extractor_display_name=user.display_name,  # Store display name for attribution
-        is_public=ocr_data.is_public,
-        total_minutes=compute_total_minutes(extracted),  # Compute for SQL filtering
+    """Save a photo recipe for backward compatibility with released clients."""
+    return await _save_captured_recipe(
+        CaptureRecipeCreate(
+            extracted=ocr_data.extracted,
+            is_public=ocr_data.is_public,
+            source_type="photo",
+        ),
+        db,
+        user,
     )
-
-    db.add(new_recipe)
-    await db.commit()
-    await db.refresh(new_recipe)
-
-    print(f"✅ OCR recipe saved: {extracted.get('title', 'Untitled')} (ID: {new_recipe.id})")
-
-    return recipe_to_detail_response(new_recipe, user.id)
 
 
 @router.get("/", response_model=PaginatedRecipes)

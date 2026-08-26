@@ -1,7 +1,7 @@
 /**
- * OCR Review Screen
+ * Capture Review Screen
  * 
- * Shows the recipe extracted from a scanned image and allows the user to review and save it.
+ * Shows a recipe extracted from images or pasted text before it is saved.
  */
 
 import { useState, useEffect } from 'react';
@@ -18,7 +18,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Button, useColors } from '@/components/Themed';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
-import { useSaveOcrRecipe } from '@/hooks/useRecipes';
+import { useSaveCapturedRecipe } from '@/hooks/useRecipes';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { formatPublishDisclosure } from '@/lib/recipePublishing';
 import { getOcrPublishDisclosure, hasOcrNutrition } from '@/lib/ocrReview';
@@ -27,17 +27,25 @@ export default function OCRReviewScreen() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { recipe: recipeParam, location, isPublic: isPublicParam } = useLocalSearchParams<{
+  const {
+    recipe: recipeParam,
+    location,
+    isPublic: isPublicParam,
+    sourceType: sourceTypeParam,
+  } = useLocalSearchParams<{
     recipe: string;
     location: string;
     isPublic: string;
+    sourceType?: 'photo' | 'text';
   }>();
+  const sourceType = sourceTypeParam === 'text' ? 'text' : 'photo';
+  const isTextCapture = sourceType === 'text';
 
   const [recipe, setRecipe] = useState<any>(null);
   const [isPublic, setIsPublic] = useState(isPublicParam === 'true');
   const [isSaving, setIsSaving] = useState(false);
   
-  const saveOcrRecipe = useSaveOcrRecipe();
+  const saveCapturedRecipe = useSaveCapturedRecipe();
   const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
 
   const publishPreview = () => formatPublishDisclosure(getOcrPublishDisclosure(recipe || {}));
@@ -77,15 +85,16 @@ export default function OCRReviewScreen() {
 
     setIsSaving(true);
     try {
-      const result = await saveOcrRecipe.mutateAsync({
+      const result = await saveCapturedRecipe.mutateAsync({
         extracted: recipe,
+        source_type: sourceType,
         is_public: isPublic,
       });
 
       if (result?.id) {
         Alert.alert(
           'Recipe Saved!',
-          'Your scanned recipe has been saved.',
+          'Your imported recipe has been saved.',
           [
             {
               text: 'View Recipe',
@@ -110,7 +119,7 @@ export default function OCRReviewScreen() {
   const handleSave = () => {
     if (!recipe) return;
     
-    // Check if OCR missed important AI-enhanced data
+    // Check if the capture missed important AI-enhanced data
     const hasIngredients = recipe.components?.some((c: any) => c.ingredients?.length > 0);
     const hasTags = recipe.tags && recipe.tags.length > 0;
     const hasNutrition = hasOcrNutrition(recipe);
@@ -123,7 +132,7 @@ export default function OCRReviewScreen() {
       
       Alert.alert(
         'Add More Info?',
-        `The scan didn't capture ${missingItems.join(' or ')}. Would you like to edit and use AI to add this info?`,
+        `The import didn't include ${missingItems.join(' or ')}. Would you like to edit and use AI to add this info?`,
         [
           { text: 'Save Anyway', style: 'cancel', onPress: doSave },
           { text: 'Edit Recipe', onPress: handleEdit },
@@ -136,14 +145,14 @@ export default function OCRReviewScreen() {
   };
 
   const handleEdit = () => {
-    // Replace OCR review with add-recipe screen (pre-filled with OCR data)
+    // Replace review with add-recipe screen, preserving the capture origin.
     // Using replace so user doesn't come back to this screen after saving
     router.replace({
       pathname: '/add-recipe',
       params: {
         initialData: JSON.stringify(recipe),
         isPublic: isPublic ? 'true' : 'false',
-        fromOcr: 'true', // Mark as originating from photo scan
+        captureSource: sourceType,
       },
     });
   };
@@ -205,7 +214,11 @@ export default function OCRReviewScreen() {
           <Ionicons name="eye-outline" size={20} color={colors.tint} />
           <RNView style={styles.reviewNoticeText}>
             <Text style={[styles.reviewNoticeTitle, { color: colors.text }]}>Check the cooking details</Text>
-            <Text style={[styles.reviewNoticeBody, { color: colors.textMuted }]}>AI can misread amounts, temperatures, or step order. Source screenshots are uploaded for extraction but are not attached to the saved recipe.</Text>
+            <Text style={[styles.reviewNoticeBody, { color: colors.textMuted }]}>
+              {isTextCapture
+                ? 'AI can misunderstand copied formatting or missing context. Håfa Recipes does not store the original pasted text with your saved recipe.'
+                : 'AI can misread amounts, temperatures, or step order. Source screenshots are uploaded for extraction but are not attached to the saved recipe.'}
+            </Text>
           </RNView>
         </RNView>
 
