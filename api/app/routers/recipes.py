@@ -749,7 +749,7 @@ async def save_ocr_recipe(
     Accepts the full extracted JSON and saves it as a new recipe.
     """
     extracted = ensure_derived_metadata(ocr_data.extracted)
-    low_confidence, confidence_warning = normalize_extraction_confidence(extracted)
+    low_confidence, _ = normalize_extraction_confidence(extracted)
 
     # Ensure sourceUrl is set
     if not extracted.get("sourceUrl"):
@@ -768,8 +768,6 @@ async def save_ocr_recipe(
         extraction_method="ocr",
         extraction_quality="low" if low_confidence else "good",
         has_audio_transcript=False,
-        low_confidence=low_confidence,
-        confidence_warning=confidence_warning,
         user_id=user.id,
         extractor_display_name=user.display_name,  # Store display name for attribution
         is_public=ocr_data.is_public,
