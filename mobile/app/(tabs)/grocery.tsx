@@ -28,6 +28,7 @@ import { View, Text, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
 import EditGroceryItemModal from '@/components/EditGroceryItemModal';
 import GroceryListSettingsModal from '@/components/GroceryListSettingsModal';
+import { GrocerySectionHeader } from '@/components/GrocerySectionHeader';
 import {
   useGroceryList,
   useGroceryCount,
@@ -51,6 +52,7 @@ import {
   groupGroceryItems,
   OTHER_GROCERY_SECTION_KEY,
 } from '@/lib/grocerySections';
+import { appRoutes } from '@/lib/routes';
 
 const COLLAPSED_SECTIONS_KEY = 'grocery_collapsed_sections';
 
@@ -158,60 +160,6 @@ function GroceryItemRow({
         <Ionicons name="trash-outline" size={20} color={colors.error} />
       </TouchableOpacity>
     </ScalePressable>
-  );
-}
-
-function SectionHeader({
-  section,
-  isCollapsed,
-  onToggle,
-  onClearSection,
-  colors,
-}: {
-  section: GrocerySection;
-  isCollapsed: boolean;
-  onToggle: () => void;
-  onClearSection?: () => void;
-  colors: ReturnType<typeof useColors>;
-}) {
-  const isOther = section.key === OTHER_GROCERY_SECTION_KEY;
-  const icon = isOther ? 'list-outline' : 'restaurant-outline';
-  const canClear = section.recipeId !== null; // Only recipe sections can be cleared
-  
-  return (
-    <RNView style={[styles.sectionHeader, { backgroundColor: colors.backgroundSecondary }]}>
-      <TouchableOpacity
-        style={styles.sectionHeaderMain}
-        onPress={onToggle}
-        activeOpacity={0.7}
-      >
-        <RNView style={styles.sectionHeaderLeft}>
-          <Ionicons name={icon} size={18} color={colors.tint} style={styles.sectionIcon} />
-          <Text style={[styles.sectionTitle, { color: colors.text }]} numberOfLines={1}>
-            {section.title}
-          </Text>
-          <RNView style={[styles.sectionBadge, { backgroundColor: colors.tint + '20' }]}>
-            <Text style={[styles.sectionBadgeText, { color: colors.tint }]}>
-              {section.checkedCount}/{section.totalCount}
-            </Text>
-          </RNView>
-        </RNView>
-        <Ionicons
-          name={isCollapsed ? 'chevron-down' : 'chevron-up'}
-          size={20}
-          color={colors.textMuted}
-        />
-      </TouchableOpacity>
-      {canClear && onClearSection && (
-        <TouchableOpacity
-          style={styles.sectionClearButton}
-          onPress={onClearSection}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Ionicons name="close-circle-outline" size={20} color={colors.error} />
-        </TouchableOpacity>
-      )}
-    </RNView>
   );
 }
 
@@ -590,12 +538,12 @@ export default function GroceryScreen() {
   };
 
   const renderSectionHeader = ({ section }: { section: GrocerySection }) => (
-    <SectionHeader
+    <GrocerySectionHeader
       section={section}
       isCollapsed={isSectionCollapsed(section)}
       onToggle={() => toggleSection(section)}
+      onOpenRecipe={(recipeId) => router.push(appRoutes.recipe(recipeId))}
       onClearSection={section.recipeId ? () => handleClearRecipeSection(section) : undefined}
-      colors={colors}
     />
   );
 
@@ -621,6 +569,21 @@ export default function GroceryScreen() {
         <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
           Add items manually above, or add ingredients from a recipe
         </Text>
+        <RNView style={styles.emptyActions}>
+          <Button
+            title="Browse recipes"
+            onPress={() => router.push(appRoutes.discover)}
+            style={styles.emptyAction}
+          />
+          {isSignedIn && (
+            <Button
+              title="Open meal plan"
+              variant="outline"
+              onPress={() => router.push(appRoutes.planner)}
+              style={styles.emptyAction}
+            />
+          )}
+        </RNView>
       </RNView>
     );
   };
@@ -897,49 +860,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     borderRadius: radius.md,
   },
-  // Section header styles
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
-    borderRadius: radius.md,
-  },
-  sectionHeaderMain: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    flex: 1,
-  },
-  sectionHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  sectionClearButton: {
-    padding: spacing.xs,
-    marginLeft: spacing.sm,
-  },
-  sectionIcon: {
-    marginRight: spacing.sm,
-  },
-  sectionTitle: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.semibold,
-    flex: 1,
-  },
-  sectionBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: radius.full,
-    marginLeft: spacing.sm,
-  },
-  sectionBadgeText: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.medium,
-  },
   // Item styles
   itemRow: {
     flexDirection: 'row',
@@ -1011,5 +931,14 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     textAlign: 'center',
     lineHeight: 22,
+  },
+  emptyActions: {
+    width: '100%',
+    maxWidth: 320,
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  emptyAction: {
+    width: '100%',
   },
 });
