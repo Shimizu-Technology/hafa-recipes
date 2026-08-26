@@ -342,9 +342,11 @@ export default function PlannerScreen() {
     };
   }, [requestedRecipe]);
   const requestedRecipeHasBlockingError = isRequestedRecipeError && !handoffRecipe;
+  const requestedRecipeHandoffIsLoading = !!requestedRecipeId
+    && (!isLoaded || isRequestedRecipeLoading);
   const requestedRecipeIsPending = !!requestedRecipeId
     && !handoffRecipe
-    && (isRequestedRecipeLoading || isRequestedRecipeRetrying);
+    && (!isLoaded || isRequestedRecipeLoading || isRequestedRecipeRetrying);
 
   useEffect(() => {
     const requestedDate = parsePlannerDateParam(
@@ -709,7 +711,7 @@ export default function PlannerScreen() {
           <PlannerRecipeHandoffCard
             title={handoffRecipe?.title}
             thumbnailUrl={handoffRecipe?.thumbnail_url}
-            isLoading={isRequestedRecipeLoading}
+            isLoading={requestedRecipeHandoffIsLoading}
             hasError={requestedRecipeHasBlockingError}
             isRetrying={isRequestedRecipeRetrying}
             onRetry={() => { void refetchRequestedRecipe(); }}

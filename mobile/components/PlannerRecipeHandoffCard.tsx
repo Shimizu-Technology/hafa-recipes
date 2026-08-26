@@ -85,10 +85,17 @@ export function PlannerRecipeHandoffCard({
       ) : (
         <RNView style={styles.recipeRow}>
           {thumbnailUrl ? (
-            <Image source={{ uri: thumbnailUrl }} style={styles.thumbnail} />
+            <Image
+              source={{ uri: thumbnailUrl }}
+              style={styles.thumbnail}
+              accessibilityLabel={`${title} thumbnail`}
+            />
           ) : (
             <RNView
               style={[styles.thumbnail, styles.placeholder, { backgroundColor: colors.tint + '15' }]}
+              accessible
+              accessibilityRole="image"
+              accessibilityLabel="Recipe thumbnail unavailable"
             >
               <Ionicons name="restaurant-outline" size={22} color={colors.tint} />
             </RNView>

@@ -37,6 +37,34 @@ function textNodes(renderer: ReturnType<typeof createRoot>) {
 }
 
 describe('PlannerRecipeHandoffCard', () => {
+  it('shows a loading state while the recipe or authentication is resolving', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(PlannerRecipeHandoffCard, {
+          isLoading: true,
+          hasError: false,
+          isRetrying: false,
+          onRetry: vi.fn(),
+          onDismiss: vi.fn(),
+        }));
+      });
+
+      expect(textNodes(renderer).some(
+        (text) => text.props.children === 'Loading recipe to plan...',
+      )).toBe(true);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'ActivityIndicator',
+      )).toHaveLength(1);
+      expect(textNodes(renderer).some(
+        (text) => text.props.children === "We couldn't load this recipe.",
+      )).toBe(false);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
   it('shows the authoritative recipe and lets the user dismiss the handoff', async () => {
     const onDismiss = vi.fn();
     const renderer = createRoot({ textComponentTypes: ['Text'] });
@@ -60,6 +88,33 @@ describe('PlannerRecipeHandoffCard', () => {
       ).find((button) => button.props.accessibilityLabel === 'Stop planning this recipe');
       await act(async () => dismiss!.props.onPress());
       expect(onDismiss).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('shows an accessible fallback when the loaded recipe has no thumbnail', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(PlannerRecipeHandoffCard, {
+          title: 'Red Rice',
+          thumbnailUrl: null,
+          isLoading: false,
+          hasError: false,
+          isRetrying: false,
+          onRetry: vi.fn(),
+          onDismiss: vi.fn(),
+        }));
+      });
+
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Recipe thumbnail unavailable',
+      )).toHaveLength(1);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Image',
+      )).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());
     }
