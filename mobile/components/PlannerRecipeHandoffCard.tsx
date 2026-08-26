@@ -88,6 +88,8 @@ export function PlannerRecipeHandoffCard({
             <Image
               source={{ uri: thumbnailUrl }}
               style={styles.thumbnail}
+              accessible
+              accessibilityRole="image"
               accessibilityLabel={`${title} thumbnail`}
             />
           ) : (

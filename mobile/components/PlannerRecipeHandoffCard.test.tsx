@@ -83,6 +83,12 @@ describe('PlannerRecipeHandoffCard', () => {
       });
 
       expect(textNodes(renderer).some((text) => text.props.children === 'Chicken Kelaguen')).toBe(true);
+      const thumbnail = renderer.container.queryAll(
+        (instance) => instance.type === 'Image',
+      )[0];
+      expect(thumbnail.props.accessible).toBe(true);
+      expect(thumbnail.props.accessibilityRole).toBe('image');
+      expect(thumbnail.props.accessibilityLabel).toBe('Chicken Kelaguen thumbnail');
       const dismiss = renderer.container.queryAll(
         (instance) => instance.type === 'TouchableOpacity',
       ).find((button) => button.props.accessibilityLabel === 'Stop planning this recipe');
@@ -109,9 +115,12 @@ describe('PlannerRecipeHandoffCard', () => {
         }));
       });
 
-      expect(renderer.container.queryAll(
+      const fallback = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Recipe thumbnail unavailable',
-      )).toHaveLength(1);
+      );
+      expect(fallback).toHaveLength(1);
+      expect(fallback[0].props.accessible).toBe(true);
+      expect(fallback[0].props.accessibilityRole).toBe('image');
       expect(renderer.container.queryAll(
         (instance) => instance.type === 'Image',
       )).toHaveLength(0);
