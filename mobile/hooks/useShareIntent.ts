@@ -1,41 +1,16 @@
 /**
- * Hook to handle shared URLs from other apps via iOS Share Extension.
+ * Hook to handle recipe links, text, and images shared from other apps.
  * 
- * When a user shares a URL (e.g., from TikTok, Safari, Instagram) to Håfa Recipes,
- * this hook captures the URL and navigates to the extract screen with it pre-filled.
+ * Routes links to URL extraction, text to the paste flow, and supported images
+ * to the existing multi-image review flow.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Alert } from 'react-native';
+import { useAuth } from '@clerk/expo';
 import { useRouter } from 'expo-router';
 import { useShareIntentContext } from 'expo-share-intent';
-
-/**
- * Extracts a URL from the shared content
- */
-function extractUrlFromIntent(shareIntent: any): string | null {
-  if (!shareIntent) return null;
-
-  // Check for webUrl (direct URL share from Safari, etc.)
-  if (shareIntent.webUrl) {
-    return shareIntent.webUrl;
-  }
-
-  // Check for text that might contain a URL (from TikTok, Instagram, etc.)
-  if (shareIntent.text) {
-    // Try to find a URL in the text
-    const urlMatch = shareIntent.text.match(/https?:\/\/[^\s]+/);
-    if (urlMatch) {
-      return urlMatch[0];
-    }
-  }
-
-  // Check for meta.url (some apps provide it here)
-  if (shareIntent.meta?.url) {
-    return shareIntent.meta.url;
-  }
-
-  return null;
-}
+import { resolveShareIntent, stagePendingShareCapture } from '@/lib/shareCapture';
 
 /**
  * Hook to handle incoming share intents.
@@ -44,37 +19,50 @@ function extractUrlFromIntent(shareIntent: any): string | null {
  */
 export function useHandleShareIntent() {
   const router = useRouter();
+  const { isLoaded, isSignedIn } = useAuth();
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
   const [isProcessing, setIsProcessing] = useState(false);
+  const processingRef = useRef(false);
 
   useEffect(() => {
-    if (hasShareIntent && shareIntent && !isProcessing) {
+    if (isLoaded && hasShareIntent && shareIntent && !processingRef.current) {
+      processingRef.current = true;
       setIsProcessing(true);
 
-      const sharedUrl = extractUrlFromIntent(shareIntent);
-      
-      if (sharedUrl) {
-        console.log('Share Intent received:', sharedUrl);
-        
-        // Navigate to the extract tab (index) with the URL
-        // We use replace to avoid having a weird back stack
-        // Small delay ensures the navigation stack is ready
-        setTimeout(() => {
+      const action = resolveShareIntent(shareIntent, isSignedIn === true);
+      const navigationTimer = setTimeout(() => {
+        if (action.kind === 'url') {
           router.replace({
             pathname: '/',
-            params: { sharedUrl: sharedUrl }
+            params: { sharedUrl: action.url },
           });
-          
-          resetShareIntent();
-          setIsProcessing(false);
-        }, 300);
-      } else {
-        console.log('Share Intent received but no URL found:', shareIntent);
+        } else if (action.kind === 'text') {
+          const captureToken = stagePendingShareCapture({ kind: 'text', text: action.text });
+          router.replace({ pathname: '/paste-recipe', params: { captureToken } });
+        } else if (action.kind === 'images') {
+          const captureToken = stagePendingShareCapture({ kind: 'images', images: action.images });
+          router.replace({ pathname: '/', params: { captureToken } });
+        } else if (action.kind === 'sign-in-required') {
+          Alert.alert(
+            'Sign In to Import',
+            'Sign in to Håfa Recipes, then share the recipe again.',
+          );
+          router.replace('/(tabs)/discover');
+        } else {
+          Alert.alert('Could Not Import Share', action.message);
+        }
+
         resetShareIntent();
+        processingRef.current = false;
         setIsProcessing(false);
-      }
+      }, 300);
+
+      return () => {
+        clearTimeout(navigationTimer);
+        processingRef.current = false;
+      };
     }
-  }, [hasShareIntent, shareIntent, isProcessing, router, resetShareIntent]);
+  }, [hasShareIntent, isLoaded, isSignedIn, router, resetShareIntent, shareIntent]);
 
   return { hasShareIntent, isProcessing };
 }
