@@ -41,6 +41,7 @@ import { GroceryWidgetCoordinator } from '@/components/GroceryWidgetCoordinator'
 import { bindGroceryWidgetIdentity } from '@/lib/groceryWidget';
 import { initSentry, setSentryUser, addBreadcrumb, captureError, withSentry } from '@/lib/sentry';
 import { useHandleShareIntent } from '@/hooks/useShareIntent';
+import { getAuthProtectionRedirect } from '@/lib/authProtection';
 
 // Initialize Sentry as early as possible
 initSentry();
@@ -130,19 +131,8 @@ function AuthProtection({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isLoaded) return;
 
-    const inAuthGroup = segments[0] === '(auth)';
-    
-    // User signed in on auth screen -> redirect to main app
-    if (isSignedIn && inAuthGroup) {
-      router.replace('/(tabs)');
-      return;
-    }
-
-    // Protect authenticated recipe capture screens from guests
-    // Tab screens handle their own guest access with SignInBanner
-    if (!isSignedIn && (segments[0] === 'add-recipe' || segments[0] === 'paste-recipe')) {
-      router.replace('/(tabs)/discover');
-    }
+    const redirect = getAuthProtectionRedirect(isSignedIn, segments[0]);
+    if (redirect) router.replace(redirect);
   }, [isSignedIn, isLoaded, segments]);
 
   return <>{children}</>;
