@@ -35,7 +35,7 @@ vi.mock('@/constants/Colors', () => ({
   fontFamily: { semibold: 'DMSans_600SemiBold' },
   fontSize: { xs: 10, sm: 12, md: 14, lg: 18 },
   fontWeight: { semibold: '600', bold: '700' },
-  radius: { lg: 16, full: 999 },
+  radius: { md: 12, lg: 16, full: 999 },
   spacing: { xs: 4, sm: 8, md: 16, lg: 24 },
 }));
 
@@ -130,6 +130,10 @@ describe('SourcePlaybackCard', () => {
       expect(renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel
           === 'Retry YouTube player for Chicken Kelaguen',
+      )).toHaveLength(1);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'View'
+          && instance.props.style?.backgroundColor === 'rgba(20, 12, 8, 0.82)',
       )).toHaveLength(1);
       const openOriginal = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Open original recipe on YouTube',
