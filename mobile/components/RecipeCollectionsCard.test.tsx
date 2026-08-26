@@ -52,50 +52,58 @@ describe('RecipeCollectionsCard', () => {
     const onManageCollections = vi.fn();
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
-    await act(async () => {
-      renderer.render(React.createElement(RecipeCollectionsCard, {
-        collections: [
-          collection('favorites', 'Favorites', '❤️'),
-          collection('weeknight', 'Weeknight Meals'),
-        ],
-        isLoading: false,
-        onOpenCollection,
-        onManageCollections,
-      }));
-    });
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(RecipeCollectionsCard, {
+          collections: [
+            collection('favorites', 'Favorites', '❤️'),
+            collection('weeknight', 'Weeknight Meals'),
+          ],
+          isLoading: false,
+          onOpenCollection,
+          onManageCollections,
+        }));
+      });
 
-    const buttons = renderer.container.queryAll(
-      (instance) => instance.type === 'TouchableOpacity',
-    );
-    await act(async () => buttons.find(
-      (button) => button.props.accessibilityLabel === 'Open Favorites collection',
-    )!.props.onPress());
-    await act(async () => buttons.find(
-      (button) => button.props.accessibilityLabel === 'Manage recipe collections',
-    )!.props.onPress());
+      const buttons = renderer.container.queryAll(
+        (instance) => instance.type === 'TouchableOpacity',
+      );
+      await act(async () => buttons.find(
+        (button) => button.props.accessibilityLabel === 'Open Favorites collection',
+      )!.props.onPress());
+      await act(async () => buttons.find(
+        (button) => button.props.accessibilityLabel === 'Manage recipe collections',
+      )!.props.onPress());
 
-    expect(onOpenCollection).toHaveBeenCalledWith('favorites');
-    expect(onManageCollections).toHaveBeenCalledOnce();
+      expect(onOpenCollection).toHaveBeenCalledWith('favorites');
+      expect(onManageCollections).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
   });
 
   it('offers an add action when the recipe has no collection relationships', async () => {
     const onManageCollections = vi.fn();
     const renderer: Root = createRoot({ textComponentTypes: ['Text'] });
 
-    await act(async () => {
-      renderer.render(React.createElement(RecipeCollectionsCard, {
-        collections: [],
-        isLoading: false,
-        onOpenCollection: vi.fn(),
-        onManageCollections,
-      }));
-    });
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(RecipeCollectionsCard, {
+          collections: [],
+          isLoading: false,
+          onOpenCollection: vi.fn(),
+          onManageCollections,
+        }));
+      });
 
-    const addButton = renderer.container.queryAll(
-      (instance) => instance.type === 'TouchableOpacity',
-    ).find((button) => button.props.accessibilityLabel === 'Add recipe to a collection');
-    await act(async () => addButton!.props.onPress());
+      const addButton = renderer.container.queryAll(
+        (instance) => instance.type === 'TouchableOpacity',
+      ).find((button) => button.props.accessibilityLabel === 'Add recipe to a collection');
+      await act(async () => addButton!.props.onPress());
 
-    expect(onManageCollections).toHaveBeenCalledOnce();
+      expect(onManageCollections).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
   });
 });
