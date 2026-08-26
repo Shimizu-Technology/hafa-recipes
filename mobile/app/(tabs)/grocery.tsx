@@ -208,6 +208,7 @@ export default function GroceryScreen() {
   const {
     data: groceryItems,
     isLoading,
+    isError,
     isRefetchError,
     refetch,
     isRefetching,
@@ -568,7 +569,7 @@ export default function GroceryScreen() {
       );
     }
 
-    if (isRefetchError && !groceryItems?.length) {
+    if (isError && !groceryItems?.length) {
       return (
         <RNView style={styles.emptyContainer}>
           <Ionicons name="cloud-offline-outline" size={56} color={colors.textMuted} />
