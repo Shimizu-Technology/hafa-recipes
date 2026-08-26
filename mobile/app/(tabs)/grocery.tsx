@@ -53,6 +53,7 @@ import {
   OTHER_GROCERY_SECTION_KEY,
 } from '@/lib/grocerySections';
 import { appRoutes } from '@/lib/routes';
+import { filterGroceryItems } from '@/lib/groceryFilters';
 
 const COLLAPSED_SECTIONS_KEY = 'grocery_collapsed_sections';
 
@@ -178,7 +179,8 @@ export default function GroceryScreen() {
   const addItemInputRef = useRef<TextInput>(null);
   
   const [newItemName, setNewItemName] = useState('');
-  const [showChecked, setShowChecked] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showChecked, setShowChecked] = useState(false);
   const [editingItem, setEditingItem] = useState<GroceryItem | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const [showSettings, setShowSettings] = useState(false);
@@ -206,6 +208,7 @@ export default function GroceryScreen() {
   const {
     data: groceryItems,
     isLoading,
+    isError,
     isRefetchError,
     refetch,
     isRefetching,
@@ -291,16 +294,20 @@ export default function GroceryScreen() {
     }
   };
 
-  const sections = useMemo(
-    () => groupGroceryItems(groceryItems ?? []),
-    [groceryItems],
+  const normalizedSearchQuery = searchQuery.trim();
+  const isSearching = normalizedSearchQuery.length > 0;
+  const visibleItems = useMemo(
+    () => filterGroceryItems(groceryItems ?? [], normalizedSearchQuery),
+    [groceryItems, normalizedSearchQuery],
   );
+  const sections = useMemo(() => groupGroceryItems(visibleItems), [visibleItems]);
 
   // Title lookup keeps collapse choices saved by older app versions working.
   const isSectionCollapsed = useCallback(
     (section: GrocerySection) =>
-      collapsedSections.has(section.key) || collapsedSections.has(section.title),
-    [collapsedSections],
+      !isSearching
+      && (collapsedSections.has(section.key) || collapsedSections.has(section.title)),
+    [collapsedSections, isSearching],
   );
 
   const toggleSection = (section: GrocerySection) => {
@@ -434,6 +441,7 @@ export default function GroceryScreen() {
       {
         onSuccess: () => {
           setNewItemName('');
+          setSearchQuery('');
           if (keepInputFocused) {
             // The visible add button supports rapid, repeated entry. The
             // keyboard's Done key intentionally ends entry and stays blurred.
@@ -541,6 +549,7 @@ export default function GroceryScreen() {
     <GrocerySectionHeader
       section={section}
       isCollapsed={isSectionCollapsed(section)}
+      isCollapsible={!isSearching}
       onToggle={() => toggleSection(section)}
       onOpenRecipe={(recipeId) => router.push(appRoutes.recipe(recipeId))}
       onClearSection={section.recipeId ? () => handleClearRecipeSection(section) : undefined}
@@ -556,6 +565,54 @@ export default function GroceryScreen() {
           <Text style={[styles.emptySubtitle, { color: colors.textSecondary, marginTop: spacing.md }]}>
             Loading your grocery list...
           </Text>
+        </RNView>
+      );
+    }
+
+    if (isError && !groceryItems?.length) {
+      return (
+        <RNView style={styles.emptyContainer}>
+          <Ionicons name="cloud-offline-outline" size={56} color={colors.textMuted} />
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>Couldn’t load your list</Text>
+          <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>Check your connection and try again.</Text>
+          <Button
+            title={isRefetching ? 'Trying again…' : 'Try again'}
+            onPress={() => refetch()}
+            disabled={isRefetching}
+            style={styles.emptyPrimaryAction}
+          />
+        </RNView>
+      );
+    }
+
+    if (isSearching) {
+      return (
+        <RNView style={styles.emptyContainer}>
+          <Ionicons name="search-outline" size={56} color={colors.textMuted} />
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>No matching items</Text>
+          <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>Try another search or clear it to see your list.</Text>
+          <Button
+            title="Clear search"
+            variant="outline"
+            onPress={() => setSearchQuery('')}
+            style={styles.emptyPrimaryAction}
+          />
+        </RNView>
+      );
+    }
+
+    if (!showChecked && (countData?.checked ?? 0) > 0) {
+      return (
+        <RNView style={styles.emptyContainer}>
+          <Ionicons name="checkmark-circle-outline" size={64} color={colors.success} />
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>Everything is checked off</Text>
+          <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>Nice work. You can review checked items or clear them when you’re ready.</Text>
+          <Button
+            title="View all items"
+            variant="outline"
+            onPress={() => setShowChecked(true)}
+            style={styles.emptyPrimaryAction}
+          />
         </RNView>
       );
     }
@@ -708,27 +765,67 @@ export default function GroceryScreen() {
           </TouchableOpacity>
         </RNView>
 
-        {/* Action row - simplified with toggle + overflow menu */}
+        <RNView style={[styles.searchRow, { backgroundColor: colors.backgroundSecondary }]}>
+          <Ionicons name="search-outline" size={18} color={colors.textMuted} />
+          <TextInput
+            style={[styles.searchInput, { color: colors.text }]}
+            placeholder="Search items or recipes"
+            placeholderTextColor={colors.textMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            returnKeyType="search"
+            clearButtonMode="never"
+            maxLength={100}
+            accessibilityLabel="Search grocery items and recipes"
+          />
+          {isSearching && (
+            <TouchableOpacity
+              onPress={() => setSearchQuery('')}
+              style={styles.clearSearchButton}
+              accessibilityRole="button"
+              accessibilityLabel="Clear grocery search"
+            >
+              <Ionicons name="close-circle" size={20} color={colors.textMuted} />
+            </TouchableOpacity>
+          )}
+        </RNView>
+
+        {/* Focus the shopping view while keeping completed items close by. */}
         {((countData && countData.total > 0) || (groceryItems && groceryItems.length > 0)) && (
           <RNView style={styles.actionRow}>
-            <TouchableOpacity
-              onPress={() => setShowChecked(!showChecked)}
-              style={styles.filterToggle}
+            <RNView
+              style={[styles.viewSelector, { backgroundColor: colors.backgroundSecondary }]}
+              accessibilityRole="tablist"
             >
-              <Ionicons
-                name={showChecked ? 'eye' : 'eye-off'}
-                size={16}
-                color={colors.textMuted}
-              />
-              <Text style={[styles.filterToggleText, { color: colors.textMuted }]}>
-                {showChecked ? 'Hide' : 'Show'} checked
-                {countData?.checked ? ` (${countData.checked})` : ''}
-              </Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setShowChecked(false)}
+                style={[styles.viewOption, !showChecked && { backgroundColor: colors.card }]}
+                accessibilityRole="tab"
+                accessibilityLabel={`${countData?.unchecked ?? 0} items to buy`}
+                accessibilityState={{ selected: !showChecked }}
+              >
+                <Text style={[styles.viewOptionText, { color: !showChecked ? colors.text : colors.textMuted }]}>
+                  To buy ({countData?.unchecked ?? 0})
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setShowChecked(true)}
+                style={[styles.viewOption, showChecked && { backgroundColor: colors.card }]}
+                accessibilityRole="tab"
+                accessibilityLabel={`${countData?.total ?? groceryItems?.length ?? 0} total grocery items`}
+                accessibilityState={{ selected: showChecked }}
+              >
+                <Text style={[styles.viewOptionText, { color: showChecked ? colors.text : colors.textMuted }]}>
+                  All ({countData?.total ?? groceryItems?.length ?? 0})
+                </Text>
+              </TouchableOpacity>
+            </RNView>
 
             <TouchableOpacity
               onPress={handleShowOverflowMenu}
               style={[styles.overflowButton, { backgroundColor: colors.backgroundSecondary }]}
+              accessibilityRole="button"
+              accessibilityLabel="More grocery list actions"
             >
               <Ionicons name="ellipsis-horizontal" size={18} color={colors.textMuted} />
             </TouchableOpacity>
@@ -842,22 +939,53 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  searchRow: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    marginBottom: spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    fontSize: fontSize.sm,
+  },
+  clearSearchButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   actionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  filterToggle: {
+  viewSelector: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    padding: 3,
+    borderRadius: radius.md,
   },
-  filterToggleText: {
-    fontSize: fontSize.sm,
-  },
-  overflowButton: {
+  viewOption: {
+    minHeight: 40,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
+    justifyContent: 'center',
+  },
+  viewOptionText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+  },
+  overflowButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: radius.md,
   },
   // Item styles
@@ -936,6 +1064,11 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 320,
     gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  emptyPrimaryAction: {
+    width: '100%',
+    maxWidth: 320,
     marginTop: spacing.lg,
   },
   emptyAction: {

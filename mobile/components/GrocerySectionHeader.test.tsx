@@ -1,5 +1,6 @@
 import React from 'react';
-import { act, create } from 'react-test-renderer';
+import { act } from 'react';
+import { createRoot } from 'test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { GrocerySection } from '@/lib/grocerySections';
@@ -52,64 +53,96 @@ describe('GrocerySectionHeader', () => {
     const onOpenRecipe = vi.fn();
     const onToggle = vi.fn();
     const onClearSection = vi.fn();
-    let renderer: ReturnType<typeof create>;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
 
-    await act(async () => {
-      renderer = create(React.createElement(GrocerySectionHeader, {
-        section: section(),
-        isCollapsed: false,
-        onOpenRecipe,
-        onToggle,
-        onClearSection,
-      }));
-    });
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(GrocerySectionHeader, {
+          section: section(),
+          isCollapsed: false,
+          onOpenRecipe,
+          onToggle,
+          onClearSection,
+        }));
+      });
 
-    const buttons = renderer!.root.findAllByType(
-      'TouchableOpacity' as unknown as React.ComponentType,
-    );
-    await act(async () => buttons.find(
-      (button) => button.props.accessibilityLabel === 'Open Chicken Kelaguen recipe',
-    )!.props.onPress());
-    await act(async () => buttons.find(
-      (button) => button.props.accessibilityLabel === 'Collapse Chicken Kelaguen grocery section',
-    )!.props.onPress());
-    await act(async () => buttons.find(
-      (button) => button.props.accessibilityLabel === 'Clear Chicken Kelaguen grocery items',
-    )!.props.onPress());
+      const buttons = renderer.container.queryAll(
+        (instance) => instance.type === 'TouchableOpacity',
+      );
+      await act(async () => buttons.find(
+        (button) => button.props.accessibilityLabel === 'Open Chicken Kelaguen recipe',
+      )!.props.onPress());
+      await act(async () => buttons.find(
+        (button) => button.props.accessibilityLabel === 'Collapse Chicken Kelaguen grocery section',
+      )!.props.onPress());
+      await act(async () => buttons.find(
+        (button) => button.props.accessibilityLabel === 'Clear Chicken Kelaguen grocery items',
+      )!.props.onPress());
 
-    expect(onOpenRecipe).toHaveBeenCalledWith('recipe-1');
-    expect(onToggle).toHaveBeenCalledOnce();
-    expect(onClearSection).toHaveBeenCalledOnce();
+      expect(onOpenRecipe).toHaveBeenCalledWith('recipe-1');
+      expect(onToggle).toHaveBeenCalledOnce();
+      expect(onClearSection).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
   });
 
   it('keeps a legacy title non-linking and expands only from the chevron', async () => {
     const onToggle = vi.fn();
-    let renderer: ReturnType<typeof create>;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
 
-    await act(async () => {
-      renderer = create(React.createElement(GrocerySectionHeader, {
-        section: section({
-          key: 'recipe-title:old recipe',
-          title: 'Old Recipe',
-          recipeId: null,
-        }),
-        isCollapsed: true,
-        onToggle,
-      }));
-    });
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(GrocerySectionHeader, {
+          section: section({
+            key: 'recipe-title:old recipe',
+            title: 'Old Recipe',
+            recipeId: null,
+          }),
+          isCollapsed: true,
+          onToggle,
+        }));
+      });
 
-    const buttons = renderer!.root.findAllByType(
-      'TouchableOpacity' as unknown as React.ComponentType,
-    );
-    expect(buttons).toHaveLength(1);
-    expect(buttons.some(
-      (button) => button.props.accessibilityLabel?.startsWith('Open '),
-    )).toBe(false);
-    const toggleButton = buttons.find(
-      (button) => button.props.accessibilityLabel === 'Expand Old Recipe grocery section',
-    );
-    await act(async () => toggleButton!.props.onPress());
+      const buttons = renderer.container.queryAll(
+        (instance) => instance.type === 'TouchableOpacity',
+      );
+      expect(buttons).toHaveLength(1);
+      expect(buttons.some(
+        (button) => button.props.accessibilityLabel?.startsWith('Open '),
+      )).toBe(false);
+      const toggleButton = buttons.find(
+        (button) => button.props.accessibilityLabel === 'Expand Old Recipe grocery section',
+      );
+      await act(async () => toggleButton!.props.onPress());
 
-    expect(onToggle).toHaveBeenCalledOnce();
+      expect(onToggle).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('hides collapse controls while a search is exposing every matching item', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(GrocerySectionHeader, {
+          section: section(),
+          isCollapsed: false,
+          isCollapsible: false,
+          onOpenRecipe: vi.fn(),
+          onToggle: vi.fn(),
+        }));
+      });
+
+      const buttons = renderer.container.queryAll(
+        (instance) => instance.type === 'TouchableOpacity',
+      );
+      expect(buttons).toHaveLength(1);
+      expect(buttons[0].props.accessibilityLabel).toBe('Open Chicken Kelaguen recipe');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
   });
 });
