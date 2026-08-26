@@ -72,12 +72,22 @@ export function resolveShareIntent(
         message: 'Share JPEG, PNG, GIF, or WebP recipe images.',
       };
     }
-    if (files.some((file) => file.size !== null && file.size > MAX_SHARED_IMAGE_BYTES)) {
+    const sizes = files.map((file) => file.size);
+    const hasVerifiedSizes = sizes.every(
+      (size): size is number => typeof size === 'number' && Number.isFinite(size) && size >= 0,
+    );
+    if (!hasVerifiedSizes) {
+      return {
+        kind: 'unsupported',
+        message: 'Could not verify the size of every recipe image. Save the images, then import them from Håfa Recipes.',
+      };
+    }
+    if (sizes.some((size) => size > MAX_SHARED_IMAGE_BYTES)) {
       return { kind: 'unsupported', message: 'Each recipe image must be 10 MB or smaller.' };
     }
 
-    const knownTotalBytes = files.reduce((total, file) => total + (file.size || 0), 0);
-    if (knownTotalBytes > MAX_SHARED_IMAGES_TOTAL_BYTES) {
+    const totalBytes = sizes.reduce((total, size) => total + size, 0);
+    if (totalBytes > MAX_SHARED_IMAGES_TOTAL_BYTES) {
       return {
         kind: 'unsupported',
         message: 'The combined recipe images must be 40 MB or smaller.',

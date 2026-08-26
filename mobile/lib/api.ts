@@ -615,9 +615,10 @@ class ApiClient {
     
     // Get the file name and type from the URI
     const imageUri = typeof image === 'string' ? image : image.uri;
+    const uriFileName = imageUri.split('/').pop()?.split('?')[0] || 'photo.jpg';
     const fileName = typeof image === 'string'
-      ? imageUri.split('/').pop() || 'photo.jpg'
-      : image.fileName || imageUri.split('/').pop() || 'photo.jpg';
+      ? uriFileName
+      : image.fileName || uriFileName;
     const fileType = typeof image === 'string'
       ? inferImageMimeType(fileName)
       : image.mimeType || inferImageMimeType(fileName);
@@ -661,7 +662,7 @@ class ApiClient {
     // Append each image
     images.forEach((image, index) => {
       const uri = typeof image === 'string' ? image : image.uri;
-      const fileName = uri.split('/').pop() || `photo_${index}.jpg`;
+      const fileName = uri.split('/').pop()?.split('?')[0] || `photo_${index}.jpg`;
       const uploadName = typeof image === 'string' ? fileName : image.fileName || fileName;
       const fileType = typeof image === 'string'
         ? inferImageMimeType(uploadName)
