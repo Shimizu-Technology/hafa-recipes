@@ -10,6 +10,10 @@ export const appRoutes = {
     pathname: '/(tabs)/planner' as const,
     params: { date },
   }),
+  plannerRecipe: (recipeId: string) => ({
+    pathname: '/(tabs)/planner' as const,
+    params: { recipeId },
+  }),
   recipe: (recipeId: string) => ({
     pathname: '/recipe/[id]' as const,
     params: { id: recipeId },

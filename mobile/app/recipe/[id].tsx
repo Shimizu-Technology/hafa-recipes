@@ -853,7 +853,7 @@ export default function RecipeDetailScreen() {
                 hasError={isRecipePlanError}
                 isRetrying={isRecipePlanRetrying}
                 onOpenDate={(date) => router.push(appRoutes.plannerDate(date))}
-                onOpenPlanner={() => router.push(appRoutes.planner)}
+                onPlanRecipe={() => router.push(appRoutes.plannerRecipe(id))}
                 onRetry={() => { void refetchRecipePlan(); }}
               />
             )}

@@ -28,6 +28,7 @@ import { View, Text, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
 import { AnimatedListItem, ScalePressable } from '@/components/Animated';
 import RecipePickerModal from '@/components/RecipePickerModal';
+import { PlannerRecipeHandoffCard } from '@/components/PlannerRecipeHandoffCard';
 import {
   useMealPlanWeek,
   useAddMeal,
@@ -42,9 +43,16 @@ import {
   parseDateFromApi,
 } from '@/hooks/useMealPlan';
 import { MealPlanEntry, MealType, RecipeListItem } from '@/types/recipe';
+import { useRecipe } from '@/hooks/useRecipes';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import { haptics, lightHaptic, successHaptic } from '@/utils/haptics';
-import { parsePlannerDateParam } from '@/lib/plannerNavigation';
+import {
+  buildMealPlanEntry,
+  parsePlannerDateParam,
+  parsePlannerRecipeParam,
+  type MealPlanRecipe,
+} from '@/lib/plannerNavigation';
+import { appRoutes } from '@/lib/routes';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DAY_WIDTH = (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm * 6) / 7;
@@ -147,6 +155,9 @@ function MealSlot({
   onAdd,
   onRemove,
   onViewRecipe,
+  pendingRecipeTitle,
+  isAdding,
+  isAddDisabled,
 }: {
   mealType: MealTypeMeta;
   entries: MealPlanEntry[];
@@ -154,6 +165,9 @@ function MealSlot({
   onAdd: () => void;
   onRemove: (entryId: string) => void;
   onViewRecipe: (recipeId: string) => void;
+  pendingRecipeTitle?: string;
+  isAdding: boolean;
+  isAddDisabled: boolean;
 }) {
   return (
     <RNView style={styles.mealSlot}>
@@ -173,12 +187,27 @@ function MealSlot({
             { backgroundColor: colors.card, borderColor: colors.cardBorder },
           ]}
           onPress={onAdd}
+          disabled={isAddDisabled}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={pendingRecipeTitle
+            ? `Plan ${pendingRecipeTitle} for ${mealType.label}`
+            : `Add ${mealType.label}`}
+          accessibilityState={{ busy: isAdding, disabled: isAddDisabled }}
         >
-          <Ionicons name="add" size={20} color={colors.tint} />
-          <Text style={[styles.addMealText, { color: colors.tint }]}>
-            Add {mealType.label.toLowerCase()}
-          </Text>
+          {isAdding ? (
+            <>
+              <ActivityIndicator size="small" color={colors.tint} />
+              <Text style={[styles.addMealText, { color: colors.tint }]}>Adding...</Text>
+            </>
+          ) : (
+            <>
+              <Ionicons name={pendingRecipeTitle ? 'calendar-outline' : 'add'} size={20} color={colors.tint} />
+              <Text style={[styles.addMealText, { color: colors.tint }]}>
+                {pendingRecipeTitle ? 'Plan here' : `Add ${mealType.label.toLowerCase()}`}
+              </Text>
+            </>
+          )}
         </TouchableOpacity>
       ) : (
         <RNView style={styles.mealEntries}>
@@ -232,17 +261,37 @@ function MealSlot({
               </TouchableOpacity>
             </ScalePressable>
           ))}
-          {/* Add another button */}
-          <TouchableOpacity
-            style={[
-              styles.addAnotherButton,
-              { borderColor: colors.cardBorder },
-            ]}
-            onPress={onAdd}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="add" size={16} color={colors.tint} />
-          </TouchableOpacity>
+          {pendingRecipeTitle ? (
+            <TouchableOpacity
+              style={[styles.planHereButton, { borderColor: colors.tint }]}
+              onPress={onAdd}
+              disabled={isAddDisabled}
+              accessibilityRole="button"
+              accessibilityLabel={`Plan ${pendingRecipeTitle} for ${mealType.label}`}
+              accessibilityState={{ busy: isAdding, disabled: isAddDisabled }}
+            >
+              {isAdding ? (
+                <ActivityIndicator size="small" color={colors.tint} />
+              ) : (
+                <Ionicons name="calendar-outline" size={16} color={colors.tint} />
+              )}
+              <Text style={[styles.planHereText, { color: colors.tint }]}>
+                {isAdding ? 'Adding...' : 'Plan here'}
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.addAnotherButton, { borderColor: colors.cardBorder }]}
+              onPress={onAdd}
+              disabled={isAddDisabled}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={`Add another ${mealType.label}`}
+              accessibilityState={{ disabled: isAddDisabled }}
+            >
+              <Ionicons name="add" size={16} color={colors.tint} />
+            </TouchableOpacity>
+          )}
         </RNView>
       )}
     </RNView>
@@ -251,7 +300,13 @@ function MealSlot({
 
 export default function PlannerScreen() {
   const router = useRouter();
-  const { date: requestedDateParam } = useLocalSearchParams<{ date?: string | string[] }>();
+  const {
+    date: requestedDateParam,
+    recipeId: requestedRecipeParam,
+  } = useLocalSearchParams<{
+    date?: string | string[];
+    recipeId?: string | string[];
+  }>();
   const insets = useSafeAreaInsets();
   const colors = useColors();
   const { isSignedIn, isLoaded } = useAuth();
@@ -263,6 +318,35 @@ export default function PlannerScreen() {
   // Modal state
   const [pickerVisible, setPickerVisible] = useState(false);
   const [selectedMealType, setSelectedMealType] = useState<MealType>('dinner');
+  const [addingMealType, setAddingMealType] = useState<MealType | null>(null);
+
+  const requestedRecipeId = useMemo(
+    () => parsePlannerRecipeParam(
+      Array.isArray(requestedRecipeParam) ? requestedRecipeParam[0] : requestedRecipeParam,
+    ),
+    [requestedRecipeParam],
+  );
+  const {
+    data: requestedRecipe,
+    isLoading: isRequestedRecipeLoading,
+    isError: isRequestedRecipeError,
+    isRefetching: isRequestedRecipeRetrying,
+    refetch: refetchRequestedRecipe,
+  } = useRecipe(requestedRecipeId ?? '', isSignedIn === true && !!requestedRecipeId);
+  const handoffRecipe = useMemo<MealPlanRecipe | null>(() => {
+    if (!requestedRecipe) return null;
+    return {
+      id: requestedRecipe.id,
+      title: requestedRecipe.extracted.title || 'Untitled recipe',
+      thumbnail_url: requestedRecipe.thumbnail_url,
+    };
+  }, [requestedRecipe]);
+  const requestedRecipeHasBlockingError = isRequestedRecipeError && !handoffRecipe;
+  const requestedRecipeHandoffIsLoading = !!requestedRecipeId
+    && (!isLoaded || isRequestedRecipeLoading);
+  const requestedRecipeIsPending = !!requestedRecipeId
+    && !handoffRecipe
+    && (!isLoaded || isRequestedRecipeLoading || isRequestedRecipeRetrying);
 
   useEffect(() => {
     const requestedDate = parsePlannerDateParam(
@@ -340,33 +424,52 @@ export default function PlannerScreen() {
     setSelectedDate(today);
   }, []);
 
-  // Handle adding a meal
-  const handleAddMeal = useCallback((mealType: MealType) => {
-    lightHaptic();
-    setSelectedMealType(mealType);
-    setPickerVisible(true);
-  }, []);
-
-  // Handle recipe selection from picker
-  const handleRecipeSelected = useCallback(
-    async (recipe: RecipeListItem) => {
-      setPickerVisible(false);
+  const addRecipeToMeal = useCallback(
+    async (recipe: MealPlanRecipe, mealType: MealType) => {
+      setAddingMealType(mealType);
       try {
-        await addMeal.mutateAsync({
-          date: formatDateForApi(selectedDate),
-          meal_type: selectedMealType,
-          recipe_id: recipe.id,
-          recipe_title: recipe.title,
-          recipe_thumbnail: recipe.thumbnail_url,
-        });
+        await addMeal.mutateAsync(buildMealPlanEntry(
+          recipe,
+          formatDateForApi(selectedDate),
+          mealType,
+        ));
         successHaptic();
+        if (requestedRecipeId) {
+          router.replace(appRoutes.plannerDate(formatDateForApi(selectedDate)));
+        }
       } catch {
         // User-facing alert is sufficient
         Alert.alert('Error', 'Failed to add recipe to meal plan');
+      } finally {
+        setAddingMealType(null);
       }
     },
-    [addMeal, selectedDate, selectedMealType]
+    [addMeal, requestedRecipeId, router, selectedDate],
   );
+
+  // Add the handed-off recipe directly, or open the normal recipe picker.
+  const handleAddMeal = useCallback((mealType: MealType) => {
+    lightHaptic();
+    if (handoffRecipe) {
+      void addRecipeToMeal(handoffRecipe, mealType);
+      return;
+    }
+    setSelectedMealType(mealType);
+    setPickerVisible(true);
+  }, [addRecipeToMeal, handoffRecipe]);
+
+  // Handle recipe selection from picker
+  const handleRecipeSelected = useCallback(
+    (recipe: RecipeListItem) => {
+      setPickerVisible(false);
+      void addRecipeToMeal(recipe, selectedMealType);
+    },
+    [addRecipeToMeal, selectedMealType],
+  );
+
+  const dismissRequestedRecipe = useCallback(() => {
+    router.replace(appRoutes.plannerDate(formatDateForApi(selectedDate)));
+  }, [router, selectedDate]);
 
   // Handle removing a meal
   const handleRemoveMeal = useCallback(
@@ -604,6 +707,18 @@ export default function PlannerScreen() {
           {formatFullDayLabel(selectedDate)}
         </Text>
 
+        {requestedRecipeId && (
+          <PlannerRecipeHandoffCard
+            title={handoffRecipe?.title}
+            thumbnailUrl={handoffRecipe?.thumbnail_url}
+            isLoading={requestedRecipeHandoffIsLoading}
+            hasError={requestedRecipeHasBlockingError}
+            isRetrying={isRequestedRecipeRetrying}
+            onRetry={() => { void refetchRequestedRecipe(); }}
+            onDismiss={dismissRequestedRecipe}
+          />
+        )}
+
         {isLoading ? (
           <RNView style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={colors.tint} />
@@ -627,6 +742,9 @@ export default function PlannerScreen() {
                 onAdd={() => handleAddMeal(mealType.type)}
                 onRemove={handleRemoveMeal}
                 onViewRecipe={handleViewRecipe}
+                pendingRecipeTitle={handoffRecipe?.title}
+                isAdding={addingMealType === mealType.type}
+                isAddDisabled={addMeal.isPending || requestedRecipeIsPending}
               />
             ))}
 
@@ -969,6 +1087,20 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     borderStyle: 'dashed',
+  },
+  planHereButton: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  planHereText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
   },
   groceryButton: {
     flexDirection: 'row',

@@ -50,9 +50,9 @@ function entry(id: string, date: string, mealType: MealType): MealPlanEntry {
 }
 
 describe('RecipeMealPlanCard', () => {
-  it('opens the exact related date and the planner index separately', async () => {
+  it('opens an exact related date and starts a separate planning handoff', async () => {
     const onOpenDate = vi.fn();
-    const onOpenPlanner = vi.fn();
+    const onPlanRecipe = vi.fn();
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
     try {
@@ -61,7 +61,7 @@ describe('RecipeMealPlanCard', () => {
           entries: [entry('entry-1', '2026-08-27', 'dinner')],
           isLoading: false,
           onOpenDate,
-          onOpenPlanner,
+          onPlanRecipe,
         }));
       });
 
@@ -72,11 +72,11 @@ describe('RecipeMealPlanCard', () => {
         (button) => button.props.accessibilityLabel === 'Open meal plan for Thu, Aug 27',
       )!.props.onPress());
       await act(async () => buttons.find(
-        (button) => button.props.accessibilityLabel === 'Open meal planner',
+        (button) => button.props.accessibilityLabel === 'Plan this recipe',
       )!.props.onPress());
 
       expect(onOpenDate).toHaveBeenCalledWith('2026-08-27');
-      expect(onOpenPlanner).toHaveBeenCalledOnce();
+      expect(onPlanRecipe).toHaveBeenCalledOnce();
     } finally {
       await act(async () => renderer.unmount());
     }
@@ -97,7 +97,7 @@ describe('RecipeMealPlanCard', () => {
           isLoading: false,
           hasError: true,
           onOpenDate: vi.fn(),
-          onOpenPlanner: vi.fn(),
+          onPlanRecipe: vi.fn(),
           onRetry,
         }));
       });
@@ -132,7 +132,7 @@ describe('RecipeMealPlanCard', () => {
           hasError: true,
           isRetrying: true,
           onOpenDate: vi.fn(),
-          onOpenPlanner: vi.fn(),
+          onPlanRecipe: vi.fn(),
           onRetry: vi.fn(),
         }));
       });

@@ -28,4 +28,11 @@ describe('related record routes', () => {
       params: { date: '2026-08-27' },
     });
   });
+
+  it('builds a trusted recipe-to-planner handoff route', () => {
+    expect(appRoutes.plannerRecipe('91e74f66-dba0-4fb0-b879-ae2f8c59626e')).toEqual({
+      pathname: '/(tabs)/planner',
+      params: { recipeId: '91e74f66-dba0-4fb0-b879-ae2f8c59626e' },
+    });
+  });
 });
