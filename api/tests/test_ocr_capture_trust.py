@@ -8,6 +8,7 @@ from app.services.prompts import get_multi_image_ocr_prompt, get_ocr_extraction_
 
 
 def test_single_image_ocr_prompt_marks_uncertainty_instead_of_inventing_measurements():
+    """Single-image OCR must disclose uncertainty instead of fabricating values."""
     prompt = get_ocr_extraction_prompt("Guam")
 
     assert "Do not silently guess" in prompt
@@ -17,19 +18,24 @@ def test_single_image_ocr_prompt_marks_uncertainty_instead_of_inventing_measurem
 
 
 def test_multi_image_ocr_prompt_applies_the_same_trust_contract():
+    """Multi-image OCR must preserve stated values and apply the trust contract."""
     prompt = get_multi_image_ocr_prompt(3, "Guam")
 
     assert "3 images" in prompt
     assert "Do not silently guess" in prompt
     assert "use null rather than inventing a measurement" in prompt
     assert "Set lowConfidence to true" in prompt
+    assert "preserve values stated in any image" in prompt
+    assert "omitted time/serving estimates do not trigger it" in prompt
 
 
 def test_ocr_prompt_version_tracks_the_trust_contract_change():
+    """Prompt telemetry must distinguish the revised OCR trust contract."""
     assert PROMPT_VERSIONS["ocr"] == "recipe-ocr-v2"
 
 
 def test_ocr_confidence_is_normalized_for_a_reliable_mobile_warning():
+    """Model output must become a strict flag and safe warning for clients."""
     service = LLMService()
     base_recipe = {
         "title": "Red Rice",
@@ -59,6 +65,7 @@ def test_ocr_confidence_is_normalized_for_a_reliable_mobile_warning():
 
 
 def test_direct_ocr_save_input_gets_the_same_bounded_confidence_contract():
+    """Direct-save payloads must not bypass confidence normalization."""
     recipe = {"lowConfidence": True, "confidenceWarning": {"not": "text"}}
 
     low_confidence, warning = normalize_extraction_confidence(recipe)

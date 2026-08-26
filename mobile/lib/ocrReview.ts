@@ -10,6 +10,7 @@ type OcrRecipePreview = {
   nutrition?: OcrNutrition;
 };
 
+/** Report whether OCR returned at least one usable canonical per-serving value. */
 export function hasOcrNutrition(recipe: OcrRecipePreview | null | undefined): boolean {
   const perServing = recipe?.nutrition?.perServing;
   return ['calories', 'protein', 'carbs', 'fat'].some((field) => {
@@ -18,6 +19,7 @@ export function hasOcrNutrition(recipe: OcrRecipePreview | null | undefined): bo
   });
 }
 
+/** Describe exactly what an OCR recipe would expose when made public. */
 export function getOcrPublishDisclosure(recipe: OcrRecipePreview): PublishDisclosure {
   const components = recipe.components || [];
   return {

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 const routeRoot = fileURLToPath(new URL('./app', import.meta.url));
 
+/** Return test modules that Expo Router would otherwise treat as application routes. */
 function findTestFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);

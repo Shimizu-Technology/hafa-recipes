@@ -394,7 +394,10 @@ INSTRUCTIONS:
 11. If an ingredient name itself is unreadable, do not invent one; omit that line
     and identify the omission in confidenceWarning
 12. lowConfidence reports transcription uncertainty only; derived estimates such
-    as cost, nutrition, or tags do not trigger it
+    as cost, nutrition, tags, or omitted time/serving estimates do not trigger it
+
+- For times and servings, preserve values stated in any image; estimate only
+  fields omitted from all images
 
 EXTRACTION RULES:
 - sourceUrl: Set to "photo-upload"
