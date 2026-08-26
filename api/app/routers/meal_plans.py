@@ -142,6 +142,31 @@ def organize_by_day(entries: List[MealPlanEntry], week_start: date, week_end: da
 # Endpoints
 # ============================================================
 
+
+def _recipe_plan_entries_statement(
+    recipe_id: UUID,
+    user_id: str,
+    first_date: date,
+    limit: int,
+):
+    """Build the bounded, policy-scoped recipe relationship query."""
+    return (
+        select(MealPlanEntry)
+        .join(Recipe, Recipe.id == MealPlanEntry.recipe_id)
+        .where(
+            MealPlanEntry.user_id == user_id,
+            MealPlanEntry.recipe_id == recipe_id,
+            MealPlanEntry.date >= first_date,
+            *accessible_recipe_conditions(user_id),
+        )
+        .order_by(
+            MealPlanEntry.date,
+            MealPlanEntry.meal_type,
+            MealPlanEntry.created_at,
+        )
+        .limit(limit)
+    )
+
 @router.get("/week", response_model=WeekPlanResponse)
 async def get_week_plan(
     week_of: Optional[date] = Query(default=None, description="Any date in the target week (defaults to current week)"),
@@ -216,6 +241,25 @@ async def get_day_plan(
         dinner=meals["dinner"],
         snack=meals["snack"],
     )
+
+
+@router.get("/recipe/{recipe_id}", response_model=List[MealPlanEntryResponse])
+async def get_recipe_plan_entries(
+    recipe_id: UUID,
+    start_date: Optional[date] = Query(
+        default=None,
+        description="Earliest planned date (defaults to today)",
+    ),
+    limit: int = Query(default=50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    user: ClerkUser = Depends(get_current_user),
+):
+    """Return this user's upcoming meal-plan relationships for a recipe."""
+    first_date = start_date or date.today()
+    result = await db.execute(
+        _recipe_plan_entries_statement(recipe_id, user.id, first_date, limit)
+    )
+    return list(result.scalars().all())
 
 
 @router.post("/", response_model=MealPlanEntryResponse)
