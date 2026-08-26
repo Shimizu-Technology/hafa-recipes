@@ -14,6 +14,7 @@ from app.deletion_cleanup import deletion_cleanup_worker
 from app.grocery_sync import verify_grocery_sync_schema
 from app.job_worker import job_worker
 from app.moderation import verify_moderation_schema
+from app.request_limits import PastedTextBodyLimitMiddleware
 from app.routers import (
     admin_router,
     chat_router,
@@ -69,6 +70,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(PastedTextBodyLimitMiddleware)
 
 SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 

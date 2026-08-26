@@ -7,7 +7,7 @@ from typing import Annotated, Literal, Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +37,7 @@ from app.source_urls import canonicalize_source
 
 MAX_OCR_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_OCR_TOTAL_BYTES = 40 * 1024 * 1024
+MAX_PASTED_RECIPE_CHARS = 50_000
 settings = get_settings()
 
 
@@ -1680,6 +1681,46 @@ class OCRExtractionResponse(BaseModel):
     error: Optional[str] = None
     model_used: Optional[str] = None
     latency_seconds: Optional[float] = None
+
+
+class TextExtractionResponse(OCRExtractionResponse):
+    """Response containing a recipe draft extracted from pasted text."""
+
+
+class TextExtractionRequest(BaseModel):
+    """Bounded user-pasted text to convert into a recipe draft."""
+
+    text: str = Field(min_length=1, max_length=MAX_PASTED_RECIPE_CHARS)
+    location: str = Field(default="Guam", min_length=1, max_length=100)
+
+    @field_validator("text", "location")
+    @classmethod
+    def strip_nonempty_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must contain non-whitespace characters")
+        return normalized
+
+
+@router.post("/extract/text", response_model=TextExtractionResponse)
+async def extract_recipe_from_text(
+    request: TextExtractionRequest,
+    user: ClerkUser = Depends(get_current_user),
+):
+    """Extract a reviewable recipe draft from pasted recipe text."""
+    with ai_request_context(user_id=user.id, route="pasted_text"):
+        result = await llm_service.extract_from_text(
+            content=request.text,
+            location=request.location,
+        )
+
+    return TextExtractionResponse(
+        success=result.success,
+        recipe=result.recipe,
+        error=result.error,
+        model_used=result.model_used,
+        latency_seconds=result.latency_seconds,
+    )
 
 
 @router.post("/extract/ocr", response_model=OCRExtractionResponse)
