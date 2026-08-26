@@ -46,6 +46,19 @@ import type { PublishingDisclosureStatus } from './recipePublishing';
 type TokenGetter = () => Promise<string | null>;
 export type RequestGuard = () => void;
 export type CaptureSourceType = 'photo' | 'text';
+export type RecipeImageUpload = {
+  uri: string;
+  fileName?: string;
+  mimeType?: string;
+};
+
+function inferImageMimeType(fileName: string): string {
+  const extension = fileName.split('?')[0].split('.').pop()?.toLowerCase();
+  if (extension === 'png') return 'image/png';
+  if (extension === 'gif') return 'image/gif';
+  if (extension === 'webp') return 'image/webp';
+  return 'image/jpeg';
+}
 
 type GuardedRequestConfig = AxiosRequestConfig & {
   requestGuard?: RequestGuard;
@@ -588,7 +601,7 @@ class ApiClient {
    * Supports handwritten and printed recipes.
    */
   async extractRecipeFromImage(
-    imageUri: string,
+    image: string | RecipeImageUpload,
     location: string = 'Guam'
   ): Promise<{
     success: boolean;
@@ -601,8 +614,13 @@ class ApiClient {
     const formData = new FormData();
     
     // Get the file name and type from the URI
-    const fileName = imageUri.split('/').pop() || 'photo.jpg';
-    const fileType = fileName.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+    const imageUri = typeof image === 'string' ? image : image.uri;
+    const fileName = typeof image === 'string'
+      ? imageUri.split('/').pop() || 'photo.jpg'
+      : image.fileName || imageUri.split('/').pop() || 'photo.jpg';
+    const fileType = typeof image === 'string'
+      ? inferImageMimeType(fileName)
+      : image.mimeType || inferImageMimeType(fileName);
     
     // Append the image as a file
     formData.append('image', {
@@ -628,7 +646,7 @@ class ApiClient {
    * Use for multi-page recipes, front/back recipe cards, etc.
    */
   async extractRecipeFromMultipleImages(
-    imageUris: string[],
+    images: Array<string | RecipeImageUpload>,
     location: string = 'Guam'
   ): Promise<{
     success: boolean;
@@ -641,13 +659,17 @@ class ApiClient {
     const formData = new FormData();
     
     // Append each image
-    imageUris.forEach((uri, index) => {
+    images.forEach((image, index) => {
+      const uri = typeof image === 'string' ? image : image.uri;
       const fileName = uri.split('/').pop() || `photo_${index}.jpg`;
-      const fileType = fileName.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+      const uploadName = typeof image === 'string' ? fileName : image.fileName || fileName;
+      const fileType = typeof image === 'string'
+        ? inferImageMimeType(uploadName)
+        : image.mimeType || inferImageMimeType(uploadName);
       
       formData.append('images', {
         uri: uri,
-        name: fileName,
+        name: uploadName,
         type: fileType,
       } as any);
     });
@@ -655,7 +677,7 @@ class ApiClient {
     formData.append('location', location);
     
     // Increase timeout for multiple images (90s base + 30s per additional image)
-    const timeout = 90000 + (imageUris.length - 1) * 30000;
+    const timeout = 90000 + (images.length - 1) * 30000;
     
     const { data } = await this.client.post('/api/extract/ocr/multi', formData, {
       headers: {

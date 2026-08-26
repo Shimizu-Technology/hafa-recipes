@@ -25,7 +25,8 @@ import { useLocations, useCheckDuplicate } from '@/hooks/useRecipes';
 import { useAsyncExtraction } from '@/contexts/ExtractionContext';
 import { BrandMark } from '@/components/BrandMark';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
-import { api } from '@/lib/api';
+import { api, type RecipeImageUpload } from '@/lib/api';
+import { consumePendingShareCapture } from '@/lib/shareCapture';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 
 export default function ExtractScreen() {
@@ -33,7 +34,10 @@ export default function ExtractScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { isSignedIn } = useAuth();
-  const { sharedUrl } = useLocalSearchParams<{ sharedUrl?: string }>();
+  const { sharedUrl, captureToken } = useLocalSearchParams<{
+    sharedUrl?: string;
+    captureToken?: string;
+  }>();
 
   const handleWebsiteSupportPress = () => {
     Linking.openURL('mailto:shimizutechnology@gmail.com?subject=H%C3%A5fa%20Recipes%20website%20extraction%20issue');
@@ -48,7 +52,7 @@ export default function ExtractScreen() {
   const [isOcrExtracting, setIsOcrExtracting] = useState(false);
   const [ocrProgress, setOcrProgress] = useState('');
   const [extractingAsWebsite, setExtractingAsWebsite] = useState(false); // Track extraction type to prevent flicker
-  const [selectedImages, setSelectedImages] = useState<string[]>([]); // Multi-image support
+  const [selectedImages, setSelectedImages] = useState<RecipeImageUpload[]>([]); // Multi-image support
   const [showImageGallery, setShowImageGallery] = useState(false);
 
   const { data: locationsData } = useLocations();
@@ -67,13 +71,29 @@ export default function ExtractScreen() {
 
   // Handle shared URL from iOS Share Extension
   useEffect(() => {
-    if (sharedUrl && sharedUrl !== url) {
-      console.log('Setting shared URL:', sharedUrl);
-      setUrl(sharedUrl);
-      // Clear the param by navigating to same screen without params
-      router.setParams({ sharedUrl: undefined });
-    }
-  }, [sharedUrl]);
+    if (!sharedUrl) return;
+    if (sharedUrl !== url) setUrl(sharedUrl);
+    // Clear the param by navigating to same screen without params
+    router.setParams({ sharedUrl: undefined });
+  }, [router, sharedUrl, url]);
+
+  // Shared images stay in memory only until this screen consumes the route token.
+  useEffect(() => {
+    if (!captureToken) return;
+    const capture = consumePendingShareCapture(captureToken);
+    router.setParams({ captureToken: undefined });
+    if (capture?.kind !== 'images') return;
+
+    setSelectedImages(capture.images.map((image, index) => {
+      const extension = image.mimeType.split('/')[1].replace('jpeg', 'jpg');
+      return {
+        uri: image.uri,
+        mimeType: image.mimeType,
+        fileName: `shared-recipe-${index + 1}.${extension}`,
+      };
+    }));
+    setShowImageGallery(true);
+  }, [captureToken, router]);
 
   // Handle photo selection/capture for OCR
   const handleScanRecipe = async () => {
@@ -127,7 +147,7 @@ export default function ExtractScreen() {
           });
 
       if (!result.canceled && result.assets.length > 0) {
-        const newImages = result.assets.map(asset => asset.uri);
+        const newImages = result.assets.map((asset) => ({ uri: asset.uri }));
         const allImages = [...selectedImages, ...newImages].slice(0, 10); // Max 10 images
         setSelectedImages(allImages);
         setShowImageGallery(true);
@@ -466,9 +486,9 @@ export default function ExtractScreen() {
             contentContainerStyle={styles.galleryGrid}
             showsVerticalScrollIndicator={false}
           >
-            {selectedImages.map((uri, index) => (
+            {selectedImages.map((image, index) => (
               <RNView key={index} style={styles.galleryImageContainer}>
-                <Image source={{ uri }} style={styles.galleryImage} />
+                <Image source={{ uri: image.uri }} style={styles.galleryImage} />
                 <TouchableOpacity
                   style={[styles.galleryRemoveButton, { backgroundColor: colors.error }]}
                   onPress={() => removeImage(index)}

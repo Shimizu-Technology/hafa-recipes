@@ -12,7 +12,10 @@ const mocks = vi.hoisted(() => ({
     recipe: { title: 'Red Rice', components: [] },
   })),
   alert: vi.fn(),
+  consume: vi.fn(() => null as null | { kind: 'text'; text: string }),
+  params: { location: 'Guam', isPublic: 'false', captureToken: undefined as string | undefined },
   push: vi.fn(),
+  setParams: vi.fn(),
 }));
 
 vi.mock('react-native', async () => {
@@ -38,8 +41,8 @@ vi.mock('expo-router', () => {
   Stack.Screen = () => null;
   return {
     Stack,
-    useLocalSearchParams: () => ({ location: 'Guam', isPublic: 'false' }),
-    useRouter: () => ({ push: mocks.push }),
+    useLocalSearchParams: () => mocks.params,
+    useRouter: () => ({ push: mocks.push, setParams: mocks.setParams }),
   };
 });
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
@@ -90,6 +93,7 @@ vi.mock('@/lib/textCapture', () => ({
   canExtractPastedRecipe: (value: string) => value.trim().length > 0 && value.length <= 50_000,
   normalizePastedRecipeText: (value: string) => value.replace(/\r\n?/g, '\n').trim(),
 }));
+vi.mock('@/lib/shareCapture', () => ({ consumePendingShareCapture: mocks.consume }));
 
 import PasteRecipeScreen from '../app/paste-recipe';
 
@@ -98,6 +102,24 @@ describe('PasteRecipeScreen', () => {
     mocks.alert.mockClear();
     mocks.extract.mockClear();
     mocks.push.mockClear();
+    mocks.setParams.mockClear();
+    mocks.consume.mockReset();
+    mocks.consume.mockReturnValue(null);
+    mocks.params.captureToken = undefined;
+  });
+
+  it('prefills plain text consumed from a native share without persisting it', async () => {
+    mocks.params.captureToken = 'share-token';
+    mocks.consume.mockReturnValueOnce({ kind: 'text', text: '  Red Rice\r\nCook it.  ' });
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(React.createElement(PasteRecipeScreen));
+    });
+
+    const input = renderer!.root.findByType('TextInput' as unknown as React.ComponentType);
+    expect(mocks.consume).toHaveBeenCalledWith('share-token');
+    expect(mocks.setParams).toHaveBeenCalledWith({ captureToken: undefined });
+    expect(input.props.value).toBe('Red Rice\nCook it.');
   });
 
   it('pastes normalized text, extracts it, and opens text-aware review', async () => {

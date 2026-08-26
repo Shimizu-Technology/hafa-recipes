@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -26,12 +26,17 @@ import {
   canExtractPastedRecipe,
   normalizePastedRecipeText,
 } from '@/lib/textCapture';
+import { consumePendingShareCapture } from '@/lib/shareCapture';
 
 export default function PasteRecipeScreen() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ location?: string; isPublic?: string }>();
+  const params = useLocalSearchParams<{
+    location?: string;
+    isPublic?: string;
+    captureToken?: string;
+  }>();
   const { data: locationsData } = useLocations();
   const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
 
@@ -39,6 +44,15 @@ export default function PasteRecipeScreen() {
   const [selectedLocation, setSelectedLocation] = useState(params.location || 'Guam');
   const [isPublic, setIsPublic] = useState(params.isPublic === 'true');
   const [isExtracting, setIsExtracting] = useState(false);
+
+  useEffect(() => {
+    if (!params.captureToken) return;
+    const capture = consumePendingShareCapture(params.captureToken);
+    router.setParams({ captureToken: undefined });
+    if (capture?.kind === 'text') {
+      setRecipeText(normalizePastedRecipeText(capture.text));
+    }
+  }, [params.captureToken, router]);
 
   const normalizedRecipeText = normalizePastedRecipeText(recipeText);
   const characterCount = normalizedRecipeText.length;
