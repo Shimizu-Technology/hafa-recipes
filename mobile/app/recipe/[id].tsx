@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   ScrollView,
@@ -25,6 +25,7 @@ import { Text, View, Card, Chip, Divider, useColors } from '@/components/Themed'
 import AddIngredientsModal from '@/components/AddIngredientsModal';
 import RecipeChatModal from '@/components/RecipeChatModal';
 import AddToCollectionModal from '@/components/AddToCollectionModal';
+import { RecipeCollectionsCard } from '@/components/RecipeCollectionsCard';
 import VersionHistoryModal from '@/components/VersionHistoryModal';
 import { SafetyActionModal } from '@/components/SafetyActionModal';
 import { 
@@ -41,6 +42,7 @@ import {
 import { useAsyncExtraction } from '@/contexts/ExtractionContext';
 import { RecipeListItem } from '@/types/recipe';
 import { useAddFromRecipe } from '@/hooks/useGrocery';
+import { useCollections, useRecipeCollections } from '@/hooks/useCollections';
 import { SkeletonSimilarRecipes } from '@/components/Skeleton';
 import { formatPublishDisclosure, getPublishDisclosure } from '@/lib/recipePublishing';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
@@ -56,6 +58,8 @@ import {
   useCreateSafetyReport,
 } from '@/hooks/useCommunitySafety';
 import { getSafetyErrorMessage } from '@/lib/communitySafety';
+import { collectionsContainingRecipe } from '@/lib/recipeRelationships';
+import { appRoutes } from '@/lib/routes';
 import type { ReportCategory, SafetyTargetType } from '@/types/communitySafety';
 
 type TabType = 'ingredients' | 'steps' | 'nutrition' | 'cost';
@@ -161,6 +165,20 @@ export default function RecipeDetailScreen() {
   // Personal notes
   const { data: personalNote, isLoading: isNoteLoading } = useRecipeNote(id, !!userId);
   const updateNoteMutation = useUpdateRecipeNote();
+
+  // Reverse links for the current user's private collection relationships.
+  const {
+    data: collections,
+    isLoading: isCollectionsLoading,
+  } = useCollections(!!userId);
+  const {
+    data: recipeCollectionIds,
+    isLoading: isRecipeCollectionsLoading,
+  } = useRecipeCollections(id, !!userId);
+  const recipeCollections = useMemo(
+    () => collectionsContainingRecipe(collections, recipeCollectionIds),
+    [collections, recipeCollectionIds],
+  );
   
   // Similar recipes
   const { data: similarRecipes, isLoading: isSimilarLoading } = useSimilarRecipes(id, !!recipe);
@@ -808,6 +826,15 @@ export default function RecipeDetailScreen() {
                   {extracted.notes}
                 </Text>
               </RNView>
+            )}
+
+            {userId && (
+              <RecipeCollectionsCard
+                collections={recipeCollections}
+                isLoading={isCollectionsLoading || isRecipeCollectionsLoading}
+                onOpenCollection={(collectionId) => router.push(appRoutes.collection(collectionId))}
+                onManageCollections={() => setShowCollectionModal(true)}
+              />
             )}
 
             {/* Personal Notes Section - only show when logged in */}
