@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@clerk/expo';
 import { AppState, AppStateStatus } from 'react-native';
-import { api } from '../lib/api';
+import { api, type CaptureSourceType } from '../lib/api';
 import { ExtractRequest, JobStatus, RecipeListItem, PaginatedRecipes } from '../types/recipe';
 
 // Page size for infinite scroll
@@ -1164,7 +1164,7 @@ export function useSaveCapturedRecipe() {
   return useMutation({
     mutationFn: (params: {
       extracted: any;
-      source_type: 'photo' | 'text';
+      source_type: CaptureSourceType;
       is_public?: boolean;
     }) => api.saveCapturedRecipe(params),
     onSuccess: (data) => {

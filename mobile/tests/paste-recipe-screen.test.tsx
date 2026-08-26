@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     success: true,
     recipe: { title: 'Red Rice', components: [] },
   })),
+  alert: vi.fn(),
   push: vi.fn(),
 }));
 
@@ -20,7 +21,7 @@ vi.mock('react-native', async () => {
     ReactModule.createElement(name, props, props.children as React.ReactNode);
   return {
     ActivityIndicator: host('ActivityIndicator'),
-    Alert: { alert: vi.fn() },
+    Alert: { alert: mocks.alert },
     Keyboard: { dismiss: vi.fn() },
     KeyboardAvoidingView: host('KeyboardAvoidingView'),
     Platform: { OS: 'ios' },
@@ -93,6 +94,12 @@ vi.mock('@/lib/textCapture', () => ({
 import PasteRecipeScreen from '../app/paste-recipe';
 
 describe('PasteRecipeScreen', () => {
+  beforeEach(() => {
+    mocks.alert.mockClear();
+    mocks.extract.mockClear();
+    mocks.push.mockClear();
+  });
+
   it('pastes normalized text, extracts it, and opens text-aware review', async () => {
     let renderer: ReactTestRenderer;
     await act(async () => {
@@ -128,5 +135,60 @@ describe('PasteRecipeScreen', () => {
         sourceType: 'text',
       },
     });
+  });
+
+  it('shows the extraction error and stays on the paste screen', async () => {
+    mocks.extract.mockResolvedValueOnce({
+      success: false,
+      error: 'No cooking steps were found.',
+    } as any);
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(React.createElement(PasteRecipeScreen));
+    });
+
+    const input = renderer!.root.findByType('TextInput' as unknown as React.ComponentType);
+    await act(async () => input.props.onChangeText('1 cup rice\nCook it.'));
+    const submit = renderer!.root.findByType('Button' as unknown as React.ComponentType);
+    await act(async () => submit.props.onPress());
+
+    expect(mocks.alert).toHaveBeenCalledWith(
+      'Could Not Build a Recipe',
+      'No cooking steps were found.',
+    );
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it('explains oversized server rejections and does not navigate', async () => {
+    mocks.extract.mockRejectedValueOnce({ response: { status: 413 } });
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(React.createElement(PasteRecipeScreen));
+    });
+
+    const input = renderer!.root.findByType('TextInput' as unknown as React.ComponentType);
+    await act(async () => input.props.onChangeText('1 cup rice\nCook it.'));
+    const submit = renderer!.root.findByType('Button' as unknown as React.ComponentType);
+    await act(async () => submit.props.onPress());
+
+    expect(mocks.alert).toHaveBeenCalledWith(
+      'Import Failed',
+      'That text is too large. Shorten it to the recipe itself and try again.',
+    );
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it('disables draft creation when normalized text exceeds the limit', async () => {
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(React.createElement(PasteRecipeScreen));
+    });
+
+    const input = renderer!.root.findByType('TextInput' as unknown as React.ComponentType);
+    await act(async () => input.props.onChangeText(`  ${'x'.repeat(50_001)}  `));
+    const submit = renderer!.root.findByType('Button' as unknown as React.ComponentType);
+
+    expect(submit.props.disabled).toBe(true);
+    expect(mocks.extract).not.toHaveBeenCalled();
   });
 });

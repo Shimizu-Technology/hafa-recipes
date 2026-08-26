@@ -120,7 +120,7 @@ export default withSentry(RootLayout);
  * Tab screens handle guest access themselves with SignInBanner.
  * This only handles:
  * - Redirecting signed-in users from auth screens to main app
- * - Protecting add-recipe modal from guests
+ * - Protecting recipe capture screens from guests
  */
 function AuthProtection({ children }: { children: React.ReactNode }) {
   const { isSignedIn, isLoaded } = useAuth();
@@ -138,9 +138,9 @@ function AuthProtection({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Only protect add-recipe modal from guests
+    // Protect authenticated recipe capture screens from guests
     // Tab screens handle their own guest access with SignInBanner
-    if (!isSignedIn && segments[0] === 'add-recipe') {
+    if (!isSignedIn && (segments[0] === 'add-recipe' || segments[0] === 'paste-recipe')) {
       router.replace('/(tabs)/discover');
     }
   }, [isSignedIn, isLoaded, segments]);

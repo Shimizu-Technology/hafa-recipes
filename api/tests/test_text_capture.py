@@ -216,6 +216,8 @@ def test_text_capture_save_persists_source_without_raw_pasted_text():
                 "extracted": {
                     "title": "Red Rice",
                     "sourceUrl": "https://untrusted.example/override",
+                    "raw_text": "private pasted recipe text",
+                    "pastedText": "another untrusted raw-text field",
                     "components": [
                         {
                             "name": "Rice",
@@ -236,6 +238,8 @@ def test_text_capture_save_persists_source_without_raw_pasted_text():
     assert saved_recipe.source_url == PASTED_TEXT_SOURCE_URL
     assert saved_recipe.extraction_method == "text-ai"
     assert saved_recipe.extracted["sourceUrl"] == PASTED_TEXT_SOURCE_URL
+    assert "raw_text" not in saved_recipe.extracted
+    assert "pastedText" not in saved_recipe.extracted
     assert saved_recipe.raw_text is None
     db.commit.assert_awaited_once()
 

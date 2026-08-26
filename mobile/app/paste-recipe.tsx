@@ -40,7 +40,8 @@ export default function PasteRecipeScreen() {
   const [isPublic, setIsPublic] = useState(params.isPublic === 'true');
   const [isExtracting, setIsExtracting] = useState(false);
 
-  const characterCount = recipeText.length;
+  const normalizedRecipeText = normalizePastedRecipeText(recipeText);
+  const characterCount = normalizedRecipeText.length;
   const isOverLimit = characterCount > MAX_PASTED_RECIPE_CHARS;
   const canExtract = canExtractPastedRecipe(recipeText) && !isExtracting;
 
@@ -84,7 +85,7 @@ export default function PasteRecipeScreen() {
     setIsExtracting(true);
     try {
       const result = await api.extractRecipeFromText(
-        normalizePastedRecipeText(recipeText),
+        normalizedRecipeText,
         selectedLocation,
       );
       if (!result.success || !result.recipe) {

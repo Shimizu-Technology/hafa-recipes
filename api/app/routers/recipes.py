@@ -6,7 +6,7 @@ from typing import List, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy import String, delete, desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +31,7 @@ from app.models.recipe import (
 from app.models.schemas import (
     IngredientMatchResult,
     IngredientSearchResponse,
+    RecipeExtracted,
     RecipeListItem,
     RecipeResponse,
 )
@@ -765,9 +766,20 @@ async def _save_captured_recipe(
     }
     source_url, extraction_method = source_metadata[capture_data.source_type]
 
-    extracted = ensure_derived_metadata(capture_data.extracted)
-    low_confidence, _ = normalize_extraction_confidence(extracted)
-    extracted["sourceUrl"] = source_url
+    # Capture payloads come from a client-controlled review draft. Re-serialize
+    # through the stored-recipe schema so unknown fields (including attempts to
+    # smuggle the original capture text into JSONB) cannot be persisted.
+    capture_draft = dict(capture_data.extracted)
+    capture_draft["sourceUrl"] = source_url
+    low_confidence, _ = normalize_extraction_confidence(capture_draft)
+    try:
+        extracted = RecipeExtracted.model_validate(capture_draft).model_dump(mode="json")
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Invalid extracted recipe draft",
+        ) from exc
+    extracted = ensure_derived_metadata(extracted)
 
     if capture_data.is_public:
         await require_current_publishing_disclosure(db, user.id)
@@ -791,10 +803,7 @@ async def _save_captured_recipe(
     await db.commit()
     await db.refresh(new_recipe)
 
-    print(
-        f"✅ Captured {capture_data.source_type} recipe saved: "
-        f"{extracted.get('title', 'Untitled')} (ID: {new_recipe.id})"
-    )
+    print(f"✅ Captured {capture_data.source_type} recipe saved (ID: {new_recipe.id})")
 
     return recipe_to_detail_response(new_recipe, user.id)
 
