@@ -8,6 +8,12 @@ import type { SourcePlayback } from '@/lib/sourcePlayback';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
 
+const { navigationAllowed } = vi.hoisted(() => ({
+  navigationAllowed: vi.fn((provider: string, url: string) => (
+    provider === 'youtube' && url.startsWith('https://www.youtube.com/')
+  )),
+}));
+
 vi.mock('react-native', () => ({
   ActivityIndicator: 'ActivityIndicator',
   ImageBackground: 'ImageBackground',
@@ -37,6 +43,9 @@ vi.mock('@/constants/Colors', () => ({
   fontWeight: { semibold: '600', bold: '700' },
   radius: { md: 12, lg: 16, full: 999 },
   spacing: { xs: 4, sm: 8, md: 16, lg: 24 },
+}));
+vi.mock('../lib/sourcePlayback', () => ({
+  isSourcePlaybackNavigationAllowed: navigationAllowed,
 }));
 
 import { SourcePlaybackCard } from './SourcePlaybackCard';
@@ -80,12 +89,20 @@ describe('SourcePlaybackCard', () => {
         headers: youtubePlayback.requestHeaders,
       });
       expect(webView.props.originWhitelist).toEqual(['https://*', 'about:blank']);
+      expect(webView.props.setSupportMultipleWindows).toBe(false);
       expect(webView.props.onShouldStartLoadWithRequest({
         url: 'https://www.youtube.com/watch?v=abcDEF_1234',
       })).toBe(true);
       expect(webView.props.onShouldStartLoadWithRequest({
         url: 'https://apps.apple.com/app/youtube/id544007664',
       })).toBe(false);
+      webView.props.onOpenWindow({
+        nativeEvent: { targetUrl: 'https://apps.apple.com/app/youtube/id544007664' },
+      });
+      expect(navigationAllowed).toHaveBeenCalledWith(
+        'youtube',
+        'https://apps.apple.com/app/youtube/id544007664',
+      );
       expect(webView.props.allowsInlineMediaPlayback).toBe(true);
       expect(webView.props.allowsFullscreenVideo).toBe(true);
       expect(webView.props.mediaPlaybackRequiresUserAction).toBe(true);

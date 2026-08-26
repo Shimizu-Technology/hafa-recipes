@@ -74,6 +74,15 @@ export function SourcePlaybackCard({
             onShouldStartLoadWithRequest={({ url }) => (
               isSourcePlaybackNavigationAllowed(playback.provider, url)
             )}
+            // Android otherwise creates an unguarded native child WebView for target=_blank.
+            // Popups are unnecessary here because the card provides its own source action.
+            setSupportMultipleWindows={false}
+            onOpenWindow={({ nativeEvent }) => {
+              if (!isSourcePlaybackNavigationAllowed(playback.provider, nativeEvent.targetUrl)) {
+                return;
+              }
+              // Provider-owned popup requests also remain closed so playback stays inline.
+            }}
             onLoadProgress={({ nativeEvent }) => {
               if (nativeEvent.progress >= 0.8) setIsPlayerLoading(false);
             }}
