@@ -6,6 +6,10 @@ from fastapi.testclient import TestClient
 
 from app.ai_governance import PROMPT_VERSIONS
 from app.auth import ClerkUser, get_current_user
+from app.request_limits import (
+    MAX_PASTED_RECIPE_BODY_BYTES,
+    PastedTextBodyLimitMiddleware,
+)
 from app.routers import extract
 from app.services.llm_client import ExtractionResult, LLMService
 from app.services.prompts import (
@@ -71,6 +75,66 @@ def test_text_capture_rejects_blank_and_oversized_input():
     assert oversized.status_code == 422
 
 
+def test_text_capture_rejects_an_oversized_body_before_route_dependencies():
+    dependency = AsyncMock()
+    test_app = FastAPI()
+    test_app.include_router(extract.router)
+    test_app.add_middleware(PastedTextBodyLimitMiddleware)
+    test_app.dependency_overrides[get_current_user] = dependency
+
+    with TestClient(test_app) as client:
+        response = client.post(
+            "/api/extract/text",
+            content=b"x" * (MAX_PASTED_RECIPE_BODY_BYTES + 1),
+            headers={"content-type": "application/json"},
+        )
+
+    assert response.status_code == 413
+    assert response.json() == {"detail": "Request body too large"}
+    dependency.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_text_body_limit_counts_streamed_chunks_without_content_length():
+    messages = iter(
+        [
+            {
+                "type": "http.request",
+                "body": b"x" * MAX_PASTED_RECIPE_BODY_BYTES,
+                "more_body": True,
+            },
+            {"type": "http.request", "body": b"x", "more_body": False},
+        ]
+    )
+    sent: list[dict] = []
+
+    async def receive() -> dict:
+        return next(messages)
+
+    async def send(message: dict) -> None:
+        sent.append(message)
+
+    async def read_body_app(scope: dict, receive_body, send_response) -> None:
+        while (await receive_body()).get("more_body"):
+            pass
+        await send_response({"type": "http.response.start", "status": 204})
+
+    middleware = PastedTextBodyLimitMiddleware(read_body_app)
+    await middleware(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/extract/text",
+            "headers": [],
+        },
+        receive,
+        send,
+    )
+
+    assert sent[0]["type"] == "http.response.start"
+    assert sent[0]["status"] == 413
+
+
 def test_text_capture_returns_a_reviewable_draft(monkeypatch: pytest.MonkeyPatch):
     recipe = {
         "title": "Red Rice",
@@ -133,8 +197,22 @@ async def test_text_extraction_uses_dedicated_source_and_prompt_version():
 
 
 def test_pasted_text_sanitizer_preserves_recipe_line_structure():
-    content = "Ingredients:\r\n  1 cup rice  \n\n\nSteps:\n  Cook it."
+    content = (
+        "Ingredients:\r\n"
+        "- Sauce  \n"
+        "  - 1 cup oil\t\n"
+        "  - Salt\n\n\n"
+        "Steps:\n"
+        "  1. Stir it."
+    )
 
     sanitized = LLMService._sanitize_pasted_text(content)
 
-    assert sanitized == "Ingredients:\n1 cup rice\n\nSteps:\nCook it."
+    assert sanitized == (
+        "Ingredients:\n"
+        "- Sauce\n"
+        "  - 1 cup oil\n"
+        "  - Salt\n\n"
+        "Steps:\n"
+        "  1. Stir it."
+    )

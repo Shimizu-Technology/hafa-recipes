@@ -1110,8 +1110,7 @@ class LLMService:
         text = text.replace("\u201c", '"').replace("\u201d", '"')
         text = text.replace("\u2018", "'").replace("\u2019", "'")
         text = text.replace('…', '...').replace('—', '-').replace('–', '-')
-        text = re.sub(r"[^\S\n]+", " ", text)
-        text = re.sub(r" *\n *", "\n", text)
+        text = re.sub(r"[^\S\n]+$", "", text, flags=re.MULTILINE)
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
     
