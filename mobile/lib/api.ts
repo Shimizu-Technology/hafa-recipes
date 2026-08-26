@@ -1235,6 +1235,16 @@ class ApiClient {
     return data;
   }
 
+  async getRecipeMealPlanEntries(
+    recipeId: string,
+    startDate?: string,
+  ): Promise<MealPlanEntry[]> {
+    const { data } = await this.client.get(`/api/meal-plans/recipe/${recipeId}`, {
+      params: startDate ? { start_date: startDate } : undefined,
+    });
+    return data;
+  }
+
   async addMealPlanEntry(entry: MealPlanEntryCreate): Promise<MealPlanEntry> {
     const { data } = await this.client.post('/api/meal-plans/', entry);
     return data;
