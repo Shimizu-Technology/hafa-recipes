@@ -92,9 +92,11 @@ def test_direct_ocr_save_route_persists_normalized_confidence():
     db = AsyncMock()
 
     def capture_recipe(recipe: Recipe) -> None:
+        """Capture the model passed to the fake session for persistence assertions."""
         captured["recipe"] = recipe
 
     async def assign_database_values(recipe: Recipe) -> None:
+        """Simulate database-generated values populated by session refresh."""
         recipe.id = uuid4()
         recipe.created_at = datetime.now(UTC)
         recipe.moderation_status = "active"
