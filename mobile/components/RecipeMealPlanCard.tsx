@@ -20,7 +20,7 @@ type RecipeMealPlanCardProps = {
   hasError?: boolean;
   isRetrying?: boolean;
   onOpenDate: (date: string) => void;
-  onOpenPlanner: () => void;
+  onPlanRecipe: () => void;
   onRetry?: () => void;
 };
 
@@ -38,7 +38,7 @@ export function RecipeMealPlanCard({
   hasError = false,
   isRetrying = false,
   onOpenDate,
-  onOpenPlanner,
+  onPlanRecipe,
   onRetry,
 }: RecipeMealPlanCardProps) {
   const colors = useColors();
@@ -56,13 +56,13 @@ export function RecipeMealPlanCard({
           <Text style={[styles.title, { color: colors.text }]}>Meal plan</Text>
         </RNView>
         <TouchableOpacity
-          onPress={onOpenPlanner}
+          onPress={onPlanRecipe}
           style={[styles.openButton, { backgroundColor: colors.tint + '15' }]}
           accessibilityRole="link"
-          accessibilityLabel="Open meal planner"
+          accessibilityLabel="Plan this recipe"
         >
-          <Text style={[styles.openText, { color: colors.tint }]}>Open</Text>
-          <Ionicons name="arrow-forward" size={15} color={colors.tint} />
+          <Ionicons name="calendar-outline" size={15} color={colors.tint} />
+          <Text style={[styles.openText, { color: colors.tint }]}>Plan</Text>
         </TouchableOpacity>
       </RNView>
 

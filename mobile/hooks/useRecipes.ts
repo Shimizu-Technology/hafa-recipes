@@ -160,11 +160,11 @@ export function useRecentRecipes(limit = 10) {
 /**
  * Fetch a single recipe by ID
  */
-export function useRecipe(id: string) {
+export function useRecipe(id: string, enabled = true) {
   return useQuery({
     queryKey: recipeKeys.detail(id),
     queryFn: () => api.getRecipe(id),
-    enabled: !!id,
+    enabled: enabled && !!id,
   });
 }
 
