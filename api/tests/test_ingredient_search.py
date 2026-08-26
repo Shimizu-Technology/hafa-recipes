@@ -17,6 +17,7 @@ def recipe_with_ingredients(
     legacy: list[dict],
     is_public: bool = True,
     moderation_status: str = "active",
+    user_id: str = "recipe-owner",
 ) -> Recipe:
     return Recipe(
         id=uuid4(),
@@ -29,7 +30,7 @@ def recipe_with_ingredients(
             "nutrition": {"perServing": {}, "total": {}},
         },
         created_at=datetime.now(UTC),
-        user_id="recipe-owner",
+        user_id=user_id,
         is_public=is_public,
         moderation_status=moderation_status,
     )
@@ -84,8 +85,9 @@ class RecipeResult:
 
 
 class RecordingSession:
-    def __init__(self, recipes: list[Recipe]):
+    def __init__(self, recipes: list[Recipe], hidden_owner_ids: set[str] | None = None):
         self.recipes = recipes
+        self.hidden_owner_ids = hidden_owner_ids or set()
         self.execute_count = 0
 
     async def execute(self, query):
@@ -93,11 +95,16 @@ class RecordingSession:
         compiled_query = str(query)
         assert "recipes.is_public IS true" in compiled_query
         assert "recipes.moderation_status" in compiled_query
+        assert "app_users.moderation_status" in compiled_query
         return RecipeResult(
             [
                 recipe
                 for recipe in self.recipes
-                if recipe.is_public and recipe.moderation_status == "active"
+                if (
+                    recipe.is_public
+                    and recipe.moderation_status == "active"
+                    and recipe.user_id not in self.hidden_owner_ids
+                )
             ]
         )
 
@@ -123,7 +130,15 @@ async def test_signed_out_search_uses_only_public_recipes_and_scores_unique_ingr
         legacy=[],
         moderation_status="hidden",
     )
-    session = RecordingSession([visible_recipe, private_recipe, hidden_recipe])
+    hidden_owner_recipe = recipe_with_ingredients(
+        components=[{"name": "Main", "ingredients": [{"name": "Chicken"}]}],
+        legacy=[],
+        user_id="hidden-owner",
+    )
+    session = RecordingSession(
+        [visible_recipe, private_recipe, hidden_recipe, hidden_owner_recipe],
+        hidden_owner_ids={"hidden-owner"},
+    )
 
     response = await search_by_ingredients(
         ingredients=" Chicken, rice, chicken ",

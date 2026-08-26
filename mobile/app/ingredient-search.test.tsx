@@ -2,6 +2,9 @@ import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
+  .IS_REACT_ACT_ENVIRONMENT = true;
+
 const mocks = vi.hoisted(() => ({
   isSignedIn: false,
   refetch: vi.fn(),
@@ -114,7 +117,7 @@ describe('IngredientSearchScreen', () => {
 
     expect(mocks.useSearchByIngredients).toHaveBeenLastCalledWith(
       ['chicken', 'rice'],
-      true,
+      false,
       true,
       true,
     );
@@ -126,5 +129,26 @@ describe('IngredientSearchScreen', () => {
     const retryButton = renderer!.root.findByProps({ accessibilityLabel: 'Retry ingredient search' });
     await act(async () => retryButton.props.onPress());
     expect(mocks.refetch).toHaveBeenCalledOnce();
+  });
+
+  it('includes saved recipes in signed-in searches', async () => {
+    mocks.isSignedIn = true;
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(React.createElement(IngredientSearchScreen));
+    });
+
+    const textInputType = 'TextInput' as unknown as React.ComponentType;
+    await act(async () => renderer!.root.findByType(textInputType).props.onChangeText('Chicken'));
+    const searchText = renderer!.root.findByProps({ children: 'Search' });
+    await act(async () => searchText.parent?.props.onPress());
+
+    expect(renderer!.root.findAllByProps({ children: 'Saved' }).length).toBeGreaterThan(0);
+    expect(mocks.useSearchByIngredients).toHaveBeenLastCalledWith(
+      ['chicken'],
+      true,
+      true,
+      true,
+    );
   });
 });

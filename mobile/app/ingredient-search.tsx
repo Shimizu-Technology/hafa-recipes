@@ -66,7 +66,7 @@ export default function IngredientSearchScreen() {
   // Search query
   const { data, isLoading, isFetching, isError, refetch } = useSearchByIngredients(
     searchIngredients,
-    includeSaved,
+    Boolean(isSignedIn) && includeSaved,
     includePublic,
     searchIngredients.length > 0
   );
