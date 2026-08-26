@@ -184,6 +184,8 @@ export default function RecipeDetailScreen() {
   const {
     data: recipePlanEntries = [],
     isLoading: isRecipePlanLoading,
+    isError: isRecipePlanError,
+    refetch: refetchRecipePlan,
   } = useRecipeMealPlanEntries(id, !!userId);
   
   // Similar recipes
@@ -847,8 +849,10 @@ export default function RecipeDetailScreen() {
               <RecipeMealPlanCard
                 entries={recipePlanEntries}
                 isLoading={isRecipePlanLoading}
+                hasError={isRecipePlanError}
                 onOpenDate={(date) => router.push(appRoutes.plannerDate(date))}
                 onOpenPlanner={() => router.push(appRoutes.planner)}
+                onRetry={() => { void refetchRecipePlan(); }}
               />
             )}
 

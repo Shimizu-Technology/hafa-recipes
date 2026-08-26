@@ -17,8 +17,10 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 type RecipeMealPlanCardProps = {
   entries: readonly MealPlanEntry[];
   isLoading: boolean;
+  hasError?: boolean;
   onOpenDate: (date: string) => void;
   onOpenPlanner: () => void;
+  onRetry?: () => void;
 };
 
 /** Format an API calendar date without shifting it across time zones. */
@@ -32,8 +34,10 @@ export function formatMealPlanDate(date: string): string {
 export function RecipeMealPlanCard({
   entries,
   isLoading,
+  hasError = false,
   onOpenDate,
   onOpenPlanner,
+  onRetry,
 }: RecipeMealPlanCardProps) {
   const colors = useColors();
   const visibleEntries = entries.slice(0, VISIBLE_ENTRY_LIMIT);
@@ -64,6 +68,23 @@ export function RecipeMealPlanCard({
         <RNView style={styles.loadingRow}>
           <ActivityIndicator size="small" color={colors.tint} />
           <Text style={[styles.supportingText, { color: colors.textMuted }]}>Checking your plan...</Text>
+        </RNView>
+      ) : hasError ? (
+        <RNView style={styles.errorRow}>
+          <Text style={[styles.supportingText, styles.errorText, { color: colors.textMuted }]}>
+            We couldn't load this recipe's upcoming plan.
+          </Text>
+          {onRetry && (
+            <TouchableOpacity
+              onPress={onRetry}
+              style={[styles.retryButton, { borderColor: colors.tint }]}
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading meal plan"
+            >
+              <Ionicons name="refresh" size={15} color={colors.tint} />
+              <Text style={[styles.retryText, { color: colors.tint }]}>Retry</Text>
+            </TouchableOpacity>
+          )}
         </RNView>
       ) : visibleEntries.length > 0 ? (
         <RNView style={styles.entryLinks}>
@@ -148,6 +169,25 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     lineHeight: 20,
     marginTop: spacing.sm,
+  },
+  errorRow: {
+    alignItems: 'flex-start',
+  },
+  errorText: {
+    marginBottom: spacing.sm,
+  },
+  retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    minHeight: 40,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderRadius: radius.full,
+  },
+  retryText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
   },
   entryLinks: {
     gap: spacing.sm,

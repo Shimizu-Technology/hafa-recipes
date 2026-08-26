@@ -85,4 +85,39 @@ describe('RecipeMealPlanCard', () => {
   it('formats API dates without UTC rollover', () => {
     expect(formatMealPlanDate('2026-08-27')).toBe('Thu, Aug 27');
   });
+
+  it('shows a retryable failure instead of claiming the recipe is unplanned', async () => {
+    const onRetry = vi.fn();
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(RecipeMealPlanCard, {
+          entries: [],
+          isLoading: false,
+          hasError: true,
+          onOpenDate: vi.fn(),
+          onOpenPlanner: vi.fn(),
+          onRetry,
+        }));
+      });
+
+      const texts = renderer.container.queryAll((instance) => instance.type === 'Text');
+      expect(texts.some(
+        (text) => text.props.children === "We couldn't load this recipe's upcoming plan.",
+      )).toBe(true);
+      expect(texts.some(
+        (text) => text.props.children === 'This recipe is not on your upcoming plan yet.',
+      )).toBe(false);
+
+      const retryButton = renderer.container.queryAll(
+        (instance) => instance.type === 'TouchableOpacity',
+      ).find((button) => button.props.accessibilityLabel === 'Retry loading meal plan');
+      await act(async () => retryButton!.props.onPress());
+
+      expect(onRetry).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
 });
