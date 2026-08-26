@@ -22,7 +22,7 @@ logger = logging.getLogger("hafa.ai")
 
 PROMPT_VERSIONS = {
     "recipe_extraction": "recipe-extraction-v1",
-    "ocr": "recipe-ocr-v1",
+    "ocr": "recipe-ocr-v2",
     "recipe_chat": "recipe-chat-safety-v3",
     "cooking_chat": "cooking-chat-safety-v3",
     "enrichment_tags": "recipe-tags-v1",

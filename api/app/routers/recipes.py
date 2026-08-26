@@ -42,6 +42,7 @@ from app.recipe_derived_data import (
     invalidate_changed_inputs,
     mark_fresh,
 )
+from app.services.extraction_confidence import normalize_extraction_confidence
 from app.services.storage import storage_service
 from app.source_urls import canonicalize_source
 
@@ -748,6 +749,7 @@ async def save_ocr_recipe(
     Accepts the full extracted JSON and saves it as a new recipe.
     """
     extracted = ensure_derived_metadata(ocr_data.extracted)
+    low_confidence, _ = normalize_extraction_confidence(extracted)
 
     # Ensure sourceUrl is set
     if not extracted.get("sourceUrl"):
@@ -764,7 +766,7 @@ async def save_ocr_recipe(
         extracted=extracted,
         thumbnail_url=None,
         extraction_method="ocr",
-        extraction_quality="good",  # OCR extractions are typically good quality
+        extraction_quality="low" if low_confidence else "good",
         has_audio_transcript=False,
         user_id=user.id,
         extractor_display_name=user.display_name,  # Store display name for attribution

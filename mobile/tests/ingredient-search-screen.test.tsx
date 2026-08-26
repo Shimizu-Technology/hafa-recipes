@@ -90,7 +90,7 @@ vi.mock('@/lib/ingredientSearch', () => ({
     input.split(/[\n,]+/).map((value) => value.trim().toLowerCase()).filter(Boolean),
 }));
 
-import IngredientSearchScreen from './ingredient-search';
+import IngredientSearchScreen from '../app/ingredient-search';
 
 describe('IngredientSearchScreen', () => {
   beforeEach(() => {
