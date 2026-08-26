@@ -218,6 +218,38 @@ async def get_day_plan(
     )
 
 
+@router.get("/recipe/{recipe_id}", response_model=List[MealPlanEntryResponse])
+async def get_recipe_plan_entries(
+    recipe_id: UUID,
+    start_date: Optional[date] = Query(
+        default=None,
+        description="Earliest planned date (defaults to today)",
+    ),
+    limit: int = Query(default=50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    user: ClerkUser = Depends(get_current_user),
+):
+    """Return this user's upcoming meal-plan relationships for a recipe."""
+    first_date = start_date or date.today()
+    result = await db.execute(
+        select(MealPlanEntry)
+        .join(Recipe, Recipe.id == MealPlanEntry.recipe_id)
+        .where(
+            MealPlanEntry.user_id == user.id,
+            MealPlanEntry.recipe_id == recipe_id,
+            MealPlanEntry.date >= first_date,
+            *accessible_recipe_conditions(user.id),
+        )
+        .order_by(
+            MealPlanEntry.date,
+            MealPlanEntry.meal_type,
+            MealPlanEntry.created_at,
+        )
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
 @router.post("/", response_model=MealPlanEntryResponse)
 async def add_meal(
     entry: MealPlanEntryCreate,
