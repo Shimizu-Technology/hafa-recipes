@@ -204,12 +204,20 @@ def get_ocr_extraction_prompt(location: str = "Guam") -> str:
     """
     return f"""You are a culinary OCR engine. Analyze this image of a recipe (handwritten or printed) and extract the complete recipe information.
 
-INSTRUCTIONS:
+TRANSCRIPTION TRUST RULES:
 1. CAREFULLY read ALL text in the image, including handwritten notes
 2. Extract the full recipe including title, ingredients, steps, times, and any notes
-3. If the handwriting is difficult to read, make your best interpretation
-4. For unclear measurements, use common cooking conventions
+3. Do not silently guess text that is missing, cropped, blurry, or difficult to read
+4. For an unclear quantity or unit, use null rather than inventing a measurement
 5. If the recipe appears to be a family recipe card, preserve any personal notes or tips
+6. Set lowConfidence to true and write a concise confidenceWarning whenever any
+   ingredient, measurement, temperature, time, or instruction is uncertain
+7. Set lowConfidence to false and confidenceWarning to null only when the recipe
+   text needed to cook the dish is clearly readable
+8. If an ingredient name itself is unreadable, do not invent one; omit that line
+   and identify the omission in confidenceWarning
+9. lowConfidence reports transcription uncertainty only; derived estimates such
+   as cost, nutrition, tags, or omitted time/serving estimates do not trigger it
 
 EXTRACTION RULES:
 - sourceUrl: Set to "photo-upload" since this is from an image
@@ -223,11 +231,8 @@ EXTRACTION RULES:
   * Regional pricing (Guam: 25-40% higher than mainland US)
   * Round to nearest $0.25
 - Calculate totalEstimatedCost as sum of all ingredient costs
-- For times, estimate based on the recipe:
-  * prep: Estimate preparation time
-  * cook: Estimate cooking time
-  * total: Total time
-- For servings, estimate a reasonable number based on ingredient quantities
+- For times, preserve values shown in the image; estimate only fields the image omits
+- For servings, preserve the stated value; estimate only if the image omits it
 - CRITICAL - For nutrition, you MUST ALWAYS calculate realistic nutritional values based on ingredients:
   * NEVER leave nutrition empty - estimate based on ingredients even if not in the image
   * Use standard USDA nutritional data as reference
@@ -263,6 +268,8 @@ Return a JSON object with this structure:
   "tags": ["easy", "quick", "chicken"],
   "totalEstimatedCost": 15.00,
   "costLocation": "{location}",
+  "lowConfidence": false,
+  "confidenceWarning": null,
   "nutrition": {{
     "perServing": {{"calories": 200, "protein": 10, "carbs": 30, "fat": 5, "fiber": 2, "sugar": 1, "sodium": 300}},
     "total": {{"calories": 800, "protein": 40, "carbs": 120, "fat": 20, "fiber": 8, "sugar": 4, "sodium": 1200}}
@@ -380,6 +387,14 @@ INSTRUCTIONS:
 5. If the same information appears on multiple pages, use the clearest version
 6. Preserve any personal notes or tips from any of the images
 7. COUNT all steps carefully - don't miss any!
+8. Do not silently guess text that is cropped, blurry, missing, or difficult to read
+9. For an unclear quantity or unit, use null rather than inventing a measurement
+10. Set lowConfidence to true with a concise confidenceWarning whenever any
+    ingredient, measurement, temperature, time, or instruction is uncertain
+11. If an ingredient name itself is unreadable, do not invent one; omit that line
+    and identify the omission in confidenceWarning
+12. lowConfidence reports transcription uncertainty only; derived estimates such
+    as cost, nutrition, or tags do not trigger it
 
 EXTRACTION RULES:
 - sourceUrl: Set to "photo-upload"
@@ -416,6 +431,8 @@ Return a JSON object with this structure:
   "tags": ["easy", "quick", "chicken"],
   "totalEstimatedCost": 15.00,
   "costLocation": "{location}",
+  "lowConfidence": false,
+  "confidenceWarning": null,
   "nutrition": {{
     "perServing": {{"calories": 200, "protein": 10, "carbs": 30, "fat": 5, "fiber": 2, "sugar": 1, "sodium": 300}},
     "total": {{"calories": 800, "protein": 40, "carbs": 120, "fat": 20, "fiber": 8, "sugar": 4, "sodium": 1200}}

@@ -16,11 +16,12 @@ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { View, Text, Button, Input, useColors } from '@/components/Themed';
+import { View, Text, Button, useColors } from '@/components/Themed';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { useSaveOcrRecipe } from '@/hooks/useRecipes';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { formatPublishDisclosure } from '@/lib/recipePublishing';
+import { getOcrPublishDisclosure, hasOcrNutrition } from '@/lib/ocrReview';
 
 export default function OCRReviewScreen() {
   const router = useRouter();
@@ -39,20 +40,7 @@ export default function OCRReviewScreen() {
   const saveOcrRecipe = useSaveOcrRecipe();
   const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
 
-  const publishPreview = () => formatPublishDisclosure({
-    title: recipe?.title || 'Untitled recipe',
-    ingredientCount: (recipe?.components || []).reduce(
-      (count: number, component: any) => count + (component.ingredients || []).length,
-      0,
-    ),
-    instructionCount: (recipe?.components || []).reduce(
-      (count: number, component: any) => count + (component.steps || []).length,
-      0,
-    ),
-    hasPhoto: true,
-    hasSourceLink: false,
-    contributorName: 'your contributor name',
-  });
+  const publishPreview = () => formatPublishDisclosure(getOcrPublishDisclosure(recipe || {}));
 
   const handlePublicToggle = async () => {
     if (isPublic) {
@@ -125,10 +113,7 @@ export default function OCRReviewScreen() {
     // Check if OCR missed important AI-enhanced data
     const hasIngredients = recipe.components?.some((c: any) => c.ingredients?.length > 0);
     const hasTags = recipe.tags && recipe.tags.length > 0;
-    const hasNutrition = recipe.nutrition && (
-      recipe.nutrition.calories || recipe.nutrition.protein || 
-      recipe.nutrition.carbs || recipe.nutrition.fat
-    );
+    const hasNutrition = hasOcrNutrition(recipe);
     
     // If missing tags or nutrition, suggest editing to add AI info
     if (hasIngredients && (!hasTags || !hasNutrition)) {
@@ -208,13 +193,28 @@ export default function OCRReviewScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Success Banner */}
-        <RNView style={[styles.successBanner, { backgroundColor: colors.success + '20' }]}>
-          <Ionicons name="checkmark-circle" size={24} color={colors.success} />
-          <Text style={[styles.successText, { color: colors.success }]}>
-            Recipe extracted successfully!
+        {/* Review Banner */}
+        <RNView style={[styles.successBanner, { backgroundColor: colors.warning + '18' }]}>
+          <Ionicons name="alert-circle-outline" size={24} color={colors.warning} />
+          <Text style={[styles.successText, { color: colors.text }]}>
+            AI draft ready — review before saving
           </Text>
         </RNView>
+
+        <RNView style={[styles.reviewNotice, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
+          <Ionicons name="eye-outline" size={20} color={colors.tint} />
+          <RNView style={styles.reviewNoticeText}>
+            <Text style={[styles.reviewNoticeTitle, { color: colors.text }]}>Check the cooking details</Text>
+            <Text style={[styles.reviewNoticeBody, { color: colors.textMuted }]}>AI can misread amounts, temperatures, or step order. Source screenshots are uploaded for extraction but are not attached to the saved recipe.</Text>
+          </RNView>
+        </RNView>
+
+        {recipe.lowConfidence && recipe.confidenceWarning && (
+          <RNView style={[styles.confidenceWarning, { borderColor: colors.warning, backgroundColor: colors.warning + '12' }]}>
+            <Ionicons name="warning-outline" size={18} color={colors.warning} />
+            <Text style={[styles.confidenceWarningText, { color: colors.text }]}>{recipe.confidenceWarning}</Text>
+          </RNView>
+        )}
 
         {/* Title */}
         <RNView style={styles.section}>
@@ -390,8 +390,44 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   successText: {
+    flex: 1,
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
+  },
+  reviewNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginBottom: spacing.lg,
+  },
+  reviewNoticeText: {
+    flex: 1,
+    gap: 2,
+  },
+  reviewNoticeTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+  },
+  reviewNoticeBody: {
+    fontSize: fontSize.sm,
+    lineHeight: 20,
+  },
+  confidenceWarning: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginBottom: spacing.lg,
+  },
+  confidenceWarningText: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    lineHeight: 20,
   },
   section: {
     marginBottom: spacing.lg,

@@ -10,6 +10,7 @@ import httpx
 
 from app.ai_governance import PROMPT_VERSIONS, RECIPE_SCHEMA_VERSION, AIInvocationTracker
 from app.config import get_settings
+from app.services.extraction_confidence import normalize_extraction_confidence
 from app.services.prompts import (
     get_multi_image_ocr_prompt,
     get_ocr_extraction_prompt,
@@ -1121,6 +1122,8 @@ class LLMService:
         # Ensure equipment is a list
         if "equipment" not in recipe or not isinstance(recipe["equipment"], list):
             recipe["equipment"] = []
+
+        normalize_extraction_confidence(recipe)
         
         return recipe
 

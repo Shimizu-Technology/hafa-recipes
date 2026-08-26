@@ -78,15 +78,15 @@ export default function ExtractScreen() {
   // Handle photo selection/capture for OCR
   const handleScanRecipe = async () => {
     Alert.alert(
-      'Scan Recipe',
-      'Take a photo of a recipe card or select images from your gallery.',
+      'Import Recipe Images',
+      'Take a photo or choose up to 10 screenshots, recipe cards, or cookbook pages.',
       [
         {
           text: 'Take Photo',
           onPress: () => pickImage('camera'),
         },
         {
-          text: 'Choose from Gallery',
+          text: 'Choose Screenshots or Photos',
           onPress: () => pickImage('library'),
         },
         { text: 'Cancel', style: 'cancel' },
@@ -496,8 +496,8 @@ export default function ExtractScreen() {
           {/* Info Text */}
           <Text style={[styles.galleryHint, { color: colors.textMuted }]}>
             {selectedImages.length === 1
-              ? 'Add more images for multi-page recipes'
-              : `${selectedImages.length} pages will be combined into one recipe`}
+              ? 'Add more screenshots or pages for a complete recipe. Source images are not attached to the saved recipe.'
+              : `${selectedImages.length} images will be combined in this order. Source images are not attached to the saved recipe.`}
           </Text>
 
           {/* Extract Button */}
@@ -761,10 +761,10 @@ export default function ExtractScreen() {
             </RNView>
             <RNView style={styles.scanTextContainer}>
               <Text style={[styles.scanTitle, { color: colors.text }]}>
-                Scan Recipe Card
+                Import Screenshots or Photos
               </Text>
               <Text style={[styles.scanSubtitle, { color: colors.textMuted }]}>
-                Take a photo of a handwritten or printed recipe
+                Extract a recipe from screenshots, cards, or cookbook pages
               </Text>
             </RNView>
             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
