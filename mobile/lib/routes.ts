@@ -5,6 +5,7 @@ export const appRoutes = {
     params: { id: collectionId },
   }),
   discover: '/(tabs)/discover' as const,
+  grocery: '/(tabs)/grocery' as const,
   planner: '/(tabs)/planner' as const,
   plannerDate: (date: string) => ({
     pathname: '/(tabs)/planner' as const,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseIngredientSearchInput } from './ingredientSearch';
+import { mergeIngredientSearchInput, parseIngredientSearchInput } from './ingredientSearch';
 
 describe('parseIngredientSearchInput', () => {
   it('accepts comma-separated and line-separated pasted ingredients', () => {
@@ -17,5 +17,18 @@ describe('parseIngredientSearchInput', () => {
       'rice',
       'chicken',
     ]);
+  });
+});
+
+describe('mergeIngredientSearchInput', () => {
+  it('adds a pasted batch without duplicating active ingredients', () => {
+    expect(mergeIngredientSearchInput(
+      ['rice', 'chicken'],
+      'Chicken, garlic\nGreen onions',
+    )).toEqual(['rice', 'chicken', 'garlic', 'green onions']);
+  });
+
+  it('normalizes active ingredients before deduplicating new input', () => {
+    expect(mergeIngredientSearchInput([' Chicken '], 'chicken')).toEqual(['chicken']);
   });
 });

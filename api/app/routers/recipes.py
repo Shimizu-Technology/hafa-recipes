@@ -1349,7 +1349,9 @@ async def search_by_ingredients(
                 total_ingredients=total_ingredients,
                 match_count=match_count,
                 match_percentage=round(match_percentage, 1),
-                missing_ingredients=missing[:10]  # Limit to 10 missing ingredients
+                # The mobile result can add these directly to the grocery list,
+                # so this relationship must be complete rather than a preview.
+                missing_ingredients=missing,
             ))
 
     # Sort by match percentage (highest first), then by match count
