@@ -18,6 +18,7 @@ type RecipeMealPlanCardProps = {
   entries: readonly MealPlanEntry[];
   isLoading: boolean;
   hasError?: boolean;
+  isRetrying?: boolean;
   onOpenDate: (date: string) => void;
   onOpenPlanner: () => void;
   onRetry?: () => void;
@@ -35,6 +36,7 @@ export function RecipeMealPlanCard({
   entries,
   isLoading,
   hasError = false,
+  isRetrying = false,
   onOpenDate,
   onOpenPlanner,
   onRetry,
@@ -77,12 +79,20 @@ export function RecipeMealPlanCard({
           {onRetry && (
             <TouchableOpacity
               onPress={onRetry}
+              disabled={isRetrying}
               style={[styles.retryButton, { borderColor: colors.tint }]}
               accessibilityRole="button"
-              accessibilityLabel="Retry loading meal plan"
+              accessibilityLabel={isRetrying ? 'Retrying meal plan' : 'Retry loading meal plan'}
+              accessibilityState={{ busy: isRetrying, disabled: isRetrying }}
             >
-              <Ionicons name="refresh" size={15} color={colors.tint} />
-              <Text style={[styles.retryText, { color: colors.tint }]}>Retry</Text>
+              {isRetrying ? (
+                <ActivityIndicator size="small" color={colors.tint} />
+              ) : (
+                <Ionicons name="refresh" size={15} color={colors.tint} />
+              )}
+              <Text style={[styles.retryText, { color: colors.tint }]}>
+                {isRetrying ? 'Retrying...' : 'Retry'}
+              </Text>
             </TouchableOpacity>
           )}
         </RNView>

@@ -120,4 +120,36 @@ describe('RecipeMealPlanCard', () => {
       await act(async () => renderer.unmount());
     }
   });
+
+  it('disables retry and shows progress while the relationship query refetches', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(RecipeMealPlanCard, {
+          entries: [],
+          isLoading: false,
+          hasError: true,
+          isRetrying: true,
+          onOpenDate: vi.fn(),
+          onOpenPlanner: vi.fn(),
+          onRetry: vi.fn(),
+        }));
+      });
+
+      const retryButton = renderer.container.queryAll(
+        (instance) => instance.type === 'TouchableOpacity',
+      ).find((button) => button.props.accessibilityLabel === 'Retrying meal plan');
+      expect(retryButton?.props.disabled).toBe(true);
+      expect(retryButton?.props.accessibilityState).toEqual({ busy: true, disabled: true });
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Text' && instance.props.children === 'Retrying...',
+      )).toHaveLength(1);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'ActivityIndicator',
+      )).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
 });
