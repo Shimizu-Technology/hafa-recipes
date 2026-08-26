@@ -13,6 +13,7 @@ import {
 import { useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useAuth } from '@clerk/expo';
 
 import { View, Text, useColors } from '@/components/Themed';
 import { useSearchByIngredients } from '@/hooks/useRecipes';
@@ -20,6 +21,7 @@ import { IngredientMatchResult } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
 import { ScalePressable } from '@/components/Animated';
+import { parseIngredientSearchInput } from '@/lib/ingredientSearch';
 
 // Thumbnail component with error handling fallback
 const RecipeThumbnail = memo(function RecipeThumbnail({
@@ -54,14 +56,15 @@ export default function IngredientSearchScreen() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  
+  const { isSignedIn } = useAuth();
+
   const [inputText, setInputText] = useState('');
   const [searchIngredients, setSearchIngredients] = useState<string[]>([]);
   const [includeSaved, setIncludeSaved] = useState(true);
   const [includePublic, setIncludePublic] = useState(true);
-  
+
   // Search query
-  const { data, isLoading, isFetching } = useSearchByIngredients(
+  const { data, isLoading, isFetching, isError, refetch } = useSearchByIngredients(
     searchIngredients,
     includeSaved,
     includePublic,
@@ -70,12 +73,8 @@ export default function IngredientSearchScreen() {
   
   const handleSearch = useCallback(() => {
     if (!inputText.trim()) return;
-    
-    // Parse comma-separated ingredients
-    const ingredients = inputText
-      .split(',')
-      .map(i => i.trim().toLowerCase())
-      .filter(i => i.length > 0);
+
+    const ingredients = parseIngredientSearchInput(inputText);
     
     if (ingredients.length > 0) {
       haptics.light();
@@ -165,7 +164,26 @@ export default function IngredientSearchScreen() {
         </View>
       );
     }
-    
+
+    if (isError) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="cloud-offline-outline" size={64} color={colors.textMuted} />
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>Couldn’t search recipes</Text>
+          <Text style={[styles.emptyText, { color: colors.textMuted }]}>Your ingredients are still here. Check your connection and try again.</Text>
+          <TouchableOpacity
+            style={[styles.retryButton, { backgroundColor: colors.tint }]}
+            onPress={() => void refetch()}
+            accessibilityRole="button"
+            accessibilityLabel="Retry ingredient search"
+          >
+            <Ionicons name="refresh-outline" size={18} color="#FFFFFF" />
+            <Text style={styles.retryButtonText}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
     if (searchIngredients.length === 0) {
       return (
         <View style={styles.emptyContainer}>
@@ -194,8 +212,8 @@ export default function IngredientSearchScreen() {
         </Text>
       </View>
     );
-  }, [isLoading, isFetching, searchIngredients.length, colors]);
-  
+  }, [isLoading, isFetching, isError, searchIngredients.length, colors, refetch]);
+
   return (
     <>
       <Stack.Screen
@@ -285,28 +303,30 @@ export default function IngredientSearchScreen() {
                 </Text>
               </TouchableOpacity>
               
-              <TouchableOpacity
-                style={[
-                  styles.toggleButton,
-                  { 
-                    backgroundColor: includeSaved ? colors.tint + '20' : colors.backgroundSecondary,
-                    borderColor: includeSaved ? colors.tint : colors.border,
-                  }
-                ]}
-                onPress={() => {
-                  haptics.light();
-                  setIncludeSaved(!includeSaved);
-                }}
-              >
-                <Ionicons
-                  name={includeSaved ? "bookmark" : "bookmark-outline"}
-                  size={14}
-                  color={includeSaved ? colors.tint : colors.textMuted}
-                />
-                <Text style={[styles.toggleText, { color: includeSaved ? colors.tint : colors.textMuted }]}>
-                  Saved
-                </Text>
-              </TouchableOpacity>
+              {isSignedIn && (
+                <TouchableOpacity
+                  style={[
+                    styles.toggleButton,
+                    {
+                      backgroundColor: includeSaved ? colors.tint + '20' : colors.backgroundSecondary,
+                      borderColor: includeSaved ? colors.tint : colors.border,
+                    }
+                  ]}
+                  onPress={() => {
+                    haptics.light();
+                    setIncludeSaved(!includeSaved);
+                  }}
+                >
+                  <Ionicons
+                    name={includeSaved ? "bookmark" : "bookmark-outline"}
+                    size={14}
+                    color={includeSaved ? colors.tint : colors.textMuted}
+                  />
+                  <Text style={[styles.toggleText, { color: includeSaved ? colors.tint : colors.textMuted }]}>
+                    Saved
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         )}
@@ -510,5 +530,19 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     marginTop: spacing.md,
     fontStyle: 'italic',
+  },
+  retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
   },
 });

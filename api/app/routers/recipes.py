@@ -1,6 +1,7 @@
 """Recipe API endpoints - CRUD operations with user authentication."""
 
 import json
+import re
 from typing import List, Optional
 from uuid import UUID
 
@@ -1127,47 +1128,72 @@ async def search_recipes(
     )
 
 
+def _normalize_ingredient_name(value: object) -> str:
+    """Normalize an ingredient name for stable matching and deduplication."""
+    return re.sub(r"[^\w]+", " ", str(value).casefold()).strip()
+
+
 def extract_ingredient_names(recipe: Recipe) -> list[str]:
-    """Extract all ingredient names from a recipe's components."""
+    """Extract unique ingredient names, preferring canonical components."""
     extracted = recipe.extracted or {}
     components = extracted.get("components") or []
 
-    ingredient_names = []
+    component_names: list[str] = []
     for component in components:
+        if not isinstance(component, dict):
+            continue
         ingredients = component.get("ingredients") or []
         for ing in ingredients:
-            name = ing.get("name")
+            name = ing.get("name") if isinstance(ing, dict) else ing
             if name:
-                ingredient_names.append(name.lower().strip())
+                normalized = _normalize_ingredient_name(name)
+                if normalized:
+                    component_names.append(normalized)
 
-    # Also check legacy ingredients field
-    legacy_ingredients = extracted.get("ingredients") or []
-    for ing in legacy_ingredients:
-        name = ing.get("name") if isinstance(ing, dict) else ing
-        if name:
-            ingredient_names.append(str(name).lower().strip())
+    # The flat ingredients field is a synchronized legacy representation. It
+    # must be a fallback, not an additional source, or every ingredient is
+    # counted twice in match percentages.
+    ingredient_names = component_names
+    if not ingredient_names:
+        legacy_ingredients = extracted.get("ingredients") or []
+        for ing in legacy_ingredients:
+            name = ing.get("name") if isinstance(ing, dict) else ing
+            if name:
+                normalized = _normalize_ingredient_name(name)
+                if normalized:
+                    ingredient_names.append(normalized)
 
-    return ingredient_names
+    return list(dict.fromkeys(ingredient_names))
+
+
+def _ingredient_names_overlap(first: str, second: str) -> bool:
+    """Return whether either normalized phrase contains the other by words."""
+    if not first or not second:
+        return False
+    first_pattern = rf"(?<!\w){re.escape(first)}(?!\w)"
+    second_pattern = rf"(?<!\w){re.escape(second)}(?!\w)"
+    return bool(re.search(first_pattern, second) or re.search(second_pattern, first))
 
 
 def match_ingredients(recipe_ingredients: list[str], query_ingredients: list[str]) -> tuple[list[str], list[str]]:
     """
     Match query ingredients against recipe ingredients.
     Returns (matched_ingredients, missing_ingredients).
-    Uses fuzzy matching - query "chicken" matches "chicken breast", "chicken thighs", etc.
+    Uses word-aware phrase matching, so "chicken" matches both "chicken breast"
+    and "chicken thighs" without matching unrelated words such as "kitchen".
     """
-    matched = []
-
-    for query_ing in query_ingredients:
-        query_lower = query_ing.lower().strip()
-        for recipe_ing in recipe_ingredients:
-            # Check if query ingredient is contained in recipe ingredient or vice versa
-            if query_lower in recipe_ing or recipe_ing in query_lower:
-                matched.append(recipe_ing)
-                break
-
-    # Get unique matches
-    matched = list(set(matched))
+    normalized_queries = list(
+        dict.fromkeys(
+            normalized
+            for query in query_ingredients
+            if (normalized := _normalize_ingredient_name(query))
+        )
+    )
+    matched = [
+        recipe_ing
+        for recipe_ing in recipe_ingredients
+        if any(_ingredient_names_overlap(recipe_ing, query) for query in normalized_queries)
+    ]
 
     # Find missing ingredients (recipe ingredients not matched by any query)
     matched_set = set(matched)
@@ -1183,7 +1209,7 @@ async def search_by_ingredients(
     include_public: bool = Query(default=True, description="Include all public recipes from Discover"),
     limit: int = Query(default=20, le=100),
     db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user),
+    user: Optional[ClerkUser] = Depends(get_optional_user),
 ):
     """
     Search recipes by ingredients you have on hand.
@@ -1192,12 +1218,21 @@ async def search_by_ingredients(
     Great for "what can I make with these leftovers?" scenarios.
 
     Searches:
-    - Your own recipes (always)
-    - Saved recipes (if include_saved=True)
+    - Your own recipes when signed in
+    - Saved recipes when signed in and include_saved=True
     - All public recipes (if include_public=True)
+
+    Works with or without authentication. Signed-out users search the public
+    recipe library only.
     """
     # Parse ingredients
-    query_ingredients = [ing.strip().lower() for ing in ingredients.split(",") if ing.strip()]
+    query_ingredients = list(
+        dict.fromkeys(
+            normalized
+            for ingredient in ingredients.split(",")
+            if (normalized := _normalize_ingredient_name(ingredient))
+        )
+    )
 
     if not query_ingredients:
         return IngredientSearchResponse(
@@ -1207,14 +1242,17 @@ async def search_by_ingredients(
         )
 
     # Get user's own recipes
-    own_recipes_result = await db.execute(
-        select(Recipe).where(Recipe.user_id == user.id)
-    )
-    own_recipes = list(own_recipes_result.scalars().all())
+    viewer_user_id = user.id if user else None
+    own_recipes = []
+    if user:
+        own_recipes_result = await db.execute(
+            select(Recipe).where(Recipe.user_id == user.id)
+        )
+        own_recipes = list(own_recipes_result.scalars().all())
 
     # Optionally get saved recipes
     saved_recipes = []
-    if include_saved:
+    if include_saved and user:
         saved_result = await db.execute(
             select(Recipe)
             .join(SavedRecipe, SavedRecipe.recipe_id == Recipe.id)
@@ -1229,7 +1267,7 @@ async def search_by_ingredients(
     public_recipes = []
     if include_public:
         public_result = await db.execute(
-            select(Recipe).where(*public_recipe_conditions(user.id))
+            select(Recipe).where(*public_recipe_conditions(viewer_user_id))
         )
         public_recipes = list(public_result.scalars().all())
 
@@ -1251,7 +1289,7 @@ async def search_by_ingredients(
             match_percentage = (match_count / total_ingredients) * 100 if total_ingredients > 0 else 0
 
             results.append(IngredientMatchResult(
-                recipe=recipe_to_list_item(recipe, user.id),
+                recipe=recipe_to_list_item(recipe, viewer_user_id),
                 matched_ingredients=matched,
                 total_ingredients=total_ingredients,
                 match_count=match_count,
