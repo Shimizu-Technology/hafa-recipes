@@ -11,7 +11,13 @@ from app.routers.recipes import (
 )
 
 
-def recipe_with_ingredients(*, components: list[dict], legacy: list[dict]) -> Recipe:
+def recipe_with_ingredients(
+    *,
+    components: list[dict],
+    legacy: list[dict],
+    is_public: bool = True,
+    moderation_status: str = "active",
+) -> Recipe:
     return Recipe(
         id=uuid4(),
         source_url="https://example.com/recipe",
@@ -24,8 +30,8 @@ def recipe_with_ingredients(*, components: list[dict], legacy: list[dict]) -> Re
         },
         created_at=datetime.now(UTC),
         user_id="recipe-owner",
-        is_public=True,
-        moderation_status="active",
+        is_public=is_public,
+        moderation_status=moderation_status,
     )
 
 
@@ -82,14 +88,23 @@ class RecordingSession:
         self.recipes = recipes
         self.execute_count = 0
 
-    async def execute(self, _query):
+    async def execute(self, query):
         self.execute_count += 1
-        return RecipeResult(self.recipes)
+        compiled_query = str(query)
+        assert "recipes.is_public IS true" in compiled_query
+        assert "recipes.moderation_status" in compiled_query
+        return RecipeResult(
+            [
+                recipe
+                for recipe in self.recipes
+                if recipe.is_public and recipe.moderation_status == "active"
+            ]
+        )
 
 
 @pytest.mark.asyncio
 async def test_signed_out_search_uses_only_public_recipes_and_scores_unique_ingredients():
-    recipe = recipe_with_ingredients(
+    visible_recipe = recipe_with_ingredients(
         components=[
             {
                 "name": "Main",
@@ -98,7 +113,17 @@ async def test_signed_out_search_uses_only_public_recipes_and_scores_unique_ingr
         ],
         legacy=[{"name": "Chicken breast"}, {"name": "Rice"}],
     )
-    session = RecordingSession([recipe])
+    private_recipe = recipe_with_ingredients(
+        components=[{"name": "Main", "ingredients": [{"name": "Chicken"}]}],
+        legacy=[],
+        is_public=False,
+    )
+    hidden_recipe = recipe_with_ingredients(
+        components=[{"name": "Main", "ingredients": [{"name": "Chicken"}]}],
+        legacy=[],
+        moderation_status="hidden",
+    )
+    session = RecordingSession([visible_recipe, private_recipe, hidden_recipe])
 
     response = await search_by_ingredients(
         ingredients=" Chicken, rice, chicken ",
