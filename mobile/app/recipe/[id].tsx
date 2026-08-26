@@ -27,6 +27,7 @@ import RecipeChatModal from '@/components/RecipeChatModal';
 import AddToCollectionModal from '@/components/AddToCollectionModal';
 import { RecipeCollectionsCard } from '@/components/RecipeCollectionsCard';
 import { RecipeMealPlanCard } from '@/components/RecipeMealPlanCard';
+import { SourcePlaybackCard } from '@/components/SourcePlaybackCard';
 import VersionHistoryModal from '@/components/VersionHistoryModal';
 import { SafetyActionModal } from '@/components/SafetyActionModal';
 import { 
@@ -49,6 +50,7 @@ import { SkeletonSimilarRecipes } from '@/components/Skeleton';
 import { formatPublishDisclosure, getPublishDisclosure } from '@/lib/recipePublishing';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
+import { getSourcePlayback } from '@/lib/sourcePlayback';
 import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
 import { useTextSize } from '@/hooks/useTextSize';
 import { useAuth, useUser } from '@clerk/expo';
@@ -651,6 +653,7 @@ export default function RecipeDetailScreen() {
   const { extracted } = recipe;
   
   const { icon: sourceIcon, label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
+  const sourcePlayback = getSourcePlayback(recipe.source_url);
 
   const tabs: { key: TabType; label: string }[] = [
     { key: 'ingredients', label: 'Ingredients' },
@@ -742,6 +745,15 @@ export default function RecipeDetailScreen() {
                   <Text style={[styles.moderationAppealText, { color: colors.tint }]}>Appeal</Text>
                 </TouchableOpacity>
               </RNView>
+            )}
+
+            {sourcePlayback && (
+              <SourcePlaybackCard
+                playback={sourcePlayback}
+                recipeTitle={extracted.title}
+                thumbnailUrl={recipe.thumbnail_url}
+                onOpenSource={handleOpenSource}
+              />
             )}
             
             {/* Meta Row */}
@@ -954,7 +966,7 @@ export default function RecipeDetailScreen() {
             )}
 
             {/* Source Button */}
-            {hasExternalSource && (
+            {hasExternalSource && !sourcePlayback && (
               <TouchableOpacity
                 style={[styles.sourceButton, { borderColor: colors.border }]}
                 onPress={handleOpenSource}
