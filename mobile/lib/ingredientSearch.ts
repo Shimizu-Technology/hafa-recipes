@@ -12,3 +12,12 @@ export function parseIngredientSearchInput(input: string): string[] {
 
   return ingredients;
 }
+
+/** Adds pasted or typed ingredients to an existing search without duplicates. */
+export function mergeIngredientSearchInput(
+  current: readonly string[],
+  input: string,
+): string[] {
+  const merged = [...current, ...parseIngredientSearchInput(input)];
+  return merged.filter((ingredient, index) => merged.indexOf(ingredient) === index);
+}

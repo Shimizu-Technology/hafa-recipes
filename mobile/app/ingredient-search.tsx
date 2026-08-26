@@ -1,14 +1,16 @@
-import { useState, useCallback, memo } from 'react';
+import { useState, useCallback } from 'react';
 import {
   StyleSheet,
   TouchableOpacity,
   FlatList,
-  Image,
   TextInput,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
   View as RNView,
+  Alert,
+  Keyboard,
+  ScrollView,
 } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,40 +19,19 @@ import { useAuth } from '@clerk/expo';
 
 import { View, Text, useColors } from '@/components/Themed';
 import { useSearchByIngredients } from '@/hooks/useRecipes';
-import { IngredientMatchResult } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
-import { ScalePressable } from '@/components/Animated';
-import { parseIngredientSearchInput } from '@/lib/ingredientSearch';
+import {
+  mergeIngredientSearchInput,
+  parseIngredientSearchInput,
+} from '@/lib/ingredientSearch';
+import { IngredientMatchCard } from '@/components/IngredientMatchCard';
+import { useAddFromRecipe } from '@/hooks/useGrocery';
+import { appRoutes } from '@/lib/routes';
+import type { IngredientMatchResult } from '@/types/recipe';
 
-// Thumbnail component with error handling fallback
-const RecipeThumbnail = memo(function RecipeThumbnail({
-  uri,
-  tintColor,
-}: {
-  uri: string | null | undefined;
-  tintColor: string;
-}) {
-  const [hasError, setHasError] = useState(false);
-  
-  const showPlaceholder = !uri || hasError;
-  
-  if (showPlaceholder) {
-    return (
-      <RNView style={[styles.thumbnailPlaceholder, { backgroundColor: tintColor + '15' }]}>
-        <Ionicons name="restaurant-outline" size={32} color={tintColor} />
-      </RNView>
-    );
-  }
-  
-  return (
-    <Image
-      source={{ uri }}
-      style={styles.thumbnail}
-      onError={() => setHasError(true)}
-    />
-  );
-});
+const PANTRY_STARTERS = ['chicken', 'rice', 'eggs', 'tomatoes'];
+const MAX_SEARCH_INGREDIENTS = 50;
 
 export default function IngredientSearchScreen() {
   const router = useRouter();
@@ -62,6 +43,9 @@ export default function IngredientSearchScreen() {
   const [searchIngredients, setSearchIngredients] = useState<string[]>([]);
   const [includeSaved, setIncludeSaved] = useState(true);
   const [includePublic, setIncludePublic] = useState(true);
+  const [pendingGroceryRecipeId, setPendingGroceryRecipeId] = useState<string | null>(null);
+  const [addedGroceryRecipeIds, setAddedGroceryRecipeIds] = useState<Set<string>>(new Set());
+  const addFromRecipeMutation = useAddFromRecipe();
 
   // Search query
   const { data, isLoading, isFetching, isError, refetch } = useSearchByIngredients(
@@ -74,23 +58,23 @@ export default function IngredientSearchScreen() {
   const handleSearch = useCallback(() => {
     if (!inputText.trim()) return;
 
-    const ingredients = parseIngredientSearchInput(inputText);
+    const ingredients = mergeIngredientSearchInput(searchIngredients, inputText);
+
+    if (ingredients.length > MAX_SEARCH_INGREDIENTS) {
+      Alert.alert(
+        'Too Many Ingredients',
+        `Search up to ${MAX_SEARCH_INGREDIENTS} ingredients at a time for the clearest matches.`,
+      );
+      return;
+    }
     
     if (ingredients.length > 0) {
       haptics.light();
       setSearchIngredients(ingredients);
-    }
-  }, [inputText]);
-  
-  const handleAddIngredient = useCallback((ingredient: string) => {
-    if (!ingredient.trim()) return;
-    const trimmed = ingredient.trim().toLowerCase();
-    if (!searchIngredients.includes(trimmed)) {
-      haptics.light();
-      setSearchIngredients([...searchIngredients, trimmed]);
       setInputText('');
+      Keyboard.dismiss();
     }
-  }, [searchIngredients]);
+  }, [inputText, searchIngredients]);
   
   const handleRemoveIngredient = useCallback((ingredient: string) => {
     haptics.light();
@@ -102,56 +86,59 @@ export default function IngredientSearchScreen() {
     setInputText('');
     setSearchIngredients([]);
   }, []);
-  
-  const renderResult = useCallback(({ item }: { item: IngredientMatchResult }) => {
-    const recipe = item.recipe;
-    
-    return (
-      <ScalePressable
-        onPress={() => {
-          haptics.light();
-          router.push(`/recipe/${recipe.id}`);
-        }}
-      >
-        <View style={[styles.resultCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={styles.resultRow}>
-            {/* Thumbnail with error fallback */}
-            <RecipeThumbnail uri={recipe.thumbnail_url} tintColor={colors.tint} />
-            
-            {/* Content */}
-            <View style={styles.resultContent}>
-              <Text style={[styles.resultTitle, { color: colors.text }]} numberOfLines={2}>
-                {recipe.title}
-              </Text>
-              
-              {/* Match info */}
-              <View style={styles.matchInfo}>
-                <View style={[styles.matchBadge, { backgroundColor: colors.tint + '20' }]}>
-                  <Text style={[styles.matchBadgeText, { color: colors.tint }]}>
-                    {item.match_count}/{item.total_ingredients} ingredients ({item.match_percentage}%)
-                  </Text>
-                </View>
-              </View>
-              
-              {/* Matched ingredients */}
-              <Text style={[styles.matchedText, { color: colors.textMuted }]} numberOfLines={1}>
-                Have: {item.matched_ingredients.slice(0, 4).join(', ')}
-                {item.matched_ingredients.length > 4 && ` +${item.matched_ingredients.length - 4} more`}
-              </Text>
-              
-              {/* Missing ingredients */}
-              {item.missing_ingredients.length > 0 && (
-                <Text style={[styles.missingText, { color: colors.textMuted }]} numberOfLines={1}>
-                  Need: {item.missing_ingredients.slice(0, 3).join(', ')}
-                  {item.missing_ingredients.length > 3 && ` +${item.missing_ingredients.length - 3} more`}
-                </Text>
-              )}
-            </View>
-          </View>
-        </View>
-      </ScalePressable>
+
+  const handleStarterPress = useCallback((ingredient: string) => {
+    haptics.light();
+    const ingredients = mergeIngredientSearchInput(
+      parseIngredientSearchInput(inputText),
+      ingredient,
     );
-  }, [colors, router]);
+    setInputText(ingredients.join(', '));
+  }, [inputText]);
+
+  const handleAddMissing = useCallback((result: IngredientMatchResult) => {
+    if (addFromRecipeMutation.isPending) return;
+    const { recipe, missing_ingredients: missingIngredients } = result;
+    setPendingGroceryRecipeId(recipe.id);
+    addFromRecipeMutation.mutate({
+      recipeId: recipe.id,
+      recipeTitle: recipe.title,
+      ingredients: missingIngredients.map((name) => ({
+        name,
+        quantity: null,
+        unit: null,
+        notes: null,
+      })),
+    }, {
+      onSuccess: () => {
+        haptics.success();
+        setAddedGroceryRecipeIds((current) => new Set(current).add(recipe.id));
+        Alert.alert(
+          'Added to Grocery List',
+          `${missingIngredients.length} missing ingredient${missingIngredients.length === 1 ? '' : 's'} from “${recipe.title}” ${missingIngredients.length === 1 ? 'was' : 'were'} added.`,
+          [
+            { text: 'Keep browsing', style: 'cancel' },
+            { text: 'View grocery list', onPress: () => router.push(appRoutes.grocery) },
+          ],
+        );
+      },
+      onError: () => Alert.alert('Couldn’t Add Ingredients', 'Your grocery list was not changed. Please try again.'),
+      onSettled: () => setPendingGroceryRecipeId(null),
+    });
+  }, [addFromRecipeMutation, router]);
+
+  const renderResult = useCallback(({ item }: { item: IngredientMatchResult }) => (
+    <IngredientMatchCard
+      result={item}
+      onOpen={() => {
+        haptics.light();
+        router.push(appRoutes.recipe(item.recipe.id));
+      }}
+      onAddMissing={isSignedIn ? () => handleAddMissing(item) : undefined}
+      isAdding={pendingGroceryRecipeId === item.recipe.id}
+      isAdded={addedGroceryRecipeIds.has(item.recipe.id)}
+    />
+  ), [addedGroceryRecipeIds, handleAddMissing, isSignedIn, pendingGroceryRecipeId, router]);
   
   const ListEmpty = useCallback(() => {
     if (isLoading || isFetching) {
@@ -173,10 +160,10 @@ export default function IngredientSearchScreen() {
             What's in your kitchen?
           </Text>
           <Text style={[styles.emptyText, { color: colors.textMuted }]}>
-            Enter ingredients you have, and we'll find recipes you can make.
+            Paste or add what you have, and we’ll show what’s ready and what only needs a few extras.
           </Text>
           <Text style={[styles.exampleText, { color: colors.textMuted }]}>
-            Try: chicken, rice, garlic
+            Separate ingredients with commas or new lines.
           </Text>
         </View>
       );
@@ -210,58 +197,113 @@ export default function IngredientSearchScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={100}
       >
-        {/* Search Input */}
-        <View style={[styles.searchSection, { backgroundColor: colors.background }]}>
-          <View style={[styles.inputContainer, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
-            <Ionicons name="search-outline" size={20} color={colors.textMuted} />
+        <View style={[styles.searchCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+          <RNView style={styles.searchHeading}>
+            <RNView style={[styles.searchIcon, { backgroundColor: colors.tint + '16' }]}>
+              <Ionicons name="nutrition-outline" size={22} color={colors.tint} />
+            </RNView>
+            <RNView style={styles.searchHeadingText}>
+              <Text style={[styles.searchTitle, { color: colors.text }]}>Cook with what you have</Text>
+              <Text style={[styles.searchHint, { color: colors.textMuted }]}>Paste a list or add ingredients a few at a time.</Text>
+            </RNView>
+          </RNView>
+
+          <RNView style={[styles.inputContainer, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
             <TextInput
               style={[styles.input, { color: colors.text }]}
-              placeholder="Enter ingredients (e.g., chicken, rice)"
+              placeholder={'chicken, rice, garlic\nor paste one ingredient per line'}
               placeholderTextColor={colors.textMuted}
               value={inputText}
               onChangeText={setInputText}
               onSubmitEditing={handleSearch}
-              returnKeyType="search"
+              multiline
+              textAlignVertical="top"
               autoCapitalize="none"
               autoCorrect={false}
+              maxLength={1000}
+              accessibilityLabel="Ingredients you have"
             />
             {inputText.length > 0 && (
-              <TouchableOpacity onPress={() => setInputText('')}>
+              <TouchableOpacity
+                onPress={() => setInputText('')}
+                style={styles.clearInputButton}
+                accessibilityRole="button"
+                accessibilityLabel="Clear ingredient input"
+              >
                 <Ionicons name="close-circle" size={20} color={colors.textMuted} />
               </TouchableOpacity>
             )}
-          </View>
-          
+          </RNView>
+
+          {searchIngredients.length === 0 && (
+            <RNView style={styles.startersRow}>
+              <Text style={[styles.startersLabel, { color: colors.textMuted }]}>Quick add</Text>
+              {PANTRY_STARTERS.map((ingredient) => (
+                <TouchableOpacity
+                  key={ingredient}
+                  style={[styles.starterChip, { backgroundColor: colors.backgroundSecondary }]}
+                  onPress={() => handleStarterPress(ingredient)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add ${ingredient} to ingredient search`}
+                >
+                  <Text style={[styles.starterText, { color: colors.textSecondary }]}>{ingredient}</Text>
+                </TouchableOpacity>
+              ))}
+            </RNView>
+          )}
+
           <TouchableOpacity
-            style={[styles.searchButton, { backgroundColor: colors.tint }]}
+            style={[
+              styles.searchButton,
+              { backgroundColor: inputText.trim() ? colors.tint : colors.border },
+            ]}
             onPress={handleSearch}
+            disabled={!inputText.trim()}
+            accessibilityRole="button"
+            accessibilityLabel={searchIngredients.length > 0 ? 'Add ingredients and update results' : 'Find recipes with these ingredients'}
           >
-            <Text style={styles.searchButtonText}>Search</Text>
+            <Ionicons name="search" size={18} color="#FFFFFF" />
+            <Text style={styles.searchButtonText}>
+              {searchIngredients.length > 0 ? 'Add & Update Results' : 'Find Recipes'}
+            </Text>
           </TouchableOpacity>
         </View>
         
         {/* Active ingredient chips */}
         {searchIngredients.length > 0 && (
           <View style={styles.chipsContainer}>
-            <View style={styles.chipsRow}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipsRow}
+              keyboardShouldPersistTaps="handled"
+            >
               {searchIngredients.map((ing) => (
                 <TouchableOpacity
                   key={ing}
                   style={[styles.chip, { backgroundColor: colors.tint + '20', borderColor: colors.tint }]}
                   onPress={() => handleRemoveIngredient(ing)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${ing} from ingredient search`}
                 >
                   <Text style={[styles.chipText, { color: colors.tint }]}>{ing}</Text>
                   <Ionicons name="close" size={14} color={colors.tint} />
                 </TouchableOpacity>
               ))}
-              <TouchableOpacity onPress={handleClear} style={styles.clearButton}>
+              <TouchableOpacity
+                onPress={handleClear}
+                style={styles.clearButton}
+                accessibilityRole="button"
+                accessibilityLabel="Clear all search ingredients"
+              >
                 <Text style={[styles.clearText, { color: colors.textMuted }]}>Clear all</Text>
               </TouchableOpacity>
-            </View>
+            </ScrollView>
             
-            {/* Toggle buttons */}
+            <Text style={[styles.scopeLabel, { color: colors.textMuted }]}>Search in</Text>
             <View style={styles.togglesRow}>
-              <TouchableOpacity
+              {isSignedIn ? (
+                <TouchableOpacity
                 style={[
                   styles.toggleButton,
                   { 
@@ -273,7 +315,10 @@ export default function IngredientSearchScreen() {
                   haptics.light();
                   setIncludePublic(!includePublic);
                 }}
-              >
+                accessibilityRole="checkbox"
+                accessibilityLabel="Include Discover recipes"
+                accessibilityState={{ checked: includePublic }}
+                >
                 <Ionicons
                   name={includePublic ? "globe" : "globe-outline"}
                   size={14}
@@ -282,7 +327,13 @@ export default function IngredientSearchScreen() {
                 <Text style={[styles.toggleText, { color: includePublic ? colors.tint : colors.textMuted }]}>
                   Discover
                 </Text>
-              </TouchableOpacity>
+                </TouchableOpacity>
+              ) : (
+                <RNView style={[styles.guestScope, { backgroundColor: colors.backgroundSecondary }]}>
+                  <Ionicons name="globe" size={14} color={colors.tint} />
+                  <Text style={[styles.toggleText, { color: colors.textSecondary }]}>Community recipes</Text>
+                </RNView>
+              )}
               
               {isSignedIn && (
                 <TouchableOpacity
@@ -295,8 +346,11 @@ export default function IngredientSearchScreen() {
                   ]}
                   onPress={() => {
                     haptics.light();
-                    setIncludeSaved(!includeSaved);
+                  setIncludeSaved(!includeSaved);
                   }}
+                  accessibilityRole="checkbox"
+                  accessibilityLabel="Include saved recipes"
+                  accessibilityState={{ checked: includeSaved }}
                 >
                   <Ionicons
                     name={includeSaved ? "bookmark" : "bookmark-outline"}
@@ -309,6 +363,11 @@ export default function IngredientSearchScreen() {
                 </TouchableOpacity>
               )}
             </View>
+            {isSignedIn && (
+              <Text style={[styles.scopeHelp, { color: colors.textMuted }]}>
+                Your own recipes are always included.
+              </Text>
+            )}
           </View>
         )}
         
@@ -316,7 +375,10 @@ export default function IngredientSearchScreen() {
         {!isError && data && data.results.length > 0 && (
           <View style={styles.resultsHeader}>
             <Text style={[styles.resultsCount, { color: colors.text }]}>
-              Found {data.total} recipe{data.total !== 1 ? 's' : ''}
+              Best matches
+            </Text>
+            <Text style={[styles.resultsSummary, { color: colors.textMuted }]}>
+              {data.total} recipe{data.total !== 1 ? 's' : ''} using what you have
             </Text>
           </View>
         )}
@@ -359,32 +421,88 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  searchSection: {
-    flexDirection: 'row',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    gap: spacing.sm,
+  searchCard: {
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+    padding: spacing.md,
+    gap: spacing.md,
   },
-  inputContainer: {
-    flex: 1,
+  searchHeading: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.sm,
+    gap: spacing.sm,
+  },
+  searchIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchHeadingText: {
+    flex: 1,
+  },
+  searchTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.semibold,
+  },
+  searchHint: {
+    fontSize: fontSize.sm,
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  inputContainer: {
+    height: 96,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: spacing.md,
     borderRadius: radius.md,
     borderWidth: 1,
-    height: 44,
-    gap: spacing.xs,
   },
   input: {
     flex: 1,
+    minHeight: 94,
+    paddingVertical: spacing.md,
     fontSize: fontSize.md,
-    height: '100%',
+    lineHeight: 21,
+  },
+  clearInputButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  startersRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  startersLabel: {
+    width: '100%',
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+  },
+  starterChip: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.full,
+  },
+  starterText: {
+    fontSize: fontSize.sm,
   },
   searchButton: {
+    minHeight: 48,
+    flexDirection: 'row',
     paddingHorizontal: spacing.md,
     borderRadius: radius.md,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: spacing.sm,
   },
   searchButtonText: {
     color: '#ffffff',
@@ -393,16 +511,17 @@ const styles = StyleSheet.create({
   },
   chipsContainer: {
     paddingHorizontal: spacing.md,
-    paddingBottom: spacing.sm,
+    paddingVertical: spacing.sm,
     gap: spacing.sm,
   },
   chipsRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: spacing.xs,
     alignItems: 'center',
+    paddingRight: spacing.md,
   },
   chip: {
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.sm,
@@ -416,7 +535,9 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   clearButton: {
-    paddingHorizontal: spacing.xs,
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
   },
   clearText: {
     fontSize: fontSize.sm,
@@ -426,6 +547,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   toggleButton: {
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
@@ -439,71 +561,42 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     fontWeight: fontWeight.medium,
   },
+  scopeLabel: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+  },
+  scopeHelp: {
+    fontSize: fontSize.xs,
+  },
+  guestScope: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.full,
+    gap: 4,
+  },
   resultsHeader: {
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+    paddingVertical: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
   },
   resultsCount: {
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },
+  resultsSummary: {
+    flexShrink: 1,
+    textAlign: 'right',
+    fontSize: fontSize.xs,
+  },
   listContent: {
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
     flexGrow: 1,
-  },
-  resultCard: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    marginBottom: spacing.sm,
-    overflow: 'hidden',
-  },
-  resultRow: {
-    flexDirection: 'row',
-    padding: spacing.sm,
-  },
-  thumbnail: {
-    width: 80,
-    height: 80,
-    borderRadius: radius.md,
-  },
-  thumbnailPlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: radius.md,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  resultContent: {
-    flex: 1,
-    marginLeft: spacing.sm,
-    justifyContent: 'center',
-  },
-  resultTitle: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.semibold,
-    marginBottom: spacing.xs,
-  },
-  matchInfo: {
-    flexDirection: 'row',
-    marginBottom: spacing.xs,
-  },
-  matchBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: radius.full,
-  },
-  matchBadgeText: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.semibold,
-  },
-  matchedText: {
-    fontSize: fontSize.xs,
-    marginBottom: 2,
-  },
-  missingText: {
-    fontSize: fontSize.xs,
-    fontStyle: 'italic',
   },
   emptyContainer: {
     flex: 1,

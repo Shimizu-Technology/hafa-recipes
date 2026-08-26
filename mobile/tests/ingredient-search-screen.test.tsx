@@ -1,5 +1,6 @@
 import React from 'react';
-import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { act } from 'react';
+import { createRoot } from 'test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
@@ -7,7 +8,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   isSignedIn: false,
+  addFromRecipeMutate: vi.fn(),
+  alert: vi.fn(),
   refetch: vi.fn(),
+  routerPush: vi.fn(),
   searchState: {
     data: undefined as { results: Array<{ recipe: { id: string } }>; total: number } | undefined,
     isLoading: false,
@@ -17,59 +21,77 @@ const mocks = vi.hoisted(() => ({
   useSearchByIngredients: vi.fn(),
 }));
 
-vi.mock('react-native', async () => {
-  const ReactModule = await import('react');
-  const host = (name: string) => (props: Record<string, unknown>) =>
-    ReactModule.createElement(name, props, props.children as React.ReactNode);
+function host(name: string) {
+  return (props: Record<string, unknown>) =>
+    React.createElement(name, props, props.children as React.ReactNode);
+}
 
-  return {
-    ActivityIndicator: host('ActivityIndicator'),
-    FlatList: ({ data, ListEmptyComponent }: { data: unknown[]; ListEmptyComponent: React.ComponentType }) =>
-      ReactModule.createElement(
-        'FlatList',
-        null,
-        data.length > 0
-          ? ReactModule.createElement('FlatListWithData')
-          : ReactModule.createElement(ListEmptyComponent),
-      ),
-    Image: host('Image'),
-    KeyboardAvoidingView: host('KeyboardAvoidingView'),
-    Platform: { OS: 'ios' },
-    StyleSheet: { create: <T,>(styles: T) => styles },
-    TextInput: host('TextInput'),
-    TouchableOpacity: host('TouchableOpacity'),
-    View: host('NativeView'),
-  };
-});
+vi.mock('react-native', () => ({
+  ActivityIndicator: host('ActivityIndicator'),
+  Alert: { alert: (...args: unknown[]) => mocks.alert(...args) },
+  FlatList: ({
+    data,
+    renderItem,
+    ListEmptyComponent,
+  }: {
+    data: unknown[];
+    renderItem: (info: { item: unknown; index: number }) => React.ReactNode;
+    ListEmptyComponent: React.ComponentType;
+  }) =>
+    React.createElement(
+      'FlatList',
+      null,
+      data.length > 0
+        ? data.map((item, index) => React.createElement(
+            React.Fragment,
+            { key: index },
+            renderItem({ item, index }),
+          ))
+        : React.createElement(ListEmptyComponent),
+    ),
+  Keyboard: { dismiss: vi.fn() },
+  KeyboardAvoidingView: host('KeyboardAvoidingView'),
+  Platform: { OS: 'ios' },
+  ScrollView: host('ScrollView'),
+  StyleSheet: { create: <T,>(styles: T) => styles },
+  TextInput: host('TextInput'),
+  TouchableOpacity: host('TouchableOpacity'),
+  View: host('NativeView'),
+}));
 
 vi.mock('expo-router', () => {
   const Stack = () => null;
   Stack.Screen = () => null;
-  return { Stack, useRouter: () => ({ push: vi.fn() }) };
+  return { Stack, useRouter: () => ({ push: mocks.routerPush }) };
 });
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
-vi.mock('@expo/vector-icons/Ionicons', () => ({ default: () => null }));
+vi.mock('@expo/vector-icons/Ionicons', () => ({ default: host('Ionicons') }));
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isSignedIn: mocks.isSignedIn }) }));
-vi.mock('@/components/Themed', async () => {
-  const ReactModule = await import('react');
-  const host = (name: string) => (props: Record<string, unknown>) =>
-    ReactModule.createElement(name, props, props.children as React.ReactNode);
-  return {
-    Text: host('ThemedText'),
-    View: host('ThemedView'),
-    useColors: () => ({
-      background: '#fff',
-      backgroundSecondary: '#eee',
-      border: '#ddd',
-      card: '#fff',
-      text: '#111',
-      textMuted: '#666',
-      tint: '#147a5b',
-    }),
-  };
-});
+vi.mock('@/components/Themed', () => ({
+  Text: host('ThemedText'),
+  View: host('ThemedView'),
+  useColors: () => ({
+    background: '#fff',
+    backgroundSecondary: '#eee',
+    border: '#ddd',
+    card: '#fff',
+    cardBorder: '#ddd',
+    success: '#080',
+    warning: '#b70',
+    text: '#111',
+    textMuted: '#666',
+    textSecondary: '#444',
+    tint: '#147a5b',
+  }),
+}));
+vi.mock('@/components/IngredientMatchCard', () => ({
+  IngredientMatchCard: host('IngredientMatchCard'),
+}));
 vi.mock('@/hooks/useRecipes', () => ({
   useSearchByIngredients: (...args: unknown[]) => mocks.useSearchByIngredients(...args),
+}));
+vi.mock('@/hooks/useGrocery', () => ({
+  useAddFromRecipe: () => ({ isPending: false, mutate: mocks.addFromRecipeMutate }),
 }));
 vi.mock('@/constants/Colors', () => ({
   fontSize: { xs: 10, sm: 12, md: 14, lg: 18 },
@@ -77,25 +99,40 @@ vi.mock('@/constants/Colors', () => ({
   radius: { md: 8, lg: 12, full: 999 },
   spacing: { xs: 4, sm: 8, md: 16, lg: 24, xl: 32, xxl: 48 },
 }));
-vi.mock('@/utils/haptics', () => ({ haptics: { light: vi.fn() } }));
-vi.mock('@/components/Animated', async () => {
-  const ReactModule = await import('react');
+vi.mock('@/utils/haptics', () => ({
+  haptics: { light: vi.fn(), success: vi.fn() },
+}));
+vi.mock('@/lib/ingredientSearch', () => {
+  const parse = (input: string) =>
+    input.split(/[\n,]+/).map((value) => value.trim().toLowerCase()).filter(Boolean);
   return {
-    ScalePressable: (props: Record<string, unknown>) =>
-      ReactModule.createElement('ScalePressable', props, props.children as React.ReactNode),
+    parseIngredientSearchInput: parse,
+    mergeIngredientSearchInput: (current: string[], input: string) =>
+      [...new Set([...current, ...parse(input)])],
   };
 });
-vi.mock('@/lib/ingredientSearch', () => ({
-  parseIngredientSearchInput: (input: string) =>
-    input.split(/[\n,]+/).map((value) => value.trim().toLowerCase()).filter(Boolean),
+vi.mock('@/lib/routes', () => ({
+  appRoutes: {
+    grocery: '/(tabs)/grocery',
+    recipe: (id: string) => ({ pathname: '/recipe/[id]', params: { id } }),
+  },
 }));
 
 import IngredientSearchScreen from '../app/ingredient-search';
 
+function textNodes(renderer: ReturnType<typeof createRoot>, value: string) {
+  return renderer.container.queryAll(
+    (instance) => instance.type === 'ThemedText' && instance.props.children === value,
+  );
+}
+
 describe('IngredientSearchScreen', () => {
   beforeEach(() => {
     mocks.isSignedIn = false;
+    mocks.addFromRecipeMutate.mockReset();
+    mocks.alert.mockReset();
     mocks.refetch.mockReset();
+    mocks.routerPush.mockReset();
     mocks.searchState.data = undefined;
     mocks.searchState.isLoading = false;
     mocks.searchState.isFetching = false;
@@ -107,57 +144,157 @@ describe('IngredientSearchScreen', () => {
     }));
   });
 
-  it('hides saved scope for guests and preserves input through a retryable error', async () => {
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(React.createElement(IngredientSearchScreen));
-    });
+  it('keeps a guest pantry search active through a retryable error', async () => {
+    const renderer = createRoot({ textComponentTypes: ['ThemedText'] });
 
-    expect(renderer!.root.findAllByProps({ children: 'Saved' })).toHaveLength(0);
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(IngredientSearchScreen));
+      });
+      expect(textNodes(renderer, 'Saved')).toHaveLength(0);
 
-    const textInputType = 'TextInput' as unknown as React.ComponentType;
-    const input = renderer!.root.findByType(textInputType);
-    await act(async () => input.props.onChangeText('Chicken, rice'));
-    const searchText = renderer!.root.findByProps({ children: 'Search' });
-    await act(async () => searchText.parent?.props.onPress());
+      const input = renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )[0];
+      await act(async () => input.props.onChangeText('Chicken, rice'));
+      const searchButton = renderer.container.queryAll(
+        (instance) => instance.type === 'TouchableOpacity',
+      ).find((button) => button.props.accessibilityLabel === 'Find recipes with these ingredients');
+      await act(async () => searchButton!.props.onPress());
 
-    expect(mocks.useSearchByIngredients).toHaveBeenLastCalledWith(
-      ['chicken', 'rice'],
-      false,
-      true,
-      true,
-    );
+      expect(mocks.useSearchByIngredients).toHaveBeenLastCalledWith(
+        ['chicken', 'rice'],
+        false,
+        true,
+        true,
+      );
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )[0].props.value).toBe('');
+      expect(textNodes(renderer, 'chicken')).toHaveLength(1);
+      expect(textNodes(renderer, 'rice')).toHaveLength(1);
+      expect(textNodes(renderer, 'Community recipes')).toHaveLength(1);
 
-    mocks.searchState.isError = true;
-    mocks.searchState.data = { results: [{ recipe: { id: 'stale-result' } }], total: 1 };
-    await act(async () => renderer!.update(React.createElement(IngredientSearchScreen)));
+      mocks.searchState.isError = true;
+      mocks.searchState.data = { results: [{ recipe: { id: 'stale-result' } }], total: 1 };
+      await act(async () => {
+        renderer.render(React.createElement(IngredientSearchScreen));
+      });
 
-    expect(renderer!.root.findByType(textInputType).props.value).toBe('Chicken, rice');
-    expect(renderer!.root.findAllByProps({ children: 'Couldn’t search recipes' }).length)
-      .toBeGreaterThan(0);
-    const retryButton = renderer!.root.findByProps({ accessibilityLabel: 'Retry ingredient search' });
-    await act(async () => retryButton.props.onPress());
-    expect(mocks.refetch).toHaveBeenCalledOnce();
+      expect(textNodes(renderer, 'Couldn’t search recipes').length).toBeGreaterThan(0);
+      const retryButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Retry ingredient search',
+      )[0];
+      await act(async () => retryButton.props.onPress());
+      expect(mocks.refetch).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
   });
 
   it('includes saved recipes in signed-in searches', async () => {
     mocks.isSignedIn = true;
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(React.createElement(IngredientSearchScreen));
+    const renderer = createRoot({ textComponentTypes: ['ThemedText'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(IngredientSearchScreen));
+      });
+      const input = renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )[0];
+      await act(async () => input.props.onChangeText('Chicken'));
+      const searchButton = renderer.container.queryAll(
+        (instance) => instance.type === 'TouchableOpacity',
+      ).find((button) => button.props.accessibilityLabel === 'Find recipes with these ingredients');
+      await act(async () => searchButton!.props.onPress());
+
+      expect(textNodes(renderer, 'Saved').length).toBeGreaterThan(0);
+      expect(mocks.useSearchByIngredients).toHaveBeenLastCalledWith(
+        ['chicken'],
+        true,
+        true,
+        true,
+      );
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('keeps oversized pantry searches out of the request', async () => {
+    const renderer = createRoot({ textComponentTypes: ['ThemedText'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(IngredientSearchScreen));
+      });
+      const input = renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )[0];
+      await act(async () => input.props.onChangeText(
+        Array.from({ length: 51 }, (_, index) => `ingredient ${index}`).join(','),
+      ));
+      const searchButton = renderer.container.queryAll(
+        (instance) => instance.type === 'TouchableOpacity',
+      ).find((button) => button.props.accessibilityLabel === 'Find recipes with these ingredients');
+      await act(async () => searchButton!.props.onPress());
+
+      expect(mocks.alert).toHaveBeenCalledWith(
+        'Too Many Ingredients',
+        'Search up to 50 ingredients at a time for the clearest matches.',
+      );
+      expect(mocks.useSearchByIngredients).toHaveBeenLastCalledWith([], false, true, false);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('adds only a match’s missing ingredients and links to the grocery list', async () => {
+    mocks.isSignedIn = true;
+    mocks.searchState.data = {
+      total: 1,
+      results: [{
+        recipe: { id: 'recipe-1', title: 'Chicken Kelaguen' },
+        matched_ingredients: ['chicken'],
+        missing_ingredients: ['lemon', 'green onions'],
+        match_count: 1,
+        total_ingredients: 3,
+        match_percentage: 33.3,
+      } as never],
+    };
+    mocks.addFromRecipeMutate.mockImplementation((
+      _variables: unknown,
+      callbacks: { onSuccess: () => void; onSettled: () => void },
+    ) => {
+      callbacks.onSuccess();
+      callbacks.onSettled();
     });
+    const renderer = createRoot({ textComponentTypes: ['ThemedText'] });
 
-    const textInputType = 'TextInput' as unknown as React.ComponentType;
-    await act(async () => renderer!.root.findByType(textInputType).props.onChangeText('Chicken'));
-    const searchText = renderer!.root.findByProps({ children: 'Search' });
-    await act(async () => searchText.parent?.props.onPress());
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(IngredientSearchScreen));
+      });
+      const matchCard = renderer.container.queryAll(
+        (instance) => instance.type === 'IngredientMatchCard',
+      )[0];
+      await act(async () => matchCard.props.onAddMissing());
 
-    expect(renderer!.root.findAllByProps({ children: 'Saved' }).length).toBeGreaterThan(0);
-    expect(mocks.useSearchByIngredients).toHaveBeenLastCalledWith(
-      ['chicken'],
-      true,
-      true,
-      true,
-    );
+      expect(mocks.addFromRecipeMutate).toHaveBeenCalledWith({
+        recipeId: 'recipe-1',
+        recipeTitle: 'Chicken Kelaguen',
+        ingredients: [
+          { name: 'lemon', quantity: null, unit: null, notes: null },
+          { name: 'green onions', quantity: null, unit: null, notes: null },
+        ],
+      }, expect.any(Object));
+      const alertButtons = mocks.alert.mock.calls[0][2] as Array<{ text: string; onPress?: () => void }>;
+      await act(async () => alertButtons.find(
+        (button) => button.text === 'View grocery list',
+      )!.onPress!());
+      expect(mocks.routerPush).toHaveBeenCalledWith('/(tabs)/grocery');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
   });
 });

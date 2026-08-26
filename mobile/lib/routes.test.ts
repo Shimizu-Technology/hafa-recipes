@@ -22,6 +22,10 @@ describe('related record routes', () => {
     expect(appRoutes.planner).toBe('/(tabs)/planner');
   });
 
+  it('links cross-feature actions to the grocery tab', () => {
+    expect(appRoutes.grocery).toBe('/(tabs)/grocery');
+  });
+
   it('builds an exact-date planner route', () => {
     expect(appRoutes.plannerDate('2026-08-27')).toEqual({
       pathname: '/(tabs)/planner',

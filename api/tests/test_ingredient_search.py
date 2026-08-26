@@ -156,3 +156,32 @@ async def test_signed_out_search_uses_only_public_recipes_and_scores_unique_ingr
     assert response.results[0].total_ingredients == 2
     assert response.results[0].match_percentage == 100.0
     assert response.results[0].recipe.is_owner is False
+
+
+@pytest.mark.asyncio
+async def test_search_returns_every_missing_ingredient_for_grocery_actions():
+    ingredient_names = ["Chicken"] + [f"Ingredient {index}" for index in range(1, 13)]
+    visible_recipe = recipe_with_ingredients(
+        components=[
+            {
+                "name": "Main",
+                "ingredients": [{"name": name} for name in ingredient_names],
+            }
+        ],
+        legacy=[],
+    )
+    session = RecordingSession([visible_recipe])
+
+    response = await search_by_ingredients(
+        ingredients="chicken",
+        include_saved=False,
+        include_public=True,
+        limit=20,
+        db=session,
+        user=None,
+    )
+
+    assert response.total == 1
+    assert response.results[0].missing_ingredients == [
+        f"ingredient {index}" for index in range(1, 13)
+    ]
