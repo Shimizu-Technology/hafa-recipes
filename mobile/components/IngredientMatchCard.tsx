@@ -18,6 +18,7 @@ type IngredientMatchCardProps = {
   onAddMissing?: () => void;
   isAdding?: boolean;
   isAdded?: boolean;
+  isGroceryActionDisabled?: boolean;
 };
 
 export function getIngredientMatchPresentation(result: IngredientMatchResult) {
@@ -50,6 +51,7 @@ export function IngredientMatchCard({
   onAddMissing,
   isAdding = false,
   isAdded = false,
+  isGroceryActionDisabled = false,
 }: IngredientMatchCardProps) {
   const colors = useColors();
   const [imageFailed, setImageFailed] = useState(false);
@@ -71,7 +73,7 @@ export function IngredientMatchCard({
         onPress={onOpen}
         activeOpacity={0.78}
         accessibilityRole="link"
-        accessibilityLabel={`Open ${recipe.title} recipe`}
+        accessibilityLabel={`Open ${recipe.title} recipe. ${presentation.label}. ${presentation.detail}`}
       >
         {showPlaceholder ? (
           <RNView style={[styles.thumbnail, styles.thumbnailPlaceholder, { backgroundColor: colors.tint + '14' }]}>
@@ -140,12 +142,15 @@ export function IngredientMatchCard({
             },
           ]}
           onPress={onAddMissing}
-          disabled={isAdding || isAdded}
+          disabled={isAdding || isGroceryActionDisabled || isAdded}
           accessibilityRole="button"
           accessibilityLabel={isAdded
             ? `${recipe.title} missing ingredients added to grocery list`
             : `Add ${missingCount} missing ingredient${missingCount === 1 ? '' : 's'} from ${recipe.title} to grocery list`}
-          accessibilityState={{ disabled: isAdding || isAdded, busy: isAdding }}
+          accessibilityState={{
+            disabled: isAdding || isGroceryActionDisabled || isAdded,
+            busy: isAdding,
+          }}
         >
           {isAdding ? (
             <ActivityIndicator size="small" color={colors.tint} />

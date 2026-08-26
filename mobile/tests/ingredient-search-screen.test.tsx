@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   isSignedIn: false,
+  groceryPending: false,
   addFromRecipeMutate: vi.fn(),
   alert: vi.fn(),
   refetch: vi.fn(),
@@ -91,7 +92,10 @@ vi.mock('@/hooks/useRecipes', () => ({
   useSearchByIngredients: (...args: unknown[]) => mocks.useSearchByIngredients(...args),
 }));
 vi.mock('@/hooks/useGrocery', () => ({
-  useAddFromRecipe: () => ({ isPending: false, mutate: mocks.addFromRecipeMutate }),
+  useAddFromRecipe: () => ({
+    isPending: mocks.groceryPending,
+    mutate: mocks.addFromRecipeMutate,
+  }),
 }));
 vi.mock('@/constants/Colors', () => ({
   fontSize: { xs: 10, sm: 12, md: 14, lg: 18 },
@@ -102,15 +106,6 @@ vi.mock('@/constants/Colors', () => ({
 vi.mock('@/utils/haptics', () => ({
   haptics: { light: vi.fn(), success: vi.fn() },
 }));
-vi.mock('@/lib/ingredientSearch', () => {
-  const parse = (input: string) =>
-    input.split(/[\n,]+/).map((value) => value.trim().toLowerCase()).filter(Boolean);
-  return {
-    parseIngredientSearchInput: parse,
-    mergeIngredientSearchInput: (current: string[], input: string) =>
-      [...new Set([...current, ...parse(input)])],
-  };
-});
 vi.mock('@/lib/routes', () => ({
   appRoutes: {
     grocery: '/(tabs)/grocery',
@@ -129,6 +124,7 @@ function textNodes(renderer: ReturnType<typeof createRoot>, value: string) {
 describe('IngredientSearchScreen', () => {
   beforeEach(() => {
     mocks.isSignedIn = false;
+    mocks.groceryPending = false;
     mocks.addFromRecipeMutate.mockReset();
     mocks.alert.mockReset();
     mocks.refetch.mockReset();
@@ -249,6 +245,35 @@ describe('IngredientSearchScreen', () => {
     }
   });
 
+  it('accepts exactly 50 pantry ingredients', async () => {
+    const renderer = createRoot({ textComponentTypes: ['ThemedText'] });
+    const ingredients = Array.from({ length: 50 }, (_, index) => `ingredient ${index}`);
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(IngredientSearchScreen));
+      });
+      const input = renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )[0];
+      await act(async () => input.props.onChangeText(ingredients.join(',')));
+      const searchButton = renderer.container.queryAll(
+        (instance) => instance.type === 'TouchableOpacity',
+      ).find((button) => button.props.accessibilityLabel === 'Find recipes with these ingredients');
+      await act(async () => searchButton!.props.onPress());
+
+      expect(mocks.alert).not.toHaveBeenCalled();
+      expect(mocks.useSearchByIngredients).toHaveBeenLastCalledWith(
+        ingredients,
+        false,
+        true,
+        true,
+      );
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
   it('adds only a match’s missing ingredients and links to the grocery list', async () => {
     mocks.isSignedIn = true;
     mocks.searchState.data = {
@@ -293,6 +318,35 @@ describe('IngredientSearchScreen', () => {
         (button) => button.text === 'View grocery list',
       )!.onPress!());
       expect(mocks.routerPush).toHaveBeenCalledWith('/(tabs)/grocery');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('disables every result grocery action while one addition is pending', async () => {
+    mocks.isSignedIn = true;
+    mocks.groceryPending = true;
+    mocks.searchState.data = {
+      total: 2,
+      results: [
+        { recipe: { id: 'recipe-1' } },
+        { recipe: { id: 'recipe-2' } },
+      ] as never,
+    };
+    const renderer = createRoot({ textComponentTypes: ['ThemedText'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(IngredientSearchScreen));
+      });
+      const matchCards = renderer.container.queryAll(
+        (instance) => instance.type === 'IngredientMatchCard',
+      );
+
+      expect(matchCards).toHaveLength(2);
+      expect(matchCards.every(
+        (card) => card.props.isGroceryActionDisabled === true,
+      )).toBe(true);
     } finally {
       await act(async () => renderer.unmount());
     }

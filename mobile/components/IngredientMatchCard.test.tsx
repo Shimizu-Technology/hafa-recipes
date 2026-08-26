@@ -105,7 +105,8 @@ describe('IngredientMatchCard', () => {
         (instance) => instance.type === 'TouchableOpacity',
       );
       await act(async () => buttons.find(
-        (button) => button.props.accessibilityLabel === 'Open Chicken Kelaguen recipe',
+        (button) => button.props.accessibilityLabel
+          === 'Open Chicken Kelaguen recipe. Almost there. 1 ingredient missing',
       )!.props.onPress());
       await act(async () => buttons.find(
         (button) => button.props.accessibilityLabel
@@ -118,6 +119,30 @@ describe('IngredientMatchCard', () => {
         (instance) => instance.type === 'Image'
           && instance.props.accessibilityLabel === 'Chicken Kelaguen thumbnail',
       )).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('falls back to the placeholder when the thumbnail fails', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(IngredientMatchCard, {
+          result: result(),
+          onOpen: vi.fn(),
+          onAddMissing: vi.fn(),
+        }));
+      });
+      const image = renderer.container.queryAll(
+        (instance) => instance.type === 'Image',
+      )[0];
+      await act(async () => image.props.onError());
+
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Image',
+      )).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());
     }
@@ -165,6 +190,30 @@ describe('IngredientMatchCard', () => {
 
       expect(addedButton?.props.disabled).toBe(true);
       expect(addedButton?.props.accessibilityState).toEqual({ disabled: true, busy: false });
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('disables its grocery action while another result is being added', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(IngredientMatchCard, {
+          result: result(),
+          onOpen: vi.fn(),
+          onAddMissing: vi.fn(),
+          isGroceryActionDisabled: true,
+        }));
+      });
+      const groceryButton = renderer.container.queryAll(
+        (instance) => instance.type === 'TouchableOpacity',
+      ).find((button) => button.props.accessibilityLabel
+        === 'Add 1 missing ingredient from Chicken Kelaguen to grocery list');
+
+      expect(groceryButton?.props.disabled).toBe(true);
+      expect(groceryButton?.props.accessibilityState).toEqual({ disabled: true, busy: false });
     } finally {
       await act(async () => renderer.unmount());
     }

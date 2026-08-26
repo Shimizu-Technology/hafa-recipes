@@ -24,7 +24,7 @@ import { haptics } from '@/utils/haptics';
 import {
   mergeIngredientSearchInput,
   parseIngredientSearchInput,
-} from '@/lib/ingredientSearch';
+} from '../lib/ingredientSearch';
 import { IngredientMatchCard } from '@/components/IngredientMatchCard';
 import { useAddFromRecipe } from '@/hooks/useGrocery';
 import { appRoutes } from '@/lib/routes';
@@ -137,8 +137,16 @@ export default function IngredientSearchScreen() {
       onAddMissing={isSignedIn ? () => handleAddMissing(item) : undefined}
       isAdding={pendingGroceryRecipeId === item.recipe.id}
       isAdded={addedGroceryRecipeIds.has(item.recipe.id)}
+      isGroceryActionDisabled={addFromRecipeMutation.isPending}
     />
-  ), [addedGroceryRecipeIds, handleAddMissing, isSignedIn, pendingGroceryRecipeId, router]);
+  ), [
+    addFromRecipeMutation.isPending,
+    addedGroceryRecipeIds,
+    handleAddMissing,
+    isSignedIn,
+    pendingGroceryRecipeId,
+    router,
+  ]);
   
   const ListEmpty = useCallback(() => {
     if (isLoading || isFetching) {
@@ -272,24 +280,27 @@ export default function IngredientSearchScreen() {
         {/* Active ingredient chips */}
         {searchIngredients.length > 0 && (
           <View style={styles.chipsContainer}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.chipsRow}
-              keyboardShouldPersistTaps="handled"
-            >
-              {searchIngredients.map((ing) => (
-                <TouchableOpacity
-                  key={ing}
-                  style={[styles.chip, { backgroundColor: colors.tint + '20', borderColor: colors.tint }]}
-                  onPress={() => handleRemoveIngredient(ing)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Remove ${ing} from ingredient search`}
-                >
-                  <Text style={[styles.chipText, { color: colors.tint }]}>{ing}</Text>
-                  <Ionicons name="close" size={14} color={colors.tint} />
-                </TouchableOpacity>
-              ))}
+            <RNView style={styles.chipsScrollRow}>
+              <ScrollView
+                style={styles.chipsScroller}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipsRow}
+                keyboardShouldPersistTaps="handled"
+              >
+                {searchIngredients.map((ing) => (
+                  <TouchableOpacity
+                    key={ing}
+                    style={[styles.chip, { backgroundColor: colors.tint + '20', borderColor: colors.tint }]}
+                    onPress={() => handleRemoveIngredient(ing)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${ing} from ingredient search`}
+                  >
+                    <Text style={[styles.chipText, { color: colors.tint }]}>{ing}</Text>
+                    <Ionicons name="close" size={14} color={colors.tint} />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
               <TouchableOpacity
                 onPress={handleClear}
                 style={styles.clearButton}
@@ -298,7 +309,7 @@ export default function IngredientSearchScreen() {
               >
                 <Text style={[styles.clearText, { color: colors.textMuted }]}>Clear all</Text>
               </TouchableOpacity>
-            </ScrollView>
+            </RNView>
             
             <Text style={[styles.scopeLabel, { color: colors.textMuted }]}>Search in</Text>
             <View style={styles.togglesRow}>
@@ -513,6 +524,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     gap: spacing.sm,
+  },
+  chipsScrollRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  chipsScroller: {
+    flex: 1,
   },
   chipsRow: {
     flexDirection: 'row',

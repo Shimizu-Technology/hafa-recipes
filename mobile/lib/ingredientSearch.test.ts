@@ -27,4 +27,8 @@ describe('mergeIngredientSearchInput', () => {
       'Chicken, garlic\nGreen onions',
     )).toEqual(['rice', 'chicken', 'garlic', 'green onions']);
   });
+
+  it('normalizes active ingredients before deduplicating new input', () => {
+    expect(mergeIngredientSearchInput([' Chicken '], 'chicken')).toEqual(['chicken']);
+  });
 });
