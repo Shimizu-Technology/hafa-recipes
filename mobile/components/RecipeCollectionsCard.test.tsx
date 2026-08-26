@@ -1,5 +1,6 @@
 import React from 'react';
-import { act, create } from 'react-test-renderer';
+import { act } from 'react';
+import { createRoot, type Root } from 'test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Collection } from '@/types/recipe';
@@ -49,10 +50,10 @@ describe('RecipeCollectionsCard', () => {
   it('opens exact related collections and keeps management as a separate action', async () => {
     const onOpenCollection = vi.fn();
     const onManageCollections = vi.fn();
-    let renderer: ReturnType<typeof create>;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
 
     await act(async () => {
-      renderer = create(React.createElement(RecipeCollectionsCard, {
+      renderer.render(React.createElement(RecipeCollectionsCard, {
         collections: [
           collection('favorites', 'Favorites', '❤️'),
           collection('weeknight', 'Weeknight Meals'),
@@ -63,8 +64,8 @@ describe('RecipeCollectionsCard', () => {
       }));
     });
 
-    const buttons = renderer!.root.findAllByType(
-      'TouchableOpacity' as unknown as React.ComponentType,
+    const buttons = renderer.container.queryAll(
+      (instance) => instance.type === 'TouchableOpacity',
     );
     await act(async () => buttons.find(
       (button) => button.props.accessibilityLabel === 'Open Favorites collection',
@@ -79,10 +80,10 @@ describe('RecipeCollectionsCard', () => {
 
   it('offers an add action when the recipe has no collection relationships', async () => {
     const onManageCollections = vi.fn();
-    let renderer: ReturnType<typeof create>;
+    const renderer: Root = createRoot({ textComponentTypes: ['Text'] });
 
     await act(async () => {
-      renderer = create(React.createElement(RecipeCollectionsCard, {
+      renderer.render(React.createElement(RecipeCollectionsCard, {
         collections: [],
         isLoading: false,
         onOpenCollection: vi.fn(),
@@ -90,8 +91,8 @@ describe('RecipeCollectionsCard', () => {
       }));
     });
 
-    const addButton = renderer!.root.findAllByType(
-      'TouchableOpacity' as unknown as React.ComponentType,
+    const addButton = renderer.container.queryAll(
+      (instance) => instance.type === 'TouchableOpacity',
     ).find((button) => button.props.accessibilityLabel === 'Add recipe to a collection');
     await act(async () => addButton!.props.onPress());
 
