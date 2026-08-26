@@ -77,14 +77,17 @@ describe('native recipe share routing', () => {
     });
   });
 
-  it('fails closed when a shared image size cannot be verified', () => {
-    expect(resolveShareIntent(shareIntent({
-      files: [imageFile({ size: null })],
-    }), true)).toEqual({
-      kind: 'unsupported',
-      message: 'Could not verify the size of every recipe image. Save the images, then import them from Håfa Recipes.',
-    });
-  });
+  it.each([null, Number.NaN, -1])(
+    'fails closed when a shared image size cannot be verified (%s)',
+    (size) => {
+      expect(resolveShareIntent(shareIntent({
+        files: [imageFile({ size })],
+      }), true)).toEqual({
+        kind: 'unsupported',
+        message: 'Could not verify the size of every recipe image. Save the images, then import them from Håfa Recipes.',
+      });
+    },
+  );
 
   it('rejects a known combined image size over 40 MB', () => {
     expect(resolveShareIntent(shareIntent({
