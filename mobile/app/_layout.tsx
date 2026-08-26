@@ -41,6 +41,7 @@ import { GroceryWidgetCoordinator } from '@/components/GroceryWidgetCoordinator'
 import { bindGroceryWidgetIdentity } from '@/lib/groceryWidget';
 import { initSentry, setSentryUser, addBreadcrumb, captureError, withSentry } from '@/lib/sentry';
 import { useHandleShareIntent } from '@/hooks/useShareIntent';
+import { getAuthProtectionRedirect } from '@/lib/authProtection';
 
 // Initialize Sentry as early as possible
 initSentry();
@@ -120,7 +121,7 @@ export default withSentry(RootLayout);
  * Tab screens handle guest access themselves with SignInBanner.
  * This only handles:
  * - Redirecting signed-in users from auth screens to main app
- * - Protecting add-recipe modal from guests
+ * - Protecting recipe capture screens from guests
  */
 function AuthProtection({ children }: { children: React.ReactNode }) {
   const { isSignedIn, isLoaded } = useAuth();
@@ -130,19 +131,8 @@ function AuthProtection({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isLoaded) return;
 
-    const inAuthGroup = segments[0] === '(auth)';
-    
-    // User signed in on auth screen -> redirect to main app
-    if (isSignedIn && inAuthGroup) {
-      router.replace('/(tabs)');
-      return;
-    }
-
-    // Only protect add-recipe modal from guests
-    // Tab screens handle their own guest access with SignInBanner
-    if (!isSignedIn && segments[0] === 'add-recipe') {
-      router.replace('/(tabs)/discover');
-    }
+    const redirect = getAuthProtectionRedirect(isSignedIn, segments[0]);
+    if (redirect) router.replace(redirect);
   }, [isSignedIn, isLoaded, segments]);
 
   return <>{children}</>;
@@ -340,6 +330,10 @@ function RootLayoutNav() {
                         headerTitle: 'Add Recipe',
                         presentation: 'modal',
                       }}
+                    />
+                    <Stack.Screen
+                      name="paste-recipe"
+                      options={{ headerTitle: 'Paste Recipe Text' }}
                     />
                     <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
                   </Stack>

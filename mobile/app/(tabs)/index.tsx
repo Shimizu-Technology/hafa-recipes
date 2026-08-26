@@ -597,9 +597,9 @@ export default function ExtractScreen() {
               </RNView>
             </RNView>
             <Text style={[styles.heroEyebrow, { color: colors.tint }]}>AI recipe extraction</Text>
-            <Text style={[styles.heroTitle, { color: colors.text }]}>Turn cooking links into real recipes.</Text>
+            <Text style={[styles.heroTitle, { color: colors.text }]}>Turn recipe links and text into something you can cook.</Text>
             <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
-              Paste a social video, import a recipe website, scan a recipe card, or add your own family recipe. Håfa Recipes organizes the ingredients, steps, costs, and cook mode for you.
+              Import a social video or website, paste a caption or DM, scan screenshots, or add a family recipe. Håfa Recipes organizes the ingredients, steps, costs, and cook mode for you.
             </Text>
             <RNView style={styles.sourcePills}>
               <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
@@ -617,6 +617,10 @@ export default function ExtractScreen() {
               <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
                 <Ionicons name="globe-outline" size={14} color={colors.accent} />
                 <Text style={[styles.sourcePillText, { color: colors.textSecondary }]}>Websites</Text>
+              </RNView>
+              <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
+                <Ionicons name="document-text-outline" size={14} color={colors.accent} />
+                <Text style={[styles.sourcePillText, { color: colors.textSecondary }]}>Recipe text</Text>
               </RNView>
             </RNView>
           </LinearGradient>
@@ -748,6 +752,26 @@ export default function ExtractScreen() {
             <Text style={[styles.dividerText, { color: colors.textMuted }]}>or add another way</Text>
             <RNView style={[styles.dividerLine, { backgroundColor: colors.border }]} />
           </RNView>
+
+          {/* Paste Recipe Text Button */}
+          <TouchableOpacity
+            style={[styles.scanButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
+            onPress={() => router.push({
+              pathname: '/paste-recipe',
+              params: { location: selectedLocation, isPublic: isPublic ? 'true' : 'false' },
+            })}
+            disabled={!isSignedIn || isLoading}
+            activeOpacity={0.7}
+          >
+            <RNView style={[styles.scanIconContainer, { backgroundColor: colors.accentSoft }]}>
+              <Ionicons name="clipboard-outline" size={28} color={colors.accent} />
+            </RNView>
+            <RNView style={styles.scanTextContainer}>
+              <Text style={[styles.scanTitle, { color: colors.text }]}>Paste Recipe Text</Text>
+              <Text style={[styles.scanSubtitle, { color: colors.textMuted }]}>Turn a caption, message, or copied recipe into a draft</Text>
+            </RNView>
+            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+          </TouchableOpacity>
 
           {/* Scan Recipe Button */}
           <TouchableOpacity

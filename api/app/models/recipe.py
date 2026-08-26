@@ -35,12 +35,12 @@ class Recipe(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     source_url = Column(Text, nullable=False)
     canonical_source_key = Column(String(96), nullable=True, index=True)
-    source_type = Column(String(32), nullable=False)  # youtube|tiktok|instagram|web|manual
+    source_type = Column(String(32), nullable=False)  # video|website|manual|photo|text
     raw_text = Column(Text, nullable=True)
     extracted = Column(JSONB, nullable=False)
     original_extracted = Column(JSONB, nullable=True)  # Stores original AI extraction before user edits
     thumbnail_url = Column(Text, nullable=True)
-    extraction_method = Column(String(32), nullable=True)  # whisper|basic|oembed|manual
+    extraction_method = Column(String(32), nullable=True)  # whisper|basic|oembed|manual|ocr|text-ai
     extraction_quality = Column(String(16), nullable=True)  # high|medium|low
     has_audio_transcript = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

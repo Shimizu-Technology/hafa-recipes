@@ -44,6 +44,7 @@ import { useAddFromRecipe } from '@/hooks/useGrocery';
 import { SkeletonSimilarRecipes } from '@/components/Skeleton';
 import { formatPublishDisclosure, getPublishDisclosure } from '@/lib/recipePublishing';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
+import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
 import { useTextSize } from '@/hooks/useTextSize';
 import { useAuth, useUser } from '@clerk/expo';
@@ -622,25 +623,7 @@ export default function RecipeDetailScreen() {
 
   const { extracted } = recipe;
   
-  const sourceIcon = recipe.source_type === 'tiktok' 
-    ? 'logo-tiktok' 
-    : recipe.source_type === 'youtube' 
-      ? 'logo-youtube' 
-      : recipe.source_type === 'instagram' 
-        ? 'logo-instagram' 
-        : recipe.source_type === 'website'
-          ? 'globe-outline' 
-        : 'globe-outline';
-  
-  const sourceLabel = recipe.source_type === 'tiktok' 
-    ? 'TikTok' 
-    : recipe.source_type === 'youtube' 
-      ? 'YouTube' 
-      : recipe.source_type === 'instagram' 
-        ? 'Instagram' 
-        : recipe.source_type === 'website'
-          ? 'Website'
-          : 'Source';
+  const { icon: sourceIcon, label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
 
   const tabs: { key: TabType; label: string }[] = [
     { key: 'ingredients', label: 'Ingredients' },

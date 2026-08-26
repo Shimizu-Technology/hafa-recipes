@@ -43,6 +43,7 @@ import { RecipeListItem } from '@/types/recipe';
 import { api } from '@/lib/api';
 import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
+import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_PADDING = spacing.lg; // 24px on each side
@@ -168,17 +169,7 @@ function RecipeCard({
 }) {
   const [imageError, setImageError] = useState(false);
 
-  const sourceIcon = recipe.source_type === 'tiktok'
-    ? 'logo-tiktok'
-    : recipe.source_type === 'youtube'
-      ? 'logo-youtube'
-      : recipe.source_type === 'instagram'
-        ? 'logo-instagram'
-        : recipe.source_type === 'website'
-          ? 'globe-outline'
-        : recipe.source_type === 'manual'
-          ? 'create-outline'
-          : 'globe-outline';
+  const { icon: sourceIcon, label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
 
   const showPlaceholder = !recipe.thumbnail_url || imageError;
   const isOwner = recipe.is_owner ?? recipe.user_id === currentUserId;
@@ -266,7 +257,7 @@ function RecipeCard({
           <RNView style={styles.sourceRow}>
             <Ionicons name={sourceIcon as any} size={14} color={colors.textMuted} />
             <Text style={[styles.sourceText, { color: colors.textMuted }]}>
-              {recipe.source_type}
+              {sourceLabel}
               </Text>
             </RNView>
             <RNView style={styles.attributionRow}>

@@ -132,6 +132,8 @@ def test_direct_ocr_save_route_persists_normalized_confidence():
 
     assert response.status_code == 200
     saved_recipe = captured["recipe"]
+    assert saved_recipe.source_type == "photo"
+    assert saved_recipe.source_url == "photo-upload"
     assert saved_recipe.extraction_quality == "low"
     assert saved_recipe.extracted["lowConfidence"] is True
     assert saved_recipe.extracted["confidenceWarning"] == DEFAULT_CONFIDENCE_WARNING

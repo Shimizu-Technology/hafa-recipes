@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@clerk/expo';
 import { AppState, AppStateStatus } from 'react-native';
-import { api } from '../lib/api';
+import { api, type CaptureSourceType } from '../lib/api';
 import { ExtractRequest, JobStatus, RecipeListItem, PaginatedRecipes } from '../types/recipe';
 
 // Page size for infinite scroll
@@ -1155,26 +1155,28 @@ export function useUnsaveRecipe() {
 }
 
 // ============================================================
-// OCR Recipe Saving
+// Captured Recipe Saving
 // ============================================================
 
-export function useSaveOcrRecipe() {
+export function useSaveCapturedRecipe() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (params: { extracted: any; is_public?: boolean }) => 
-      api.saveOcrRecipe(params),
+    mutationFn: (params: {
+      extracted: any;
+      source_type: CaptureSourceType;
+      is_public?: boolean;
+    }) => api.saveCapturedRecipe(params),
     onSuccess: (data) => {
       invalidateCreatedRecipeQueries(queryClient, data.id);
       queryClient.invalidateQueries({ queryKey: ['myRecipes'] });
-      console.log('OCR recipe saved successfully:', data.id);
+      console.log('Captured recipe saved successfully:', data.id);
     },
     onError: () => {
       // Error handled by caller with Alert
     },
   });
 }
-
 
 // ============================================================
 // Client-Side Filtering Utilities

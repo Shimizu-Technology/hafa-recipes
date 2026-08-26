@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
     recipe: '',
     location: 'Guam',
     isPublic: 'false',
+    sourceType: 'photo' as 'photo' | 'text',
   },
 }));
 
@@ -66,7 +67,7 @@ vi.mock('@/constants/Colors', () => ({
   spacing: { xs: 4, sm: 8, md: 16, lg: 24 },
 }));
 vi.mock('@/hooks/useRecipes', () => ({
-  useSaveOcrRecipe: () => ({ mutateAsync: vi.fn() }),
+  useSaveCapturedRecipe: () => ({ mutateAsync: vi.fn() }),
 }));
 vi.mock('@/hooks/usePublishingDisclosure', () => ({
   usePublishingDisclosure: () => ({ requestPublishing: vi.fn(), isCheckingDisclosure: false }),
@@ -117,6 +118,20 @@ describe('OCRReviewScreen confidence notice', () => {
     const renderer = await renderRecipe({ lowConfidence: true, confidenceWarning: warning });
 
     expect(confidenceWarnings(renderer)).toHaveLength(1);
+  });
+
+  it('explains pasted-text handling for text captures', async () => {
+    mocks.params.sourceType = 'text';
+    const renderer = await renderRecipe({ lowConfidence: false });
+    const themedTextType = 'ThemedText' as unknown as React.ComponentType;
+    const copy = renderer.root.findAllByType(themedTextType).flatMap(
+      (node) => typeof node.props.children === 'string' ? [node.props.children] : [],
+    );
+
+    expect(copy).toContain(
+      'AI can misunderstand copied formatting or missing context. Håfa Recipes does not store the original pasted text with your saved recipe.',
+    );
+    mocks.params.sourceType = 'photo';
   });
 
   it.each([
