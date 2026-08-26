@@ -68,9 +68,10 @@ export function SourcePlaybackCard({
           <WebView
             source={{ uri: playback.embedUrl, headers: playback.requestHeaders }}
             style={styles.webView}
-            // Let the callback reject off-provider destinations before WebView can hand them
-            // to the operating system (for example, an embedded Instagram App Store link).
-            originWhitelist={['https://*', 'about:blank']}
+            // WebView opens schemes outside this list through the operating system before
+            // calling our validator. Match every scheme here so the provider gate below is
+            // always authoritative, including for instagram:// and other app deep links.
+            originWhitelist={['*']}
             onShouldStartLoadWithRequest={({ url }) => (
               isSourcePlaybackNavigationAllowed(playback.provider, url)
             )}

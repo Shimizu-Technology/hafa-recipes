@@ -88,13 +88,16 @@ describe('SourcePlaybackCard', () => {
         uri: youtubePlayback.embedUrl,
         headers: youtubePlayback.requestHeaders,
       });
-      expect(webView.props.originWhitelist).toEqual(['https://*', 'about:blank']);
+      expect(webView.props.originWhitelist).toEqual(['*']);
       expect(webView.props.setSupportMultipleWindows).toBe(false);
       expect(webView.props.onShouldStartLoadWithRequest({
         url: 'https://www.youtube.com/watch?v=abcDEF_1234',
       })).toBe(true);
       expect(webView.props.onShouldStartLoadWithRequest({
         url: 'https://apps.apple.com/app/youtube/id544007664',
+      })).toBe(false);
+      expect(webView.props.onShouldStartLoadWithRequest({
+        url: 'youtube://watch?v=abcDEF_1234',
       })).toBe(false);
       webView.props.onOpenWindow({
         nativeEvent: { targetUrl: 'https://apps.apple.com/app/youtube/id544007664' },
