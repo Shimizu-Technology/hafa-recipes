@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   isSignedIn: false,
   refetch: vi.fn(),
   searchState: {
-    data: undefined,
+    data: undefined as { results: Array<{ recipe: { id: string } }>; total: number } | undefined,
     isLoading: false,
     isFetching: false,
     isError: false,
@@ -24,8 +24,14 @@ vi.mock('react-native', async () => {
 
   return {
     ActivityIndicator: host('ActivityIndicator'),
-    FlatList: ({ ListEmptyComponent }: { ListEmptyComponent: React.ComponentType }) =>
-      ReactModule.createElement('FlatList', null, ReactModule.createElement(ListEmptyComponent)),
+    FlatList: ({ data, ListEmptyComponent }: { data: unknown[]; ListEmptyComponent: React.ComponentType }) =>
+      ReactModule.createElement(
+        'FlatList',
+        null,
+        data.length > 0
+          ? ReactModule.createElement('FlatListWithData')
+          : ReactModule.createElement(ListEmptyComponent),
+      ),
     Image: host('Image'),
     KeyboardAvoidingView: host('KeyboardAvoidingView'),
     Platform: { OS: 'ios' },
@@ -123,9 +129,12 @@ describe('IngredientSearchScreen', () => {
     );
 
     mocks.searchState.isError = true;
+    mocks.searchState.data = { results: [{ recipe: { id: 'stale-result' } }], total: 1 };
     await act(async () => renderer!.update(React.createElement(IngredientSearchScreen)));
 
     expect(renderer!.root.findByType(textInputType).props.value).toBe('Chicken, rice');
+    expect(renderer!.root.findAllByProps({ children: 'Couldn’t search recipes' }).length)
+      .toBeGreaterThan(0);
     const retryButton = renderer!.root.findByProps({ accessibilityLabel: 'Retry ingredient search' });
     await act(async () => retryButton.props.onPress());
     expect(mocks.refetch).toHaveBeenCalledOnce();

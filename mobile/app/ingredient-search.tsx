@@ -165,25 +165,6 @@ export default function IngredientSearchScreen() {
       );
     }
 
-    if (isError) {
-      return (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="cloud-offline-outline" size={64} color={colors.textMuted} />
-          <Text style={[styles.emptyTitle, { color: colors.text }]}>Couldn’t search recipes</Text>
-          <Text style={[styles.emptyText, { color: colors.textMuted }]}>Your ingredients are still here. Check your connection and try again.</Text>
-          <TouchableOpacity
-            style={[styles.retryButton, { backgroundColor: colors.tint }]}
-            onPress={() => void refetch()}
-            accessibilityRole="button"
-            accessibilityLabel="Retry ingredient search"
-          >
-            <Ionicons name="refresh-outline" size={18} color="#FFFFFF" />
-            <Text style={styles.retryButtonText}>Try Again</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-
     if (searchIngredients.length === 0) {
       return (
         <View style={styles.emptyContainer}>
@@ -212,7 +193,7 @@ export default function IngredientSearchScreen() {
         </Text>
       </View>
     );
-  }, [isLoading, isFetching, isError, searchIngredients.length, colors, refetch]);
+  }, [isLoading, isFetching, searchIngredients.length, colors]);
 
   return (
     <>
@@ -332,7 +313,7 @@ export default function IngredientSearchScreen() {
         )}
         
         {/* Results count */}
-        {data && data.results.length > 0 && (
+        {!isError && data && data.results.length > 0 && (
           <View style={styles.resultsHeader}>
             <Text style={[styles.resultsCount, { color: colors.text }]}>
               Found {data.total} recipe{data.total !== 1 ? 's' : ''}
@@ -341,17 +322,34 @@ export default function IngredientSearchScreen() {
         )}
         
         {/* Results list */}
-        <FlatList
-          data={data?.results || []}
-          renderItem={renderResult}
-          keyExtractor={(item) => item.recipe.id}
-          ListEmptyComponent={ListEmpty}
-          contentContainerStyle={[
-            styles.listContent,
-            { paddingBottom: insets.bottom + spacing.xl }
-          ]}
-          showsVerticalScrollIndicator={false}
-        />
+        {isError ? (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="cloud-offline-outline" size={64} color={colors.textMuted} />
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>Couldn’t search recipes</Text>
+            <Text style={[styles.emptyText, { color: colors.textMuted }]}>Your ingredients are still here. Check your connection and try again.</Text>
+            <TouchableOpacity
+              style={[styles.retryButton, { backgroundColor: colors.tint }]}
+              onPress={() => void refetch()}
+              accessibilityRole="button"
+              accessibilityLabel="Retry ingredient search"
+            >
+              <Ionicons name="refresh-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.retryButtonText}>Try Again</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <FlatList
+            data={data?.results || []}
+            renderItem={renderResult}
+            keyExtractor={(item) => item.recipe.id}
+            ListEmptyComponent={ListEmpty}
+            contentContainerStyle={[
+              styles.listContent,
+              { paddingBottom: insets.bottom + spacing.xl }
+            ]}
+            showsVerticalScrollIndicator={false}
+          />
+        )}
       </KeyboardAvoidingView>
     </>
   );
