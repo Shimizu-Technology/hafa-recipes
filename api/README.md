@@ -72,6 +72,13 @@ ENVIRONMENT=development
 # ENABLE_SENTRY_DEBUG=false
 ```
 
+The API role must be able to read bucket versioning and permanently remove
+versioned objects: `s3:GetBucketVersioning`, `s3:ListBucketVersions`,
+`s3:DeleteObject`, and `s3:DeleteObjectVersion`, in addition to its upload and
+read permissions. Chat and account cleanup fail safely and retry when those
+permissions are unavailable; they do not report a delete marker as a permanent
+image purge.
+
 ## Error Monitoring (Sentry)
 
 Sentry captures errors, performance data, and Instagram auth failures.

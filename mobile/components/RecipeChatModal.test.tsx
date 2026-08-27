@@ -8,21 +8,29 @@ import type { Recipe } from '@/types/recipe';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
 
-const mocks = vi.hoisted(() => ({
-  getItem: vi.fn<(key: string) => Promise<string | null>>(),
-  setItem: vi.fn<(key: string, value: string) => Promise<void>>(async () => undefined),
-  removeItem: vi.fn<(key: string) => Promise<void>>(async () => undefined),
-  getCurrentUserIdentity: vi.fn(async () => ({ id: 'stable-user' })),
-  deleteChatImages: vi.fn(async () => ({ deleted: 1 })),
-  recipeMutate: vi.fn<(variables: unknown) => Promise<{ response: string }>>(),
-  cookingMutate: vi.fn<(variables: unknown) => Promise<{ response: string }>>(),
-  requestLibraryPermission: vi.fn(async () => ({ status: 'granted' })),
-  launchImageLibrary: vi.fn(),
-  speak: vi.fn<(text?: string) => Promise<void>>(async () => undefined),
-  stop: vi.fn<() => Promise<void>>(async () => undefined),
-  ttsState: { isLoading: false, isPlaying: false },
-  alert: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const storageValues = new Map<string, string>();
+  return {
+    storageValues,
+    getItem: vi.fn<(key: string) => Promise<string | null>>(),
+    setItem: vi.fn<(key: string, value: string) => Promise<void>>(async (key, value) => {
+      storageValues.set(key, value);
+    }),
+    removeItem: vi.fn<(key: string) => Promise<void>>(async (key) => {
+      storageValues.delete(key);
+    }),
+    getCurrentUserIdentity: vi.fn(async () => ({ id: 'stable-user' })),
+    deleteChatImages: vi.fn(async () => ({ deleted: 1 })),
+    recipeMutate: vi.fn<(variables: unknown) => Promise<{ response: string }>>(),
+    cookingMutate: vi.fn<(variables: unknown) => Promise<{ response: string }>>(),
+    requestLibraryPermission: vi.fn(async () => ({ status: 'granted' })),
+    launchImageLibrary: vi.fn(),
+    speak: vi.fn<(text?: string) => Promise<void>>(async () => undefined),
+    stop: vi.fn<() => Promise<void>>(async () => undefined),
+    ttsState: { isLoading: false, isPlaying: false },
+    alert: vi.fn(),
+  };
+});
 
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: 'clerk-subject' }) }));
 
@@ -106,6 +114,7 @@ vi.mock('@/lib/api', () => ({
 }));
 
 import RecipeChatModal from './RecipeChatModal';
+import { resetChatImageCleanupForTests } from '../lib/chatImageCleanup';
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -153,11 +162,26 @@ async function sendText(renderer: ReturnType<typeof createRoot>, text: string) {
   });
 }
 
+/** Flush background queue work that intentionally is not awaited by the UI. */
+async function flushBackgroundWork() {
+  await act(async () => {
+    for (let index = 0; index < 12; index += 1) await Promise.resolve();
+  });
+}
+
 describe('RecipeChatModal conversation isolation', () => {
   beforeEach(() => {
+    mocks.storageValues.clear();
     mocks.getItem.mockReset();
-    mocks.setItem.mockClear();
-    mocks.removeItem.mockClear();
+    mocks.getItem.mockImplementation(async (key: string) => mocks.storageValues.get(key) ?? null);
+    mocks.setItem.mockReset();
+    mocks.setItem.mockImplementation(async (key: string, value: string) => {
+      mocks.storageValues.set(key, value);
+    });
+    mocks.removeItem.mockReset();
+    mocks.removeItem.mockImplementation(async (key: string) => {
+      mocks.storageValues.delete(key);
+    });
     mocks.getCurrentUserIdentity.mockReset();
     mocks.getCurrentUserIdentity.mockResolvedValue({ id: 'stable-user' });
     mocks.deleteChatImages.mockClear();
@@ -170,6 +194,7 @@ describe('RecipeChatModal conversation isolation', () => {
     mocks.ttsState.isLoading = false;
     mocks.ttsState.isPlaying = false;
     mocks.alert.mockClear();
+    resetChatImageCleanupForTests();
   });
 
   it('ignores a stale history read after switching recipes', async () => {
@@ -355,7 +380,7 @@ describe('RecipeChatModal conversation isolation', () => {
   });
 
   it('deletes persisted photos before clearing account-scoped history', async () => {
-    mocks.getItem.mockResolvedValue(JSON.stringify([
+    const history = JSON.stringify([
       {
         id: 'photo-question',
         role: 'user',
@@ -363,7 +388,8 @@ describe('RecipeChatModal conversation isolation', () => {
         image_url: 'https://images.example/chat-photo.jpg',
       },
       { id: 'answer', role: 'assistant', content: 'A tomato.' },
-    ]));
+    ]);
+    mocks.storageValues.set('hafa.chat.v2.stable-user.recipe.first', history);
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
     try {
@@ -374,6 +400,7 @@ describe('RecipeChatModal conversation isolation', () => {
       await act(async () => clearButton.props.onPress());
       const confirmation = mocks.alert.mock.calls[0][2][1];
       await act(async () => confirmation.onPress());
+      await flushBackgroundWork();
 
       expect(mocks.deleteChatImages).toHaveBeenCalledWith([
         'https://images.example/chat-photo.jpg',
@@ -390,14 +417,15 @@ describe('RecipeChatModal conversation isolation', () => {
   });
 
   it('queues persisted photo cleanup when remote deletion fails', async () => {
-    mocks.getItem.mockResolvedValue(JSON.stringify([
+    const history = JSON.stringify([
       {
         id: 'photo-question',
         role: 'user',
         content: 'What is this?',
         image_url: 'https://images.example/chat-photo.jpg',
       },
-    ]));
+    ]);
+    mocks.storageValues.set('hafa.chat.v2.stable-user.recipe.first', history);
     mocks.deleteChatImages.mockRejectedValueOnce(new Error('offline'));
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
@@ -409,18 +437,22 @@ describe('RecipeChatModal conversation isolation', () => {
       await act(async () => clearButton.props.onPress());
       const confirmation = mocks.alert.mock.calls[0][2][1];
       await act(async () => confirmation.onPress());
+      await flushBackgroundWork();
 
-      expect(mocks.setItem).toHaveBeenCalledWith(
-        'hafa.chat.v2.stable-user.recipe.first.pending-image-cleanup',
-        JSON.stringify(['https://images.example/chat-photo.jpg']),
+      const queueWrite = mocks.setItem.mock.calls.find(
+        ([key]) => key === 'hafa.chat.v2.stable-user.recipe.first.pending-image-cleanup',
       );
+      expect(JSON.parse(queueWrite![1])).toEqual([{
+        id: expect.any(String),
+        imageUrls: ['https://images.example/chat-photo.jpg'],
+      }]);
       expect(mocks.removeItem).toHaveBeenCalledWith('hafa.chat.v2.stable-user.recipe.first');
       expect(renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Copy message',
       )).toHaveLength(0);
       expect(mocks.alert).toHaveBeenCalledWith(
         'Chat Cleared',
-        expect.stringContaining('back online'),
+        expect.stringContaining('retrying'),
       );
       expect(mocks.removeItem).not.toHaveBeenCalledWith(
         'hafa.chat.v2.stable-user.recipe.first.pending-image-cleanup',
@@ -431,16 +463,18 @@ describe('RecipeChatModal conversation isolation', () => {
   });
 
   it('retries a queued image cleanup before loading the conversation', async () => {
-    mocks.getItem.mockImplementation(async (key: string) => {
-      if (key.endsWith('.pending-image-cleanup')) {
-        return JSON.stringify(['https://images.example/pending.jpg']);
-      }
-      return null;
-    });
+    mocks.storageValues.set(
+      'hafa.chat.v2.stable-user.recipe.first.pending-image-cleanup',
+      JSON.stringify([{
+        id: 'pending-job',
+        imageUrls: ['https://images.example/pending.jpg'],
+      }]),
+    );
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
     try {
       await renderModal(renderer, 'first');
+      await flushBackgroundWork();
       expect(mocks.deleteChatImages).toHaveBeenCalledWith([
         'https://images.example/pending.jpg',
       ]);
@@ -452,18 +486,26 @@ describe('RecipeChatModal conversation isolation', () => {
     }
   });
 
-  it('does not clean queued photos while the conversation still exists', async () => {
-    mocks.getItem.mockImplementation(async (key: string) => {
-      if (key.endsWith('.pending-image-cleanup')) {
-        return JSON.stringify(['https://images.example/pending.jpg']);
-      }
-      return JSON.stringify([{ id: 'question', role: 'user', content: 'Still here' }]);
-    });
+  it('cleans queued photos even after a new conversation message exists', async () => {
+    mocks.storageValues.set(
+      'hafa.chat.v2.stable-user.recipe.first.pending-image-cleanup',
+      JSON.stringify([{
+        id: 'older-cleanup',
+        imageUrls: ['https://images.example/pending.jpg'],
+      }]),
+    );
+    mocks.storageValues.set(
+      'hafa.chat.v2.stable-user.recipe.first',
+      JSON.stringify([{ id: 'question', role: 'user', content: 'Still here' }]),
+    );
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
     try {
       await renderModal(renderer, 'first');
-      expect(mocks.deleteChatImages).not.toHaveBeenCalled();
+      await flushBackgroundWork();
+      expect(mocks.deleteChatImages).toHaveBeenCalledWith([
+        'https://images.example/pending.jpg',
+      ]);
       const text = renderer.container.queryAll(
         (instance) => instance.type === 'Text',
       ).map((instance) => instance.props.children);
@@ -474,16 +516,20 @@ describe('RecipeChatModal conversation isolation', () => {
   });
 
   it('does not delete photos if local conversation removal fails', async () => {
-    mocks.getItem.mockResolvedValue(JSON.stringify([
+    mocks.storageValues.set(
+      'hafa.chat.v2.stable-user.recipe.first',
+      JSON.stringify([
       {
         id: 'photo-question',
         role: 'user',
         content: 'Still here',
         image_url: 'https://images.example/pending.jpg',
       },
-    ]));
+      ]),
+    );
     mocks.removeItem.mockImplementation(async (key: string) => {
       if (key === 'hafa.chat.v2.stable-user.recipe.first') throw new Error('storage failed');
+      mocks.storageValues.delete(key);
     });
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 

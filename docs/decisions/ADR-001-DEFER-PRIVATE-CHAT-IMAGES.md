@@ -61,11 +61,13 @@ Before or alongside the next safety release:
 - [x] Add a short user-facing notice not to upload sensitive personal information.
 - [x] Document actual retention and third-party AI processing in the privacy policy.
 
-Chat images are currently retained with their local conversation until the user
-clears that conversation, or until account deletion removes the user's complete
-chat-image prefix. Automatic age-based expiration remains part of the deferred
-private-delivery work because expiring an image while its local message remains
-would silently break later chat context.
+Chat images are currently retained with their local conversation. Clearing a
+conversation removes the local messages and requests deletion of their remote
+images. If that request fails, the app keeps each deletion job and retries it
+later; the images can remain available until a retry succeeds. Account deletion
+removes the user's complete chat-image prefix. Automatic age-based expiration
+remains part of the deferred private-delivery work because expiring an image
+while its local message remains would silently break later chat context.
 
 ## Revisit triggers
 

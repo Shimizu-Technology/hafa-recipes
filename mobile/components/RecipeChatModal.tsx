@@ -71,9 +71,14 @@ import { chatErrorMessage } from '../lib/chatErrors';
 import {
   chatStorageKey,
   legacyChatStorageKey,
-  pendingChatImageCleanupKey,
   persistedChatImageUrls,
 } from '../lib/chatStorage';
+import {
+  enqueueChatImageCleanup,
+  hasChatImageCleanup,
+  processChatImageCleanup,
+  removeChatImageCleanup,
+} from '../lib/chatImageCleanup';
 const CHAT_MARKDOWN_RULES: RenderRules = {
   // Assistant text must never trigger a remote image request from the device.
   image: () => null,
@@ -261,8 +266,6 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           // Never read the unsafe legacy key; a cleanup failure must not hide
           // this account's already-scoped conversation.
         }
-        const cleanupKey = pendingChatImageCleanupKey(conversationKey);
-        const pendingCleanup = await AsyncStorage.getItem(cleanupKey);
         const stored = await AsyncStorage.getItem(conversationKey);
         if (
           historyLoadGenerationRef.current !== generation
@@ -271,23 +274,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         const history: ChatMessage[] = stored ? JSON.parse(stored) : [];
         updateMessages(normalizeStoredChatMessages(history));
         setLoadedStorageKey(conversationKey);
-        if (pendingCleanup && !stored) {
-          void (async () => {
-            try {
-              const imageUrls: unknown = JSON.parse(pendingCleanup);
-              if (
-                Array.isArray(imageUrls)
-                && imageUrls.length > 0
-                && imageUrls.every((url) => typeof url === 'string')
-              ) {
-                await api.deleteChatImages(imageUrls);
-              }
-              await AsyncStorage.removeItem(cleanupKey);
-            } catch {
-              // Keep the queue for a later authenticated retry.
-            }
-          })();
-        }
+        void processChatImageCleanup(conversationKey, (urls) => api.deleteChatImages(urls));
       } catch {
         if (
           historyLoadGenerationRef.current !== generation
@@ -338,10 +325,13 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           style: 'destructive',
           onPress: async () => {
             if (activeStorageKeyRef.current !== conversationKey) return;
-            const cleanupKey = pendingChatImageCleanupKey(conversationKey);
+            const cleanupJobId = createChatMessageId();
             try {
               if (imageUrls.length > 0) {
-                await AsyncStorage.setItem(cleanupKey, JSON.stringify(imageUrls));
+                await enqueueChatImageCleanup(conversationKey, {
+                  id: cleanupJobId,
+                  imageUrls,
+                });
               }
               await AsyncStorage.removeItem(conversationKey);
               if (activeStorageKeyRef.current === conversationKey) {
@@ -349,6 +339,9 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                 retryImagesRef.current.clear();
               }
             } catch {
+              if (imageUrls.length > 0) {
+                await removeChatImageCleanup(conversationKey, cleanupJobId).catch(() => undefined);
+              }
               Alert.alert(
                 'Could Not Clear Chat',
                 'Your conversation is still here because this device could not save the cleanup request. Please try again.',
@@ -357,15 +350,17 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
             }
 
             if (imageUrls.length > 0) {
-              try {
-                await api.deleteChatImages(imageUrls);
-                await AsyncStorage.removeItem(cleanupKey);
-              } catch {
+              void processChatImageCleanup(
+                conversationKey,
+                (urls) => api.deleteChatImages(urls),
+              ).then(() => hasChatImageCleanup(conversationKey, cleanupJobId))
+              .then((pending) => {
+                if (!pending) return;
                 Alert.alert(
                   'Chat Cleared',
-                  'The conversation was cleared. Its photos will be removed when you are back online.',
+                  'The conversation was cleared. We will keep retrying its photo cleanup automatically.',
                 );
-              }
+              }).catch(() => undefined);
             }
           },
         },

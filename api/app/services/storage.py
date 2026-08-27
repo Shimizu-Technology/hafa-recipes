@@ -204,6 +204,9 @@ class StorageService:
 
         deleted_count = 0
         try:
+            versioning = self.client.get_bucket_versioning(Bucket=self.bucket_name)
+            if versioning.get("Status") in {"Enabled", "Suspended"}:
+                return self._delete_all_prefix_versions(prefix)
             while True:
                 response = self.client.list_objects_v2(
                     Bucket=self.bucket_name,
@@ -394,26 +397,103 @@ class StorageService:
             keys.append(urlparse(image_url).path.removeprefix("/"))
 
         try:
-            response = self.client.delete_objects(
-                Bucket=self.bucket_name,
-                Delete={"Objects": [{"Key": key} for key in keys], "Quiet": False},
-            )
-            errors = response.get("Errors", [])
-            if errors:
-                raise StorageCleanupError(
-                    f"S3 reported {len(errors)} failed chat image deletions"
-                )
-            deleted_keys = {item.get("Key") for item in response.get("Deleted", [])}
-            if any(key not in deleted_keys for key in keys):
-                raise StorageCleanupError(
-                    "S3 did not confirm every requested chat image deletion"
-                )
-            # S3 delete is idempotent and confirms delete markers for missing keys.
+            versioning = self.client.get_bucket_versioning(Bucket=self.bucket_name)
+            if versioning.get("Status") in {"Enabled", "Suspended"}:
+                for key in keys:
+                    self._delete_all_object_versions(key)
+            else:
+                self._delete_objects_confirmed([{"Key": key} for key in keys])
             return len(keys)
         except StorageCleanupError:
             raise
         except Exception as error:
             raise StorageCleanupError("Unable to delete chat images") from error
+
+    def _delete_objects_confirmed(self, objects: list[dict[str, str]]) -> None:
+        """Delete a bounded object/version batch and verify every provider acknowledgement."""
+        response = self.client.delete_objects(
+            Bucket=self.bucket_name,
+            Delete={"Objects": objects, "Quiet": False},
+        )
+        errors = response.get("Errors", [])
+        if errors:
+            raise StorageCleanupError(
+                f"S3 reported {len(errors)} failed object deletions"
+            )
+        deleted = {
+            (item.get("Key"), item.get("VersionId"))
+            for item in response.get("Deleted", [])
+        }
+        requested = {(item["Key"], item.get("VersionId")) for item in objects}
+        if not requested.issubset(deleted):
+            raise StorageCleanupError(
+                "S3 did not confirm every requested object deletion"
+            )
+
+    def _delete_all_prefix_versions(self, prefix: str) -> int:
+        """Permanently purge all versions and delete markers beneath one prefix."""
+        objects: list[dict[str, str]] = []
+        request: dict[str, object] = {
+            "Bucket": self.bucket_name,
+            "Prefix": prefix,
+            "MaxKeys": 1000,
+        }
+        while True:
+            response = self.client.list_object_versions(**request)
+            for item in [*response.get("Versions", []), *response.get("DeleteMarkers", [])]:
+                if item.get("Key", "").startswith(prefix) and item.get("VersionId"):
+                    objects.append({"Key": item["Key"], "VersionId": item["VersionId"]})
+            if not response.get("IsTruncated"):
+                break
+            request["KeyMarker"] = response["NextKeyMarker"]
+            request["VersionIdMarker"] = response["NextVersionIdMarker"]
+
+        for start in range(0, len(objects), 1000):
+            self._delete_objects_confirmed(objects[start:start + 1000])
+
+        remaining = self.client.list_object_versions(
+            Bucket=self.bucket_name,
+            Prefix=prefix,
+            MaxKeys=1,
+        )
+        if remaining.get("Versions") or remaining.get("DeleteMarkers"):
+            raise StorageCleanupError("S3 retained an object version under the prefix")
+        return len(objects)
+
+    def _delete_all_object_versions(self, key: str) -> None:
+        """Permanently purge all versions and delete markers for one exact key."""
+        objects: list[dict[str, str]] = []
+        request: dict[str, object] = {
+            "Bucket": self.bucket_name,
+            "Prefix": key,
+            "MaxKeys": 1000,
+        }
+        while True:
+            response = self.client.list_object_versions(**request)
+            for item in [*response.get("Versions", []), *response.get("DeleteMarkers", [])]:
+                if item.get("Key") == key and item.get("VersionId"):
+                    objects.append({"Key": key, "VersionId": item["VersionId"]})
+            if not response.get("IsTruncated"):
+                break
+            request["KeyMarker"] = response["NextKeyMarker"]
+            request["VersionIdMarker"] = response["NextVersionIdMarker"]
+
+        for start in range(0, len(objects), 1000):
+            self._delete_objects_confirmed(objects[start:start + 1000])
+
+        remaining = self.client.list_object_versions(
+            Bucket=self.bucket_name,
+            Prefix=key,
+            MaxKeys=1000,
+        )
+        if any(
+            item.get("Key") == key
+            for item in [
+                *remaining.get("Versions", []),
+                *remaining.get("DeleteMarkers", []),
+            ]
+        ):
+            raise StorageCleanupError("S3 retained a chat image object version")
 
     def is_owned_chat_image_url(self, image_url: str, user_id: str) -> bool:
         """Return whether a public URL points to this user's app-owned chat object."""
