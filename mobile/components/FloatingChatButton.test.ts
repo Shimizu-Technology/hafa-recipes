@@ -107,6 +107,9 @@ describe('FloatingChatButton', () => {
         (instance) => instance.type === 'TouchableOpacity',
       )[0];
       await act(async () => button.props.onPress());
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'RecipeChatModal' && instance.props.isVisible,
+      )).toHaveLength(1);
 
       mocks.guestPromptHeight = 0;
       await act(async () => renderer.render(React.createElement(FloatingChatButton)));
