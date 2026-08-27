@@ -56,6 +56,13 @@ export default function FloatingChatButton() {
     
     return isFloatingChatPath(pathname) && !shouldHide;
   }, [pathname]);
+  const canRender = shouldShow && (Boolean(isSignedIn) || guestPromptHeight > 0);
+
+  React.useEffect(() => {
+    if (!canRender && showChat) {
+      setShowChat(false);
+    }
+  }, [canRender, showChat]);
 
   const handlePress = () => {
     haptics.medium();
@@ -69,7 +76,7 @@ export default function FloatingChatButton() {
   // Note: We avoid using exiting animations here due to a race condition bug
   // with React Native's New Architecture (Fabric) on Android that causes crashes
   // when views with exit animations are removed during navigation transitions
-  if (!shouldShow || (!isSignedIn && guestPromptHeight === 0)) {
+  if (!canRender) {
     return null;
   }
 
