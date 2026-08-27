@@ -21,13 +21,11 @@ import {
   ActivityIndicator,
   Alert,
   View as RNView,
-  TextInput,
   Image,
   Linking,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
@@ -49,6 +47,7 @@ try {
 }
 
 import { View, Text, useColors } from '@/components/Themed';
+import ChatComposer from './ChatComposer';
 import { Recipe, ChatMessage } from '@/types/recipe';
 import { useChatWithRecipe, useCookingChat } from '@/hooks/useChat';
 import { useTTS } from '@/hooks/useTTS';
@@ -68,6 +67,13 @@ import {
   selectChatContext,
 } from '../lib/chatContext';
 import { chatErrorMessage } from '../lib/chatErrors';
+import {
+  appendPastedChatText,
+  CHAT_MESSAGE_MAX_CHARS,
+  normalizeChatImageAttachment,
+  normalizeChatPaste,
+} from '../lib/chatComposer';
+import { readChatDraft, writeChatDraft } from '../lib/chatDrafts';
 import {
   chatStorageKey,
   legacyChatStorageKey,
@@ -113,7 +119,6 @@ const COOKING_SUGGESTIONS = [
 /** Render recipe-specific or general cooking chat with local conversation persistence. */
 export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeChatModalProps) {
   const colors = useColors();
-  const insets = useSafeAreaInsets();
   const scrollViewRef = useRef<ScrollView>(null);
   
   // Determine mode: recipe-specific or general cooking
@@ -128,7 +133,10 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const inFlightRef = useRef(false);
   const clearInFlightRef = useRef(false);
   const activeStorageKeyRef = useRef<string | null>(null);
+  const loadedStorageKeyRef = useRef<string | null>(null);
   const historyLoadGenerationRef = useRef(0);
+  const inputTextRef = useRef('');
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [inputText, setInputText] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -151,6 +159,17 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const cookingChatMutation = useCookingChat();
   
   const { speak, stop, isPlaying, isLoading: ttsLoading } = useTTS();
+
+  /** Keep text state synchronized for close and conversation-switch draft saves. */
+  const updateInputText = useCallback((text: string) => {
+    inputTextRef.current = text;
+    setInputText(text);
+  }, []);
+
+  const updateLoadedStorageKey = useCallback((key: string | null) => {
+    loadedStorageKeyRef.current = key;
+    setLoadedStorageKey(key);
+  }, []);
 
   /** Keep render state and the async-safe message reference synchronized. */
   const updateMessages = useCallback((nextMessages: ChatUiMessage[]) => {
@@ -188,7 +207,11 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     if (event.results && event.results.length > 0) {
       const transcript = event.results[0]?.transcript || '';
       if (transcript) {
-        setInputText(prev => prev + (prev ? ' ' : '') + transcript);
+        const current = inputTextRef.current;
+        updateInputText(`${current}${current ? ' ' : ''}${transcript}`.slice(
+          0,
+          CHAT_MESSAGE_MAX_CHARS,
+        ));
       }
     }
   });
@@ -245,15 +268,24 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   useEffect(() => {
     const generation = historyLoadGenerationRef.current + 1;
     historyLoadGenerationRef.current = generation;
+    const previousConversationKey = activeStorageKeyRef.current;
+    if (draftSaveTimerRef.current) {
+      clearTimeout(draftSaveTimerRef.current);
+      draftSaveTimerRef.current = null;
+    }
+    if (previousConversationKey && loadedStorageKeyRef.current === previousConversationKey) {
+      void writeChatDraft(previousConversationKey, inputTextRef.current).catch(() => undefined);
+    }
     activeStorageKeyRef.current = null;
+    loadedStorageKeyRef.current = null;
     setStorageKey(null);
     if (!isVisible) return;
 
     setIsLoadingHistory(true);
     setHistoryError(null);
-    setLoadedStorageKey(null);
+    updateLoadedStorageKey(null);
     updateMessages([]);
-    setInputText('');
+    updateInputText('');
     setAttachedImage(null);
     setAttachedImageUri(null);
     void (async () => {
@@ -272,13 +304,20 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           // this account's already-scoped conversation.
         }
         const stored = await AsyncStorage.getItem(conversationKey);
+        let storedDraft: string | null = null;
+        try {
+          storedDraft = await readChatDraft(conversationKey);
+        } catch {
+          // Draft recovery is best-effort and must not block verified history.
+        }
         if (
           historyLoadGenerationRef.current !== generation
           || activeStorageKeyRef.current !== conversationKey
         ) return;
         const history: ChatMessage[] = stored ? JSON.parse(stored) : [];
         updateMessages(normalizeStoredChatMessages(history));
-        setLoadedStorageKey(conversationKey);
+        updateInputText((storedDraft ?? '').slice(0, CHAT_MESSAGE_MAX_CHARS));
+        updateLoadedStorageKey(conversationKey);
         void recoverChatImageCleanup(conversationKey, stored !== null)
           .then(() => processChatImageCleanup(
             conversationKey,
@@ -290,7 +329,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           historyLoadGenerationRef.current !== generation
           || activeStorageKeyRef.current === null
         ) return;
-        setLoadedStorageKey(null);
+        updateLoadedStorageKey(null);
         setHistoryError(
           'We could not load this conversation. Check your connection and reopen chat.',
         );
@@ -303,7 +342,32 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         }
       }
     })();
-  }, [clerkUserId, isVisible, recipe?.id, updateMessages]);
+  }, [clerkUserId, isVisible, recipe?.id, updateInputText, updateLoadedStorageKey, updateMessages]);
+
+  /** Debounce account-scoped text draft writes while the active history is usable. */
+  useEffect(() => {
+    if (!storageKey || loadedStorageKey !== storageKey) return undefined;
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = setTimeout(() => {
+      draftSaveTimerRef.current = null;
+      void writeChatDraft(storageKey, inputText).catch(() => undefined);
+    }, 300);
+    return () => {
+      if (draftSaveTimerRef.current) {
+        clearTimeout(draftSaveTimerRef.current);
+        draftSaveTimerRef.current = null;
+      }
+    };
+  }, [inputText, loadedStorageKey, storageKey]);
+
+  /** Flush the latest loaded draft if the modal is removed without a visibility transition. */
+  useEffect(() => () => {
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    const conversationKey = activeStorageKeyRef.current;
+    if (conversationKey && loadedStorageKeyRef.current === conversationKey) {
+      void writeChatDraft(conversationKey, inputTextRef.current).catch(() => undefined);
+    }
+  }, []);
 
   /** Persist UI state to its originating conversation key. */
   const saveChatHistory = useCallback(async (
@@ -387,7 +451,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                   );
                 } catch {
                   if (activeStorageKeyRef.current === conversationKey) {
-                    setLoadedStorageKey(null);
+                    updateLoadedStorageKey(null);
                     setHistoryError(
                       'Chat cleanup was interrupted. Reopen chat to recover it safely.',
                     );
@@ -405,8 +469,10 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
 
             if (activeStorageKeyRef.current === conversationKey) {
               updateMessages([]);
+              updateInputText('');
               retryImagesRef.current.clear();
             }
+            void writeChatDraft(conversationKey, '').catch(() => undefined);
             clearInFlightRef.current = false;
             setIsClearingChat(false);
 
@@ -427,7 +493,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         },
       ]
     );
-  }, [storageKey, updateMessages]);
+  }, [storageKey, updateInputText, updateLoadedStorageKey, updateMessages]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -437,6 +503,62 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
       }, 100);
     }
   }, [messages]);
+
+  /** Apply one validated attachment consistently across camera, library, and paste. */
+  const applyImageAttachment = useCallback((encoded: string, previewUri?: string) => {
+    try {
+      const attachment = normalizeChatImageAttachment(encoded, previewUri);
+      setAttachedImage(attachment.base64);
+      setAttachedImageUri(attachment.uri);
+    } catch (error) {
+      Alert.alert(
+        'Could Not Attach Photo',
+        error instanceof Error ? error.message : 'That photo could not be attached.',
+      );
+    }
+  }, []);
+
+  /** Merge a text paste into the draft or attach a pasted image. */
+  const handleNativePaste = useCallback((payload: Clipboard.PasteEventPayload) => {
+    try {
+      const pasted = normalizeChatPaste(payload);
+      if (pasted.type === 'image') {
+        applyImageAttachment(pasted.base64, pasted.uri);
+        return;
+      }
+      const result = appendPastedChatText(inputTextRef.current, pasted.text);
+      updateInputText(result.text);
+      if (result.truncated) {
+        Alert.alert('Paste Shortened', 'The pasted text was shortened to the 4,000-character chat limit.');
+      }
+    } catch (error) {
+      Alert.alert(
+        'Could Not Paste',
+        error instanceof Error ? error.message : 'The clipboard content could not be pasted.',
+      );
+    }
+  }, [applyImageAttachment, updateInputText]);
+
+  /** Paste from platforms without Apple's native, permissionless paste control. */
+  const handleFallbackPaste = useCallback(async () => {
+    try {
+      if (await Clipboard.hasImageAsync()) {
+        const image = await Clipboard.getImageAsync({ format: 'jpeg', jpegQuality: 0.75 });
+        if (image) {
+          handleNativePaste({ ...image, type: 'image' });
+          return;
+        }
+      }
+      const text = await Clipboard.getStringAsync();
+      if (text) {
+        handleNativePaste({ type: 'text', text });
+        return;
+      }
+      Alert.alert('Nothing to Paste', 'Copy text or an image, then try again.');
+    } catch {
+      Alert.alert('Could Not Paste', 'Clipboard access was unavailable. Please try again.');
+    }
+  }, [handleNativePaste]);
 
   /** Attach one compressed image selected from the photo library. */
   const handlePickImage = async () => {
@@ -462,8 +584,9 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
         if (asset.base64) {
-          setAttachedImage(asset.base64);
-          setAttachedImageUri(asset.uri);
+          applyImageAttachment(asset.base64, asset.uri);
+        } else {
+          Alert.alert('Could Not Attach Photo', 'The selected photo could not be read.');
         }
       }
     } catch (error) {
@@ -495,8 +618,9 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
         if (asset.base64) {
-          setAttachedImage(asset.base64);
-          setAttachedImageUri(asset.uri);
+          applyImageAttachment(asset.base64, asset.uri);
+        } else {
+          Alert.alert('Could Not Attach Photo', 'The captured photo could not be read.');
         }
       }
     } catch (error) {
@@ -628,7 +752,15 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     };
     if (imageToSend) retryImagesRef.current.set(messageId, imageToSend);
 
-    setInputText('');
+    if (draftSaveTimerRef.current) {
+      clearTimeout(draftSaveTimerRef.current);
+      draftSaveTimerRef.current = null;
+    }
+    updateInputText('');
+    const conversationKey = activeStorageKeyRef.current;
+    if (conversationKey) {
+      void writeChatDraft(conversationKey, '').catch(() => undefined);
+    }
     setAttachedImage(null);
     setAttachedImageUri(null);
     Keyboard.dismiss();
@@ -736,7 +868,12 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                 <Ionicons name="trash-outline" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             )}
-            <TouchableOpacity onPress={onClose} style={styles.headerButton}>
+            <TouchableOpacity
+              onPress={onClose}
+              style={styles.headerButton}
+              accessibilityRole="button"
+              accessibilityLabel="Close chat"
+            >
               <Ionicons name="close" size={28} color={colors.text} />
             </TouchableOpacity>
           </RNView>
@@ -795,11 +932,13 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                 Try asking:
               </Text>
               <RNView style={styles.suggestionsWrap}>
-                {quickSuggestions.map((suggestion, index) => (
+                {quickSuggestions.map((suggestion) => (
                   <TouchableOpacity
-                    key={index}
+                    key={suggestion}
                     style={[styles.suggestionChip, { backgroundColor: colors.card, borderColor: colors.border }]}
                     onPress={() => handleSuggestionPress(suggestion)}
+                    accessibilityRole="button"
+                    accessibilityLabel={suggestion}
                   >
                     <Text style={[styles.suggestionText, { color: colors.tint }]}>
                       {suggestion}
@@ -848,6 +987,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                           source={{ uri: msg.image_url }} 
                           style={styles.messageImage}
                           resizeMode="cover"
+                          accessible
+                          accessibilityLabel="Attached chat photo"
                           onError={() => {
                             // Image failed to load (stale URI) - will show placeholder
                           }}
@@ -973,128 +1114,23 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           )}
         </ScrollView>
 
-        {/* Attached Image Preview */}
-        {attachedImageUri && (
-          <RNView style={[styles.attachedImageContainer, { backgroundColor: colors.backgroundSecondary, borderTopColor: colors.border }]}>
-            <Image source={{ uri: attachedImageUri }} style={styles.attachedImagePreview} />
-            <TouchableOpacity 
-              style={[styles.removeImageButton, { backgroundColor: colors.error }]} 
-              onPress={handleRemoveImage}
-            >
-              <Ionicons name="close" size={16} color="#FFFFFF" />
-            </TouchableOpacity>
-            <RNView style={styles.attachedImageText}>
-              <Text style={[styles.attachedImageHint, { color: colors.textMuted }]}>
-                Photo attached - add a message or send
-              </Text>
-              <Text style={[styles.attachedImagePrivacyNotice, { color: colors.textMuted }]}>
-                Sent to our AI provider and stored with this chat. Don&apos;t upload sensitive personal information.
-              </Text>
-            </RNView>
-          </RNView>
-        )}
-
-        {/* Input area */}
-        <RNView
-          style={[
-            styles.inputContainer,
-            {
-              backgroundColor: colors.background,
-              borderTopColor: colors.border,
-              paddingBottom: insets.bottom + spacing.sm,
-              paddingTop: spacing.md,
-            },
-          ]}
-        >
-          {/* Camera button */}
-          <TouchableOpacity
-            onPress={handleTakePhoto}
-            disabled={isComposerUnavailable}
-            accessibilityRole="button"
-            accessibilityLabel="Take a photo"
-            style={[
-              styles.imageButton,
-              { backgroundColor: colors.backgroundSecondary, borderColor: colors.border },
-            ]}
-          >
-            <Ionicons name="camera-outline" size={20} color={colors.textSecondary} />
-          </TouchableOpacity>
-
-          {/* Photo library button */}
-          <TouchableOpacity
-            onPress={handlePickImage}
-            disabled={isComposerUnavailable}
-            accessibilityRole="button"
-            accessibilityLabel="Attach photo from library"
-            style={[
-              styles.imageButton,
-              { backgroundColor: colors.backgroundSecondary, borderColor: colors.border },
-            ]}
-          >
-            <Ionicons name="image-outline" size={20} color={colors.textSecondary} />
-          </TouchableOpacity>
-
-          {/* Microphone button */}
-          <TouchableOpacity
-            onPress={handleMicPress}
-            disabled={isComposerUnavailable}
-            style={[
-              styles.micButton,
-              {
-                backgroundColor: isListening ? colors.error : colors.backgroundSecondary,
-                borderColor: isListening ? colors.error : colors.border,
-              },
-            ]}
-          >
-            <Ionicons
-              name={isListening ? 'mic' : 'mic-outline'}
-              size={20}
-              color={isListening ? '#FFFFFF' : colors.textSecondary}
-            />
-          </TouchableOpacity>
-          
-          <TextInput
-            value={inputText}
-            onChangeText={setInputText}
-            placeholder={attachedImage ? 'Add a message (optional)...' : (isListening ? 'Listening...' : (isGeneralMode ? 'Ask anything about cooking...' : 'Ask about this recipe...'))}
-            placeholderTextColor={isListening ? colors.error : colors.textMuted}
-            multiline
-            maxLength={500}
-            editable={!isComposerUnavailable}
-            style={[
-              styles.input,
-              {
-                backgroundColor: colors.backgroundSecondary,
-                borderColor: isListening ? colors.error : colors.border,
-                color: colors.text,
-              },
-            ]}
-            returnKeyType="send"
-            blurOnSubmit={false}
-            onSubmitEditing={() => handleSend()}
-          />
-          <TouchableOpacity
-            onPress={() => handleSend()}
-            disabled={
-              (!inputText.trim() && !attachedImage)
-              || isComposerUnavailable
-            }
-            style={[
-              styles.sendButton,
-              {
-                backgroundColor: (inputText.trim() || attachedImage) ? colors.tint : colors.border,
-              },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Send message"
-          >
-            <Ionicons
-              name="send"
-              size={20}
-              color={(inputText.trim() || attachedImage) ? '#FFFFFF' : colors.textMuted}
-            />
-          </TouchableOpacity>
-        </RNView>
+        <ChatComposer
+          conversationKey={storageKey}
+          text={inputText}
+          attachedImageUri={attachedImageUri}
+          isListening={isListening}
+          isSending={isDelivering}
+          isUnavailable={isComposerUnavailable}
+          isGeneralMode={isGeneralMode}
+          onChangeText={updateInputText}
+          onSend={() => { void handleSend(); }}
+          onTakePhoto={() => { void handleTakePhoto(); }}
+          onPickImage={() => { void handlePickImage(); }}
+          onRemoveImage={handleRemoveImage}
+          onMicPress={() => { void handleMicPress(); }}
+          onNativePaste={handleNativePaste}
+          onFallbackPaste={() => { void handleFallbackPaste(); }}
+        />
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -1298,82 +1334,6 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: fontSize.sm,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    borderTopWidth: 1,
-    gap: spacing.sm,
-  },
-  input: {
-    flex: 1,
-    height: 44,
-    maxHeight: 100,
-    paddingHorizontal: spacing.md,
-    paddingTop: 12,
-    paddingBottom: 10,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    fontSize: fontSize.md,
-    textAlignVertical: 'center',
-  },
-  sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  micButton: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-  },
-  imageButton: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-  },
-  attachedImageContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.sm,
-    borderTopWidth: 1,
-    gap: spacing.sm,
-  },
-  attachedImagePreview: {
-    width: 60,
-    height: 60,
-    borderRadius: radius.md,
-  },
-  removeImageButton: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'absolute',
-    top: spacing.xs,
-    left: spacing.sm + 48,
-  },
-  attachedImageHint: {
-    fontSize: fontSize.xs,
-  },
-  attachedImageText: {
-    flex: 1,
-    marginLeft: spacing.sm,
-    gap: spacing.xs,
-  },
-  attachedImagePrivacyNotice: {
-    fontSize: fontSize.xs,
-    lineHeight: 16,
   },
   messageImageContainer: {
     marginBottom: spacing.xs,

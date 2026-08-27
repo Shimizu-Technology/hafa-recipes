@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  chatDraftStorageKey,
   chatStorageKey,
   legacyChatStorageKey,
   pendingChatImageCleanupKey,
@@ -24,6 +25,13 @@ describe('account-scoped chat storage', () => {
     const conversation = chatStorageKey('app-user-a', 'recipe-1');
     expect(pendingChatImageCleanupKey(conversation)).toBe(
       'hafa.chat.v2.app-user-a.recipe.recipe-1.pending-image-cleanup',
+    );
+  });
+
+  it('scopes a draft to the same account conversation', () => {
+    const conversation = chatStorageKey('app-user-a', 'recipe-1');
+    expect(chatDraftStorageKey(conversation)).toBe(
+      'hafa.chat.v2.app-user-a.recipe.recipe-1.draft',
     );
   });
 

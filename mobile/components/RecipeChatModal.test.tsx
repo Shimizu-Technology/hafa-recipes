@@ -27,6 +27,9 @@ const mocks = vi.hoisted(() => {
     launchImageLibrary: vi.fn(),
     speak: vi.fn<(text?: string) => Promise<void>>(async () => undefined),
     stop: vi.fn<() => Promise<void>>(async () => undefined),
+    hasClipboardImage: vi.fn(async () => false),
+    getClipboardImage: vi.fn(),
+    getClipboardString: vi.fn(async () => ''),
     ttsState: { isLoading: false, isPlaying: false },
     alert: vi.fn(),
   };
@@ -56,7 +59,14 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     removeItem: mocks.removeItem,
   },
 }));
-vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => undefined) }));
+vi.mock('expo-clipboard', () => ({
+  ClipboardPasteButton: 'ClipboardPasteButton',
+  isPasteButtonAvailable: true,
+  setStringAsync: vi.fn(async () => undefined),
+  hasImageAsync: mocks.hasClipboardImage,
+  getImageAsync: mocks.getClipboardImage,
+  getStringAsync: mocks.getClipboardString,
+}));
 vi.mock('expo-haptics', () => ({
   notificationAsync: vi.fn(async () => undefined),
   NotificationFeedbackType: { Success: 'success' },
@@ -115,6 +125,7 @@ vi.mock('@/lib/api', () => ({
 
 import RecipeChatModal from './RecipeChatModal';
 import { resetChatImageCleanupForTests } from '../lib/chatImageCleanup';
+import { resetChatDraftsForTests } from '../lib/chatDrafts';
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -162,6 +173,14 @@ async function sendText(renderer: ReturnType<typeof createRoot>, text: string) {
   });
 }
 
+/** Expand the composer's attachment options. */
+async function openAttachmentOptions(renderer: ReturnType<typeof createRoot>) {
+  const addButton = renderer.container.queryAll(
+    (instance) => instance.props.accessibilityLabel === 'Add attachment',
+  )[0];
+  await act(async () => addButton.props.onPress());
+}
+
 describe('RecipeChatModal conversation isolation', () => {
   beforeEach(() => {
     mocks.storageValues.clear();
@@ -185,10 +204,16 @@ describe('RecipeChatModal conversation isolation', () => {
     mocks.launchImageLibrary.mockReset();
     mocks.speak.mockClear();
     mocks.stop.mockClear();
+    mocks.hasClipboardImage.mockReset();
+    mocks.hasClipboardImage.mockResolvedValue(false);
+    mocks.getClipboardImage.mockReset();
+    mocks.getClipboardString.mockReset();
+    mocks.getClipboardString.mockResolvedValue('');
     mocks.ttsState.isLoading = false;
     mocks.ttsState.isPlaying = false;
     mocks.alert.mockClear();
     resetChatImageCleanupForTests();
+    resetChatDraftsForTests();
   });
 
   it('ignores a stale history read after switching recipes', async () => {
@@ -235,12 +260,13 @@ describe('RecipeChatModal conversation isolation', () => {
     mocks.getItem.mockResolvedValue(null);
     mocks.launchImageLibrary.mockResolvedValue({
       canceled: false,
-      assets: [{ base64: 'photo-base64', uri: 'file:///recipe-a.jpg' }],
+      assets: [{ base64: 'cGhvdG8tYQ==', uri: 'file:///recipe-a.jpg' }],
     });
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
     try {
       await renderModal(renderer, 'first');
+      await openAttachmentOptions(renderer);
       const attachButton = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Attach photo from library',
       )[0];
@@ -271,12 +297,13 @@ describe('RecipeChatModal conversation isolation', () => {
     );
     mocks.launchImageLibrary.mockResolvedValue({
       canceled: false,
-      assets: [{ base64: 'photo-base64', uri: 'file:///recipe-photo.jpg' }],
+      assets: [{ base64: 'cGhvdG8=', uri: 'file:///recipe-photo.jpg' }],
     });
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
     try {
       await renderModal(renderer, 'first');
+      await openAttachmentOptions(renderer);
       const attachButton = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Attach photo from library',
       )[0];
@@ -304,6 +331,7 @@ describe('RecipeChatModal conversation isolation', () => {
 
     try {
       await renderModal(renderer, 'first');
+      await openAttachmentOptions(renderer);
       const attachButton = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Attach photo from library',
       )[0];
@@ -314,7 +342,7 @@ describe('RecipeChatModal conversation isolation', () => {
       await renderModal(renderer, 'second');
       await act(async () => pendingPicker.resolve({
         canceled: false,
-        assets: [{ base64: 'stale-base64', uri: 'file:///stale.jpg' }],
+        assets: [{ base64: 'c3RhbGU=', uri: 'file:///stale.jpg' }],
       }));
 
       expect(renderer.container.queryAll(
@@ -326,6 +354,107 @@ describe('RecipeChatModal conversation isolation', () => {
       )[0];
       expect(sendButton.props.disabled).toBe(true);
       expect(mocks.recipeMutate).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('pastes text directly and saves it as an account-scoped draft', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      const pasteButton = renderer.container.queryAll(
+        (instance) => instance.type === 'ClipboardPasteButton',
+      )[0];
+      await act(async () => pasteButton.props.onPress({
+        type: 'text',
+        text: 'Can I use coconut milk?',
+      }));
+
+      const input = renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )[0];
+      expect(input.props.value).toBe('Can I use coconut milk?');
+      await vi.waitFor(() => {
+        expect(mocks.storageValues.get(
+          'hafa.chat.v2.stable-user.recipe.first.draft',
+        )).toBe('Can I use coconut milk?');
+      });
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('attaches an image directly from the native paste control', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    const imageData = 'data:image/jpeg;base64,/9j/cGFzdGVkLXBob3Rv';
+
+    try {
+      await renderModal(renderer, 'first');
+      const pasteButton = renderer.container.queryAll(
+        (instance) => instance.type === 'ClipboardPasteButton',
+      )[0];
+      await act(async () => pasteButton.props.onPress({
+        type: 'image',
+        data: imageData,
+        size: { width: 100, height: 100 },
+      }));
+
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Image' && instance.props.source?.uri === imageData,
+      )).toHaveLength(1);
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Remove attached photo',
+      )).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('restores only the active conversation draft', async () => {
+    mocks.storageValues.set(
+      'hafa.chat.v2.stable-user.recipe.first.draft',
+      'First recipe draft',
+    );
+    mocks.storageValues.set(
+      'hafa.chat.v2.stable-user.recipe.second.draft',
+      'Second recipe draft',
+    );
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )[0].props.value).toBe('First recipe draft');
+
+      await renderModal(renderer, 'second');
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )[0].props.value).toBe('Second recipe draft');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('does not clear a saved draft when switching before history loads', async () => {
+    const firstHistory = deferred<string | null>();
+    const firstDraftKey = 'hafa.chat.v2.stable-user.recipe.first.draft';
+    mocks.storageValues.set(firstDraftKey, 'Keep this saved draft');
+    mocks.getItem.mockImplementation(async (key: string) => {
+      if (key === 'hafa.chat.v2.stable-user.recipe.first') return firstHistory.promise;
+      return mocks.storageValues.get(key) ?? null;
+    });
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      await renderModal(renderer, 'second');
+      expect(mocks.storageValues.get(firstDraftKey)).toBe('Keep this saved draft');
+
+      await act(async () => firstHistory.resolve(null));
+      expect(mocks.storageValues.get(firstDraftKey)).toBe('Keep this saved draft');
     } finally {
       await act(async () => renderer.unmount());
     }
