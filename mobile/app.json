@@ -130,7 +130,12 @@
         }
       ],
       "expo-font",
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "enableBackgroundPlayback": false
+        }
+      ],
       "expo-asset",
       "expo-status-bar"
     ],
