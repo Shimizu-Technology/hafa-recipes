@@ -20,18 +20,18 @@ struct HafaWidgetPalette {
       : Color(red: 1.000, green: 0.969, blue: 0.925) // #FFF7EC
   }
 
-  /// Dark mode uses coral for clarity; light mode uses clay so small labels
-  /// retain accessible contrast on the warm widget background.
+  /// Dark mode uses a brighter reef tone for clarity; light mode uses deep
+  /// reef so small labels retain accessible contrast on the warm background.
   var accent: Color {
     guard isFullColor else { return .primary }
     if isDark {
       return isHighContrast
-        ? Color(red: 1.000, green: 0.678, blue: 0.545) // #FFAD8B
-        : Color(red: 1.000, green: 0.541, blue: 0.357) // #FF8A5B
+        ? Color(red: 0.549, green: 0.847, blue: 0.800) // #8CD8CC
+        : Color(red: 0.412, green: 0.784, blue: 0.729) // #69C8BA
     }
     return isHighContrast
-      ? Color(red: 0.533, green: 0.169, blue: 0.067) // #882B11
-      : Color(red: 0.725, green: 0.278, blue: 0.133) // #B94722
+      ? Color(red: 0.059, green: 0.286, blue: 0.259) // #0F4942
+      : Color(red: 0.082, green: 0.361, blue: 0.322) // #155C52
   }
 
   var onAccent: Color {

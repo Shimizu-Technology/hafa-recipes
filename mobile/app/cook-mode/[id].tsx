@@ -29,7 +29,7 @@ import { useBackgroundTimer } from '@/hooks/useBackgroundTimer';
 import { useTextSize } from '@/hooks/useTextSize';
 import { useTimerContext } from '@/contexts/TimerContext';
 import { lightHaptic, mediumHaptic, successHaptic, heavyHaptic } from '@/utils/haptics';
-import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { brand, spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { RecipeComponent, Ingredient } from '@/types/recipe';
 import { scaleQuantity } from '@/hooks/useScaledServings';
 
@@ -755,7 +755,7 @@ export default function CookModeScreen() {
         <Stack.Screen options={{ headerShown: false }} />
         <StatusBar barStyle="light-content" />
         <RNView style={styles.loadingContainer}>
-          <Ionicons name="restaurant-outline" size={48} color="#FF6B35" />
+          <Ionicons name="restaurant-outline" size={48} color={brand.reefHighlight} />
           <Text style={styles.loadingText}>Preparing your recipe...</Text>
         </RNView>
       </View>
@@ -768,7 +768,7 @@ export default function CookModeScreen() {
         <Stack.Screen options={{ headerShown: false }} />
         <StatusBar barStyle="light-content" />
         <RNView style={styles.errorContainer}>
-          <Ionicons name="alert-circle-outline" size={64} color="#FF6B35" />
+          <Ionicons name="alert-circle-outline" size={64} color={brand.reefHighlight} />
           <Text style={styles.errorText}>
             {steps.length === 0 ? 'No steps found for this recipe' : 'Failed to load recipe'}
           </Text>
@@ -853,7 +853,7 @@ export default function CookModeScreen() {
                   <Ionicons 
                     name={currentTimer.remaining === 0 ? "checkmark-circle" : (currentTimer.isPaused ? "pause-circle" : "time")} 
                     size={28} 
-                    color={currentTimer.remaining === 0 ? "#4CAF50" : "#FF6B35"} 
+                    color={brand.reefHighlight}
                   />
                   <Text style={[
                     styles.timerText,
@@ -973,7 +973,7 @@ export default function CookModeScreen() {
             <Ionicons
               name="checkmark-circle"
               size={64}
-              color="#FF6B35"
+              color={brand.reefHighlight}
               style={styles.completeIcon}
             />
             <Text style={styles.completeTitle}>Recipe Complete!</Text>
@@ -1259,7 +1259,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   closeErrorButton: {
-    backgroundColor: '#FF6B35',
+    backgroundColor: brand.reef,
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.md,
     borderRadius: radius.lg,
@@ -1297,7 +1297,7 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
   },
   stepCounter: {
-    color: '#FF6B35',
+    color: brand.reefHighlight,
     fontSize: fontSize.lg,
     fontWeight: fontWeight.bold,
     marginBottom: spacing.sm,
@@ -1315,7 +1315,7 @@ const styles = StyleSheet.create({
   },
   progressBar: {
     height: '100%',
-    backgroundColor: '#FF6B35',
+    backgroundColor: brand.reefHighlight,
     borderRadius: 2,
   },
   stepContainer: {
@@ -1324,16 +1324,16 @@ const styles = StyleSheet.create({
   },
   componentBadge: {
     alignSelf: 'center',
-    backgroundColor: 'rgba(255, 107, 53, 0.15)',
+    backgroundColor: 'rgba(105, 200, 186, 0.12)',
     borderWidth: 1,
-    borderColor: '#FF6B35',
+    borderColor: brand.reefHighlight,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radius.full,
     marginBottom: spacing.md,
   },
   componentName: {
-    color: '#FF6B35',
+    color: brand.reefHighlight,
     fontSize: fontSize.xs,
     fontWeight: fontWeight.semibold,
     textTransform: 'uppercase',
@@ -1406,13 +1406,13 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   timerText: {
-    color: '#FF6B35',
+    color: brand.reefHighlight,
     fontSize: 42,
     fontWeight: fontWeight.bold,
     fontVariant: ['tabular-nums'],
   },
   timerComplete: {
-    color: '#4CAF50',
+    color: brand.reefHighlight,
     fontSize: 28,
   },
   timerProgress: {
@@ -1424,7 +1424,7 @@ const styles = StyleSheet.create({
   },
   timerProgressFill: {
     height: '100%',
-    backgroundColor: '#FF6B35',
+    backgroundColor: brand.reefHighlight,
   },
   timerControls: {
     flexDirection: 'row',
@@ -1443,7 +1443,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#4CAF50',
+    backgroundColor: brand.reef,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.lg,
     borderRadius: radius.lg,
@@ -1470,7 +1470,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   navButtonNext: {
-    backgroundColor: '#FF6B35',
+    backgroundColor: brand.reef,
     paddingHorizontal: spacing.md,
     borderRadius: radius.lg,
   },
@@ -1496,7 +1496,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#333',
   },
   stepDotActive: {
-    backgroundColor: '#FF6B35',
+    backgroundColor: brand.reefHighlight,
     width: 24,
   },
   stepDotCompleted: {
@@ -1533,7 +1533,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   completeSubtitle: {
-    color: '#FF6B35',
+    color: brand.reefHighlight,
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
     marginBottom: spacing.md,
@@ -1546,7 +1546,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   completeButton: {
-    backgroundColor: '#FF6B35',
+    backgroundColor: brand.reef,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xl * 2,
     borderRadius: radius.lg,
@@ -1583,7 +1583,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.bold,
   },
   ingredientsSubtitle: {
-    color: '#4ECDC4',
+    color: brand.reefHighlight,
     fontSize: fontSize.sm,
     marginTop: 2,
   },
@@ -1603,13 +1603,13 @@ const styles = StyleSheet.create({
     borderBottomColor: '#222',
   },
   ingredientQuantity: {
-    color: '#FF6B35',
+    color: brand.reefHighlight,
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
     width: 100,
   },
   ingredientQuantityScaled: {
-    color: '#4ECDC4', // Teal to indicate scaled
+    color: brand.reefHighlight,
   },
   ingredientName: {
     color: '#ffffff',
@@ -1674,7 +1674,7 @@ const styles = StyleSheet.create({
     borderColor: '#333',
   },
   timerPresetValue: {
-    color: '#FF6B35',
+    color: brand.reefHighlight,
     fontSize: 24,
     fontWeight: fontWeight.bold,
   },
@@ -1729,7 +1729,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FF6B35',
+    backgroundColor: brand.reef,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xl,
     borderRadius: radius.lg,

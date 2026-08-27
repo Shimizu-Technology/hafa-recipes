@@ -175,8 +175,8 @@ describe('Håfa grocery widget config plugin', () => {
     expect(paletteSource).toContain('contrast == .increased');
     expect(paletteSource).toContain('#101411');
     expect(paletteSource).toContain('#FFF7EC');
-    expect(paletteSource).toContain('#FF8A5B');
-    expect(paletteSource).toContain('#B94722');
+    expect(paletteSource).toContain('#69C8BA');
+    expect(paletteSource).toContain('#155C52');
   });
 
   it('keeps the app-private keychain group ahead of the shared widget group', () => {

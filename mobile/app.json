@@ -120,7 +120,7 @@
         "expo-notifications",
         {
           "icon": "./assets/images/icon.png",
-          "color": "#E65F2E",
+          "color": "#155C52",
           "sounds": [
             "./assets/sounds/timer_complete.mp3",
             "./assets/sounds/timer_bell.mp3",
