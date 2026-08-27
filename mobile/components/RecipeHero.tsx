@@ -31,7 +31,8 @@ export function RecipeHero({
       <SourcePlaybackCard
         playback={playback}
         recipeTitle={recipeTitle}
-        thumbnailUrl={thumbnailUrl}
+        thumbnailUrl={imageError ? null : thumbnailUrl}
+        onThumbnailError={onImageError}
         onOpenSource={onOpenSource}
       />
     );

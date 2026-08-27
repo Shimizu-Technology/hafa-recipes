@@ -123,6 +123,31 @@ describe('SourcePlaybackCard', () => {
     }
   });
 
+  it('reports a failed preview image so its parent can show the fallback', async () => {
+    const onThumbnailError = vi.fn();
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(SourcePlaybackCard, {
+          playback: youtubePlayback,
+          recipeTitle: 'Chicken Kelaguen',
+          thumbnailUrl: 'https://example.com/missing.jpg',
+          onThumbnailError,
+          onOpenSource: vi.fn(),
+        }));
+      });
+
+      const image = renderer.container.queryAll(
+        (instance) => instance.type === 'ImageBackground',
+      )[0];
+      await act(async () => image.props.onError());
+      expect(onThumbnailError).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
   it('offers retry and the exact original when an embed is unavailable', async () => {
     const onOpenSource = vi.fn();
     const renderer = createRoot({ textComponentTypes: ['Text'] });

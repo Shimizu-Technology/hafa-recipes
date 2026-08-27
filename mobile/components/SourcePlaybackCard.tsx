@@ -21,6 +21,7 @@ type SourcePlaybackCardProps = {
   playback: SourcePlayback;
   recipeTitle: string;
   thumbnailUrl?: string | null;
+  onThumbnailError?: () => void;
   onOpenSource: () => void;
 };
 
@@ -35,6 +36,7 @@ export function SourcePlaybackCard({
   playback,
   recipeTitle,
   thumbnailUrl,
+  onThumbnailError,
   onOpenSource,
 }: SourcePlaybackCardProps) {
   const colors = useColors();
@@ -122,6 +124,7 @@ export function SourcePlaybackCard({
                 style={styles.previewImage}
                 imageStyle={styles.previewImageRadius}
                 resizeMode="cover"
+                onError={onThumbnailError}
               >
                 <RNView style={styles.previewScrim} />
               </ImageBackground>

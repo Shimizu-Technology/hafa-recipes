@@ -50,6 +50,29 @@ describe('RecipeHero', () => {
     }
   });
 
+  it('clears a failed thumbnail while preserving the playable hero', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(RecipeHero, {
+          ...commonProps,
+          sourceUrl: 'https://www.youtube.com/watch?v=abcDEF_1234',
+          thumbnailUrl: 'https://example.com/missing.jpg',
+          imageError: true,
+        }));
+      });
+
+      const player = renderer.container.queryAll(
+        (instance) => instance.type === 'SourcePlaybackCard',
+      )[0];
+      expect(player.props.thumbnailUrl).toBeNull();
+      expect(player.props.onThumbnailError).toBe(commonProps.onImageError);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
   it('falls back to the recipe image when the source is not playable', async () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
