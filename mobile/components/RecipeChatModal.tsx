@@ -316,9 +316,11 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
 
   /** Attach one compressed image selected from the photo library. */
   const handlePickImage = async () => {
+    const conversationKey = activeStorageKeyRef.current;
     try {
       // Request permission
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (activeStorageKeyRef.current !== conversationKey) return;
       if (status !== 'granted') {
         Alert.alert('Permission Required', 'Please allow access to your photos to attach images.');
         return;
@@ -331,6 +333,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         quality: 0.7,
         base64: true,
       });
+      if (activeStorageKeyRef.current !== conversationKey) return;
 
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
@@ -347,9 +350,11 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
 
   /** Attach one compressed image captured by the camera. */
   const handleTakePhoto = async () => {
+    const conversationKey = activeStorageKeyRef.current;
     try {
       // Request camera permission
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (activeStorageKeyRef.current !== conversationKey) return;
       if (status !== 'granted') {
         Alert.alert('Permission Required', 'Please allow access to your camera to take photos.');
         return;
@@ -361,6 +366,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         quality: 0.7,
         base64: true,
       });
+      if (activeStorageKeyRef.current !== conversationKey) return;
 
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
@@ -926,6 +932,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                 backgroundColor: (inputText.trim() || attachedImage) ? colors.tint : colors.border,
               },
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="Send message"
           >
             <Ionicons
               name="send"

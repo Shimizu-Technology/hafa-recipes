@@ -223,6 +223,48 @@ describe('RecipeChatModal conversation isolation', () => {
         (instance) => instance.type === 'Image'
           && instance.props.source?.uri === 'file:///recipe-a.jpg',
       )).toHaveLength(0);
+      const sendButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Send message',
+      )[0];
+      expect(sendButton.props.disabled).toBe(true);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('discards an image picker result that resolves after switching recipes', async () => {
+    const pendingPicker = deferred<{
+      canceled: boolean;
+      assets: Array<{ base64: string; uri: string }>;
+    }>();
+    mocks.getItem.mockResolvedValue(null);
+    mocks.launchImageLibrary.mockImplementation(() => pendingPicker.promise);
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      const attachButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Attach photo from library',
+      )[0];
+      await act(async () => {
+        void attachButton.props.onPress();
+        await Promise.resolve();
+      });
+      await renderModal(renderer, 'second');
+      await act(async () => pendingPicker.resolve({
+        canceled: false,
+        assets: [{ base64: 'stale-base64', uri: 'file:///stale.jpg' }],
+      }));
+
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Image'
+          && instance.props.source?.uri === 'file:///stale.jpg',
+      )).toHaveLength(0);
+      const sendButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Send message',
+      )[0];
+      expect(sendButton.props.disabled).toBe(true);
+      expect(mocks.recipeMutate).not.toHaveBeenCalled();
     } finally {
       await act(async () => renderer.unmount());
     }
