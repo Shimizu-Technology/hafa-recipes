@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Image, Share, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Share, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser, useClerk, useAuth } from '@clerk/expo';
@@ -9,6 +9,7 @@ import Constants from 'expo-constants';
 
 import { View, Text, Card, SectionHeader, Divider, useColors } from '@/components/Themed';
 import { BrandMark } from '@/components/BrandMark';
+import { SettingsProfileCard } from '@/components/SettingsProfileCard';
 import { useRecipeCount } from '@/hooks/useRecipes';
 import { API_BASE_URL } from '@/lib/api';
 import { captureMessage, captureError } from '@/lib/sentry';
@@ -283,42 +284,12 @@ export default function SettingsScreen() {
         {/* User Profile Card */}
         <RNView style={styles.section}>
           <SectionHeader title="Account" />
-          <TouchableOpacity
-            accessible
-            activeOpacity={0.7}
+          <SettingsProfileCard
+            isSignedIn={Boolean(isSignedIn)}
+            profileName={profileName}
+            user={user}
             onPress={isSignedIn ? handleOpenProfileModal : () => router.push('/(auth)/sign-in')}
-            accessibilityRole="button"
-            accessibilityLabel={isSignedIn ? `Account profile for ${profileName}` : 'Guest account. Sign in'}
-            accessibilityHint={isSignedIn ? 'Opens profile editing' : 'Opens sign in'}
-          >
-            <Card>
-              <RNView style={styles.userCard}>
-                {isSignedIn && user?.imageUrl ? (
-                  <Image source={{ uri: user.imageUrl }} style={styles.userAvatar} />
-                ) : (
-                  <RNView style={[styles.userAvatarPlaceholder, { backgroundColor: colors.tint + '20' }]}>
-                    <Ionicons name="person" size={32} color={colors.tint} />
-                  </RNView>
-                )}
-                <RNView style={styles.userInfo}>
-                  <Text style={[styles.userName, { color: colors.text }]}>
-                    {profileName}
-                  </Text>
-                  <Text style={[styles.userEmail, { color: isSignedIn ? colors.textMuted : colors.tint }]}>
-                    {isSignedIn
-                      ? user?.emailAddresses[0]?.emailAddress
-                      : 'Tap to sign in →'}
-                  </Text>
-                  {isSignedIn && !user?.firstName && (
-                    <Text style={[styles.userHint, { color: colors.tint }]}>
-                      Tap to add your name for recipe attribution
-                    </Text>
-                  )}
-                </RNView>
-                <Ionicons name="chevron-forward" size={20} color={isSignedIn ? colors.textMuted : colors.tint} />
-              </RNView>
-            </Card>
-          </TouchableOpacity>
+          />
         </RNView>
 
         {/* Stats Card - only for signed in users */}
@@ -955,34 +926,6 @@ const styles = StyleSheet.create({
   techItem: {
     fontSize: fontSize.sm,
   },
-  userCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  userAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-  },
-  userAvatarPlaceholder: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  userInfo: {
-    flex: 1,
-  },
-  userName: {
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.semibold,
-  },
-  userEmail: {
-    fontSize: fontSize.sm,
-    marginTop: 2,
-  },
   accountActionsCard: {
     borderRadius: radius.lg,
     overflow: 'hidden',
@@ -1029,10 +972,6 @@ const styles = StyleSheet.create({
   },
   developerLink: {
     fontWeight: fontWeight.medium,
-  },
-  userHint: {
-    fontSize: fontSize.xs,
-    marginTop: spacing.xs,
   },
   // Modal styles
   modalContainer: {

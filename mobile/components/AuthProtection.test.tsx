@@ -51,4 +51,33 @@ describe('AuthProtection', () => {
       await act(async () => renderer.unmount());
     }
   });
+
+  it('redirects signed-in users away from authentication screens', async () => {
+    mocks.isSignedIn = true;
+    mocks.segments = ['(auth)'];
+    const renderer = createRoot();
+
+    try {
+      await act(async () => renderer.render(
+        <AuthProtection><TouchableOpacity /></AuthProtection>,
+      ));
+      expect(mocks.replace).toHaveBeenCalledWith('/(tabs)');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('redirects signed-out users away from authenticated capture', async () => {
+    mocks.segments = ['paste-recipe'];
+    const renderer = createRoot();
+
+    try {
+      await act(async () => renderer.render(
+        <AuthProtection><TouchableOpacity /></AuthProtection>,
+      ));
+      expect(mocks.replace).toHaveBeenCalledWith('/(tabs)/discover');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
 });

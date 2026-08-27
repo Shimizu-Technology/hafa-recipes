@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveSettingsProfileName } from './settingsProfile';
+import { resolveSettingsProfileEmail, resolveSettingsProfileName } from './settingsProfile';
 
 describe('settings profile presentation', () => {
   it('uses the primary address when a user has multiple emails and no first name', () => {
@@ -14,6 +14,7 @@ describe('settings profile presentation', () => {
     };
 
     expect(resolveSettingsProfileName(true, user)).toBe('primary');
+    expect(resolveSettingsProfileEmail(user)).toBe('primary@example.com');
   });
 
   it('uses a stable guest label while Clerk is signed out', () => {
