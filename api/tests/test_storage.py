@@ -29,6 +29,17 @@ class RecordingS3:
         self.puts.append(kwargs)
 
 
+class ChatImageS3(RecordingS3):
+    def __init__(self, *, errors=None):
+        super().__init__()
+        self.deletes = []
+        self.errors = errors or []
+
+    def delete_objects(self, **kwargs):
+        self.deletes.append(kwargs)
+        return {"Deleted": kwargs["Delete"]["Objects"], "Errors": self.errors}
+
+
 @pytest.mark.asyncio
 async def test_thumbnail_upload_uses_content_hash_and_immutable_cache(monkeypatch):
     fake_s3 = RecordingS3()
@@ -145,3 +156,58 @@ def test_thumbnail_cleanup_includes_legacy_and_content_addressed_keys():
         "thumbnails/recipe-id.",
         "thumbnails/recipe-id/",
     ]
+
+
+@pytest.mark.asyncio
+async def test_chat_upload_uses_unique_non_enumerable_objects(monkeypatch, capsys):
+    fake_s3 = ChatImageS3()
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_enabled=True,
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+        ),
+    )
+    service = StorageService()
+    service._client = fake_s3
+    encoded = __import__("base64").b64encode(_png_bytes("red")).decode("ascii")
+
+    first = await service.upload_chat_image(encoded, "stable-user")
+    second = await service.upload_chat_image(encoded, "stable-user")
+
+    assert first and second and first != second
+    assert all("/chat-images/stable-user/" in url for url in (first, second))
+    assert fake_s3.puts[0]["Key"] != fake_s3.puts[1]["Key"]
+    output = capsys.readouterr().out
+    assert first not in output
+    assert second not in output
+    assert "stable-user" not in output
+
+
+@pytest.mark.asyncio
+async def test_chat_delete_is_exact_owned_deduplicated_and_idempotent(monkeypatch):
+    fake_s3 = ChatImageS3()
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_enabled=True,
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+        ),
+    )
+    service = StorageService()
+    service._client = fake_s3
+    owned = "https://recipe-images.s3.us-west-2.amazonaws.com/chat-images/stable-user/photo.png"
+
+    assert await service.delete_chat_images([owned, owned], "stable-user") == 1
+    assert fake_s3.deletes[0]["Delete"]["Objects"] == [
+        {"Key": "chat-images/stable-user/photo.png"}
+    ]
+    with pytest.raises(ValueError, match="authenticated user"):
+        await service.delete_chat_images(
+            ["https://recipe-images.s3.us-west-2.amazonaws.com/chat-images/other/photo.png"],
+            "stable-user",
+        )

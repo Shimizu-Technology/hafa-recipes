@@ -20,7 +20,7 @@ from app.models.recipe import Recipe
 from app.moderation import is_publicly_viewable
 from app.public_identity import public_contributor_id
 from app.rate_limit import RateLimitExceeded, ai_rate_limiter
-from app.services.storage import MAX_CHAT_IMAGE_BYTES, storage_service
+from app.services.storage import MAX_CHAT_IMAGE_BYTES, StorageCleanupError, storage_service
 
 router = APIRouter(prefix="/api/recipes", tags=["chat"])
 
@@ -41,6 +41,7 @@ MAX_CHAT_HISTORY_CHARS = 16_000
 LEGACY_CHAT_ERROR_MESSAGE = "Sorry, I couldn't process that request. Please try again."
 MAX_CHAT_IMAGE_BASE64_CHARS = ((MAX_CHAT_IMAGE_BYTES + 2) // 3) * 4
 BoundedIngredient = Annotated[str, Field(min_length=1, max_length=300)]
+BoundedChatImageUrl = Annotated[str, Field(min_length=1, max_length=2_048)]
 
 
 # ============================================================
@@ -126,6 +127,18 @@ class UploadChatImageResponse(BaseModel):
     """Response with the S3 URL of the uploaded image."""
 
     image_url: str
+
+
+class DeleteChatImagesRequest(BaseModel):
+    """Exact persisted chat images to remove for the current user."""
+
+    image_urls: list[BoundedChatImageUrl] = Field(min_length=1, max_length=50)
+
+
+class DeleteChatImagesResponse(BaseModel):
+    """Count of idempotent object deletions requested."""
+
+    deleted: int
 
 
 # ============================================================
@@ -502,6 +515,24 @@ async def upload_chat_image(
         raise HTTPException(status_code=500, detail="Failed to upload image. Please try again.")
 
     return UploadChatImageResponse(image_url=s3_url)
+
+
+@router.post("/ai/delete-chat-images", response_model=DeleteChatImagesResponse)
+async def delete_chat_images(
+    request: DeleteChatImagesRequest,
+    user: ClerkUser = Depends(get_current_user),
+):
+    """Delete only chat images owned by the authenticated stable app user."""
+    try:
+        deleted = await storage_service.delete_chat_images(request.image_urls, user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except StorageCleanupError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Chat images could not be removed. Please try again.",
+        ) from exc
+    return DeleteChatImagesResponse(deleted=deleted)
 
 
 @router.post("/ai/suggest-tags", response_model=SuggestTagsResponse)

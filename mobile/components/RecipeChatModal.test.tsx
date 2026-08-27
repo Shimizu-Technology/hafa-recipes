@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   getItem: vi.fn<(key: string) => Promise<string | null>>(),
   setItem: vi.fn<(key: string, value: string) => Promise<void>>(async () => undefined),
   removeItem: vi.fn<(key: string) => Promise<void>>(async () => undefined),
+  getCurrentUserIdentity: vi.fn(async () => ({ id: 'stable-user' })),
+  deleteChatImages: vi.fn(async () => ({ deleted: 1 })),
   recipeMutate: vi.fn<(variables: unknown) => Promise<{ response: string }>>(),
   cookingMutate: vi.fn<(variables: unknown) => Promise<{ response: string }>>(),
   requestLibraryPermission: vi.fn(async () => ({ status: 'granted' })),
@@ -19,11 +21,14 @@ const mocks = vi.hoisted(() => ({
   speak: vi.fn<(text?: string) => Promise<void>>(async () => undefined),
   stop: vi.fn<() => Promise<void>>(async () => undefined),
   ttsState: { isLoading: false, isPlaying: false },
+  alert: vi.fn(),
 }));
+
+vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: 'clerk-subject' }) }));
 
 vi.mock('react-native', () => ({
   ActivityIndicator: 'ActivityIndicator',
-  Alert: { alert: vi.fn() },
+  Alert: { alert: mocks.alert },
   Image: 'Image',
   Keyboard: { dismiss: vi.fn() },
   KeyboardAvoidingView: 'KeyboardAvoidingView',
@@ -93,7 +98,11 @@ vi.mock('@/hooks/useTTS', () => ({
   }),
 }));
 vi.mock('@/lib/api', () => ({
-  default: { uploadChatImage: vi.fn() },
+  default: {
+    uploadChatImage: vi.fn(),
+    getCurrentUserIdentity: mocks.getCurrentUserIdentity,
+    deleteChatImages: mocks.deleteChatImages,
+  },
 }));
 
 import RecipeChatModal from './RecipeChatModal';
@@ -149,6 +158,9 @@ describe('RecipeChatModal conversation isolation', () => {
     mocks.getItem.mockReset();
     mocks.setItem.mockClear();
     mocks.removeItem.mockClear();
+    mocks.getCurrentUserIdentity.mockReset();
+    mocks.getCurrentUserIdentity.mockResolvedValue({ id: 'stable-user' });
+    mocks.deleteChatImages.mockClear();
     mocks.recipeMutate.mockReset();
     mocks.cookingMutate.mockReset();
     mocks.requestLibraryPermission.mockClear();
@@ -157,13 +169,14 @@ describe('RecipeChatModal conversation isolation', () => {
     mocks.stop.mockClear();
     mocks.ttsState.isLoading = false;
     mocks.ttsState.isPlaying = false;
+    mocks.alert.mockClear();
   });
 
   it('ignores a stale history read after switching recipes', async () => {
     const firstLoad = deferred<string | null>();
     const secondLoad = deferred<string | null>();
     mocks.getItem.mockImplementation((key: string) => (
-      key === 'recipe_chat_first' ? firstLoad.promise : secondLoad.promise
+      key === 'hafa.chat.v2.stable-user.recipe.first' ? firstLoad.promise : secondLoad.promise
     ));
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
@@ -324,7 +337,7 @@ describe('RecipeChatModal conversation isolation', () => {
       }
 
       const firstWrites = mocks.setItem.mock.calls.filter(
-        ([key]) => key === 'recipe_chat_first',
+        ([key]) => key === 'hafa.chat.v2.stable-user.recipe.first',
       );
       expect(firstWrites.length).toBeGreaterThanOrEqual(2);
       const finalMessages = JSON.parse(firstWrites.at(-1)![1]);
@@ -334,8 +347,184 @@ describe('RecipeChatModal conversation isolation', () => {
         expect(finalMessages.at(-1).content).toBe('origin answer');
       }
       expect(mocks.setItem.mock.calls.filter(
-        ([key]) => key === 'recipe_chat_second',
+        ([key]) => key === 'hafa.chat.v2.stable-user.recipe.second',
       )).toEqual([]);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('deletes persisted photos before clearing account-scoped history', async () => {
+    mocks.getItem.mockResolvedValue(JSON.stringify([
+      {
+        id: 'photo-question',
+        role: 'user',
+        content: 'What is this?',
+        image_url: 'https://images.example/chat-photo.jpg',
+      },
+      { id: 'answer', role: 'assistant', content: 'A tomato.' },
+    ]));
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      const clearButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Clear conversation',
+      )[0];
+      await act(async () => clearButton.props.onPress());
+      const confirmation = mocks.alert.mock.calls[0][2][1];
+      await act(async () => confirmation.onPress());
+
+      expect(mocks.deleteChatImages).toHaveBeenCalledWith([
+        'https://images.example/chat-photo.jpg',
+      ]);
+      expect(mocks.removeItem).toHaveBeenCalledWith(
+        'hafa.chat.v2.stable-user.recipe.first',
+      );
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Copy message',
+      )).toHaveLength(0);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('queues persisted photo cleanup when remote deletion fails', async () => {
+    mocks.getItem.mockResolvedValue(JSON.stringify([
+      {
+        id: 'photo-question',
+        role: 'user',
+        content: 'What is this?',
+        image_url: 'https://images.example/chat-photo.jpg',
+      },
+    ]));
+    mocks.deleteChatImages.mockRejectedValueOnce(new Error('offline'));
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      const clearButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Clear conversation',
+      )[0];
+      await act(async () => clearButton.props.onPress());
+      const confirmation = mocks.alert.mock.calls[0][2][1];
+      await act(async () => confirmation.onPress());
+
+      expect(mocks.setItem).toHaveBeenCalledWith(
+        'hafa.chat.v2.stable-user.recipe.first.pending-image-cleanup',
+        JSON.stringify(['https://images.example/chat-photo.jpg']),
+      );
+      expect(mocks.removeItem).toHaveBeenCalledWith('hafa.chat.v2.stable-user.recipe.first');
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Copy message',
+      )).toHaveLength(0);
+      expect(mocks.alert).toHaveBeenCalledWith(
+        'Chat Cleared',
+        expect.stringContaining('back online'),
+      );
+      expect(mocks.removeItem).not.toHaveBeenCalledWith(
+        'hafa.chat.v2.stable-user.recipe.first.pending-image-cleanup',
+      );
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('retries a queued image cleanup before loading the conversation', async () => {
+    mocks.getItem.mockImplementation(async (key: string) => {
+      if (key.endsWith('.pending-image-cleanup')) {
+        return JSON.stringify(['https://images.example/pending.jpg']);
+      }
+      return null;
+    });
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      expect(mocks.deleteChatImages).toHaveBeenCalledWith([
+        'https://images.example/pending.jpg',
+      ]);
+      expect(mocks.removeItem).toHaveBeenCalledWith(
+        'hafa.chat.v2.stable-user.recipe.first.pending-image-cleanup',
+      );
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('does not clean queued photos while the conversation still exists', async () => {
+    mocks.getItem.mockImplementation(async (key: string) => {
+      if (key.endsWith('.pending-image-cleanup')) {
+        return JSON.stringify(['https://images.example/pending.jpg']);
+      }
+      return JSON.stringify([{ id: 'question', role: 'user', content: 'Still here' }]);
+    });
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      expect(mocks.deleteChatImages).not.toHaveBeenCalled();
+      const text = renderer.container.queryAll(
+        (instance) => instance.type === 'Text',
+      ).map((instance) => instance.props.children);
+      expect(text).toContain('Still here');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('does not delete photos if local conversation removal fails', async () => {
+    mocks.getItem.mockResolvedValue(JSON.stringify([
+      {
+        id: 'photo-question',
+        role: 'user',
+        content: 'Still here',
+        image_url: 'https://images.example/pending.jpg',
+      },
+    ]));
+    mocks.removeItem.mockImplementation(async (key: string) => {
+      if (key === 'hafa.chat.v2.stable-user.recipe.first') throw new Error('storage failed');
+    });
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      const clearButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Clear conversation',
+      )[0];
+      await act(async () => clearButton.props.onPress());
+      const confirmation = mocks.alert.mock.calls[0][2][1];
+      await act(async () => confirmation.onPress());
+
+      expect(mocks.deleteChatImages).not.toHaveBeenCalled();
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Copy message',
+      )).toHaveLength(1);
+      expect(mocks.alert).toHaveBeenCalledWith(
+        'Could Not Clear Chat',
+        expect.stringContaining('cleanup request'),
+      );
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('does not open unscoped legacy history', async () => {
+    mocks.getItem.mockImplementation(async (key: string) => (
+      key === 'recipe_chat_first'
+        ? JSON.stringify([{ role: 'user', content: 'another account history' }])
+        : null
+    ));
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      expect(mocks.removeItem).toHaveBeenCalledWith('recipe_chat_first');
+      expect(mocks.getItem).not.toHaveBeenCalledWith('recipe_chat_first');
+      const text = renderer.container.queryAll(
+        (instance) => instance.type === 'Text',
+      ).map((instance) => instance.props.children);
+      expect(text).not.toContain('another account history');
     } finally {
       await act(async () => renderer.unmount());
     }

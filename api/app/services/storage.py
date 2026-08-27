@@ -3,7 +3,7 @@
 import hashlib
 from typing import Optional
 from urllib.parse import urljoin, urlparse
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import boto3
 import httpx
@@ -327,8 +327,9 @@ class StorageService:
         """
         Upload a base64 chat image to S3.
         
-        Chat images are stored with the pattern: chat-images/{user_id}/{hash}.jpg
-        This allows images to persist across sessions and be re-sent in chat history.
+        Chat images are stored with the pattern: chat-images/{user_id}/{uuid}.jpg.
+        Each upload owns its object so clearing one conversation cannot break an
+        image reused by another conversation.
         
         Args:
             image_base64: Base64 encoded image data
@@ -351,9 +352,6 @@ class StorageService:
             )
             image_data = validated.data
             
-            # Generate a hash-based filename for deduplication
-            image_hash = hashlib.sha256(image_data).hexdigest()[:12]
-            
             # Determine content type from base64 prefix
             content_type = validated.content_type
             extension = {
@@ -364,9 +362,7 @@ class StorageService:
             }[content_type]
             
             # Upload to S3 under chat-images folder
-            s3_key = f"chat-images/{user_id}/{image_hash}.{extension}"
-            
-            print(f"📤 Uploading chat image to S3: {s3_key}")
+            s3_key = f"chat-images/{user_id}/{uuid4().hex}.{extension}"
             
             self.client.put_object(
                 Bucket=self.bucket_name,
@@ -379,12 +375,45 @@ class StorageService:
             settings = get_settings()
             s3_url = f"https://{self.bucket_name}.s3.{settings.aws_region}.amazonaws.com/{s3_key}"
             
-            print(f"✅ Chat image uploaded: {s3_url}")
+            print("✅ Chat image uploaded")
             return s3_url
             
-        except Exception as e:
-            print(f"❌ Failed to upload chat image to S3: {e}")
+        except Exception as error:
+            print(f"❌ Failed to upload chat image to S3: {type(error).__name__}")
             return None
+
+    async def delete_chat_images(self, image_urls: list[str], user_id: str) -> int:
+        """Delete exact app-owned chat objects for one stable application user."""
+        if not image_urls or not self.is_enabled:
+            return 0
+
+        keys: list[str] = []
+        for image_url in dict.fromkeys(image_urls):
+            if not self.is_owned_chat_image_url(image_url, user_id):
+                raise ValueError("Chat image does not belong to the authenticated user")
+            keys.append(urlparse(image_url).path.removeprefix("/"))
+
+        try:
+            response = self.client.delete_objects(
+                Bucket=self.bucket_name,
+                Delete={"Objects": [{"Key": key} for key in keys], "Quiet": False},
+            )
+            errors = response.get("Errors", [])
+            if errors:
+                raise StorageCleanupError(
+                    f"S3 reported {len(errors)} failed chat image deletions"
+                )
+            deleted_keys = {item.get("Key") for item in response.get("Deleted", [])}
+            if any(key not in deleted_keys for key in keys):
+                raise StorageCleanupError(
+                    "S3 did not confirm every requested chat image deletion"
+                )
+            # S3 delete is idempotent and confirms delete markers for missing keys.
+            return len(keys)
+        except StorageCleanupError:
+            raise
+        except Exception as error:
+            raise StorageCleanupError("Unable to delete chat images") from error
 
     def is_owned_chat_image_url(self, image_url: str, user_id: str) -> bool:
         """Return whether a public URL points to this user's app-owned chat object."""
