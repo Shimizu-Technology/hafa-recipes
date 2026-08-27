@@ -170,6 +170,7 @@ class ApiClient {
       (error) => {
         const isCancelled = error?.code === 'ERR_CANCELED'
           || error?.name === 'CanceledError'
+          || error?.name === 'AbortError'
           || error?.config?.signal?.aborted;
         if (isCancelled) return Promise.reject(error);
         const status = error.response?.status;

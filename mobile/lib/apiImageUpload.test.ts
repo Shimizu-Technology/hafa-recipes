@@ -217,6 +217,32 @@ describe('recipe image multipart requests', () => {
     }
   });
 
+  it('does not report token retrieval cancellation as an API failure', async () => {
+    const getToken = vi.fn(() => new Promise<string | null>(() => undefined));
+    const controller = new AbortController();
+    const requestInterceptor = mocks.client.interceptors.request.use.mock.calls[0][0];
+    const responseErrorInterceptor = mocks.client.interceptors.response.use.mock.calls[0][1];
+    api.setTokenGetter(getToken);
+
+    try {
+      const request = requestInterceptor({
+        url: '/api/chat/cooking',
+        headers: {},
+        signal: controller.signal,
+      });
+      controller.abort();
+      const cancellation = await request.catch((error: unknown) => error);
+
+      expect(cancellation).toMatchObject({ name: 'AbortError' });
+      await expect(responseErrorInterceptor(cancellation)).rejects.toBe(cancellation);
+      expect(mocks.addBreadcrumb).not.toHaveBeenCalled();
+      expect(mocks.captureError).not.toHaveBeenCalled();
+      expect(mocks.captureMessage).not.toHaveBeenCalled();
+    } finally {
+      api.setTokenGetter(null);
+    }
+  });
+
   it('does not report an expected chat image upload cancellation as an API failure', async () => {
     const controller = new AbortController();
     const responseErrorInterceptor = mocks.client.interceptors.response.use.mock.calls[0][1];
