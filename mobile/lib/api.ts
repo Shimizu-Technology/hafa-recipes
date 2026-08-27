@@ -51,6 +51,9 @@ import {
 
 // Token getter function type - will be set by the app
 type TokenGetter = () => Promise<string | null>;
+export const AUTH_TOKEN_MAX_ATTEMPTS = 2;
+export const AUTH_TOKEN_RETRY_DELAY_MS = 500;
+export const AUTH_TOKEN_TIMEOUT_MS = 5_000;
 export type RequestGuard = () => void;
 export type CaptureSourceType = 'photo' | 'text';
 export type RecipeImageUpload = {
@@ -190,15 +193,17 @@ class ApiClient {
   /** Get a fresh session token with the same bounded retry for Axios and streams. */
   private async getAuthTokenWithRetry(endpoint: string): Promise<string | null> {
     if (!this.getTokenFn) return null;
-    const maxAttempts = 2;
     let lastError: unknown;
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    for (let attempt = 1; attempt <= AUTH_TOKEN_MAX_ATTEMPTS; attempt += 1) {
       let timeout: ReturnType<typeof setTimeout> | undefined;
       try {
         const token = await Promise.race([
           this.getTokenFn(),
           new Promise<null>((_, reject) => {
-            timeout = setTimeout(() => reject(new Error('Token fetch timeout')), 5_000);
+            timeout = setTimeout(
+              () => reject(new Error('Token fetch timeout')),
+              AUTH_TOKEN_TIMEOUT_MS,
+            );
           }),
         ]);
         if (token) return token;
@@ -208,19 +213,19 @@ class ApiClient {
       } finally {
         if (timeout) clearTimeout(timeout);
       }
-      if (attempt < maxAttempts) {
+      if (attempt < AUTH_TOKEN_MAX_ATTEMPTS) {
         console.warn(`Token fetch attempt ${attempt} failed, retrying...`);
         addBreadcrumb('auth', `Token fetch attempt ${attempt} failed, retrying`, {
           error: lastError instanceof Error ? lastError.message : 'Unknown error',
         }, 'warning');
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, AUTH_TOKEN_RETRY_DELAY_MS));
       }
     }
     console.warn('Failed to get auth token after retries:', lastError);
     captureMessage('Token fetch failed after retries', 'error', {
       tags: { endpoint },
       extra: {
-        attempts: maxAttempts,
+        attempts: AUTH_TOKEN_MAX_ATTEMPTS,
         lastError: lastError instanceof Error ? lastError.message : 'Unknown error',
       },
     });

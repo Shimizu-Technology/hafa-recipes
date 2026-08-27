@@ -55,26 +55,6 @@ export function beginMessageDelivery(
   };
 }
 
-/** Insert the assistant response immediately after the delivered user bubble. */
-export function completeMessageDelivery(
-  messages: ChatUiMessage[],
-  userMessageId: string,
-  assistantMessage: ChatUiMessage,
-  imageUrl?: string,
-): ChatUiMessage[] {
-  const messagesWithoutPartial = messages.filter((message) => message.id !== assistantMessage.id);
-  const userIndex = messagesWithoutPartial.findIndex((message) => message.id === userMessageId);
-  if (userIndex < 0) return messages;
-  const deliveredMessages = messagesWithoutPartial.map((message) => message.id === userMessageId
-    ? { ...message, status: 'sent' as const, image_url: imageUrl || message.image_url }
-    : message);
-  return [
-    ...deliveredMessages.slice(0, userIndex + 1),
-    assistantMessage,
-    ...deliveredMessages.slice(userIndex + 1),
-  ];
-}
-
 /** Insert or update one non-persisted partial assistant response after its user message. */
 export function upsertStreamingResponse(
   messages: ChatUiMessage[],
@@ -93,6 +73,16 @@ export function upsertStreamingResponse(
     assistantMessage,
     ...acceptedMessages.slice(userIndex + 1),
   ];
+}
+
+/** Insert the final assistant response immediately after the delivered user bubble. */
+export function completeMessageDelivery(
+  messages: ChatUiMessage[],
+  userMessageId: string,
+  assistantMessage: ChatUiMessage,
+  imageUrl?: string,
+): ChatUiMessage[] {
+  return upsertStreamingResponse(messages, userMessageId, assistantMessage, imageUrl);
 }
 
 /** Remove a partial answer and mark its originating user message for retry or cancellation. */

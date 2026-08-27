@@ -145,6 +145,13 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
+/** Match the abort shape emitted by fetch when a request is cancelled. */
+function abortError(): Error {
+  const error = new Error('Aborted');
+  error.name = 'AbortError';
+  return error;
+}
+
 /** Build the minimum recipe shape needed by the chat modal. */
 function recipe(id: string): Recipe {
   return { id, extracted: { title: id } } as Recipe;
@@ -497,7 +504,7 @@ describe('RecipeChatModal conversation isolation', () => {
 
   it.each([
     ['success', { response: 'origin answer' }, undefined, 'sent'],
-    ['interruption', undefined, { response: { status: 503 } }, 'cancelled'],
+    ['interruption', undefined, abortError(), 'cancelled'],
   ])('persists a pending %s to its originating recipe', async (
     _label,
     result,
@@ -537,6 +544,28 @@ describe('RecipeChatModal conversation isolation', () => {
     }
   });
 
+  it('marks a non-aborted service failure as failed', async () => {
+    const pendingSend = deferred<{ response: string }>();
+    mocks.recipeMutate.mockImplementation(() => pendingSend.promise);
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      await sendText(renderer, 'Can you help?');
+      await act(async () => pendingSend.reject({ response: { status: 503 } }));
+
+      const stored = JSON.parse(mocks.storageValues.get(
+        'hafa.chat.v2.stable-user.recipe.first',
+      )!);
+      expect(stored.at(-1).status).toBe('failed');
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Retry message',
+      )).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
   it('renders progressive text and lets the user stop a response', async () => {
     const pendingSend = deferred<{ response: string }>();
     let requestSignal: AbortSignal | undefined;
@@ -568,9 +597,7 @@ describe('RecipeChatModal conversation isolation', () => {
 
       await act(async () => stopButton.props.onPress());
       expect(requestSignal?.aborted).toBe(true);
-      const abortError = new Error('Aborted');
-      abortError.name = 'AbortError';
-      await act(async () => pendingSend.reject(abortError));
+      await act(async () => pendingSend.reject(abortError()));
 
       const textAfterStop = renderer.container.queryAll(
         (instance) => instance.type === 'Text',

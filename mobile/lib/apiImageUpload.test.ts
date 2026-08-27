@@ -40,7 +40,11 @@ class InspectableFormData {
   }
 }
 
-import { api } from './api';
+import {
+  api,
+  AUTH_TOKEN_MAX_ATTEMPTS,
+  AUTH_TOKEN_RETRY_DELAY_MS,
+} from './api';
 
 function uploadedFiles(formData: unknown, fieldName: string) {
   return (formData as InspectableFormData).fields
@@ -172,9 +176,9 @@ describe('recipe image multipart requests', () => {
 
     try {
       const request = requestInterceptor({ url: '/api/chat/cooking', headers: {} });
-      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(AUTH_TOKEN_RETRY_DELAY_MS);
       await expect(request).resolves.toMatchObject({ headers: {} });
-      expect(getToken).toHaveBeenCalledTimes(2);
+      expect(getToken).toHaveBeenCalledTimes(AUTH_TOKEN_MAX_ATTEMPTS);
     } finally {
       api.setTokenGetter(null);
       vi.useRealTimers();

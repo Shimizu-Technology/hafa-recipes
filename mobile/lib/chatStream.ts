@@ -13,6 +13,13 @@ export class ChatStreamUnavailableError extends Error {
   }
 }
 
+export class ChatStreamBodyUnreadableError extends Error {
+  constructor() {
+    super('The assistant response could not be read on this device.');
+    this.name = 'ChatStreamBodyUnreadableError';
+  }
+}
+
 export class ChatStreamHttpError extends Error {
   readonly code?: string;
   readonly response: { status: number; data: { detail: string } };
@@ -109,7 +116,7 @@ export async function streamChatRequest({
     throw new ChatStreamHttpError(response.status, detail);
   }
   if (!response.body || typeof response.body.getReader !== 'function') {
-    throw new ChatStreamUnavailableError();
+    throw new ChatStreamBodyUnreadableError();
   }
 
   const reader = response.body.getReader();

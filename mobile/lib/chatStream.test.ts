@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('expo/fetch', () => ({ fetch: vi.fn() }));
 
 import {
+  ChatStreamBodyUnreadableError,
   ChatStreamHttpError,
   ChatStreamUnavailableError,
   isChatAbortError,
@@ -76,6 +77,57 @@ describe('chat streaming transport', () => {
       payload: { message: 'Hello' },
       fetchImpl: fetchImpl as never,
     })).rejects.toBeInstanceOf(ChatStreamUnavailableError);
+  });
+
+  it('keeps server failures distinct from missing streaming routes', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      detail: 'Cooking chat is temporarily unavailable',
+    }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+
+    await expect(streamChatRequest({
+      url: 'https://api.example.test/api/chat/cooking/stream',
+      token: null,
+      payload: { message: 'Hello' },
+      fetchImpl: fetchImpl as never,
+    })).rejects.toBeInstanceOf(ChatStreamHttpError);
+  });
+
+  it('does not classify an accepted response with no readable body as a missing route', async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 200 }));
+
+    await expect(streamChatRequest({
+      url: 'https://api.example.test/api/chat/cooking/stream',
+      token: null,
+      payload: { message: 'Hello' },
+      fetchImpl: fetchImpl as never,
+    })).rejects.toBeInstanceOf(ChatStreamBodyUnreadableError);
+  });
+
+  it('settles a pending body read as cancellation when aborted', async () => {
+    const controller = new AbortController();
+    const fetchImpl = vi.fn(async (_url: string, options?: RequestInit) => (
+      new Response(new ReadableStream({
+        start(streamController) {
+          options?.signal?.addEventListener('abort', () => {
+            streamController.error(new DOMException('Aborted', 'AbortError'));
+          }, { once: true });
+        },
+      }), { status: 200 })
+    ));
+    const request = streamChatRequest({
+      url: 'https://api.example.test/api/chat/cooking/stream',
+      token: null,
+      payload: { message: 'Hello' },
+      signal: controller.signal,
+      fetchImpl: fetchImpl as never,
+    });
+
+    controller.abort();
+    const error = await request.catch((caught) => caught);
+    expect(isChatAbortError(error, controller.signal)).toBe(true);
   });
 
   it('rejects malformed events and recognizes explicit cancellation', () => {

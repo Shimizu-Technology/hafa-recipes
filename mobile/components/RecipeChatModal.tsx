@@ -142,6 +142,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const inputTextRef = useRef('');
   const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastScrollAtRef = useRef(0);
   const [inputText, setInputText] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -285,6 +286,11 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
       clearTimeout(draftSaveTimerRef.current);
       draftSaveTimerRef.current = null;
     }
+    if (scrollTimerRef.current) {
+      clearTimeout(scrollTimerRef.current);
+      scrollTimerRef.current = null;
+    }
+    lastScrollAtRef.current = 0;
     if (previousConversationKey && loadedStorageKeyRef.current === previousConversationKey) {
       void writeChatDraft(previousConversationKey, inputTextRef.current).catch(() => undefined);
     }
@@ -510,21 +516,18 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     );
   }, [storageKey, updateInputText, updateLoadedStorageKey, updateMessages]);
 
-  // Debounce auto-scroll so rapid stream deltas do not queue stale timers.
+  // Throttle with a trailing scroll so continuous stream deltas remain visible.
   useEffect(() => {
-    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
-    if (messages.length > 0) {
-      scrollTimerRef.current = setTimeout(() => {
-        scrollTimerRef.current = null;
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 100);
-    }
-    return () => {
-      if (scrollTimerRef.current) {
-        clearTimeout(scrollTimerRef.current);
-        scrollTimerRef.current = null;
+    if (messages.length === 0 || scrollTimerRef.current) return;
+    const elapsed = Date.now() - lastScrollAtRef.current;
+    const delay = Math.max(0, 250 - elapsed);
+    scrollTimerRef.current = setTimeout(() => {
+      scrollTimerRef.current = null;
+      lastScrollAtRef.current = Date.now();
+      if (typeof scrollViewRef.current?.scrollToEnd === 'function') {
+        scrollViewRef.current.scrollToEnd({ animated: true });
       }
-    };
+    }, delay);
   }, [messages]);
 
   /** Apply one validated attachment consistently across camera, library, and paste. */

@@ -44,6 +44,7 @@ MAX_CHAT_HISTORY_CHARS = 16_000
 LEGACY_CHAT_ERROR_MESSAGE = "Sorry, I couldn't process that request. Please try again."
 MAX_CHAT_IMAGE_BASE64_CHARS = ((MAX_CHAT_IMAGE_BYTES + 2) // 3) * 4
 MAX_CHAT_RESPONSE_CHARS = 16_000
+CHAT_STREAM_IDLE_TIMEOUT_SECONDS = 90
 CHAT_STREAM_MEDIA_TYPE = "application/x-ndjson"
 BoundedIngredient = Annotated[str, Field(min_length=1, max_length=300)]
 BoundedChatImageUrl = Annotated[str, Field(min_length=1, max_length=2_048)]
@@ -158,6 +159,24 @@ async def user_can_access_recipe(db: AsyncSession, recipe: Recipe, user: ClerkUs
     return await is_publicly_viewable(db, recipe, user.id)
 
 
+async def _authorized_recipe(
+    db: AsyncSession,
+    recipe_id: UUID,
+    user: ClerkUser,
+) -> Recipe:
+    """Load one recipe and enforce the shared owner/public/saved access policy."""
+    result = await db.execute(select(Recipe).where(Recipe.id == recipe_id))
+    recipe = result.scalar_one_or_none()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    if not await user_can_access_recipe(db, recipe, user):
+        raise HTTPException(
+            status_code=403,
+            detail="You don't have permission to access this recipe",
+        )
+    return recipe
+
+
 def _validated_image_data_url(image_base64: str) -> str:
     """Validate a current-request image before constructing provider content."""
     try:
@@ -254,6 +273,24 @@ def _build_client_messages(
     return messages
 
 
+def _chat_messages(
+    *,
+    system_prompt: str,
+    request: ChatRequest,
+    user_id: str,
+) -> list[dict]:
+    """Build the common system and bounded client messages for one chat turn."""
+    return [
+        {"role": "system", "content": system_prompt},
+        *_build_client_messages(
+            history=request.history,
+            message=request.message,
+            image_base64=request.image_base64,
+            user_id=user_id,
+        ),
+    ]
+
+
 def _rate_limit_http_exception(exc: RateLimitExceeded) -> HTTPException:
     detail = (
         "Another AI response is already in progress. Please wait a moment."
@@ -325,7 +362,28 @@ async def _stream_chat_events(
                     response_chars = 0
                     tracking_response = None
                     try:
-                        async for chunk in provider_stream:
+                        provider_iterator = provider_stream.__aiter__()
+                        while True:
+                            try:
+                                chunk = await asyncio.wait_for(
+                                    anext(provider_iterator),
+                                    timeout=CHAT_STREAM_IDLE_TIMEOUT_SECONDS,
+                                )
+                            except StopAsyncIteration:
+                                break
+                            except TimeoutError:
+                                invocation.fail("provider_stream_stalled", tracking_response)
+                                await _close_provider_stream(provider_stream)
+                                yield _chat_stream_event(
+                                    "error",
+                                    status=504,
+                                    code="provider_stream_stalled",
+                                    message=(
+                                        "The assistant took too long to continue. "
+                                        "Please try again."
+                                    ),
+                                )
+                                return
                             tracking_response = chunk
                             if await http_request.is_disconnected():
                                 invocation.outcome(
@@ -569,31 +627,16 @@ async def chat_about_recipe(
     - Wine pairings
     - And more!
     """
-    # Get the recipe
-    result = await db.execute(select(Recipe).where(Recipe.id == recipe_id))
-    recipe = result.scalar_one_or_none()
-
-    if not recipe:
-        raise HTTPException(status_code=404, detail="Recipe not found")
-
-    # Check authorization - must be owner, public, or saved by this user
-    if not await user_can_access_recipe(db, recipe, user):
-        raise HTTPException(
-            status_code=403, detail="You don't have permission to access this recipe"
-        )
+    recipe = await _authorized_recipe(db, recipe_id, user)
 
     # Build the context and system prompt
     recipe_context = build_recipe_context(recipe)
     system_prompt = build_system_prompt(recipe_context)
 
-    messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(
-        _build_client_messages(
-            history=request.history,
-            message=request.message,
-            image_base64=request.image_base64,
-            user_id=user.id,
-        )
+    messages = _chat_messages(
+        system_prompt=system_prompt,
+        request=request,
+        user_id=user.id,
     )
 
     try:
@@ -644,26 +687,14 @@ async def stream_chat_about_recipe(
     user: ClerkUser = Depends(get_current_user),
 ):
     """Stream an authorized recipe answer as newline-delimited JSON events."""
-    result = await db.execute(select(Recipe).where(Recipe.id == recipe_id))
-    recipe = result.scalar_one_or_none()
-    if not recipe:
-        raise HTTPException(status_code=404, detail="Recipe not found")
-    if not await user_can_access_recipe(db, recipe, user):
-        raise HTTPException(
-            status_code=403,
-            detail="You don't have permission to access this recipe",
-        )
+    recipe = await _authorized_recipe(db, recipe_id, user)
     if not settings.is_ai_capability_enabled("recipe_chat"):
         raise HTTPException(status_code=503, detail="Recipe chat is temporarily unavailable")
 
-    messages = [{"role": "system", "content": build_system_prompt(build_recipe_context(recipe))}]
-    messages.extend(
-        _build_client_messages(
-            history=request.history,
-            message=request.message,
-            image_base64=request.image_base64,
-            user_id=user.id,
-        )
+    messages = _chat_messages(
+        system_prompt=build_system_prompt(build_recipe_context(recipe)),
+        request=request,
+        user_id=user.id,
     )
     return _chat_streaming_response(_stream_chat_events(
         http_request=http_request,
@@ -936,14 +967,10 @@ async def chat_cooking_assistant(
     Unlike recipe-specific chat, this doesn't require a recipe context.
     Ask about anything cooking, food, or kitchen related!
     """
-    messages = [{"role": "system", "content": COOKING_ASSISTANT_SYSTEM_PROMPT}]
-    messages.extend(
-        _build_client_messages(
-            history=request.history,
-            message=request.message,
-            image_base64=request.image_base64,
-            user_id=user.id,
-        )
+    messages = _chat_messages(
+        system_prompt=COOKING_ASSISTANT_SYSTEM_PROMPT,
+        request=request,
+        user_id=user.id,
     )
 
     try:
@@ -995,14 +1022,10 @@ async def stream_chat_cooking_assistant(
     if not settings.is_ai_capability_enabled("cooking_chat"):
         raise HTTPException(status_code=503, detail="Cooking chat is temporarily unavailable")
 
-    messages = [{"role": "system", "content": COOKING_ASSISTANT_SYSTEM_PROMPT}]
-    messages.extend(
-        _build_client_messages(
-            history=request.history,
-            message=request.message,
-            image_base64=request.image_base64,
-            user_id=user.id,
-        )
+    messages = _chat_messages(
+        system_prompt=COOKING_ASSISTANT_SYSTEM_PROMPT,
+        request=request,
+        user_id=user.id,
     )
     return _chat_streaming_response(_stream_chat_events(
         http_request=http_request,
