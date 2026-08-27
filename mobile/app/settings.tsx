@@ -74,6 +74,7 @@ function MenuItem({ icon, label, value, onPress, colors }: MenuItemProps) {
   return content;
 }
 
+/** Account and app preferences, presented from the root stack rather than as a tab. */
 export default function SettingsScreen() {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -270,6 +271,10 @@ export default function SettingsScreen() {
     setShowProfileModal(true);
   };
 
+  const profileName = isSignedIn
+    ? (user?.firstName || user?.emailAddresses[0]?.emailAddress?.split('@')[0] || 'User')
+    : 'Guest User';
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -280,8 +285,12 @@ export default function SettingsScreen() {
         <RNView style={styles.section}>
           <SectionHeader title="Account" />
           <TouchableOpacity
+            accessible
             activeOpacity={0.7}
             onPress={isSignedIn ? handleOpenProfileModal : () => router.push('/(auth)/sign-in')}
+            accessibilityRole="button"
+            accessibilityLabel={isSignedIn ? `Account profile for ${profileName}` : 'Guest account'}
+            accessibilityHint={isSignedIn ? 'Opens profile editing' : 'Opens sign in'}
           >
             <Card>
               <RNView style={styles.userCard}>
@@ -294,9 +303,7 @@ export default function SettingsScreen() {
                 )}
                 <RNView style={styles.userInfo}>
                   <Text style={[styles.userName, { color: colors.text }]}>
-                    {isSignedIn
-                      ? (user?.firstName || user?.emailAddresses[0]?.emailAddress?.split('@')[0] || 'User')
-                      : 'Guest User'}
+                    {profileName}
                   </Text>
                   <Text style={[styles.userEmail, { color: isSignedIn ? colors.textMuted : colors.tint }]}>
                     {isSignedIn

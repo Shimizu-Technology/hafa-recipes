@@ -8,6 +8,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { api } from '@/lib/api';
 import { recipeKeys } from '@/hooks/useRecipes';
+import { AccountHeaderButton, ImportTabIcon, TabHeaderBrand } from '@/components/TabChrome';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
@@ -67,6 +68,9 @@ export default function TabLayout() {
           fontWeight: '600',
           fontFamily: 'DMSans_600SemiBold',
         },
+        tabBarItemStyle: {
+          paddingTop: 2,
+        },
         headerStyle: {
           backgroundColor: colors.background,
           shadowColor: 'transparent',
@@ -74,23 +78,19 @@ export default function TabLayout() {
           borderBottomWidth: 1,
           borderBottomColor: colors.border,
         },
-        headerTitleStyle: {
-          fontWeight: '700',
-          fontSize: 17,
-          color: colors.text,
-          fontFamily: 'DMSans_700Bold',
-        },
+        headerTitle: () => <TabHeaderBrand />,
+        headerRight: () => <AccountHeaderButton />,
+        headerRightContainerStyle: { paddingRight: 16 },
       }}>
       <Tabs.Screen
-        name="index"
+        name="discover"
         options={{
-          title: 'Extract',
-          headerTitle: 'Extract Recipe',
-          tabBarIcon: ({ focused, color, size }) => (
-            <Ionicons 
-              name={focused ? 'add-circle' : 'add-circle-outline'} 
-              size={24} 
-              color={color} 
+          title: 'Discover',
+          tabBarIcon: ({ focused, color }) => (
+            <Ionicons
+              name={focused ? 'globe' : 'globe-outline'}
+              size={24}
+              color={color}
             />
           ),
         }}
@@ -98,41 +98,33 @@ export default function TabLayout() {
       <Tabs.Screen
         name="history"
         options={{
-          title: 'My Recipes',
-          headerTitle: 'My Recipes',
-          tabBarIcon: ({ focused, color, size }) => (
-            <Ionicons 
-              name={focused ? 'book' : 'book-outline'} 
-              size={24} 
-              color={color} 
+          title: 'Library',
+          tabBarIcon: ({ focused, color }) => (
+            <Ionicons
+              name={focused ? 'book' : 'book-outline'}
+              size={24}
+              color={color}
             />
           ),
         }}
       />
       <Tabs.Screen
-        name="discover"
+        name="index"
         options={{
-          title: 'Discover',
-          headerTitle: 'Discover Recipes',
-          tabBarIcon: ({ focused, color, size }) => (
-            <Ionicons 
-              name={focused ? 'globe' : 'globe-outline'} 
-              size={24} 
-              color={color} 
-            />
-          ),
+          title: 'Import',
+          tabBarAccessibilityLabel: 'Import a recipe',
+          tabBarIcon: ({ focused }) => <ImportTabIcon focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="planner"
         options={{
-          title: 'Planner',
-          headerTitle: 'Meal Planner',
-          tabBarIcon: ({ focused, color, size }) => (
-            <Ionicons 
-              name={focused ? 'calendar' : 'calendar-outline'} 
-              size={24} 
-              color={color} 
+          title: 'Plan',
+          tabBarIcon: ({ focused, color }) => (
+            <Ionicons
+              name={focused ? 'calendar' : 'calendar-outline'}
+              size={24}
+              color={color}
             />
           ),
         }}
@@ -140,26 +132,12 @@ export default function TabLayout() {
       <Tabs.Screen
         name="grocery"
         options={{
-          title: 'Grocery',
-          headerTitle: 'Grocery List',
-          tabBarIcon: ({ focused, color, size }) => (
-            <Ionicons 
-              name={focused ? 'cart' : 'cart-outline'} 
-              size={24} 
-              color={color} 
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: 'Settings',
-          tabBarIcon: ({ focused, color, size }) => (
-            <Ionicons 
-              name={focused ? 'settings' : 'settings-outline'} 
-              size={24} 
-              color={color} 
+          title: 'Shop',
+          tabBarIcon: ({ focused, color }) => (
+            <Ionicons
+              name={focused ? 'cart' : 'cart-outline'}
+              size={24}
+              color={color}
             />
           ),
         }}
