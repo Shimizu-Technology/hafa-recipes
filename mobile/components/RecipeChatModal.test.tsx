@@ -260,7 +260,7 @@ describe('RecipeChatModal conversation isolation', () => {
     mocks.getItem.mockResolvedValue(null);
     mocks.launchImageLibrary.mockResolvedValue({
       canceled: false,
-      assets: [{ base64: 'photo-base64', uri: 'file:///recipe-a.jpg' }],
+      assets: [{ base64: 'cGhvdG8tYQ==', uri: 'file:///recipe-a.jpg' }],
     });
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
@@ -297,7 +297,7 @@ describe('RecipeChatModal conversation isolation', () => {
     );
     mocks.launchImageLibrary.mockResolvedValue({
       canceled: false,
-      assets: [{ base64: 'photo-base64', uri: 'file:///recipe-photo.jpg' }],
+      assets: [{ base64: 'cGhvdG8=', uri: 'file:///recipe-photo.jpg' }],
     });
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
@@ -342,7 +342,7 @@ describe('RecipeChatModal conversation isolation', () => {
       await renderModal(renderer, 'second');
       await act(async () => pendingPicker.resolve({
         canceled: false,
-        assets: [{ base64: 'stale-base64', uri: 'file:///stale.jpg' }],
+        assets: [{ base64: 'c3RhbGU=', uri: 'file:///stale.jpg' }],
       }));
 
       expect(renderer.container.queryAll(
@@ -388,7 +388,7 @@ describe('RecipeChatModal conversation isolation', () => {
 
   it('attaches an image directly from the native paste control', async () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
-    const imageData = 'data:image/jpeg;base64,/9j/pasted-photo';
+    const imageData = 'data:image/jpeg;base64,/9j/cGFzdGVkLXBob3Rv';
 
     try {
       await renderModal(renderer, 'first');

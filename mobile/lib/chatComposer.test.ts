@@ -10,8 +10,8 @@ import {
 
 describe('chat composer normalization', () => {
   it('appends normalized pasted text on a new line', () => {
-    expect(appendPastedChatText('Use half', '  as much salt\r\nplease  ')).toEqual({
-      text: 'Use half\nas much salt\nplease',
+    expect(appendPastedChatText('Use half', '  as much salt\r\nplease\rand pepper  ')).toEqual({
+      text: 'Use half\nas much salt\nplease\nand pepper',
       truncated: false,
     });
   });
@@ -23,14 +23,14 @@ describe('chat composer normalization', () => {
   });
 
   it('strips a clipboard data URL before sending and retains it for preview', () => {
-    const data = 'data:image/jpeg;base64,/9j/example';
+    const data = 'data:image/jpeg;base64,/9j/ZXhhbXBsZQ==';
     expect(normalizeChatPaste({
       type: 'image',
       data,
       size: { width: 10, height: 10 },
     })).toEqual({
       type: 'image',
-      base64: '/9j/example',
+      base64: '/9j/ZXhhbXBsZQ==',
       uri: data,
     });
   });
@@ -39,5 +39,11 @@ describe('chat composer normalization', () => {
     const oversized = 'A'.repeat(Math.ceil((CHAT_IMAGE_MAX_BYTES + 1) * 4 / 3));
     expect(() => normalizeChatImageAttachment(oversized, 'file:///large.jpg'))
       .toThrow('larger than the 8 MB');
+  });
+
+  it('rejects malformed Base64 image data before delivery', () => {
+    expect(() => normalizeChatImageAttachment(
+      'data:image/jpeg;base64,not*base64!',
+    )).toThrow('not valid Base64');
   });
 });
