@@ -3,6 +3,8 @@ const https = require('node:https');
 const app = require('./app.json').expo;
 const APP_STORE_ID = '6755892896';
 const MAX_LISTING_BYTES = 1_000_000;
+const RELEASE_NOTES =
+  'Import recipes from pasted text, screenshots, and native shares. Enjoy one-tap source video playback, clearer grocery and meal-plan links, and a refreshed reef-inspired design. Ask Håfa now has more reliable context, streaming responses, image paste and attachments, voice dictation, spoken answers, drafts, privacy protections, and clearer recovery when something goes wrong.';
 const LEGACY_BETA_NOTICE =
   /^BETA - FREE DURING BETA\r?\nAll features free while we're in beta\. Paid plans coming soon to cover AI costs\.\r?\n(?:\r?\n)?/m;
 
@@ -84,7 +86,7 @@ function buildStoreConfig({ environment, listing }) {
         'en-US': {
           title: app.name,
           description,
-          releaseNotes: 'Improved account recovery, more reliable sign-in, and a faster, clearer interactive grocery widget.',
+          releaseNotes: RELEASE_NOTES,
           marketingUrl: 'https://hafa-recipes.com',
           privacyPolicyUrl: 'https://hafa-recipes.com/privacy',
           supportUrl: 'https://hafa-recipes.com/support',
@@ -112,6 +114,7 @@ async function loadStoreConfig() {
 loadStoreConfig._testing = {
   APP_STORE_ID,
   LEGACY_BETA_NOTICE,
+  RELEASE_NOTES,
   buildStoreConfig,
   requiredEnvironmentValue,
 };

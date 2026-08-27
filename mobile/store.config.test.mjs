@@ -2,7 +2,11 @@ import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
-const { APP_STORE_ID, buildStoreConfig } = require('./store.config.js')._testing;
+const {
+  APP_STORE_ID,
+  RELEASE_NOTES,
+  buildStoreConfig,
+} = require('./store.config.js')._testing;
 const environment = {
   APP_REVIEW_EMAIL: 'reviewer@example.com',
   APP_REVIEW_PASSWORD: 'a-secure-review-password',
@@ -19,11 +23,12 @@ describe('App Store release metadata', () => {
   it('preserves the public description and requires a controlled phased release', () => {
     const config = buildStoreConfig({ environment, listing });
 
-    expect(config.apple.version).toBe('2.5.3');
+    expect(config.apple.version).toBe('2.6.0');
     expect(config.apple.release).toEqual({ automaticRelease: false, phasedRelease: true });
     expect(config.apple.info['en-US'].description).toBe(listing.description);
     expect(config.apple.info['en-US'].privacyPolicyUrl).toBe('https://hafa-recipes.com/privacy');
     expect(config.apple.info['en-US'].supportUrl).toBe('https://hafa-recipes.com/support');
+    expect(config.apple.info['en-US'].releaseNotes).toBe(RELEASE_NOTES);
     expect(config.apple.review.demoRequired).toBe(true);
     expect(config.apple.review.demoUsername).toBe(environment.APP_REVIEW_EMAIL);
     expect(config.apple.advisory).toBeUndefined();
