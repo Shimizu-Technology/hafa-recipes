@@ -53,7 +53,7 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }),
 }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
-vi.mock('@believer/react-native-markdown-display', () => ({ Markdown: 'Markdown' }));
+vi.mock('@believer/react-native-markdown-display', () => ({ Markdown: 'Text' }));
 vi.mock('@/components/Themed', () => ({
   Text: 'Text',
   View: 'View',
@@ -99,6 +99,7 @@ type Deferred<T> = {
   reject: (reason?: unknown) => void;
 };
 
+/** Create a manually settled promise for deterministic async race tests. */
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -109,10 +110,12 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
+/** Build the minimum recipe shape needed by the chat modal. */
 function recipe(id: string): Recipe {
   return { id, extracted: { title: id } } as Recipe;
 }
 
+/** Render or rerender the modal for one recipe and flush its effects. */
 async function renderModal(renderer: ReturnType<typeof createRoot>, recipeId: string) {
   await act(async () => {
     renderer.render(React.createElement(RecipeChatModal, {
@@ -123,6 +126,7 @@ async function renderModal(renderer: ReturnType<typeof createRoot>, recipeId: st
   });
 }
 
+/** Submit a text message without awaiting the deliberately pending mutation. */
 async function sendText(renderer: ReturnType<typeof createRoot>, text: string) {
   const input = renderer.container.queryAll((instance) => instance.type === 'TextInput')[0];
   await act(async () => input.props.onChangeText(text));
@@ -157,6 +161,7 @@ describe('RecipeChatModal conversation isolation', () => {
       await renderModal(renderer, 'second');
       await act(async () => secondLoad.resolve(JSON.stringify([
         { id: 'second-message', role: 'user', content: 'second history' },
+        { id: 'second-answer', role: 'assistant', content: 'second answer' },
       ])));
       await act(async () => firstLoad.resolve(JSON.stringify([
         { id: 'first-message', role: 'user', content: 'stale first history' },
@@ -167,6 +172,12 @@ describe('RecipeChatModal conversation isolation', () => {
       ).map((instance) => instance.props.children);
       expect(text).toContain('second history');
       expect(text).not.toContain('stale first history');
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Copy message',
+      )).toHaveLength(2);
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Read response aloud',
+      )).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());
     }
@@ -201,9 +212,9 @@ describe('RecipeChatModal conversation isolation', () => {
       } else {
         expect(finalMessages.at(-1).content).toBe('origin answer');
       }
-      expect(mocks.setItem.mock.calls.some(
-        ([key, value]) => key === 'recipe_chat_second' && value.includes('origin answer'),
-      )).toBe(false);
+      expect(mocks.setItem.mock.calls.filter(
+        ([key]) => key === 'recipe_chat_second',
+      )).toEqual([]);
     } finally {
       await act(async () => renderer.unmount());
     }

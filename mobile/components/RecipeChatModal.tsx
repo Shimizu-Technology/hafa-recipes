@@ -100,6 +100,7 @@ const COOKING_SUGGESTIONS = [
   "Difference between baking soda and powder?",
 ];
 
+/** Render recipe-specific or general cooking chat with local conversation persistence. */
 export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeChatModalProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -767,6 +768,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                   onPress={() => handleCopyMessage(msg.content, msg.id)}
                   style={styles.actionBarButton}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Copy message"
                 >
                   <Ionicons
                     name={copiedId === msg.id ? "checkmark" : "copy-outline"}
@@ -782,6 +785,11 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                     disabled={ttsLoading && speakingId === msg.id}
                     style={styles.actionBarButton}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel={speakingId === msg.id && isPlaying
+                      ? 'Stop reading response'
+                      : 'Read response aloud'}
+                    accessibilityState={{ disabled: ttsLoading && speakingId === msg.id }}
                   >
                     {ttsLoading && speakingId === msg.id ? (
                       <ActivityIndicator size={12} color={colors.tint} />

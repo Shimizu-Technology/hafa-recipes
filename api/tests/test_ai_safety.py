@@ -76,6 +76,7 @@ def test_chat_bounds_message_history_and_requires_content():
 
 
 def test_chat_context_keeps_recent_complete_turns_only():
+    """Context selection keeps bounded complete turns and drops fake failures."""
     history = [ChatMessage(role="assistant", content="orphan")]
     for index in range(7):
         history.extend(
@@ -101,6 +102,7 @@ def test_chat_context_keeps_recent_complete_turns_only():
 
 
 def test_chat_context_respects_character_budget_without_splitting_turns():
+    """The character budget removes whole old turns instead of partial messages."""
     message_size = MAX_CHAT_HISTORY_CHARS // 4
     history: list[ChatMessage] = []
     for index in range(3):

@@ -140,6 +140,7 @@ async def test_tracker_records_safe_context_and_validated_outcome(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_recipe_chat_marks_success_before_tracker_exits(monkeypatch):
+    """Legacy history is accepted, bounded, and tracked as a successful invocation."""
     recipe = SimpleNamespace(
         user_id="user_chat_tracker",
         is_public=False,
