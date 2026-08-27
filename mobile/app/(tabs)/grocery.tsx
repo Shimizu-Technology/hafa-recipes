@@ -26,6 +26,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { View, Text, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
+import { guestPromptBottomPadding, useGuestPromptHeight } from '../../lib/guestPromptLayout';
 import EditGroceryItemModal from '@/components/EditGroceryItemModal';
 import GroceryListSettingsModal from '@/components/GroceryListSettingsModal';
 import { GrocerySectionHeader } from '@/components/GrocerySectionHeader';
@@ -168,6 +169,7 @@ export default function GroceryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { isSignedIn } = useAuth();
+  const guestPromptHeight = useGuestPromptHeight();
   const { scaleFontSize } = useTextSize();
   const router = useRouter();
   const { focusAdd, editItem } = useLocalSearchParams<{
@@ -839,7 +841,16 @@ export default function GroceryScreen() {
         renderSectionHeader={renderSectionHeader}
         keyExtractor={(item) => item.id}
         ListEmptyComponent={ListEmpty}
-        contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom, 80) + spacing.xl + (isSignedIn ? 0 : 100) }]}
+        contentContainerStyle={[
+          styles.listContent,
+          {
+            paddingBottom: guestPromptBottomPadding(
+              Math.max(insets.bottom, 80) + spacing.xl,
+              Boolean(isSignedIn),
+              guestPromptHeight,
+            ),
+          },
+        ]}
         showsVerticalScrollIndicator={false}
         stickySectionHeadersEnabled={false}
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}

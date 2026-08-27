@@ -82,7 +82,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { isSignedIn, sessionId } = useAuth();
+  const { isSignedIn, isLoaded, sessionId } = useAuth();
   const { user } = useUser();
   const { data: countData, isError: isCountError, refetch: refetchCount } = useRecipeCount(undefined, !!isSignedIn);
   const { signOut } = useClerk();
@@ -285,6 +285,7 @@ export default function SettingsScreen() {
         <RNView style={styles.section}>
           <SectionHeader title="Account" />
           <SettingsProfileCard
+            isLoaded={isLoaded}
             isSignedIn={Boolean(isSignedIn)}
             profileName={profileName}
             user={user}

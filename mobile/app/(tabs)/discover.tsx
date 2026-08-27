@@ -24,6 +24,7 @@ import { useAuth } from '@clerk/expo';
 
 import { View, Text, Input, Chip, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
+import { guestPromptBottomPadding, useGuestPromptHeight } from '../../lib/guestPromptLayout';
 import FilterBottomSheet, { FilterState, SourceFilter, TimeFilter, MealTypeFilter } from '@/components/FilterBottomSheet';
 import AllContributorsModal from '@/components/AllContributorsModal';
 import {
@@ -393,6 +394,7 @@ export default function DiscoverScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { userId, isSignedIn } = useAuth();
+  const guestPromptHeight = useGuestPromptHeight();
   const [searchQuery, setSearchQuery] = useState('');
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
   const [showFilterModal, setShowFilterModal] = useState(false);
@@ -1132,7 +1134,16 @@ export default function DiscoverScreen() {
           columnWrapperStyle={isGrid ? styles.gridRow : undefined}
           ListEmptyComponent={hasPrimaryLoadError ? ListError : ListEmpty}
           ListFooterComponent={ListFooter}
-          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.xl + (isSignedIn ? 0 : 100) }]}
+          contentContainerStyle={[
+            styles.listContent,
+            {
+              paddingBottom: guestPromptBottomPadding(
+                insets.bottom + spacing.xl,
+                Boolean(isSignedIn),
+                guestPromptHeight,
+              ),
+            },
+          ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           onScrollBeginDrag={Keyboard.dismiss}

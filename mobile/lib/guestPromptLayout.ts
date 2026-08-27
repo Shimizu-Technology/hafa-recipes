@@ -34,6 +34,15 @@ export function getGuestPromptHeight() {
   return currentHeight;
 }
 
+/** Add the measured guest prompt to scrollable content's base bottom inset. */
+export function guestPromptBottomPadding(
+  baseBottomPadding: number,
+  isSignedIn: boolean,
+  guestPromptHeight: number,
+) {
+  return baseBottomPadding + (isSignedIn ? 0 : Math.max(0, guestPromptHeight));
+}
+
 /** Subscribe to guest-prompt layout changes for floating controls. */
 export function useGuestPromptHeight() {
   return useSyncExternalStore(

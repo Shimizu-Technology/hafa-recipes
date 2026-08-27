@@ -1,5 +1,12 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, type LayoutChangeEvent } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  useWindowDimensions,
+  type LayoutChangeEvent,
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors } from '@/components/Themed';
@@ -17,6 +24,8 @@ interface SignInBannerProps {
 export function SignInBanner({ message = 'Sign in to use this feature' }: SignInBannerProps) {
   const colors = useColors();
   const router = useRouter();
+  const { fontScale } = useWindowDimensions();
+  const usesLargeTextLayout = fontScale >= 1.5;
   const promptId = useRef(Symbol('guest-prompt')).current;
 
   useEffect(() => () => clearGuestPromptHeight(promptId), [promptId]);
@@ -30,6 +39,7 @@ export function SignInBanner({ message = 'Sign in to use this feature' }: SignIn
       onLayout={handleLayout}
       style={[
         styles.container,
+        usesLargeTextLayout && styles.containerLargeText,
         {
           backgroundColor: colors.card,
           borderColor: colors.border,
@@ -54,7 +64,11 @@ export function SignInBanner({ message = 'Sign in to use this feature' }: SignIn
         </TouchableOpacity>
       </View>
       <TouchableOpacity
-        style={[styles.signInButton, { backgroundColor: colors.tint }]}
+        style={[
+          styles.signInButton,
+          usesLargeTextLayout && styles.signInButtonLargeText,
+          { backgroundColor: colors.tint },
+        ]}
         onPress={() => router.push('/(auth)/sign-in')}
         activeOpacity={0.8}
         accessibilityRole="button"
@@ -81,6 +95,10 @@ const styles = StyleSheet.create({
     padding: spacing.sm + 2,
     ...shadows.medium,
   },
+  containerLargeText: {
+    flexWrap: 'wrap',
+    alignItems: 'flex-start',
+  },
   iconContainer: {
     width: 36,
     height: 36,
@@ -100,9 +118,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    minHeight: 40,
+    minHeight: 44,
     paddingHorizontal: spacing.md,
     borderRadius: radius.full,
+  },
+  signInButtonLargeText: {
+    width: '100%',
+    justifyContent: 'center',
   },
   signInButtonText: {
     color: '#FFFFFF',

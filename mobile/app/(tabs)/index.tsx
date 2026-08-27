@@ -21,6 +21,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { View, Text, Input, Button, Chip, useColors } from '@/components/Themed';
 import ExtractionProgress from '@/components/ExtractionProgress';
 import { SignInBanner } from '@/components/SignInBanner';
+import { guestPromptBottomPadding, useGuestPromptHeight } from '../../lib/guestPromptLayout';
 import { useLocations, useCheckDuplicate } from '@/hooks/useRecipes';
 import { useAsyncExtraction } from '@/contexts/ExtractionContext';
 import { BrandMark } from '@/components/BrandMark';
@@ -34,6 +35,7 @@ export default function ExtractScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { isSignedIn } = useAuth();
+  const guestPromptHeight = useGuestPromptHeight();
   const { sharedUrl, captureToken } = useLocalSearchParams<{
     sharedUrl?: string;
     captureToken?: string;
@@ -598,7 +600,13 @@ export default function ExtractScreen() {
         <ScrollView
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingBottom: Math.max(insets.bottom, 80) + spacing.xl + (isSignedIn ? 0 : 100) }
+            {
+              paddingBottom: guestPromptBottomPadding(
+                Math.max(insets.bottom, 80) + spacing.xl,
+                Boolean(isSignedIn),
+                guestPromptHeight,
+              ),
+            }
           ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -613,34 +621,34 @@ export default function ExtractScreen() {
             <RNView style={styles.heroTopRow}>
               <BrandMark size={70} />
               <RNView style={[styles.betaBadge, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
-                <Text style={[styles.betaBadgeText, { color: colors.accent }]}>BETA</Text>
+                <Text maxFontSizeMultiplier={1.4} style={[styles.betaBadgeText, { color: colors.accent }]}>BETA</Text>
               </RNView>
             </RNView>
-            <Text style={[styles.heroEyebrow, { color: colors.tint }]}>AI recipe extraction</Text>
-            <Text style={[styles.heroTitle, { color: colors.text }]}>Turn recipe links and text into something you can cook.</Text>
+            <Text maxFontSizeMultiplier={1.4} style={[styles.heroEyebrow, { color: colors.tint }]}>AI recipe extraction</Text>
+            <Text maxFontSizeMultiplier={1.4} style={[styles.heroTitle, { color: colors.text }]}>Turn recipe links and text into something you can cook.</Text>
             <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
               Import a social video or website, paste a caption or DM, scan screenshots, or add a family recipe. Håfa Recipes organizes the ingredients, steps, costs, and cook mode for you.
             </Text>
             <RNView style={styles.sourcePills}>
               <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
                 <Ionicons name="logo-tiktok" size={14} color={colors.tint} />
-                <Text style={[styles.sourcePillText, { color: colors.textSecondary }]}>TikTok</Text>
+                <Text maxFontSizeMultiplier={1.4} style={[styles.sourcePillText, { color: colors.textSecondary }]}>TikTok</Text>
               </RNView>
               <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
                 <Ionicons name="logo-youtube" size={14} color={colors.tint} />
-                <Text style={[styles.sourcePillText, { color: colors.textSecondary }]}>YouTube</Text>
+                <Text maxFontSizeMultiplier={1.4} style={[styles.sourcePillText, { color: colors.textSecondary }]}>YouTube</Text>
               </RNView>
               <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
                 <Ionicons name="logo-instagram" size={14} color={colors.tint} />
-                <Text style={[styles.sourcePillText, { color: colors.textSecondary }]}>Instagram</Text>
+                <Text maxFontSizeMultiplier={1.4} style={[styles.sourcePillText, { color: colors.textSecondary }]}>Instagram</Text>
               </RNView>
               <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
                 <Ionicons name="globe-outline" size={14} color={colors.accent} />
-                <Text style={[styles.sourcePillText, { color: colors.textSecondary }]}>Websites</Text>
+                <Text maxFontSizeMultiplier={1.4} style={[styles.sourcePillText, { color: colors.textSecondary }]}>Websites</Text>
               </RNView>
               <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
                 <Ionicons name="document-text-outline" size={14} color={colors.accent} />
-                <Text style={[styles.sourcePillText, { color: colors.textSecondary }]}>Recipe text</Text>
+                <Text maxFontSizeMultiplier={1.4} style={[styles.sourcePillText, { color: colors.textSecondary }]}>Recipe text</Text>
               </RNView>
             </RNView>
           </LinearGradient>

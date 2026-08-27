@@ -18,6 +18,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import Colors, { spacing, radius, fontSize, fontWeight, fontFamily, shadows } from '@/constants/Colors';
 import { useColorScheme } from './useColorScheme';
 
+const MAX_UI_FONT_SIZE_MULTIPLIER = 1.6;
+
 type ThemeProps = {
   lightColor?: string;
   darkColor?: string;
@@ -49,10 +51,22 @@ export function useColors() {
 
 // Basic Text component with Inter font
 export function Text(props: TextProps) {
-  const { style, lightColor, darkColor, ...otherProps } = props;
+  const {
+    style,
+    lightColor,
+    darkColor,
+    maxFontSizeMultiplier = MAX_UI_FONT_SIZE_MULTIPLIER,
+    ...otherProps
+  } = props;
   const color = useThemeColor({ light: lightColor, dark: darkColor }, 'text');
 
-  return <DefaultText style={[{ color, fontFamily: fontFamily.regular }, style]} {...otherProps} />;
+  return (
+    <DefaultText
+      maxFontSizeMultiplier={maxFontSizeMultiplier}
+      style={[{ color, fontFamily: fontFamily.regular }, style]}
+      {...otherProps}
+    />
+  );
 }
 
 // Basic View component
@@ -139,6 +153,7 @@ export function Input({
   return (
     <DefaultView style={{ position: 'relative' }}>
       <DefaultTextInput
+        maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -288,6 +303,7 @@ export function Button({
     >
       {loading && <ActivityIndicator color={getTextColor()} size="small" />}
       <DefaultText
+        maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
         style={{
           color: getTextColor(),
           fontSize: size === 'lg' ? fontSize.lg : fontSize.md,
@@ -325,6 +341,7 @@ export function Chip({ label, selected, onPress, size = 'md' }: ChipProps) {
       ]}
     >
       <DefaultText
+        maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
         style={{
           color: selected ? '#FFFFFF' : colors.text,
           fontSize: size === 'sm' ? fontSize.xs : fontSize.sm,
@@ -359,6 +376,7 @@ export function SectionHeader({ title, subtitle }: SectionHeaderProps) {
   return (
     <DefaultView style={{ marginBottom: spacing.md }}>
       <DefaultText
+        maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
         style={{
           fontSize: fontSize.xs,
           fontWeight: fontWeight.semibold,
@@ -372,6 +390,7 @@ export function SectionHeader({ title, subtitle }: SectionHeaderProps) {
       </DefaultText>
       {subtitle && (
         <DefaultText
+          maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
           style={{
             fontSize: fontSize.sm,
             color: colors.textSecondary,
