@@ -45,6 +45,7 @@ vi.mock('@/constants/Colors', () => ({
   spacing: { xs: 4, sm: 8, md: 16, lg: 24 },
 }));
 vi.mock('../lib/sourcePlayback', () => ({
+  getAutoplayEmbedUrl: (playback: SourcePlayback) => `${playback.embedUrl}&autoplay=1`,
   isSourcePlaybackNavigationAllowed: navigationAllowed,
 }));
 
@@ -78,14 +79,14 @@ describe('SourcePlaybackCard', () => {
       const playButton = renderer.container.queryAll(
         (instance) => instance.type === 'TouchableOpacity',
       ).find((button) => button.props.accessibilityLabel
-        === 'Open the YouTube player for Chicken Kelaguen in Håfa Recipes');
+        === 'Play the YouTube video for Chicken Kelaguen');
       await act(async () => playButton!.props.onPress());
 
       const webView = renderer.container.queryAll(
         (instance) => instance.type === 'WebView',
       )[0];
       expect(webView.props.source).toEqual({
-        uri: youtubePlayback.embedUrl,
+        uri: `${youtubePlayback.embedUrl}&autoplay=1`,
         headers: youtubePlayback.requestHeaders,
       });
       expect(webView.props.originWhitelist).toEqual(['*']);
@@ -108,7 +109,7 @@ describe('SourcePlaybackCard', () => {
       );
       expect(webView.props.allowsInlineMediaPlayback).toBe(true);
       expect(webView.props.allowsFullscreenVideo).toBe(true);
-      expect(webView.props.mediaPlaybackRequiresUserAction).toBe(true);
+      expect(webView.props.mediaPlaybackRequiresUserAction).toBe(false);
       expect(webView.props.accessibilityLabel).toBe('YouTube player for Chicken Kelaguen');
       expect(renderer.container.queryAll(
         (instance) => instance.type === 'ActivityIndicator',
@@ -136,7 +137,7 @@ describe('SourcePlaybackCard', () => {
       });
       const playButton = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel
-          === 'Open the YouTube player for Chicken Kelaguen in Håfa Recipes',
+          === 'Play the YouTube video for Chicken Kelaguen',
       )[0];
       await act(async () => playButton.props.onPress());
       const webView = renderer.container.queryAll(

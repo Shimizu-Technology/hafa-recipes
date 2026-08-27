@@ -712,8 +712,15 @@ export default function RecipeDetailScreen() {
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl + 100 }]}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Hero Image */}
-          {recipe.thumbnail_url && !imageError ? (
+          {/* A playable original becomes the hero so the same image is not repeated. */}
+          {sourcePlayback ? (
+            <SourcePlaybackCard
+              playback={sourcePlayback}
+              recipeTitle={extracted.title}
+              thumbnailUrl={recipe.thumbnail_url}
+              onOpenSource={handleOpenSource}
+            />
+          ) : recipe.thumbnail_url && !imageError ? (
             <Image 
               source={{ uri: recipe.thumbnail_url }} 
               style={styles.heroImage}
@@ -747,15 +754,6 @@ export default function RecipeDetailScreen() {
               </RNView>
             )}
 
-            {sourcePlayback && (
-              <SourcePlaybackCard
-                playback={sourcePlayback}
-                recipeTitle={extracted.title}
-                thumbnailUrl={recipe.thumbnail_url}
-                onOpenSource={handleOpenSource}
-              />
-            )}
-            
             {/* Meta Row */}
             <RNView style={styles.metaRow}>
               {extracted.servings && (

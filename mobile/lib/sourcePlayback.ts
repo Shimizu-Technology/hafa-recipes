@@ -10,6 +10,19 @@ export type SourcePlayback = {
 
 export const YOUTUBE_APP_REFERRER = 'https://com.shimizutechnology.recipeextractor';
 
+/**
+ * Request playback only after the cook has explicitly tapped the preview.
+ * Instagram's official embed does not publish an autoplay parameter, so it is
+ * left unchanged while the WebView handles the original user gesture.
+ */
+export function getAutoplayEmbedUrl(playback: SourcePlayback): string {
+  if (playback.provider === 'instagram') return playback.embedUrl;
+
+  const url = new URL(playback.embedUrl);
+  url.searchParams.set('autoplay', '1');
+  return url.toString();
+}
+
 function hostMatches(hostname: string, domain: string): boolean {
   return hostname === domain || hostname.endsWith(`.${domain}`);
 }
