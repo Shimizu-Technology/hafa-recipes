@@ -25,6 +25,7 @@ import {
   GroceryInvite,
   InvitePreview,
   ChatMessage,
+  ChatRequest,
   ChatResponse,
   Collection,
   CollectionRecipe,
@@ -41,6 +42,12 @@ import type {
   SafetyStatus,
 } from '../types/communitySafety';
 import type { PublishingDisclosureStatus } from './recipePublishing';
+import {
+  ChatStreamUnavailableError,
+  type ChatDeltaHandler,
+  isChatAbortError,
+  streamChatRequest,
+} from './chatStream';
 
 // Token getter function type - will be set by the app
 type TokenGetter = () => Promise<string | null>;
@@ -81,42 +88,7 @@ class ApiClient {
     this.client.interceptors.request.use(
       async (config) => {
         if (this.getTokenFn) {
-          // Try to get token with retry on slow networks
-          let token: string | null = null;
-          let attempts = 0;
-          const maxAttempts = 2;
-          
-          while (!token && attempts < maxAttempts) {
-            try {
-              token = await Promise.race([
-                this.getTokenFn(),
-                // Timeout after 5 seconds per attempt
-                new Promise<null>((_, reject) => 
-                  setTimeout(() => reject(new Error('Token fetch timeout')), 5000)
-                )
-              ]);
-            } catch (e) {
-              attempts++;
-              if (attempts < maxAttempts) {
-                console.warn(`Token fetch attempt ${attempts} failed, retrying...`);
-                addBreadcrumb('auth', `Token fetch attempt ${attempts} failed, retrying`, {
-                  error: e instanceof Error ? e.message : 'Unknown error',
-                }, 'warning');
-                await new Promise(r => setTimeout(r, 500)); // Brief delay before retry
-              } else {
-                console.warn('Failed to get auth token after retries:', e);
-                // Report persistent token failures to Sentry
-                captureMessage('Token fetch failed after retries', 'error', {
-                  tags: { endpoint: config.url || 'unknown' },
-                  extra: { 
-                    attempts: maxAttempts,
-                    lastError: e instanceof Error ? e.message : 'Unknown error',
-                  },
-                });
-              }
-            }
-          }
-          
+          const token = await this.getAuthTokenWithRetry(config.url || 'unknown');
           if (token) {
             config.headers.Authorization = `Bearer ${token}`;
           }
@@ -213,6 +185,46 @@ class ApiClient {
    */
   setTokenGetter(getter: TokenGetter | null) {
     this.getTokenFn = getter;
+  }
+
+  /** Get a fresh session token with the same bounded retry for Axios and streams. */
+  private async getAuthTokenWithRetry(endpoint: string): Promise<string | null> {
+    if (!this.getTokenFn) return null;
+    const maxAttempts = 2;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const token = await Promise.race([
+          this.getTokenFn(),
+          new Promise<null>((_, reject) => {
+            timeout = setTimeout(() => reject(new Error('Token fetch timeout')), 5_000);
+          }),
+        ]);
+        if (token) return token;
+        lastError = new Error('Token unavailable');
+      } catch (error) {
+        lastError = error;
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+      if (attempt < maxAttempts) {
+        console.warn(`Token fetch attempt ${attempt} failed, retrying...`);
+        addBreadcrumb('auth', `Token fetch attempt ${attempt} failed, retrying`, {
+          error: lastError instanceof Error ? lastError.message : 'Unknown error',
+        }, 'warning');
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+    console.warn('Failed to get auth token after retries:', lastError);
+    captureMessage('Token fetch failed after retries', 'error', {
+      tags: { endpoint },
+      extra: {
+        attempts: maxAttempts,
+        lastError: lastError instanceof Error ? lastError.message : 'Unknown error',
+      },
+    });
+    return null;
   }
 
   // ============================================================
@@ -408,7 +420,7 @@ class ApiClient {
     }
     
     // Use fetch for multipart form data (axios has issues with FormData in React Native)
-    const token = this.getTokenFn ? await this.getTokenFn() : null;
+    const token = await this.getAuthTokenWithRetry('/api/recipes/manual');
     
     const response = await fetch(`${API_BASE_URL}/api/recipes/manual`, {
       method: 'POST',
@@ -911,6 +923,62 @@ class ApiClient {
   // Recipe Chat
   // ============================================================
 
+  /** Prefer progressive NDJSON, falling back only when an older API lacks the route. */
+  private async streamChatWithFallback(
+    streamPath: string,
+    fallbackPath: string,
+    payload: ChatRequest,
+    onDelta?: ChatDeltaHandler,
+    signal?: AbortSignal,
+  ): Promise<ChatResponse> {
+    const token = await this.getAuthTokenWithRetry(streamPath);
+    try {
+      const result = await streamChatRequest({
+        url: `${API_BASE_URL}${streamPath}`,
+        token,
+        payload,
+        onDelta,
+        signal,
+      });
+      addBreadcrumb('api', `POST ${streamPath}`, { status: 200, streamed: true }, 'info');
+      return result;
+    } catch (error) {
+      if (error instanceof ChatStreamUnavailableError && !signal?.aborted) {
+        const { data } = await this.client.post<ChatResponse>(fallbackPath, payload, { signal });
+        onDelta?.(data.response, data.response);
+        return data;
+      }
+      if (!isChatAbortError(error, signal)) {
+        const streamError = error as {
+          code?: string;
+          message?: string;
+          response?: { status?: number; data?: unknown };
+        };
+        const status = streamError.response?.status;
+        addBreadcrumb('api', `POST ${streamPath} failed`, {
+          status,
+          error: streamError.message || 'Unknown error',
+          streamed: true,
+        }, 'error');
+        if (streamError.code === 'ERR_NETWORK') {
+          captureMessage('API network error', 'warning', {
+            tags: { endpoint: streamPath, method: 'POST' },
+          });
+        } else if (status === 401) {
+          captureMessage('Auth token rejected by server', 'warning', {
+            tags: { endpoint: streamPath, method: 'POST' },
+          });
+        } else if (status && status >= 500 && error instanceof Error) {
+          captureError(error, {
+            tags: { endpoint: streamPath, method: 'POST', status: String(status) },
+            extra: { responseData: streamError.response?.data },
+          });
+        }
+      }
+      throw error;
+    }
+  }
+
   async chatAboutRecipe(
     recipeId: string,
     message: string,
@@ -923,6 +991,24 @@ class ApiClient {
       image_base64: imageBase64,
     });
     return data;
+  }
+
+  async streamChatAboutRecipe(
+    recipeId: string,
+    message: string,
+    history: ChatMessage[] = [],
+    imageBase64?: string,
+    onDelta?: ChatDeltaHandler,
+    signal?: AbortSignal,
+  ): Promise<ChatResponse> {
+    const path = `/api/recipes/${encodeURIComponent(recipeId)}/chat`;
+    return this.streamChatWithFallback(
+      `${path}/stream`,
+      path,
+      { message, history, image_base64: imageBase64 },
+      onDelta,
+      signal,
+    );
   }
 
   /**
@@ -941,14 +1027,33 @@ class ApiClient {
     return data;
   }
 
+  async streamChatCookingAssistant(
+    message: string,
+    history: ChatMessage[] = [],
+    imageBase64?: string,
+    onDelta?: ChatDeltaHandler,
+    signal?: AbortSignal,
+  ): Promise<ChatResponse> {
+    return this.streamChatWithFallback(
+      '/api/chat/cooking/stream',
+      '/api/chat/cooking',
+      { message, history, image_base64: imageBase64 },
+      onDelta,
+      signal,
+    );
+  }
+
   /**
    * Upload a chat image to S3 for persistent storage.
    * Returns the S3 URL that can be used in chat history.
    */
-  async uploadChatImage(imageBase64: string): Promise<{ image_url: string }> {
+  async uploadChatImage(
+    imageBase64: string,
+    signal?: AbortSignal,
+  ): Promise<{ image_url: string }> {
     const { data } = await this.client.post('/api/recipes/ai/upload-chat-image', {
       image_base64: imageBase64,
-    });
+    }, { signal });
     return data;
   }
 

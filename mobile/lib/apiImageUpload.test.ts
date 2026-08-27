@@ -163,4 +163,21 @@ describe('recipe image multipart requests', () => {
       ([endpoint]) => endpoint === '/api/recipes/ai/delete-chat-images',
     )).toBe(true);
   });
+
+  it('bounds token retries when Clerk returns no token', async () => {
+    vi.useFakeTimers();
+    const getToken = vi.fn(async () => null);
+    api.setTokenGetter(getToken);
+    const requestInterceptor = mocks.client.interceptors.request.use.mock.calls[0][0];
+
+    try {
+      const request = requestInterceptor({ url: '/api/chat/cooking', headers: {} });
+      await vi.advanceTimersByTimeAsync(500);
+      await expect(request).resolves.toMatchObject({ headers: {} });
+      expect(getToken).toHaveBeenCalledTimes(2);
+    } finally {
+      api.setTokenGetter(null);
+      vi.useRealTimers();
+    }
+  });
 });

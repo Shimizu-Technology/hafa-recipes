@@ -1,11 +1,14 @@
 """Recipe chat API endpoints - AI-powered recipe assistant."""
 
+import asyncio
 import json
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Annotated, Literal, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
@@ -40,6 +43,8 @@ MAX_CHAT_HISTORY_ITEMS = 10
 MAX_CHAT_HISTORY_CHARS = 16_000
 LEGACY_CHAT_ERROR_MESSAGE = "Sorry, I couldn't process that request. Please try again."
 MAX_CHAT_IMAGE_BASE64_CHARS = ((MAX_CHAT_IMAGE_BYTES + 2) // 3) * 4
+MAX_CHAT_RESPONSE_CHARS = 16_000
+CHAT_STREAM_MEDIA_TYPE = "application/x-ndjson"
 BoundedIngredient = Annotated[str, Field(min_length=1, max_length=300)]
 BoundedChatImageUrl = Annotated[str, Field(min_length=1, max_length=2_048)]
 
@@ -259,6 +264,151 @@ def _rate_limit_http_exception(exc: RateLimitExceeded) -> HTTPException:
         status_code=429,
         detail=detail,
         headers={"Retry-After": str(exc.retry_after)},
+    )
+
+
+def _chat_stream_event(event_type: str, **payload: object) -> bytes:
+    """Encode one bounded newline-delimited chat event."""
+    return (json.dumps(
+        {"type": event_type, **payload},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ) + "\n").encode("utf-8")
+
+
+async def _close_provider_stream(provider_stream: object) -> None:
+    """Best-effort close an OpenAI stream after client cancellation."""
+    close = getattr(provider_stream, "close", None)
+    if close is None:
+        return
+    try:
+        result = close()
+        if hasattr(result, "__await__"):
+            await result
+    except Exception:
+        # Closing is cleanup. It must never replace the real stream outcome.
+        return
+
+
+async def _stream_chat_events(
+    *,
+    http_request: Request,
+    messages: list[dict],
+    user_id: str,
+    capability: str,
+    model: str,
+    prompt_version: str,
+) -> AsyncIterator[bytes]:
+    """Stream safe NDJSON deltas while preserving rate limits and AI accounting."""
+    try:
+        with ai_request_context(user_id=user_id, route=f"{capability}_stream"):
+            async with ai_rate_limiter.limit(
+                user_id=user_id,
+                capability=capability,
+                requests_per_minute=20,
+                max_concurrency=2,
+            ):
+                async with AIInvocationTracker(
+                    capability=capability,
+                    primary_model=model,
+                    prompt_version=prompt_version,
+                ) as invocation:
+                    provider_stream = await openai_client.chat.completions.create(
+                        model=invocation.model,
+                        messages=messages,
+                        max_completion_tokens=1000,
+                        reasoning_effort=settings.openai_reasoning_effort,
+                        extra_body={"safety_identifier": public_contributor_id(user_id)},
+                        stream=True,
+                        stream_options={"include_usage": True},
+                    )
+                    response_chars = 0
+                    tracking_response = None
+                    try:
+                        async for chunk in provider_stream:
+                            tracking_response = chunk
+                            if await http_request.is_disconnected():
+                                invocation.outcome(
+                                    "cancelled",
+                                    "client_disconnected",
+                                    tracking_response,
+                                )
+                                await _close_provider_stream(provider_stream)
+                                return
+                            delta = (
+                                chunk.choices[0].delta.content
+                                if chunk.choices and chunk.choices[0].delta
+                                else None
+                            )
+                            if not isinstance(delta, str) or not delta:
+                                continue
+                            response_chars += len(delta)
+                            if response_chars > MAX_CHAT_RESPONSE_CHARS:
+                                invocation.fail("response_too_large", tracking_response)
+                                await _close_provider_stream(provider_stream)
+                                yield _chat_stream_event(
+                                    "error",
+                                    status=502,
+                                    code="response_too_large",
+                                    message="The assistant response was too long. Please try a narrower question.",
+                                )
+                                return
+                            yield _chat_stream_event("delta", text=delta)
+                    except asyncio.CancelledError:
+                        invocation.outcome(
+                            "cancelled",
+                            "client_disconnected",
+                            tracking_response,
+                        )
+                        await _close_provider_stream(provider_stream)
+                        raise
+
+                    if response_chars == 0:
+                        invocation.fail("empty_response", tracking_response)
+                        yield _chat_stream_event(
+                            "error",
+                            status=502,
+                            code="empty_response",
+                            message="The assistant returned an empty response. Please try again.",
+                        )
+                        return
+                    invocation.succeed(tracking_response)
+                    yield _chat_stream_event("done")
+    except RateLimitExceeded as exc:
+        error = _rate_limit_http_exception(exc)
+        yield _chat_stream_event(
+            "error",
+            status=error.status_code,
+            code=exc.reason,
+            message=error.detail,
+            retry_after=exc.retry_after,
+        )
+    except HTTPException as exc:
+        yield _chat_stream_event(
+            "error",
+            status=exc.status_code,
+            code="request_error",
+            message=exc.detail if isinstance(exc.detail, str) else "The request could not be processed.",
+        )
+    except Exception as exc:
+        print(f"❌ Chat stream provider error: {type(exc).__name__}")
+        yield _chat_stream_event(
+            "error",
+            status=500,
+            code="provider_error",
+            message="The cooking assistant is temporarily unavailable. Please try again.",
+        )
+
+
+def _chat_streaming_response(events: AsyncIterator[bytes]) -> StreamingResponse:
+    """Return a non-buffered, non-cacheable chat event stream."""
+    return StreamingResponse(
+        events,
+        media_type=CHAT_STREAM_MEDIA_TYPE,
+        headers={
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -483,6 +633,46 @@ async def chat_about_recipe(
         raise HTTPException(
             status_code=500, detail="Failed to get response from AI. Please try again."
         )
+
+
+@router.post("/{recipe_id}/chat/stream")
+async def stream_chat_about_recipe(
+    recipe_id: UUID,
+    request: ChatRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: ClerkUser = Depends(get_current_user),
+):
+    """Stream an authorized recipe answer as newline-delimited JSON events."""
+    result = await db.execute(select(Recipe).where(Recipe.id == recipe_id))
+    recipe = result.scalar_one_or_none()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    if not await user_can_access_recipe(db, recipe, user):
+        raise HTTPException(
+            status_code=403,
+            detail="You don't have permission to access this recipe",
+        )
+    if not settings.is_ai_capability_enabled("recipe_chat"):
+        raise HTTPException(status_code=503, detail="Recipe chat is temporarily unavailable")
+
+    messages = [{"role": "system", "content": build_system_prompt(build_recipe_context(recipe))}]
+    messages.extend(
+        _build_client_messages(
+            history=request.history,
+            message=request.message,
+            image_base64=request.image_base64,
+            user_id=user.id,
+        )
+    )
+    return _chat_streaming_response(_stream_chat_events(
+        http_request=http_request,
+        messages=messages,
+        user_id=user.id,
+        capability="recipe_chat",
+        model=settings.recipe_chat_model,
+        prompt_version=PROMPT_VERSIONS["recipe_chat"],
+    ))
 
 
 @router.post("/ai/upload-chat-image", response_model=UploadChatImageResponse)
@@ -793,3 +983,32 @@ async def chat_cooking_assistant(
         raise HTTPException(
             status_code=500, detail="Failed to get response from AI. Please try again."
         )
+
+
+@cooking_router.post("/cooking/stream")
+async def stream_chat_cooking_assistant(
+    request: GeneralChatRequest,
+    http_request: Request,
+    user: ClerkUser = Depends(get_current_user),
+):
+    """Stream a general cooking answer as newline-delimited JSON events."""
+    if not settings.is_ai_capability_enabled("cooking_chat"):
+        raise HTTPException(status_code=503, detail="Cooking chat is temporarily unavailable")
+
+    messages = [{"role": "system", "content": COOKING_ASSISTANT_SYSTEM_PROMPT}]
+    messages.extend(
+        _build_client_messages(
+            history=request.history,
+            message=request.message,
+            image_base64=request.image_base64,
+            user_id=user.id,
+        )
+    )
+    return _chat_streaming_response(_stream_chat_events(
+        http_request=http_request,
+        messages=messages,
+        user_id=user.id,
+        capability="cooking_chat",
+        model=settings.cooking_chat_model,
+        prompt_version=PROMPT_VERSIONS["cooking_chat"],
+    ))

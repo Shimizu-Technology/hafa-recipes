@@ -62,11 +62,14 @@ import {
   ChatUiMessage,
   completeMessageDelivery,
   createChatMessageId,
+  interruptMessageDelivery,
   messagesForStorage,
   normalizeStoredChatMessages,
   selectChatContext,
+  upsertStreamingResponse,
 } from '../lib/chatContext';
 import { chatErrorMessage } from '../lib/chatErrors';
+import { isChatAbortError } from '../lib/chatStream';
 import {
   appendPastedChatText,
   CHAT_MESSAGE_MAX_CHARS,
@@ -131,12 +134,14 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const messagesRef = useRef<ChatUiMessage[]>([]);
   const retryImagesRef = useRef<Map<string, string>>(new Map());
   const inFlightRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const clearInFlightRef = useRef(false);
   const activeStorageKeyRef = useRef<string | null>(null);
   const loadedStorageKeyRef = useRef<string | null>(null);
   const historyLoadGenerationRef = useRef(0);
   const inputTextRef = useRef('');
   const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [inputText, setInputText] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -153,6 +158,9 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     || isLoadingHistory
     || !storageKey
     || loadedStorageKey !== storageKey;
+  const hasStreamingResponse = messages.some(
+    (message) => message.role === 'assistant' && message.status === 'sending',
+  );
   
   // Use appropriate mutation hook based on mode
   const recipeChatMutation = useChatWithRecipe();
@@ -269,6 +277,10 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     const generation = historyLoadGenerationRef.current + 1;
     historyLoadGenerationRef.current = generation;
     const previousConversationKey = activeStorageKeyRef.current;
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    inFlightRef.current = false;
+    setIsDelivering(false);
     if (draftSaveTimerRef.current) {
       clearTimeout(draftSaveTimerRef.current);
       draftSaveTimerRef.current = null;
@@ -362,7 +374,9 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
 
   /** Flush the latest loaded draft if the modal is removed without a visibility transition. */
   useEffect(() => () => {
+    abortControllerRef.current?.abort();
     if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     const conversationKey = activeStorageKeyRef.current;
     if (conversationKey && loadedStorageKeyRef.current === conversationKey) {
       void writeChatDraft(conversationKey, inputTextRef.current).catch(() => undefined);
@@ -386,7 +400,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
 
   /** Confirm and clear the current locally persisted conversation. */
   const handleClearChat = useCallback(() => {
-    if (!storageKey) return;
+    if (!storageKey || inFlightRef.current) return;
     const conversationKey = storageKey;
     Alert.alert(
       'Clear Chat',
@@ -399,6 +413,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           onPress: async () => {
             if (
               activeStorageKeyRef.current !== conversationKey
+              || inFlightRef.current
               || clearInFlightRef.current
             ) return;
             const historySnapshot = messagesForStorage(messagesRef.current);
@@ -495,13 +510,21 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     );
   }, [storageKey, updateInputText, updateLoadedStorageKey, updateMessages]);
 
-  // Auto-scroll to bottom when messages change
+  // Debounce auto-scroll so rapid stream deltas do not queue stale timers.
   useEffect(() => {
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     if (messages.length > 0) {
-      setTimeout(() => {
+      scrollTimerRef.current = setTimeout(() => {
+        scrollTimerRef.current = null;
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
+    return () => {
+      if (scrollTimerRef.current) {
+        clearTimeout(scrollTimerRef.current);
+        scrollTimerRef.current = null;
+      }
+    };
   }, [messages]);
 
   /** Apply one validated attachment consistently across camera, library, and paste. */
@@ -638,10 +661,14 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   /** Deliver one message and commit its success or failure without stale snapshots. */
   const sendMessage = async (userMessage: ChatUiMessage, imageToSend?: string) => {
     if (inFlightRef.current) return;
+    const abortController = new AbortController();
+    const assistantMessageId = createChatMessageId();
+    abortControllerRef.current = abortController;
     inFlightRef.current = true;
     setIsDelivering(true);
     const conversationKey = activeStorageKeyRef.current;
     if (!conversationKey) {
+      abortControllerRef.current = null;
       inFlightRef.current = false;
       setIsDelivering(false);
       return;
@@ -663,7 +690,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         : undefined;
       if (imageToSend && !s3ImageUrl) {
         try {
-          const uploadResult = await api.uploadChatImage(imageToSend);
+          const uploadResult = await api.uploadChatImage(imageToSend, abortController.signal);
           s3ImageUrl = uploadResult.image_url;
           const currentMessages = activeStorageKeyRef.current === conversationKey
             ? messagesRef.current
@@ -673,7 +700,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
             : message);
           if (activeStorageKeyRef.current === conversationKey) updateMessages(sendingMessages);
           await saveChatHistory(sendingMessages, conversationKey);
-        } catch {
+        } catch (error) {
+          if (abortController.signal.aborted) throw error;
           console.log('Failed to upload image to S3, continuing without persistent URL');
         }
       }
@@ -685,21 +713,43 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
       // The user bubble is the current request.message. For a retry, history
       // intentionally contains only complete turns that preceded that bubble.
       const historyForApi = selectChatContext(previousMessages);
+      const onDelta = (_delta: string, responseText: string) => {
+        const currentMessages = activeStorageKeyRef.current === conversationKey
+          ? messagesRef.current
+          : sendingMessages;
+        const partialMessages = upsertStreamingResponse(
+          currentMessages,
+          sendingMessage.id,
+          {
+            id: assistantMessageId,
+            role: 'assistant',
+            content: responseText,
+            status: 'sending',
+          },
+          s3ImageUrl,
+        );
+        sendingMessages = partialMessages;
+        if (activeStorageKeyRef.current === conversationKey) updateMessages(partialMessages);
+      };
       const response = isGeneralMode
         ? await cookingChatMutation.mutateAsync({
             message: requestContent || defaultImageMessage,
             history: historyForApi,
             imageBase64: imageToSend,
+            onDelta,
+            signal: abortController.signal,
           })
         : await recipeChatMutation.mutateAsync({
             recipeId: recipe!.id,
             message: requestContent || defaultImageMessage,
             history: historyForApi,
             imageBase64: imageToSend,
+            onDelta,
+            signal: abortController.signal,
           });
 
       const assistantMessage: ChatUiMessage = {
-        id: createChatMessageId(),
+        id: assistantMessageId,
         role: 'assistant',
         content: response.response,
         status: 'sent',
@@ -717,17 +767,25 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
       retryImagesRef.current.delete(sendingMessage.id);
       await saveChatHistory(finalMessages, conversationKey);
     } catch (error) {
+      const cancelled = isChatAbortError(error, abortController.signal);
       const currentMessages = activeStorageKeyRef.current === conversationKey
         ? messagesRef.current
         : sendingMessages;
-      const failedMessages = currentMessages.map((message) => message.id === sendingMessage.id
-        ? { ...message, status: 'failed' as const, error_message: chatErrorMessage(error) }
-        : message);
-      if (activeStorageKeyRef.current === conversationKey) updateMessages(failedMessages);
-      await saveChatHistory(failedMessages, conversationKey);
+      const interruptedMessages = interruptMessageDelivery(
+        currentMessages,
+        sendingMessage.id,
+        assistantMessageId,
+        cancelled ? 'cancelled' : 'failed',
+        cancelled ? 'Response stopped.' : chatErrorMessage(error),
+      );
+      if (activeStorageKeyRef.current === conversationKey) updateMessages(interruptedMessages);
+      await saveChatHistory(interruptedMessages, conversationKey);
     } finally {
-      inFlightRef.current = false;
-      setIsDelivering(false);
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+        inFlightRef.current = false;
+        setIsDelivering(false);
+      }
     }
   };
 
@@ -787,6 +845,17 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     handleSend(suggestion);
   };
 
+  /** Stop the active network response while keeping the user message retryable. */
+  const handleStopGenerating = useCallback(() => {
+    abortControllerRef.current?.abort();
+  }, []);
+
+  /** Cancel transient work before dismissing the modal. */
+  const handleClose = useCallback(() => {
+    abortControllerRef.current?.abort();
+    onClose();
+  }, [onClose]);
+
   /** Copy message text and briefly show success feedback on that bubble. */
   const handleCopyMessage = async (text: string, messageId: string) => {
     try {
@@ -828,7 +897,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
       animationType="slide"
       presentationStyle="pageSheet"
       visible={isVisible}
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
     >
       <KeyboardAvoidingView
         style={[styles.container, { backgroundColor: colors.background }]}
@@ -859,17 +928,20 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
             {messages.length > 0 && (
               <TouchableOpacity
                 onPress={handleClearChat}
-                disabled={isClearingChat}
+                disabled={isClearingChat || isDelivering}
                 style={styles.headerButton}
                 accessibilityRole="button"
                 accessibilityLabel="Clear conversation"
-                accessibilityState={{ disabled: isClearingChat, busy: isClearingChat }}
+                accessibilityState={{
+                  disabled: isClearingChat || isDelivering,
+                  busy: isClearingChat,
+                }}
               >
                 <Ionicons name="trash-outline" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             )}
             <TouchableOpacity
-              onPress={onClose}
+              onPress={handleClose}
               style={styles.headerButton}
               accessibilityRole="button"
               accessibilityLabel="Close chat"
@@ -1041,11 +1113,17 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                     <Text style={[styles.deliveryStateText, { color: colors.textMuted }]}>Sending…</Text>
                   </RNView>
                 )}
-                {msg.role === 'user' && msg.status === 'failed' && (
+                {msg.role === 'user' && (msg.status === 'failed' || msg.status === 'cancelled') && (
                   <RNView style={styles.deliveryState}>
-                    <Ionicons name="alert-circle-outline" size={14} color={colors.error} />
+                    <Ionicons
+                      name={msg.status === 'cancelled' ? 'stop-circle-outline' : 'alert-circle-outline'}
+                      size={14}
+                      color={colors.error}
+                    />
                     <Text style={[styles.deliveryErrorText, { color: colors.error }]}>
-                      {msg.error_message || 'Your message was not sent.'}
+                      {msg.error_message || (msg.status === 'cancelled'
+                        ? 'Response stopped.'
+                        : 'Your message was not sent.')}
                     </Text>
                     <TouchableOpacity
                       onPress={() => handleRetry(msg)}
@@ -1061,22 +1139,24 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                   </RNView>
                 )}
                 {/* Copy button */}
-                <TouchableOpacity
-                  onPress={() => handleCopyMessage(msg.content, msg.id)}
-                  style={styles.actionBarButton}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Copy message"
-                >
-                  <Ionicons
-                    name={copiedId === msg.id ? "checkmark" : "copy-outline"}
-                    size={14}
-                    color={copiedId === msg.id ? colors.tint : colors.textMuted}
-                  />
-                </TouchableOpacity>
+                {msg.status !== 'sending' && (
+                  <TouchableOpacity
+                    onPress={() => handleCopyMessage(msg.content, msg.id)}
+                    style={styles.actionBarButton}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Copy message"
+                  >
+                    <Ionicons
+                      name={copiedId === msg.id ? "checkmark" : "copy-outline"}
+                      size={14}
+                      color={copiedId === msg.id ? colors.tint : colors.textMuted}
+                    />
+                  </TouchableOpacity>
+                )}
 
                 {/* Speak button - only for assistant */}
-                {msg.role === 'assistant' && (
+                {msg.role === 'assistant' && msg.status !== 'sending' && (
                   <TouchableOpacity
                     onPress={() => handleSpeakPress(msg.content, msg.id)}
                     disabled={ttsLoading && speakingId === msg.id}
@@ -1104,7 +1184,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           ))}
 
           {/* Loading indicator */}
-          {isDelivering && (
+          {isDelivering && !hasStreamingResponse && (
             <RNView style={[styles.loadingContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <ActivityIndicator size="small" color={colors.tint} />
               <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
@@ -1124,6 +1204,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           isGeneralMode={isGeneralMode}
           onChangeText={updateInputText}
           onSend={() => { void handleSend(); }}
+          onCancel={handleStopGenerating}
           onTakePhoto={() => { void handleTakePhoto(); }}
           onPickImage={() => { void handlePickImage(); }}
           onRemoveImage={handleRemoveImage}
