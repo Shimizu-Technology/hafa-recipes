@@ -238,6 +238,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     setLoadedStorageKey(null);
     updateMessages([]);
     setInputText('');
+    setAttachedImage(null);
+    setAttachedImageUri(null);
     void (async () => {
       try {
         const stored = await AsyncStorage.getItem(storageKey);
@@ -849,6 +851,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           <TouchableOpacity
             onPress={handleTakePhoto}
             disabled={isComposerUnavailable}
+            accessibilityRole="button"
+            accessibilityLabel="Take a photo"
             style={[
               styles.imageButton,
               { backgroundColor: colors.backgroundSecondary, borderColor: colors.border },
@@ -861,6 +865,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           <TouchableOpacity
             onPress={handlePickImage}
             disabled={isComposerUnavailable}
+            accessibilityRole="button"
+            accessibilityLabel="Attach photo from library"
             style={[
               styles.imageButton,
               { backgroundColor: colors.backgroundSecondary, borderColor: colors.border },

@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   removeItem: vi.fn<(key: string) => Promise<void>>(async () => undefined),
   recipeMutate: vi.fn<(variables: unknown) => Promise<{ response: string }>>(),
   cookingMutate: vi.fn<(variables: unknown) => Promise<{ response: string }>>(),
+  requestLibraryPermission: vi.fn(async () => ({ status: 'granted' })),
+  launchImageLibrary: vi.fn(),
   speak: vi.fn<(text?: string) => Promise<void>>(async () => undefined),
   stop: vi.fn<() => Promise<void>>(async () => undefined),
   ttsState: { isLoading: false, isPlaying: false },
@@ -47,8 +49,8 @@ vi.mock('expo-haptics', () => ({
   NotificationFeedbackType: { Success: 'success' },
 }));
 vi.mock('expo-image-picker', () => ({
-  requestMediaLibraryPermissionsAsync: vi.fn(),
-  launchImageLibraryAsync: vi.fn(),
+  requestMediaLibraryPermissionsAsync: mocks.requestLibraryPermission,
+  launchImageLibraryAsync: mocks.launchImageLibrary,
   requestCameraPermissionsAsync: vi.fn(),
   launchCameraAsync: vi.fn(),
 }));
@@ -149,6 +151,8 @@ describe('RecipeChatModal conversation isolation', () => {
     mocks.removeItem.mockClear();
     mocks.recipeMutate.mockReset();
     mocks.cookingMutate.mockReset();
+    mocks.requestLibraryPermission.mockClear();
+    mocks.launchImageLibrary.mockReset();
     mocks.speak.mockClear();
     mocks.stop.mockClear();
     mocks.ttsState.isLoading = false;
@@ -190,6 +194,35 @@ describe('RecipeChatModal conversation isolation', () => {
       expect(speechButtons).toHaveLength(1);
       expect(speechButtons[0].props.accessibilityRole).toBe('button');
       expect(speechButtons[0].props.accessibilityState).toEqual({ disabled: false });
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('clears an unsent photo when switching recipes', async () => {
+    mocks.getItem.mockResolvedValue(null);
+    mocks.launchImageLibrary.mockResolvedValue({
+      canceled: false,
+      assets: [{ base64: 'photo-base64', uri: 'file:///recipe-a.jpg' }],
+    });
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      const attachButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Attach photo from library',
+      )[0];
+      await act(async () => attachButton.props.onPress());
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Image'
+          && instance.props.source?.uri === 'file:///recipe-a.jpg',
+      )).toHaveLength(1);
+
+      await renderModal(renderer, 'second');
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Image'
+          && instance.props.source?.uri === 'file:///recipe-a.jpg',
+      )).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());
     }
