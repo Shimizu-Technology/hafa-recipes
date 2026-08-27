@@ -21,6 +21,10 @@ describe('FloatingChatButton layout helpers', () => {
   });
 
   it('lifts the chat control above the guest account prompt', () => {
-    expect(floatingChatBottom(false)).toBeGreaterThan(floatingChatBottom(true));
+    const wrappedPromptHeight = 140;
+
+    expect(floatingChatBottom(false, wrappedPromptHeight)).toBe(
+      floatingChatBottom(true, wrappedPromptHeight) + wrappedPromptHeight,
+    );
   });
 });

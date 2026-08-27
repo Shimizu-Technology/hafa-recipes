@@ -8,6 +8,7 @@ import { BrandMark } from '@/components/BrandMark';
 import { Text, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, radius, spacing } from '@/constants/Colors';
 
+/** Render the compact Håfa Recipes identity in every primary tab header. */
 export function TabHeaderBrand() {
   const colors = useColors();
 
@@ -19,6 +20,7 @@ export function TabHeaderBrand() {
   );
 }
 
+/** Link the current account identity to the root Settings screen. */
 export function AccountHeaderButton() {
   const colors = useColors();
   const router = useRouter();
@@ -43,6 +45,7 @@ export function AccountHeaderButton() {
   );
 }
 
+/** Emphasize recipe import as the center action in the primary tab bar. */
 export function ImportTabIcon({ focused }: { focused: boolean }) {
   const colors = useColors();
 

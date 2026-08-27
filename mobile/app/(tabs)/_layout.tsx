@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 import { recipeKeys } from '@/hooks/useRecipes';
 import { AccountHeaderButton, ImportTabIcon, TabHeaderBrand } from '@/components/TabChrome';
 
+/** Configure the five primary cooking workflows and their shared app chrome. */
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];

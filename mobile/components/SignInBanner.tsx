@@ -1,20 +1,33 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, type LayoutChangeEvent } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors } from '@/components/Themed';
 import { shadows, spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import {
+  clearGuestPromptHeight,
+  setGuestPromptHeight,
+} from '../lib/guestPromptLayout';
 
 interface SignInBannerProps {
   message?: string;
 }
 
+/** Show compact sign-in and account-creation actions above a primary tab bar. */
 export function SignInBanner({ message = 'Sign in to use this feature' }: SignInBannerProps) {
   const colors = useColors();
   const router = useRouter();
+  const promptId = useRef(Symbol('guest-prompt')).current;
+
+  useEffect(() => () => clearGuestPromptHeight(promptId), [promptId]);
+
+  const handleLayout = (event: LayoutChangeEvent) => {
+    setGuestPromptHeight(promptId, event.nativeEvent.layout.height);
+  };
 
   return (
     <View
+      onLayout={handleLayout}
       style={[
         styles.container,
         {

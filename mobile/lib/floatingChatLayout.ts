@@ -1,8 +1,8 @@
 import { spacing } from '../constants/Colors';
 
 const TAB_BAR_HEIGHT = 85;
-const GUEST_PROMPT_HEIGHT = 82;
 
+/** Return whether the cooking assistant belongs on the current primary route. */
 export function isFloatingChatPath(pathname: string): boolean {
   const tabRoutes = [
     '/',
@@ -20,6 +20,10 @@ export function isFloatingChatPath(pathname: string): boolean {
   return tabRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
 }
 
-export function floatingChatBottom(isSignedIn: boolean): number {
-  return TAB_BAR_HEIGHT + spacing.md + (isSignedIn ? 0 : GUEST_PROMPT_HEIGHT);
+/** Position the assistant above the tab bar and any measured guest prompt. */
+export function floatingChatBottom(
+  isSignedIn: boolean,
+  guestPromptHeight: number,
+): number {
+  return TAB_BAR_HEIGHT + spacing.md + (isSignedIn ? 0 : guestPromptHeight);
 }

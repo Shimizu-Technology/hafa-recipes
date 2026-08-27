@@ -23,6 +23,7 @@ import { useTTSVoice, TTS_VOICES, TTSVoice } from '@/hooks/useTTS';
 import { useTextSize, TEXT_SIZE_LABELS, TextSizeOption } from '@/hooks/useTextSize';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { resolveAppVersion } from '@/lib/appVersion';
+import { resolveSettingsProfileName } from '@/lib/settingsProfile';
 
 const APP_STORE_URL = 'https://apps.apple.com/us/app/recipe-extractor-gu/id6755892896';
 const WEBSITE_URL = 'https://hafa-recipes.com';
@@ -271,9 +272,7 @@ export default function SettingsScreen() {
     setShowProfileModal(true);
   };
 
-  const profileName = isSignedIn
-    ? (user?.firstName || user?.emailAddresses[0]?.emailAddress?.split('@')[0] || 'User')
-    : 'Guest User';
+  const profileName = resolveSettingsProfileName(isSignedIn, user);
 
   return (
     <View style={styles.container}>
@@ -289,7 +288,7 @@ export default function SettingsScreen() {
             activeOpacity={0.7}
             onPress={isSignedIn ? handleOpenProfileModal : () => router.push('/(auth)/sign-in')}
             accessibilityRole="button"
-            accessibilityLabel={isSignedIn ? `Account profile for ${profileName}` : 'Guest account'}
+            accessibilityLabel={isSignedIn ? `Account profile for ${profileName}` : 'Guest account. Sign in'}
             accessibilityHint={isSignedIn ? 'Opens profile editing' : 'Opens sign in'}
           >
             <Card>

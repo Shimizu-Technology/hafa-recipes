@@ -15,6 +15,7 @@ describe('authentication route protection', () => {
   it('does not redirect signed-in capture routes or unrelated guest routes', () => {
     expect(getAuthProtectionRedirect(true, 'paste-recipe')).toBeNull();
     expect(getAuthProtectionRedirect(false, 'discover')).toBeNull();
+    expect(getAuthProtectionRedirect(false, 'settings')).toBeNull();
     expect(getAuthProtectionRedirect(undefined, undefined)).toBeNull();
   });
 });

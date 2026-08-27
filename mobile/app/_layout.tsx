@@ -13,7 +13,7 @@ import {
   Fraunces_600SemiBold,
   Fraunces_700Bold,
 } from '@expo-google-fonts/fraunces';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button, Text, View } from 'react-native';
@@ -35,13 +35,13 @@ import { OfflineBanner } from '@/components/OfflineBanner';
 import { EnvironmentBanner } from '@/components/EnvironmentBanner';
 import { FloatingTimerOverlay } from '@/components/FloatingTimerOverlay';
 import FloatingChatButton from '@/components/FloatingChatButton';
+import { AuthProtection } from '@/components/AuthProtection';
 import { ClerkMigrationBridge } from '@/components/ClerkMigrationBridge';
 import { AccountAccessGate } from '@/components/AccountAccessGate';
 import { GroceryWidgetCoordinator } from '@/components/GroceryWidgetCoordinator';
 import { bindGroceryWidgetIdentity } from '@/lib/groceryWidget';
 import { initSentry, setSentryUser, addBreadcrumb, captureError, withSentry } from '@/lib/sentry';
 import { useHandleShareIntent } from '@/hooks/useShareIntent';
-import { getAuthProtectionRedirect } from '@/lib/authProtection';
 
 // Initialize Sentry as early as possible
 initSentry();
@@ -114,29 +114,6 @@ function RootLayout() {
 
 // Wrap with Sentry for error boundary and performance tracking
 export default withSentry(RootLayout);
-
-/**
- * Handles auth-based routing.
- * 
- * Tab screens handle guest access themselves with SignInBanner.
- * This only handles:
- * - Redirecting signed-in users from auth screens to main app
- * - Protecting recipe capture screens from guests
- */
-function AuthProtection({ children }: { children: React.ReactNode }) {
-  const { isSignedIn, isLoaded } = useAuth();
-  const segments = useSegments();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!isLoaded) return;
-
-    const redirect = getAuthProtectionRedirect(isSignedIn, segments[0]);
-    if (redirect) router.replace(redirect);
-  }, [isSignedIn, isLoaded, segments]);
-
-  return <>{children}</>;
-}
 
 /**
  * Component that syncs auth token with API client.

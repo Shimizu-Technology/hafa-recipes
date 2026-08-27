@@ -23,11 +23,14 @@ import RecipeChatModal from '@/components/RecipeChatModal';
 import { haptics } from '@/utils/haptics';
 import { brand, spacing } from '@/constants/Colors';
 import { floatingChatBottom, isFloatingChatPath } from '@/lib/floatingChatLayout';
+import { useGuestPromptHeight } from '../lib/guestPromptLayout';
 
+/** Render the cooking assistant shortcut on primary recipe-workflow tabs. */
 export default function FloatingChatButton() {
   const colors = useColors();
   const { isSignedIn } = useAuth();
   const pathname = usePathname();
+  const guestPromptHeight = useGuestPromptHeight();
   const [showChat, setShowChat] = useState(false);
   
   // Scale animation for press feedback
@@ -66,7 +69,7 @@ export default function FloatingChatButton() {
   // Note: We avoid using exiting animations here due to a race condition bug
   // with React Native's New Architecture (Fabric) on Android that causes crashes
   // when views with exit animations are removed during navigation transitions
-  if (!shouldShow) {
+  if (!shouldShow || (!isSignedIn && guestPromptHeight === 0)) {
     return null;
   }
 
@@ -77,7 +80,7 @@ export default function FloatingChatButton() {
         style={[
           styles.container,
           {
-            bottom: floatingChatBottom(Boolean(isSignedIn)),
+            bottom: floatingChatBottom(Boolean(isSignedIn), guestPromptHeight),
             right: spacing.lg,
           },
         ]}

@@ -37,6 +37,7 @@ vi.mock('@/constants/Colors', () => ({
 }));
 
 import { SignInBanner } from './SignInBanner';
+import { getGuestPromptHeight } from '../lib/guestPromptLayout';
 
 describe('SignInBanner', () => {
   beforeEach(() => mocks.push.mockReset());
@@ -61,6 +62,12 @@ describe('SignInBanner', () => {
       expect(createAccount.props.accessibilityRole).toBe('button');
       expect(signIn.props.accessibilityRole).toBe('button');
 
+      const banner = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityRole === 'summary',
+      )[0];
+      await act(async () => banner.props.onLayout({ nativeEvent: { layout: { height: 140 } } }));
+      expect(getGuestPromptHeight()).toBe(140);
+
       await act(async () => createAccount.props.onPress());
       await act(async () => signIn.props.onPress());
 
@@ -69,5 +76,7 @@ describe('SignInBanner', () => {
     } finally {
       await act(async () => renderer.unmount());
     }
+
+    expect(getGuestPromptHeight()).toBe(0);
   });
 });
