@@ -29,6 +29,56 @@ class RecordingS3:
         self.puts.append(kwargs)
 
 
+class ChatImageS3(RecordingS3):
+    def __init__(self, *, errors=None, versioning_status=None):
+        super().__init__()
+        self.deletes = []
+        self.errors = errors or []
+        self.versioning_status = versioning_status
+
+    def get_bucket_versioning(self, **_kwargs):
+        return {"Status": self.versioning_status} if self.versioning_status else {}
+
+    def delete_objects(self, **kwargs):
+        self.deletes.append(kwargs)
+        return {"Deleted": kwargs["Delete"]["Objects"], "Errors": self.errors}
+
+
+class VersionedChatImageS3(ChatImageS3):
+    def __init__(self):
+        super().__init__(versioning_status="Enabled")
+        self.versions = [
+            {"Key": "chat-images/stable-user/photo.png", "VersionId": "version-1"},
+            {"Key": "chat-images/stable-user/photo.png-copy", "VersionId": "other-key"},
+        ]
+        self.delete_markers = [
+            {"Key": "chat-images/stable-user/photo.png", "VersionId": "marker-1"},
+        ]
+
+    def list_object_versions(self, **_kwargs):
+        return {
+            "Versions": list(self.versions),
+            "DeleteMarkers": list(self.delete_markers),
+            "IsTruncated": False,
+        }
+
+    def delete_objects(self, **kwargs):
+        result = super().delete_objects(**kwargs)
+        requested = {
+            (item["Key"], item.get("VersionId"))
+            for item in kwargs["Delete"]["Objects"]
+        }
+        self.versions = [
+            item for item in self.versions
+            if (item["Key"], item["VersionId"]) not in requested
+        ]
+        self.delete_markers = [
+            item for item in self.delete_markers
+            if (item["Key"], item["VersionId"]) not in requested
+        ]
+        return result
+
+
 @pytest.mark.asyncio
 async def test_thumbnail_upload_uses_content_hash_and_immutable_cache(monkeypatch):
     fake_s3 = RecordingS3()
@@ -99,6 +149,9 @@ class DeletingS3:
         self.remaining = ["prefix/one", "prefix/two"]
         self.errors = errors or []
 
+    def get_bucket_versioning(self, **_kwargs):
+        return {}
+
     def list_objects_v2(self, **_kwargs):
         return {"Contents": [{"Key": key} for key in self.remaining]}
 
@@ -145,3 +198,108 @@ def test_thumbnail_cleanup_includes_legacy_and_content_addressed_keys():
         "thumbnails/recipe-id.",
         "thumbnails/recipe-id/",
     ]
+
+
+@pytest.mark.asyncio
+async def test_chat_upload_uses_unique_non_enumerable_objects(monkeypatch, capsys):
+    fake_s3 = ChatImageS3()
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_enabled=True,
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+        ),
+    )
+    service = StorageService()
+    service._client = fake_s3
+    encoded = __import__("base64").b64encode(_png_bytes("red")).decode("ascii")
+
+    first = await service.upload_chat_image(encoded, "stable-user")
+    second = await service.upload_chat_image(encoded, "stable-user")
+
+    assert first and second and first != second
+    assert all("/chat-images/stable-user/" in url for url in (first, second))
+    assert fake_s3.puts[0]["Key"] != fake_s3.puts[1]["Key"]
+    output = capsys.readouterr().out
+    assert first not in output
+    assert second not in output
+    assert "stable-user" not in output
+
+
+@pytest.mark.asyncio
+async def test_chat_delete_is_exact_owned_deduplicated_and_idempotent(monkeypatch):
+    fake_s3 = ChatImageS3()
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_enabled=True,
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+        ),
+    )
+    service = StorageService()
+    service._client = fake_s3
+    owned = "https://recipe-images.s3.us-west-2.amazonaws.com/chat-images/stable-user/photo.png"
+
+    assert await service.delete_chat_images([owned, owned], "stable-user") == 1
+    assert fake_s3.deletes[0]["Delete"]["Objects"] == [
+        {"Key": "chat-images/stable-user/photo.png"}
+    ]
+    with pytest.raises(ValueError, match="authenticated user"):
+        await service.delete_chat_images(
+            ["https://recipe-images.s3.us-west-2.amazonaws.com/chat-images/other/photo.png"],
+            "stable-user",
+        )
+
+
+@pytest.mark.asyncio
+async def test_chat_delete_purges_every_version_and_delete_marker(monkeypatch):
+    fake_s3 = VersionedChatImageS3()
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_enabled=True,
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+        ),
+    )
+    service = StorageService()
+    service._client = fake_s3
+    owned = "https://recipe-images.s3.us-west-2.amazonaws.com/chat-images/stable-user/photo.png"
+
+    assert await service.delete_chat_images([owned], "stable-user") == 1
+    requested = fake_s3.deletes[0]["Delete"]["Objects"]
+    assert requested == [
+        {"Key": "chat-images/stable-user/photo.png", "VersionId": "version-1"},
+        {"Key": "chat-images/stable-user/photo.png", "VersionId": "marker-1"},
+    ]
+    assert fake_s3.versions == [
+        {"Key": "chat-images/stable-user/photo.png-copy", "VersionId": "other-key"}
+    ]
+    assert fake_s3.delete_markers == []
+
+
+@pytest.mark.asyncio
+async def test_prefix_cleanup_purges_versioned_account_objects(monkeypatch):
+    fake_s3 = VersionedChatImageS3()
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_enabled=True,
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+        ),
+    )
+    service = StorageService()
+    service._client = fake_s3
+
+    deleted = await service.delete_prefix("chat-images/stable-user/")
+
+    assert deleted == 3
+    assert fake_s3.versions == []
+    assert fake_s3.delete_markers == []

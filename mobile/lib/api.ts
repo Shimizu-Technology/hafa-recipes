@@ -952,6 +952,24 @@ class ApiClient {
     return data;
   }
 
+  /** Resolve the auth session to the backend's durable application owner. */
+  async getCurrentUserIdentity(): Promise<{ id: string }> {
+    const { data } = await this.client.get('/api/users/me/identity', { timeout: 10_000 });
+    return data;
+  }
+
+  /** Delete exact app-owned image objects when their local conversation is cleared. */
+  async deleteChatImages(imageUrls: string[]): Promise<{ deleted: number }> {
+    let deleted = 0;
+    for (let start = 0; start < imageUrls.length; start += 50) {
+      const { data } = await this.client.post('/api/recipes/ai/delete-chat-images', {
+        image_urls: imageUrls.slice(start, start + 50),
+      });
+      deleted += data.deleted;
+    }
+    return { deleted };
+  }
+
   async suggestTags(title: string, ingredients: string[]): Promise<{ tags: string[] }> {
     const { data } = await this.client.post('/api/recipes/ai/suggest-tags', {
       title,

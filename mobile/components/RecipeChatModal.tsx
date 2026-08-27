@@ -31,6 +31,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
+import { useAuth } from '@clerk/expo';
 
 // Speech recognition - conditionally import to avoid crashes in Expo Go
 let ExpoSpeechRecognitionModule: any = null;
@@ -67,10 +68,19 @@ import {
   selectChatContext,
 } from '../lib/chatContext';
 import { chatErrorMessage } from '../lib/chatErrors';
-
-// Storage key prefix for chat history
-const CHAT_STORAGE_KEY_PREFIX = 'recipe_chat_';
-const COOKING_CHAT_STORAGE_KEY = 'cooking_assistant_chat';
+import {
+  chatStorageKey,
+  legacyChatStorageKey,
+  persistedChatImageUrls,
+} from '../lib/chatStorage';
+import {
+  activateChatImageCleanup,
+  enqueueChatImageCleanup,
+  hasChatImageCleanup,
+  processChatImageCleanup,
+  recoverChatImageCleanup,
+  removeChatImageCleanup,
+} from '../lib/chatImageCleanup';
 const CHAT_MARKDOWN_RULES: RenderRules = {
   // Assistant text must never trigger a remote image request from the device.
   image: () => null,
@@ -109,27 +119,31 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   // Determine mode: recipe-specific or general cooking
   const isGeneralMode = !recipe;
   const quickSuggestions = isGeneralMode ? COOKING_SUGGESTIONS : RECIPE_SUGGESTIONS;
-  const storageKey = isGeneralMode
-    ? COOKING_CHAT_STORAGE_KEY
-    : `${CHAT_STORAGE_KEY_PREFIX}${recipe?.id}`;
+  const { userId: clerkUserId } = useAuth();
+  const [storageKey, setStorageKey] = useState<string | null>(null);
   
   const [messages, setMessages] = useState<ChatUiMessage[]>([]);
   const messagesRef = useRef<ChatUiMessage[]>([]);
   const retryImagesRef = useRef<Map<string, string>>(new Map());
   const inFlightRef = useRef(false);
-  const activeStorageKeyRef = useRef(storageKey);
+  const clearInFlightRef = useRef(false);
+  const activeStorageKeyRef = useRef<string | null>(null);
   const historyLoadGenerationRef = useRef(0);
   const [inputText, setInputText] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [loadedStorageKey, setLoadedStorageKey] = useState<string | null>(null);
   const [isDelivering, setIsDelivering] = useState(false);
+  const [isClearingChat, setIsClearingChat] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);  // Base64 image
   const [attachedImageUri, setAttachedImageUri] = useState<string | null>(null);  // For preview
   const isComposerUnavailable = isDelivering
+    || isClearingChat
     || isLoadingHistory
+    || !storageKey
     || loadedStorageKey !== storageKey;
   
   // Use appropriate mutation hook based on mode
@@ -229,12 +243,14 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   // Load only the active conversation. A late read from a prior recipe must
   // never replace a newly opened conversation or a message sent during load.
   useEffect(() => {
-    activeStorageKeyRef.current = storageKey;
     const generation = historyLoadGenerationRef.current + 1;
     historyLoadGenerationRef.current = generation;
+    activeStorageKeyRef.current = null;
+    setStorageKey(null);
     if (!isVisible) return;
 
     setIsLoadingHistory(true);
+    setHistoryError(null);
     setLoadedStorageKey(null);
     updateMessages([]);
     setInputText('');
@@ -242,29 +258,52 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     setAttachedImageUri(null);
     void (async () => {
       try {
-        const stored = await AsyncStorage.getItem(storageKey);
+        const identity = await api.getCurrentUserIdentity();
+        if (historyLoadGenerationRef.current !== generation) return;
+        const conversationKey = chatStorageKey(identity.id, recipe?.id);
+        activeStorageKeyRef.current = conversationKey;
+        setStorageKey(conversationKey);
+        // Unscoped history cannot be safely assigned to the account that happens
+        // to open this release first, so remove it without reading or migrating it.
+        try {
+          await AsyncStorage.removeItem(legacyChatStorageKey(recipe?.id));
+        } catch {
+          // Never read the unsafe legacy key; a cleanup failure must not hide
+          // this account's already-scoped conversation.
+        }
+        const stored = await AsyncStorage.getItem(conversationKey);
         if (
           historyLoadGenerationRef.current !== generation
-          || activeStorageKeyRef.current !== storageKey
+          || activeStorageKeyRef.current !== conversationKey
         ) return;
         const history: ChatMessage[] = stored ? JSON.parse(stored) : [];
         updateMessages(normalizeStoredChatMessages(history));
-        setLoadedStorageKey(storageKey);
+        setLoadedStorageKey(conversationKey);
+        void recoverChatImageCleanup(conversationKey, stored !== null)
+          .then(() => processChatImageCleanup(
+            conversationKey,
+            (urls) => api.deleteChatImages(urls),
+          ))
+          .catch(() => undefined);
       } catch {
         if (
           historyLoadGenerationRef.current !== generation
-          || activeStorageKeyRef.current !== storageKey
+          || activeStorageKeyRef.current === null
         ) return;
-        updateMessages([]);
-        setLoadedStorageKey(storageKey);
+        setLoadedStorageKey(null);
+        setHistoryError(
+          'We could not load this conversation. Check your connection and reopen chat.',
+        );
       } finally {
-        if (
-          historyLoadGenerationRef.current === generation
-          && activeStorageKeyRef.current === storageKey
-        ) setIsLoadingHistory(false);
+        if (historyLoadGenerationRef.current === generation) {
+          if (activeStorageKeyRef.current === null) {
+            setHistoryError('We could not verify this account. Check your connection and reopen chat.');
+          }
+          setIsLoadingHistory(false);
+        }
       }
     })();
-  }, [isVisible, storageKey, updateMessages]);
+  }, [clerkUserId, isVisible, recipe?.id, updateMessages]);
 
   /** Persist UI state to its originating conversation key. */
   const saveChatHistory = useCallback(async (
@@ -283,6 +322,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
 
   /** Confirm and clear the current locally persisted conversation. */
   const handleClearChat = useCallback(() => {
+    if (!storageKey) return;
+    const conversationKey = storageKey;
     Alert.alert(
       'Clear Chat',
       'Are you sure you want to clear this conversation? This cannot be undone.',
@@ -292,12 +333,95 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           text: 'Clear',
           style: 'destructive',
           onPress: async () => {
-            updateMessages([]);
-            retryImagesRef.current.clear();
+            if (
+              activeStorageKeyRef.current !== conversationKey
+              || clearInFlightRef.current
+            ) return;
+            const historySnapshot = messagesForStorage(messagesRef.current);
+            const imageUrls = persistedChatImageUrls(historySnapshot);
+            clearInFlightRef.current = true;
+            setIsClearingChat(true);
+            const cleanupJobId = createChatMessageId();
             try {
-              await AsyncStorage.removeItem(storageKey);
+              if (imageUrls.length > 0) {
+                await enqueueChatImageCleanup(conversationKey, {
+                  id: cleanupJobId,
+                  imageUrls,
+                });
+              }
             } catch {
-              // Non-critical: stale history will be overwritten on next save
+              Alert.alert(
+                'Could Not Clear Chat',
+                'Your conversation is still here because this device could not save the cleanup request. Please try again.',
+              );
+              clearInFlightRef.current = false;
+              setIsClearingChat(false);
+              return;
+            }
+
+            try {
+              await AsyncStorage.removeItem(conversationKey);
+            } catch {
+              if (imageUrls.length > 0) {
+                await removeChatImageCleanup(conversationKey, cleanupJobId).catch(() => undefined);
+              }
+              Alert.alert(
+                'Could Not Clear Chat',
+                'Your conversation is still here because this device could not remove it. Please try again.',
+              );
+              clearInFlightRef.current = false;
+              setIsClearingChat(false);
+              return;
+            }
+
+            if (imageUrls.length > 0) {
+              try {
+                await activateChatImageCleanup(conversationKey, cleanupJobId);
+              } catch {
+                try {
+                  await AsyncStorage.setItem(conversationKey, JSON.stringify(historySnapshot));
+                  await removeChatImageCleanup(conversationKey, cleanupJobId).catch(() => undefined);
+                  Alert.alert(
+                    'Could Not Clear Chat',
+                    'Your conversation was restored because its photo cleanup could not be prepared. Please try again.',
+                  );
+                } catch {
+                  if (activeStorageKeyRef.current === conversationKey) {
+                    setLoadedStorageKey(null);
+                    setHistoryError(
+                      'Chat cleanup was interrupted. Reopen chat to recover it safely.',
+                    );
+                  }
+                  Alert.alert(
+                    'Chat Cleanup Paused',
+                    'Reopen chat to finish cleanup safely. Your photos have not been deleted.',
+                  );
+                }
+                clearInFlightRef.current = false;
+                setIsClearingChat(false);
+                return;
+              }
+            }
+
+            if (activeStorageKeyRef.current === conversationKey) {
+              updateMessages([]);
+              retryImagesRef.current.clear();
+            }
+            clearInFlightRef.current = false;
+            setIsClearingChat(false);
+
+            if (imageUrls.length > 0) {
+              void processChatImageCleanup(
+                conversationKey,
+                (urls) => api.deleteChatImages(urls),
+              ).then(() => hasChatImageCleanup(conversationKey, cleanupJobId))
+              .then((pending) => {
+                if (!pending) return;
+                Alert.alert(
+                  'Chat Cleared',
+                  'The conversation was cleared. We will keep retrying its photo cleanup automatically.',
+                );
+              }).catch(() => undefined);
             }
           },
         },
@@ -393,6 +517,11 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     inFlightRef.current = true;
     setIsDelivering(true);
     const conversationKey = activeStorageKeyRef.current;
+    if (!conversationKey) {
+      inFlightRef.current = false;
+      setIsDelivering(false);
+      return;
+    }
     const sendingMessage: ChatUiMessage = {
       ...userMessage,
       status: 'sending',
@@ -480,7 +609,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
 
   /** Convert the active draft or suggestion into a single optimistic user message. */
   const handleSend = async (text?: string) => {
-    if (inFlightRef.current || isComposerUnavailable) return;
+    if (inFlightRef.current || clearInFlightRef.current || isComposerUnavailable) return;
     const messageText = text || inputText.trim();
     if (!messageText && !attachedImage) return;
 
@@ -596,7 +725,14 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           </RNView>
           <RNView style={styles.headerButtons}>
             {messages.length > 0 && (
-              <TouchableOpacity onPress={handleClearChat} style={styles.headerButton}>
+              <TouchableOpacity
+                onPress={handleClearChat}
+                disabled={isClearingChat}
+                style={styles.headerButton}
+                accessibilityRole="button"
+                accessibilityLabel="Clear conversation"
+                accessibilityState={{ disabled: isClearingChat, busy: isClearingChat }}
+              >
                 <Ionicons name="trash-outline" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             )}
@@ -623,8 +759,17 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
             </RNView>
           )}
 
+          {!isLoadingHistory && historyError && (
+            <RNView style={[styles.historyError, { backgroundColor: colors.backgroundSecondary }]}>
+              <Ionicons name="cloud-offline-outline" size={22} color={colors.error} />
+              <Text style={[styles.historyErrorText, { color: colors.textSecondary }]}>
+                {historyError}
+              </Text>
+            </RNView>
+          )}
+
           {/* Welcome message */}
-          {!isLoadingHistory && messages.length === 0 && (
+          {!isLoadingHistory && !historyError && messages.length === 0 && (
             <RNView style={styles.welcomeContainer}>
               <Ionicons name="sparkles" size={48} color={colors.tint} />
               <Text style={[styles.welcomeTitle, { color: colors.text }]}>
@@ -637,11 +782,14 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                   ? "I can help with recipe ideas, cooking tips, food safety, ingredient substitutions, and more."
                   : "I can help with substitutions, scaling, cooking tips, dietary modifications, and more."}
               </Text>
+              <Text style={[styles.photoPrivacyNotice, { color: colors.textMuted }]}>
+                Photos are sent to our AI provider and stored with this chat. Don&apos;t upload sensitive personal information.
+              </Text>
             </RNView>
           )}
 
           {/* Quick suggestions */}
-          {!isLoadingHistory && messages.length === 0 && (
+          {!isLoadingHistory && !historyError && messages.length === 0 && (
             <RNView style={styles.suggestionsContainer}>
               <Text style={[styles.suggestionsTitle, { color: colors.textMuted }]}>
                 Try asking:
@@ -835,9 +983,14 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
             >
               <Ionicons name="close" size={16} color="#FFFFFF" />
             </TouchableOpacity>
-            <Text style={[styles.attachedImageHint, { color: colors.textMuted }]}>
-              Photo attached - add a message or send
-            </Text>
+            <RNView style={styles.attachedImageText}>
+              <Text style={[styles.attachedImageHint, { color: colors.textMuted }]}>
+                Photo attached - add a message or send
+              </Text>
+              <Text style={[styles.attachedImagePrivacyNotice, { color: colors.textMuted }]}>
+                Sent to our AI provider and stored with this chat. Don&apos;t upload sensitive personal information.
+              </Text>
+            </RNView>
           </RNView>
         )}
 
@@ -987,6 +1140,19 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     fontSize: fontSize.md,
   },
+  historyError: {
+    alignItems: 'center',
+    borderRadius: radius.md,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    margin: spacing.lg,
+    padding: spacing.md,
+  },
+  historyErrorText: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    lineHeight: 20,
+  },
   previousConvoIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1024,6 +1190,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.sm,
     lineHeight: 22,
+  },
+  photoPrivacyNotice: {
+    fontSize: fontSize.xs,
+    lineHeight: 18,
+    marginTop: spacing.md,
+    maxWidth: 320,
+    textAlign: 'center',
   },
   suggestionsContainer: {
     marginTop: spacing.lg,
@@ -1192,8 +1365,15 @@ const styles = StyleSheet.create({
   },
   attachedImageHint: {
     fontSize: fontSize.xs,
+  },
+  attachedImageText: {
     flex: 1,
     marginLeft: spacing.sm,
+    gap: spacing.xs,
+  },
+  attachedImagePrivacyNotice: {
+    fontSize: fontSize.xs,
+    lineHeight: 16,
   },
   messageImageContainer: {
     marginBottom: spacing.xs,

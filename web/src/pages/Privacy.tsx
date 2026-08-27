@@ -3,7 +3,7 @@ export default function Privacy() {
     <div className="page">
       <div className="container">
         <h1>Privacy Policy</h1>
-        <p><em>Last updated: June 30, 2026</em></p>
+        <p><em>Last updated: August 27, 2026</em></p>
 
         <h2>Overview</h2>
         <p>
@@ -46,7 +46,10 @@ export default function Privacy() {
 
         <h2>Data Storage & Security</h2>
         <p>
-          Your data is stored securely on our hosted backend and database. We use industry-standard encryption for data transmission (HTTPS/TLS). Recipe and chat images are stored securely in Amazon S3.
+          Your data is stored on our hosted backend and database. We use industry-standard encryption for data transmission (HTTPS/TLS). Recipe and chat images are stored in Amazon S3.
+        </p>
+        <p>
+          If you attach a photo in AI chat, we send it to OpenAI to answer your request and store it with that conversation so the chat can keep its context. Chat-image links are not an authentication boundary: anyone who obtains a link may be able to view the image until it is removed. Do not upload sensitive personal information. Supported app versions request deletion of stored chat images when you clear their conversation. If deletion fails, the app retries later and the images may remain available until a retry succeeds. Deleting your account removes the remaining images associated with your account.
         </p>
         <p>
           We retain your data for as long as your account is active. You can delete your account at any time through the app's Settings, which will remove all your personal data from our servers.

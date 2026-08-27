@@ -3,7 +3,7 @@
 import hashlib
 from typing import Optional
 from urllib.parse import urljoin, urlparse
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import boto3
 import httpx
@@ -204,6 +204,9 @@ class StorageService:
 
         deleted_count = 0
         try:
+            versioning = self.client.get_bucket_versioning(Bucket=self.bucket_name)
+            if versioning.get("Status") in {"Enabled", "Suspended"}:
+                return self._delete_all_prefix_versions(prefix)
             while True:
                 response = self.client.list_objects_v2(
                     Bucket=self.bucket_name,
@@ -327,8 +330,9 @@ class StorageService:
         """
         Upload a base64 chat image to S3.
         
-        Chat images are stored with the pattern: chat-images/{user_id}/{hash}.jpg
-        This allows images to persist across sessions and be re-sent in chat history.
+        Chat images are stored with the pattern: chat-images/{user_id}/{uuid}.jpg.
+        Each upload owns its object so clearing one conversation cannot break an
+        image reused by another conversation.
         
         Args:
             image_base64: Base64 encoded image data
@@ -351,9 +355,6 @@ class StorageService:
             )
             image_data = validated.data
             
-            # Generate a hash-based filename for deduplication
-            image_hash = hashlib.sha256(image_data).hexdigest()[:12]
-            
             # Determine content type from base64 prefix
             content_type = validated.content_type
             extension = {
@@ -364,9 +365,7 @@ class StorageService:
             }[content_type]
             
             # Upload to S3 under chat-images folder
-            s3_key = f"chat-images/{user_id}/{image_hash}.{extension}"
-            
-            print(f"📤 Uploading chat image to S3: {s3_key}")
+            s3_key = f"chat-images/{user_id}/{uuid4().hex}.{extension}"
             
             self.client.put_object(
                 Bucket=self.bucket_name,
@@ -379,12 +378,122 @@ class StorageService:
             settings = get_settings()
             s3_url = f"https://{self.bucket_name}.s3.{settings.aws_region}.amazonaws.com/{s3_key}"
             
-            print(f"✅ Chat image uploaded: {s3_url}")
+            print("✅ Chat image uploaded")
             return s3_url
             
-        except Exception as e:
-            print(f"❌ Failed to upload chat image to S3: {e}")
+        except Exception as error:
+            print(f"❌ Failed to upload chat image to S3: {type(error).__name__}")
             return None
+
+    async def delete_chat_images(self, image_urls: list[str], user_id: str) -> int:
+        """Delete exact app-owned chat objects for one stable application user."""
+        if not image_urls or not self.is_enabled:
+            return 0
+
+        keys: list[str] = []
+        for image_url in dict.fromkeys(image_urls):
+            if not self.is_owned_chat_image_url(image_url, user_id):
+                raise ValueError("Chat image does not belong to the authenticated user")
+            keys.append(urlparse(image_url).path.removeprefix("/"))
+
+        try:
+            versioning = self.client.get_bucket_versioning(Bucket=self.bucket_name)
+            if versioning.get("Status") in {"Enabled", "Suspended"}:
+                for key in keys:
+                    self._delete_all_object_versions(key)
+            else:
+                self._delete_objects_confirmed([{"Key": key} for key in keys])
+            return len(keys)
+        except StorageCleanupError:
+            raise
+        except Exception as error:
+            raise StorageCleanupError("Unable to delete chat images") from error
+
+    def _delete_objects_confirmed(self, objects: list[dict[str, str]]) -> None:
+        """Delete a bounded object/version batch and verify every provider acknowledgement."""
+        response = self.client.delete_objects(
+            Bucket=self.bucket_name,
+            Delete={"Objects": objects, "Quiet": False},
+        )
+        errors = response.get("Errors", [])
+        if errors:
+            raise StorageCleanupError(
+                f"S3 reported {len(errors)} failed object deletions"
+            )
+        deleted = {
+            (item.get("Key"), item.get("VersionId"))
+            for item in response.get("Deleted", [])
+        }
+        requested = {(item["Key"], item.get("VersionId")) for item in objects}
+        if not requested.issubset(deleted):
+            raise StorageCleanupError(
+                "S3 did not confirm every requested object deletion"
+            )
+
+    def _delete_all_prefix_versions(self, prefix: str) -> int:
+        """Permanently purge all versions and delete markers beneath one prefix."""
+        objects: list[dict[str, str]] = []
+        request: dict[str, object] = {
+            "Bucket": self.bucket_name,
+            "Prefix": prefix,
+            "MaxKeys": 1000,
+        }
+        while True:
+            response = self.client.list_object_versions(**request)
+            for item in [*response.get("Versions", []), *response.get("DeleteMarkers", [])]:
+                if item.get("Key", "").startswith(prefix) and item.get("VersionId"):
+                    objects.append({"Key": item["Key"], "VersionId": item["VersionId"]})
+            if not response.get("IsTruncated"):
+                break
+            request["KeyMarker"] = response["NextKeyMarker"]
+            request["VersionIdMarker"] = response["NextVersionIdMarker"]
+
+        for start in range(0, len(objects), 1000):
+            self._delete_objects_confirmed(objects[start:start + 1000])
+
+        remaining = self.client.list_object_versions(
+            Bucket=self.bucket_name,
+            Prefix=prefix,
+            MaxKeys=1,
+        )
+        if remaining.get("Versions") or remaining.get("DeleteMarkers"):
+            raise StorageCleanupError("S3 retained an object version under the prefix")
+        return len(objects)
+
+    def _delete_all_object_versions(self, key: str) -> None:
+        """Permanently purge all versions and delete markers for one exact key."""
+        objects: list[dict[str, str]] = []
+        request: dict[str, object] = {
+            "Bucket": self.bucket_name,
+            "Prefix": key,
+            "MaxKeys": 1000,
+        }
+        while True:
+            response = self.client.list_object_versions(**request)
+            for item in [*response.get("Versions", []), *response.get("DeleteMarkers", [])]:
+                if item.get("Key") == key and item.get("VersionId"):
+                    objects.append({"Key": key, "VersionId": item["VersionId"]})
+            if not response.get("IsTruncated"):
+                break
+            request["KeyMarker"] = response["NextKeyMarker"]
+            request["VersionIdMarker"] = response["NextVersionIdMarker"]
+
+        for start in range(0, len(objects), 1000):
+            self._delete_objects_confirmed(objects[start:start + 1000])
+
+        remaining = self.client.list_object_versions(
+            Bucket=self.bucket_name,
+            Prefix=key,
+            MaxKeys=1000,
+        )
+        if any(
+            item.get("Key") == key
+            for item in [
+                *remaining.get("Versions", []),
+                *remaining.get("DeleteMarkers", []),
+            ]
+        ):
+            raise StorageCleanupError("S3 retained a chat image object version")
 
     def is_owned_chat_image_url(self, image_url: str, user_id: str) -> bool:
         """Return whether a public URL points to this user's app-owned chat object."""

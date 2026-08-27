@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => {
     _endpoint: string,
     _body: unknown,
     _config?: unknown,
-  ) => ({ data: { success: true } }));
+  ): Promise<{ data: Record<string, unknown> }> => ({ data: { success: true } }));
   return {
     client: {
       delete: vi.fn(),
@@ -140,5 +140,27 @@ describe('recipe image multipart requests', () => {
       { uri: 'file:///private/no-extension', name: 'shared-card.png', type: 'image/png' },
       { uri: 'file:///private/opaque-image', name: 'shared-steps.webp', type: 'image/webp' },
     ]);
+  });
+
+  it('deletes large chat-image cleanup queues in bounded batches', async () => {
+    mocks.post
+      .mockResolvedValueOnce({ data: { deleted: 50 } })
+      .mockResolvedValueOnce({ data: { deleted: 50 } })
+      .mockResolvedValueOnce({ data: { deleted: 20 } });
+    const imageUrls = Array.from(
+      { length: 120 },
+      (_, index) => `https://images.example/chat-${index}.jpg`,
+    );
+
+    const result = await api.deleteChatImages(imageUrls);
+
+    expect(result).toEqual({ deleted: 120 });
+    expect(mocks.post).toHaveBeenCalledTimes(3);
+    expect(mocks.post.mock.calls.map(([, body]) => (
+      body as { image_urls: string[] }
+    ).image_urls.length)).toEqual([50, 50, 20]);
+    expect(mocks.post.mock.calls.every(
+      ([endpoint]) => endpoint === '/api/recipes/ai/delete-chat-images',
+    )).toBe(true);
   });
 });

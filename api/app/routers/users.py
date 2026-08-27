@@ -45,6 +45,19 @@ class PublishingDisclosureAcceptance(BaseModel):
     version: int = Field(ge=1)
 
 
+class CurrentUserIdentity(BaseModel):
+    """The durable application identity resolved from the current auth session."""
+
+    id: str
+
+
+@router.get("/me/identity", response_model=CurrentUserIdentity)
+async def get_current_user_identity(
+    user: ClerkUser = Depends(get_current_user),
+):
+    return CurrentUserIdentity(id=user.id)
+
+
 def _publishing_disclosure_status(app_user: AppUser) -> PublishingDisclosureStatus:
     accepted_version = app_user.publishing_disclosure_version or 0
     return PublishingDisclosureStatus(
