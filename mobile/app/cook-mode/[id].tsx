@@ -1583,7 +1583,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.bold,
   },
   ingredientsSubtitle: {
-    color: '#4ECDC4',
+    color: brand.reefHighlight,
     fontSize: fontSize.sm,
     marginTop: 2,
   },
@@ -1609,7 +1609,7 @@ const styles = StyleSheet.create({
     width: 100,
   },
   ingredientQuantityScaled: {
-    color: '#4ECDC4', // Teal to indicate scaled
+    color: brand.reefHighlight,
   },
   ingredientName: {
     color: '#ffffff',
