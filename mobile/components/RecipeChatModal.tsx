@@ -181,6 +181,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     }
   });
   
+  /** Toggle editable speech dictation after verifying native availability and permission. */
   const handleMicPress = async () => {
     if (!speechRecognitionAvailable || !ExpoSpeechRecognitionModule) {
       Alert.alert(
@@ -290,6 +291,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     }
   }, [messages]);
 
+  /** Attach one compressed image selected from the photo library. */
   const handlePickImage = async () => {
     try {
       // Request permission
@@ -320,6 +322,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     }
   };
 
+  /** Attach one compressed image captured by the camera. */
   const handleTakePhoto = async () => {
     try {
       // Request camera permission
@@ -349,6 +352,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     }
   };
 
+  /** Remove the pending image without changing the text draft. */
   const handleRemoveImage = () => {
     setAttachedImage(null);
     setAttachedImageUri(null);
@@ -391,6 +395,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         ? 'What do you see in this image?'
         : 'What do you see in this image? How does it relate to this recipe?';
       const requestContent = sendingMessage.request_content || sendingMessage.content;
+      // The user bubble is the current request.message. For a retry, history
+      // intentionally contains only complete turns that preceded that bubble.
       const historyForApi = selectChatContext(previousMessages);
       const response = isGeneralMode
         ? await cookingChatMutation.mutateAsync({
@@ -469,10 +475,12 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     await sendMessage(message, retryImage);
   };
 
+  /** Send a quick suggestion through the same guarded delivery path. */
   const handleSuggestionPress = (suggestion: string) => {
     handleSend(suggestion);
   };
 
+  /** Copy message text and briefly show success feedback on that bubble. */
   const handleCopyMessage = async (text: string, index: number) => {
     try {
       await Clipboard.setStringAsync(text);
@@ -487,6 +495,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     }
   };
 
+  /** Toggle text-to-speech playback for one assistant response. */
   const handleSpeakPress = async (text: string, index: number) => {
     if (speakingIndex === index && isPlaying) {
       // Stop if already playing this message
