@@ -19,11 +19,15 @@ from app.image_validation import ImageValidationError, validate_image_bytes
 from app.rate_limit import RateLimitExceeded, UserRateLimiter
 from app.routers.chat import (
     COOKING_ASSISTANT_SYSTEM_PROMPT,
+    LEGACY_CHAT_ERROR_MESSAGE,
+    MAX_CHAT_HISTORY_CHARS,
+    MAX_CHAT_HISTORY_INPUT_ITEMS,
     MAX_CHAT_HISTORY_ITEMS,
     MAX_CHAT_MESSAGE_CHARS,
     ChatMessage,
     ChatRequest,
     _build_client_messages,
+    _select_chat_history,
     _validated_image_data_url,
     build_system_prompt,
 )
@@ -52,7 +56,16 @@ def test_chat_rejects_privileged_and_unknown_roles():
 
 
 def test_chat_bounds_message_history_and_requires_content():
-    history = [ChatMessage(role="user", content="hello") for _ in range(MAX_CHAT_HISTORY_ITEMS + 1)]
+    compatible_history = [
+        ChatMessage(role="user", content="hello")
+        for _ in range(MAX_CHAT_HISTORY_ITEMS + 1)
+    ]
+    assert ChatRequest(message="hello", history=compatible_history).history == compatible_history
+
+    history = [
+        ChatMessage(role="user", content="hello")
+        for _ in range(MAX_CHAT_HISTORY_INPUT_ITEMS + 1)
+    ]
 
     with pytest.raises(ValidationError):
         ChatRequest(message="hello", history=history)
@@ -60,6 +73,51 @@ def test_chat_bounds_message_history_and_requires_content():
         ChatRequest(message="x" * (MAX_CHAT_MESSAGE_CHARS + 1))
     with pytest.raises(ValidationError):
         ChatRequest(message="   ")
+
+
+def test_chat_context_keeps_recent_complete_turns_only():
+    """Context selection keeps bounded complete turns and drops fake failures."""
+    history = [ChatMessage(role="assistant", content="orphan")]
+    for index in range(7):
+        history.extend(
+            [
+                ChatMessage(role="user", content=f"question {index}"),
+                ChatMessage(role="assistant", content=f"answer {index}"),
+            ]
+        )
+    history.extend(
+        [
+            ChatMessage(role="user", content="failed question"),
+            ChatMessage(role="assistant", content=LEGACY_CHAT_ERROR_MESSAGE),
+            ChatMessage(role="user", content="still pending"),
+        ]
+    )
+
+    selected = _select_chat_history(history)
+
+    assert len(selected) == MAX_CHAT_HISTORY_ITEMS
+    assert selected[0].content == "question 2"
+    assert selected[-1].content == "answer 6"
+    assert all(selected[index].role == ("user" if index % 2 == 0 else "assistant") for index in range(len(selected)))
+
+
+def test_chat_context_respects_character_budget_without_splitting_turns():
+    """The character budget removes whole old turns instead of partial messages."""
+    message_size = MAX_CHAT_HISTORY_CHARS // 4
+    history: list[ChatMessage] = []
+    for index in range(3):
+        history.extend(
+            [
+                ChatMessage(role="user", content=str(index) + "u" * (message_size - 1)),
+                ChatMessage(role="assistant", content=str(index) + "a" * (message_size - 1)),
+            ]
+        )
+
+    selected = _select_chat_history(history)
+
+    assert len(selected) == 4
+    assert selected[0].content.startswith("1")
+    assert selected[-1].content.startswith("2")
 
 
 def test_chat_rejects_foreign_history_image(monkeypatch):

@@ -18,7 +18,7 @@ from app.ai_governance import (
 from app.auth import ClerkUser
 from app.config import Settings
 from app.models.ai import AIInvocation
-from app.routers.chat import ChatRequest, chat_about_recipe
+from app.routers.chat import MAX_CHAT_HISTORY_ITEMS, ChatMessage, ChatRequest, chat_about_recipe
 from app.services.llm_client import LLMService
 
 
@@ -140,6 +140,7 @@ async def test_tracker_records_safe_context_and_validated_outcome(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_recipe_chat_marks_success_before_tracker_exits(monkeypatch):
+    """Legacy history is accepted, bounded, and tracked as a successful invocation."""
     recipe = SimpleNamespace(
         user_id="user_chat_tracker",
         is_public=False,
@@ -166,10 +167,20 @@ async def test_recipe_chat_marks_success_before_tracker_exits(monkeypatch):
     )
     recorded = AsyncMock()
     monkeypatch.setattr(ai_governance, "record_ai_invocation", recorded)
+    legacy_history = [
+        ChatMessage(
+            role="user" if index % 2 == 0 else "assistant",
+            content=f"legacy message {index}",
+        )
+        for index in range(12)
+    ]
 
     response = await chat_about_recipe(
         UUID("31111111-1111-4111-8111-111111111111"),
-        ChatRequest(message="How should I heat this?"),
+        ChatRequest(
+            message="How should I heat this?",
+            history=legacy_history,
+        ),
         db=FakeDatabase(),
         user=ClerkUser(
             id="user_chat_tracker",
@@ -180,6 +191,14 @@ async def test_recipe_chat_marks_success_before_tracker_exits(monkeypatch):
     )
 
     assert response.response == "Use low heat."
+    provider_messages = chat_router_module.openai_client.chat.completions.create.await_args.kwargs[
+        "messages"
+    ]
+    retained_count = min(MAX_CHAT_HISTORY_ITEMS // 2 * 2, len(legacy_history))
+    first_retained_index = len(legacy_history) - retained_count
+    assert len(provider_messages[1:-1]) == retained_count
+    assert provider_messages[1]["content"] == f"legacy message {first_retained_index}"
+    assert provider_messages[-1]["content"] == "How should I heat this?"
     assert recorded.await_args.kwargs["status"] == "success"
     assert recorded.await_args.kwargs["error_code"] is None
 

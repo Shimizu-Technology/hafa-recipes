@@ -301,10 +301,17 @@ export interface InvitePreview {
 // Chat Types
 // ============================================================
 
+export type ChatDeliveryStatus = 'sending' | 'sent' | 'failed' | 'cancelled';
+
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   image_url?: string;  // Optional image URL for vision
+  id?: string;
+  status?: ChatDeliveryStatus;
+  error_message?: string;
+  request_content?: string;
+  has_image?: boolean;
 }
 
 export interface ChatRequest {

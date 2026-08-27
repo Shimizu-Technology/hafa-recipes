@@ -32,7 +32,13 @@ settings = get_settings()
 openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
 
 MAX_CHAT_MESSAGE_CHARS = 4_000
+# Accept a wider envelope so already-released clients that sent the full local
+# transcript do not fail validation. Only a small, turn-complete window is ever
+# forwarded to the model.
+MAX_CHAT_HISTORY_INPUT_ITEMS = 50
 MAX_CHAT_HISTORY_ITEMS = 10
+MAX_CHAT_HISTORY_CHARS = 16_000
+LEGACY_CHAT_ERROR_MESSAGE = "Sorry, I couldn't process that request. Please try again."
 MAX_CHAT_IMAGE_BASE64_CHARS = ((MAX_CHAT_IMAGE_BYTES + 2) // 3) * 4
 BoundedIngredient = Annotated[str, Field(min_length=1, max_length=300)]
 
@@ -54,7 +60,10 @@ class ChatRequest(BaseModel):
     """Request to chat about a recipe."""
 
     message: str = Field(default="", max_length=MAX_CHAT_MESSAGE_CHARS)
-    history: list[ChatMessage] = Field(default_factory=list, max_length=MAX_CHAT_HISTORY_ITEMS)
+    history: list[ChatMessage] = Field(
+        default_factory=list,
+        max_length=MAX_CHAT_HISTORY_INPUT_ITEMS,
+    )
     image_base64: Optional[str] = Field(default=None, max_length=MAX_CHAT_IMAGE_BASE64_CHARS)
 
     @model_validator(mode="after")
@@ -143,6 +152,36 @@ def _validated_image_data_url(image_base64: str) -> str:
     return f"data:{validated.content_type};base64,{image_base64}"
 
 
+def _select_chat_history(history: list[ChatMessage]) -> list[ChatMessage]:
+    """Return recent, complete turns within the provider context budget."""
+    turns: list[tuple[ChatMessage, ChatMessage]] = []
+    pending_user: ChatMessage | None = None
+
+    for item in history:
+        if item.role == "user":
+            pending_user = item
+            continue
+        if item.content.strip() == LEGACY_CHAT_ERROR_MESSAGE:
+            pending_user = None
+            continue
+        if pending_user is not None:
+            turns.append((pending_user, item))
+            pending_user = None
+
+    selected: list[tuple[ChatMessage, ChatMessage]] = []
+    selected_chars = 0
+    for turn in reversed(turns):
+        turn_chars = len(turn[0].content) + len(turn[1].content)
+        if len(selected) * 2 + 2 > MAX_CHAT_HISTORY_ITEMS:
+            break
+        if selected_chars + turn_chars > MAX_CHAT_HISTORY_CHARS:
+            break
+        selected.append(turn)
+        selected_chars += turn_chars
+
+    return [item for turn in reversed(selected) for item in turn]
+
+
 def _build_client_messages(
     *,
     history: list[ChatMessage],
@@ -151,17 +190,21 @@ def _build_client_messages(
     user_id: str,
 ) -> list[dict]:
     """Reconstruct safe provider messages from bounded client history."""
-    messages: list[dict] = []
+    # Validate every supplied URL before discarding malformed or old turns so a
+    # caller cannot smuggle an unowned URL into otherwise ignored history.
     for item in history:
+        if item.image_url and (
+            item.role != "user"
+            or not storage_service.is_owned_chat_image_url(item.image_url, user_id)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Chat history contains an image that is not owned by this account",
+            )
+
+    messages: list[dict] = []
+    for item in _select_chat_history(history):
         if item.image_url:
-            if item.role != "user" or not storage_service.is_owned_chat_image_url(
-                item.image_url,
-                user_id,
-            ):
-                raise HTTPException(
-                    status_code=422,
-                    detail="Chat history contains an image that is not owned by this account",
-                )
             messages.append(
                 {
                     "role": "user",
