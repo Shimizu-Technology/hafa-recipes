@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   Platform,
   StyleSheet,
@@ -26,6 +25,7 @@ interface ChatComposerProps {
   isGeneralMode: boolean;
   onChangeText: (text: string) => void;
   onSend: () => void;
+  onCancel: () => void;
   onTakePhoto: () => void;
   onPickImage: () => void;
   onRemoveImage: () => void;
@@ -45,6 +45,7 @@ export default function ChatComposer({
   isGeneralMode,
   onChangeText,
   onSend,
+  onCancel,
   onTakePhoto,
   onPickImage,
   onRemoveImage,
@@ -56,6 +57,7 @@ export default function ChatComposer({
   const insets = useSafeAreaInsets();
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const canSend = Boolean(text.trim() || attachedImageUri) && !isUnavailable;
+  const canPressPrimary = isSending || canSend;
   const showNativePaste = Platform.OS === 'ios' && Clipboard.isPasteButtonAvailable;
 
   useEffect(() => {
@@ -243,19 +245,25 @@ export default function ChatComposer({
         </TouchableOpacity>
 
         <TouchableOpacity
-          onPress={onSend}
-          disabled={!canSend}
+          onPress={isSending ? onCancel : onSend}
+          disabled={!canPressPrimary}
           accessibilityRole="button"
-          accessibilityLabel="Send message"
-          accessibilityState={{ disabled: !canSend, busy: isSending }}
+          accessibilityLabel={isSending ? 'Stop generating' : 'Send message'}
+          accessibilityState={{ disabled: !canPressPrimary, busy: isSending }}
           hitSlop={4}
           style={[
             styles.sendButton,
-            { backgroundColor: canSend ? colors.tint : colors.border },
+            {
+              backgroundColor: isSending
+                ? colors.error
+                : canSend
+                  ? colors.tint
+                  : colors.border,
+            },
           ]}
         >
           {isSending ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <Ionicons name="stop" size={18} color="#FFFFFF" />
           ) : (
             <Ionicons
               name="arrow-up"

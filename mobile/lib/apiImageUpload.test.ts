@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
+  const addBreadcrumb = vi.fn();
+  const captureError = vi.fn();
+  const captureMessage = vi.fn();
   const post = vi.fn(async (
     _endpoint: string,
     _body: unknown,
@@ -18,6 +21,9 @@ const mocks = vi.hoisted(() => {
       post,
       put: vi.fn(),
     },
+    addBreadcrumb,
+    captureError,
+    captureMessage,
     post,
   };
 });
@@ -27,9 +33,9 @@ vi.mock('axios', () => ({
 }));
 vi.mock('./apiConfig', () => ({ API_BASE_URL: 'https://api.example.test' }));
 vi.mock('./sentry', () => ({
-  addBreadcrumb: vi.fn(),
-  captureError: vi.fn(),
-  captureMessage: vi.fn(),
+  addBreadcrumb: mocks.addBreadcrumb,
+  captureError: mocks.captureError,
+  captureMessage: mocks.captureMessage,
 }));
 
 class InspectableFormData {
@@ -40,7 +46,11 @@ class InspectableFormData {
   }
 }
 
-import { api } from './api';
+import {
+  api,
+  AUTH_TOKEN_MAX_ATTEMPTS,
+  AUTH_TOKEN_RETRY_DELAY_MS,
+} from './api';
 
 function uploadedFiles(formData: unknown, fieldName: string) {
   return (formData as InspectableFormData).fields
@@ -51,6 +61,9 @@ function uploadedFiles(formData: unknown, fieldName: string) {
 describe('recipe image multipart requests', () => {
   beforeEach(() => {
     mocks.post.mockClear();
+    mocks.addBreadcrumb.mockClear();
+    mocks.captureError.mockClear();
+    mocks.captureMessage.mockClear();
     vi.stubGlobal('FormData', InspectableFormData);
   });
 
@@ -162,5 +175,95 @@ describe('recipe image multipart requests', () => {
     expect(mocks.post.mock.calls.every(
       ([endpoint]) => endpoint === '/api/recipes/ai/delete-chat-images',
     )).toBe(true);
+  });
+
+  it('bounds token retries when Clerk returns no token', async () => {
+    vi.useFakeTimers();
+    const getToken = vi.fn(async () => null);
+    api.setTokenGetter(getToken);
+    const requestInterceptor = mocks.client.interceptors.request.use.mock.calls[0][0];
+
+    try {
+      const request = requestInterceptor({ url: '/api/chat/cooking', headers: {} });
+      await vi.advanceTimersByTimeAsync(
+        AUTH_TOKEN_RETRY_DELAY_MS * (AUTH_TOKEN_MAX_ATTEMPTS - 1),
+      );
+      await expect(request).resolves.toMatchObject({ headers: {} });
+      expect(getToken).toHaveBeenCalledTimes(AUTH_TOKEN_MAX_ATTEMPTS);
+    } finally {
+      api.setTokenGetter(null);
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels promptly while Clerk token retrieval is still pending', async () => {
+    const getToken = vi.fn(() => new Promise<string | null>(() => undefined));
+    const controller = new AbortController();
+    api.setTokenGetter(getToken);
+
+    try {
+      const request = api.streamChatCookingAssistant(
+        'Stop before the request starts',
+        [],
+        undefined,
+        undefined,
+        controller.signal,
+      );
+      controller.abort();
+      await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+      expect(getToken).toHaveBeenCalledOnce();
+    } finally {
+      api.setTokenGetter(null);
+    }
+  });
+
+  it('does not report token retrieval cancellation as an API failure', async () => {
+    const getToken = vi.fn(() => new Promise<string | null>(() => undefined));
+    const controller = new AbortController();
+    const requestInterceptor = mocks.client.interceptors.request.use.mock.calls[0][0];
+    const responseErrorInterceptor = mocks.client.interceptors.response.use.mock.calls[0][1];
+    api.setTokenGetter(getToken);
+
+    try {
+      const request = requestInterceptor({
+        url: '/api/chat/cooking',
+        headers: {},
+        signal: controller.signal,
+      });
+      controller.abort();
+      const cancellation = await request.catch((error: unknown) => error);
+
+      expect(cancellation).toMatchObject({ name: 'AbortError' });
+      await expect(responseErrorInterceptor(cancellation)).rejects.toBe(cancellation);
+      expect(mocks.addBreadcrumb).not.toHaveBeenCalled();
+      expect(mocks.captureError).not.toHaveBeenCalled();
+      expect(mocks.captureMessage).not.toHaveBeenCalled();
+    } finally {
+      api.setTokenGetter(null);
+    }
+  });
+
+  it('does not report an expected chat image upload cancellation as an API failure', async () => {
+    const controller = new AbortController();
+    const responseErrorInterceptor = mocks.client.interceptors.response.use.mock.calls[0][1];
+    const cancellation = {
+      name: 'CanceledError',
+      code: 'ERR_CANCELED',
+      message: 'canceled',
+      config: {
+        method: 'post',
+        signal: controller.signal,
+        url: '/api/recipes/ai/upload-chat-image',
+      },
+    };
+    mocks.post.mockImplementationOnce(async () => {
+      controller.abort();
+      return responseErrorInterceptor(cancellation);
+    });
+
+    await expect(api.uploadChatImage('base64-photo', controller.signal)).rejects.toBe(cancellation);
+    expect(mocks.addBreadcrumb).not.toHaveBeenCalled();
+    expect(mocks.captureError).not.toHaveBeenCalled();
+    expect(mocks.captureMessage).not.toHaveBeenCalled();
   });
 });

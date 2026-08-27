@@ -55,23 +55,49 @@ export function beginMessageDelivery(
   };
 }
 
-/** Insert the assistant response immediately after the delivered user bubble. */
+/** Insert or update one non-persisted partial assistant response after its user message. */
+export function upsertStreamingResponse(
+  messages: ChatUiMessage[],
+  userMessageId: string,
+  assistantMessage: ChatUiMessage,
+  imageUrl?: string,
+): ChatUiMessage[] {
+  const withoutPartial = messages.filter((message) => message.id !== assistantMessage.id);
+  const userIndex = withoutPartial.findIndex((message) => message.id === userMessageId);
+  if (userIndex < 0) return messages;
+  const acceptedMessages = withoutPartial.map((message) => message.id === userMessageId
+    ? { ...message, status: 'sent' as const, image_url: imageUrl || message.image_url }
+    : message);
+  return [
+    ...acceptedMessages.slice(0, userIndex + 1),
+    assistantMessage,
+    ...acceptedMessages.slice(userIndex + 1),
+  ];
+}
+
+/** Insert the final assistant response immediately after the delivered user bubble. */
 export function completeMessageDelivery(
   messages: ChatUiMessage[],
   userMessageId: string,
   assistantMessage: ChatUiMessage,
   imageUrl?: string,
 ): ChatUiMessage[] {
-  const userIndex = messages.findIndex((message) => message.id === userMessageId);
-  if (userIndex < 0) return messages;
-  const deliveredMessages = messages.map((message) => message.id === userMessageId
-    ? { ...message, status: 'sent' as const, image_url: imageUrl || message.image_url }
-    : message);
-  return [
-    ...deliveredMessages.slice(0, userIndex + 1),
-    assistantMessage,
-    ...deliveredMessages.slice(userIndex + 1),
-  ];
+  return upsertStreamingResponse(messages, userMessageId, assistantMessage, imageUrl);
+}
+
+/** Remove a partial answer and mark its originating user message for retry or cancellation. */
+export function interruptMessageDelivery(
+  messages: ChatUiMessage[],
+  userMessageId: string,
+  assistantMessageId: string,
+  status: 'failed' | 'cancelled',
+  errorMessage: string,
+): ChatUiMessage[] {
+  return messages
+    .filter((message) => message.id !== assistantMessageId)
+    .map((message) => message.id === userMessageId
+      ? { ...message, status, error_message: errorMessage }
+      : message);
 }
 
 /** Select the newest complete, delivered turns that fit the provider budget. */

@@ -4,11 +4,13 @@ import type { ChatMessage } from '@/types/recipe';
 import {
   beginMessageDelivery,
   completeMessageDelivery,
+  interruptMessageDelivery,
   LEGACY_CHAT_ERROR_MESSAGE,
   MAX_CHAT_CONTEXT_MESSAGES,
   normalizeStoredChatMessages,
   messagesForStorage,
   selectChatContext,
+  upsertStreamingResponse,
 } from './chatContext';
 
 describe('selectChatContext', () => {
@@ -121,6 +123,69 @@ describe('message delivery ordering', () => {
       'retried-answer',
       'later-user',
       'later-answer',
+    ]);
+  });
+
+  it('updates a partial answer in place and replaces it on completion', () => {
+    const [user] = normalizeStoredChatMessages([
+      { id: 'user', role: 'user', content: 'question', status: 'sending' },
+    ]);
+    const partial = {
+      id: 'assistant',
+      role: 'assistant' as const,
+      content: 'partial',
+      status: 'sending' as const,
+    };
+    const streamed = upsertStreamingResponse([user], user.id, partial);
+    const updated = upsertStreamingResponse(streamed, user.id, {
+      ...partial,
+      content: 'partial answer',
+    });
+    const completed = completeMessageDelivery(updated, user.id, {
+      ...partial,
+      content: 'complete answer',
+      status: 'sent',
+    });
+
+    expect(updated.map((message) => message.content)).toEqual(['question', 'partial answer']);
+    expect(completed).toHaveLength(2);
+    expect(completed[1]).toMatchObject({ content: 'complete answer', status: 'sent' });
+  });
+
+  it('ignores a streamed response after its user message leaves the conversation', () => {
+    const messages = normalizeStoredChatMessages([
+      { id: 'current-user', role: 'user', content: 'current question' },
+      { id: 'current-answer', role: 'assistant', content: 'current answer' },
+    ]);
+
+    const result = upsertStreamingResponse(messages, 'prior-user', {
+      id: 'prior-partial',
+      role: 'assistant',
+      content: 'late partial from another conversation',
+      status: 'sending',
+    });
+
+    expect(result).toBe(messages);
+    expect(result).toEqual(messages);
+  });
+
+  it('removes partial output and preserves a cancellable user message', () => {
+    const messages = normalizeStoredChatMessages([
+      { id: 'user', role: 'user', content: 'question' },
+      { id: 'assistant', role: 'assistant', content: 'partial', status: 'sending' },
+    ]);
+    expect(interruptMessageDelivery(
+      messages,
+      'user',
+      'assistant',
+      'cancelled',
+      'Response stopped. You can retry this message.',
+    )).toEqual([
+      expect.objectContaining({
+        id: 'user',
+        status: 'cancelled',
+        error_message: 'Response stopped. You can retry this message.',
+      }),
     ]);
   });
 });

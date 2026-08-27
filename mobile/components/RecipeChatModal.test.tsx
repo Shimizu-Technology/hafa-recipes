@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: 'clerk-subject' }) }));
+vi.mock('expo/fetch', () => ({ fetch: vi.fn() }));
 
 vi.mock('react-native', () => ({
   ActivityIndicator: 'ActivityIndicator',
@@ -142,6 +143,13 @@ function deferred<T>(): Deferred<T> {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+/** Match the abort shape emitted by fetch when a request is cancelled. */
+function abortError(): Error {
+  const error = new Error('Aborted');
+  error.name = 'AbortError';
+  return error;
 }
 
 /** Build the minimum recipe shape needed by the chat modal. */
@@ -495,9 +503,14 @@ describe('RecipeChatModal conversation isolation', () => {
   });
 
   it.each([
-    ['success', { response: 'origin answer' }, undefined],
-    ['failure', undefined, { response: { status: 503 } }],
-  ])('persists a pending %s to its originating recipe', async (_label, result, error) => {
+    ['success', { response: 'origin answer' }, undefined, 'sent'],
+    ['interruption', undefined, abortError(), 'cancelled'],
+  ])('persists a pending %s to its originating recipe', async (
+    _label,
+    result,
+    error,
+    expectedStatus,
+  ) => {
     const pendingSend = deferred<{ response: string }>();
     mocks.getItem.mockResolvedValue(null);
     mocks.recipeMutate.mockImplementation(() => pendingSend.promise);
@@ -519,13 +532,81 @@ describe('RecipeChatModal conversation isolation', () => {
       expect(firstWrites.length).toBeGreaterThanOrEqual(2);
       const finalMessages = JSON.parse(firstWrites.at(-1)![1]);
       if (error) {
-        expect(finalMessages.at(-1).status).toBe('failed');
+        expect(finalMessages.at(-1).status).toBe(expectedStatus);
       } else {
         expect(finalMessages.at(-1).content).toBe('origin answer');
       }
       expect(mocks.setItem.mock.calls.filter(
         ([key]) => key === 'hafa.chat.v2.stable-user.recipe.second',
       )).toEqual([]);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('marks a non-aborted service failure as failed', async () => {
+    const pendingSend = deferred<{ response: string }>();
+    mocks.recipeMutate.mockImplementation(() => pendingSend.promise);
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      await sendText(renderer, 'Can you help?');
+      await act(async () => pendingSend.reject({ response: { status: 503 } }));
+
+      const stored = JSON.parse(mocks.storageValues.get(
+        'hafa.chat.v2.stable-user.recipe.first',
+      )!);
+      expect(stored.at(-1).status).toBe('failed');
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Retry message',
+      )).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('renders progressive text and lets the user stop a response', async () => {
+    const pendingSend = deferred<{ response: string }>();
+    let requestSignal: AbortSignal | undefined;
+    mocks.recipeMutate.mockImplementation((variables: unknown) => {
+      const stream = variables as {
+        onDelta?: (delta: string, response: string) => void;
+        signal?: AbortSignal;
+      };
+      requestSignal = stream.signal;
+      stream.onDelta?.('Use low heat.', 'Use low heat.');
+      return pendingSend.promise;
+    });
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      await sendText(renderer, 'How should I warm this?');
+
+      expect(requestSignal?.aborted).toBe(false);
+      const textDuringStream = renderer.container.queryAll(
+        (instance) => instance.type === 'Text',
+      ).map((instance) => instance.props.children);
+      expect(textDuringStream).toContain('Use low heat.');
+      expect(textDuringStream).not.toContain('Thinking...');
+      const stopButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Stop generating',
+      )[0];
+      expect(stopButton.props.disabled).toBe(false);
+
+      await act(async () => stopButton.props.onPress());
+      expect(requestSignal?.aborted).toBe(true);
+      await act(async () => pendingSend.reject(abortError()));
+
+      const textAfterStop = renderer.container.queryAll(
+        (instance) => instance.type === 'Text',
+      ).map((instance) => instance.props.children);
+      expect(textAfterStop).not.toContain('Use low heat.');
+      expect(textAfterStop).toContain('Response stopped.');
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Retry message',
+      )).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());
     }
