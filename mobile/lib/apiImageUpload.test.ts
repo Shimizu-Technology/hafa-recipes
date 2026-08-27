@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
+  const addBreadcrumb = vi.fn();
+  const captureError = vi.fn();
+  const captureMessage = vi.fn();
   const post = vi.fn(async (
     _endpoint: string,
     _body: unknown,
@@ -18,6 +21,9 @@ const mocks = vi.hoisted(() => {
       post,
       put: vi.fn(),
     },
+    addBreadcrumb,
+    captureError,
+    captureMessage,
     post,
   };
 });
@@ -27,9 +33,9 @@ vi.mock('axios', () => ({
 }));
 vi.mock('./apiConfig', () => ({ API_BASE_URL: 'https://api.example.test' }));
 vi.mock('./sentry', () => ({
-  addBreadcrumb: vi.fn(),
-  captureError: vi.fn(),
-  captureMessage: vi.fn(),
+  addBreadcrumb: mocks.addBreadcrumb,
+  captureError: mocks.captureError,
+  captureMessage: mocks.captureMessage,
 }));
 
 class InspectableFormData {
@@ -55,6 +61,9 @@ function uploadedFiles(formData: unknown, fieldName: string) {
 describe('recipe image multipart requests', () => {
   beforeEach(() => {
     mocks.post.mockClear();
+    mocks.addBreadcrumb.mockClear();
+    mocks.captureError.mockClear();
+    mocks.captureMessage.mockClear();
     vi.stubGlobal('FormData', InspectableFormData);
   });
 
@@ -206,5 +215,29 @@ describe('recipe image multipart requests', () => {
     } finally {
       api.setTokenGetter(null);
     }
+  });
+
+  it('does not report an expected chat image upload cancellation as an API failure', async () => {
+    const controller = new AbortController();
+    const responseErrorInterceptor = mocks.client.interceptors.response.use.mock.calls[0][1];
+    const cancellation = {
+      name: 'CanceledError',
+      code: 'ERR_CANCELED',
+      message: 'canceled',
+      config: {
+        method: 'post',
+        signal: controller.signal,
+        url: '/api/recipes/ai/upload-chat-image',
+      },
+    };
+    mocks.post.mockImplementationOnce(async () => {
+      controller.abort();
+      return responseErrorInterceptor(cancellation);
+    });
+
+    await expect(api.uploadChatImage('base64-photo', controller.signal)).rejects.toBe(cancellation);
+    expect(mocks.addBreadcrumb).not.toHaveBeenCalled();
+    expect(mocks.captureError).not.toHaveBeenCalled();
+    expect(mocks.captureMessage).not.toHaveBeenCalled();
   });
 });

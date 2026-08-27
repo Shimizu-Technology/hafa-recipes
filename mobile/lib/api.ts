@@ -168,6 +168,10 @@ class ApiClient {
         return response;
       },
       (error) => {
+        const isCancelled = error?.code === 'ERR_CANCELED'
+          || error?.name === 'CanceledError'
+          || error?.config?.signal?.aborted;
+        if (isCancelled) return Promise.reject(error);
         const status = error.response?.status;
         const isNetworkError = !error.response && error.message === 'Network Error';
         const isTimeout = error.code === 'ECONNABORTED' || error.message?.includes('timeout');
