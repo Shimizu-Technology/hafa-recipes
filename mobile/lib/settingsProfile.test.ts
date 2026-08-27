@@ -20,4 +20,16 @@ describe('settings profile presentation', () => {
   it('uses a stable guest label while Clerk is signed out', () => {
     expect(resolveSettingsProfileName(false, null)).toBe('Guest User');
   });
+
+  it('falls back to the first email when Clerk has no primary address', () => {
+    expect(resolveSettingsProfileEmail({
+      primaryEmailAddress: null,
+      emailAddresses: [{ emailAddress: 'fallback@example.com' }],
+    })).toBe('fallback@example.com');
+  });
+
+  it('returns no visible email when Clerk has no address', () => {
+    expect(resolveSettingsProfileEmail({ emailAddresses: [] })).toBeUndefined();
+    expect(resolveSettingsProfileEmail(null)).toBeUndefined();
+  });
 });
