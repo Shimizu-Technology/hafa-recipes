@@ -14,6 +14,9 @@ const mocks = vi.hoisted(() => ({
   removeItem: vi.fn<(key: string) => Promise<void>>(async () => undefined),
   recipeMutate: vi.fn<(variables: unknown) => Promise<{ response: string }>>(),
   cookingMutate: vi.fn<(variables: unknown) => Promise<{ response: string }>>(),
+  speak: vi.fn(async () => undefined),
+  stop: vi.fn(async () => undefined),
+  ttsState: { isLoading: false, isPlaying: false },
 }));
 
 vi.mock('react-native', () => ({
@@ -81,10 +84,10 @@ vi.mock('@/hooks/useChat', () => ({
 }));
 vi.mock('@/hooks/useTTS', () => ({
   useTTS: () => ({
-    speak: vi.fn(async () => undefined),
-    stop: vi.fn(async () => undefined),
-    isPlaying: false,
-    isLoading: false,
+    speak: mocks.speak,
+    stop: mocks.stop,
+    isPlaying: mocks.ttsState.isPlaying,
+    isLoading: mocks.ttsState.isLoading,
   }),
 }));
 vi.mock('@/lib/api', () => ({
@@ -146,6 +149,10 @@ describe('RecipeChatModal conversation isolation', () => {
     mocks.removeItem.mockClear();
     mocks.recipeMutate.mockReset();
     mocks.cookingMutate.mockReset();
+    mocks.speak.mockClear();
+    mocks.stop.mockClear();
+    mocks.ttsState.isLoading = false;
+    mocks.ttsState.isPlaying = false;
   });
 
   it('ignores a stale history read after switching recipes', async () => {
@@ -172,12 +179,42 @@ describe('RecipeChatModal conversation isolation', () => {
       ).map((instance) => instance.props.children);
       expect(text).toContain('second history');
       expect(text).not.toContain('stale first history');
-      expect(renderer.container.queryAll(
+      const copyButtons = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Copy message',
-      )).toHaveLength(2);
-      expect(renderer.container.queryAll(
+      );
+      expect(copyButtons).toHaveLength(2);
+      expect(copyButtons.every((button) => button.props.accessibilityRole === 'button')).toBe(true);
+      const speechButtons = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Read response aloud',
-      )).toHaveLength(1);
+      );
+      expect(speechButtons).toHaveLength(1);
+      expect(speechButtons[0].props.accessibilityRole).toBe('button');
+      expect(speechButtons[0].props.accessibilityState).toEqual({ disabled: false });
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('exposes speech loading as a disabled button state', async () => {
+    mocks.ttsState.isLoading = true;
+    mocks.getItem.mockResolvedValue(JSON.stringify([
+      { id: 'question', role: 'user', content: 'question' },
+      { id: 'answer', role: 'assistant', content: 'answer' },
+    ]));
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      const speechButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Read response aloud',
+      )[0];
+      await act(async () => speechButton.props.onPress());
+      const loadingSpeechButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Read response aloud',
+      )[0];
+      expect(loadingSpeechButton.props.disabled).toBe(true);
+      expect(loadingSpeechButton.props.accessibilityRole).toBe('button');
+      expect(loadingSpeechButton.props.accessibilityState).toEqual({ disabled: true });
     } finally {
       await act(async () => renderer.unmount());
     }
