@@ -9,8 +9,7 @@ const importScreenSource = readFileSync(
 
 describe('production App Store copy', () => {
   it('presents AI extraction as a finished feature instead of a beta', () => {
-    expect(importScreenSource).not.toMatch(/free during beta/i);
-    expect(importScreenSource).not.toContain('>BETA<');
+    expect(importScreenSource).not.toMatch(/\bbeta\b/i);
     expect(importScreenSource).toContain('>AI-ASSISTED<');
     expect(importScreenSource).toContain(
       'AI-assisted extraction. Check the ingredients and directions before saving.',
