@@ -123,4 +123,28 @@ describe('FloatingChatButton layout helpers', () => {
       await act(async () => renderer.unmount());
     }
   });
+
+  it('keeps chat closed when the guest prompt disappears and returns', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => renderer.render(React.createElement(FloatingChatButton)));
+      const button = renderer.container.queryAll(
+        (instance) => instance.type === 'TouchableOpacity',
+      )[0];
+      await act(async () => button.props.onPress());
+
+      mocks.guestPromptHeight = 0;
+      await act(async () => renderer.render(React.createElement(FloatingChatButton)));
+      expect(renderer.container.queryAll(() => true)).toHaveLength(0);
+
+      mocks.guestPromptHeight = 140;
+      await act(async () => renderer.render(React.createElement(FloatingChatButton)));
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'RecipeChatModal' && !instance.props.isVisible,
+      )).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
 });
