@@ -93,9 +93,13 @@ export default function ChatComposer({
             <Image source={{ uri: attachedImageUri }} style={styles.attachedImagePreview} />
             <TouchableOpacity
               style={[styles.removeImageButton, { backgroundColor: colors.error }]}
-              onPress={onRemoveImage}
+              onPress={() => {
+                if (!areAttachmentsDisabled) onRemoveImage();
+              }}
+              disabled={areAttachmentsDisabled}
               accessibilityRole="button"
               accessibilityLabel="Remove attached photo"
+              accessibilityState={{ disabled: areAttachmentsDisabled }}
               hitSlop={8}
             >
               <Ionicons name="close" size={15} color="#FFFFFF" />
@@ -155,7 +159,9 @@ export default function ChatComposer({
 
       <RNView style={styles.inputRow}>
         <TouchableOpacity
-          onPress={() => setAttachmentsOpen((open) => !open)}
+          onPress={() => {
+            if (!areAttachmentsDisabled) setAttachmentsOpen((open) => !open);
+          }}
           disabled={areAttachmentsDisabled}
           accessibilityRole="button"
           accessibilityLabel={attachmentsOpen ? 'Close attachment options' : 'Add attachment'}
