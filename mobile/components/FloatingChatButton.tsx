@@ -21,7 +21,7 @@ import Animated, {
 import { Text, useColors } from '@/components/Themed';
 import RecipeChatModal from '@/components/RecipeChatModal';
 import { haptics } from '@/utils/haptics';
-import { brand, spacing } from '@/constants/Colors';
+import { brand, fontFamily, fontSize, radius, spacing } from '@/constants/Colors';
 import { floatingChatBottom, isFloatingChatPath } from '@/lib/floatingChatLayout';
 import { useGuestPromptHeight } from '../lib/guestPromptLayout';
 
@@ -93,23 +93,24 @@ export default function FloatingChatButton() {
         ]}
       >
         <Animated.View style={animatedStyle}>
-          {/* Outer glow/shadow layer */}
           <RNView style={[styles.fabShadow, { shadowColor: colors.tint }]}>
             <TouchableOpacity
               style={styles.fabTouchable}
               onPress={handlePress}
               activeOpacity={0.9}
+              accessibilityRole="button"
+              accessibilityLabel="Ask Håfa cooking assistant"
+              accessibilityHint="Opens cooking help"
             >
-              {/* Gradient background */}
               <LinearGradient
-                colors={[colors.tint, brand.clay]}
+                colors={[colors.tint, brand.reefBright]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.fabGradient}
               >
-                {/* Inner content with icon */}
                 <RNView style={styles.fabContent}>
-                  <Ionicons name="chatbubble-ellipses" size={24} color="#FFFFFF" />
+                  <Ionicons name="sparkles" size={18} color="#FFFFFF" />
+                  <Text style={styles.fabLabel}>Ask Håfa</Text>
                 </RNView>
               </LinearGradient>
             </TouchableOpacity>
@@ -133,26 +134,32 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   fabShadow: {
-    borderRadius: 28,
-    // Soft glow shadow
+    borderRadius: radius.full,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 10,
+    shadowOpacity: 0.24,
+    shadowRadius: 10,
+    elevation: 8,
   },
   fabTouchable: {
-    borderRadius: 28,
+    borderRadius: radius.full,
     overflow: 'hidden',
   },
   fabGradient: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    minHeight: 52,
+    borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: spacing.md,
   },
   fabContent: {
     alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
     justifyContent: 'center',
+  },
+  fabLabel: {
+    color: '#FFFFFF',
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSize.sm,
   },
 });

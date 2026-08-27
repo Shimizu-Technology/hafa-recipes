@@ -12,7 +12,7 @@ import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Text, useColors } from '@/components/Themed';
-import { fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
+import { fontFamily, fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
 import { CHAT_MESSAGE_MAX_CHARS } from '../lib/chatComposer';
 
 interface ChatComposerProps {
@@ -294,6 +294,9 @@ export default function ChatComposer({
           )}
         </TouchableOpacity>
       </RNView>
+      <Text style={[styles.aiNote, { color: colors.textMuted }]}>
+        Håfa can make mistakes. Double-check food-safety guidance.
+      </Text>
     </RNView>
   );
 }
@@ -337,6 +340,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
     gap: spacing.sm,
+  },
+  aiNote: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.xs,
+    lineHeight: 15,
+    textAlign: 'center',
   },
   attachedImageContainer: {
     flexDirection: 'row',
