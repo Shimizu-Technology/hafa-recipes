@@ -36,7 +36,7 @@ import ChatComposer from './ChatComposer';
 import { Recipe, ChatMessage } from '@/types/recipe';
 import { useChatWithRecipe, useCookingChat } from '@/hooks/useChat';
 import { useTTS } from '@/hooks/useTTS';
-import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { spacing, fontFamily, fontSize, fontWeight, radius } from '@/constants/Colors';
 import {
   Markdown,
   type RenderRules,
@@ -55,6 +55,7 @@ import {
 } from '../lib/chatContext';
 import { chatErrorMessage } from '../lib/chatErrors';
 import { isChatAbortError } from '../lib/chatStream';
+import { trackChatEvent, type ChatMode } from '../lib/chatTelemetry';
 import { applyVoiceTranscript, chatVoiceError } from '../lib/chatVoice';
 import {
   chatSpeechRecognitionModule,
@@ -117,6 +118,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   
   // Determine mode: recipe-specific or general cooking
   const isGeneralMode = !recipe;
+  const chatMode: ChatMode = isGeneralMode ? 'general' : 'recipe';
   const quickSuggestions = isGeneralMode ? COOKING_SUGGESTIONS : RECIPE_SUGGESTIONS;
   const { userId: clerkUserId } = useAuth();
   const [storageKey, setStorageKey] = useState<string | null>(null);
@@ -136,6 +138,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const lastScrollAtRef = useRef(0);
   const voiceBaseTextRef = useRef('');
   const voiceSessionActiveRef = useRef(false);
+  const wasVisibleRef = useRef(false);
   const [inputText, setInputText] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -168,6 +171,13 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     error: ttsError,
     clearError: clearTTSError,
   } = useTTS();
+
+  useEffect(() => {
+    if (isVisible && !wasVisibleRef.current) {
+      trackChatEvent('opened', { mode: chatMode });
+    }
+    wasVisibleRef.current = isVisible;
+  }, [chatMode, isVisible]);
 
   /** Keep text state synchronized for close and conversation-switch draft saves. */
   const updateInputText = useCallback((text: string) => {
@@ -220,6 +230,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const showVoiceError = useCallback((code: string) => {
     const guidance = chatVoiceError(code);
     if (!guidance) return;
+    trackChatEvent('voice_failed', { mode: chatMode });
     Alert.alert(
       guidance.title,
       guidance.message,
@@ -233,7 +244,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         ]
         : [{ text: 'OK' }],
     );
-  }, []);
+  }, [chatMode]);
   
   // Speech recognition event handlers
   useChatSpeechRecognitionEvent('start', () => {
@@ -350,6 +361,11 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     updateInputText('');
     setAttachedImage(null);
     setAttachedImageUri(null);
+    if (!clerkUserId) {
+      setHistoryError('Sign in to use Ask Håfa and keep your conversations private.');
+      setIsLoadingHistory(false);
+      return;
+    }
     void (async () => {
       try {
         const identity = await api.getCurrentUserIdentity();
@@ -738,6 +754,13 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     };
     const deliveryStart = beginMessageDelivery(messagesRef.current, sendingMessage);
     const previousMessages = deliveryStart.contextMessages;
+    const historyForApi = selectChatContext(previousMessages);
+    const deliveryStartedAt = Date.now();
+    trackChatEvent('message_started', {
+      mode: chatMode,
+      hasImage: Boolean(imageToSend),
+      contextMessageCount: historyForApi.length,
+    });
     let sendingMessages = deliveryStart.displayMessages;
     updateMessages(sendingMessages);
     await saveChatHistory(sendingMessages, conversationKey);
@@ -770,7 +793,6 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
       const requestContent = sendingMessage.request_content || sendingMessage.content;
       // The user bubble is the current request.message. For a retry, history
       // intentionally contains only complete turns that preceded that bubble.
-      const historyForApi = selectChatContext(previousMessages);
       const onDelta = (_delta: string, responseText: string) => {
         const currentMessages = activeStorageKeyRef.current === conversationKey
           ? messagesRef.current
@@ -824,6 +846,12 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
       if (activeStorageKeyRef.current === conversationKey) updateMessages(finalMessages);
       retryImagesRef.current.delete(sendingMessage.id);
       await saveChatHistory(finalMessages, conversationKey);
+      trackChatEvent('message_completed', {
+        mode: chatMode,
+        hasImage: Boolean(imageToSend),
+        contextMessageCount: historyForApi.length,
+        durationMs: Date.now() - deliveryStartedAt,
+      });
     } catch (error) {
       const cancelled = isChatAbortError(error, abortController.signal);
       const currentMessages = activeStorageKeyRef.current === conversationKey
@@ -838,6 +866,12 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
       );
       if (activeStorageKeyRef.current === conversationKey) updateMessages(interruptedMessages);
       await saveChatHistory(interruptedMessages, conversationKey);
+      trackChatEvent(cancelled ? 'message_cancelled' : 'message_failed', {
+        mode: chatMode,
+        hasImage: Boolean(imageToSend),
+        contextMessageCount: historyForApi.length,
+        durationMs: Date.now() - deliveryStartedAt,
+      });
     } finally {
       if (abortControllerRef.current === abortController) {
         abortControllerRef.current = null;
@@ -974,19 +1008,29 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         {/* Header */}
         <RNView style={[styles.header, { borderBottomColor: colors.border }]}>
           <RNView style={styles.headerContent}>
-            <Ionicons name={isGeneralMode ? "restaurant" : "chatbubbles"} size={24} color={colors.tint} />
+            <RNView style={[styles.assistantMark, { backgroundColor: colors.tint }]}>
+              <Ionicons name="sparkles" size={18} color="#FFFFFF" />
+            </RNView>
             <RNView style={styles.headerTextContainer}>
               <Text style={[styles.headerTitle, { color: colors.text }]}>
-                {isGeneralMode ? "Cooking Assistant" : "Recipe Assistant"}
+                Ask Håfa
               </Text>
               {!isGeneralMode && recipe && (
-                <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
-                  {recipe.extracted.title}
-                </Text>
+                <TouchableOpacity
+                  onPress={handleClose}
+                  style={styles.recipeBackLink}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Back to recipe: ${recipe.extracted.title}`}
+                >
+                  <Ionicons name="chevron-back" size={13} color={colors.tint} />
+                  <Text style={[styles.recipeBackText, { color: colors.tint }]} numberOfLines={1}>
+                    {recipe.extracted.title}
+                  </Text>
+                </TouchableOpacity>
               )}
               {isGeneralMode && (
                 <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
-                  Ask me anything about cooking!
+                  Cooking help, whenever you need it
                 </Text>
               )}
             </RNView>
@@ -1046,17 +1090,22 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
 
           {/* Welcome message */}
           {!isLoadingHistory && !historyError && messages.length === 0 && (
-            <RNView style={styles.welcomeContainer}>
-              <Ionicons name="sparkles" size={48} color={colors.tint} />
+            <RNView style={[styles.welcomeCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <RNView style={[styles.welcomeIcon, { backgroundColor: colors.backgroundSecondary }]}>
+                <Ionicons name="sparkles" size={28} color={colors.tint} />
+              </RNView>
+              <Text style={[styles.welcomeEyebrow, { color: colors.tint }]}>
+                Håfa cooking assistant
+              </Text>
               <Text style={[styles.welcomeTitle, { color: colors.text }]}>
                 {isGeneralMode 
-                  ? "Your personal cooking assistant!" 
-                  : "Ask me anything about this recipe!"}
+                  ? "What are you cooking?"
+                  : "Let’s make this recipe work for you."}
               </Text>
               <Text style={[styles.welcomeSubtitle, { color: colors.textSecondary }]}>
                 {isGeneralMode
-                  ? "I can help with recipe ideas, cooking tips, food safety, ingredient substitutions, and more."
-                  : "I can help with substitutions, scaling, cooking tips, dietary modifications, and more."}
+                  ? "Get ideas from what you have, troubleshoot a technique, or ask a food-safety question."
+                  : "Ask about substitutions, scaling, timing, technique, or dietary changes."}
               </Text>
               <Text style={[styles.photoPrivacyNotice, { color: colors.textMuted }]}>
                 Photos are sent to our AI provider and stored with this chat. Don&apos;t upload sensitive personal information.
@@ -1068,13 +1117,13 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           {!isLoadingHistory && !historyError && messages.length === 0 && (
             <RNView style={styles.suggestionsContainer}>
               <Text style={[styles.suggestionsTitle, { color: colors.textMuted }]}>
-                Try asking:
+                A few ways to start
               </Text>
               <RNView style={styles.suggestionsWrap}>
                 {quickSuggestions.map((suggestion) => (
                   <TouchableOpacity
                     key={suggestion}
-                    style={[styles.suggestionChip, { backgroundColor: colors.card, borderColor: colors.border }]}
+                    style={[styles.suggestionChip, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}
                     onPress={() => handleSuggestionPress(suggestion)}
                     accessibilityRole="button"
                     accessibilityLabel={suggestion}
@@ -1088,12 +1137,12 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
             </RNView>
           )}
 
-          {/* Previous conversation indicator */}
+          {/* Device-local conversation indicator */}
           {!isLoadingHistory && messages.length > 0 && (
             <RNView style={[styles.previousConvoIndicator, { backgroundColor: colors.backgroundSecondary }]}>
-              <Ionicons name="time-outline" size={14} color={colors.textMuted} />
+              <Ionicons name="lock-closed-outline" size={13} color={colors.textMuted} />
               <Text style={[styles.previousConvoText, { color: colors.textMuted }]}>
-                Previous conversation
+                Saved on this device
               </Text>
             </RNView>
           )}
@@ -1107,6 +1156,14 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                 msg.role === 'user' ? styles.userWrapper : styles.assistantWrapper,
               ]}
             >
+              {msg.role === 'assistant' && (
+                <RNView style={styles.assistantIdentity}>
+                  <RNView style={[styles.assistantIdentityIcon, { backgroundColor: colors.backgroundSecondary }]}>
+                    <Ionicons name="sparkles" size={12} color={colors.tint} />
+                  </RNView>
+                  <Text style={[styles.assistantIdentityText, { color: colors.textMuted }]}>Håfa</Text>
+                </RNView>
+              )}
               {/* Message Bubble */}
               <RNView
                 style={[
@@ -1143,9 +1200,9 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                     rules={CHAT_MARKDOWN_RULES}
                     onLinkPress={handleAssistantLink}
                     style={{
-                      body: { color: colors.text, fontSize: fontSize.md, lineHeight: 24, flexShrink: 1 },
+                      body: { color: colors.text, fontFamily: fontFamily.regular, fontSize: fontSize.md, lineHeight: 24, flexShrink: 1 },
                       paragraph: { marginVertical: 4, flexShrink: 1 },
-                      strong: { fontWeight: '700', color: colors.text },
+                      strong: { fontFamily: fontFamily.bold, color: colors.text },
                       em: { fontStyle: 'italic' },
                       bullet_list: { marginVertical: 4 },
                       ordered_list: { marginVertical: 4 },
@@ -1154,9 +1211,9 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                       ordered_list_icon: { color: colors.tint, fontWeight: '600', marginRight: 8 },
                       bullet_list_content: { flexShrink: 1 },
                       ordered_list_content: { flexShrink: 1 },
-                      heading1: { fontSize: fontSize.xl, fontWeight: '700', color: colors.text, marginVertical: 8 },
-                      heading2: { fontSize: fontSize.lg, fontWeight: '600', color: colors.text, marginVertical: 6 },
-                      heading3: { fontSize: fontSize.md, fontWeight: '600', color: colors.text, marginVertical: 4 },
+                      heading1: { fontFamily: fontFamily.display, fontSize: fontSize.xl, color: colors.text, marginVertical: 8 },
+                      heading2: { fontFamily: fontFamily.displaySemibold, fontSize: fontSize.lg, color: colors.text, marginVertical: 6 },
+                      heading3: { fontFamily: fontFamily.semibold, fontSize: fontSize.md, color: colors.text, marginVertical: 4 },
                       code_inline: { backgroundColor: colors.backgroundSecondary, paddingHorizontal: 4, borderRadius: 4, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
                       fence: { backgroundColor: colors.backgroundSecondary, padding: 8, borderRadius: 8, marginVertical: 4 },
                       link: { color: colors.tint },
@@ -1293,8 +1350,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    minHeight: 76,
+    paddingVertical: spacing.sm,
     borderBottomWidth: 1,
+  },
+  assistantMark: {
+    alignItems: 'center',
+    borderRadius: radius.md,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
   },
   headerContent: {
     flexDirection: 'row',
@@ -1307,9 +1372,22 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: fontSize.lg,
-    fontWeight: fontWeight.semibold,
+    fontFamily: fontFamily.displaySemibold,
   },
   headerSubtitle: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.sm,
+  },
+  recipeBackLink: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    minHeight: 24,
+    maxWidth: '100%',
+  },
+  recipeBackText: {
+    flexShrink: 1,
+    fontFamily: fontFamily.medium,
     fontSize: fontSize.sm,
   },
   headerButtons: {
@@ -1318,7 +1396,10 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   headerButton: {
-    padding: spacing.xs,
+    alignItems: 'center',
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
   },
   loadingHistoryText: {
     marginTop: spacing.md,
@@ -1349,6 +1430,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   previousConvoText: {
+    fontFamily: fontFamily.medium,
     fontSize: fontSize.xs,
   },
   messagesContainer: {
@@ -1363,15 +1445,35 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xl,
     paddingHorizontal: spacing.lg,
   },
+  welcomeCard: {
+    alignItems: 'flex-start',
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    padding: spacing.lg,
+  },
+  welcomeIcon: {
+    alignItems: 'center',
+    borderRadius: radius.lg,
+    height: 52,
+    justifyContent: 'center',
+    width: 52,
+  },
+  welcomeEyebrow: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.xs,
+    letterSpacing: 0.8,
+    marginTop: spacing.md,
+    textTransform: 'uppercase',
+  },
   welcomeTitle: {
     fontSize: fontSize.xl,
-    fontWeight: fontWeight.semibold,
-    textAlign: 'center',
-    marginTop: spacing.md,
+    fontFamily: fontFamily.display,
+    lineHeight: 27,
+    marginTop: spacing.xs,
   },
   welcomeSubtitle: {
+    fontFamily: fontFamily.regular,
     fontSize: fontSize.md,
-    textAlign: 'center',
     marginTop: spacing.sm,
     lineHeight: 22,
   },
@@ -1380,14 +1482,13 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: spacing.md,
     maxWidth: 320,
-    textAlign: 'center',
   },
   suggestionsContainer: {
     marginTop: spacing.lg,
   },
   suggestionsTitle: {
+    fontFamily: fontFamily.semibold,
     fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
     marginBottom: spacing.sm,
   },
   suggestionsWrap: {
@@ -1402,8 +1503,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   suggestionText: {
+    fontFamily: fontFamily.medium,
     fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
   },
   messageWrapper: {
     marginBottom: spacing.md,
@@ -1414,6 +1515,24 @@ const styles = StyleSheet.create({
   },
   assistantWrapper: {
     alignSelf: 'flex-start',
+  },
+  assistantIdentity: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.xs,
+    marginBottom: spacing.xs,
+    marginLeft: spacing.xs,
+  },
+  assistantIdentityIcon: {
+    alignItems: 'center',
+    borderRadius: radius.full,
+    height: 24,
+    justifyContent: 'center',
+    width: 24,
+  },
+  assistantIdentityText: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSize.xs,
   },
   messageBubble: {
     padding: spacing.md,
@@ -1468,6 +1587,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   messageText: {
+    fontFamily: fontFamily.regular,
     fontSize: fontSize.md,
     lineHeight: 22,
   },

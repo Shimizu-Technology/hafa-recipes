@@ -41,10 +41,12 @@ const mocks = vi.hoisted(() => {
     speechPermissions: vi.fn(async () => ({ granted: true })),
     speechAvailable: vi.fn(() => true),
     alert: vi.fn(),
+    trackChatEvent: vi.fn(),
+    clerkUserId: 'clerk-subject' as string | null,
   };
 });
 
-vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: 'clerk-subject' }) }));
+vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: mocks.clerkUserId }) }));
 vi.mock('expo/fetch', () => ({ fetch: vi.fn() }));
 
 vi.mock('react-native', () => ({
@@ -103,6 +105,7 @@ vi.mock('../lib/speechRecognition', () => ({
     mocks.speechListeners.set(eventName, listener);
   },
 }));
+vi.mock('../lib/chatTelemetry', () => ({ trackChatEvent: mocks.trackChatEvent }));
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }),
 }));
@@ -113,6 +116,7 @@ vi.mock('@/components/Themed', () => ({
   View: 'View',
   useColors: () => ({
     background: '#fff',
+    backgroundElevated: '#fffdf8',
     backgroundSecondary: '#eee',
     border: '#ddd',
     card: '#fff',
@@ -124,6 +128,14 @@ vi.mock('@/components/Themed', () => ({
   }),
 }));
 vi.mock('@/constants/Colors', () => ({
+  fontFamily: {
+    bold: 'DMSans_700Bold',
+    display: 'Fraunces_700Bold',
+    displaySemibold: 'Fraunces_600SemiBold',
+    medium: 'DMSans_500Medium',
+    regular: 'DMSans_400Regular',
+    semibold: 'DMSans_600SemiBold',
+  },
   fontSize: { xs: 10, sm: 12, md: 14, lg: 18, xl: 22 },
   fontWeight: { medium: '500', semibold: '600' },
   radius: { xs: 4, md: 12, lg: 16, full: 999 },
@@ -258,8 +270,102 @@ describe('RecipeChatModal conversation isolation', () => {
     mocks.speechAvailable.mockReset();
     mocks.speechAvailable.mockReturnValue(true);
     mocks.alert.mockClear();
+    mocks.trackChatEvent.mockClear();
+    mocks.clerkUserId = 'clerk-subject';
     resetChatImageCleanupForTests();
     resetChatDraftsForTests();
+  });
+
+  it('makes recipe context and AI limitations clear in the chat surface', async () => {
+    const onClose = vi.fn();
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(RecipeChatModal, {
+          isVisible: true,
+          onClose,
+          recipe: recipe('Chicken Kelaguen'),
+        }));
+      });
+
+      const visibleText = renderer.container.queryAll(
+        (instance) => instance.type === 'Text',
+      ).map((instance) => instance.props.children);
+      expect(visibleText).toContain('Ask Håfa');
+      expect(visibleText).toContain('Let’s make this recipe work for you.');
+      expect(visibleText).toContain(
+        'Håfa can make mistakes. Double-check food-safety guidance.',
+      );
+      const recipeLink = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Back to recipe: Chicken Kelaguen',
+      )[0];
+      await act(async () => recipeLink.props.onPress());
+      expect(onClose).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('explains that chat requires sign-in without requesting account identity', async () => {
+    mocks.clerkUserId = null;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(RecipeChatModal, {
+          isVisible: true,
+          onClose: vi.fn(),
+        }));
+      });
+
+      const visibleText = renderer.container.queryAll(
+        (instance) => instance.type === 'Text',
+      ).map((instance) => instance.props.children);
+      expect(visibleText).toContain(
+        'Sign in to use Ask Håfa and keep your conversations private.',
+      );
+      expect(mocks.getCurrentUserIdentity).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('records only operational chat lifecycle facts', async () => {
+    mocks.recipeMutate.mockResolvedValue({ response: 'Use half as much.' });
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'Chicken Kelaguen');
+      await sendText(renderer, 'Please halve this recipe');
+      await vi.waitFor(() => {
+        expect(mocks.trackChatEvent).toHaveBeenCalledWith(
+          'message_completed',
+          expect.objectContaining({
+            mode: 'recipe',
+            hasImage: false,
+            contextMessageCount: 0,
+            durationMs: expect.any(Number),
+          }),
+        );
+      });
+      expect(mocks.trackChatEvent).toHaveBeenCalledWith('opened', { mode: 'recipe' });
+      expect(mocks.trackChatEvent).toHaveBeenCalledWith(
+        'message_started',
+        { mode: 'recipe', hasImage: false, contextMessageCount: 0 },
+      );
+      expect(JSON.stringify(mocks.trackChatEvent.mock.calls)).not.toContain(
+        'Please halve this recipe',
+      );
+
+      const visibleText = renderer.container.queryAll(
+        (instance) => instance.type === 'Text',
+      ).map((instance) => instance.props.children);
+      expect(visibleText).toContain('Saved on this device');
+      expect(visibleText.filter((text) => text === 'Håfa').length).toBeGreaterThanOrEqual(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
   });
 
   it('ignores a stale history read after switching recipes', async () => {
@@ -709,6 +815,10 @@ describe('RecipeChatModal conversation isolation', () => {
         'Voice Connection Issue',
         expect.stringContaining('Check your connection'),
         [{ text: 'OK' }],
+      );
+      expect(mocks.trackChatEvent).toHaveBeenCalledWith(
+        'voice_failed',
+        { mode: 'recipe' },
       );
 
       await act(async () => mic.props.onPress());

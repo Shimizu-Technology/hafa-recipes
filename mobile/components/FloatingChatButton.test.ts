@@ -38,8 +38,11 @@ vi.mock('@/components/Themed', () => ({
 vi.mock('@/components/RecipeChatModal', () => ({ default: 'RecipeChatModal' }));
 vi.mock('@/utils/haptics', () => ({ haptics: { medium: vi.fn() } }));
 vi.mock('@/constants/Colors', () => ({
-  brand: { clay: '#B94722' },
-  spacing: { lg: 24 },
+  brand: { reefBright: '#2F8F83' },
+  fontFamily: { semibold: 'DMSans_600SemiBold' },
+  fontSize: { sm: 13 },
+  radius: { full: 9999 },
+  spacing: { sm: 8, md: 16, lg: 24 },
 }));
 vi.mock('@/lib/floatingChatLayout', () => ({
   floatingChatBottom: (isSignedIn: boolean, guestPromptHeight: number) => (
@@ -119,6 +122,24 @@ describe('FloatingChatButton', () => {
       await act(async () => renderer.render(React.createElement(FloatingChatButton)));
       expect(renderer.container.queryAll(
         (instance) => instance.type === 'RecipeChatModal' && !instance.props.isVisible,
+      )).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('uses a labeled, accessible cooking-assistant entry point', async () => {
+    mocks.isSignedIn = true;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => renderer.render(React.createElement(FloatingChatButton)));
+      const button = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Ask Håfa cooking assistant',
+      )[0];
+      expect(button.props.accessibilityRole).toBe('button');
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Text' && instance.props.children === 'Ask Håfa',
       )).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());
