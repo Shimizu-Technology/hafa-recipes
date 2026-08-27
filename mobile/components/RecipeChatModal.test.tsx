@@ -529,4 +529,66 @@ describe('RecipeChatModal conversation isolation', () => {
       await act(async () => renderer.unmount());
     }
   });
+
+  it('keeps the composer disabled when scoped history cannot be read', async () => {
+    mocks.getItem.mockRejectedValue(new Error('corrupt storage'));
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      const text = renderer.container.queryAll(
+        (instance) => instance.type === 'Text',
+      ).map((instance) => instance.props.children);
+      expect(text).toContain(
+        'We could not load this conversation. Check your connection and reopen chat.',
+      );
+      const input = renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )[0];
+      const sendButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Send message',
+      )[0];
+      expect(input.props.editable).toBe(false);
+      expect(sendButton.props.disabled).toBe(true);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('aborts a delayed clear confirmation after switching recipes', async () => {
+    mocks.getItem.mockImplementation(async (key: string) => {
+      if (key.endsWith('.pending-image-cleanup')) return null;
+      return JSON.stringify([{
+        id: key.includes('.first') ? 'first-photo' : 'second-photo',
+        role: 'user',
+        content: key.includes('.first') ? 'first' : 'second',
+        image_url: key.includes('.first')
+          ? 'https://images.example/first.jpg'
+          : 'https://images.example/second.jpg',
+      }]);
+    });
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      const clearButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Clear conversation',
+      )[0];
+      await act(async () => clearButton.props.onPress());
+      const confirmation = mocks.alert.mock.calls[0][2][1];
+      await renderModal(renderer, 'second');
+      await act(async () => confirmation.onPress());
+
+      expect(mocks.deleteChatImages).not.toHaveBeenCalled();
+      expect(mocks.removeItem).not.toHaveBeenCalledWith(
+        'hafa.chat.v2.stable-user.recipe.first',
+      );
+      const text = renderer.container.queryAll(
+        (instance) => instance.type === 'Text',
+      ).map((instance) => instance.props.children);
+      expect(text).toContain('second');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
 });

@@ -293,8 +293,10 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           historyLoadGenerationRef.current !== generation
           || activeStorageKeyRef.current === null
         ) return;
-        updateMessages([]);
-        setLoadedStorageKey(activeStorageKeyRef.current);
+        setLoadedStorageKey(null);
+        setHistoryError(
+          'We could not load this conversation. Check your connection and reopen chat.',
+        );
       } finally {
         if (historyLoadGenerationRef.current === generation) {
           if (activeStorageKeyRef.current === null) {
@@ -324,6 +326,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   /** Confirm and clear the current locally persisted conversation. */
   const handleClearChat = useCallback(() => {
     if (!storageKey) return;
+    const conversationKey = storageKey;
+    const imageUrls = persistedChatImageUrls(messagesForStorage(messagesRef.current));
     Alert.alert(
       'Clear Chat',
       'Are you sure you want to clear this conversation? This cannot be undone.',
@@ -333,15 +337,17 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           text: 'Clear',
           style: 'destructive',
           onPress: async () => {
-            const imageUrls = persistedChatImageUrls(messagesForStorage(messagesRef.current));
-            const cleanupKey = pendingChatImageCleanupKey(storageKey);
+            if (activeStorageKeyRef.current !== conversationKey) return;
+            const cleanupKey = pendingChatImageCleanupKey(conversationKey);
             try {
               if (imageUrls.length > 0) {
                 await AsyncStorage.setItem(cleanupKey, JSON.stringify(imageUrls));
               }
-              await AsyncStorage.removeItem(storageKey);
-              updateMessages([]);
-              retryImagesRef.current.clear();
+              await AsyncStorage.removeItem(conversationKey);
+              if (activeStorageKeyRef.current === conversationKey) {
+                updateMessages([]);
+                retryImagesRef.current.clear();
+              }
             } catch {
               Alert.alert(
                 'Could Not Clear Chat',
