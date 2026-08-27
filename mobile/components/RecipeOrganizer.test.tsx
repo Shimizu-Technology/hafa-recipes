@@ -50,6 +50,7 @@ vi.mock('./RecipeMealPlanCard', () => ({
 
 import { RecipeOrganizer } from './RecipeOrganizer';
 
+/** Build isolated organizer props with spies that each test can inspect. */
 function organizerProps() {
   return {
     recipeTitle: 'Chicken Kelaguen',
@@ -196,6 +197,50 @@ describe('RecipeOrganizer', () => {
       expect(renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Private recipe note',
       )[0].props.value).toBe('Keep this draft');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('locks draft and dismissal controls until a save finishes', async () => {
+    const props = organizerProps();
+    let finishSave: (() => void) | undefined;
+    props.onSaveNote.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      finishSave = resolve;
+    }));
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => renderer.render(React.createElement(RecipeOrganizer, props)));
+      await act(async () => renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Open Notes. Private note',
+      )[0].props.onPress());
+      await act(async () => renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Edit private recipe note',
+      )[0].props.onPress());
+
+      const save = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Save private recipe note',
+      )[0];
+      await act(async () => {
+        void save.props.onPress();
+        await Promise.resolve();
+      });
+
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Private recipe note',
+      )[0].props.editable).toBe(false);
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Cancel note editing',
+      )[0].props.disabled).toBe(true);
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Close recipe organizer',
+      )[0].props.disabled).toBe(true);
+
+      await act(async () => {
+        finishSave?.();
+        await Promise.resolve();
+      });
     } finally {
       await act(async () => renderer.unmount());
     }

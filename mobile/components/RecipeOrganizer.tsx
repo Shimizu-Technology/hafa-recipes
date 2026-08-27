@@ -69,13 +69,16 @@ export function RecipeOrganizer({
   const insets = useSafeAreaInsets();
   const [activePanel, setActivePanel] = useState<OrganizerPanel | null>(null);
   const [isEditingNote, setIsEditingNote] = useState(false);
+  const [isSubmittingNote, setIsSubmittingNote] = useState(false);
   const [noteDraft, setNoteDraft] = useState(savedNote || '');
+  const isNoteSaveInFlight = isSubmittingNote || isNoteSaving;
 
   useEffect(() => {
     if (!isEditingNote) setNoteDraft(savedNote || '');
   }, [isEditingNote, savedNote]);
 
   const closeSheet = () => {
+    if (isNoteSaveInFlight) return;
     setActivePanel(null);
     setIsEditingNote(false);
     setNoteDraft(savedNote || '');
@@ -144,6 +147,7 @@ export function RecipeOrganizer({
         visible={activePanel !== null}
         animationType="slide"
         presentationStyle="pageSheet"
+        allowSwipeDismissal={!isNoteSaveInFlight}
         onRequestClose={closeSheet}
       >
         <View style={[styles.sheet, { paddingTop: insets.top }]}>
@@ -158,9 +162,11 @@ export function RecipeOrganizer({
             </RNView>
             <TouchableOpacity
               onPress={closeSheet}
+              disabled={isNoteSaveInFlight}
               style={[styles.closeButton, { backgroundColor: colors.backgroundSecondary }]}
               accessibilityRole="button"
               accessibilityLabel="Close recipe organizer"
+              accessibilityState={{ disabled: isNoteSaveInFlight }}
             >
               <Ionicons name="close" size={22} color={colors.text} />
             </TouchableOpacity>
@@ -208,6 +214,7 @@ export function RecipeOrganizer({
                         placeholderTextColor={colors.textMuted}
                         value={noteDraft}
                         onChangeText={setNoteDraft}
+                        editable={!isNoteSaveInFlight}
                         multiline
                         autoFocus
                         textAlignVertical="top"
@@ -219,35 +226,51 @@ export function RecipeOrganizer({
                             setNoteDraft(savedNote || '');
                             setIsEditingNote(false);
                           }}
-                          style={[styles.secondaryButton, { borderColor: colors.border }]}
+                          disabled={isNoteSaveInFlight}
+                          style={[
+                            styles.secondaryButton,
+                            { borderColor: colors.border, opacity: isNoteSaveInFlight ? 0.5 : 1 },
+                          ]}
                           accessibilityRole="button"
                           accessibilityLabel="Cancel note editing"
+                          accessibilityState={{ disabled: isNoteSaveInFlight }}
                         >
                           <Text style={[styles.secondaryButtonText, { color: colors.text }]}>Cancel</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           onPress={async () => {
                             const nextNote = noteDraft.trim();
-                            if (!nextNote) return;
+                            if (!nextNote || isNoteSaveInFlight) return;
+                            setIsSubmittingNote(true);
                             try {
                               await onSaveNote(nextNote);
                               setIsEditingNote(false);
                             } catch {
                               // The screen owns user-facing error reporting. Keep the
                               // editor open so the draft is not lost and can be retried.
+                            } finally {
+                              setIsSubmittingNote(false);
                             }
                           }}
-                          disabled={!noteDraft.trim() || isNoteSaving}
+                          disabled={!noteDraft.trim() || isNoteSaveInFlight}
                           style={[
                             styles.primaryButton,
-                            { backgroundColor: colors.tint, opacity: !noteDraft.trim() || isNoteSaving ? 0.5 : 1 },
+                            {
+                              backgroundColor: colors.tint,
+                              opacity: !noteDraft.trim() || isNoteSaveInFlight ? 0.5 : 1,
+                            },
                           ]}
                           accessibilityRole="button"
                           accessibilityLabel="Save private recipe note"
-                          accessibilityState={{ disabled: !noteDraft.trim() || isNoteSaving, busy: isNoteSaving }}
+                          accessibilityState={{
+                            disabled: !noteDraft.trim() || isNoteSaveInFlight,
+                            busy: isNoteSaveInFlight,
+                          }}
                         >
-                          {isNoteSaving && <ActivityIndicator size="small" color="#FFFFFF" />}
-                          <Text style={styles.primaryButtonText}>{isNoteSaving ? 'Saving…' : 'Save note'}</Text>
+                          {isNoteSaveInFlight && <ActivityIndicator size="small" color="#FFFFFF" />}
+                          <Text style={styles.primaryButtonText}>
+                            {isNoteSaveInFlight ? 'Saving…' : 'Save note'}
+                          </Text>
                         </TouchableOpacity>
                       </RNView>
                     </>
