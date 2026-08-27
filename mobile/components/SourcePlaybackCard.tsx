@@ -12,6 +12,7 @@ import { WebView } from 'react-native-webview';
 import { Text, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
 import {
+  getAutoplayEmbedUrl,
   isSourcePlaybackNavigationAllowed,
   type SourcePlayback,
 } from '../lib/sourcePlayback';
@@ -20,6 +21,7 @@ type SourcePlaybackCardProps = {
   playback: SourcePlayback;
   recipeTitle: string;
   thumbnailUrl?: string | null;
+  onThumbnailError?: () => void;
   onOpenSource: () => void;
 };
 
@@ -34,6 +36,7 @@ export function SourcePlaybackCard({
   playback,
   recipeTitle,
   thumbnailUrl,
+  onThumbnailError,
   onOpenSource,
 }: SourcePlaybackCardProps) {
   const colors = useColors();
@@ -42,6 +45,7 @@ export function SourcePlaybackCard({
   const [hasPlaybackError, setHasPlaybackError] = useState(false);
   const playerStyle = [
     styles.player,
+    playback.aspectRatio < 1 && styles.portraitPlayer,
     { aspectRatio: playback.aspectRatio, backgroundColor: colors.backgroundSecondary },
   ];
 
@@ -53,20 +57,11 @@ export function SourcePlaybackCard({
 
   return (
     <RNView style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-      <RNView style={styles.headingRow}>
-        <RNView style={[styles.providerIcon, { backgroundColor: colors.tint + '16' }]}>
-          <Ionicons name={PROVIDER_ICONS[playback.provider]} size={20} color={colors.tint} />
-        </RNView>
-        <RNView style={styles.headingCopy}>
-          <Text style={[styles.eyebrow, { color: colors.tint }]}>ORIGINAL RECIPE</Text>
-          <Text style={[styles.heading, { color: colors.text }]}>Watch on {playback.providerLabel}</Text>
-        </RNView>
-      </RNView>
-
-      {isPlaying && !hasPlaybackError ? (
-        <RNView style={playerStyle}>
+      <RNView style={styles.mediaStage}>
+        {isPlaying && !hasPlaybackError ? (
+          <RNView style={playerStyle}>
           <WebView
-            source={{ uri: playback.embedUrl, headers: playback.requestHeaders }}
+            source={{ uri: getAutoplayEmbedUrl(playback), headers: playback.requestHeaders }}
             style={styles.webView}
             // WebView opens schemes outside this list through the operating system before
             // calling our validator. Match every scheme here so the provider gate below is
@@ -100,7 +95,7 @@ export function SourcePlaybackCard({
             }}
             allowsInlineMediaPlayback
             allowsFullscreenVideo
-            mediaPlaybackRequiresUserAction
+            mediaPlaybackRequiresUserAction={false}
             accessibilityLabel={`${playback.providerLabel} player for ${recipeTitle}`}
           />
           {isPlayerLoading && (
@@ -112,43 +107,55 @@ export function SourcePlaybackCard({
               <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading {playback.providerLabel}…</Text>
             </RNView>
           )}
-        </RNView>
-      ) : (
-        <TouchableOpacity
-          style={playerStyle}
-          onPress={handlePlay}
-          activeOpacity={0.86}
-          accessibilityRole="button"
-          accessibilityLabel={hasPlaybackError
-            ? `Retry ${playback.providerLabel} player for ${recipeTitle}`
-            : `Open the ${playback.providerLabel} player for ${recipeTitle} in Håfa Recipes`}
-        >
-          {thumbnailUrl ? (
-            <ImageBackground
-              source={{ uri: thumbnailUrl }}
-              style={styles.previewImage}
-              imageStyle={styles.previewImageRadius}
-              resizeMode="cover"
-            >
-              <RNView style={styles.previewScrim} />
-            </ImageBackground>
-          ) : (
-            <RNView style={[styles.previewImage, { backgroundColor: colors.backgroundSecondary }]} />
-          )}
-          <RNView style={[styles.playButton, { backgroundColor: colors.tint }]}>
-            <Ionicons name={hasPlaybackError ? 'refresh' : 'play'} size={30} color="#FFFFFF" />
           </RNView>
-          {hasPlaybackError && (
-            <RNView style={styles.errorCopy}>
-              <Text style={styles.errorTitle}>Player unavailable</Text>
-              <Text style={styles.errorText}>The post may be private, removed, or blocking embeds. Tap to retry.</Text>
+        ) : (
+          <TouchableOpacity
+            style={playerStyle}
+            onPress={handlePlay}
+            activeOpacity={0.9}
+            accessibilityRole="button"
+            accessibilityLabel={hasPlaybackError
+              ? `Retry ${playback.providerLabel} player for ${recipeTitle}`
+              : `Play the ${playback.providerLabel} video for ${recipeTitle}`}
+          >
+            {thumbnailUrl ? (
+              <ImageBackground
+                source={{ uri: thumbnailUrl }}
+                style={styles.previewImage}
+                imageStyle={styles.previewImageRadius}
+                resizeMode="cover"
+                onError={onThumbnailError}
+              >
+                <RNView style={styles.previewScrim} />
+              </ImageBackground>
+            ) : (
+              <RNView style={[styles.previewImage, { backgroundColor: colors.backgroundSecondary }]} />
+            )}
+            <RNView style={[styles.playButtonHalo, { backgroundColor: colors.card + 'D9' }]}>
+              <RNView style={[styles.playButton, { backgroundColor: colors.tint }]}>
+                <Ionicons name={hasPlaybackError ? 'refresh' : 'play'} size={28} color="#FFFFFF" />
+              </RNView>
             </RNView>
-          )}
-        </TouchableOpacity>
-      )}
+            {hasPlaybackError && (
+              <RNView style={styles.errorCopy}>
+                <Text style={styles.errorTitle}>Player unavailable</Text>
+                <Text style={styles.errorText}>The post may be private, removed, or blocking embeds. Tap to retry.</Text>
+              </RNView>
+            )}
+          </TouchableOpacity>
+        )}
+
+        <RNView style={styles.providerBadge} pointerEvents="none">
+          <Ionicons name={PROVIDER_ICONS[playback.provider]} size={15} color="#FFFFFF" />
+          <Text style={styles.providerBadgeText}>Original · {playback.providerLabel}</Text>
+        </RNView>
+      </RNView>
 
       <RNView style={styles.footer}>
-        <Text style={[styles.footerText, { color: colors.textMuted }]}>Playback stays with the original creator.</Text>
+        <RNView style={styles.footerCopy}>
+          <Text style={[styles.footerTitle, { color: colors.text }]}>Watch the original</Text>
+          <Text style={[styles.footerText, { color: colors.textMuted }]}>Playback stays with the creator.</Text>
+        </RNView>
         <TouchableOpacity
           onPress={onOpenSource}
           style={styles.openButton}
@@ -166,40 +173,24 @@ export function SourcePlaybackCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderRadius: radius.lg,
     overflow: 'hidden',
-    marginBottom: spacing.lg,
+    borderLeftWidth: 0,
+    borderRightWidth: 0,
   },
-  headingRow: {
-    flexDirection: 'row',
+  mediaStage: {
+    position: 'relative',
     alignItems: 'center',
-    gap: spacing.sm,
-    padding: spacing.md,
-  },
-  providerIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headingCopy: { flex: 1 },
-  eyebrow: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.bold,
-    letterSpacing: 0.7,
-  },
-  heading: {
-    fontFamily: fontFamily.semibold,
-    fontSize: fontSize.lg,
-    marginTop: 2,
+    backgroundColor: '#12100E',
   },
   player: {
     width: '100%',
     minHeight: 210,
-    maxHeight: 580,
     position: 'relative',
     overflow: 'hidden',
+  },
+  portraitPlayer: {
+    width: '78%',
+    maxWidth: 390,
   },
   webView: { flex: 1, backgroundColor: 'transparent' },
   loading: {
@@ -213,15 +204,40 @@ const styles = StyleSheet.create({
   previewImageRadius: { borderRadius: 0 },
   previewScrim: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(20, 12, 8, 0.38)',
+    backgroundColor: 'rgba(20, 12, 8, 0.28)',
   },
-  playButton: {
+  providerBadge: {
+    position: 'absolute',
+    top: spacing.md,
+    left: spacing.md,
+    minHeight: 32,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(20, 12, 8, 0.78)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  providerBadgeText: {
+    color: '#FFFFFF',
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    letterSpacing: 0.2,
+  },
+  playButtonHalo: {
     position: 'absolute',
     alignSelf: 'center',
     top: '50%',
-    width: 68,
-    height: 68,
-    marginTop: -34,
+    width: 80,
+    height: 80,
+    marginTop: -40,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playButton: {
+    width: 64,
+    height: 64,
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
@@ -242,12 +258,14 @@ const styles = StyleSheet.create({
   errorText: { color: '#FFFFFF', fontSize: fontSize.sm, textAlign: 'center', marginTop: 2 },
   footer: {
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
   },
-  footerText: { flex: 1, fontSize: fontSize.xs },
+  footerCopy: { flex: 1 },
+  footerTitle: { fontFamily: fontFamily.semibold, fontSize: fontSize.md },
+  footerText: { fontSize: fontSize.xs, marginTop: 2 },
   openButton: {
     minHeight: 44,
     flexDirection: 'row',

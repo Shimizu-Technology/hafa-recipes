@@ -1,10 +1,28 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  getAutoplayEmbedUrl,
   getSourcePlayback,
   isSourcePlaybackNavigationAllowed,
   YOUTUBE_APP_REFERRER,
 } from './sourcePlayback';
+
+describe('getAutoplayEmbedUrl', () => {
+  it('turns autoplay on for YouTube and TikTok after explicit user intent', () => {
+    const youtube = getSourcePlayback('https://youtu.be/abcDEF_1234');
+    const tiktok = getSourcePlayback('https://www.tiktok.com/@cook/video/7412345678901234567');
+
+    expect(youtube && getAutoplayEmbedUrl(youtube)).toContain('autoplay=1');
+    expect(tiktok && getAutoplayEmbedUrl(tiktok)).toContain('autoplay=1');
+    expect(tiktok && getAutoplayEmbedUrl(tiktok)).not.toContain('autoplay=0');
+  });
+
+  it('keeps the official Instagram embed URL unchanged', () => {
+    const instagram = getSourcePlayback('https://www.instagram.com/reel/Example_42/');
+
+    expect(instagram && getAutoplayEmbedUrl(instagram)).toBe(instagram?.embedUrl);
+  });
+});
 
 describe('getSourcePlayback', () => {
   it('builds identified YouTube embeds for watch, short, and shorts links', () => {

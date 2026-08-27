@@ -27,7 +27,7 @@ import RecipeChatModal from '@/components/RecipeChatModal';
 import AddToCollectionModal from '@/components/AddToCollectionModal';
 import { RecipeCollectionsCard } from '@/components/RecipeCollectionsCard';
 import { RecipeMealPlanCard } from '@/components/RecipeMealPlanCard';
-import { SourcePlaybackCard } from '@/components/SourcePlaybackCard';
+import { RecipeHero } from '@/components/RecipeHero';
 import VersionHistoryModal from '@/components/VersionHistoryModal';
 import { SafetyActionModal } from '@/components/SafetyActionModal';
 import { 
@@ -122,6 +122,7 @@ function SimilarRecipeCard({
   );
 }
 
+/** Render a complete recipe and its connected cooking actions. */
 export default function RecipeDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -712,18 +713,14 @@ export default function RecipeDetailScreen() {
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl + 100 }]}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Hero Image */}
-          {recipe.thumbnail_url && !imageError ? (
-            <Image 
-              source={{ uri: recipe.thumbnail_url }} 
-              style={styles.heroImage}
-              onError={() => setImageError(true)}
-            />
-          ) : (
-            <RNView style={[styles.placeholderHero, { backgroundColor: colors.tint + '15' }]}>
-              <Ionicons name="restaurant-outline" size={64} color={colors.tint} />
-            </RNView>
-          )}
+          <RecipeHero
+            recipeTitle={extracted.title}
+            sourceUrl={recipe.source_url}
+            thumbnailUrl={recipe.thumbnail_url}
+            imageError={imageError}
+            onImageError={() => setImageError(true)}
+            onOpenSource={handleOpenSource}
+          />
 
           {/* Content */}
           <RNView style={styles.content}>
@@ -747,15 +744,6 @@ export default function RecipeDetailScreen() {
               </RNView>
             )}
 
-            {sourcePlayback && (
-              <SourcePlaybackCard
-                playback={sourcePlayback}
-                recipeTitle={extracted.title}
-                thumbnailUrl={recipe.thumbnail_url}
-                onOpenSource={handleOpenSource}
-              />
-            )}
-            
             {/* Meta Row */}
             <RNView style={styles.metaRow}>
               {extracted.servings && (
@@ -1761,16 +1749,6 @@ const styles = StyleSheet.create({
   },
   headerButton: {
     padding: spacing.xs,
-  },
-  heroImage: {
-    width: '100%',
-    height: 300,
-  },
-  placeholderHero: {
-    width: '100%',
-    height: 200,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   content: {
     padding: spacing.lg,
