@@ -266,4 +266,16 @@ describe('recipe image multipart requests', () => {
     expect(mocks.captureError).not.toHaveBeenCalled();
     expect(mocks.captureMessage).not.toHaveBeenCalled();
   });
+
+  it('passes cancellation through text-to-speech requests', async () => {
+    const controller = new AbortController();
+
+    await api.generateTTS('Read this response', 'nova', controller.signal);
+
+    expect(mocks.post).toHaveBeenCalledWith(
+      '/api/tts',
+      { text: 'Read this response', voice: 'nova' },
+      { responseType: 'blob', signal: controller.signal },
+    );
+  });
 });

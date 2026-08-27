@@ -56,7 +56,8 @@ export default function ChatComposer({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
-  const canSend = Boolean(text.trim() || attachedImageUri) && !isUnavailable;
+  const areAttachmentsDisabled = isUnavailable || isListening;
+  const canSend = Boolean(text.trim() || attachedImageUri) && !isUnavailable && !isListening;
   const canPressPrimary = isSending || canSend;
   const showNativePaste = Platform.OS === 'ios' && Clipboard.isPasteButtonAvailable;
 
@@ -65,6 +66,7 @@ export default function ChatComposer({
   }, [conversationKey]);
 
   const runAttachmentAction = (action: () => void) => {
+    if (areAttachmentsDisabled) return;
     setAttachmentsOpen(false);
     action();
   };
@@ -91,9 +93,13 @@ export default function ChatComposer({
             <Image source={{ uri: attachedImageUri }} style={styles.attachedImagePreview} />
             <TouchableOpacity
               style={[styles.removeImageButton, { backgroundColor: colors.error }]}
-              onPress={onRemoveImage}
+              onPress={() => {
+                if (!areAttachmentsDisabled) onRemoveImage();
+              }}
+              disabled={areAttachmentsDisabled}
               accessibilityRole="button"
               accessibilityLabel="Remove attached photo"
+              accessibilityState={{ disabled: areAttachmentsDisabled }}
               hitSlop={8}
             >
               <Ionicons name="close" size={15} color="#FFFFFF" />
@@ -118,14 +124,14 @@ export default function ChatComposer({
             icon="camera-outline"
             label="Camera"
             accessibilityLabel="Take a photo"
-            disabled={isUnavailable}
+            disabled={areAttachmentsDisabled}
             onPress={() => runAttachmentAction(onTakePhoto)}
           />
           <AttachmentAction
             icon="images-outline"
             label="Photos"
             accessibilityLabel="Attach photo from library"
-            disabled={isUnavailable}
+            disabled={areAttachmentsDisabled}
             onPress={() => runAttachmentAction(onPickImage)}
           />
           {!showNativePaste && (
@@ -133,20 +139,33 @@ export default function ChatComposer({
               icon="clipboard-outline"
               label="Paste"
               accessibilityLabel="Paste from clipboard"
-              disabled={isUnavailable}
+              disabled={areAttachmentsDisabled}
               onPress={() => runAttachmentAction(onFallbackPaste)}
             />
           )}
         </RNView>
       )}
 
+      {isListening && (
+        <RNView
+          style={[styles.listeningStatus, { backgroundColor: `${colors.tint}14` }]}
+          accessibilityLiveRegion="polite"
+        >
+          <RNView style={[styles.listeningDot, { backgroundColor: colors.tint }]} />
+          <Text style={[styles.listeningText, { color: colors.tint }]}>Listening…</Text>
+          <Text style={[styles.listeningHint, { color: colors.textSecondary }]}>Tap the mic when done</Text>
+        </RNView>
+      )}
+
       <RNView style={styles.inputRow}>
         <TouchableOpacity
-          onPress={() => setAttachmentsOpen((open) => !open)}
-          disabled={isUnavailable}
+          onPress={() => {
+            if (!areAttachmentsDisabled) setAttachmentsOpen((open) => !open);
+          }}
+          disabled={areAttachmentsDisabled}
           accessibilityRole="button"
           accessibilityLabel={attachmentsOpen ? 'Close attachment options' : 'Add attachment'}
-          accessibilityState={{ disabled: isUnavailable, expanded: attachmentsOpen }}
+          accessibilityState={{ disabled: areAttachmentsDisabled, expanded: attachmentsOpen }}
           hitSlop={4}
           style={[
             styles.roundButton,
@@ -174,17 +193,17 @@ export default function ChatComposer({
                 : isGeneralMode
                   ? 'Ask anything about cooking…'
                   : 'Ask about this recipe…'}
-            placeholderTextColor={isListening ? colors.error : colors.textMuted}
+            placeholderTextColor={isListening ? colors.tint : colors.textMuted}
             multiline
             maxLength={CHAT_MESSAGE_MAX_CHARS}
-            editable={!isUnavailable}
+            editable={!isUnavailable && !isListening}
             accessibilityLabel="Message"
             accessibilityHint="Enter a cooking question or instruction"
             style={[
               styles.input,
               {
                 backgroundColor: colors.backgroundSecondary,
-                borderColor: isListening ? colors.error : colors.border,
+                borderColor: isListening ? colors.tint : colors.border,
                 color: colors.text,
               },
             ]}
@@ -204,8 +223,8 @@ export default function ChatComposer({
 
         {showNativePaste && (
           <RNView
-            pointerEvents={isUnavailable ? 'none' : 'auto'}
-            style={{ opacity: isUnavailable ? 0.45 : 1 }}
+            pointerEvents={areAttachmentsDisabled ? 'none' : 'auto'}
+            style={{ opacity: areAttachmentsDisabled ? 0.45 : 1 }}
           >
             <Clipboard.ClipboardPasteButton
               acceptedContentTypes={['plain-text', 'image']}
@@ -214,10 +233,12 @@ export default function ChatComposer({
               cornerStyle="capsule"
               backgroundColor={colors.backgroundSecondary}
               foregroundColor={colors.textSecondary}
-              onPress={onNativePaste}
+              onPress={(payload) => {
+                if (!areAttachmentsDisabled) onNativePaste(payload);
+              }}
               style={styles.nativePasteButton}
               accessibilityLabel="Paste from clipboard"
-              accessibilityState={{ disabled: isUnavailable }}
+              accessibilityState={{ disabled: areAttachmentsDisabled }}
             />
           </RNView>
         )}
@@ -232,8 +253,8 @@ export default function ChatComposer({
           style={[
             styles.roundButton,
             {
-              backgroundColor: isListening ? colors.error : colors.backgroundSecondary,
-              borderColor: isListening ? colors.error : colors.border,
+              backgroundColor: isListening ? colors.tint : colors.backgroundSecondary,
+              borderColor: isListening ? colors.tint : colors.border,
             },
           ]}
         >
@@ -358,6 +379,27 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: spacing.sm,
     gap: spacing.lg,
+  },
+  listeningStatus: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    borderRadius: radius.full,
+    flexDirection: 'row',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  listeningDot: {
+    borderRadius: radius.full,
+    height: 7,
+    width: 7,
+  },
+  listeningText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.semibold,
+  },
+  listeningHint: {
+    fontSize: fontSize.xs,
   },
   attachmentAction: {
     minWidth: 58,

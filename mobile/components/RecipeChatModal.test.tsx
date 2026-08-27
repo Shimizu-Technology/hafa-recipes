@@ -25,12 +25,21 @@ const mocks = vi.hoisted(() => {
     cookingMutate: vi.fn<(variables: unknown) => Promise<{ response: string }>>(),
     requestLibraryPermission: vi.fn(async () => ({ status: 'granted' })),
     launchImageLibrary: vi.fn(),
+    requestCameraPermission: vi.fn(async () => ({ status: 'granted' })),
+    launchCamera: vi.fn(),
     speak: vi.fn<(text?: string) => Promise<void>>(async () => undefined),
     stop: vi.fn<() => Promise<void>>(async () => undefined),
     hasClipboardImage: vi.fn(async () => false),
     getClipboardImage: vi.fn(),
     getClipboardString: vi.fn(async () => ''),
+    nativePasteAvailable: true,
     ttsState: { isLoading: false, isPlaying: false },
+    speechListeners: new Map<string, (event?: any) => void>(),
+    speechStart: vi.fn(),
+    speechStop: vi.fn(),
+    speechAbort: vi.fn(),
+    speechPermissions: vi.fn(async () => ({ granted: true })),
+    speechAvailable: vi.fn(() => true),
     alert: vi.fn(),
   };
 });
@@ -44,7 +53,10 @@ vi.mock('react-native', () => ({
   Image: 'Image',
   Keyboard: { dismiss: vi.fn() },
   KeyboardAvoidingView: 'KeyboardAvoidingView',
-  Linking: { openURL: vi.fn(async () => undefined) },
+  Linking: {
+    openSettings: vi.fn(async () => undefined),
+    openURL: vi.fn(async () => undefined),
+  },
   Modal: 'Modal',
   Platform: { OS: 'ios' },
   ScrollView: 'ScrollView',
@@ -62,7 +74,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }));
 vi.mock('expo-clipboard', () => ({
   ClipboardPasteButton: 'ClipboardPasteButton',
-  isPasteButtonAvailable: true,
+  get isPasteButtonAvailable() { return mocks.nativePasteAvailable; },
   setStringAsync: vi.fn(async () => undefined),
   hasImageAsync: mocks.hasClipboardImage,
   getImageAsync: mocks.getClipboardImage,
@@ -75,8 +87,21 @@ vi.mock('expo-haptics', () => ({
 vi.mock('expo-image-picker', () => ({
   requestMediaLibraryPermissionsAsync: mocks.requestLibraryPermission,
   launchImageLibraryAsync: mocks.launchImageLibrary,
-  requestCameraPermissionsAsync: vi.fn(),
-  launchCameraAsync: vi.fn(),
+  requestCameraPermissionsAsync: mocks.requestCameraPermission,
+  launchCameraAsync: mocks.launchCamera,
+}));
+vi.mock('../lib/speechRecognition', () => ({
+  chatSpeechRecognitionModule: {
+    abort: mocks.speechAbort,
+    isRecognitionAvailable: mocks.speechAvailable,
+    requestPermissionsAsync: mocks.speechPermissions,
+    start: mocks.speechStart,
+    stop: mocks.speechStop,
+  },
+  isChatSpeechRecognitionAvailable: true,
+  useChatSpeechRecognitionEvent: (eventName: string, listener: (event?: any) => void) => {
+    mocks.speechListeners.set(eventName, listener);
+  },
 }));
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }),
@@ -114,6 +139,8 @@ vi.mock('@/hooks/useTTS', () => ({
     stop: mocks.stop,
     isPlaying: mocks.ttsState.isPlaying,
     isLoading: mocks.ttsState.isLoading,
+    error: null,
+    clearError: vi.fn(),
   }),
 }));
 vi.mock('@/lib/api', () => ({
@@ -210,6 +237,8 @@ describe('RecipeChatModal conversation isolation', () => {
     mocks.cookingMutate.mockReset();
     mocks.requestLibraryPermission.mockClear();
     mocks.launchImageLibrary.mockReset();
+    mocks.requestCameraPermission.mockClear();
+    mocks.launchCamera.mockReset();
     mocks.speak.mockClear();
     mocks.stop.mockClear();
     mocks.hasClipboardImage.mockReset();
@@ -217,8 +246,17 @@ describe('RecipeChatModal conversation isolation', () => {
     mocks.getClipboardImage.mockReset();
     mocks.getClipboardString.mockReset();
     mocks.getClipboardString.mockResolvedValue('');
+    mocks.nativePasteAvailable = true;
     mocks.ttsState.isLoading = false;
     mocks.ttsState.isPlaying = false;
+    mocks.speechListeners.clear();
+    mocks.speechStart.mockReset();
+    mocks.speechStop.mockReset();
+    mocks.speechAbort.mockReset();
+    mocks.speechPermissions.mockReset();
+    mocks.speechPermissions.mockResolvedValue({ granted: true });
+    mocks.speechAvailable.mockReset();
+    mocks.speechAvailable.mockReturnValue(true);
     mocks.alert.mockClear();
     resetChatImageCleanupForTests();
     resetChatDraftsForTests();
@@ -498,6 +536,189 @@ describe('RecipeChatModal conversation isolation', () => {
       expect(loadingSpeechButton.props.accessibilityState).toEqual({ disabled: true });
     } finally {
       await act(async () => pendingSpeech.resolve());
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('replaces interim dictation without duplicating earlier recognition results', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      const input = renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )[0];
+      await act(async () => input.props.onChangeText('Can I use'));
+      const mic = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Start voice input',
+      )[0];
+      await act(async () => mic.props.onPress());
+
+      expect(mocks.speechStart).toHaveBeenCalledWith(expect.objectContaining({
+        addsPunctuation: true,
+        continuous: false,
+        interimResults: true,
+      }));
+      await act(async () => mocks.speechListeners.get('result')?.({
+        isFinal: false,
+        results: [{ transcript: 'coconut' }],
+      }));
+      await act(async () => mocks.speechListeners.get('result')?.({
+        isFinal: true,
+        results: [{ transcript: 'coconut milk' }],
+      }));
+
+      const updatedInput = renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )[0];
+      expect(updatedInput.props.value).toBe('Can I use coconut milk');
+      const visibleText = renderer.container.queryAll(
+        (instance) => instance.type === 'Text',
+      ).map((instance) => instance.props.children);
+      expect(visibleText).toContain('Listening…');
+
+      const stopMic = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Stop voice input',
+      )[0];
+      await act(async () => stopMic.props.onPress());
+      expect(mocks.speechStop).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('keeps paste controls inert throughout an active dictation session', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      const input = renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )[0];
+      const pasteBeforeDictation = renderer.container.queryAll(
+        (instance) => instance.type === 'ClipboardPasteButton',
+      )[0].props.onPress;
+      const pastedImage = 'data:image/jpeg;base64,/9j/dm9pY2U=';
+      await act(async () => pasteBeforeDictation({
+        type: 'image',
+        data: pastedImage,
+        size: { width: 100, height: 100 },
+      }));
+      await act(async () => input.props.onChangeText('Can I use'));
+      const mic = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Start voice input',
+      )[0];
+      await act(async () => mic.props.onPress());
+
+      const pasteWhileListening = renderer.container.queryAll(
+        (instance) => instance.type === 'ClipboardPasteButton',
+      )[0];
+      expect(pasteWhileListening.props.accessibilityState).toEqual({ disabled: true });
+      const removeImage = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Remove attached photo',
+      )[0];
+      expect(removeImage.props.disabled).toBe(true);
+      expect(removeImage.props.accessibilityState).toEqual({ disabled: true });
+      await act(async () => removeImage.props.onPress());
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Image' && instance.props.source?.uri === pastedImage,
+      )).toHaveLength(1);
+      await act(async () => pasteWhileListening.props.onPress({
+        type: 'text',
+        text: 'current paste while listening',
+      }));
+      await act(async () => pasteBeforeDictation({
+        type: 'text',
+        text: 'pasted while listening',
+      }));
+      await act(async () => mocks.speechListeners.get('result')?.({
+        isFinal: true,
+        results: [{ transcript: 'coconut milk' }],
+      }));
+
+      const updatedInput = renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )[0];
+      expect(updatedInput.props.value).toBe('Can I use coconut milk');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('keeps fallback attachment actions inert throughout active dictation', async () => {
+    mocks.nativePasteAvailable = false;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      await openAttachmentOptions(renderer);
+      const mic = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Start voice input',
+      )[0];
+      await act(async () => mic.props.onPress());
+
+      const attachmentToggle = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Close attachment options',
+      )[0];
+      const camera = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Take a photo',
+      )[0];
+      const photos = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Attach photo from library',
+      )[0];
+      const fallbackPaste = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Paste from clipboard',
+      )[0];
+      for (const control of [attachmentToggle, camera, photos, fallbackPaste]) {
+        expect(control.props.disabled).toBe(true);
+        await act(async () => control.props.onPress());
+      }
+
+      expect(mocks.requestCameraPermission).not.toHaveBeenCalled();
+      expect(mocks.launchCamera).not.toHaveBeenCalled();
+      expect(mocks.requestLibraryPermission).not.toHaveBeenCalled();
+      expect(mocks.launchImageLibrary).not.toHaveBeenCalled();
+      expect(mocks.hasClipboardImage).not.toHaveBeenCalled();
+      expect(mocks.getClipboardString).not.toHaveBeenCalled();
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Close attachment options',
+      )).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('shows actionable voice errors and aborts dictation when chat closes', async () => {
+    const onClose = vi.fn();
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(RecipeChatModal, {
+          isVisible: true,
+          onClose,
+          recipe: recipe('first'),
+        }));
+      });
+      const mic = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Start voice input',
+      )[0];
+      await act(async () => mic.props.onPress());
+      await act(async () => mocks.speechListeners.get('error')?.({ error: 'network' }));
+      expect(mocks.alert).toHaveBeenCalledWith(
+        'Voice Connection Issue',
+        expect.stringContaining('Check your connection'),
+        [{ text: 'OK' }],
+      );
+
+      await act(async () => mic.props.onPress());
+      const closeButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Close chat',
+      )[0];
+      await act(async () => closeButton.props.onPress());
+      expect(mocks.speechAbort).toHaveBeenCalledOnce();
+      expect(onClose).toHaveBeenCalledOnce();
+    } finally {
       await act(async () => renderer.unmount());
     }
   });

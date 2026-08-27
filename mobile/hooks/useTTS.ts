@@ -10,9 +10,11 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '@/lib/api';
+import { isChatAbortError } from '../lib/chatStream';
 
 // Storage key for voice preference
 const TTS_VOICE_KEY = 'tts_voice_preference';
+export const TTS_TEXT_MAX_CHARS = 4_096;
 
 // Available TTS voices
 export type TTSVoice = 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
@@ -77,34 +79,56 @@ export function useTTS() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const soundRef = useRef<AudioPlayer | null>(null);
+  const soundSubscriptionRef = useRef<{ remove: () => void } | null>(null);
+  const requestControllerRef = useRef<AbortController | null>(null);
+  const playbackGenerationRef = useRef(0);
   const { voice } = useTTSVoice();
 
-  // Clean up sound on unmount
-  useEffect(() => {
-    return () => {
-      if (soundRef.current) {
-        soundRef.current.remove();
-      }
-    };
-  }, []);
-
-  const speak = useCallback(async (text: string) => {
-    if (!text.trim()) return;
-
-    // Stop any currently playing audio
+  /** Release the current native player and its listener exactly once. */
+  const releaseCurrentPlayer = useCallback(() => {
+    soundSubscriptionRef.current?.remove();
+    soundSubscriptionRef.current = null;
     if (soundRef.current) {
       soundRef.current.pause();
       soundRef.current.remove();
       soundRef.current = null;
     }
+  }, []);
 
+  // Clean up sound on unmount
+  useEffect(() => {
+    return () => {
+      playbackGenerationRef.current += 1;
+      requestControllerRef.current?.abort();
+      requestControllerRef.current = null;
+      releaseCurrentPlayer();
+    };
+  }, [releaseCurrentPlayer]);
+
+  const speak = useCallback(async (text: string) => {
+    if (!text.trim()) return;
+
+    const generation = playbackGenerationRef.current + 1;
+    playbackGenerationRef.current = generation;
+    requestControllerRef.current?.abort();
+    releaseCurrentPlayer();
+    if (text.length > TTS_TEXT_MAX_CHARS) {
+      setIsLoading(false);
+      setIsPlaying(false);
+      setError('This response is too long to read aloud at once. Copy a shorter section and try again.');
+      return;
+    }
+
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
     setIsLoading(true);
     setError(null);
     setIsPlaying(false);
 
     try {
       // Get audio from TTS API
-      const audioBlob = await api.generateTTS(text, voice);
+      const audioBlob = await api.generateTTS(text, voice, controller.signal);
+      if (playbackGenerationRef.current !== generation || controller.signal.aborted) return;
       
       // Create audio URI from blob
       const reader = new FileReader();
@@ -117,39 +141,56 @@ export function useTTS() {
       });
       reader.readAsDataURL(audioBlob);
       const base64Uri = await base64Promise;
+      if (playbackGenerationRef.current !== generation || controller.signal.aborted) return;
 
       // Load and play audio
       await setAudioModeAsync({
         playsInSilentMode: true,
         shouldPlayInBackground: false,
       });
+      if (playbackGenerationRef.current !== generation || controller.signal.aborted) return;
 
       const sound = createAudioPlayer({ uri: base64Uri });
-      sound.addListener('playbackStatusUpdate', (status) => {
+      soundRef.current = sound;
+      const subscription = sound.addListener('playbackStatusUpdate', (status) => {
+        if (playbackGenerationRef.current !== generation) return;
+        if (status.error) {
+          setIsPlaying(false);
+          setError('Audio playback stopped unexpectedly. Please try again.');
+          releaseCurrentPlayer();
+          return;
+        }
         if (status.didJustFinish) {
           setIsPlaying(false);
+          releaseCurrentPlayer();
         }
       });
-
-      soundRef.current = sound;
+      soundSubscriptionRef.current = subscription;
       sound.play();
       setIsPlaying(true);
-    } catch (e) {
-      console.log('TTS error:', e);
-      setError(e instanceof Error ? e.message : 'Failed to generate speech');
+    } catch (caught) {
+      if (playbackGenerationRef.current === generation) releaseCurrentPlayer();
+      if (!isChatAbortError(caught, controller.signal)) {
+        setError('The response could not be read aloud. Check your connection and try again.');
+      }
     } finally {
-      setIsLoading(false);
+      if (playbackGenerationRef.current === generation) {
+        if (requestControllerRef.current === controller) requestControllerRef.current = null;
+        setIsLoading(false);
+      }
     }
-  }, [voice]);
+  }, [releaseCurrentPlayer, voice]);
 
   const stop = useCallback(async () => {
-    if (soundRef.current) {
-      soundRef.current.pause();
-      soundRef.current.remove();
-      soundRef.current = null;
-      setIsPlaying(false);
-    }
-  }, []);
+    playbackGenerationRef.current += 1;
+    requestControllerRef.current?.abort();
+    requestControllerRef.current = null;
+    releaseCurrentPlayer();
+    setIsLoading(false);
+    setIsPlaying(false);
+  }, [releaseCurrentPlayer]);
 
-  return { speak, stop, isPlaying, isLoading, error };
+  const clearError = useCallback(() => setError(null), []);
+
+  return { speak, stop, isPlaying, isLoading, error, clearError };
 }

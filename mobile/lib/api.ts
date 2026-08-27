@@ -1471,11 +1471,16 @@ class ApiClient {
   // Text-to-Speech
   // ============================================================
 
-  async generateTTS(text: string, voice: string = 'nova'): Promise<Blob> {
+  /** Generate speech audio while allowing callers to cancel obsolete playback. */
+  async generateTTS(
+    text: string,
+    voice: string = 'nova',
+    signal?: AbortSignal,
+  ): Promise<Blob> {
     const response = await this.client.post(
       '/api/tts',
       { text, voice },
-      { responseType: 'blob' }
+      { responseType: 'blob', signal },
     );
     return response.data;
   }
