@@ -157,10 +157,12 @@ export function useTTS() {
         if (status.error) {
           setIsPlaying(false);
           setError('Audio playback stopped unexpectedly. Please try again.');
+          releaseCurrentPlayer();
           return;
         }
         if (status.didJustFinish) {
           setIsPlaying(false);
+          releaseCurrentPlayer();
         }
       });
       soundSubscriptionRef.current = subscription;

@@ -599,6 +599,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
 
   /** Merge a text paste into the draft or attach a pasted image. */
   const handleNativePaste = useCallback((payload: Clipboard.PasteEventPayload) => {
+    if (voiceSessionActiveRef.current) return;
     try {
       const pasted = normalizeChatPaste(payload);
       if (pasted.type === 'image') {
@@ -620,6 +621,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
 
   /** Paste from platforms without Apple's native, permissionless paste control. */
   const handleFallbackPaste = useCallback(async () => {
+    if (voiceSessionActiveRef.current) return;
     try {
       if (await Clipboard.hasImageAsync()) {
         const image = await Clipboard.getImageAsync({ format: 'jpeg', jpegQuality: 0.75 });

@@ -97,10 +97,11 @@ describe('useTTS', () => {
   it('plays generated audio and surfaces native playback errors', async () => {
     let statusListener: ((status: { error: string | null; didJustFinish: boolean }) => void)
       | undefined;
+    const subscription = { remove: vi.fn() };
     const player = {
       addListener: vi.fn((_event: string, listener: typeof statusListener) => {
         statusListener = listener;
-        return { remove: vi.fn() };
+        return subscription;
       }),
       pause: vi.fn(),
       play: vi.fn(),
@@ -119,8 +120,42 @@ describe('useTTS', () => {
       await act(async () => statusListener?.({ error: 'decoder failed', didJustFinish: false }));
       expect(currentState.isPlaying).toBe(false);
       expect(currentState.error).toContain('playback stopped');
+      expect(player.pause).toHaveBeenCalledOnce();
+      expect(player.remove).toHaveBeenCalledOnce();
+      expect(subscription.remove).toHaveBeenCalledOnce();
       await act(async () => currentState.clearError());
       expect(currentState.error).toBeNull();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('releases native audio after playback finishes', async () => {
+    let statusListener: ((status: { error: string | null; didJustFinish: boolean }) => void)
+      | undefined;
+    const subscription = { remove: vi.fn() };
+    const player = {
+      addListener: vi.fn((_event: string, listener: typeof statusListener) => {
+        statusListener = listener;
+        return subscription;
+      }),
+      pause: vi.fn(),
+      play: vi.fn(),
+      remove: vi.fn(),
+    };
+    mocks.generateTTS.mockResolvedValue(new Blob(['audio']));
+    mocks.createAudioPlayer.mockReturnValue(player);
+    const renderer = createRoot();
+
+    try {
+      await act(async () => renderer.render(React.createElement(Harness)));
+      await act(async () => currentState.speak('Read this response'));
+      await act(async () => statusListener?.({ error: null, didJustFinish: true }));
+
+      expect(currentState.isPlaying).toBe(false);
+      expect(player.pause).toHaveBeenCalledOnce();
+      expect(player.remove).toHaveBeenCalledOnce();
+      expect(subscription.remove).toHaveBeenCalledOnce();
     } finally {
       await act(async () => renderer.unmount());
     }

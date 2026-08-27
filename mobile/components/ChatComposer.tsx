@@ -56,6 +56,7 @@ export default function ChatComposer({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
+  const areAttachmentsDisabled = isUnavailable || isListening;
   const canSend = Boolean(text.trim() || attachedImageUri) && !isUnavailable && !isListening;
   const canPressPrimary = isSending || canSend;
   const showNativePaste = Platform.OS === 'ios' && Clipboard.isPasteButtonAvailable;
@@ -65,6 +66,7 @@ export default function ChatComposer({
   }, [conversationKey]);
 
   const runAttachmentAction = (action: () => void) => {
+    if (areAttachmentsDisabled) return;
     setAttachmentsOpen(false);
     action();
   };
@@ -118,14 +120,14 @@ export default function ChatComposer({
             icon="camera-outline"
             label="Camera"
             accessibilityLabel="Take a photo"
-            disabled={isUnavailable}
+            disabled={areAttachmentsDisabled}
             onPress={() => runAttachmentAction(onTakePhoto)}
           />
           <AttachmentAction
             icon="images-outline"
             label="Photos"
             accessibilityLabel="Attach photo from library"
-            disabled={isUnavailable}
+            disabled={areAttachmentsDisabled}
             onPress={() => runAttachmentAction(onPickImage)}
           />
           {!showNativePaste && (
@@ -133,7 +135,7 @@ export default function ChatComposer({
               icon="clipboard-outline"
               label="Paste"
               accessibilityLabel="Paste from clipboard"
-              disabled={isUnavailable}
+              disabled={areAttachmentsDisabled}
               onPress={() => runAttachmentAction(onFallbackPaste)}
             />
           )}
@@ -154,10 +156,10 @@ export default function ChatComposer({
       <RNView style={styles.inputRow}>
         <TouchableOpacity
           onPress={() => setAttachmentsOpen((open) => !open)}
-          disabled={isUnavailable}
+          disabled={areAttachmentsDisabled}
           accessibilityRole="button"
           accessibilityLabel={attachmentsOpen ? 'Close attachment options' : 'Add attachment'}
-          accessibilityState={{ disabled: isUnavailable, expanded: attachmentsOpen }}
+          accessibilityState={{ disabled: areAttachmentsDisabled, expanded: attachmentsOpen }}
           hitSlop={4}
           style={[
             styles.roundButton,
@@ -215,8 +217,8 @@ export default function ChatComposer({
 
         {showNativePaste && (
           <RNView
-            pointerEvents={isUnavailable ? 'none' : 'auto'}
-            style={{ opacity: isUnavailable ? 0.45 : 1 }}
+            pointerEvents={areAttachmentsDisabled ? 'none' : 'auto'}
+            style={{ opacity: areAttachmentsDisabled ? 0.45 : 1 }}
           >
             <Clipboard.ClipboardPasteButton
               acceptedContentTypes={['plain-text', 'image']}
@@ -225,10 +227,12 @@ export default function ChatComposer({
               cornerStyle="capsule"
               backgroundColor={colors.backgroundSecondary}
               foregroundColor={colors.textSecondary}
-              onPress={onNativePaste}
+              onPress={(payload) => {
+                if (!areAttachmentsDisabled) onNativePaste(payload);
+              }}
               style={styles.nativePasteButton}
               accessibilityLabel="Paste from clipboard"
-              accessibilityState={{ disabled: isUnavailable }}
+              accessibilityState={{ disabled: areAttachmentsDisabled }}
             />
           </RNView>
         )}

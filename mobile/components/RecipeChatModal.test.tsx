@@ -581,6 +581,49 @@ describe('RecipeChatModal conversation isolation', () => {
     }
   });
 
+  it('keeps paste controls inert throughout an active dictation session', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      const input = renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )[0];
+      const pasteBeforeDictation = renderer.container.queryAll(
+        (instance) => instance.type === 'ClipboardPasteButton',
+      )[0].props.onPress;
+      await act(async () => input.props.onChangeText('Can I use'));
+      const mic = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Start voice input',
+      )[0];
+      await act(async () => mic.props.onPress());
+
+      const pasteWhileListening = renderer.container.queryAll(
+        (instance) => instance.type === 'ClipboardPasteButton',
+      )[0];
+      expect(pasteWhileListening.props.accessibilityState).toEqual({ disabled: true });
+      await act(async () => pasteWhileListening.props.onPress({
+        type: 'text',
+        text: 'current paste while listening',
+      }));
+      await act(async () => pasteBeforeDictation({
+        type: 'text',
+        text: 'pasted while listening',
+      }));
+      await act(async () => mocks.speechListeners.get('result')?.({
+        isFinal: true,
+        results: [{ transcript: 'coconut milk' }],
+      }));
+
+      const updatedInput = renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )[0];
+      expect(updatedInput.props.value).toBe('Can I use coconut milk');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
   it('shows actionable voice errors and aborts dictation when chat closes', async () => {
     const onClose = vi.fn();
     const renderer = createRoot({ textComponentTypes: ['Text'] });
