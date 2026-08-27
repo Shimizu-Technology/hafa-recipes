@@ -4,6 +4,40 @@ All notable changes to Recipe Extractor.
 
 ## [Unreleased]
 
+## [2.6.0] - August 2026
+
+### Added
+
+- Import complete recipes from pasted captions, messages, and other copied text.
+- Import multi-image recipes from screenshots, camera photos, and native shares.
+- Play supported TikTok, Instagram, YouTube, and source videos inside the app.
+- Paste text or images directly into Ask Håfa, dictate questions, and hear answers
+  read aloud.
+
+### Improved
+
+- Refreshed the app with a reef-first color system, updated icon and splash art,
+  clearer navigation, stronger accessibility, and better signed-out previews.
+- Made recipe collections, meal-plan dates, notes, source videos, and grocery
+  relationships more compact and directly connected in both directions.
+- Improved grocery search, grouping, shopping actions, and recipe attribution.
+- Made What Can I Make? pantry matches clearer and easier to turn into grocery
+  actions.
+- Redesigned Ask Håfa with a labeled entry point, recipe return links, streamed
+  answers, cancellation, local drafts, clearer assistant identity, and better
+  retry states.
+
+### Privacy and reliability
+
+- Scoped chat history and image cleanup to the stable application account so one
+  signed-in user cannot inherit another user's local conversation.
+- Limited chat diagnostics to operational facts and excluded prompts, answers,
+  recipes, images, URLs, account IDs, and storage keys.
+- Improved chat context selection so incomplete or failed turns do not poison the
+  next request, while keeping enough recent conversation to answer follow-ups.
+
+## [2.5.3] - August 2026
+
 ### Improved
 - Production builds now fail closed unless they use the Clerk production
   environment and a matching live publishable key.
