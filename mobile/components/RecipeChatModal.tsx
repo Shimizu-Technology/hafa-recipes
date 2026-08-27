@@ -31,21 +31,6 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '@clerk/expo';
 
-// Speech recognition - conditionally import to avoid crashes in Expo Go
-let ExpoSpeechRecognitionModule: any = null;
-let useSpeechRecognitionEvent: any = () => {}; // no-op hook
-let speechRecognitionAvailable = false;
-
-try {
-  const speechModule = require('expo-speech-recognition');
-  ExpoSpeechRecognitionModule = speechModule.ExpoSpeechRecognitionModule;
-  useSpeechRecognitionEvent = speechModule.useSpeechRecognitionEvent;
-  speechRecognitionAvailable = !!ExpoSpeechRecognitionModule;
-} catch {
-  // Speech recognition not available (Expo Go or module not linked)
-  console.log('Speech recognition not available - requires development build');
-}
-
 import { View, Text, useColors } from '@/components/Themed';
 import ChatComposer from './ChatComposer';
 import { Recipe, ChatMessage } from '@/types/recipe';
@@ -70,6 +55,12 @@ import {
 } from '../lib/chatContext';
 import { chatErrorMessage } from '../lib/chatErrors';
 import { isChatAbortError } from '../lib/chatStream';
+import { applyVoiceTranscript, chatVoiceError } from '../lib/chatVoice';
+import {
+  chatSpeechRecognitionModule,
+  isChatSpeechRecognitionAvailable,
+  useChatSpeechRecognitionEvent,
+} from '../lib/speechRecognition';
 import {
   appendPastedChatText,
   CHAT_MESSAGE_MAX_CHARS,
@@ -143,6 +134,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastScrollAtRef = useRef(0);
+  const voiceBaseTextRef = useRef('');
+  const voiceSessionActiveRef = useRef(false);
   const [inputText, setInputText] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -167,7 +160,14 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const recipeChatMutation = useChatWithRecipe();
   const cookingChatMutation = useCookingChat();
   
-  const { speak, stop, isPlaying, isLoading: ttsLoading } = useTTS();
+  const {
+    speak,
+    stop,
+    isPlaying,
+    isLoading: ttsLoading,
+    error: ttsError,
+    clearError: clearTTSError,
+  } = useTTS();
 
   /** Keep text state synchronized for close and conversation-switch draft saves. */
   const updateInputText = useCallback((text: string) => {
@@ -201,74 +201,117 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     }
     return false;
   }, []);
+
+  /** End dictation immediately when chat closes or changes conversations. */
+  const cancelVoiceInput = useCallback(() => {
+    const wasActive = voiceSessionActiveRef.current;
+    voiceSessionActiveRef.current = false;
+    setIsListening(false);
+    if (wasActive && chatSpeechRecognitionModule) {
+      try {
+        chatSpeechRecognitionModule.abort();
+      } catch {
+        // Native recognition may already have ended between state updates.
+      }
+    }
+  }, []);
+
+  /** Show safe, platform-appropriate guidance for a recognizer failure. */
+  const showVoiceError = useCallback((code: string) => {
+    const guidance = chatVoiceError(code);
+    if (!guidance) return;
+    Alert.alert(
+      guidance.title,
+      guidance.message,
+      guidance.canOpenSettings
+        ? [
+          { text: 'Not Now', style: 'cancel' },
+          {
+            text: 'Open Settings',
+            onPress: () => { void Linking.openSettings(); },
+          },
+        ]
+        : [{ text: 'OK' }],
+    );
+  }, []);
   
   // Speech recognition event handlers
-  useSpeechRecognitionEvent('start', () => {
+  useChatSpeechRecognitionEvent('start', () => {
+    voiceSessionActiveRef.current = true;
     setIsListening(true);
   });
   
-  useSpeechRecognitionEvent('end', () => {
+  useChatSpeechRecognitionEvent('end', () => {
+    voiceSessionActiveRef.current = false;
     setIsListening(false);
   });
   
-  useSpeechRecognitionEvent('result', (event: any) => {
-    // Get the best result from the transcription
-    if (event.results && event.results.length > 0) {
+  useChatSpeechRecognitionEvent('result', (event) => {
+    if (voiceSessionActiveRef.current && event.results && event.results.length > 0) {
       const transcript = event.results[0]?.transcript || '';
       if (transcript) {
-        const current = inputTextRef.current;
-        updateInputText(`${current}${current ? ' ' : ''}${transcript}`.slice(
-          0,
-          CHAT_MESSAGE_MAX_CHARS,
-        ));
+        updateInputText(applyVoiceTranscript(voiceBaseTextRef.current, transcript));
       }
     }
   });
   
-  useSpeechRecognitionEvent('error', (event: any) => {
-    console.log('Speech recognition error:', event.error);
+  useChatSpeechRecognitionEvent('error', (event) => {
+    const wasActive = voiceSessionActiveRef.current;
+    voiceSessionActiveRef.current = false;
     setIsListening(false);
-    if (event.error === 'not-allowed') {
-      Alert.alert(
-        'Microphone Permission Required',
-        'Please enable microphone access in Settings to use voice input.',
-        [{ text: 'OK' }]
-      );
-    }
+    if (isVisible && (wasActive || event.error !== 'aborted')) showVoiceError(event.error);
   });
   
   /** Toggle editable speech dictation after verifying native availability and permission. */
   const handleMicPress = async () => {
-    if (!speechRecognitionAvailable || !ExpoSpeechRecognitionModule) {
+    if (!isChatSpeechRecognitionAvailable || !chatSpeechRecognitionModule) {
       Alert.alert(
-        'Not Available',
-        'Voice input requires a development build. It is not available in Expo Go.',
+        'Voice Input Unavailable',
+        'Voice input is not available in this version of the app.',
         [{ text: 'OK' }]
       );
       return;
     }
-    
-    if (isListening) {
-      // Stop listening
-      await ExpoSpeechRecognitionModule.stop();
-    } else {
-      // Request permission and start listening
-      const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-      if (!result.granted) {
-        Alert.alert(
-          'Permission Required',
-          'Microphone and speech recognition permissions are needed for voice input.',
-          [{ text: 'OK' }]
-        );
+
+    try {
+      if (isListening) {
+        chatSpeechRecognitionModule.stop();
         return;
       }
-      
-      // Start speech recognition
-      await ExpoSpeechRecognitionModule.start({
+      if (
+        typeof chatSpeechRecognitionModule.isRecognitionAvailable === 'function'
+        && !chatSpeechRecognitionModule.isRecognitionAvailable()
+      ) {
+        showVoiceError('service-not-allowed');
+        return;
+      }
+      const result = await chatSpeechRecognitionModule.requestPermissionsAsync();
+      if (!result.granted) {
+        showVoiceError('not-allowed');
+        return;
+      }
+
+      voiceBaseTextRef.current = inputTextRef.current;
+      voiceSessionActiveRef.current = true;
+      setIsListening(true);
+      chatSpeechRecognitionModule.start({
         lang: 'en-US',
-        interimResults: false,
+        interimResults: true,
+        continuous: false,
+        addsPunctuation: true,
         maxAlternatives: 1,
+        contextualStrings: [
+          'ingredient',
+          'tablespoon',
+          'teaspoon',
+          'temperature',
+          ...(recipe?.extracted.title ? [recipe.extracted.title] : []),
+        ],
       });
+    } catch {
+      voiceSessionActiveRef.current = false;
+      setIsListening(false);
+      showVoiceError('client');
     }
   };
   
@@ -280,6 +323,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     const previousConversationKey = activeStorageKeyRef.current;
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
+    cancelVoiceInput();
     inFlightRef.current = false;
     setIsDelivering(false);
     if (draftSaveTimerRef.current) {
@@ -360,7 +404,15 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         }
       }
     })();
-  }, [clerkUserId, isVisible, recipe?.id, updateInputText, updateLoadedStorageKey, updateMessages]);
+  }, [
+    cancelVoiceInput,
+    clerkUserId,
+    isVisible,
+    recipe?.id,
+    updateInputText,
+    updateLoadedStorageKey,
+    updateMessages,
+  ]);
 
   /** Debounce account-scoped text draft writes while the active history is usable. */
   useEffect(() => {
@@ -381,13 +433,14 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   /** Flush the latest loaded draft if the modal is removed without a visibility transition. */
   useEffect(() => () => {
     abortControllerRef.current?.abort();
+    cancelVoiceInput();
     if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     const conversationKey = activeStorageKeyRef.current;
     if (conversationKey && loadedStorageKeyRef.current === conversationKey) {
       void writeChatDraft(conversationKey, inputTextRef.current).catch(() => undefined);
     }
-  }, []);
+  }, [cancelVoiceInput]);
 
   /** Persist UI state to its originating conversation key. */
   const saveChatHistory = useCallback(async (
@@ -795,6 +848,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   /** Convert the active draft or suggestion into a single optimistic user message. */
   const handleSend = async (text?: string) => {
     if (inFlightRef.current || clearInFlightRef.current || isComposerUnavailable) return;
+    cancelVoiceInput();
     const messageText = text || inputText.trim();
     if (!messageText && !attachedImage) return;
 
@@ -856,8 +910,10 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   /** Cancel transient work before dismissing the modal. */
   const handleClose = useCallback(() => {
     abortControllerRef.current?.abort();
+    cancelVoiceInput();
+    void stop();
     onClose();
-  }, [onClose]);
+  }, [cancelVoiceInput, onClose, stop]);
 
   /** Copy message text and briefly show success feedback on that bubble. */
   const handleCopyMessage = async (text: string, messageId: string) => {
@@ -894,6 +950,12 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
       setSpeakingId(null);
     }
   }, [isPlaying, ttsLoading]);
+
+  useEffect(() => {
+    if (!ttsError) return;
+    Alert.alert('Could Not Read Response', ttsError, [{ text: 'OK' }]);
+    clearTTSError();
+  }, [clearTTSError, ttsError]);
 
   return (
     <Modal

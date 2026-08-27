@@ -56,7 +56,7 @@ export default function ChatComposer({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
-  const canSend = Boolean(text.trim() || attachedImageUri) && !isUnavailable;
+  const canSend = Boolean(text.trim() || attachedImageUri) && !isUnavailable && !isListening;
   const canPressPrimary = isSending || canSend;
   const showNativePaste = Platform.OS === 'ios' && Clipboard.isPasteButtonAvailable;
 
@@ -140,6 +140,17 @@ export default function ChatComposer({
         </RNView>
       )}
 
+      {isListening && (
+        <RNView
+          style={[styles.listeningStatus, { backgroundColor: `${colors.tint}14` }]}
+          accessibilityLiveRegion="polite"
+        >
+          <RNView style={[styles.listeningDot, { backgroundColor: colors.tint }]} />
+          <Text style={[styles.listeningText, { color: colors.tint }]}>Listening…</Text>
+          <Text style={[styles.listeningHint, { color: colors.textSecondary }]}>Tap the mic when done</Text>
+        </RNView>
+      )}
+
       <RNView style={styles.inputRow}>
         <TouchableOpacity
           onPress={() => setAttachmentsOpen((open) => !open)}
@@ -174,17 +185,17 @@ export default function ChatComposer({
                 : isGeneralMode
                   ? 'Ask anything about cooking…'
                   : 'Ask about this recipe…'}
-            placeholderTextColor={isListening ? colors.error : colors.textMuted}
+            placeholderTextColor={isListening ? colors.tint : colors.textMuted}
             multiline
             maxLength={CHAT_MESSAGE_MAX_CHARS}
-            editable={!isUnavailable}
+            editable={!isUnavailable && !isListening}
             accessibilityLabel="Message"
             accessibilityHint="Enter a cooking question or instruction"
             style={[
               styles.input,
               {
                 backgroundColor: colors.backgroundSecondary,
-                borderColor: isListening ? colors.error : colors.border,
+                borderColor: isListening ? colors.tint : colors.border,
                 color: colors.text,
               },
             ]}
@@ -232,8 +243,8 @@ export default function ChatComposer({
           style={[
             styles.roundButton,
             {
-              backgroundColor: isListening ? colors.error : colors.backgroundSecondary,
-              borderColor: isListening ? colors.error : colors.border,
+              backgroundColor: isListening ? colors.tint : colors.backgroundSecondary,
+              borderColor: isListening ? colors.tint : colors.border,
             },
           ]}
         >
@@ -358,6 +369,27 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: spacing.sm,
     gap: spacing.lg,
+  },
+  listeningStatus: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    borderRadius: radius.full,
+    flexDirection: 'row',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  listeningDot: {
+    borderRadius: radius.full,
+    height: 7,
+    width: 7,
+  },
+  listeningText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.semibold,
+  },
+  listeningHint: {
+    fontSize: fontSize.xs,
   },
   attachmentAction: {
     minWidth: 58,
