@@ -176,12 +176,35 @@ describe('recipe image multipart requests', () => {
 
     try {
       const request = requestInterceptor({ url: '/api/chat/cooking', headers: {} });
-      await vi.advanceTimersByTimeAsync(AUTH_TOKEN_RETRY_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(
+        AUTH_TOKEN_RETRY_DELAY_MS * (AUTH_TOKEN_MAX_ATTEMPTS - 1),
+      );
       await expect(request).resolves.toMatchObject({ headers: {} });
       expect(getToken).toHaveBeenCalledTimes(AUTH_TOKEN_MAX_ATTEMPTS);
     } finally {
       api.setTokenGetter(null);
       vi.useRealTimers();
+    }
+  });
+
+  it('cancels promptly while Clerk token retrieval is still pending', async () => {
+    const getToken = vi.fn(() => new Promise<string | null>(() => undefined));
+    const controller = new AbortController();
+    api.setTokenGetter(getToken);
+
+    try {
+      const request = api.streamChatCookingAssistant(
+        'Stop before the request starts',
+        [],
+        undefined,
+        undefined,
+        controller.signal,
+      );
+      controller.abort();
+      await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+      expect(getToken).toHaveBeenCalledOnce();
+    } finally {
+      api.setTokenGetter(null);
     }
   });
 });

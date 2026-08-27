@@ -152,6 +152,23 @@ describe('message delivery ordering', () => {
     expect(completed[1]).toMatchObject({ content: 'complete answer', status: 'sent' });
   });
 
+  it('ignores a streamed response after its user message leaves the conversation', () => {
+    const messages = normalizeStoredChatMessages([
+      { id: 'current-user', role: 'user', content: 'current question' },
+      { id: 'current-answer', role: 'assistant', content: 'current answer' },
+    ]);
+
+    const result = upsertStreamingResponse(messages, 'prior-user', {
+      id: 'prior-partial',
+      role: 'assistant',
+      content: 'late partial from another conversation',
+      status: 'sending',
+    });
+
+    expect(result).toBe(messages);
+    expect(result).toEqual(messages);
+  });
+
   it('removes partial output and preserves a cancellable user message', () => {
     const messages = normalizeStoredChatMessages([
       { id: 'user', role: 'user', content: 'question' },

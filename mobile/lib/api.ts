@@ -74,6 +74,59 @@ type GuardedRequestConfig = AxiosRequestConfig & {
   requestGuard?: RequestGuard;
 };
 
+/** Create a platform-neutral abort error for work that ends before fetch begins. */
+function createAbortError(): Error {
+  const error = new Error('The operation was aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
+/** Wait for a promise while bounding its duration and honoring cancellation. */
+function waitForTokenResult<T>(
+  operation: Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (signal?.aborted) return Promise.reject(createAbortError());
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', handleAbort);
+      callback();
+    };
+    const handleAbort = () => finish(() => reject(createAbortError()));
+    const timeout = setTimeout(
+      () => finish(() => reject(new Error('Token fetch timeout'))),
+      AUTH_TOKEN_TIMEOUT_MS,
+    );
+    signal?.addEventListener('abort', handleAbort, { once: true });
+    operation.then(
+      (value) => finish(() => resolve(value)),
+      (error) => finish(() => reject(error)),
+    );
+  });
+}
+
+/** Delay between auth attempts without making a cancelled request wait. */
+function waitForTokenRetry(signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(createAbortError());
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', handleAbort);
+      callback();
+    };
+    const handleAbort = () => finish(() => reject(createAbortError()));
+    const timeout = setTimeout(() => finish(resolve), AUTH_TOKEN_RETRY_DELAY_MS);
+    signal?.addEventListener('abort', handleAbort, { once: true });
+  });
+}
+
 class ApiClient {
   private client: AxiosInstance;
   private getTokenFn: TokenGetter | null = null;
@@ -91,7 +144,10 @@ class ApiClient {
     this.client.interceptors.request.use(
       async (config) => {
         if (this.getTokenFn) {
-          const token = await this.getAuthTokenWithRetry(config.url || 'unknown');
+          const token = await this.getAuthTokenWithRetry(
+            config.url || 'unknown',
+            config.signal as AbortSignal | undefined,
+          );
           if (token) {
             config.headers.Authorization = `Bearer ${token}`;
           }
@@ -191,34 +247,27 @@ class ApiClient {
   }
 
   /** Get a fresh session token with the same bounded retry for Axios and streams. */
-  private async getAuthTokenWithRetry(endpoint: string): Promise<string | null> {
+  private async getAuthTokenWithRetry(
+    endpoint: string,
+    signal?: AbortSignal,
+  ): Promise<string | null> {
     if (!this.getTokenFn) return null;
     let lastError: unknown;
     for (let attempt = 1; attempt <= AUTH_TOKEN_MAX_ATTEMPTS; attempt += 1) {
-      let timeout: ReturnType<typeof setTimeout> | undefined;
       try {
-        const token = await Promise.race([
-          this.getTokenFn(),
-          new Promise<null>((_, reject) => {
-            timeout = setTimeout(
-              () => reject(new Error('Token fetch timeout')),
-              AUTH_TOKEN_TIMEOUT_MS,
-            );
-          }),
-        ]);
+        const token = await waitForTokenResult(this.getTokenFn(), signal);
         if (token) return token;
         lastError = new Error('Token unavailable');
       } catch (error) {
+        if (isChatAbortError(error, signal)) throw error;
         lastError = error;
-      } finally {
-        if (timeout) clearTimeout(timeout);
       }
       if (attempt < AUTH_TOKEN_MAX_ATTEMPTS) {
         console.warn(`Token fetch attempt ${attempt} failed, retrying...`);
         addBreadcrumb('auth', `Token fetch attempt ${attempt} failed, retrying`, {
           error: lastError instanceof Error ? lastError.message : 'Unknown error',
         }, 'warning');
-        await new Promise((resolve) => setTimeout(resolve, AUTH_TOKEN_RETRY_DELAY_MS));
+        await waitForTokenRetry(signal);
       }
     }
     console.warn('Failed to get auth token after retries:', lastError);
@@ -936,7 +985,7 @@ class ApiClient {
     onDelta?: ChatDeltaHandler,
     signal?: AbortSignal,
   ): Promise<ChatResponse> {
-    const token = await this.getAuthTokenWithRetry(streamPath);
+    const token = await this.getAuthTokenWithRetry(streamPath, signal);
     try {
       const result = await streamChatRequest({
         url: `${API_BASE_URL}${streamPath}`,
