@@ -18,7 +18,7 @@ from app.ai_governance import (
 from app.auth import ClerkUser
 from app.config import Settings
 from app.models.ai import AIInvocation
-from app.routers.chat import ChatRequest, chat_about_recipe
+from app.routers.chat import MAX_CHAT_HISTORY_ITEMS, ChatMessage, ChatRequest, chat_about_recipe
 from app.services.llm_client import LLMService
 
 
@@ -169,7 +169,16 @@ async def test_recipe_chat_marks_success_before_tracker_exits(monkeypatch):
 
     response = await chat_about_recipe(
         UUID("31111111-1111-4111-8111-111111111111"),
-        ChatRequest(message="How should I heat this?"),
+        ChatRequest(
+            message="How should I heat this?",
+            history=[
+                ChatMessage(
+                    role="user" if index % 2 == 0 else "assistant",
+                    content=f"legacy message {index}",
+                )
+                for index in range(12)
+            ],
+        ),
         db=FakeDatabase(),
         user=ClerkUser(
             id="user_chat_tracker",
@@ -180,6 +189,12 @@ async def test_recipe_chat_marks_success_before_tracker_exits(monkeypatch):
     )
 
     assert response.response == "Use low heat."
+    provider_messages = chat_router_module.openai_client.chat.completions.create.await_args.kwargs[
+        "messages"
+    ]
+    assert len(provider_messages[1:-1]) == MAX_CHAT_HISTORY_ITEMS
+    assert provider_messages[1]["content"] == "legacy message 2"
+    assert provider_messages[-1]["content"] == "How should I heat this?"
     assert recorded.await_args.kwargs["status"] == "success"
     assert recorded.await_args.kwargs["error_code"] is None
 

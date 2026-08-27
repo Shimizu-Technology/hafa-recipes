@@ -305,6 +305,11 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   image_url?: string;  // Optional image URL for vision
+  id?: string;
+  status?: 'sending' | 'sent' | 'failed' | 'cancelled';
+  error_message?: string;
+  request_content?: string;
+  has_image?: boolean;
 }
 
 export interface ChatRequest {

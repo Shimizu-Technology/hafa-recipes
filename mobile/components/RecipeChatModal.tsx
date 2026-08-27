@@ -57,6 +57,14 @@ import {
   type RenderRules,
 } from '@believer/react-native-markdown-display';
 import api from '@/lib/api';
+import {
+  ChatUiMessage,
+  createChatMessageId,
+  messagesForStorage,
+  normalizeStoredChatMessages,
+  selectChatContext,
+} from '@/lib/chatContext';
+import { chatErrorMessage } from '@/lib/chatErrors';
 
 // Storage key prefix for chat history
 const CHAT_STORAGE_KEY_PREFIX = 'recipe_chat_';
@@ -99,7 +107,9 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const isGeneralMode = !recipe;
   const quickSuggestions = isGeneralMode ? COOKING_SUGGESTIONS : RECIPE_SUGGESTIONS;
   
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatUiMessage[]>([]);
+  const messagesRef = useRef<ChatUiMessage[]>([]);
+  const retryImagesRef = useRef<Map<string, string>>(new Map());
   const [inputText, setInputText] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isListening, setIsListening] = useState(false);
@@ -114,6 +124,11 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const chatMutation = isGeneralMode ? cookingChatMutation : recipeChatMutation;
   
   const { speak, stop, isPlaying, isLoading: ttsLoading } = useTTS();
+
+  const updateMessages = useCallback((nextMessages: ChatUiMessage[]) => {
+    messagesRef.current = nextMessages;
+    setMessages(nextMessages);
+  }, []);
 
   const handleAssistantLink = useCallback((url: string) => {
     try {
@@ -214,22 +229,22 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
       const stored = await AsyncStorage.getItem(storageKey);
       if (stored) {
         const history: ChatMessage[] = JSON.parse(stored);
-        setMessages(history);
+        updateMessages(normalizeStoredChatMessages(history));
       } else {
-        setMessages([]);
+        updateMessages([]);
       }
     } catch {
       // Non-critical: chat will start fresh
-      setMessages([]);
+      updateMessages([]);
     } finally {
       setIsLoadingHistory(false);
     }
-  }, [storageKey]);
+  }, [storageKey, updateMessages]);
 
   // Save chat history to AsyncStorage whenever messages change
-  const saveChatHistory = useCallback(async (newMessages: ChatMessage[]) => {
+  const saveChatHistory = useCallback(async (newMessages: ChatUiMessage[]) => {
     try {
-      await AsyncStorage.setItem(storageKey, JSON.stringify(newMessages));
+      await AsyncStorage.setItem(storageKey, JSON.stringify(messagesForStorage(newMessages)));
     } catch {
       // Non-critical: chat history won't persist, but conversation continues
     }
@@ -245,7 +260,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           text: 'Clear',
           style: 'destructive',
           onPress: async () => {
-            setMessages([]);
+            updateMessages([]);
+            retryImagesRef.current.clear();
             try {
               await AsyncStorage.removeItem(storageKey);
             } catch {
@@ -255,7 +271,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         },
       ]
     );
-  }, [storageKey]);
+  }, [storageKey, updateMessages]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -330,104 +346,108 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     setAttachedImageUri(null);
   };
 
+  const sendMessage = async (userMessage: ChatUiMessage, imageToSend?: string) => {
+    const previousMessages = messagesRef.current.filter((message) => message.id !== userMessage.id);
+    const sendingMessage: ChatUiMessage = {
+      ...userMessage,
+      status: 'sending',
+      error_message: undefined,
+    };
+    let sendingMessages = [...previousMessages, sendingMessage];
+    updateMessages(sendingMessages);
+    await saveChatHistory(sendingMessages);
+
+    try {
+      let s3ImageUrl = sendingMessage.image_url?.startsWith('https://')
+        ? sendingMessage.image_url
+        : undefined;
+      if (imageToSend && !s3ImageUrl) {
+        try {
+          const uploadResult = await api.uploadChatImage(imageToSend);
+          s3ImageUrl = uploadResult.image_url;
+          sendingMessages = sendingMessages.map((message) => message.id === sendingMessage.id
+            ? { ...message, image_url: s3ImageUrl }
+            : message);
+          updateMessages(sendingMessages);
+        } catch {
+          console.log('Failed to upload image to S3, continuing without persistent URL');
+        }
+      }
+
+      const defaultImageMessage = isGeneralMode
+        ? 'What do you see in this image?'
+        : 'What do you see in this image? How does it relate to this recipe?';
+      const requestContent = sendingMessage.request_content || sendingMessage.content;
+      const historyForApi = selectChatContext(previousMessages);
+      const response = isGeneralMode
+        ? await cookingChatMutation.mutateAsync({
+            message: requestContent || defaultImageMessage,
+            history: historyForApi,
+            imageBase64: imageToSend,
+          })
+        : await recipeChatMutation.mutateAsync({
+            recipeId: recipe!.id,
+            message: requestContent || defaultImageMessage,
+            history: historyForApi,
+            imageBase64: imageToSend,
+          });
+
+      const assistantMessage: ChatUiMessage = {
+        id: createChatMessageId(),
+        role: 'assistant',
+        content: response.response,
+        status: 'sent',
+      };
+      const finalMessages = sendingMessages
+        .map((message) => message.id === sendingMessage.id
+          ? { ...message, status: 'sent' as const, image_url: s3ImageUrl || message.image_url }
+          : message)
+        .concat(assistantMessage);
+      updateMessages(finalMessages);
+      retryImagesRef.current.delete(sendingMessage.id);
+      await saveChatHistory(finalMessages);
+    } catch (error) {
+      const failedMessages = sendingMessages.map((message) => message.id === sendingMessage.id
+        ? { ...message, status: 'failed' as const, error_message: chatErrorMessage(error) }
+        : message);
+      updateMessages(failedMessages);
+      await saveChatHistory(failedMessages);
+    }
+  };
+
   const handleSend = async (text?: string) => {
     const messageText = text || inputText.trim();
     if (!messageText && !attachedImage) return;
 
-    // Capture image before clearing
-    const imageToSend = attachedImage;
-    const imageUriForDisplay = attachedImageUri;
-    const hadImage = !!imageToSend;
-    
-    // Clear inputs immediately for better UX
+    const imageToSend = attachedImage || undefined;
+    const messageId = createChatMessageId();
+    const userMessage: ChatUiMessage = {
+      id: messageId,
+      role: 'user',
+      content: imageToSend
+        ? (messageText ? `Photo: ${messageText}` : '[Photo attached]')
+        : messageText,
+      request_content: messageText,
+      image_url: attachedImageUri || undefined,
+      has_image: !!imageToSend,
+      status: 'sending',
+    };
+    if (imageToSend) retryImagesRef.current.set(messageId, imageToSend);
+
     setInputText('');
     setAttachedImage(null);
     setAttachedImageUri(null);
     Keyboard.dismiss();
-    
-    // For immediate display, show local URI (will be replaced with S3 URL)
-    const userMessage: ChatMessage = { 
-      role: 'user', 
-      content: hadImage
-        ? (messageText ? `Photo: ${messageText}` : '[Photo attached]')
-        : messageText,
-      image_url: imageUriForDisplay || undefined,
-    };
-    const updatedMessages = [...messages, userMessage];
-    setMessages(updatedMessages);
+    await sendMessage(userMessage, imageToSend);
+  };
 
-    try {
-      // If there's an image, upload to S3 first for persistent storage
-      let s3ImageUrl: string | undefined;
-      if (imageToSend) {
-        try {
-          const uploadResult = await api.uploadChatImage(imageToSend);
-          s3ImageUrl = uploadResult.image_url;
-          
-          // Update the message with the S3 URL (replaces local URI)
-          userMessage.image_url = s3ImageUrl;
-          setMessages([...messages, userMessage]);
-        } catch (uploadError) {
-          console.log('Failed to upload image to S3, continuing without persistent URL');
-          // Continue anyway - the current message will still work via base64
-        }
-      }
-
-      // Prepare history for API - include S3 URLs but filter out local file:// URIs
-      const historyForApi = messages.map(m => ({
-        role: m.role,
-        content: m.content,
-        // Only include image_url if it's an S3 URL (starts with https://)
-        image_url: m.image_url?.startsWith('https://') ? m.image_url : undefined,
-      }));
-      
-      // Call the appropriate mutation based on mode
-      const defaultImageMessage = isGeneralMode 
-        ? 'What do you see in this image?' 
-        : 'What do you see in this image? How does it relate to this recipe?';
-      
-      const response = isGeneralMode
-        ? await cookingChatMutation.mutateAsync({
-            message: messageText || defaultImageMessage,
-            history: historyForApi,
-            imageBase64: imageToSend || undefined,
-          })
-        : await recipeChatMutation.mutateAsync({
-            recipeId: recipe!.id,
-            message: messageText || defaultImageMessage,
-            history: historyForApi,
-            imageBase64: imageToSend || undefined,
-          });
-
-      // Add assistant response
-      const assistantMessage: ChatMessage = { role: 'assistant', content: response.response };
-      
-      // Use the S3 URL (if available) for the final message
-      const finalUserMessage: ChatMessage = {
-        ...userMessage,
-        image_url: s3ImageUrl || userMessage.image_url,
-      };
-      const finalMessages = [...messages, finalUserMessage, assistantMessage];
-      setMessages(finalMessages);
-      
-      // Save to AsyncStorage - include S3 URLs (they persist), exclude local URIs
-      const messagesForStorage = finalMessages.map(m => ({
-        role: m.role,
-        content: m.content,
-        // Only save image_url if it's an S3 URL
-        image_url: m.image_url?.startsWith('https://') ? m.image_url : undefined,
-      }));
-      await saveChatHistory(messagesForStorage as ChatMessage[]);
-    } catch {
-      // Add error message to conversation
-      const errorMessage: ChatMessage = {
-        role: 'assistant',
-        content: "Sorry, I couldn't process that request. Please try again.",
-      };
-      const errorMessages = [...updatedMessages, errorMessage];
-      setMessages(errorMessages);
-      await saveChatHistory(errorMessages);
+  const handleRetry = async (message: ChatUiMessage) => {
+    const retryImage = retryImagesRef.current.get(message.id);
+    if (message.has_image && !retryImage) {
+      Alert.alert('Reattach photo', 'Please attach the photo again before retrying this message.');
+      return;
     }
+    await sendMessage(message, retryImage);
   };
 
   const handleSuggestionPress = (suggestion: string) => {
@@ -581,7 +601,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           {/* Chat messages */}
           {messages.map((msg, index) => (
             <RNView
-              key={index}
+              key={msg.id}
               style={[
                 styles.messageWrapper,
                 msg.role === 'user' ? styles.userWrapper : styles.assistantWrapper,
@@ -652,6 +672,28 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                   msg.role === 'user' ? styles.actionBarRight : styles.actionBarLeft,
                 ]}
               >
+                {msg.role === 'user' && msg.status === 'sending' && (
+                  <RNView style={styles.deliveryState}>
+                    <ActivityIndicator size={12} color={colors.textMuted} />
+                    <Text style={[styles.deliveryStateText, { color: colors.textMuted }]}>Sending…</Text>
+                  </RNView>
+                )}
+                {msg.role === 'user' && msg.status === 'failed' && (
+                  <RNView style={styles.deliveryState}>
+                    <Ionicons name="alert-circle-outline" size={14} color={colors.error} />
+                    <Text style={[styles.deliveryErrorText, { color: colors.error }]}>
+                      {msg.error_message || 'Your message was not sent.'}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => handleRetry(msg)}
+                      disabled={chatMutation.isPending}
+                      accessibilityRole="button"
+                      accessibilityLabel="Retry message"
+                    >
+                      <Text style={[styles.retryText, { color: colors.tint }]}>Retry</Text>
+                    </TouchableOpacity>
+                  </RNView>
+                )}
                 {/* Copy button */}
                 <TouchableOpacity
                   onPress={() => handleCopyMessage(msg.content, index)}
@@ -950,6 +992,25 @@ const styles = StyleSheet.create({
   actionBarButton: {
     padding: spacing.xs,
     opacity: 0.6,
+  },
+  deliveryState: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flex: 1,
+  },
+  deliveryStateText: {
+    fontSize: fontSize.xs,
+  },
+  deliveryErrorText: {
+    fontSize: fontSize.xs,
+    flexShrink: 1,
+  },
+  retryText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
   },
   messageText: {
     fontSize: fontSize.md,
