@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Image, Share, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Share, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser, useClerk, useAuth } from '@clerk/expo';
@@ -9,6 +9,7 @@ import Constants from 'expo-constants';
 
 import { View, Text, Card, SectionHeader, Divider, useColors } from '@/components/Themed';
 import { BrandMark } from '@/components/BrandMark';
+import { SettingsProfileCard } from '@/components/SettingsProfileCard';
 import { useRecipeCount } from '@/hooks/useRecipes';
 import { API_BASE_URL } from '@/lib/api';
 import { captureMessage, captureError } from '@/lib/sentry';
@@ -23,6 +24,7 @@ import { useTTSVoice, TTS_VOICES, TTSVoice } from '@/hooks/useTTS';
 import { useTextSize, TEXT_SIZE_LABELS, TextSizeOption } from '@/hooks/useTextSize';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { resolveAppVersion } from '@/lib/appVersion';
+import { resolveSettingsProfileName } from '@/lib/settingsProfile';
 
 const APP_STORE_URL = 'https://apps.apple.com/us/app/recipe-extractor-gu/id6755892896';
 const WEBSITE_URL = 'https://hafa-recipes.com';
@@ -74,6 +76,7 @@ function MenuItem({ icon, label, value, onPress, colors }: MenuItemProps) {
   return content;
 }
 
+/** Account and app preferences, presented from the root stack rather than as a tab. */
 export default function SettingsScreen() {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -270,6 +273,8 @@ export default function SettingsScreen() {
     setShowProfileModal(true);
   };
 
+  const profileName = resolveSettingsProfileName(isSignedIn, user);
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -279,40 +284,12 @@ export default function SettingsScreen() {
         {/* User Profile Card */}
         <RNView style={styles.section}>
           <SectionHeader title="Account" />
-          <TouchableOpacity
-            activeOpacity={0.7}
+          <SettingsProfileCard
+            isSignedIn={Boolean(isSignedIn)}
+            profileName={profileName}
+            user={user}
             onPress={isSignedIn ? handleOpenProfileModal : () => router.push('/(auth)/sign-in')}
-          >
-            <Card>
-              <RNView style={styles.userCard}>
-                {isSignedIn && user?.imageUrl ? (
-                  <Image source={{ uri: user.imageUrl }} style={styles.userAvatar} />
-                ) : (
-                  <RNView style={[styles.userAvatarPlaceholder, { backgroundColor: colors.tint + '20' }]}>
-                    <Ionicons name="person" size={32} color={colors.tint} />
-                  </RNView>
-                )}
-                <RNView style={styles.userInfo}>
-                  <Text style={[styles.userName, { color: colors.text }]}>
-                    {isSignedIn
-                      ? (user?.firstName || user?.emailAddresses[0]?.emailAddress?.split('@')[0] || 'User')
-                      : 'Guest User'}
-                  </Text>
-                  <Text style={[styles.userEmail, { color: isSignedIn ? colors.textMuted : colors.tint }]}>
-                    {isSignedIn
-                      ? user?.emailAddresses[0]?.emailAddress
-                      : 'Tap to sign in →'}
-                  </Text>
-                  {isSignedIn && !user?.firstName && (
-                    <Text style={[styles.userHint, { color: colors.tint }]}>
-                      Tap to add your name for recipe attribution
-                    </Text>
-                  )}
-                </RNView>
-                <Ionicons name="chevron-forward" size={20} color={isSignedIn ? colors.textMuted : colors.tint} />
-              </RNView>
-            </Card>
-          </TouchableOpacity>
+          />
         </RNView>
 
         {/* Stats Card - only for signed in users */}
@@ -949,34 +926,6 @@ const styles = StyleSheet.create({
   techItem: {
     fontSize: fontSize.sm,
   },
-  userCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  userAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-  },
-  userAvatarPlaceholder: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  userInfo: {
-    flex: 1,
-  },
-  userName: {
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.semibold,
-  },
-  userEmail: {
-    fontSize: fontSize.sm,
-    marginTop: 2,
-  },
   accountActionsCard: {
     borderRadius: radius.lg,
     overflow: 'hidden',
@@ -1023,10 +972,6 @@ const styles = StyleSheet.create({
   },
   developerLink: {
     fontWeight: fontWeight.medium,
-  },
-  userHint: {
-    fontSize: fontSize.xs,
-    marginTop: spacing.xs,
   },
   // Modal styles
   modalContainer: {
