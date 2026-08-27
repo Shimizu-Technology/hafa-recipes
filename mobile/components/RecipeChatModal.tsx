@@ -58,7 +58,9 @@ import {
 } from '@believer/react-native-markdown-display';
 import api from '@/lib/api';
 import {
+  beginMessageDelivery,
   ChatUiMessage,
+  completeMessageDelivery,
   createChatMessageId,
   messagesForStorage,
   normalizeStoredChatMessages,
@@ -132,6 +134,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     setMessages(nextMessages);
   }, []);
 
+  /** Open only web links supplied by assistant Markdown. */
   const handleAssistantLink = useCallback((url: string) => {
     try {
       const parsed = new URL(url);
@@ -225,6 +228,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     }
   }, [isVisible, recipe?.id, isGeneralMode]);
 
+  /** Load and normalize the current conversation's locally persisted history. */
   const loadChatHistory = useCallback(async () => {
     setIsLoadingHistory(true);
     try {
@@ -244,6 +248,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   }, [storageKey, updateMessages]);
 
   // Save chat history to AsyncStorage whenever messages change
+  /** Persist UI state after stripping device-local image references. */
   const saveChatHistory = useCallback(async (newMessages: ChatUiMessage[]) => {
     try {
       await AsyncStorage.setItem(storageKey, JSON.stringify(messagesForStorage(newMessages)));
@@ -252,6 +257,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     }
   }, [storageKey]);
 
+  /** Confirm and clear the current locally persisted conversation. */
   const handleClearChat = useCallback(() => {
     Alert.alert(
       'Clear Chat',
@@ -352,13 +358,14 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const sendMessage = async (userMessage: ChatUiMessage, imageToSend?: string) => {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
-    const previousMessages = messagesRef.current.filter((message) => message.id !== userMessage.id);
     const sendingMessage: ChatUiMessage = {
       ...userMessage,
       status: 'sending',
       error_message: undefined,
     };
-    let sendingMessages = [...previousMessages, sendingMessage];
+    const deliveryStart = beginMessageDelivery(messagesRef.current, sendingMessage);
+    const previousMessages = deliveryStart.contextMessages;
+    let sendingMessages = deliveryStart.displayMessages;
     updateMessages(sendingMessages);
     await saveChatHistory(sendingMessages);
 
@@ -404,11 +411,12 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         content: response.response,
         status: 'sent',
       };
-      const finalMessages = messagesRef.current
-        .map((message) => message.id === sendingMessage.id
-          ? { ...message, status: 'sent' as const, image_url: s3ImageUrl || message.image_url }
-          : message)
-        .concat(assistantMessage);
+      const finalMessages = completeMessageDelivery(
+        messagesRef.current,
+        sendingMessage.id,
+        assistantMessage,
+        s3ImageUrl,
+      );
       updateMessages(finalMessages);
       retryImagesRef.current.delete(sendingMessage.id);
       await saveChatHistory(finalMessages);

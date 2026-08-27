@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { ChatMessage } from '@/types/recipe';
 
 import {
+  beginMessageDelivery,
+  completeMessageDelivery,
   LEGACY_CHAT_ERROR_MESSAGE,
   MAX_CHAT_CONTEXT_MESSAGES,
   normalizeStoredChatMessages,
@@ -63,5 +65,39 @@ describe('normalizeStoredChatMessages', () => {
     expect(message.id).toBeTruthy();
     expect(message.status).toBe('failed');
     expect(message.error_message).toContain('interrupted');
+  });
+});
+
+describe('message delivery ordering', () => {
+  it('retries in place with only the messages that preceded the failed send', () => {
+    const messages = normalizeStoredChatMessages([
+      { id: 'first-user', role: 'user', content: 'first' },
+      { id: 'first-answer', role: 'assistant', content: 'answer' },
+      { id: 'failed-user', role: 'user', content: 'failed', status: 'failed' },
+      { id: 'later-user', role: 'user', content: 'later' },
+      { id: 'later-answer', role: 'assistant', content: 'later answer' },
+    ]);
+    const failed = { ...messages[2], status: 'sending' as const };
+
+    const started = beginMessageDelivery(messages, failed);
+    const completed = completeMessageDelivery(started.displayMessages, failed.id, {
+      id: 'retried-answer',
+      role: 'assistant',
+      content: 'retried answer',
+      status: 'sent',
+    });
+
+    expect(started.contextMessages.map((message) => message.id)).toEqual([
+      'first-user',
+      'first-answer',
+    ]);
+    expect(completed.map((message) => message.id)).toEqual([
+      'first-user',
+      'first-answer',
+      'failed-user',
+      'retried-answer',
+      'later-user',
+      'later-answer',
+    ]);
   });
 });

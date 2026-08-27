@@ -13,6 +13,11 @@ export interface ChatUiMessage extends ChatMessage {
   request_content?: string;
 }
 
+export interface ChatDeliveryStart {
+  contextMessages: ChatUiMessage[];
+  displayMessages: ChatUiMessage[];
+}
+
 /** Create a locally unique identifier for stable message rendering and retries. */
 export function createChatMessageId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -28,6 +33,45 @@ export function normalizeStoredChatMessages(messages: ChatMessage[]): ChatUiMess
       ? 'This message was interrupted. Try sending it again.'
       : message.error_message,
   }));
+}
+
+/** Keep retries in place and limit their request context to preceding messages. */
+export function beginMessageDelivery(
+  messages: ChatUiMessage[],
+  sendingMessage: ChatUiMessage,
+): ChatDeliveryStart {
+  const existingIndex = messages.findIndex((message) => message.id === sendingMessage.id);
+  if (existingIndex < 0) {
+    return {
+      contextMessages: messages,
+      displayMessages: [...messages, sendingMessage],
+    };
+  }
+  return {
+    contextMessages: messages.slice(0, existingIndex),
+    displayMessages: messages.map((message) => message.id === sendingMessage.id
+      ? sendingMessage
+      : message),
+  };
+}
+
+/** Insert the assistant response immediately after the delivered user bubble. */
+export function completeMessageDelivery(
+  messages: ChatUiMessage[],
+  userMessageId: string,
+  assistantMessage: ChatUiMessage,
+  imageUrl?: string,
+): ChatUiMessage[] {
+  const userIndex = messages.findIndex((message) => message.id === userMessageId);
+  if (userIndex < 0) return messages;
+  const deliveredMessages = messages.map((message) => message.id === userMessageId
+    ? { ...message, status: 'sent' as const, image_url: imageUrl || message.image_url }
+    : message);
+  return [
+    ...deliveredMessages.slice(0, userIndex + 1),
+    assistantMessage,
+    ...deliveredMessages.slice(userIndex + 1),
+  ];
 }
 
 /** Select the newest complete, delivered turns that fit the provider budget. */
