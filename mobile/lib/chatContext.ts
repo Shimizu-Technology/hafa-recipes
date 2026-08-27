@@ -1,10 +1,10 @@
-import type { ChatMessage } from '@/types/recipe';
+import type { ChatDeliveryStatus, ChatMessage } from '@/types/recipe';
+
+export type { ChatDeliveryStatus } from '@/types/recipe';
 
 export const MAX_CHAT_CONTEXT_MESSAGES = 10;
 export const MAX_CHAT_CONTEXT_CHARS = 16_000;
 export const LEGACY_CHAT_ERROR_MESSAGE = "Sorry, I couldn't process that request. Please try again.";
-
-export type ChatDeliveryStatus = 'sending' | 'sent' | 'failed' | 'cancelled';
 
 export interface ChatUiMessage extends ChatMessage {
   id: string;
@@ -13,10 +13,12 @@ export interface ChatUiMessage extends ChatMessage {
   request_content?: string;
 }
 
+/** Create a locally unique identifier for stable message rendering and retries. */
 export function createChatMessageId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/** Upgrade legacy persisted messages and convert interrupted sends to failures. */
 export function normalizeStoredChatMessages(messages: ChatMessage[]): ChatUiMessage[] {
   return messages.map((message) => ({
     ...message,
@@ -28,6 +30,7 @@ export function normalizeStoredChatMessages(messages: ChatMessage[]): ChatUiMess
   }));
 }
 
+/** Select the newest complete, delivered turns that fit the provider budget. */
 export function selectChatContext(messages: ChatMessage[]): ChatMessage[] {
   const turns: Array<[ChatMessage, ChatMessage]> = [];
   let pendingUser: ChatMessage | undefined;
@@ -69,6 +72,7 @@ export function selectChatContext(messages: ChatMessage[]): ChatMessage[] {
   })));
 }
 
+/** Remove device-local image URLs before persisting chat messages. */
 export function messagesForStorage(messages: ChatUiMessage[]): ChatUiMessage[] {
   return messages.map((message) => ({
     ...message,

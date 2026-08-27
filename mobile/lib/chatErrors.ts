@@ -7,11 +7,13 @@ type ApiErrorShape = {
   };
 };
 
+/** Return a short server detail only when it is safe to display inline. */
 function safeDetail(error: ApiErrorShape): string | undefined {
   const detail = error.response?.data?.detail;
   return typeof detail === 'string' && detail.length <= 180 ? detail : undefined;
 }
 
+/** Convert API and transport failures into bounded, actionable user guidance. */
 export function chatErrorMessage(error: unknown): string {
   const apiError = (error && typeof error === 'object' ? error : {}) as ApiErrorShape;
   const status = apiError.response?.status;

@@ -110,6 +110,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const [messages, setMessages] = useState<ChatUiMessage[]>([]);
   const messagesRef = useRef<ChatUiMessage[]>([]);
   const retryImagesRef = useRef<Map<string, string>>(new Map());
+  const inFlightRef = useRef(false);
   const [inputText, setInputText] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isListening, setIsListening] = useState(false);
@@ -125,6 +126,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   
   const { speak, stop, isPlaying, isLoading: ttsLoading } = useTTS();
 
+  /** Keep render state and the async-safe message reference synchronized. */
   const updateMessages = useCallback((nextMessages: ChatUiMessage[]) => {
     messagesRef.current = nextMessages;
     setMessages(nextMessages);
@@ -346,7 +348,10 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     setAttachedImageUri(null);
   };
 
+  /** Deliver one message and commit its success or failure without stale snapshots. */
   const sendMessage = async (userMessage: ChatUiMessage, imageToSend?: string) => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     const previousMessages = messagesRef.current.filter((message) => message.id !== userMessage.id);
     const sendingMessage: ChatUiMessage = {
       ...userMessage,
@@ -365,10 +370,11 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         try {
           const uploadResult = await api.uploadChatImage(imageToSend);
           s3ImageUrl = uploadResult.image_url;
-          sendingMessages = sendingMessages.map((message) => message.id === sendingMessage.id
+          sendingMessages = messagesRef.current.map((message) => message.id === sendingMessage.id
             ? { ...message, image_url: s3ImageUrl }
             : message);
           updateMessages(sendingMessages);
+          await saveChatHistory(sendingMessages);
         } catch {
           console.log('Failed to upload image to S3, continuing without persistent URL');
         }
@@ -398,7 +404,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         content: response.response,
         status: 'sent',
       };
-      const finalMessages = sendingMessages
+      const finalMessages = messagesRef.current
         .map((message) => message.id === sendingMessage.id
           ? { ...message, status: 'sent' as const, image_url: s3ImageUrl || message.image_url }
           : message)
@@ -407,15 +413,19 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
       retryImagesRef.current.delete(sendingMessage.id);
       await saveChatHistory(finalMessages);
     } catch (error) {
-      const failedMessages = sendingMessages.map((message) => message.id === sendingMessage.id
+      const failedMessages = messagesRef.current.map((message) => message.id === sendingMessage.id
         ? { ...message, status: 'failed' as const, error_message: chatErrorMessage(error) }
         : message);
       updateMessages(failedMessages);
       await saveChatHistory(failedMessages);
+    } finally {
+      inFlightRef.current = false;
     }
   };
 
+  /** Convert the active draft or suggestion into a single optimistic user message. */
   const handleSend = async (text?: string) => {
+    if (inFlightRef.current) return;
     const messageText = text || inputText.trim();
     if (!messageText && !attachedImage) return;
 
@@ -441,6 +451,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     await sendMessage(userMessage, imageToSend);
   };
 
+  /** Retry a failed bubble while preserving its identity and required image data. */
   const handleRetry = async (message: ChatUiMessage) => {
     const retryImage = retryImagesRef.current.get(message.id);
     if (message.has_image && !retryImage) {
@@ -687,8 +698,11 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                     <TouchableOpacity
                       onPress={() => handleRetry(msg)}
                       disabled={chatMutation.isPending}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      style={styles.retryButton}
                       accessibilityRole="button"
                       accessibilityLabel="Retry message"
+                      accessibilityState={{ disabled: chatMutation.isPending }}
                     >
                       <Text style={[styles.retryText, { color: colors.tint }]}>Retry</Text>
                     </TouchableOpacity>
@@ -1011,6 +1025,10 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
     paddingHorizontal: spacing.xs,
     paddingVertical: spacing.xs,
+  },
+  retryButton: {
+    minHeight: 44,
+    justifyContent: 'center',
   },
   messageText: {
     fontSize: fontSize.md,
