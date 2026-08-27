@@ -14,8 +14,8 @@ const mocks = vi.hoisted(() => ({
   removeItem: vi.fn<(key: string) => Promise<void>>(async () => undefined),
   recipeMutate: vi.fn<(variables: unknown) => Promise<{ response: string }>>(),
   cookingMutate: vi.fn<(variables: unknown) => Promise<{ response: string }>>(),
-  speak: vi.fn(async () => undefined),
-  stop: vi.fn(async () => undefined),
+  speak: vi.fn<(text?: string) => Promise<void>>(async () => undefined),
+  stop: vi.fn<() => Promise<void>>(async () => undefined),
   ttsState: { isLoading: false, isPlaying: false },
 }));
 
@@ -196,7 +196,8 @@ describe('RecipeChatModal conversation isolation', () => {
   });
 
   it('exposes speech loading as a disabled button state', async () => {
-    mocks.ttsState.isLoading = true;
+    const pendingSpeech = deferred<void>();
+    mocks.speak.mockImplementation(() => pendingSpeech.promise);
     mocks.getItem.mockResolvedValue(JSON.stringify([
       { id: 'question', role: 'user', content: 'question' },
       { id: 'answer', role: 'assistant', content: 'answer' },
@@ -208,7 +209,14 @@ describe('RecipeChatModal conversation isolation', () => {
       const speechButton = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Read response aloud',
       )[0];
-      await act(async () => speechButton.props.onPress());
+      expect(speechButton.props.disabled).toBe(false);
+      await act(async () => {
+        void speechButton.props.onPress();
+        await Promise.resolve();
+      });
+      expect(mocks.speak).toHaveBeenCalledOnce();
+      mocks.ttsState.isLoading = true;
+      await renderModal(renderer, 'first');
       const loadingSpeechButton = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Read response aloud',
       )[0];
@@ -216,6 +224,7 @@ describe('RecipeChatModal conversation isolation', () => {
       expect(loadingSpeechButton.props.accessibilityRole).toBe('button');
       expect(loadingSpeechButton.props.accessibilityState).toEqual({ disabled: true });
     } finally {
+      await act(async () => pendingSpeech.resolve());
       await act(async () => renderer.unmount());
     }
   });
