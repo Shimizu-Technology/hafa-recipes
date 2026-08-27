@@ -118,4 +118,22 @@ describe('chat image cleanup queue', () => {
     expect(deleteImages).toHaveBeenCalledWith(prepared.imageUrls);
     expect(mocks.values.has(cleanupKey)).toBe(false);
   });
+
+  it('processes valid jobs when an isolated queue record is corrupt', async () => {
+    const valid = {
+      id: 'valid-clear',
+      imageUrls: ['https://images.example/valid.jpg'],
+      state: 'ready',
+    } as const;
+    mocks.values.set(cleanupKey, JSON.stringify([
+      { id: 'invalid-clear', imageUrls: 'not-an-array', state: 'ready' },
+      valid,
+    ]));
+    const deleteImages = vi.fn(async () => ({ deleted: 1 }));
+
+    await processChatImageCleanup(conversationKey, deleteImages);
+
+    expect(deleteImages).toHaveBeenCalledWith(valid.imageUrls);
+    expect(mocks.values.has(cleanupKey)).toBe(false);
+  });
 });

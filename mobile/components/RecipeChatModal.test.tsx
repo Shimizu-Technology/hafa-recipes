@@ -162,13 +162,6 @@ async function sendText(renderer: ReturnType<typeof createRoot>, text: string) {
   });
 }
 
-/** Flush background queue work that intentionally is not awaited by the UI. */
-async function flushBackgroundWork() {
-  await act(async () => {
-    for (let index = 0; index < 12; index += 1) await Promise.resolve();
-  });
-}
-
 describe('RecipeChatModal conversation isolation', () => {
   beforeEach(() => {
     mocks.storageValues.clear();
@@ -266,6 +259,35 @@ describe('RecipeChatModal conversation isolation', () => {
         (instance) => instance.props.accessibilityLabel === 'Send message',
       )[0];
       expect(sendButton.props.disabled).toBe(true);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('shows the photo privacy notice when attaching to an existing conversation', async () => {
+    mocks.storageValues.set(
+      'hafa.chat.v2.stable-user.recipe.first',
+      JSON.stringify([{ id: 'question', role: 'user', content: 'Existing message' }]),
+    );
+    mocks.launchImageLibrary.mockResolvedValue({
+      canceled: false,
+      assets: [{ base64: 'photo-base64', uri: 'file:///recipe-photo.jpg' }],
+    });
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      const attachButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Attach photo from library',
+      )[0];
+      await act(async () => attachButton.props.onPress());
+
+      const text = renderer.container.queryAll(
+        (instance) => instance.type === 'Text',
+      ).map((instance) => instance.props.children);
+      expect(text).toContain(
+        "Sent to our AI provider and stored with this chat. Don't upload sensitive personal information.",
+      );
     } finally {
       await act(async () => renderer.unmount());
     }
@@ -401,11 +423,11 @@ describe('RecipeChatModal conversation isolation', () => {
       await act(async () => clearButton.props.onPress());
       const confirmation = mocks.alert.mock.calls[0][2][1];
       await act(async () => confirmation.onPress());
-      await flushBackgroundWork();
-
-      expect(mocks.deleteChatImages).toHaveBeenCalledWith([
-        'https://images.example/chat-photo.jpg',
-      ]);
+      await vi.waitFor(() => {
+        expect(mocks.deleteChatImages).toHaveBeenCalledWith([
+          'https://images.example/chat-photo.jpg',
+        ]);
+      });
       expect(mocks.removeItem).toHaveBeenCalledWith(
         'hafa.chat.v2.stable-user.recipe.first',
       );
@@ -413,6 +435,46 @@ describe('RecipeChatModal conversation isolation', () => {
         (instance) => instance.props.accessibilityLabel === 'Copy message',
       )).toHaveLength(0);
     } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('marks the clear control disabled and busy while clearing', async () => {
+    const conversationKey = 'hafa.chat.v2.stable-user.recipe.first';
+    const pendingRemove = deferred<void>();
+    mocks.storageValues.set(
+      conversationKey,
+      JSON.stringify([{ id: 'question', role: 'user', content: 'Clear me' }]),
+    );
+    mocks.removeItem.mockImplementation((key: string) => {
+      if (key === conversationKey) return pendingRemove.promise;
+      mocks.storageValues.delete(key);
+      return Promise.resolve();
+    });
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await renderModal(renderer, 'first');
+      const clearButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Clear conversation',
+      )[0];
+      await act(async () => clearButton.props.onPress());
+      const confirmation = mocks.alert.mock.calls[0][2][1];
+      await act(async () => {
+        void confirmation.onPress();
+        await Promise.resolve();
+      });
+
+      const busyClearButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Clear conversation',
+      )[0];
+      expect(busyClearButton.props.disabled).toBe(true);
+      expect(busyClearButton.props.accessibilityState).toEqual({
+        disabled: true,
+        busy: true,
+      });
+    } finally {
+      await act(async () => pendingRemove.resolve());
       await act(async () => renderer.unmount());
     }
   });
@@ -438,7 +500,12 @@ describe('RecipeChatModal conversation isolation', () => {
       await act(async () => clearButton.props.onPress());
       const confirmation = mocks.alert.mock.calls[0][2][1];
       await act(async () => confirmation.onPress());
-      await flushBackgroundWork();
+      await vi.waitFor(() => {
+        expect(mocks.alert).toHaveBeenCalledWith(
+          'Chat Cleared',
+          expect.stringContaining('retrying'),
+        );
+      });
 
       const queueWrite = mocks.setItem.mock.calls.filter(
         ([key]) => key === 'hafa.chat.v2.stable-user.recipe.first.pending-image-cleanup',
@@ -452,10 +519,6 @@ describe('RecipeChatModal conversation isolation', () => {
       expect(renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Copy message',
       )).toHaveLength(0);
-      expect(mocks.alert).toHaveBeenCalledWith(
-        'Chat Cleared',
-        expect.stringContaining('retrying'),
-      );
       expect(mocks.storageValues.has(
         'hafa.chat.v2.stable-user.recipe.first.pending-image-cleanup',
       )).toBe(true);
@@ -477,10 +540,11 @@ describe('RecipeChatModal conversation isolation', () => {
 
     try {
       await renderModal(renderer, 'first');
-      await flushBackgroundWork();
-      expect(mocks.deleteChatImages).toHaveBeenCalledWith([
-        'https://images.example/pending.jpg',
-      ]);
+      await vi.waitFor(() => {
+        expect(mocks.deleteChatImages).toHaveBeenCalledWith([
+          'https://images.example/pending.jpg',
+        ]);
+      });
       expect(mocks.removeItem).toHaveBeenCalledWith(
         'hafa.chat.v2.stable-user.recipe.first.pending-image-cleanup',
       );
@@ -506,10 +570,11 @@ describe('RecipeChatModal conversation isolation', () => {
 
     try {
       await renderModal(renderer, 'first');
-      await flushBackgroundWork();
-      expect(mocks.deleteChatImages).toHaveBeenCalledWith([
-        'https://images.example/pending.jpg',
-      ]);
+      await vi.waitFor(() => {
+        expect(mocks.deleteChatImages).toHaveBeenCalledWith([
+          'https://images.example/pending.jpg',
+        ]);
+      });
       const text = renderer.container.queryAll(
         (instance) => instance.type === 'Text',
       ).map((instance) => instance.props.children);
@@ -585,9 +650,10 @@ describe('RecipeChatModal conversation isolation', () => {
 
     try {
       await renderModal(renderer, 'first');
-      await flushBackgroundWork();
-      expect(mocks.deleteChatImages).toHaveBeenCalledOnce();
-      expect(mocks.deleteChatImages).toHaveBeenCalledWith([priorImageUrl]);
+      await vi.waitFor(() => {
+        expect(mocks.deleteChatImages).toHaveBeenCalledOnce();
+        expect(mocks.deleteChatImages).toHaveBeenCalledWith([priorImageUrl]);
+      });
 
       const clearButton = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Clear conversation',
@@ -595,7 +661,6 @@ describe('RecipeChatModal conversation isolation', () => {
       await act(async () => clearButton.props.onPress());
       const confirmation = mocks.alert.mock.calls[0][2][1];
       await act(async () => confirmation.onPress());
-      await flushBackgroundWork();
 
       expect(mocks.deleteChatImages).not.toHaveBeenCalledWith([currentImageUrl]);
       expect(mocks.storageValues.get(conversationKey)).toContain(currentImageUrl);
@@ -604,7 +669,9 @@ describe('RecipeChatModal conversation isolation', () => {
       )).toHaveLength(1);
 
       await act(async () => priorDelete.resolve({ deleted: 1 }));
-      await flushBackgroundWork();
+      await vi.waitFor(() => {
+        expect(mocks.storageValues.has(cleanupKey)).toBe(false);
+      });
       expect(mocks.deleteChatImages).not.toHaveBeenCalledWith([currentImageUrl]);
     } finally {
       await act(async () => renderer.unmount());

@@ -33,10 +33,12 @@ async function readQueue(cleanupKey: string): Promise<ChatImageCleanupJob[]> {
   const stored = await AsyncStorage.getItem(cleanupKey);
   if (!stored) return [];
   const parsed: unknown = JSON.parse(stored);
-  if (!Array.isArray(parsed) || !parsed.every(validJob)) {
+  if (!Array.isArray(parsed)) {
     throw new Error('The pending chat image cleanup queue is invalid');
   }
-  return parsed;
+  // One corrupt record must not prevent unrelated, valid cleanup jobs from
+  // deleting their own remote images.
+  return parsed.filter(validJob);
 }
 
 async function writeQueue(cleanupKey: string, jobs: ChatImageCleanupJob[]): Promise<void> {

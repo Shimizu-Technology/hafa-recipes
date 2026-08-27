@@ -727,9 +727,11 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
             {messages.length > 0 && (
               <TouchableOpacity
                 onPress={handleClearChat}
+                disabled={isClearingChat}
                 style={styles.headerButton}
                 accessibilityRole="button"
                 accessibilityLabel="Clear conversation"
+                accessibilityState={{ disabled: isClearingChat, busy: isClearingChat }}
               >
                 <Ionicons name="trash-outline" size={22} color={colors.textMuted} />
               </TouchableOpacity>
@@ -981,9 +983,14 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
             >
               <Ionicons name="close" size={16} color="#FFFFFF" />
             </TouchableOpacity>
-            <Text style={[styles.attachedImageHint, { color: colors.textMuted }]}>
-              Photo attached - add a message or send
-            </Text>
+            <RNView style={styles.attachedImageText}>
+              <Text style={[styles.attachedImageHint, { color: colors.textMuted }]}>
+                Photo attached - add a message or send
+              </Text>
+              <Text style={[styles.attachedImagePrivacyNotice, { color: colors.textMuted }]}>
+                Sent to our AI provider and stored with this chat. Don&apos;t upload sensitive personal information.
+              </Text>
+            </RNView>
           </RNView>
         )}
 
@@ -1358,8 +1365,15 @@ const styles = StyleSheet.create({
   },
   attachedImageHint: {
     fontSize: fontSize.xs,
+  },
+  attachedImageText: {
     flex: 1,
     marginLeft: spacing.sm,
+    gap: spacing.xs,
+  },
+  attachedImagePrivacyNotice: {
+    fontSize: fontSize.xs,
+    lineHeight: 16,
   },
   messageImageContainer: {
     marginBottom: spacing.xs,
