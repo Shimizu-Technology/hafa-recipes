@@ -108,23 +108,33 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   // Determine mode: recipe-specific or general cooking
   const isGeneralMode = !recipe;
   const quickSuggestions = isGeneralMode ? COOKING_SUGGESTIONS : RECIPE_SUGGESTIONS;
+  const storageKey = isGeneralMode
+    ? COOKING_CHAT_STORAGE_KEY
+    : `${CHAT_STORAGE_KEY_PREFIX}${recipe?.id}`;
   
   const [messages, setMessages] = useState<ChatUiMessage[]>([]);
   const messagesRef = useRef<ChatUiMessage[]>([]);
   const retryImagesRef = useRef<Map<string, string>>(new Map());
   const inFlightRef = useRef(false);
+  const activeStorageKeyRef = useRef(storageKey);
+  const historyLoadGenerationRef = useRef(0);
   const [inputText, setInputText] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [loadedStorageKey, setLoadedStorageKey] = useState<string | null>(null);
+  const [isDelivering, setIsDelivering] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);  // Track which message was just copied
   const [attachedImage, setAttachedImage] = useState<string | null>(null);  // Base64 image
   const [attachedImageUri, setAttachedImageUri] = useState<string | null>(null);  // For preview
+  activeStorageKeyRef.current = storageKey;
+  const isComposerUnavailable = isDelivering
+    || isLoadingHistory
+    || loadedStorageKey !== storageKey;
   
   // Use appropriate mutation hook based on mode
   const recipeChatMutation = useChatWithRecipe();
   const cookingChatMutation = useCookingChat();
-  const chatMutation = isGeneralMode ? cookingChatMutation : recipeChatMutation;
   
   const { speak, stop, isPlaying, isLoading: ttsLoading } = useTTS();
 
@@ -216,47 +226,58 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     }
   };
   
-  // Storage key differs based on mode
-  const storageKey = isGeneralMode 
-    ? COOKING_CHAT_STORAGE_KEY 
-    : `${CHAT_STORAGE_KEY_PREFIX}${recipe?.id}`;
-
-  // Load chat history from AsyncStorage when modal opens
+  // Load only the active conversation. A late read from a prior recipe must
+  // never replace a newly opened conversation or a message sent during load.
   useEffect(() => {
-    if (isVisible) {
-      loadChatHistory();
-      setInputText('');
-    }
-  }, [isVisible, recipe?.id, isGeneralMode]);
+    activeStorageKeyRef.current = storageKey;
+    const generation = historyLoadGenerationRef.current + 1;
+    historyLoadGenerationRef.current = generation;
+    if (!isVisible) return;
 
-  /** Load and normalize the current conversation's locally persisted history. */
-  const loadChatHistory = useCallback(async () => {
     setIsLoadingHistory(true);
-    try {
-      const stored = await AsyncStorage.getItem(storageKey);
-      if (stored) {
-        const history: ChatMessage[] = JSON.parse(stored);
+    setLoadedStorageKey(null);
+    updateMessages([]);
+    setInputText('');
+    void (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(storageKey);
+        if (
+          historyLoadGenerationRef.current !== generation
+          || activeStorageKeyRef.current !== storageKey
+        ) return;
+        const history: ChatMessage[] = stored ? JSON.parse(stored) : [];
         updateMessages(normalizeStoredChatMessages(history));
-      } else {
+        setLoadedStorageKey(storageKey);
+      } catch {
+        if (
+          historyLoadGenerationRef.current !== generation
+          || activeStorageKeyRef.current !== storageKey
+        ) return;
         updateMessages([]);
+        setLoadedStorageKey(storageKey);
+      } finally {
+        if (
+          historyLoadGenerationRef.current === generation
+          && activeStorageKeyRef.current === storageKey
+        ) setIsLoadingHistory(false);
       }
-    } catch {
-      // Non-critical: chat will start fresh
-      updateMessages([]);
-    } finally {
-      setIsLoadingHistory(false);
-    }
-  }, [storageKey, updateMessages]);
+    })();
+  }, [isVisible, storageKey, updateMessages]);
 
-  // Save chat history to AsyncStorage whenever messages change
-  /** Persist UI state after stripping device-local image references. */
-  const saveChatHistory = useCallback(async (newMessages: ChatUiMessage[]) => {
+  /** Persist UI state to its originating conversation key. */
+  const saveChatHistory = useCallback(async (
+    newMessages: ChatUiMessage[],
+    conversationKey: string,
+  ) => {
     try {
-      await AsyncStorage.setItem(storageKey, JSON.stringify(messagesForStorage(newMessages)));
+      await AsyncStorage.setItem(
+        conversationKey,
+        JSON.stringify(messagesForStorage(newMessages)),
+      );
     } catch {
       // Non-critical: chat history won't persist, but conversation continues
     }
-  }, [storageKey]);
+  }, []);
 
   /** Confirm and clear the current locally persisted conversation. */
   const handleClearChat = useCallback(() => {
@@ -362,6 +383,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const sendMessage = async (userMessage: ChatUiMessage, imageToSend?: string) => {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
+    setIsDelivering(true);
+    const conversationKey = activeStorageKeyRef.current;
     const sendingMessage: ChatUiMessage = {
       ...userMessage,
       status: 'sending',
@@ -371,7 +394,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     const previousMessages = deliveryStart.contextMessages;
     let sendingMessages = deliveryStart.displayMessages;
     updateMessages(sendingMessages);
-    await saveChatHistory(sendingMessages);
+    await saveChatHistory(sendingMessages, conversationKey);
 
     try {
       let s3ImageUrl = sendingMessage.image_url?.startsWith('https://')
@@ -381,11 +404,14 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         try {
           const uploadResult = await api.uploadChatImage(imageToSend);
           s3ImageUrl = uploadResult.image_url;
-          sendingMessages = messagesRef.current.map((message) => message.id === sendingMessage.id
+          const currentMessages = activeStorageKeyRef.current === conversationKey
+            ? messagesRef.current
+            : sendingMessages;
+          sendingMessages = currentMessages.map((message) => message.id === sendingMessage.id
             ? { ...message, image_url: s3ImageUrl }
             : message);
-          updateMessages(sendingMessages);
-          await saveChatHistory(sendingMessages);
+          if (activeStorageKeyRef.current === conversationKey) updateMessages(sendingMessages);
+          await saveChatHistory(sendingMessages, conversationKey);
         } catch {
           console.log('Failed to upload image to S3, continuing without persistent URL');
         }
@@ -417,29 +443,36 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         content: response.response,
         status: 'sent',
       };
+      const currentMessages = activeStorageKeyRef.current === conversationKey
+        ? messagesRef.current
+        : sendingMessages;
       const finalMessages = completeMessageDelivery(
-        messagesRef.current,
+        currentMessages,
         sendingMessage.id,
         assistantMessage,
         s3ImageUrl,
       );
-      updateMessages(finalMessages);
+      if (activeStorageKeyRef.current === conversationKey) updateMessages(finalMessages);
       retryImagesRef.current.delete(sendingMessage.id);
-      await saveChatHistory(finalMessages);
+      await saveChatHistory(finalMessages, conversationKey);
     } catch (error) {
-      const failedMessages = messagesRef.current.map((message) => message.id === sendingMessage.id
+      const currentMessages = activeStorageKeyRef.current === conversationKey
+        ? messagesRef.current
+        : sendingMessages;
+      const failedMessages = currentMessages.map((message) => message.id === sendingMessage.id
         ? { ...message, status: 'failed' as const, error_message: chatErrorMessage(error) }
         : message);
-      updateMessages(failedMessages);
-      await saveChatHistory(failedMessages);
+      if (activeStorageKeyRef.current === conversationKey) updateMessages(failedMessages);
+      await saveChatHistory(failedMessages, conversationKey);
     } finally {
       inFlightRef.current = false;
+      setIsDelivering(false);
     }
   };
 
   /** Convert the active draft or suggestion into a single optimistic user message. */
   const handleSend = async (text?: string) => {
-    if (inFlightRef.current) return;
+    if (inFlightRef.current || isComposerUnavailable) return;
     const messageText = text || inputText.trim();
     if (!messageText && !attachedImage) return;
 
@@ -714,12 +747,12 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                     </Text>
                     <TouchableOpacity
                       onPress={() => handleRetry(msg)}
-                      disabled={chatMutation.isPending}
+                      disabled={isComposerUnavailable}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                       style={styles.retryButton}
                       accessibilityRole="button"
                       accessibilityLabel="Retry message"
-                      accessibilityState={{ disabled: chatMutation.isPending }}
+                      accessibilityState={{ disabled: isComposerUnavailable }}
                     >
                       <Text style={[styles.retryText, { color: colors.tint }]}>Retry</Text>
                     </TouchableOpacity>
@@ -762,7 +795,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           ))}
 
           {/* Loading indicator */}
-          {chatMutation.isPending && (
+          {isDelivering && (
             <RNView style={[styles.loadingContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <ActivityIndicator size="small" color={colors.tint} />
               <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
@@ -803,7 +836,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           {/* Camera button */}
           <TouchableOpacity
             onPress={handleTakePhoto}
-            disabled={chatMutation.isPending}
+            disabled={isComposerUnavailable}
             style={[
               styles.imageButton,
               { backgroundColor: colors.backgroundSecondary, borderColor: colors.border },
@@ -815,7 +848,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           {/* Photo library button */}
           <TouchableOpacity
             onPress={handlePickImage}
-            disabled={chatMutation.isPending}
+            disabled={isComposerUnavailable}
             style={[
               styles.imageButton,
               { backgroundColor: colors.backgroundSecondary, borderColor: colors.border },
@@ -827,7 +860,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           {/* Microphone button */}
           <TouchableOpacity
             onPress={handleMicPress}
-            disabled={chatMutation.isPending}
+            disabled={isComposerUnavailable}
             style={[
               styles.micButton,
               {
@@ -850,6 +883,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
             placeholderTextColor={isListening ? colors.error : colors.textMuted}
             multiline
             maxLength={500}
+            editable={!isComposerUnavailable}
             style={[
               styles.input,
               {
@@ -864,7 +898,10 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           />
           <TouchableOpacity
             onPress={() => handleSend()}
-            disabled={(!inputText.trim() && !attachedImage) || chatMutation.isPending}
+            disabled={
+              (!inputText.trim() && !attachedImage)
+              || isComposerUnavailable
+            }
             style={[
               styles.sendButton,
               {
