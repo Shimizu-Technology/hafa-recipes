@@ -620,8 +620,8 @@ export default function ExtractScreen() {
           >
             <RNView style={styles.heroTopRow}>
               <BrandMark size={70} />
-              <RNView style={[styles.betaBadge, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
-                <Text maxFontSizeMultiplier={1.4} style={[styles.betaBadgeText, { color: colors.accent }]}>BETA</Text>
+              <RNView style={[styles.aiBadge, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
+                <Text maxFontSizeMultiplier={1.4} style={[styles.aiBadgeText, { color: colors.accent }]}>AI-ASSISTED</Text>
               </RNView>
             </RNView>
             <Text maxFontSizeMultiplier={1.4} style={[styles.heroEyebrow, { color: colors.tint }]}>AI recipe extraction</Text>
@@ -687,10 +687,10 @@ export default function ExtractScreen() {
                 </Text>
               </RNView>
             </RNView>
-            <RNView style={[styles.betaNote, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
+            <RNView style={[styles.aiNote, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
               <Ionicons name="sparkles-outline" size={16} color={colors.accent} />
-              <Text style={[styles.betaNoteText, { color: colors.textSecondary }]}>
-                Free during beta while we tune extraction quality and AI costs.
+              <Text style={[styles.aiNoteText, { color: colors.textSecondary }]}>
+                AI-assisted extraction. Check the ingredients and directions before saving.
               </Text>
             </RNView>
           </RNView>
@@ -896,13 +896,13 @@ const styles = StyleSheet.create({
     lineHeight: 42,
     marginBottom: spacing.sm,
   },
-  betaBadge: {
+  aiBadge: {
     paddingHorizontal: spacing.sm,
     paddingVertical: 4,
     borderRadius: radius.full,
     borderWidth: 1,
   },
-  betaBadgeText: {
+  aiBadgeText: {
     fontSize: fontSize.xs,
     fontFamily: fontFamily.bold,
     letterSpacing: 0.8,
@@ -957,7 +957,7 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.semibold,
     textDecorationLine: 'underline',
   },
-  betaNote: {
+  aiNote: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
@@ -967,7 +967,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
   },
-  betaNoteText: {
+  aiNoteText: {
     flex: 1,
     fontSize: fontSize.xs,
     lineHeight: 18,
