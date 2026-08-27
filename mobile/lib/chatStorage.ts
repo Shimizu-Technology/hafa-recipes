@@ -23,6 +23,11 @@ export function pendingChatImageCleanupKey(conversationKey: string): string {
   return `${conversationKey}.pending-image-cleanup`;
 }
 
+/** Keep an unsent text draft isolated with its account-scoped conversation. */
+export function chatDraftStorageKey(conversationKey: string): string {
+  return `${conversationKey}.draft`;
+}
+
 /** Return each persisted HTTPS image once for exact server-side cleanup. */
 export function persistedChatImageUrls(messages: ChatMessage[]): string[] {
   return [...new Set(messages.flatMap((message) => (
