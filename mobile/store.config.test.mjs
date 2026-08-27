@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
 const {
+  APP_DESCRIPTION,
   APP_STORE_ID,
+  APP_SUBTITLE,
+  PROMO_TEXT,
   RELEASE_NOTES,
   buildStoreConfig,
 } = require('./store.config.js')._testing;
@@ -20,17 +23,22 @@ const listing = {
 };
 
 describe('App Store release metadata', () => {
-  it('preserves the public description and requires a controlled phased release', () => {
+  it('publishes the reviewed listing and requires a controlled phased release', () => {
     const config = buildStoreConfig({ environment, listing });
+    const info = config.apple.info['en-US'];
 
     expect(config.apple.version).toBe('2.6.0');
     expect(config.apple.release).toEqual({ automaticRelease: false, phasedRelease: true });
-    expect(config.apple.info['en-US'].description).toBe(listing.description);
-    expect(config.apple.info['en-US'].privacyPolicyUrl).toBe('https://hafa-recipes.com/privacy');
-    expect(config.apple.info['en-US'].supportUrl).toBe('https://hafa-recipes.com/support');
-    expect(config.apple.info['en-US'].releaseNotes).toBe(RELEASE_NOTES);
+    expect(info.subtitle).toBe(APP_SUBTITLE);
+    expect(info.description).toBe(APP_DESCRIPTION);
+    expect(info.description).not.toMatch(/\bbeta\b/i);
+    expect(info.promoText).toBe(PROMO_TEXT);
+    expect(info.privacyPolicyUrl).toBe('https://hafa-recipes.com/privacy');
+    expect(info.supportUrl).toBe('https://hafa-recipes.com/support');
+    expect(info.releaseNotes).toBe(RELEASE_NOTES);
     expect(config.apple.review.demoRequired).toBe(true);
     expect(config.apple.review.demoUsername).toBe(environment.APP_REVIEW_EMAIL);
+    expect(config.apple.review.notes).toContain('does not provide persistent background audio');
     expect(config.apple.advisory).toBeUndefined();
   });
 
@@ -42,7 +50,7 @@ describe('App Store release metadata', () => {
     expect(() => buildStoreConfig({
       environment,
       listing: { ...listing, description: '' },
-    })).toThrow('description must be preserved');
+    })).toThrow('description must be available for verification');
     expect(() => buildStoreConfig({
       environment: { ...environment, APP_REVIEW_PASSWORD: '' },
       listing,
@@ -60,30 +68,11 @@ describe('App Store release metadata', () => {
     })).toThrow('APP_REVIEW_CONTACT_PHONE');
   });
 
-  it('removes the exact obsolete beta announcement while preserving the rest of the listing', () => {
-    const description = [
-      'Transform cooking videos into detailed recipes.',
-      '',
-      'BETA - FREE DURING BETA',
-      "All features free while we're in beta. Paid plans coming soon to cover AI costs.",
-      '',
-      'Your existing features and descriptions remain unchanged.',
-    ].join('\n');
-
-    const config = buildStoreConfig({ environment, listing: { ...listing, description } });
-
-    expect(config.apple.info['en-US'].description).toBe([
-      'Transform cooking videos into detailed recipes.',
-      '',
-      'Your existing features and descriptions remain unchanged.',
-    ].join('\n'));
-    expect(config.apple.info['en-US'].description).not.toMatch(/\bbeta\b/i);
-  });
-
-  it('requires explicit review instead of guessing how to rewrite another beta claim', () => {
-    expect(() => buildStoreConfig({
-      environment,
-      listing: { ...listing, description: 'A separate beta feature is still under development.' },
-    })).toThrow('unreviewed beta claim');
+  it('keeps listing text within App Store limits', () => {
+    expect(APP_SUBTITLE.length).toBeLessThanOrEqual(30);
+    expect(PROMO_TEXT.length).toBeLessThanOrEqual(170);
+    expect(APP_DESCRIPTION.length).toBeGreaterThanOrEqual(10);
+    expect(APP_DESCRIPTION.length).toBeLessThanOrEqual(4000);
+    expect(RELEASE_NOTES.length).toBeLessThanOrEqual(4000);
   });
 });

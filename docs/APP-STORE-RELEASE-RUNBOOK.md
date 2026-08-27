@@ -74,11 +74,12 @@ an existing customer account. Repeating a successful run reports `unchanged`.
 
 ## Prepare the App Store listing
 
-`mobile/store.config.js` preserves the existing public App Store description
-except for its exact obsolete beta/pricing announcement. It sets the official
-privacy and support URLs, creates the current app version, requires manual
-release after approval, and enables phased distribution. Any other beta claim
-stops the metadata preparation instead of being rewritten automatically.
+`mobile/store.config.js` contains the reviewed English (U.S.) subtitle,
+description, promotional text, release notes, support URL, and privacy URL. It
+verifies the existing App Store record before preparing that listing, creates
+the current app version, requires manual release after approval, and enables
+phased distribution. Update the reviewed constants and their length tests for
+each release instead of copying old listing text forward.
 
 Before running metadata synchronization, provide these process-only values:
 

@@ -3,10 +3,46 @@ const https = require('node:https');
 const app = require('./app.json').expo;
 const APP_STORE_ID = '6755892896';
 const MAX_LISTING_BYTES = 1_000_000;
+const APP_SUBTITLE = 'AI Recipe Import & Planner';
+const PROMO_TEXT =
+  'Turn cooking videos, links, pasted text, and screenshots into organized recipes—then plan meals, shop, and cook in one place.';
+const APP_DESCRIPTION = `Save the recipes you find online and turn them into something you can actually cook.
+
+Håfa Recipes imports cooking videos, recipe websites, pasted captions and messages, screenshots, photos, and recipes shared from other apps. It organizes ingredients, steps, servings, nutrition, costs, and source links in one connected recipe library.
+
+IMPORT RECIPES YOUR WAY
+• Share TikTok, Instagram, YouTube, and recipe links
+• Paste recipe text from captions, comments, messages, or websites
+• Scan screenshots, printed recipe cards, and cookbook pages
+• Add and edit family recipes manually
+• Keep a link to the original source and play supported source videos in the app
+
+PLAN, SHOP, AND COOK
+• Save recipes to custom collections
+• Add recipes to a weekly meal plan
+• Build grocery lists from one recipe or an entire week
+• See which recipe each grocery item came from
+• Share grocery lists with family
+• Adjust servings, ingredients, nutrition, and estimated cost
+• Follow large, step-by-step cook mode with timers and spoken instructions
+
+GET HELP WHEN YOU NEED IT
+• Ask Håfa for substitutions, techniques, timing, and recipe questions
+• Type, dictate, or attach images in chat
+• Get answers that stay connected to the recipe you are viewing
+• Find recipes based on ingredients you already have
+
+DISCOVER AND ORGANIZE
+• Browse community recipes without signing in
+• Search by recipe, ingredient, or contributor
+• Find related recipes and move between connected recipes, meal plans, and grocery items
+• Choose light, dark, or system appearance
+
+AI can make mistakes. Review extracted ingredients, directions, allergens, temperatures, and food-safety guidance before cooking.
+
+Made in Guam by Shimizu Technology.`;
 const RELEASE_NOTES =
-  'Import recipes from pasted text, screenshots, and native shares. Enjoy one-tap source video playback, clearer grocery and meal-plan links, and a refreshed reef-inspired design. Ask Håfa now has more reliable context, streaming responses, image paste and attachments, voice dictation, spoken answers, drafts, privacy protections, and clearer recovery when something goes wrong.';
-const LEGACY_BETA_NOTICE =
-  /^BETA - FREE DURING BETA\r?\nAll features free while we're in beta\. Paid plans coming soon to cover AI costs\.\r?\n(?:\r?\n)?/m;
+  'Import recipes from pasted text, screenshots, photos, and native shares. Source videos now play in one tap when supported, grocery and meal-plan links are easier to follow, and the app has a new reef-inspired design. Ask Håfa now keeps context more reliably, streams answers, accepts pasted images and attachments, supports voice dictation and spoken replies, preserves drafts, and gives clearer recovery when a request fails.';
 
 function requiredEnvironmentValue(environment, name) {
   const value = String(environment[name] ?? '').trim();
@@ -60,13 +96,8 @@ function buildStoreConfig({ environment, listing }) {
     throw new Error('Refusing to prepare metadata for a different App Store application');
   }
   if (typeof listing.description !== 'string' || listing.description.trim().length < 10) {
-    throw new Error('The current App Store description must be preserved');
+    throw new Error('The current App Store description must be available for verification');
   }
-  const description = listing.description.replace(LEGACY_BETA_NOTICE, '');
-  if (/\bbeta\b/i.test(description)) {
-    throw new Error('The production App Store description still contains an unreviewed beta claim');
-  }
-
   const reviewerEmail = requiredEnvironmentValue(environment, 'APP_REVIEW_EMAIL');
   const reviewerPassword = requiredEnvironmentValue(environment, 'APP_REVIEW_PASSWORD');
   if (reviewerPassword.length < 12) {
@@ -85,8 +116,10 @@ function buildStoreConfig({ environment, listing }) {
       info: {
         'en-US': {
           title: app.name,
-          description,
+          subtitle: APP_SUBTITLE,
+          description: APP_DESCRIPTION,
           releaseNotes: RELEASE_NOTES,
+          promoText: PROMO_TEXT,
           marketingUrl: 'https://hafa-recipes.com',
           privacyPolicyUrl: 'https://hafa-recipes.com/privacy',
           supportUrl: 'https://hafa-recipes.com/support',
@@ -100,7 +133,7 @@ function buildStoreConfig({ environment, listing }) {
         demoUsername: reviewerEmail,
         demoPassword: reviewerPassword,
         demoRequired: true,
-        notes: 'Use the provided email and password on the Sign In screen. The Discover tab is available without an account. Grocery lists, meal planning, recipe creation, and the interactive home-screen widget require the review account.',
+        notes: 'Use the provided email and password on the Sign In screen. The Discover tab and public recipe details are available without an account. Grocery lists, meal planning, recipe creation, Ask Håfa, and the interactive home-screen widget require the review account. The app does not provide persistent background audio. Audio is limited to foreground source-video playback, cook-mode narration, and timer sounds; timer completion while the app is backgrounded uses a local notification.',
       },
     },
   };
@@ -113,7 +146,9 @@ async function loadStoreConfig() {
 
 loadStoreConfig._testing = {
   APP_STORE_ID,
-  LEGACY_BETA_NOTICE,
+  APP_DESCRIPTION,
+  APP_SUBTITLE,
+  PROMO_TEXT,
   RELEASE_NOTES,
   buildStoreConfig,
   requiredEnvironmentValue,
