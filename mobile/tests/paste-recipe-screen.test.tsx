@@ -58,7 +58,7 @@ vi.mock('@/components/Themed', async () => {
       ReactModule.createElement('Chip', props, label),
     Text: host('ThemedText'),
     useColors: () => ({
-      accent: '#168A80',
+      accent: '#B94722',
       accentSoft: '#DDF5F1',
       background: '#FFF7EC',
       backgroundElevated: '#FFFCF7',
@@ -68,7 +68,7 @@ vi.mock('@/components/Themed', async () => {
       text: '#17120E',
       textMuted: '#9A8978',
       textSecondary: '#6D5D50',
-      tint: '#E65F2E',
+      tint: '#155C52',
     }),
   };
 });

@@ -1,8 +1,8 @@
 /**
  * Håfa Recipes brand system.
  *
- * Direction: island-modern pantry — warm food neutrals, terracotta heat,
- * reef-green freshness, and a softer dark mode that avoids pure black/white.
+ * Direction: island-modern pantry — deep reef-green confidence, warm food
+ * neutrals, a restrained clay accent, and no pure black/white surfaces.
  */
 
 export const brand = {
@@ -12,11 +12,13 @@ export const brand = {
   ink: '#17120E',
   charcoal: '#27211B',
 
-  terracotta: '#E65F2E',
-  coral: '#FF8A5B',
   clay: '#B94722',
+  clayLight: '#FBE8DE',
 
-  reef: '#168A80',
+  reef: '#155C52',
+  reefMid: '#347D73',
+  reefBright: '#2F8F83',
+  reefHighlight: '#69C8BA',
   reefLight: '#DDF5F1',
 
   herb: '#4F7A41',
@@ -25,8 +27,8 @@ export const brand = {
   border: '#E8D8C8',
 } as const;
 
-const tintColorLight = brand.terracotta;
-const tintColorDark = brand.coral;
+const tintColorLight = brand.reef;
+const tintColorDark = brand.reefMid;
 
 export default {
   light: {
@@ -40,8 +42,8 @@ export default {
 
     // UI elements
     tint: tintColorLight,
-    accent: brand.reef,
-    accentSoft: brand.reefLight,
+    accent: brand.clay,
+    accentSoft: brand.clayLight,
     border: brand.border,
     borderLight: '#F1E4D7',
 
@@ -60,7 +62,7 @@ export default {
     error: '#C43C2E',
 
     // Shadows
-    shadowColor: '#8A3B1F',
+    shadowColor: '#0B3E38',
   },
   dark: {
     // Base colors
@@ -73,8 +75,8 @@ export default {
 
     // UI elements
     tint: tintColorDark,
-    accent: '#45B7A7',
-    accentSoft: 'rgba(69, 183, 167, 0.16)',
+    accent: '#E58A68',
+    accentSoft: 'rgba(229, 138, 104, 0.16)',
     border: '#2D352F',
     borderLight: '#222A25',
 
