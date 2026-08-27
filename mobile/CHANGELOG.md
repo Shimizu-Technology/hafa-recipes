@@ -7,6 +7,7 @@ All notable changes to Recipe Extractor.
 ## [2.6.0] - August 2026
 
 ### Added
+
 - Import complete recipes from pasted captions, messages, and other copied text.
 - Import multi-image recipes from screenshots, camera photos, and native shares.
 - Play supported TikTok, Instagram, YouTube, and source videos inside the app.
@@ -14,6 +15,7 @@ All notable changes to Recipe Extractor.
   read aloud.
 
 ### Improved
+
 - Refreshed the app with a reef-first color system, updated icon and splash art,
   clearer navigation, stronger accessibility, and better signed-out previews.
 - Made recipe collections, meal-plan dates, notes, source videos, and grocery
@@ -26,6 +28,7 @@ All notable changes to Recipe Extractor.
   retry states.
 
 ### Privacy and reliability
+
 - Scoped chat history and image cleanup to the stable application account so one
   signed-in user cannot inherit another user's local conversation.
 - Limited chat diagnostics to operational facts and excluded prompts, answers,
