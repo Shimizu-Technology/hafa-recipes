@@ -33,6 +33,7 @@ describe('SettingsProfileCard', () => {
     try {
       await act(async () => renderer.render(
         <SettingsProfileCard
+          isLoaded
           isSignedIn
           profileName="Primary"
           user={{
@@ -52,6 +53,37 @@ describe('SettingsProfileCard', () => {
       )).toHaveLength(1);
       expect(renderer.container.queryAll(
         (instance) => instance.type === 'Text' && instance.props.children === 'secondary@example.com',
+      )).toHaveLength(0);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('does not expose a false guest action while account restoration is loading', async () => {
+    const onPress = vi.fn();
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => renderer.render(
+        <SettingsProfileCard
+          isLoaded={false}
+          isSignedIn={false}
+          profileName="Guest User"
+          user={null}
+          onPress={onPress}
+        />,
+      ));
+
+      const account = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Account loading',
+      )[0];
+      expect(account.props.disabled).toBe(true);
+      expect(account.props.accessibilityState).toEqual({ disabled: true, busy: true });
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Text' && instance.props.children === 'Checking your session…',
+      )).toHaveLength(1);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Text' && instance.props.children === 'Tap to sign in →',
       )).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());

@@ -35,7 +35,7 @@ export default {
     // Base colors
     text: brand.ink,
     textSecondary: '#6D5D50',
-    textMuted: '#9A8978',
+    textMuted: '#756659',
     background: brand.cream,
     backgroundSecondary: brand.bone,
     backgroundElevated: '#FFFCF7',
@@ -48,7 +48,7 @@ export default {
     borderLight: '#F1E4D7',
 
     // Tab bar
-    tabIconDefault: '#A69280',
+    tabIconDefault: '#756659',
     tabIconSelected: tintColorLight,
 
     // Cards and surfaces
@@ -58,7 +58,7 @@ export default {
 
     // Status colors
     success: brand.herb,
-    warning: brand.banana,
+    warning: '#8A5A00',
     error: '#C43C2E',
 
     // Shadows
@@ -68,7 +68,7 @@ export default {
     // Base colors
     text: '#F8F0E7',
     textSecondary: '#B8AEA2',
-    textMuted: '#82786E',
+    textMuted: '#A79D92',
     background: '#101411',
     backgroundSecondary: '#171D1A',
     backgroundElevated: '#202820',
@@ -81,7 +81,7 @@ export default {
     borderLight: '#222A25',
 
     // Tab bar
-    tabIconDefault: '#746A60',
+    tabIconDefault: '#A79D92',
     tabIconSelected: tintColorDark,
 
     // Cards and surfaces

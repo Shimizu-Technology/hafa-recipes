@@ -6,12 +6,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
 
-const mocks = vi.hoisted(() => ({ push: vi.fn() }));
+const mocks = vi.hoisted(() => ({ fontScale: 1, push: vi.fn() }));
 
 vi.mock('react-native', () => ({
   StyleSheet: { create: (styles: unknown) => styles },
   Text: 'Text',
   TouchableOpacity: 'TouchableOpacity',
+  useWindowDimensions: () => ({ fontScale: mocks.fontScale }),
   View: 'View',
 }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: mocks.push }) }));
@@ -37,10 +38,16 @@ vi.mock('@/constants/Colors', () => ({
 }));
 
 import { SignInBanner } from './SignInBanner';
-import { getGuestPromptHeight } from '../lib/guestPromptLayout';
+import {
+  getGuestPromptHeight,
+  guestPromptBottomPadding,
+} from '../lib/guestPromptLayout';
 
 describe('SignInBanner', () => {
-  beforeEach(() => mocks.push.mockReset());
+  beforeEach(() => {
+    mocks.fontScale = 1;
+    mocks.push.mockReset();
+  });
 
   it('keeps both account paths accessible in a compact guest prompt', async () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
@@ -78,5 +85,30 @@ describe('SignInBanner', () => {
     }
 
     expect(getGuestPromptHeight()).toBe(0);
+  });
+
+  it('moves the sign-in action below the copy at accessibility text sizes', async () => {
+    mocks.fontScale = 2;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => renderer.render(<SignInBanner />));
+      const summary = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityRole === 'summary',
+      )[0];
+      expect(summary.props.style).toContainEqual(expect.objectContaining({ flexWrap: 'wrap' }));
+
+      const signIn = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Sign in',
+      )[0];
+      expect(signIn.props.style).toContainEqual(expect.objectContaining({ width: '100%' }));
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('reserves the full measured prompt height below guest content', () => {
+    expect(guestPromptBottomPadding(112, false, 196)).toBe(308);
+    expect(guestPromptBottomPadding(112, true, 196)).toBe(112);
   });
 });

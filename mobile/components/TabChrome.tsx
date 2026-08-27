@@ -15,7 +15,7 @@ export function TabHeaderBrand() {
   return (
     <RNView style={styles.brand} accessible accessibilityRole="header" accessibilityLabel="Håfa Recipes">
       <BrandMark size={30} variant="icon" />
-      <Text style={[styles.brandName, { color: colors.text }]}>Håfa Recipes</Text>
+      <Text maxFontSizeMultiplier={1.3} style={[styles.brandName, { color: colors.text }]}>Håfa Recipes</Text>
     </RNView>
   );
 }
@@ -78,8 +78,8 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
   },
   accountButton: {
-    width: 38,
-    height: 38,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.full,
@@ -87,8 +87,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   accountImage: {
-    width: 36,
-    height: 36,
+    width: 42,
+    height: 42,
     borderRadius: radius.full,
   },
   importIcon: {
