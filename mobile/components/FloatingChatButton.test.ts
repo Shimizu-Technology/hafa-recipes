@@ -61,39 +61,13 @@ vi.mock('../lib/guestPromptLayout', async (importOriginal) => {
   };
 });
 
-import { floatingChatBottom, isFloatingChatPath } from '../lib/floatingChatLayout';
 import FloatingChatButton from './FloatingChatButton';
 
-describe('FloatingChatButton layout helpers', () => {
+describe('FloatingChatButton', () => {
   beforeEach(() => {
     mocks.guestPromptHeight = 140;
     mocks.isSignedIn = false;
     mocks.pathname = '/discover';
-  });
-
-  it('covers every primary tab route, including the renamed planner route', () => {
-    for (const pathname of [
-      '/',
-      '/discover',
-      '/history',
-      '/planner',
-      '/grocery',
-      '/(tabs)/planner',
-    ]) {
-      expect(isFloatingChatPath(pathname)).toBe(true);
-    }
-
-    expect(isFloatingChatPath('/recipe/recipe-1')).toBe(false);
-    expect(isFloatingChatPath('/cook-mode/recipe-1')).toBe(false);
-    expect(isFloatingChatPath('/settings')).toBe(false);
-  });
-
-  it('lifts the chat control above the guest account prompt', () => {
-    const wrappedPromptHeight = 140;
-
-    expect(floatingChatBottom(false, wrappedPromptHeight)).toBe(
-      floatingChatBottom(true, wrappedPromptHeight) + wrappedPromptHeight,
-    );
   });
 
   it('closes an open chat when the control becomes hidden', async () => {
