@@ -65,8 +65,8 @@ import {
   messagesForStorage,
   normalizeStoredChatMessages,
   selectChatContext,
-} from '@/lib/chatContext';
-import { chatErrorMessage } from '@/lib/chatErrors';
+} from '../lib/chatContext';
+import { chatErrorMessage } from '../lib/chatErrors';
 
 // Storage key prefix for chat history
 const CHAT_STORAGE_KEY_PREFIX = 'recipe_chat_';
@@ -123,11 +123,10 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const [loadedStorageKey, setLoadedStorageKey] = useState<string | null>(null);
   const [isDelivering, setIsDelivering] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);  // Track which message was just copied
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);  // Base64 image
   const [attachedImageUri, setAttachedImageUri] = useState<string | null>(null);  // For preview
-  activeStorageKeyRef.current = storageKey;
   const isComposerUnavailable = isDelivering
     || isLoadingHistory
     || loadedStorageKey !== storageKey;
@@ -500,10 +499,15 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
 
   /** Retry a failed bubble while preserving its identity and required image data. */
   const handleRetry = async (message: ChatUiMessage) => {
-    const retryImage = retryImagesRef.current.get(message.id);
+    const retryImage = retryImagesRef.current.get(message.id) || attachedImage || undefined;
     if (message.has_image && !retryImage) {
       Alert.alert('Reattach photo', 'Please attach the photo again before retrying this message.');
       return;
+    }
+    if (retryImage) {
+      retryImagesRef.current.set(message.id, retryImage);
+      setAttachedImage(null);
+      setAttachedImageUri(null);
     }
     await sendMessage(message, retryImage);
   };
@@ -514,14 +518,14 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   };
 
   /** Copy message text and briefly show success feedback on that bubble. */
-  const handleCopyMessage = async (text: string, index: number) => {
+  const handleCopyMessage = async (text: string, messageId: string) => {
     try {
       await Clipboard.setStringAsync(text);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setCopiedIndex(index);
+      setCopiedId(messageId);
       // Reset after 2 seconds
       setTimeout(() => {
-        setCopiedIndex(null);
+        setCopiedId(null);
       }, 2000);
     } catch {
       Alert.alert('Error', 'Failed to copy message');
@@ -529,15 +533,15 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   };
 
   /** Toggle text-to-speech playback for one assistant response. */
-  const handleSpeakPress = async (text: string, index: number) => {
-    if (speakingIndex === index && isPlaying) {
+  const handleSpeakPress = async (text: string, messageId: string) => {
+    if (speakingId === messageId && isPlaying) {
       // Stop if already playing this message
       await stop();
-      setSpeakingIndex(null);
+      setSpeakingId(null);
     } else {
       // Stop any current playback and start new
       await stop();
-      setSpeakingIndex(index);
+      setSpeakingId(messageId);
       await speak(text);
     }
   };
@@ -545,7 +549,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   // Reset speaking index when playback stops
   useEffect(() => {
     if (!isPlaying && !ttsLoading) {
-      setSpeakingIndex(null);
+      setSpeakingId(null);
     }
   }, [isPlaying, ttsLoading]);
 
@@ -660,7 +664,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           )}
 
           {/* Chat messages */}
-          {messages.map((msg, index) => (
+          {messages.map((msg) => (
             <RNView
               key={msg.id}
               style={[
@@ -760,32 +764,32 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                 )}
                 {/* Copy button */}
                 <TouchableOpacity
-                  onPress={() => handleCopyMessage(msg.content, index)}
+                  onPress={() => handleCopyMessage(msg.content, msg.id)}
                   style={styles.actionBarButton}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
                   <Ionicons
-                    name={copiedIndex === index ? "checkmark" : "copy-outline"}
+                    name={copiedId === msg.id ? "checkmark" : "copy-outline"}
                     size={14}
-                    color={copiedIndex === index ? colors.tint : colors.textMuted}
+                    color={copiedId === msg.id ? colors.tint : colors.textMuted}
                   />
                 </TouchableOpacity>
 
                 {/* Speak button - only for assistant */}
                 {msg.role === 'assistant' && (
                   <TouchableOpacity
-                    onPress={() => handleSpeakPress(msg.content, index)}
-                    disabled={ttsLoading && speakingIndex === index}
+                    onPress={() => handleSpeakPress(msg.content, msg.id)}
+                    disabled={ttsLoading && speakingId === msg.id}
                     style={styles.actionBarButton}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
-                    {ttsLoading && speakingIndex === index ? (
+                    {ttsLoading && speakingId === msg.id ? (
                       <ActivityIndicator size={12} color={colors.tint} />
                     ) : (
                       <Ionicons
-                        name={speakingIndex === index && isPlaying ? 'stop' : 'volume-high'}
+                        name={speakingId === msg.id && isPlaying ? 'stop' : 'volume-high'}
                         size={14}
-                        color={speakingIndex === index && isPlaying ? colors.error : colors.textMuted}
+                        color={speakingId === msg.id && isPlaying ? colors.error : colors.textMuted}
                       />
                     )}
                   </TouchableOpacity>

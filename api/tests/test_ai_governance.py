@@ -166,18 +166,19 @@ async def test_recipe_chat_marks_success_before_tracker_exits(monkeypatch):
     )
     recorded = AsyncMock()
     monkeypatch.setattr(ai_governance, "record_ai_invocation", recorded)
+    legacy_history = [
+        ChatMessage(
+            role="user" if index % 2 == 0 else "assistant",
+            content=f"legacy message {index}",
+        )
+        for index in range(12)
+    ]
 
     response = await chat_about_recipe(
         UUID("31111111-1111-4111-8111-111111111111"),
         ChatRequest(
             message="How should I heat this?",
-            history=[
-                ChatMessage(
-                    role="user" if index % 2 == 0 else "assistant",
-                    content=f"legacy message {index}",
-                )
-                for index in range(12)
-            ],
+            history=legacy_history,
         ),
         db=FakeDatabase(),
         user=ClerkUser(
@@ -192,8 +193,10 @@ async def test_recipe_chat_marks_success_before_tracker_exits(monkeypatch):
     provider_messages = chat_router_module.openai_client.chat.completions.create.await_args.kwargs[
         "messages"
     ]
-    assert len(provider_messages[1:-1]) == MAX_CHAT_HISTORY_ITEMS
-    assert provider_messages[1]["content"] == "legacy message 2"
+    retained_count = min(MAX_CHAT_HISTORY_ITEMS // 2 * 2, len(legacy_history))
+    first_retained_index = len(legacy_history) - retained_count
+    assert len(provider_messages[1:-1]) == retained_count
+    assert provider_messages[1]["content"] == f"legacy message {first_retained_index}"
     assert provider_messages[-1]["content"] == "How should I heat this?"
     assert recorded.await_args.kwargs["status"] == "success"
     assert recorded.await_args.kwargs["error_code"] is None

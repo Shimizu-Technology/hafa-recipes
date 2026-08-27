@@ -81,7 +81,7 @@ export function selectChatContext(messages: ChatMessage[]): ChatMessage[] {
 
   for (const message of messages) {
     if (message.status && message.status !== 'sent') {
-      if (message.role === 'user') pendingUser = undefined;
+      pendingUser = undefined;
       continue;
     }
     if (message.role === 'user') {

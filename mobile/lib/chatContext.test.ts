@@ -7,6 +7,7 @@ import {
   LEGACY_CHAT_ERROR_MESSAGE,
   MAX_CHAT_CONTEXT_MESSAGES,
   normalizeStoredChatMessages,
+  messagesForStorage,
   selectChatContext,
 } from './chatContext';
 
@@ -41,6 +42,14 @@ describe('selectChatContext', () => {
     ]);
   });
 
+  it('does not pair a user with an assistant after a failed assistant response', () => {
+    expect(selectChatContext([
+      { role: 'user', content: 'question', status: 'sent' },
+      { role: 'assistant', content: 'failed answer', status: 'failed' },
+      { role: 'assistant', content: 'orphan answer', status: 'sent' },
+    ])).toEqual([]);
+  });
+
   it('does not exceed the character budget or retain local image URLs', () => {
     const selected = selectChatContext([
       { role: 'user', content: 'x'.repeat(9_000) },
@@ -65,6 +74,20 @@ describe('normalizeStoredChatMessages', () => {
     expect(message.id).toBeTruthy();
     expect(message.status).toBe('failed');
     expect(message.error_message).toContain('interrupted');
+  });
+});
+
+describe('messagesForStorage', () => {
+  it('drops device-local image URLs and preserves HTTPS image URLs', () => {
+    const messages = normalizeStoredChatMessages([
+      { id: 'local', role: 'user', content: 'local', image_url: 'file:///photo.jpg' },
+      { id: 'owned', role: 'user', content: 'owned', image_url: 'https://images.example/photo.jpg' },
+    ]);
+
+    expect(messagesForStorage(messages).map((message) => message.image_url)).toEqual([
+      undefined,
+      'https://images.example/photo.jpg',
+    ]);
   });
 });
 

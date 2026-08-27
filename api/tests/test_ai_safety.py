@@ -20,6 +20,7 @@ from app.rate_limit import RateLimitExceeded, UserRateLimiter
 from app.routers.chat import (
     COOKING_ASSISTANT_SYSTEM_PROMPT,
     LEGACY_CHAT_ERROR_MESSAGE,
+    MAX_CHAT_HISTORY_CHARS,
     MAX_CHAT_HISTORY_INPUT_ITEMS,
     MAX_CHAT_HISTORY_ITEMS,
     MAX_CHAT_MESSAGE_CHARS,
@@ -97,6 +98,24 @@ def test_chat_context_keeps_recent_complete_turns_only():
     assert selected[0].content == "question 2"
     assert selected[-1].content == "answer 6"
     assert all(selected[index].role == ("user" if index % 2 == 0 else "assistant") for index in range(len(selected)))
+
+
+def test_chat_context_respects_character_budget_without_splitting_turns():
+    message_size = MAX_CHAT_HISTORY_CHARS // 4
+    history: list[ChatMessage] = []
+    for index in range(3):
+        history.extend(
+            [
+                ChatMessage(role="user", content=str(index) + "u" * (message_size - 1)),
+                ChatMessage(role="assistant", content=str(index) + "a" * (message_size - 1)),
+            ]
+        )
+
+    selected = _select_chat_history(history)
+
+    assert len(selected) == 4
+    assert selected[0].content.startswith("1")
+    assert selected[-1].content.startswith("2")
 
 
 def test_chat_rejects_foreign_history_image(monkeypatch):
