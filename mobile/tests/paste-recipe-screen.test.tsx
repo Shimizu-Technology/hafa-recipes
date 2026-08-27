@@ -59,7 +59,7 @@ vi.mock('@/components/Themed', async () => {
     Text: host('ThemedText'),
     useColors: () => ({
       accent: '#B94722',
-      accentSoft: '#DDF5F1',
+      accentSoft: '#FBE8DE',
       background: '#FFF7EC',
       backgroundElevated: '#FFFCF7',
       backgroundSecondary: '#F8EFE3',
