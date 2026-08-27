@@ -20,8 +20,10 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 import {
+  activateChatImageCleanup,
   enqueueChatImageCleanup,
   processChatImageCleanup,
+  recoverChatImageCleanup,
   resetChatImageCleanupForTests,
 } from './chatImageCleanup';
 import { pendingChatImageCleanupKey } from './chatStorage';
@@ -52,11 +54,14 @@ describe('chat image cleanup queue', () => {
   it('retains a failed job and retries it after new history is written', async () => {
     const job = { id: 'old-clear', imageUrls: ['https://images.example/old.jpg'] };
     await enqueueChatImageCleanup(conversationKey, job);
+    await activateChatImageCleanup(conversationKey, job.id);
     const failingDelete = vi.fn(async () => { throw new Error('offline'); });
 
     await processChatImageCleanup(conversationKey, failingDelete);
     await AsyncStorage.setItem(conversationKey, JSON.stringify([{ content: 'new message' }]));
-    expect(JSON.parse(mocks.values.get(cleanupKey)!)).toEqual([job]);
+    expect(JSON.parse(mocks.values.get(cleanupKey)!)).toEqual([
+      { ...job, state: 'ready' },
+    ]);
 
     const successfulDelete = vi.fn(async () => ({ deleted: 1 }));
     await processChatImageCleanup(conversationKey, successfulDelete);
@@ -75,14 +80,42 @@ describe('chat image cleanup queue', () => {
     const second = { id: 'second-clear', imageUrls: ['https://images.example/second.jpg'] };
 
     await enqueueChatImageCleanup(conversationKey, first);
+    await activateChatImageCleanup(conversationKey, first.id);
     const processing = processChatImageCleanup(conversationKey, deleteImages);
     await Promise.resolve();
     await enqueueChatImageCleanup(conversationKey, second);
+    await activateChatImageCleanup(conversationKey, second.id);
     firstDelete.resolve({ deleted: 1 });
     await processing;
 
     expect(deleteImages).toHaveBeenNthCalledWith(1, first.imageUrls);
     expect(deleteImages).toHaveBeenNthCalledWith(2, second.imageUrls);
-    expect(JSON.parse(mocks.values.get(cleanupKey)!)).toEqual([second]);
+    expect(JSON.parse(mocks.values.get(cleanupKey)!)).toEqual([
+      { ...second, state: 'ready' },
+    ]);
+  });
+
+  it('drops a prepared job after restart when its conversation still exists', async () => {
+    const prepared = { id: 'interrupted-clear', imageUrls: ['https://images.example/kept.jpg'] };
+    await enqueueChatImageCleanup(conversationKey, prepared);
+
+    await recoverChatImageCleanup(conversationKey, true);
+    const deleteImages = vi.fn(async () => ({ deleted: 1 }));
+    await processChatImageCleanup(conversationKey, deleteImages);
+
+    expect(deleteImages).not.toHaveBeenCalled();
+    expect(mocks.values.has(cleanupKey)).toBe(false);
+  });
+
+  it('activates a prepared job after restart when local clear committed', async () => {
+    const prepared = { id: 'committed-clear', imageUrls: ['https://images.example/delete.jpg'] };
+    await enqueueChatImageCleanup(conversationKey, prepared);
+
+    await recoverChatImageCleanup(conversationKey, false);
+    const deleteImages = vi.fn(async () => ({ deleted: 1 }));
+    await processChatImageCleanup(conversationKey, deleteImages);
+
+    expect(deleteImages).toHaveBeenCalledWith(prepared.imageUrls);
+    expect(mocks.values.has(cleanupKey)).toBe(false);
   });
 });

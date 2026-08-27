@@ -5,6 +5,7 @@ import { pendingChatImageCleanupKey } from './chatStorage';
 export interface ChatImageCleanupJob {
   id: string;
   imageUrls: string[];
+  state: 'prepared' | 'ready';
 }
 
 type DeleteImages = (imageUrls: string[]) => Promise<unknown>;
@@ -22,7 +23,9 @@ function validJob(value: unknown): value is ChatImageCleanupJob {
     && 'imageUrls' in value
     && Array.isArray(value.imageUrls)
     && value.imageUrls.length > 0
-    && value.imageUrls.every((url) => typeof url === 'string' && url.startsWith('https://')),
+    && value.imageUrls.every((url) => typeof url === 'string' && url.startsWith('https://'))
+    && 'state' in value
+    && (value.state === 'prepared' || value.state === 'ready'),
   );
 }
 
@@ -62,13 +65,45 @@ async function mutateQueue<T>(cleanupKey: string, operation: () => Promise<T>): 
 /** Append one independently identifiable cleanup job before local history is removed. */
 export async function enqueueChatImageCleanup(
   conversationKey: string,
-  job: ChatImageCleanupJob,
+  job: Omit<ChatImageCleanupJob, 'state'>,
 ): Promise<void> {
   const cleanupKey = pendingChatImageCleanupKey(conversationKey);
   await mutateQueue(cleanupKey, async () => {
     const jobs = await readQueue(cleanupKey);
     if (jobs.some((existing) => existing.id === job.id)) return;
-    await writeQueue(cleanupKey, [...jobs, job]);
+    await writeQueue(cleanupKey, [...jobs, { ...job, state: 'prepared' }]);
+  });
+}
+
+/** Make one prepared job eligible only after its local history removal commits. */
+export async function activateChatImageCleanup(
+  conversationKey: string,
+  jobId: string,
+): Promise<void> {
+  const cleanupKey = pendingChatImageCleanupKey(conversationKey);
+  await mutateQueue(cleanupKey, async () => {
+    const jobs = await readQueue(cleanupKey);
+    if (!jobs.some((job) => job.id === jobId)) {
+      throw new Error('The prepared chat image cleanup job is missing');
+    }
+    await writeQueue(cleanupKey, jobs.map((job) => (
+      job.id === jobId ? { ...job, state: 'ready' as const } : job
+    )));
+  });
+}
+
+/** Recover a crash between queue preparation and local history removal. */
+export async function recoverChatImageCleanup(
+  conversationKey: string,
+  conversationExists: boolean,
+): Promise<void> {
+  const cleanupKey = pendingChatImageCleanupKey(conversationKey);
+  await mutateQueue(cleanupKey, async () => {
+    const jobs = await readQueue(cleanupKey);
+    const recovered = conversationExists
+      ? jobs.filter((job) => job.state === 'ready')
+      : jobs.map((job) => ({ ...job, state: 'ready' as const }));
+    await writeQueue(cleanupKey, recovered);
   });
 }
 
@@ -111,7 +146,10 @@ export function processChatImageCleanup(
     while (true) {
       let job: ChatImageCleanupJob | undefined;
       try {
-        job = await mutateQueue(cleanupKey, async () => (await readQueue(cleanupKey))[0]);
+        job = await mutateQueue(
+          cleanupKey,
+          async () => (await readQueue(cleanupKey)).find((queued) => queued.state === 'ready'),
+        );
       } catch {
         return;
       }

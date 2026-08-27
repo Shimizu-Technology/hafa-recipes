@@ -74,9 +74,11 @@ import {
   persistedChatImageUrls,
 } from '../lib/chatStorage';
 import {
+  activateChatImageCleanup,
   enqueueChatImageCleanup,
   hasChatImageCleanup,
   processChatImageCleanup,
+  recoverChatImageCleanup,
   removeChatImageCleanup,
 } from '../lib/chatImageCleanup';
 const CHAT_MARKDOWN_RULES: RenderRules = {
@@ -124,6 +126,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const messagesRef = useRef<ChatUiMessage[]>([]);
   const retryImagesRef = useRef<Map<string, string>>(new Map());
   const inFlightRef = useRef(false);
+  const clearInFlightRef = useRef(false);
   const activeStorageKeyRef = useRef<string | null>(null);
   const historyLoadGenerationRef = useRef(0);
   const [inputText, setInputText] = useState('');
@@ -131,12 +134,14 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [loadedStorageKey, setLoadedStorageKey] = useState<string | null>(null);
   const [isDelivering, setIsDelivering] = useState(false);
+  const [isClearingChat, setIsClearingChat] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);  // Base64 image
   const [attachedImageUri, setAttachedImageUri] = useState<string | null>(null);  // For preview
   const isComposerUnavailable = isDelivering
+    || isClearingChat
     || isLoadingHistory
     || !storageKey
     || loadedStorageKey !== storageKey;
@@ -274,7 +279,12 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
         const history: ChatMessage[] = stored ? JSON.parse(stored) : [];
         updateMessages(normalizeStoredChatMessages(history));
         setLoadedStorageKey(conversationKey);
-        void processChatImageCleanup(conversationKey, (urls) => api.deleteChatImages(urls));
+        void recoverChatImageCleanup(conversationKey, stored !== null)
+          .then(() => processChatImageCleanup(
+            conversationKey,
+            (urls) => api.deleteChatImages(urls),
+          ))
+          .catch(() => undefined);
       } catch {
         if (
           historyLoadGenerationRef.current !== generation
@@ -314,7 +324,6 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
   const handleClearChat = useCallback(() => {
     if (!storageKey) return;
     const conversationKey = storageKey;
-    const imageUrls = persistedChatImageUrls(messagesForStorage(messagesRef.current));
     Alert.alert(
       'Clear Chat',
       'Are you sure you want to clear this conversation? This cannot be undone.',
@@ -324,7 +333,14 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           text: 'Clear',
           style: 'destructive',
           onPress: async () => {
-            if (activeStorageKeyRef.current !== conversationKey) return;
+            if (
+              activeStorageKeyRef.current !== conversationKey
+              || clearInFlightRef.current
+            ) return;
+            const historySnapshot = messagesForStorage(messagesRef.current);
+            const imageUrls = persistedChatImageUrls(historySnapshot);
+            clearInFlightRef.current = true;
+            setIsClearingChat(true);
             const cleanupJobId = createChatMessageId();
             try {
               if (imageUrls.length > 0) {
@@ -333,21 +349,66 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                   imageUrls,
                 });
               }
+            } catch {
+              Alert.alert(
+                'Could Not Clear Chat',
+                'Your conversation is still here because this device could not save the cleanup request. Please try again.',
+              );
+              clearInFlightRef.current = false;
+              setIsClearingChat(false);
+              return;
+            }
+
+            try {
               await AsyncStorage.removeItem(conversationKey);
-              if (activeStorageKeyRef.current === conversationKey) {
-                updateMessages([]);
-                retryImagesRef.current.clear();
-              }
             } catch {
               if (imageUrls.length > 0) {
                 await removeChatImageCleanup(conversationKey, cleanupJobId).catch(() => undefined);
               }
               Alert.alert(
                 'Could Not Clear Chat',
-                'Your conversation is still here because this device could not save the cleanup request. Please try again.',
+                'Your conversation is still here because this device could not remove it. Please try again.',
               );
+              clearInFlightRef.current = false;
+              setIsClearingChat(false);
               return;
             }
+
+            if (imageUrls.length > 0) {
+              try {
+                await activateChatImageCleanup(conversationKey, cleanupJobId);
+              } catch {
+                try {
+                  await AsyncStorage.setItem(conversationKey, JSON.stringify(historySnapshot));
+                  await removeChatImageCleanup(conversationKey, cleanupJobId).catch(() => undefined);
+                  Alert.alert(
+                    'Could Not Clear Chat',
+                    'Your conversation was restored because its photo cleanup could not be prepared. Please try again.',
+                  );
+                } catch {
+                  if (activeStorageKeyRef.current === conversationKey) {
+                    setLoadedStorageKey(null);
+                    setHistoryError(
+                      'Chat cleanup was interrupted. Reopen chat to recover it safely.',
+                    );
+                  }
+                  Alert.alert(
+                    'Chat Cleanup Paused',
+                    'Reopen chat to finish cleanup safely. Your photos have not been deleted.',
+                  );
+                }
+                clearInFlightRef.current = false;
+                setIsClearingChat(false);
+                return;
+              }
+            }
+
+            if (activeStorageKeyRef.current === conversationKey) {
+              updateMessages([]);
+              retryImagesRef.current.clear();
+            }
+            clearInFlightRef.current = false;
+            setIsClearingChat(false);
 
             if (imageUrls.length > 0) {
               void processChatImageCleanup(
@@ -548,7 +609,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
 
   /** Convert the active draft or suggestion into a single optimistic user message. */
   const handleSend = async (text?: string) => {
-    if (inFlightRef.current || isComposerUnavailable) return;
+    if (inFlightRef.current || clearInFlightRef.current || isComposerUnavailable) return;
     const messageText = text || inputText.trim();
     if (!messageText && !attachedImage) return;
 
