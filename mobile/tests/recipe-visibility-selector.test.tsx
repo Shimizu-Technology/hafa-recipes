@@ -1,26 +1,12 @@
 import React from 'react';
-import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 
-(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
-  .IS_REACT_ACT_ENVIRONMENT = true;
-
-vi.mock('react-native', async () => {
-  const ReactModule = await import('react');
-  const host = (name: string) => (props: Record<string, unknown>) =>
-    ReactModule.createElement(name, props, props.children as React.ReactNode);
-  return {
-    StyleSheet: { create: <T,>(styles: T) => styles },
-    TouchableOpacity: host('TouchableOpacity'),
-    View: host('NativeView'),
-  };
-});
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: () => null }));
 vi.mock('@/components/Themed', async () => {
   const ReactModule = await import('react');
   return {
     Text: (props: Record<string, unknown>) =>
-      ReactModule.createElement('ThemedText', props, props.children as React.ReactNode),
+      ReactModule.createElement('Text', props, props.children as React.ReactNode),
     useColors: () => ({
       accent: '#b94722',
       accentSoft: '#fbe8de',
@@ -42,60 +28,61 @@ vi.mock('@/constants/Colors', () => ({
   spacing: { sm: 8, md: 16, lg: 24 },
 }));
 
-import { RecipeVisibilitySelector } from '../components/RecipeVisibilitySelector';
+const reactNativeShim = await import('./react-native-shim');
+// @ts-expect-error Node's module loader is available in Vitest but excluded from Expo app types.
+const nodeModule = await import('node:module');
+type ModuleLoader = (
+  request: string,
+  parent: unknown,
+  isMain: boolean,
+) => unknown;
+const commonJsModule = nodeModule.default as typeof nodeModule.default & {
+  _load: ModuleLoader;
+};
+const originalLoad = commonJsModule._load;
+commonJsModule._load = (request: string, parent: unknown, isMain: boolean) =>
+  request === 'react-native'
+    ? reactNativeShim
+    : originalLoad(request, parent, isMain);
 
-function getOption(renderer: ReactTestRenderer, label: string) {
-  return renderer.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType)
-    .find((node) => node.props.accessibilityLabel === label)!;
+let testingLibrary: typeof import('@testing-library/react-native/pure');
+try {
+  testingLibrary = await import('@testing-library/react-native/pure');
+} finally {
+  commonJsModule._load = originalLoad;
 }
+const { fireEvent, render } = testingLibrary;
+
+import { RecipeVisibilitySelector } from '../components/RecipeVisibilitySelector';
 
 describe('RecipeVisibilitySelector', () => {
   it('announces the exact selected visibility', async () => {
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(
-        React.createElement(RecipeVisibilitySelector, {
-          value: 'public',
-          onChange: vi.fn(),
-        }),
-      );
-    });
+    const screen = await render(
+      <RecipeVisibilitySelector value="public" onChange={vi.fn()} />,
+    );
 
-    expect(getOption(renderer!, 'Private').props.accessibilityState.checked).toBe(false);
-    expect(getOption(renderer!, 'Public in Discover').props.accessibilityState.checked).toBe(true);
+    expect(screen.getByLabelText('Private').props.accessibilityState.checked).toBe(false);
+    expect(screen.getByLabelText('Public in Discover').props.accessibilityState.checked).toBe(true);
   });
 
   it('reports the requested choice without changing it internally', async () => {
     const onChange = vi.fn();
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(
-        React.createElement(RecipeVisibilitySelector, {
-          value: 'private',
-          onChange,
-        }),
-      );
-    });
+    const screen = await render(
+      <RecipeVisibilitySelector value="private" onChange={onChange} />,
+    );
 
-    await act(async () => getOption(renderer!, 'Public in Discover').props.onPress());
+    await fireEvent.press(screen.getByLabelText('Public in Discover'));
 
     expect(onChange).toHaveBeenCalledWith('public');
-    expect(getOption(renderer!, 'Private').props.accessibilityState.checked).toBe(true);
+    expect(screen.getByLabelText('Private').props.accessibilityState.checked).toBe(true);
   });
 
   it('disables both choices while visibility is being verified', async () => {
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(
-        React.createElement(RecipeVisibilitySelector, {
-          value: 'private',
-          onChange: vi.fn(),
-          disabled: true,
-        }),
-      );
-    });
+    const screen = await render(
+      <RecipeVisibilitySelector value="private" onChange={vi.fn()} disabled />,
+    );
 
-    expect(getOption(renderer!, 'Private').props.disabled).toBe(true);
-    expect(getOption(renderer!, 'Public in Discover').props.disabled).toBe(true);
+    expect(screen.getByLabelText('Private').props.disabled).toBe(true);
+    expect(screen.getByLabelText('Public in Discover').props.disabled).toBe(true);
   });
 });

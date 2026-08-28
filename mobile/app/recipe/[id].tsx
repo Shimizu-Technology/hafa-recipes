@@ -46,6 +46,7 @@ import { useCollections, useRecipeCollections } from '@/hooks/useCollections';
 import { useRecipeMealPlanEntries } from '@/hooks/useMealPlan';
 import { SkeletonSimilarRecipes } from '@/components/Skeleton';
 import { formatPublishDisclosure, getPublishDisclosure } from '@/lib/recipePublishing';
+import { getRecipeVisibilityPresentation } from '@/lib/recipeVisibilityPresentation';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { getSourcePlayback } from '@/lib/sourcePlayback';
@@ -575,12 +576,11 @@ export default function RecipeDetailScreen() {
     const updateSharing = async () => {
       try {
         const result = await toggleSharingMutation.mutateAsync({ id, isPublic: !recipe.is_public });
-        Alert.alert(
-          result.is_public ? 'Published to Discover' : 'Recipe is private',
-          result.is_public
-            ? 'Anyone can now find and open this recipe in Discover.'
-            : 'Only you can open this recipe now.',
+        const presentation = getRecipeVisibilityPresentation(
+          result.is_public,
+          recipe.moderation_status,
         );
+        Alert.alert(presentation.alertTitle, presentation.alertMessage);
       } catch {
         Alert.alert('Error', 'Failed to update sharing settings');
       }
@@ -602,6 +602,10 @@ export default function RecipeDetailScreen() {
       await updateSharing();
     }
   };
+
+  const visibilityPresentation = recipe
+    ? getRecipeVisibilityPresentation(recipe.is_public, recipe.moderation_status)
+    : null;
 
   if (isLoading) {
     return (
@@ -870,8 +874,8 @@ export default function RecipeDetailScreen() {
                 activeOpacity={0.7}
                 disabled={toggleSharingMutation.isPending}
                 accessibilityRole="button"
-                accessibilityLabel={recipe.is_public ? 'Public in Discover' : 'Private recipe'}
-                accessibilityHint={recipe.is_public ? 'Tap to review or make private' : 'Tap to publish in Discover'}
+                accessibilityLabel={visibilityPresentation?.label}
+                accessibilityHint={visibilityPresentation?.accessibilityHint}
                 accessibilityState={{ busy: toggleSharingMutation.isPending }}
               >
                 <Ionicons 
@@ -886,16 +890,12 @@ export default function RecipeDetailScreen() {
                   ]}>
                     {toggleSharingMutation.isPending
                       ? 'Updating visibility...'
-                      : recipe.is_public
-                        ? 'Public in Discover'
-                        : 'Private recipe'
+                      : visibilityPresentation?.label
                     }
                   </Text>
                   {!toggleSharingMutation.isPending && (
                     <Text style={[styles.shareButtonSubtitle, { color: colors.textMuted }]}>
-                      {recipe.is_public
-                        ? 'Anyone can find it · Tap to review'
-                        : 'Only you can see it · Tap to publish'}
+                      {visibilityPresentation?.subtitle}
                     </Text>
                   )}
                 </RNView>
