@@ -17,6 +17,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Button, useColors } from '@/components/Themed';
+import {
+  RecipeVisibilitySelector,
+  type RecipeVisibility,
+} from '@/components/RecipeVisibilitySelector';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { useSaveCapturedRecipe } from '@/hooks/useRecipes';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
@@ -35,14 +39,14 @@ export default function OCRReviewScreen() {
   } = useLocalSearchParams<{
     recipe: string;
     location: string;
-    isPublic: string;
+    isPublic?: string;
     sourceType?: 'photo' | 'text';
   }>();
   const sourceType = sourceTypeParam === 'text' ? 'text' : 'photo';
   const isTextCapture = sourceType === 'text';
 
   const [recipe, setRecipe] = useState<any>(null);
-  const [isPublic, setIsPublic] = useState(isPublicParam === 'true');
+  const [isPublic, setIsPublic] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   
   const saveCapturedRecipe = useSaveCapturedRecipe();
@@ -50,11 +54,12 @@ export default function OCRReviewScreen() {
 
   const publishPreview = () => formatPublishDisclosure(getOcrPublishDisclosure(recipe || {}));
 
-  const handlePublicToggle = async () => {
-    if (isPublic) {
+  const handleVisibilityChange = async (visibility: RecipeVisibility) => {
+    if (visibility === 'private') {
       setIsPublic(false);
       return;
     }
+    if (isPublic) return;
     if (!recipe) return;
     if (await requestPublishing(publishPreview())) setIsPublic(true);
   };
@@ -64,13 +69,14 @@ export default function OCRReviewScreen() {
       try {
         const parsed = JSON.parse(recipeParam);
         setRecipe(parsed);
+        setIsPublic(isPublicParam === 'true');
       } catch {
         // User-facing alert is sufficient
         Alert.alert('Error', 'Failed to load recipe data');
         router.back();
       }
     }
-  }, [recipeParam]);
+  }, [isPublicParam, recipeParam, router.back]);
 
   const doSave = async () => {
     if (!recipe) return;
@@ -92,9 +98,12 @@ export default function OCRReviewScreen() {
       });
 
       if (result?.id) {
+        const wasPublished = result.is_public === true;
         Alert.alert(
-          'Recipe Saved!',
-          'Your imported recipe has been saved.',
+          wasPublished ? 'Published to Discover' : 'Saved privately',
+          wasPublished
+            ? 'Anyone can now find and open this recipe in Discover.'
+            : 'Only you can open this recipe. You can publish it later from the recipe page.',
           [
             {
               text: 'View Recipe',
@@ -199,7 +208,7 @@ export default function OCRReviewScreen() {
       />
       
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 136 }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Review Banner */}
@@ -308,44 +317,11 @@ export default function OCRReviewScreen() {
           </RNView>
         )}
 
-        {/* Share Toggle */}
-        <TouchableOpacity
-          style={[
-            styles.shareToggle,
-            {
-              backgroundColor: isPublic ? colors.tint + '15' : colors.backgroundSecondary,
-              borderColor: isPublic ? colors.tint : colors.border,
-            },
-          ]}
-          onPress={handlePublicToggle}
-          disabled={isCheckingDisclosure}
-          activeOpacity={0.7}
-          accessibilityRole="switch"
-          accessibilityLabel="Share recipe to the public library"
-          accessibilityHint="Off keeps this recipe visible only to you"
-          accessibilityState={{ checked: isPublic, disabled: isCheckingDisclosure }}
-        >
-          <RNView style={styles.shareToggleContent}>
-            <Ionicons
-              name={isPublic ? 'globe' : 'lock-closed'}
-              size={20}
-              color={isPublic ? colors.tint : colors.textMuted}
-            />
-            <RNView style={styles.shareToggleText}>
-              <Text style={[styles.shareToggleTitle, { color: colors.text }]}>
-                {isPublic ? 'Share to Library' : 'Keep Private'}
-              </Text>
-              <Text style={[styles.shareToggleSubtitle, { color: colors.textMuted }]}>
-                {isPublic ? 'Others can discover this recipe' : 'Only visible to you'}
-              </Text>
-            </RNView>
-          </RNView>
-          <Ionicons
-            name={isPublic ? 'checkmark-circle' : 'ellipse-outline'}
-            size={26}
-            color={isPublic ? colors.tint : colors.textMuted}
-          />
-        </TouchableOpacity>
+        <RecipeVisibilitySelector
+          value={isPublic ? 'public' : 'private'}
+          onChange={handleVisibilityChange}
+          disabled={isSaving || isCheckingDisclosure}
+        />
 
         {/* Hint */}
         <Text style={[styles.hint, { color: colors.textMuted }]}>
@@ -354,7 +330,16 @@ export default function OCRReviewScreen() {
       </ScrollView>
 
       {/* Bottom Action Bar */}
-      <RNView style={[styles.bottomBar, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
+      <RNView
+        style={[
+          styles.bottomBar,
+          {
+            backgroundColor: colors.background,
+            borderTopColor: colors.border,
+            paddingBottom: Math.max(insets.bottom, spacing.lg),
+          },
+        ]}
+      >
         <RNView style={styles.bottomBarButtons}>
           {/* Edit Button */}
           <TouchableOpacity
@@ -369,7 +354,7 @@ export default function OCRReviewScreen() {
           {/* Save Button */}
           <RNView style={styles.saveButtonContainer}>
             <Button
-              title={isSaving ? 'Saving...' : 'Save Recipe'}
+              title={isSaving ? 'Saving...' : isPublic ? 'Publish Recipe' : 'Save Private Recipe'}
               onPress={handleSave}
               disabled={isSaving}
               loading={isSaving}
@@ -521,32 +506,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     lineHeight: 22,
     fontStyle: 'italic',
-  },
-  shareToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    marginBottom: spacing.md,
-  },
-  shareToggleContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    gap: spacing.md,
-  },
-  shareToggleText: {
-    flex: 1,
-  },
-  shareToggleTitle: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
-  },
-  shareToggleSubtitle: {
-    fontSize: fontSize.xs,
-    marginTop: 2,
   },
   hint: {
     fontSize: fontSize.sm,

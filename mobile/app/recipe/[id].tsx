@@ -46,6 +46,7 @@ import { useCollections, useRecipeCollections } from '@/hooks/useCollections';
 import { useRecipeMealPlanEntries } from '@/hooks/useMealPlan';
 import { SkeletonSimilarRecipes } from '@/components/Skeleton';
 import { formatPublishDisclosure, getPublishDisclosure } from '@/lib/recipePublishing';
+import { getRecipeVisibilityPresentation } from '@/lib/recipeVisibilityPresentation';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { getSourcePlayback } from '@/lib/sourcePlayback';
@@ -574,7 +575,12 @@ export default function RecipeDetailScreen() {
     if (!recipe) return;
     const updateSharing = async () => {
       try {
-        await toggleSharingMutation.mutateAsync({ id, isPublic: !recipe.is_public });
+        const result = await toggleSharingMutation.mutateAsync({ id, isPublic: !recipe.is_public });
+        const presentation = getRecipeVisibilityPresentation(
+          result.is_public,
+          recipe.moderation_status,
+        );
+        Alert.alert(presentation.alertTitle, presentation.alertMessage);
       } catch {
         Alert.alert('Error', 'Failed to update sharing settings');
       }
@@ -596,6 +602,10 @@ export default function RecipeDetailScreen() {
       await updateSharing();
     }
   };
+
+  const visibilityPresentation = recipe
+    ? getRecipeVisibilityPresentation(recipe.is_public, recipe.moderation_status)
+    : null;
 
   if (isLoading) {
     return (
@@ -863,23 +873,32 @@ export default function RecipeDetailScreen() {
                 onPress={handleToggleSharing}
                 activeOpacity={0.7}
                 disabled={toggleSharingMutation.isPending}
+                accessibilityRole="button"
+                accessibilityLabel={visibilityPresentation?.label}
+                accessibilityHint={visibilityPresentation?.accessibilityHint}
+                accessibilityState={{ busy: toggleSharingMutation.isPending }}
               >
                 <Ionicons 
                   name={recipe.is_public ? 'globe' : 'globe-outline'} 
                   size={20} 
                   color={recipe.is_public ? colors.success : colors.textSecondary} 
                 />
-                <Text style={[
-                  styles.shareButtonText, 
-                  { color: recipe.is_public ? colors.success : colors.text }
-                ]}>
-                  {toggleSharingMutation.isPending 
-                    ? 'Updating...' 
-                    : recipe.is_public 
-                      ? 'Shared to Library' 
-                      : 'Share to Library'
-                  }
-                </Text>
+                <RNView style={styles.shareButtonCopy}>
+                  <Text style={[
+                    styles.shareButtonText,
+                    { color: recipe.is_public ? colors.success : colors.text }
+                  ]}>
+                    {toggleSharingMutation.isPending
+                      ? 'Updating visibility...'
+                      : visibilityPresentation?.label
+                    }
+                  </Text>
+                  {!toggleSharingMutation.isPending && (
+                    <Text style={[styles.shareButtonSubtitle, { color: colors.textMuted }]}>
+                      {visibilityPresentation?.subtitle}
+                    </Text>
+                  )}
+                </RNView>
                 <Ionicons 
                   name={recipe.is_public ? 'checkmark-circle' : 'add-circle-outline'} 
                   size={18} 
@@ -1802,7 +1821,13 @@ const styles = StyleSheet.create({
   shareButtonText: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
+  },
+  shareButtonCopy: {
     flex: 1,
+  },
+  shareButtonSubtitle: {
+    fontSize: fontSize.xs,
+    marginTop: 2,
   },
   publicBadge: {
     flexDirection: 'row',

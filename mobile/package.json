@@ -23,7 +23,7 @@
     "@sentry/react-native": "~7.11.0",
     "@tanstack/react-query": "^5.90.11",
     "axios": "^1.18.1",
-    "expo": "~57.0.17",
+    "expo": "~57.0.18",
     "expo-apple-authentication": "~57.0.1",
     "expo-asset": "~57.0.14",
     "expo-audio": "~57.0.4",
@@ -61,7 +61,9 @@
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
+    "@testing-library/react-native": "^14.0.1",
     "@types/react": "~19.2.10",
+    "@types/react-test-renderer": "^19.1.0",
     "expo-doctor": "^1.20.2",
     "react-test-renderer": "^19.2.3",
     "test-renderer": "^1.2.0",

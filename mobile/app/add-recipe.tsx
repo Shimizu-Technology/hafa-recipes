@@ -24,6 +24,10 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { View, Text, useColors } from '@/components/Themed';
+import {
+  RecipeVisibilitySelector,
+  type RecipeVisibility,
+} from '@/components/RecipeVisibilitySelector';
 import { api } from '@/lib/api';
 import { formatPublishDisclosure } from '@/lib/recipePublishing';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
@@ -70,7 +74,7 @@ export default function AddRecipeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
-  const { requestPublishing } = usePublishingDisclosure();
+  const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
   
   // Get initial data from route params for imported-recipe pre-fill.
   const { initialData, isPublic: isPublicParam, fromOcr, captureSource } = useLocalSearchParams<{
@@ -241,10 +245,17 @@ export default function AddRecipeScreen() {
     onSuccess: (recipe) => {
       invalidateCreatedRecipeQueries(queryClient, recipe.id);
       
-      Alert.alert('Success!', 'Your recipe has been created.', [
+      const wasPublished = recipe.is_public === true;
+      Alert.alert(
+        wasPublished ? 'Published to Discover' : 'Saved privately',
+        wasPublished
+          ? 'Anyone can now find and open this recipe in Discover.'
+          : 'Only you can open this recipe. You can publish it later from the recipe page.',
+        [
         { text: 'View Recipe', onPress: () => router.replace(`/recipe/${recipe.id}`) },
         { text: 'OK', onPress: () => router.back() },
-      ]);
+        ],
+      );
     },
     onError: (error: Error) => {
       Alert.alert('Error', error.message || 'Failed to create recipe');
@@ -390,11 +401,12 @@ export default function AddRecipeScreen() {
     void submitRecipe();
   };
 
-  const handlePublicToggle = async () => {
-    if (isPublic) {
+  const handleVisibilityChange = async (visibility: RecipeVisibility) => {
+    if (visibility === 'private') {
       setIsPublic(false);
       return;
     }
+    if (isPublic) return;
     if (await requestPublishing(publishPreview())) setIsPublic(true);
   };
 
@@ -467,7 +479,9 @@ export default function AddRecipeScreen() {
               {createMutation.isPending ? (
                 <ActivityIndicator size="small" color={colors.tint} />
               ) : (
-                <Text style={[styles.saveButtonText, { color: colors.tint }]}>Save</Text>
+                <Text style={[styles.saveButtonText, { color: colors.tint }]}>
+                  {isPublic ? 'Publish' : 'Save private'}
+                </Text>
               )}
             </TouchableOpacity>
           ),
@@ -799,46 +813,11 @@ export default function AddRecipeScreen() {
               )}
             </RNView>
 
-            {/* Public Toggle */}
-            <TouchableOpacity
-              style={[
-                styles.publicToggle,
-                {
-                  borderColor: isPublic ? colors.success : colors.border,
-                  backgroundColor: isPublic ? colors.success + '10' : 'transparent',
-                },
-              ]}
-              onPress={handlePublicToggle}
-              activeOpacity={0.7}
-              accessibilityRole="switch"
-              accessibilityLabel="Share recipe to the public library"
-              accessibilityHint="Off keeps this recipe visible only to you"
-              accessibilityState={{ checked: isPublic }}
-            >
-              <Ionicons
-                name={isPublic ? 'globe' : 'lock-closed'}
-                size={20}
-                color={isPublic ? colors.success : colors.textSecondary}
-              />
-              <RNView style={styles.publicToggleText}>
-                <Text
-                  style={[
-                    styles.publicToggleTitle,
-                    { color: isPublic ? colors.success : colors.text },
-                  ]}
-                >
-                  {isPublic ? 'Share to Library' : 'Keep Private'}
-                </Text>
-                <Text style={[styles.publicToggleSubtitle, { color: colors.textMuted }]}>
-                  {isPublic ? 'Others can discover this recipe' : 'Only visible to you'}
-                </Text>
-              </RNView>
-              <Ionicons
-                name={isPublic ? 'checkmark-circle' : 'lock-closed-outline'}
-                size={18}
-                color={isPublic ? colors.success : colors.textMuted}
-              />
-            </TouchableOpacity>
+            <RecipeVisibilitySelector
+              value={isPublic ? 'public' : 'private'}
+              onChange={handleVisibilityChange}
+              disabled={createMutation.isPending || isCheckingDisclosure}
+            />
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
@@ -1056,26 +1035,5 @@ const styles = StyleSheet.create({
   nutritionPlaceholderText: {
     flex: 1,
     fontSize: fontSize.sm,
-  },
-  publicToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    padding: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    marginTop: spacing.md,
-  },
-  publicToggleText: {
-    flex: 1,
-  },
-  publicToggleTitle: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
-  },
-  publicToggleSubtitle: {
-    fontSize: fontSize.sm,
-    marginTop: 2,
   },
 });
