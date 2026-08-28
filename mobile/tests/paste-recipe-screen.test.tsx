@@ -106,6 +106,25 @@ describe('PasteRecipeScreen', () => {
     mocks.consume.mockReset();
     mocks.consume.mockReturnValue(null);
     mocks.params.captureToken = undefined;
+    mocks.params.isPublic = 'false';
+  });
+
+  it('carries an existing public choice to the final review screen', async () => {
+    mocks.params.isPublic = 'true';
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(React.createElement(PasteRecipeScreen));
+    });
+
+    const input = renderer!.root.findByType('TextInput' as unknown as React.ComponentType);
+    await act(async () => input.props.onChangeText('Red Rice\n2 cups rice\nCook the rice.'));
+    const submit = renderer!.root.findByType('Button' as unknown as React.ComponentType);
+    await act(async () => submit.props.onPress());
+
+    expect(mocks.push).toHaveBeenCalledWith(expect.objectContaining({
+      pathname: '/ocr-review',
+      params: expect.objectContaining({ isPublic: 'true', sourceType: 'text' }),
+    }));
   });
 
   it('prefills plain text consumed from a native share without persisting it', async () => {

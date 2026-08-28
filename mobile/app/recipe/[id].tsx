@@ -574,7 +574,13 @@ export default function RecipeDetailScreen() {
     if (!recipe) return;
     const updateSharing = async () => {
       try {
-        await toggleSharingMutation.mutateAsync({ id, isPublic: !recipe.is_public });
+        const result = await toggleSharingMutation.mutateAsync({ id, isPublic: !recipe.is_public });
+        Alert.alert(
+          result.is_public ? 'Published to Discover' : 'Recipe is private',
+          result.is_public
+            ? 'Anyone can now find and open this recipe in Discover.'
+            : 'Only you can open this recipe now.',
+        );
       } catch {
         Alert.alert('Error', 'Failed to update sharing settings');
       }
@@ -863,23 +869,36 @@ export default function RecipeDetailScreen() {
                 onPress={handleToggleSharing}
                 activeOpacity={0.7}
                 disabled={toggleSharingMutation.isPending}
+                accessibilityRole="button"
+                accessibilityLabel={recipe.is_public ? 'Public in Discover' : 'Private recipe'}
+                accessibilityHint={recipe.is_public ? 'Tap to review or make private' : 'Tap to publish in Discover'}
+                accessibilityState={{ busy: toggleSharingMutation.isPending }}
               >
                 <Ionicons 
                   name={recipe.is_public ? 'globe' : 'globe-outline'} 
                   size={20} 
                   color={recipe.is_public ? colors.success : colors.textSecondary} 
                 />
-                <Text style={[
-                  styles.shareButtonText, 
-                  { color: recipe.is_public ? colors.success : colors.text }
-                ]}>
-                  {toggleSharingMutation.isPending 
-                    ? 'Updating...' 
-                    : recipe.is_public 
-                      ? 'Shared to Library' 
-                      : 'Share to Library'
-                  }
-                </Text>
+                <RNView style={styles.shareButtonCopy}>
+                  <Text style={[
+                    styles.shareButtonText,
+                    { color: recipe.is_public ? colors.success : colors.text }
+                  ]}>
+                    {toggleSharingMutation.isPending
+                      ? 'Updating visibility...'
+                      : recipe.is_public
+                        ? 'Public in Discover'
+                        : 'Private recipe'
+                    }
+                  </Text>
+                  {!toggleSharingMutation.isPending && (
+                    <Text style={[styles.shareButtonSubtitle, { color: colors.textMuted }]}>
+                      {recipe.is_public
+                        ? 'Anyone can find it · Tap to review'
+                        : 'Only you can see it · Tap to publish'}
+                    </Text>
+                  )}
+                </RNView>
                 <Ionicons 
                   name={recipe.is_public ? 'checkmark-circle' : 'add-circle-outline'} 
                   size={18} 
@@ -1802,7 +1821,13 @@ const styles = StyleSheet.create({
   shareButtonText: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
+  },
+  shareButtonCopy: {
     flex: 1,
+  },
+  shareButtonSubtitle: {
+    fontSize: fontSize.xs,
+    marginTop: 2,
   },
   publicBadge: {
     flexDirection: 'row',

@@ -19,7 +19,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Chip, Text, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
 import { useLocations } from '@/hooks/useRecipes';
-import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { api } from '@/lib/api';
 import {
   MAX_PASTED_RECIPE_CHARS,
@@ -38,11 +37,9 @@ export default function PasteRecipeScreen() {
     captureToken?: string;
   }>();
   const { data: locationsData } = useLocations();
-  const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
 
   const [recipeText, setRecipeText] = useState('');
   const [selectedLocation, setSelectedLocation] = useState(params.location || 'Guam');
-  const [isPublic, setIsPublic] = useState(params.isPublic === 'true');
   const [isExtracting, setIsExtracting] = useState(false);
 
   useEffect(() => {
@@ -80,20 +77,8 @@ export default function PasteRecipeScreen() {
     }
   };
 
-  const handlePublicToggle = async () => {
-    if (isPublic) {
-      setIsPublic(false);
-      return;
-    }
-    if (await requestPublishing()) setIsPublic(true);
-  };
-
   const handleExtract = async () => {
     if (!canExtract) return;
-    if (isPublic && !(await requestPublishing())) {
-      setIsPublic(false);
-      return;
-    }
 
     Keyboard.dismiss();
     setIsExtracting(true);
@@ -115,7 +100,7 @@ export default function PasteRecipeScreen() {
         params: {
           recipe: JSON.stringify(result.recipe),
           location: selectedLocation,
-          isPublic: isPublic ? 'true' : 'false',
+          isPublic: params.isPublic === 'true' ? 'true' : 'false',
           sourceType: 'text',
         },
       });
@@ -209,28 +194,6 @@ export default function PasteRecipeScreen() {
             </ScrollView>
           </RNView>
 
-          <TouchableOpacity
-            style={[
-              styles.shareToggle,
-              {
-                backgroundColor: isPublic ? colors.tint + '15' : colors.backgroundSecondary,
-                borderColor: isPublic ? colors.tint : colors.border,
-              },
-            ]}
-            onPress={handlePublicToggle}
-            disabled={isExtracting || isCheckingDisclosure}
-            accessibilityRole="switch"
-            accessibilityLabel="Share recipe to the public library"
-            accessibilityState={{ checked: isPublic, disabled: isExtracting || isCheckingDisclosure }}
-          >
-            <Ionicons name={isPublic ? 'globe' : 'lock-closed'} size={20} color={isPublic ? colors.tint : colors.textMuted} />
-            <RNView style={styles.shareCopy}>
-              <Text style={[styles.shareTitle, { color: colors.text }]}>{isPublic ? 'Share to Library' : 'Keep Private'}</Text>
-              <Text style={[styles.shareSubtitle, { color: colors.textMuted }]}>{isPublic ? 'Others can discover the finished recipe' : 'Only visible to you'}</Text>
-            </RNView>
-            <Ionicons name={isPublic ? 'checkmark-circle' : 'ellipse-outline'} size={26} color={isPublic ? colors.tint : colors.textMuted} />
-          </TouchableOpacity>
-
           {isOverLimit && (
             <Text style={[styles.limitError, { color: colors.error }]}>Shorten the pasted text before creating a draft.</Text>
           )}
@@ -244,7 +207,7 @@ export default function PasteRecipeScreen() {
           />
           <RNView style={styles.reviewPromise}>
             {isExtracting ? <ActivityIndicator size="small" color={colors.tint} /> : <Ionicons name="eye-outline" size={16} color={colors.textMuted} />}
-            <Text style={[styles.reviewPromiseText, { color: colors.textMuted }]}>You will review every ingredient and step before anything is saved.</Text>
+            <Text style={[styles.reviewPromiseText, { color: colors.textMuted }]}>You will review every ingredient, step, and who can see the recipe before it is saved.</Text>
           </RNView>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -321,18 +284,6 @@ const styles = StyleSheet.create({
   privacyText: { flex: 1, fontSize: fontSize.xs, lineHeight: 18 },
   section: { marginBottom: spacing.lg },
   locationRow: { gap: spacing.sm, paddingRight: spacing.lg },
-  shareToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    borderWidth: 1,
-    borderRadius: radius.xl,
-    padding: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  shareCopy: { flex: 1 },
-  shareTitle: { fontSize: fontSize.md, fontWeight: fontWeight.medium },
-  shareSubtitle: { fontSize: fontSize.xs, marginTop: 2 },
   limitError: { fontSize: fontSize.sm, marginBottom: spacing.sm, textAlign: 'center' },
   reviewPromise: {
     flexDirection: 'row',
