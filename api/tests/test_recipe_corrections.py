@@ -8,6 +8,8 @@ from app.recipe_review import apply_recipe_review
 
 
 def _recipe_data(*, quantity=None, title="Red Rice", step="Cook the rice.") -> dict:
+    """Build canonical recipe content with controllable correction fields."""
+
     return {
         "title": title,
         "sourceUrl": "https://example.com/red-rice",
@@ -36,6 +38,8 @@ def _recipe_data(*, quantity=None, title="Red Rice", step="Cook the rice.") -> d
 
 
 def _recipe() -> Recipe:
+    """Build an unsaved imported recipe for correction-event unit tests."""
+
     return Recipe(
         id=uuid4(),
         source_url="https://example.com/red-rice",

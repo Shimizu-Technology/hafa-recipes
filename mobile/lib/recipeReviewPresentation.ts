@@ -28,12 +28,14 @@ const MODALITY_LABELS: Record<string, string> = {
 };
 const NULLISH_INSTRUCTIONS = new Set(['', 'null', 'none', 'n/a', 'not stated', 'unknown']);
 
+/** Join source labels as a short natural-language list. */
 function listPhrase(values: string[]): string {
   if (values.length < 2) return values[0] || '';
   if (values.length === 2) return `${values[0]} and ${values[1]}`;
   return `${values.slice(0, -1).join(', ')}, and ${values.at(-1)}`;
 }
 
+/** Format a bounded frame offset as minutes and seconds. */
 function formatTimestamp(value: number): string {
   const wholeSeconds = Math.max(0, Math.round(value));
   return `${Math.floor(wholeSeconds / 60)}:${String(wholeSeconds % 60).padStart(2, '0')}`;

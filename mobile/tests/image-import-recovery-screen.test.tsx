@@ -122,6 +122,7 @@ vi.mock('@/lib/imageImportClassification', async () => (
 
 import ExtractScreen from '../app/(tabs)/index';
 
+/** Find a screen action by its visible themed-text label. */
 function touchableWithText(renderer: ReactTestRenderer, text: string) {
   return renderer.root.findAllByType(
     'TouchableOpacity' as unknown as React.ComponentType,

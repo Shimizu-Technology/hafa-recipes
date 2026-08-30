@@ -24,12 +24,16 @@ from app.services.prompts import (
 
 
 def _png_bytes() -> bytes:
+    """Build a tiny valid PNG fixture for upload tests."""
+
     buffer = io.BytesIO()
     Image.new("RGB", (10, 10), color="white").save(buffer, format="PNG")
     return buffer.getvalue()
 
 
 def _user() -> ClerkUser:
+    """Return an authenticated stable-identity test principal."""
+
     return ClerkUser(
         id="stable_user",
         clerk_user_id="clerk_user",
@@ -44,9 +48,13 @@ class _ClassificationResponse:
     status_code = 200
 
     def __init__(self, payload: dict):
+        """Store one provider-shaped response payload."""
+
         self._payload = payload
 
     def json(self) -> dict:
+        """Return the response payload through the httpx-compatible API."""
+
         return self._payload
 
 
@@ -60,15 +68,23 @@ class _ClassificationClient:
     payloads: list[dict] = []
 
     def __init__(self, **_kwargs):
+        """Accept the same construction shape as httpx.AsyncClient."""
+
         pass
 
     async def __aenter__(self):
+        """Enter the fake async-client context."""
+
         return self
 
     async def __aexit__(self, *_args):
+        """Exit without suppressing exceptions."""
+
         return False
 
     async def post(self, _url: str, *, headers: dict, json: dict):
+        """Capture one request and return the configured classification."""
+
         assert headers["Authorization"] == "Bearer test-key"
         self.payloads.append(json)
         return _ClassificationResponse(
