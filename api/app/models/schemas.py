@@ -145,6 +145,11 @@ class RecipeResponse(BaseModel):
     extractor_display_name: Optional[str] = None
     is_public: bool = False
     moderation_status: Optional[Literal["active", "hidden"]] = None
+    review_state: Optional[Literal["source_incomplete", "needs_review", "ready"]] = None
+    review_summary: Optional[str] = None
+    uncertainty_count: int = 0
+    extraction_evidence: Optional[dict] = None
+    content_revision: Optional[int] = 1
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -169,6 +174,9 @@ class RecipeListItem(BaseModel):
     is_public: bool = False
     extractor_display_name: Optional[str] = None  # For attribution on Discover
     moderation_status: Optional[Literal["active", "hidden"]] = None
+    review_state: Optional[Literal["source_incomplete", "needs_review", "ready"]] = None
+    review_summary: Optional[str] = None
+    uncertainty_count: int = 0
     
     model_config = ConfigDict(from_attributes=True)
 

@@ -30,6 +30,7 @@ from app.publishing import (
     require_current_publishing_disclosure,
 )
 from app.recipe_derived_data import mark_fresh
+from app.recipe_review import apply_recipe_review, assess_recipe_review, review_response_fields
 from app.services import recipe_extractor, storage_service, video_service
 from app.services.extractor import ExtractionProgress
 from app.services.llm_client import llm_service
@@ -425,6 +426,9 @@ class JobStatusResponse(BaseModel):
     next_attempt_at: Optional[datetime] = None
     low_confidence: bool = False  # True if extraction quality is uncertain
     confidence_warning: Optional[str] = None  # Warning message for user
+    can_save_draft: bool = False
+    review_state: Optional[Literal["source_incomplete", "needs_review", "ready"]] = None
+    review_summary: Optional[str] = None
 
 
 @router.post("/extract", response_model=ExtractResponse)
@@ -520,8 +524,8 @@ async def extract_recipe(
             is_public=request.is_public,
             total_minutes=_compute_total_minutes(extracted_recipe),
         )
-
-        if request.is_public:
+        apply_recipe_review(new_recipe, extracted_recipe)
+        if new_recipe.is_public:
             await require_current_publishing_disclosure(db, user.id)
         
         new_recipe, raced_existing = await _commit_external_recipe(db, new_recipe)
@@ -590,8 +594,8 @@ async def extract_recipe(
         is_public=request.is_public,
         total_minutes=_compute_total_minutes(extracted_recipe),
     )
-
-    if request.is_public:
+    apply_recipe_review(new_recipe, extracted_recipe)
+    if new_recipe.is_public:
         await require_current_publishing_disclosure(db, user.id)
     
     new_recipe, raced_existing = await _commit_external_recipe(db, new_recipe)
@@ -967,6 +971,9 @@ async def run_extraction_job(
                     is_public=is_public,
                     total_minutes=_compute_total_minutes(extracted_data),
                 )
+                review = apply_recipe_review(new_recipe, extracted_data)
+                extracted_data = dict(new_recipe.extracted)
+                saved_extracted = dict(extracted_data)
                 db.add(new_recipe)
                 try:
                     await db.flush()
@@ -1049,7 +1056,7 @@ async def run_extraction_job(
                 
                 # Update job as completed (only NOW, after everything is done)
                 # Set completion message based on confidence
-                if result.low_confidence:
+                if review.state != "ready":
                     completion_msg = "Recipe extracted - please review for accuracy"
                 else:
                     completion_msg = "Recipe extracted successfully!"
@@ -1079,8 +1086,8 @@ async def run_extraction_job(
                 job.message = completion_msg
                 job.recipe_id = new_recipe.id
                 job.completed_at = datetime.utcnow()
-                job.low_confidence = result.low_confidence
-                job.confidence_warning = result.confidence_warning
+                job.low_confidence = review.state != "ready"
+                job.confidence_warning = review.summary if review.state != "ready" else None
                 job.lease_token = None
                 job.leased_until = None
             else:
@@ -1147,10 +1154,18 @@ async def get_job_status(
         select(ExtractionJob).where(ExtractionJob.id == job_id)
     )
     job = result.scalar_one_or_none()
-    
+
     if not await _user_can_access_job(db, job, user):
         raise HTTPException(status_code=404, detail="Job not found")
-    
+
+    linked_recipe = None
+    if job.recipe_id:
+        linked_recipe = await db.scalar(select(Recipe).where(Recipe.id == job.recipe_id))
+    review_fields = (
+        review_response_fields(linked_recipe, include_evidence=False)
+        if linked_recipe
+        else {}
+    )
     return JobStatusResponse(
         id=job.id,
         url=job.url,
@@ -1165,8 +1180,124 @@ async def get_job_status(
         max_attempts=job.max_attempts,
         next_attempt_at=job.next_attempt_at,
         low_confidence=job.low_confidence or False,
-        confidence_warning=job.confidence_warning
+        confidence_warning=job.confidence_warning,
+        can_save_draft=(
+            job.job_kind == "extract"
+            and job.status in {"failed", "expired"}
+            and job.recipe_id is None
+        ),
+        review_state=review_fields.get("review_state"),
+        review_summary=review_fields.get("review_summary"),
     )
+
+
+@router.post("/jobs/{job_id}/save-draft")
+async def save_failed_extraction_as_draft(
+    job_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: ClerkUser = Depends(get_current_user),
+):
+    """Keep a failed source as an editable private recipe without faking content."""
+
+    job = await db.scalar(select(ExtractionJob).where(ExtractionJob.id == job_id))
+    if not await _user_can_access_job(db, job, user):
+        raise HTTPException(status_code=404, detail="Job not found")
+    job = await db.scalar(
+        select(ExtractionJob)
+        .where(ExtractionJob.id == job_id, ExtractionJob.user_id == user.id)
+        .with_for_update()
+    )
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.job_kind != "extract":
+        raise HTTPException(status_code=409, detail="Only new imports can be saved as drafts")
+    if job.recipe_id:
+        return {"recipe_id": str(job.recipe_id), "is_existing": True}
+    if job.status not in {"failed", "expired"}:
+        raise HTTPException(
+            status_code=409,
+            detail="The source can be saved after extraction finishes or fails",
+        )
+
+    canonical_source = canonicalize_source(job.url)
+    existing = None
+    if canonical_source.key:
+        existing = await db.scalar(
+            select(Recipe).where(
+                Recipe.user_id == user.id,
+                Recipe.canonical_source_key == canonical_source.key,
+            )
+        )
+    if existing:
+        job.recipe_id = existing.id
+        job.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        return {"recipe_id": str(existing.id), "is_existing": True}
+
+    platform = video_service.detect_platform(job.url)
+    platform_label = {
+        "tiktok": "TikTok",
+        "youtube": "YouTube",
+        "instagram": "Instagram",
+        "web": "website",
+    }.get(platform, "source")
+    extracted = {
+        "title": f"Saved {platform_label} recipe",
+        "sourceUrl": job.url,
+        "servings": None,
+        "times": {},
+        "components": [],
+        "ingredients": [],
+        "steps": [],
+        "equipment": [],
+        "notes": "The source could not be extracted. Add the recipe details while viewing the original.",
+        "tags": [],
+        "media": {"thumbnail": None},
+        "mealTypes": [],
+        "totalEstimatedCost": None,
+        "costLocation": job.location,
+        "nutrition": {"perServing": {}, "total": {}},
+    }
+    recipe = Recipe(
+        source_url=job.url,
+        canonical_source_key=canonical_source.key,
+        source_type="website" if platform == "web" else platform,
+        raw_text=None,
+        extracted=extracted,
+        thumbnail_url=None,
+        extraction_method="source-draft",
+        extraction_quality="low",
+        has_audio_transcript=False,
+        user_id=user.id,
+        extractor_display_name=user.display_name,
+        is_public=False,
+        total_minutes=None,
+    )
+    apply_recipe_review(recipe, extracted)
+    try:
+        async with db.begin_nested():
+            db.add(recipe)
+            await db.flush()
+    except IntegrityError:
+        existing = None
+        if canonical_source.key:
+            existing = await db.scalar(
+                select(Recipe).where(
+                    Recipe.user_id == user.id,
+                    Recipe.canonical_source_key == canonical_source.key,
+                )
+            )
+        if not existing:
+            raise
+        job.recipe_id = existing.id
+        job.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        return {"recipe_id": str(existing.id), "is_existing": True}
+    job.recipe_id = recipe.id
+    job.message = "Source saved as a private draft"
+    job.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return {"recipe_id": str(recipe.id), "is_existing": False}
 
 
 @router.delete("/jobs/{job_id}")
@@ -1529,6 +1660,24 @@ async def run_re_extraction_job(
                     "times",
                     source="ai_reextraction",
                 )
+                candidate_review = assess_recipe_review(
+                    final_extracted,
+                    source_type=recipe.source_type,
+                    extraction_method=result.extraction_method,
+                    content_revision=(recipe.content_revision or 1) + 1,
+                )
+                if candidate_review.state == "source_incomplete":
+                    job.status = "failed"
+                    job.current_step = "error"
+                    job.message = "The source did not contain enough recipe detail to replace your saved recipe."
+                    job.error_message = job.message
+                    job.error_code = "SOURCE_INCOMPLETE"
+                    job.completed_at = datetime.now(timezone.utc)
+                    job.lease_token = None
+                    job.leased_until = None
+                    job.updated_at = datetime.now(timezone.utc)
+                    await db.commit()
+                    return
                 if result.low_confidence:
                     final_extracted['lowConfidence'] = True
                     final_extracted['confidenceWarning'] = result.confidence_warning
@@ -1569,6 +1718,9 @@ async def run_re_extraction_job(
                     version_number=next_version,
                     extracted=old_extracted,
                     thumbnail_url=old_thumbnail,
+                    review_state=recipe.review_state,
+                    extraction_evidence=recipe.extraction_evidence,
+                    content_revision=recipe.content_revision,
                     change_type="re-extract",
                     change_summary=change_summary,
                     created_by=user_id,
@@ -1589,6 +1741,21 @@ async def run_re_extraction_job(
                 if not job:
                     raise ExtractionJobCancelled
 
+                # Now apply ALL changes to the recipe object at once
+                print(f"🔵 Final extracted has lowConfidence = {final_extracted.get('lowConfidence')}")
+                print(f"🔵 Final extracted keys = {list(final_extracted.keys())}")
+                
+                recipe.raw_text = result.raw_text
+                recipe.thumbnail_url = final_thumbnail_url
+                recipe.extraction_method = result.extraction_method
+                recipe.extraction_quality = result.extraction_quality
+                recipe.has_audio_transcript = result.has_audio_transcript
+                review = apply_recipe_review(
+                    recipe,
+                    final_extracted,
+                    increment_revision=True,
+                )
+                final_extracted = recipe.extracted
                 if recipe.is_public:
                     if not recipe.user_id:
                         raise HTTPException(
@@ -1597,21 +1764,10 @@ async def run_re_extraction_job(
                         )
                     await require_current_publishing_disclosure(db, recipe.user_id)
                 
-                # Now apply ALL changes to the recipe object at once
-                print(f"🔵 Final extracted has lowConfidence = {final_extracted.get('lowConfidence')}")
-                print(f"🔵 Final extracted keys = {list(final_extracted.keys())}")
-                
-                recipe.raw_text = result.raw_text
-                recipe.extracted = final_extracted
-                recipe.thumbnail_url = final_thumbnail_url
-                recipe.extraction_method = result.extraction_method
-                recipe.extraction_quality = result.extraction_quality
-                recipe.has_audio_transcript = result.has_audio_transcript
-                
                 # Mark as modified for SQLAlchemy
                 flag_modified(recipe, 'extracted')
                 
-                if result.low_confidence:
+                if review.state != "ready":
                     completion_msg = "Recipe re-extracted - please review for accuracy"
                 else:
                     completion_msg = "Recipe re-extracted successfully!"
@@ -1624,8 +1780,8 @@ async def run_re_extraction_job(
                 job.message = completion_msg
                 job.recipe_id = recipe.id
                 job.completed_at = datetime.utcnow()
-                job.low_confidence = result.low_confidence
-                job.confidence_warning = result.confidence_warning
+                job.low_confidence = review.state != "ready"
+                job.confidence_warning = review.summary if review.state != "ready" else None
                 job.lease_token = None
                 job.leased_until = None
                 job.updated_at = datetime.now(timezone.utc)

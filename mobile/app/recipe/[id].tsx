@@ -50,6 +50,10 @@ import { getRecipeVisibilityPresentation } from '@/lib/recipeVisibilityPresentat
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { getSourcePlayback } from '@/lib/sourcePlayback';
+import {
+  getCookDraftPresentation,
+  getRecipeReviewLabel,
+} from '@/lib/recipeReviewPresentation';
 import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
 import { useTextSize } from '@/hooks/useTextSize';
 import { useAuth, useUser } from '@clerk/expo';
@@ -581,7 +585,19 @@ export default function RecipeDetailScreen() {
           recipe.moderation_status,
         );
         Alert.alert(presentation.alertTitle, presentation.alertMessage);
-      } catch {
+      } catch (error: any) {
+        const detail = error?.response?.data?.detail;
+        if (error?.response?.status === 409 && detail?.code === 'RECIPE_REVIEW_REQUIRED') {
+          Alert.alert(
+            'Review before sharing',
+            detail.message || 'Complete and review this recipe before sharing it to Discover.',
+            [
+              { text: 'Not now', style: 'cancel' },
+              { text: 'Edit Recipe', onPress: () => router.push(`/edit-recipe/${id}`) },
+            ],
+          );
+          return;
+        }
         Alert.alert('Error', 'Failed to update sharing settings');
       }
     };
@@ -638,6 +654,40 @@ export default function RecipeDetailScreen() {
   }
 
   const { extracted } = recipe;
+  const instructionCount = extracted.components.reduce(
+    (total, component) => total + (component.steps?.length || 0),
+    0,
+  );
+  const reviewLabel = getRecipeReviewLabel(recipe.review_state);
+  const cookPresentation = getCookDraftPresentation(recipe.review_state, instructionCount);
+  const openCookMode = () => router.push({
+    pathname: `/cook-mode/${id}` as any,
+    params: isScaled ? { scaleFactor: scaleFactor.toString(), servings: currentServings.toString() } : {},
+  });
+  const handleCook = () => {
+    if (!cookPresentation.canCook) {
+      Alert.alert(
+        cookPresentation.alertTitle || 'Recipe needs details',
+        cookPresentation.alertMessage || 'Add the missing recipe details before cooking.',
+        isOwner
+          ? [
+              { text: 'Not now', style: 'cancel' },
+              { text: 'Add Instructions', onPress: () => router.push(`/edit-recipe/${id}`) },
+            ]
+          : [{ text: 'OK' }],
+      );
+      return;
+    }
+    if (cookPresentation.alertTitle && cookPresentation.alertMessage) {
+      Alert.alert(cookPresentation.alertTitle, cookPresentation.alertMessage, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Open Original', onPress: handleOpenSource },
+        { text: 'Cook with Draft', onPress: openCookMode },
+      ]);
+      return;
+    }
+    openCookMode();
+  };
   
   const { icon: sourceIcon, label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
   const sourcePlayback = getSourcePlayback(recipe.source_url);
@@ -786,7 +836,13 @@ export default function RecipeDetailScreen() {
             </RNView>
 
             {/* Quality Badge - show warning if low confidence, otherwise show quality */}
-            {extracted.lowConfidence ? (
+            {reviewLabel ? (
+              <RNView style={[styles.qualityBadge, { backgroundColor: '#fef3c7' }]}>
+                <Text style={[styles.qualityText, { color: '#92400e' }]}>
+                  {reviewLabel}
+                </Text>
+              </RNView>
+            ) : extracted.lowConfidence ? (
               <RNView style={[styles.qualityBadge, { backgroundColor: '#fef3c7' }]}>
                 <Text style={[styles.qualityText, { color: '#92400e' }]}>
                   Needs review · Some details may be inaccurate
@@ -1389,14 +1445,15 @@ export default function RecipeDetailScreen() {
         ]}>
           <TouchableOpacity
             style={[styles.floatingCookButton, { backgroundColor: colors.tint }]}
-            onPress={() => router.push({
-              pathname: `/cook-mode/${id}` as any,
-              params: isScaled ? { scaleFactor: scaleFactor.toString(), servings: currentServings.toString() } : {},
-            })}
+            onPress={handleCook}
             activeOpacity={0.8}
           >
-            <Ionicons name="restaurant" size={22} color="#FFFFFF" />
-            <Text style={styles.floatingCookButtonText}>Start Cooking</Text>
+            <Ionicons
+              name={cookPresentation.canCook ? 'restaurant' : 'create-outline'}
+              size={22}
+              color="#FFFFFF"
+            />
+            <Text style={styles.floatingCookButtonText}>{cookPresentation.buttonLabel}</Text>
           </TouchableOpacity>
         </RNView>
       </KeyboardAvoidingView>

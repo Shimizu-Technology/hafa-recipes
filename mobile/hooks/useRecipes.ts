@@ -631,6 +631,18 @@ export function useAsyncExtractionController() {
     await reset();
   };
 
+  const saveSourceDraft = async () => {
+    if (!jobId || !jobStatus?.can_save_draft) {
+      throw new Error('This source is not available to save as a draft.');
+    }
+    const result = await api.saveFailedExtractionDraft(jobId);
+    invalidateCompletedRecipe(result.recipe_id);
+    await clearActiveJob();
+    setError(null);
+    setTerminalState(null);
+    return result.recipe_id;
+  };
+
   const sourceUrl = jobStatus?.url || '';
   const isWebsiteExtraction = Boolean(sourceUrl) && (
     !sourceUrl.toLowerCase().includes('tiktok.com') &&
@@ -669,9 +681,13 @@ export function useAsyncExtractionController() {
     isWebsiteExtraction,
     lowConfidence: jobStatus?.low_confidence || false,
     confidenceWarning: jobStatus?.confidence_warning || null,
+    canSaveDraft: jobStatus?.can_save_draft || false,
+    reviewState: jobStatus?.review_state || null,
+    reviewSummary: jobStatus?.review_summary || null,
     startExtraction,
     startReExtraction,
     retryPendingStart,
+    saveSourceDraft,
     reset,
     cancel,
   };

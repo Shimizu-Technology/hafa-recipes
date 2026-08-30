@@ -43,6 +43,12 @@ from app.recipe_derived_data import (
     invalidate_changed_inputs,
     mark_fresh,
 )
+from app.recipe_review import (
+    apply_recipe_review,
+    assess_recipe_review,
+    require_recipe_publishable,
+    review_response_fields,
+)
 from app.services.extraction_confidence import normalize_extraction_confidence
 from app.services.storage import storage_service
 from app.source_urls import canonicalize_source
@@ -307,6 +313,9 @@ async def create_recipe_version(
         version_number=next_version,
         extracted=dict(recipe.extracted) if recipe.extracted else {},
         thumbnail_url=recipe.thumbnail_url,
+        review_state=recipe.review_state,
+        extraction_evidence=recipe.extraction_evidence,
+        content_revision=recipe.content_revision,
         change_type=change_type,
         change_summary=change_summary,
         created_by=user_id,
@@ -450,10 +459,6 @@ def _serialize_edit_components(edit: RecipeEdit) -> list[dict]:
             }
         ]
 
-    if not any(component["ingredients"] for component in components):
-        raise HTTPException(status_code=422, detail="Add at least one ingredient")
-    if not any(component["steps"] for component in components):
-        raise HTTPException(status_code=422, detail="Add at least one instruction")
     return components
 
 
@@ -541,6 +546,11 @@ def recipe_to_list_item(
         # understand why their recipe is absent from Discover and to appeal;
         # other viewers never receive it.
         moderation_status=recipe.moderation_status if is_owner else None,
+        **{
+            key: value
+            for key, value in review_response_fields(recipe, include_evidence=False).items()
+            if key != "extraction_evidence" and key != "content_revision"
+        },
     )
 
 
@@ -563,6 +573,7 @@ def recipe_to_detail_response(
             "contributor_id": public_contributor_id(recipe.user_id),
             "is_owner": is_owner,
             "moderation_status": recipe.moderation_status if is_owner else None,
+            **review_response_fields(recipe, include_evidence=is_owner),
         }
     )
 
@@ -700,9 +711,6 @@ async def create_manual_recipe(
     if source_type != "manual":
         extracted["sourceUrl"] = source_url
 
-    if recipe_input.is_public:
-        await require_current_publishing_disclosure(db, user.id)
-
     new_recipe = Recipe(
         source_url=source_url,
         source_type=source_type,
@@ -717,6 +725,9 @@ async def create_manual_recipe(
         is_public=recipe_input.is_public,
         total_minutes=compute_total_minutes(extracted),  # Compute for SQL filtering
     )
+    apply_recipe_review(new_recipe, extracted, user_reviewed=True)
+    if recipe_input.is_public and new_recipe.review_state == "ready":
+        await require_current_publishing_disclosure(db, user.id)
 
     db.add(new_recipe)
     await db.commit()
@@ -781,9 +792,6 @@ async def _save_captured_recipe(
         ) from exc
     extracted = ensure_derived_metadata(extracted)
 
-    if capture_data.is_public:
-        await require_current_publishing_disclosure(db, user.id)
-
     new_recipe = Recipe(
         source_url=source_url,
         source_type=capture_data.source_type,
@@ -798,6 +806,9 @@ async def _save_captured_recipe(
         is_public=capture_data.is_public,
         total_minutes=compute_total_minutes(extracted),  # Compute for SQL filtering
     )
+    apply_recipe_review(new_recipe, extracted, user_reviewed=True)
+    if capture_data.is_public and new_recipe.review_state == "ready":
+        await require_current_publishing_disclosure(db, user.id)
 
     db.add(new_recipe)
     await db.commit()
@@ -1787,8 +1798,6 @@ async def update_recipe(
         raise HTTPException(status_code=403, detail="You can only update your own recipes")
 
     target_is_public = update.is_public if update.is_public is not None else recipe.is_public
-    if target_is_public:
-        await require_current_publishing_disclosure(db, user.id)
 
     # Update the extracted JSONB with new values
     old_extracted = dict(recipe.extracted) if recipe.extracted else {}
@@ -1803,11 +1812,16 @@ async def update_recipe(
     if update.tags is not None:
         extracted["tags"] = update.tags
 
-    recipe.extracted = invalidate_changed_inputs(old_extracted, extracted)
-
-    # Update is_public if provided
-    if update.is_public is not None:
-        recipe.is_public = update.is_public
+    updated_extracted = invalidate_changed_inputs(old_extracted, extracted)
+    recipe.is_public = target_is_public
+    apply_recipe_review(
+        recipe,
+        updated_extracted,
+        user_reviewed=recipe.review_state == "ready",
+        increment_revision=True,
+    )
+    if recipe.is_public:
+        await require_current_publishing_disclosure(db, user.id)
 
     await db.commit()
     await db.refresh(recipe)
@@ -1840,6 +1854,7 @@ async def toggle_recipe_sharing(
     # new clients use an explicit, retry-safe target state.
     target_is_public = sharing.is_public if sharing is not None else not recipe.is_public
     if target_is_public:
+        require_recipe_publishable(recipe)
         await require_current_publishing_disclosure(db, user.id)
     recipe.is_public = target_is_public
     await db.commit()
@@ -1959,8 +1974,6 @@ async def edit_recipe(
         raise HTTPException(status_code=403, detail="You can only edit your own recipes")
 
     target_is_public = edit.is_public if edit.is_public is not None else recipe.is_public
-    if target_is_public:
-        await require_current_publishing_disclosure(db, user.id)
 
     # Preserve some fields from original extracted data
     old_extracted = recipe.extracted or {}
@@ -1979,12 +1992,16 @@ async def edit_recipe(
     if recipe.source_type != "manual" and recipe.original_extracted is None:
         recipe.original_extracted = dict(recipe.extracted) if recipe.extracted else {}
 
-    recipe.extracted = new_extracted
+    recipe.is_public = target_is_public
+    apply_recipe_review(
+        recipe,
+        new_extracted,
+        user_reviewed=True,
+        increment_revision=True,
+    )
     recipe.total_minutes = compute_total_minutes(new_extracted)  # Update for SQL filtering
-
-    # Update is_public if provided
-    if edit.is_public is not None:
-        recipe.is_public = edit.is_public
+    if recipe.is_public:
+        await require_current_publishing_disclosure(db, user.id)
 
     await db.commit()
     await db.refresh(recipe)
@@ -2030,8 +2047,6 @@ async def edit_recipe_with_image(
         raise HTTPException(status_code=403, detail="You can only edit your own recipes")
 
     target_is_public = edit.is_public if edit.is_public is not None else recipe.is_public
-    if target_is_public:
-        await require_current_publishing_disclosure(db, user.id)
 
     # Handle image upload first
     thumbnail_url = recipe.thumbnail_url
@@ -2073,12 +2088,17 @@ async def edit_recipe_with_image(
     if recipe.source_type != "manual" and recipe.original_extracted is None:
         recipe.original_extracted = dict(recipe.extracted) if recipe.extracted else {}
 
-    recipe.extracted = new_extracted
+    recipe.is_public = target_is_public
+    apply_recipe_review(
+        recipe,
+        new_extracted,
+        user_reviewed=True,
+        increment_revision=True,
+    )
     recipe.thumbnail_url = thumbnail_url
     recipe.total_minutes = compute_total_minutes(new_extracted)  # Update for SQL filtering
-
-    if edit.is_public is not None:
-        recipe.is_public = edit.is_public
+    if recipe.is_public:
+        await require_current_publishing_disclosure(db, user.id)
 
     await db.commit()
     await db.refresh(recipe)
@@ -2117,7 +2137,12 @@ async def restore_original_recipe(
         )
 
     # Restore the original
-    recipe.extracted = dict(recipe.original_extracted)
+    apply_recipe_review(
+        recipe,
+        dict(recipe.original_extracted),
+        user_reviewed=False,
+        increment_revision=True,
+    )
     recipe.original_extracted = None  # Clear the backup
 
     await db.commit()
@@ -2407,6 +2432,20 @@ async def re_extract_recipe(
             )
 
         new_extracted = extraction_result.recipe
+        candidate_review = assess_recipe_review(
+            new_extracted,
+            source_type=recipe.source_type,
+            extraction_method=extraction_result.extraction_method,
+            content_revision=(recipe.content_revision or 1) + 1,
+        )
+        if candidate_review.state == "source_incomplete":
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "SOURCE_INCOMPLETE",
+                    "message": "The source did not contain enough recipe detail to replace your saved recipe.",
+                },
+            )
 
         uploaded_thumbnail_url = None
         if extraction_result.thumbnail_url:
@@ -2435,6 +2474,9 @@ async def re_extract_recipe(
             version_number=next_version,
             extracted=old_extracted,  # Store the OLD state
             thumbnail_url=old_thumbnail,
+            review_state=recipe.review_state,
+            extraction_evidence=recipe.extraction_evidence,
+            content_revision=recipe.content_revision,
             change_type="re-extract",
             change_summary=change_summary,
             created_by=user.id,
@@ -2443,10 +2485,10 @@ async def re_extract_recipe(
 
         # Update the recipe with new data
         recipe.raw_text = extraction_result.raw_text
-        recipe.extracted = new_extracted
         recipe.extraction_method = extraction_result.extraction_method
         recipe.extraction_quality = extraction_result.extraction_quality
         recipe.has_audio_transcript = extraction_result.has_audio_transcript
+        apply_recipe_review(recipe, new_extracted, increment_revision=True)
 
         if uploaded_thumbnail_url:
             recipe.thumbnail_url = uploaded_thumbnail_url
@@ -2793,7 +2835,13 @@ async def restore_recipe_version(
     )
 
     # Restore the recipe to the selected version
-    recipe.extracted = version_to_restore.extracted
+    restored_reviewed = version_to_restore.review_state == "ready"
+    apply_recipe_review(
+        recipe,
+        dict(version_to_restore.extracted),
+        user_reviewed=restored_reviewed,
+        increment_revision=True,
+    )
     if version_to_restore.thumbnail_url:
         recipe.thumbnail_url = version_to_restore.thumbnail_url
 

@@ -43,6 +43,9 @@ class Recipe(Base):
     extraction_method = Column(String(32), nullable=True)  # whisper|basic|oembed|manual|ocr|text-ai
     extraction_quality = Column(String(16), nullable=True)  # high|medium|low
     has_audio_transcript = Column(Boolean, default=False)
+    review_state = Column(String(24), nullable=True, index=True)
+    extraction_evidence = Column(JSONB, nullable=True)
+    content_revision = Column(Integer, nullable=False, default=1, server_default="1")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Stable application-user ownership - nullable for legacy recipes
@@ -199,6 +202,9 @@ class RecipeVersion(Base):
     version_number = Column(Integer, nullable=False)
     extracted = Column(JSONB, nullable=False)  # Snapshot of recipe data
     thumbnail_url = Column(Text, nullable=True)
+    review_state = Column(String(24), nullable=True)
+    extraction_evidence = Column(JSONB, nullable=True)
+    content_revision = Column(Integer, nullable=True)
     change_type = Column(String(32), nullable=False, default="edit")  # initial, edit, re-extract
     change_summary = Column(Text, nullable=True)  # Optional description of changes
     created_by = Column(

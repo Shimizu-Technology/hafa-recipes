@@ -253,13 +253,6 @@ export default function EditRecipeScreen() {
       }))
       .filter(component => component.ingredients.length > 0 || component.steps.length > 0);
 
-    if (validIngredients.length === 0) {
-      throw new Error('Please add at least one ingredient');
-    }
-    if (validSteps.length === 0) {
-      throw new Error('Please add at least one step');
-    }
-
     const tagList = tags
       .split(',')
       .map(t => t.trim())

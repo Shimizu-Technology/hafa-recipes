@@ -440,6 +440,20 @@ export default function ExtractScreen() {
     setExtractingAsWebsite(false);
   };
 
+  const handleKeepSourceDraft = async () => {
+    try {
+      const recipeId = await extraction.saveSourceDraft();
+      await extraction.reset();
+      setUrl('');
+      setNotes('');
+      setIsPublic(false);
+      setExtractingAsWebsite(false);
+      router.push(`/recipe/${recipeId}`);
+    } catch (error: any) {
+      Alert.alert('Could Not Save Draft', error?.message || 'Please try again.');
+    }
+  };
+
   const isLoading = isChecking || extraction.isExtracting || isOcrExtracting;
 
   // Show OCR progress UI
@@ -563,13 +577,25 @@ export default function ExtractScreen() {
           />
 
           {extraction.isFailed ? (
-            <RNView style={styles.buttonRow}>
-              <Button
-                title={extraction.canRetryStart ? 'Reconnect' : 'Start Again'}
-                onPress={extraction.canRetryStart ? extraction.retryPendingStart : handleRetry}
-                size="lg"
-              />
-            </RNView>
+            <>
+              {extraction.canSaveDraft && (
+                <RNView style={styles.buttonRow}>
+                  <Button
+                    title="Keep Source as Draft"
+                    onPress={handleKeepSourceDraft}
+                    size="lg"
+                  />
+                </RNView>
+              )}
+              <RNView style={styles.buttonRow}>
+                <Button
+                  title={extraction.canRetryStart ? 'Reconnect' : 'Start Again'}
+                  onPress={extraction.canRetryStart ? extraction.retryPendingStart : handleRetry}
+                  variant={extraction.canSaveDraft ? 'secondary' : 'primary'}
+                  size="lg"
+                />
+              </RNView>
+            </>
           ) : (
             <RNView style={styles.buttonRow}>
               <Button

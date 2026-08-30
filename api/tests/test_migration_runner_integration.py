@@ -69,11 +69,25 @@ async def test_active_chain_replays_on_current_base_schema(monkeypatch):
                 SELECT COUNT(*) FROM pg_constraint
                 WHERE conname = 'ck_app_users_publishing_disclosure_version'
             """))
+            review_constraints = await connection.scalar(text("""
+                SELECT COUNT(*) FROM pg_constraint
+                WHERE conname IN (
+                    'ck_recipes_review_state',
+                    'ck_recipes_content_revision',
+                    'ck_recipe_versions_review_state',
+                    'ck_recipe_versions_content_revision'
+                )
+            """))
+            recipe_revision = await connection.scalar(text("""
+                SELECT content_revision FROM recipes LIMIT 1
+            """))
 
         assert marker == 1
         assert identity == 1
         assert disclosure_version == 0
         assert disclosure_constraint == 1
+        assert review_constraints == 4
+        assert recipe_revision is None or recipe_revision >= 1
     finally:
         async with engine.begin() as connection:
             await connection.execute(text("DROP SCHEMA public CASCADE"))
