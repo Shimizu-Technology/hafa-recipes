@@ -386,7 +386,7 @@ Each release unit is independently testable and deployable. Later units depend
 on the contracts established earlier; do not combine the whole project into one
 large migration or mobile release.
 
-### Implementation status — 2026-08-31
+### Implementation status — 2026-08-31 (Pacific/Guam)
 
 - Release 1 and Release 3 are live in production. New imports have durable,
   deterministic review state and evidence; incomplete or failed imports can be

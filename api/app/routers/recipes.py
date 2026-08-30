@@ -1808,6 +1808,8 @@ async def update_recipe(
 
     # Update the extracted JSONB with new values
     old_extracted = dict(recipe.extracted) if recipe.extracted else {}
+    before_review_state = recipe.review_state
+    before_evidence = dict(recipe.extraction_evidence or {})
     extracted = dict(old_extracted)
 
     if update.title is not None:
@@ -1834,6 +1836,15 @@ async def update_recipe(
             user_reviewed=evidence_was_user_reviewed(recipe.extraction_evidence),
             increment_revision=True,
         )
+    correction_event = build_recipe_correction_event(
+        recipe=recipe,
+        user_id=user.id,
+        before_extracted=old_extracted,
+        before_review_state=before_review_state,
+        before_evidence=before_evidence,
+    )
+    if correction_event:
+        db.add(correction_event)
     if recipe.is_public:
         require_recipe_publishable(recipe)
         await require_current_publishing_disclosure(db, user.id)

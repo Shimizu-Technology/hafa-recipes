@@ -28,6 +28,11 @@ routes, AI capability gate, and provider as OCR. It does not add image storage.
 Responses add optional `error_code` and `input_classification` fields, so older
 mobile clients retain their existing generic failure behavior.
 
+Manual recovery uses the first selected image as the recipe photo. For a
+multi-image failure, every selection remains on the Import screen so the user
+can return to review or retry the full source set; the app does not claim that
+the extra pages were attached to the manual recipe.
+
 ## Deployment gate
 
 Before enabling production traffic:

@@ -52,6 +52,7 @@ import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { getSourcePlayback } from '@/lib/sourcePlayback';
 import {
   canOpenRecipeOriginal,
+  countUsableInstructions,
   getCookDraftPresentation,
   getMissingQuantityLabel,
   getRecipeReviewDetails,
@@ -658,10 +659,7 @@ export default function RecipeDetailScreen() {
   }
 
   const { extracted } = recipe;
-  const instructionCount = extracted.components.reduce(
-    (total, component) => total + (component.steps?.length || 0),
-    0,
-  );
+  const instructionCount = countUsableInstructions(extracted.components);
   const reviewLabel = getRecipeReviewLabel(recipe.review_state);
   const reviewDetails = isOwner
     ? getRecipeReviewDetails(

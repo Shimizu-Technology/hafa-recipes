@@ -213,7 +213,8 @@ export default function ExtractScreen() {
                 onPress: () => {
                   const draftRoute = getManualImageDraftRoute(selectedImages[0]?.uri);
                   if (!draftRoute) return;
-                  setSelectedImages([]);
+                  // Keep every selected source on Import so multi-page recovery
+                  // remains available if the user returns from the manual draft.
                   router.push(draftRoute);
                 },
               },

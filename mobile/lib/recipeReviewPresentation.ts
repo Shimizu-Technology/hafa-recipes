@@ -26,6 +26,7 @@ const MODALITY_LABELS: Record<string, string> = {
   website_data: 'website recipe data',
   manual: 'manual entry',
 };
+const NULLISH_INSTRUCTIONS = new Set(['', 'null', 'none', 'n/a', 'not stated', 'unknown']);
 
 function listPhrase(values: string[]): string {
   if (values.length < 2) return values[0] || '';
@@ -110,6 +111,19 @@ export function getRecipeReviewLabel(state?: RecipeReviewState | null): string |
   if (state === 'needs_review') return 'Needs review · Compare this draft with the original';
   if (state === 'ready') return 'Ready to cook';
   return null;
+}
+
+/** Count only instructions containing an actual cooking action. */
+export function countUsableInstructions(
+  components: Array<{ steps?: unknown }> | null | undefined,
+): number {
+  return (components || []).reduce((total, component) => {
+    if (!Array.isArray(component.steps)) return total;
+    return total + component.steps.filter(step => (
+      typeof step === 'string'
+      && !NULLISH_INSTRUCTIONS.has(step.trim().toLowerCase())
+    )).length;
+  }, 0);
 }
 
 /** Describe whether a recipe can enter cook mode and what warning it needs. */

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   canOpenRecipeOriginal,
+  countUsableInstructions,
   getCookDraftPresentation,
   getMissingQuantityLabel,
   getRecipeReviewDetails,
@@ -29,6 +30,13 @@ describe('recipe review presentation', () => {
 
     expect(presentation.canCook).toBe(false);
     expect(presentation.buttonLabel).toBe('Add instructions to cook');
+  });
+
+  it('does not treat null sentinels as cookable instructions', () => {
+    expect(countUsableInstructions([
+      { steps: [null, '', 'null', '  none  ', 'Simmer the rice.'] },
+    ])).toBe(1);
+    expect(countUsableInstructions([{ steps: ['unknown'] }])).toBe(0);
   });
 
   it('keeps ready and legacy recipes on the normal cooking path', () => {

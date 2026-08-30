@@ -20,6 +20,27 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def test_migration_027_requires_a_named_production_restore_point(monkeypatch):
+    """The first production run fails closed until a restore point is recorded."""
+
+    monkeypatch.setattr(migration_027.settings, "environment", "production")
+    monkeypatch.setattr(migration_027.settings, "migration_027_restore_point", None)
+    with pytest.raises(RuntimeError, match="MIGRATION_027_RESTORE_POINT"):
+        migration_027._require_production_restore_point(
+            migration_already_applied=False,
+        )
+
+    monkeypatch.setattr(
+        migration_027.settings,
+        "migration_027_restore_point",
+        "pre-correction-events-restore-point",
+    )
+    migration_027._require_production_restore_point(migration_already_applied=False)
+
+    monkeypatch.setattr(migration_027.settings, "migration_027_restore_point", None)
+    migration_027._require_production_restore_point(migration_already_applied=True)
+
+
 @pytest.mark.asyncio
 async def test_migration_027_is_idempotent_and_enforces_aggregate_contract(monkeypatch):
     """Replay 027 and reject content-shaped or invalid aggregate records."""

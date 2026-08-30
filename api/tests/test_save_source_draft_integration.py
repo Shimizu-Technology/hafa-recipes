@@ -145,6 +145,14 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
             assert updated.is_public is True
             assert updated.review_state is None
             assert legacy_recipe.content_revision == 2
+            legacy_event = await db.scalar(
+                select(RecipeCorrectionEvent).where(
+                    RecipeCorrectionEvent.recipe_id == legacy_recipe.id
+                )
+            )
+            assert legacy_event is not None
+            assert legacy_event.event_kind == "customization"
+            assert legacy_event.title_changed is True
 
             uncertain_extracted = {
                 "title": "Unverified red rice",

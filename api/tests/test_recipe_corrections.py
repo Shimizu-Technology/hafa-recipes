@@ -66,6 +66,26 @@ def test_measurement_counts_field_categories_without_returning_values():
     )
 
 
+def test_measurement_falls_back_to_legacy_fields_when_components_are_empty():
+    """Empty canonical components must not hide corrections from legacy clients."""
+
+    before = {
+        **_recipe_data(),
+        "components": [],
+        "ingredients": [{"name": "rice", "quantity": None, "unit": None}],
+        "steps": ["Cook the rice."],
+    }
+    after = {
+        **before,
+        "ingredients": [{"name": "rice", "quantity": "2", "unit": "cups"}],
+    }
+
+    metrics = measure_recipe_correction(before, after)
+
+    assert metrics.quantity_change_count == 1
+    assert metrics.unit_change_count == 1
+
+
 def test_initial_review_correction_records_resolution_and_state_transition():
     """Correcting an unstated amount is distinguishable from later customization."""
 

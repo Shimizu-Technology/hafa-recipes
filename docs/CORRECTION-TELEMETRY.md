@@ -45,3 +45,8 @@ more convenient.
 Migration 027 is additive, idempotent, and performs no backfill. Rollback stops
 new event writes with the previous application version; the table can remain in
 place and requires no destructive down migration.
+
+The first production run also requires `MIGRATION_027_RESTORE_POINT` to name a
+verified database restore point. The migration fails before changing schema if
+that marker is absent. Once version 027 is recorded, later idempotent deploys do
+not require the marker to remain set.

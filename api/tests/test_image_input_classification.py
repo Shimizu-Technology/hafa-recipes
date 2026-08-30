@@ -296,6 +296,57 @@ def test_recipe_document_classification_allows_ocr(monkeypatch):
     extractor.assert_awaited_once()
 
 
+def test_multi_image_classification_preserves_order_and_blocks_ocr(monkeypatch):
+    """The multi-image route must classify every ordered page before extraction."""
+
+    monkeypatch.setattr(
+        "app.routers.extract.settings.image_input_classification_enabled",
+        True,
+    )
+    classifier = AsyncMock(
+        return_value=ImageClassificationResult(
+            success=True,
+            classification="unsupported",
+            has_recipe_text=False,
+            model_used="test-model",
+        )
+    )
+    extractor = AsyncMock()
+    monkeypatch.setattr(
+        "app.routers.extract.llm_service.classify_recipe_images",
+        classifier,
+    )
+    monkeypatch.setattr(
+        "app.routers.extract.llm_service.extract_from_images",
+        extractor,
+    )
+    first = _png_bytes()
+    second_buffer = io.BytesIO()
+    Image.new("RGB", (10, 10), color="black").save(second_buffer, format="PNG")
+    second = second_buffer.getvalue()
+    test_app = FastAPI()
+    test_app.include_router(extract.router)
+    test_app.dependency_overrides[get_current_user] = _user
+
+    with TestClient(test_app) as client:
+        response = client.post(
+            "/api/extract/ocr/multi",
+            files=[
+                ("images", ("page-1.png", first, "image/png")),
+                ("images", ("page-2.png", second, "image/png")),
+            ],
+            data={"location": "Guam"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["error_code"] == "IMAGE_UNSUPPORTED"
+    assert classifier.await_args.args[0] == [
+        base64.b64encode(first).decode(),
+        base64.b64encode(second).decode(),
+    ]
+    extractor.assert_not_awaited()
+
+
 def test_classifier_failure_is_fail_closed(monkeypatch):
     """Provider failure must not fall through to inspired recipe generation."""
 

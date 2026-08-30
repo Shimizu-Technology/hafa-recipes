@@ -28,7 +28,7 @@ def _components(extracted: dict) -> list[dict]:
     """Return component-shaped content for current and legacy recipe JSON."""
 
     components = extracted.get("components")
-    if isinstance(components, list):
+    if isinstance(components, list) and components:
         return [value for value in components if isinstance(value, dict)]
     return [
         {

@@ -6,7 +6,23 @@ import asyncio
 
 from sqlalchemy import text
 
+from app.config import get_settings
 from app.db.database import engine
+
+settings = get_settings()
+
+
+def _require_production_restore_point(*, migration_already_applied: bool) -> None:
+    """Stop the first production run unless a named restore point is recorded."""
+
+    if settings.environment != "production" or migration_already_applied:
+        return
+    restore_point = (settings.migration_027_restore_point or "").strip()
+    if not restore_point:
+        raise RuntimeError(
+            "MIGRATION_027_RESTORE_POINT must name a verified production restore point "
+            "before migration 027 can run"
+        )
 
 
 async def run_migration() -> None:
@@ -20,6 +36,15 @@ async def run_migration() -> None:
         """))
         if not migration_026_ready:
             raise RuntimeError("Migration 026 must run before migration 027")
+
+        migration_027_applied = await conn.scalar(text("""
+            SELECT EXISTS (
+                SELECT 1 FROM schema_migrations WHERE version = 27
+            )
+        """))
+        _require_production_restore_point(
+            migration_already_applied=bool(migration_027_applied),
+        )
 
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS recipe_correction_events (
