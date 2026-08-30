@@ -437,23 +437,6 @@ class RecipeExtractor:
         if notes:
             combined_content = f"{combined_content}\n\nADDITIONAL NOTES FROM USER:\n{notes}"
 
-        if not _has_actionable_recipe_evidence(combined_content):
-            return FullExtractionResult(
-                success=False,
-                thumbnail_url=thumbnail_url,
-                extraction_method=extraction_method,
-                extraction_quality="low",
-                error="The available source did not contain actionable recipe evidence",
-                error_code="INSUFFICIENT_SOURCE_EVIDENCE",
-                friendly_error=(
-                    "We found the post, but it did not include enough recipe details to "
-                    "extract accurately. You can keep the source as a draft and add the "
-                    "ingredients or steps yourself."
-                ),
-                low_confidence=True,
-                confidence_warning="The source did not include enough recipe details.",
-            )
-        
         # Step 4: Extract the recipe with the configured OpenAI model chain.
         if not combined_content.strip():
             # If we had an audio error with a specific cause, use that
@@ -503,6 +486,23 @@ class RecipeExtractor:
                 error="No content could be extracted from the video",
                 error_code=audio_error_code or "NO_CONTENT",
                 friendly_error=friendly_msg
+            )
+
+        if not _has_actionable_recipe_evidence(combined_content):
+            return FullExtractionResult(
+                success=False,
+                thumbnail_url=thumbnail_url,
+                extraction_method=extraction_method,
+                extraction_quality="low",
+                error="The available source did not contain actionable recipe evidence",
+                error_code="INSUFFICIENT_SOURCE_EVIDENCE",
+                friendly_error=(
+                    "We found the post, but it did not include enough recipe details to "
+                    "extract accurately. You can keep the source as a draft and add the "
+                    "ingredients or steps yourself."
+                ),
+                low_confidence=True,
+                confidence_warning="The source did not include enough recipe details.",
             )
         
         if progress_callback:
@@ -619,12 +619,17 @@ class RecipeExtractor:
             
             print(f"✅ Downloaded {len(base64_images)} images as base64")
 
-            metadata = await video_service.get_video_metadata_ytdlp(url)
             source_context_parts = []
-            if metadata.title:
-                source_context_parts.append(f"VIDEO TITLE: {metadata.title}")
-            if metadata.description:
-                source_context_parts.append(f"VIDEO DESCRIPTION: {metadata.description}")
+            try:
+                metadata = await video_service.get_video_metadata_ytdlp(url)
+            except Exception as metadata_error:
+                print(f"⚠️ Slideshow metadata fetch failed: {metadata_error}")
+                metadata = None
+            if metadata:
+                if metadata.title:
+                    source_context_parts.append(f"VIDEO TITLE: {metadata.title}")
+                if metadata.description:
+                    source_context_parts.append(f"VIDEO DESCRIPTION: {metadata.description}")
             if notes:
                 source_context_parts.append(f"ADDITIONAL NOTES FROM USER: {notes}")
             source_context = "\n\n".join(source_context_parts)

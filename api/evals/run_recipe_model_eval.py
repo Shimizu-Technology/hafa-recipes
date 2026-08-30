@@ -27,6 +27,10 @@ SYSTEM_PROMPT = (
 )
 
 
+class ModelRefusal(Exception):
+    """Indicate that a provider refused instead of returning a recipe."""
+
+
 def normalize(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
 
@@ -171,7 +175,7 @@ async def evaluate_case(
         message = response.choices[0].message
         raw = message.content or ""
         if getattr(message, "refusal", None):
-            raise ValueError("model_refusal")
+            raise ModelRefusal("model_refusal")
         try:
             recipe: object = json.loads(raw)
         except json.JSONDecodeError:
@@ -202,7 +206,9 @@ async def evaluate_case(
             "output_tokens": None,
             "reasoning_tokens": None,
             "estimated_cost_microusd": None,
-            "error_code": type(exc).__name__,
+            "error_code": (
+                "model_refusal" if isinstance(exc, ModelRefusal) else type(exc).__name__
+            ),
             "schema_valid": False,
             "completeness": 0.0,
             "corrections": 1,

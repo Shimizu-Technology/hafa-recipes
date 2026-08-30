@@ -264,6 +264,8 @@ class WebsiteService:
                 thumbnail_url=thumbnail,
                 extraction_method="website-ai",
                 extraction_quality="good",
+                low_confidence=recipe.get("lowConfidence") is True,
+                confidence_warning=recipe.get("confidenceWarning"),
             )
             
         except HTTPException as e:
