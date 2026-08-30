@@ -4,6 +4,17 @@ All notable changes to Recipe Extractor.
 
 ## [Unreleased]
 
+## [2.6.1] - August 2026
+
+### Improved
+
+- Make imported recipe uncertainty actionable: missing amounts stay blank,
+  owner review is primary, and the original source remains easy to reopen.
+- Preserve blocked or incomplete imports as private, editable drafts instead of
+  losing the source when automatic extraction cannot proceed.
+- Use stricter source-evidence rules for websites, captions, slideshows, and
+  video extraction, with privacy-safe correction measurement for follow-up.
+
 ## [2.6.0] - August 2026
 
 ### Added

@@ -27,7 +27,7 @@ describe('App Store release metadata', () => {
     const config = buildStoreConfig({ environment, listing });
     const info = config.apple.info['en-US'];
 
-    expect(config.apple.version).toBe('2.6.0');
+    expect(config.apple.version).toBe('2.6.1');
     expect(config.apple.release).toEqual({ automaticRelease: false, phasedRelease: true });
     expect(info.subtitle).toBe(APP_SUBTITLE);
     expect(info.description).toBe(APP_DESCRIPTION);
