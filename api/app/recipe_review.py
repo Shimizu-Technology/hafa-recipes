@@ -59,6 +59,21 @@ def _has_stated_source_value(value: object) -> bool:
     return str(value or "").strip().lower() not in NULLISH_SOURCE_VALUES
 
 
+def _count_uncertainties(reasons: list[str], missing_quantity_count: int) -> int:
+    """Count each missing field once while retaining other review reasons."""
+
+    has_quantity_summary = (
+        any(
+            reason.startswith(f"{missing_quantity_count} ingredient ")
+            and reason.endswith("not stated.")
+            for reason in reasons
+        )
+        if missing_quantity_count
+        else False
+    )
+    return len(reasons) - int(has_quantity_summary) + missing_quantity_count
+
+
 def assess_recipe_review(
     extracted: dict,
     *,
@@ -150,7 +165,7 @@ def assess_recipe_review(
             reasons.append(str(extracted["confidenceWarning"]).strip())
         summary = "Needs review — compare the draft with the original before cooking."
 
-    uncertainty_count = len(reasons) + missing_quantity_count
+    uncertainty_count = _count_uncertainties(reasons, missing_quantity_count)
     evidence = {
         "version": EVIDENCE_VERSION,
         "contentRevision": content_revision,
@@ -162,6 +177,7 @@ def assess_recipe_review(
             "ingredientCount": ingredient_count,
             "stepCount": step_count,
             "missingQuantityCount": missing_quantity_count,
+            "uncertaintyCount": uncertainty_count,
             "userReviewed": user_reviewed or is_direct_human_entry,
             "reasons": reasons,
         },
@@ -266,11 +282,17 @@ def review_response_fields(recipe, *, include_evidence: bool) -> dict:
         summary = "Ready to cook."
     else:
         summary = None
+    missing_quantity_count = int(assessment.get("missingQuantityCount") or 0)
+    uncertainty_count = assessment.get("uncertaintyCount")
+    if not isinstance(uncertainty_count, int):
+        uncertainty_count = _count_uncertainties(
+            list(assessment.get("reasons") or []),
+            missing_quantity_count,
+        )
     return {
         "review_state": state,
         "review_summary": summary,
-        "uncertainty_count": len(assessment.get("reasons") or [])
-        + int(assessment.get("missingQuantityCount") or 0),
+        "uncertainty_count": uncertainty_count,
         "extraction_evidence": evidence if include_evidence and evidence else None,
         "content_revision": int(getattr(recipe, "content_revision", None) or 1),
     }

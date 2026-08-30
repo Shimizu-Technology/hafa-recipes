@@ -55,13 +55,17 @@ def _recipe(**overrides) -> Recipe:
 
 
 def test_public_recipe_policy_contains_moderation_owner_and_block_boundaries():
-    statement = postgresql.dialect().statement_compiler(
+    compiler = postgresql.dialect().statement_compiler(
         postgresql.dialect(),
         select(Recipe).where(*public_recipe_conditions("viewer_user")),
-    ).string
+    )
+    statement = compiler.string
 
     assert "recipes.is_public IS true" in statement
     assert "recipes.moderation_status" in statement
+    assert "recipes.review_state IS NULL" in statement
+    assert "recipes.review_state = " in statement
+    assert "ready" in compiler.params.values()
     assert "app_users.moderation_status" in statement
     assert "user_blocks.blocker_user_id" in statement
     assert "user_blocks.blocked_user_id" in statement
@@ -78,6 +82,41 @@ async def test_loaded_recipe_policy_rejects_hidden_contributor_and_user_block():
 
     visible_db = SimpleNamespace(scalar=AsyncSequence(["active", None]))
     assert await is_publicly_viewable(visible_db, recipe, "viewer")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("review_state", "expected"),
+    [(None, True), ("ready", True), ("needs_review", False), ("source_incomplete", False)],
+)
+async def test_loaded_public_policy_enforces_recipe_review_state(review_state, expected):
+    """Only legacy and ready recipes are visible to a non-owner."""
+
+    recipe = _recipe(review_state=review_state)
+    db = SimpleNamespace(scalar=AsyncSequence(["active", None]))
+
+    assert await is_publicly_viewable(db, recipe, "viewer") is expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("review_state", ["needs_review", "source_incomplete"])
+async def test_owner_can_open_private_review_drafts(review_state):
+    """The public-review boundary never removes an owner's draft access."""
+
+    recipe = _recipe(
+        user_id="stable_user",
+        is_public=False,
+        review_state=review_state,
+    )
+
+    class Database:
+        async def execute(self, _statement):
+            return ScalarResult(recipe)
+
+    response = await get_recipe(recipe.id, Database(), _user())
+
+    assert response.is_owner is True
+    assert response.review_state == review_state
 
 
 class AsyncSequence:

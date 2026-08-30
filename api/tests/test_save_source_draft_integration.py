@@ -20,6 +20,7 @@ from app.routers.recipes import (
     restore_recipe_version,
     update_recipe,
 )
+from tests.database_safety import require_disposable_test_database
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
@@ -50,6 +51,7 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
     other = _user("other_owner")
 
     try:
+        require_disposable_test_database(TEST_DATABASE_URL)
         async with engine.begin() as connection:
             await connection.execute(text("DROP SCHEMA public CASCADE"))
             await connection.execute(text("CREATE SCHEMA public"))
@@ -211,6 +213,7 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
             assert structured_recipe.extraction_method == "website-jsonld"
             assert evidence_was_user_reviewed(structured_recipe.extraction_evidence) is False
     finally:
+        require_disposable_test_database(TEST_DATABASE_URL)
         async with engine.begin() as connection:
             await connection.execute(text("DROP SCHEMA public CASCADE"))
             await connection.execute(text("CREATE SCHEMA public"))

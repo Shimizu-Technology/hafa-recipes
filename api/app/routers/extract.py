@@ -31,6 +31,7 @@ from app.publishing import (
 )
 from app.recipe_derived_data import mark_fresh
 from app.recipe_review import (
+    ReviewAssessment,
     apply_recipe_review,
     assess_recipe_review,
     require_recipe_publishable,
@@ -49,6 +50,24 @@ settings = get_settings()
 
 class ExtractionJobCancelled(Exception):
     """Stop work when the persisted job has reached cancelled state."""
+
+
+def _reextraction_review_failure(
+    review: ReviewAssessment,
+) -> tuple[str, str] | None:
+    """Return a deterministic terminal error for unsafe replacement content."""
+
+    if review.state == "source_incomplete":
+        return (
+            "SOURCE_INCOMPLETE",
+            "The source did not contain enough recipe detail to replace your saved recipe.",
+        )
+    if review.state == "needs_review":
+        return (
+            "REVIEW_REQUIRED",
+            "The new extraction needs review, so your saved recipe was left unchanged.",
+        )
+    return None
 
 
 def _normalized_idempotency_key(value: str | None) -> str | None:
@@ -1663,24 +1682,6 @@ async def run_re_extraction_job(
                     "times",
                     source="ai_reextraction",
                 )
-                candidate_review = assess_recipe_review(
-                    final_extracted,
-                    source_type=recipe.source_type,
-                    extraction_method=result.extraction_method,
-                    content_revision=(recipe.content_revision or 1) + 1,
-                )
-                if candidate_review.state == "source_incomplete":
-                    job.status = "failed"
-                    job.current_step = "error"
-                    job.message = "The source did not contain enough recipe detail to replace your saved recipe."
-                    job.error_message = job.message
-                    job.error_code = "SOURCE_INCOMPLETE"
-                    job.completed_at = datetime.now(timezone.utc)
-                    job.lease_token = None
-                    job.leased_until = None
-                    job.updated_at = datetime.now(timezone.utc)
-                    await db.commit()
-                    return
                 if result.low_confidence:
                     final_extracted['lowConfidence'] = True
                     final_extracted['confidenceWarning'] = result.confidence_warning
@@ -1688,6 +1689,28 @@ async def run_re_extraction_job(
                 else:
                     final_extracted.pop('lowConfidence', None)
                     final_extracted.pop('confidenceWarning', None)
+                candidate_review = assess_recipe_review(
+                    final_extracted,
+                    source_type=recipe.source_type,
+                    extraction_method=result.extraction_method,
+                    content_revision=(recipe.content_revision or 1) + 1,
+                )
+                review_failure = _reextraction_review_failure(candidate_review)
+                if review_failure:
+                    error_code, error_message = review_failure
+                    job.status = "failed"
+                    job.current_step = "error"
+                    job.message = error_message
+                    job.error_message = error_message
+                    job.error_code = error_code
+                    job.low_confidence = True
+                    job.confidence_warning = candidate_review.summary
+                    job.completed_at = datetime.now(timezone.utc)
+                    job.lease_token = None
+                    job.leased_until = None
+                    job.updated_at = datetime.now(timezone.utc)
+                    await db.commit()
+                    return
 
                 uploaded_thumbnail_url = None
                 if result.thumbnail_url:

@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@clerk/expo';
 import { AppState, AppStateStatus } from 'react-native';
 import { api, type CaptureSourceType } from '../lib/api';
+import { getApiErrorMessage } from '../lib/apiErrorMessage';
 import { ExtractRequest, JobStatus, RecipeListItem, PaginatedRecipes } from '../types/recipe';
 
 // Page size for infinite scroll
@@ -475,7 +476,7 @@ export function useAsyncExtractionController() {
         setCanRetryStart(true);
       }
       const message = definitivelyRejected
-        ? startError.response?.data?.detail || 'We could not start this extraction.'
+        ? getApiErrorMessage(startError, 'We could not start this extraction.')
         : responseStatus === 401
           ? 'Your session needs to reconnect. Reconnect to safely check the same extraction request.'
           : responseStatus === 429
@@ -635,12 +636,16 @@ export function useAsyncExtractionController() {
     if (!jobId || !jobStatus?.can_save_draft) {
       throw new Error('This source is not available to save as a draft.');
     }
-    const result = await api.saveFailedExtractionDraft(jobId);
-    invalidateCompletedRecipe(result.recipe_id);
-    await clearActiveJob();
-    setError(null);
-    setTerminalState(null);
-    return result.recipe_id;
+    try {
+      const result = await api.saveFailedExtractionDraft(jobId);
+      invalidateCompletedRecipe(result.recipe_id);
+      await clearActiveJob();
+      setError(null);
+      setTerminalState(null);
+      return result.recipe_id;
+    } catch (saveError: unknown) {
+      throw new Error(getApiErrorMessage(saveError, 'We could not save this source as a draft.'));
+    }
   };
 
   const sourceUrl = jobStatus?.url || '';

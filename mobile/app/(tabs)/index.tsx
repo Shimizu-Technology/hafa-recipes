@@ -54,6 +54,7 @@ export default function ExtractScreen() {
   const [isOcrExtracting, setIsOcrExtracting] = useState(false);
   const [ocrProgress, setOcrProgress] = useState('');
   const [extractingAsWebsite, setExtractingAsWebsite] = useState(false); // Track extraction type to prevent flicker
+  const [isSavingSourceDraft, setIsSavingSourceDraft] = useState(false);
   const [selectedImages, setSelectedImages] = useState<RecipeImageUpload[]>([]); // Multi-image support
   const [showImageGallery, setShowImageGallery] = useState(false);
 
@@ -442,6 +443,8 @@ export default function ExtractScreen() {
 
   /** Recover a failed import as a private, editable source-only recipe. */
   const handleKeepSourceDraft = async () => {
+    if (isSavingSourceDraft) return;
+    setIsSavingSourceDraft(true);
     try {
       const recipeId = await extraction.saveSourceDraft();
       await extraction.reset();
@@ -452,10 +455,12 @@ export default function ExtractScreen() {
       router.push(`/recipe/${recipeId}`);
     } catch (error: any) {
       Alert.alert('Could Not Save Draft', error?.message || 'Please try again.');
+    } finally {
+      setIsSavingSourceDraft(false);
     }
   };
 
-  const isLoading = isChecking || extraction.isExtracting || isOcrExtracting;
+  const isLoading = isChecking || extraction.isExtracting || isOcrExtracting || isSavingSourceDraft;
 
   // Show OCR progress UI
   if (isOcrExtracting) {
@@ -584,6 +589,8 @@ export default function ExtractScreen() {
                   <Button
                     title="Keep Source as Draft"
                     onPress={handleKeepSourceDraft}
+                    loading={isSavingSourceDraft}
+                    disabled={isSavingSourceDraft}
                     size="lg"
                   />
                 </RNView>
@@ -592,6 +599,7 @@ export default function ExtractScreen() {
                 <Button
                   title={extraction.canRetryStart ? 'Reconnect' : 'Start Again'}
                   onPress={extraction.canRetryStart ? extraction.retryPendingStart : handleRetry}
+                  disabled={isSavingSourceDraft}
                   variant={extraction.canSaveDraft ? 'secondary' : 'primary'}
                   size="lg"
                 />

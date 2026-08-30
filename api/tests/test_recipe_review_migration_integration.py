@@ -9,6 +9,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from tests.database_safety import require_disposable_test_database
+
 migration_026 = importlib.import_module("migrations.026_add_recipe_review_state")
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
@@ -26,6 +28,7 @@ async def test_migration_026_adds_defaults_and_constraints_to_pre_026_schema(mon
     engine = create_async_engine(TEST_DATABASE_URL)
     recipe_id = uuid4()
     try:
+        require_disposable_test_database(TEST_DATABASE_URL)
         async with engine.begin() as connection:
             await connection.execute(text("DROP SCHEMA public CASCADE"))
             await connection.execute(text("CREATE SCHEMA public"))
@@ -108,6 +111,7 @@ async def test_migration_026_adds_defaults_and_constraints_to_pre_026_schema(mon
         assert revision == 1
         assert constraint_count == 5
     finally:
+        require_disposable_test_database(TEST_DATABASE_URL)
         async with engine.begin() as connection:
             await connection.execute(text("DROP SCHEMA public CASCADE"))
             await connection.execute(text("CREATE SCHEMA public"))

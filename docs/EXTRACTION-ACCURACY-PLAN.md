@@ -224,30 +224,43 @@ recipes remain unchanged and a null state is handled as a legacy recipe.
 
 ```json
 {
-  "reviewState": "needs_review",
-  "evidenceVersion": 1,
-  "contentRevision": 3,
-  "fieldEvidence": {
-    "/components/0/ingredients/2/quantity": {
-      "status": "missing",
-      "source": "video_audio",
-      "reason": "Amount was not spoken or found in sampled frames"
+  "review_state": "needs_review",
+  "content_revision": 3,
+  "uncertainty_count": 2,
+  "extraction_evidence": {
+    "version": 1,
+    "contentRevision": 3,
+    "source": { "type": "tiktok", "method": "whisper" },
+    "assessment": {
+      "ingredientCount": 4,
+      "stepCount": 5,
+      "missingQuantityCount": 1,
+      "uncertaintyCount": 2,
+      "userReviewed": false,
+      "reasons": [
+        "The imported details have not been verified by a person yet.",
+        "1 ingredient quantity is not stated."
+      ]
     },
-    "/components/0/steps/3": {
-      "status": "source_exact",
-      "source": "video_caption",
-      "locator": { "characterStart": 211, "characterEnd": 268 }
-    }
+    "fields": [
+      {
+        "path": "components.0.ingredients.2",
+        "status": "not_stated",
+        "quantityStatus": "not_stated"
+      },
+      {
+        "path": "components.0.steps.3",
+        "status": "supported"
+      }
+    ]
   }
 }
 ```
 
 Allowed field statuses:
 
-- `source_exact`
-- `source_ambiguous`
-- `inferred`
-- `missing`
+- `supported`
+- `not_stated`
 - `user_verified`
 
 Recipe-level states are computed by the server:
@@ -554,7 +567,7 @@ privacy, reliability, cost, or supported-mobile-version regression.
   <https://docs.cloud.google.com/document-ai/docs/custom-extractor-overview>
 - OpenAI recommends strict JSON Schema Structured Outputs over legacy JSON mode
   when supported:
-  <https://platform.openai.com/docs/api-reference/evals/deleteRun?lang=python>
+  <https://developers.openai.com/api/docs/guides/structured-outputs>
 - yt-dlp documents `curl_cffi` as the recommended browser-impersonation
   dependency for sites that use TLS fingerprinting:
   <https://github.com/yt-dlp/yt-dlp#impersonation>
