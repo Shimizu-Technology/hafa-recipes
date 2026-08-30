@@ -147,6 +147,14 @@ class Settings(BaseSettings):
         ge=1_024,
         le=25 * 1024 * 1024,
     )
+    video_frame_extraction_enabled: bool = False
+    video_frame_max_duration_seconds: int = Field(default=600, ge=30, le=3_600)
+    video_frame_max_bytes: int = Field(
+        default=50 * 1024 * 1024,
+        ge=1_024,
+        le=100 * 1024 * 1024,
+    )
+    video_frame_max_count: int = Field(default=8, ge=6, le=12)
     video_max_concurrency: int = Field(default=2, ge=1, le=4)
     video_queue_timeout_seconds: int = Field(default=5, ge=1, le=60)
 

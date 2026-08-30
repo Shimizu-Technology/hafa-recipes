@@ -1,6 +1,8 @@
 """Video processing service using yt-dlp for audio extraction."""
 
 import asyncio
+import base64
+import io
 import os
 import re
 import shutil
@@ -13,6 +15,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import httpx
+from PIL import Image
 
 from app.config import get_settings
 from app.security import PublicHTTPTransport
@@ -151,7 +154,7 @@ VIDEO_ERROR_PATTERNS = {
 def get_friendly_video_error(raw_error: str, platform: str = "video") -> tuple[str, str]:
     """
     Parse a raw yt-dlp error and return a friendly error message.
-    
+
     Args:
         raw_error: The raw error message from yt-dlp
         platform: The video platform (youtube, tiktok, instagram)
@@ -195,6 +198,24 @@ class AudioExtractionResult:
     error: Optional[str] = None
     error_code: Optional[str] = None  # Machine-readable error code
     friendly_error: Optional[str] = None  # User-friendly error message
+
+
+@dataclass(frozen=True)
+class VideoFrame:
+    """One short-lived video frame and its source timestamp."""
+
+    timestamp_seconds: float
+    image_base64: str
+
+
+@dataclass
+class VideoFrameExtractionResult:
+    """Bounded visual evidence acquired from a normal social video."""
+
+    success: bool
+    frames: list[VideoFrame] | None = None
+    error: Optional[str] = None
+    error_code: Optional[str] = None
 
 
 @dataclass
@@ -935,31 +956,323 @@ class VideoService:
                 credential_file.cleanup()
             if not keep_temp_dir:
                 shutil.rmtree(temp_dir, ignore_errors=True)
-    
-    async def _get_audio_duration(self, file_path: str) -> Optional[float]:
-        """Get audio duration using ffprobe."""
+
+    async def extract_video_frames(self, url: str) -> VideoFrameExtractionResult:
+        """Acquire a small, deduplicated frame set without retaining source media."""
+
+        temp_dir = tempfile.mkdtemp(prefix="recipe-frames-")
+        try:
+            async with self._media_slot():
+                video_path, duration = await self._download_video_for_frames(url, temp_dir)
+                frames = await self._extract_candidate_frames(
+                    video_path,
+                    temp_dir,
+                    duration,
+                )
+            if not frames:
+                return VideoFrameExtractionResult(
+                    success=False,
+                    error="No useful video frames were found",
+                    error_code="NO_VIDEO_FRAMES",
+                )
+            return VideoFrameExtractionResult(success=True, frames=frames)
+        except MediaCapacityExceeded:
+            return VideoFrameExtractionResult(
+                success=False,
+                error="Media process capacity unavailable",
+                error_code="MEDIA_BUSY",
+            )
+        except asyncio.CancelledError:
+            raise
+        except asyncio.TimeoutError:
+            return VideoFrameExtractionResult(
+                success=False,
+                error="Video frame extraction timed out",
+                error_code="TIMEOUT",
+            )
+        except FileNotFoundError as error:
+            return VideoFrameExtractionResult(
+                success=False,
+                error=str(error),
+                error_code="SYSTEM_ERROR",
+            )
+        except Exception as error:
+            return VideoFrameExtractionResult(
+                success=False,
+                error=_redact_sensitive_values(str(error)),
+                error_code="VIDEO_FRAME_EXTRACTION_FAILED",
+            )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    async def _download_video_for_frames(
+        self,
+        url: str,
+        temp_dir: str,
+    ) -> tuple[str, float]:
+        """Download a capped, low-resolution video into a caller-owned directory."""
+
+        platform = self.detect_platform(url)
+        credential_file: Optional[CredentialFile] = None
+        process: Optional[asyncio.subprocess.Process] = None
+        output_template = os.path.join(temp_dir, "source.%(ext)s")
+        try:
+            command = [
+                "yt-dlp",
+                "--format",
+                "bestvideo[height<=720]/best[height<=720]",
+                "--output",
+                output_template,
+                "--no-playlist",
+                "--max-filesize",
+                str(settings.video_frame_max_bytes),
+                "--match-filter",
+                f"duration <= {settings.video_frame_max_duration_seconds}",
+                "--quiet",
+            ]
+            if platform == "youtube" and settings.youtube_proxy:
+                command.extend(
+                    [
+                        "--proxy",
+                        settings.youtube_proxy,
+                        "--extractor-args",
+                        "youtube:player_client=android_vr",
+                    ]
+                )
+            if platform == "instagram":
+                if settings.youtube_proxy:
+                    command.extend(["--proxy", settings.youtube_proxy])
+                credential_file = self._create_instagram_cookies_file()
+                if credential_file:
+                    command.extend(["--cookies", credential_file.path])
+            command.append(url)
+
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=os.name == "posix",
+            )
+            _, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=settings.video_download_timeout_seconds,
+            )
+            if process.returncode != 0:
+                error_text = _redact_sensitive_values(
+                    stderr.decode(errors="replace") if stderr else "yt-dlp failed"
+                )
+                if credential_file:
+                    error_text = error_text.replace(
+                        credential_file.path,
+                        "<credential-file>",
+                    )
+                raise RuntimeError(error_text)
+
+            video_files = [
+                path
+                for path in Path(temp_dir).glob("source.*")
+                if path.is_file() and not path.name.endswith(".part")
+            ]
+            if not video_files:
+                raise RuntimeError("No video file found after download")
+            video_path = str(video_files[0])
+            if os.path.getsize(video_path) > settings.video_frame_max_bytes:
+                raise RuntimeError("Downloaded video exceeds the frame-analysis size limit")
+            duration = await self._get_media_duration(video_path)
+            if duration is None or duration <= 0:
+                raise RuntimeError("Could not determine video duration")
+            if duration > settings.video_frame_max_duration_seconds:
+                raise RuntimeError("Video exceeds the frame-analysis duration limit")
+            return video_path, duration
+        finally:
+            await _terminate_process(process)
+            if credential_file:
+                credential_file.cleanup()
+
+    async def _extract_candidate_frames(
+        self,
+        video_path: str,
+        temp_dir: str,
+        duration: float,
+    ) -> list[VideoFrame]:
+        """Sample opening, closing, periodic, and scene-change frames, then dedupe."""
+
+        periodic_candidates: list[tuple[float, str]] = []
+        for index, timestamp in enumerate(self._periodic_frame_timestamps(duration)):
+            output_path = os.path.join(temp_dir, f"periodic-{index:02d}.jpg")
+            if await self._write_frame(video_path, output_path, timestamp):
+                periodic_candidates.append((timestamp, output_path))
+
+        scene_candidates = await self._write_scene_change_frames(video_path, temp_dir)
+        scene_paths = {path for _, path in scene_candidates}
+
+        frames: list[VideoFrame] = []
+        fingerprints: list[int] = []
+        for timestamp, path in periodic_candidates + scene_candidates:
+            try:
+                image_data = Path(path).read_bytes()
+                fingerprint = self._image_fingerprint(image_data)
+            except (OSError, ValueError):
+                continue
+            is_scene_candidate = path in scene_paths
+            if is_scene_candidate and any(
+                (fingerprint ^ prior).bit_count() <= 5 for prior in fingerprints
+            ):
+                continue
+            frames.append(
+                VideoFrame(
+                    timestamp_seconds=round(timestamp, 2),
+                    image_base64=base64.b64encode(image_data).decode("ascii"),
+                )
+            )
+            fingerprints.append(fingerprint)
+            if len(frames) >= settings.video_frame_max_count:
+                break
+        frames.sort(key=lambda frame: frame.timestamp_seconds)
+        return frames
+
+    @staticmethod
+    def _periodic_frame_timestamps(duration: float) -> list[float]:
+        """Cover the opening, closing, and evenly spaced points in a video."""
+
+        final_timestamp = max(0.0, duration - 0.25)
+        fractions = (0.0, 0.15, 0.35, 0.55, 0.75, 1.0)
+        return sorted(
+            {
+                round(final_timestamp * fraction, 3)
+                for fraction in fractions
+            }
+        )
+
+    async def _write_frame(
+        self,
+        video_path: str,
+        output_path: str,
+        timestamp: float,
+    ) -> bool:
+        """Write one scaled JPEG frame at an exact timestamp."""
+
+        process: Optional[asyncio.subprocess.Process] = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "ffmpeg",
+                "-loglevel",
+                "error",
+                "-ss",
+                f"{timestamp:.3f}",
+                "-i",
+                video_path,
+                "-frames:v",
+                "1",
+                "-vf",
+                "scale='min(960,iw)':-2",
+                "-q:v",
+                "3",
+                "-y",
+                output_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=os.name == "posix",
+            )
+            await asyncio.wait_for(process.communicate(), timeout=20)
+            return process.returncode == 0 and os.path.isfile(output_path)
+        finally:
+            await _terminate_process(process)
+
+    async def _write_scene_change_frames(
+        self,
+        video_path: str,
+        temp_dir: str,
+    ) -> list[tuple[float, str]]:
+        """Capture a capped set of strong scene changes and parse their timestamps."""
+
+        process: Optional[asyncio.subprocess.Process] = None
+        output_pattern = os.path.join(temp_dir, "scene-%02d.jpg")
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "ffmpeg",
+                "-loglevel",
+                "info",
+                "-i",
+                video_path,
+                "-vf",
+                "select='gt(scene,0.35)',scale='min(960,iw)':-2,showinfo",
+                "-fps_mode",
+                "vfr",
+                "-frames:v",
+                "4",
+                "-q:v",
+                "3",
+                "-y",
+                output_pattern,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=os.name == "posix",
+            )
+            _, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+            if process.returncode != 0:
+                return []
+            timestamps = [
+                float(value)
+                for value in re.findall(
+                    rb"pts_time:([0-9]+(?:\.[0-9]+)?)",
+                    stderr or b"",
+                )
+            ]
+            paths = sorted(Path(temp_dir).glob("scene-*.jpg"))
+            return [
+                (timestamps[index] if index < len(timestamps) else 0.0, str(path))
+                for index, path in enumerate(paths)
+            ]
+        finally:
+            await _terminate_process(process)
+
+    @staticmethod
+    def _image_fingerprint(image_data: bytes) -> int:
+        """Return a compact difference hash for repeated-overlay deduplication."""
+
+        with Image.open(io.BytesIO(image_data)) as image:
+            grayscale = image.convert("L").resize((9, 8))
+            pixels = list(grayscale.getdata())
+        fingerprint = 0
+        for row in range(8):
+            for column in range(8):
+                left = pixels[row * 9 + column]
+                right = pixels[row * 9 + column + 1]
+                fingerprint = (fingerprint << 1) | int(left > right)
+        return fingerprint
+
+    async def _get_media_duration(self, file_path: str) -> Optional[float]:
+        """Read media duration with a bounded ffprobe process."""
+
         process: Optional[asyncio.subprocess.Process] = None
         try:
             process = await asyncio.create_subprocess_exec(
                 "ffprobe",
-                "-v", "quiet",
-                "-show_entries", "format=duration",
-                "-of", "csv=p=0",
+                "-v",
+                "quiet",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "csv=p=0",
                 file_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=os.name == "posix",
             )
             stdout, _ = await asyncio.wait_for(process.communicate(), timeout=10)
-            if stdout:
-                return float(stdout.decode().strip())
-        except asyncio.TimeoutError:
+            return float(stdout.decode().strip()) if stdout else None
+        finally:
             await _terminate_process(process)
+
+    async def _get_audio_duration(self, file_path: str) -> Optional[float]:
+        """Get audio duration using ffprobe."""
+        try:
+            return await self._get_media_duration(file_path)
+        except asyncio.TimeoutError:
             print("⚠️ ffprobe timed out")
         except Exception as e:
             print(f"⚠️ Could not get audio duration: {e}")
-        finally:
-            await _terminate_process(process)
         return None
     
     async def get_video_metadata_ytdlp(self, url: str) -> VideoMetadata:

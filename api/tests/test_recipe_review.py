@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from app.recipe_review import (
     apply_recipe_review,
     assess_recipe_review,
+    evidence_source_provenance,
     evidence_was_user_reviewed,
     require_recipe_publishable,
     review_response_fields,
@@ -262,3 +263,38 @@ def test_partial_edit_can_be_saved_without_fake_placeholder_content():
     assert components == [
         {"name": "Main", "ingredients": [], "steps": [], "notes": None}
     ]
+
+
+def test_video_provenance_is_allowlisted_and_restorable_without_source_content():
+    """Evidence may retain timestamps, but never arbitrary text or image payloads."""
+
+    assessment = assess_recipe_review(
+        _recipe_data(),
+        source_type="youtube",
+        extraction_method="whisper+video-frames",
+        content_revision=3,
+        source_evidence={
+            "modalities": ["audio_transcript", "video_frames", "untrusted"],
+            "frames": [
+                {"timestampSeconds": 2.345},
+                {"timestampSeconds": -1},
+                {"timestampSeconds": "raw"},
+            ],
+            "sourceArtifactsRetained": False,
+            "rawText": "private recipe text",
+            "imageBase64": "private image",
+        },
+    )
+
+    assert assessment.evidence["source"] == {
+        "type": "youtube",
+        "method": "whisper+video-frames",
+        "modalities": ["audio_transcript", "video_frames"],
+        "frames": [{"timestampSeconds": 2.35}],
+        "sourceArtifactsRetained": False,
+    }
+    assert evidence_source_provenance(assessment.evidence) == {
+        "modalities": ["audio_transcript", "video_frames"],
+        "frames": [{"timestampSeconds": 2.35}],
+        "sourceArtifactsRetained": False,
+    }

@@ -74,6 +74,41 @@ def _count_uncertainties(reasons: list[str], missing_quantity_count: int) -> int
     return len(reasons) - int(has_quantity_summary) + missing_quantity_count
 
 
+def _source_provenance(source_evidence: dict | None) -> dict:
+    """Allow only privacy-safe modality and frame timestamp provenance."""
+
+    if not isinstance(source_evidence, dict):
+        return {}
+    allowed_modalities = {
+        "metadata",
+        "audio_transcript",
+        "video_frames",
+        "slideshow_images",
+        "website_data",
+        "manual",
+    }
+    modalities = [
+        value
+        for value in source_evidence.get("modalities", [])
+        if isinstance(value, str) and value in allowed_modalities
+    ]
+    frames = []
+    for frame in source_evidence.get("frames", [])[:12]:
+        if not isinstance(frame, dict):
+            continue
+        timestamp = frame.get("timestampSeconds")
+        if isinstance(timestamp, (int, float)) and 0 <= timestamp <= 14_400:
+            frames.append({"timestampSeconds": round(float(timestamp), 2)})
+    provenance = {}
+    if modalities:
+        provenance["modalities"] = list(dict.fromkeys(modalities))
+    if frames:
+        provenance["frames"] = frames
+    if source_evidence.get("sourceArtifactsRetained") is False:
+        provenance["sourceArtifactsRetained"] = False
+    return provenance
+
+
 def assess_recipe_review(
     extracted: dict,
     *,
@@ -81,6 +116,7 @@ def assess_recipe_review(
     extraction_method: str | None,
     content_revision: int,
     user_reviewed: bool = False,
+    source_evidence: dict | None = None,
 ) -> ReviewAssessment:
     """Assess cooking readiness without pretending that absence is evidence.
 
@@ -166,13 +202,15 @@ def assess_recipe_review(
         summary = "Needs review — compare the draft with the original before cooking."
 
     uncertainty_count = _count_uncertainties(reasons, missing_quantity_count)
+    source = {
+        "type": source_type,
+        "method": extraction_method,
+        **_source_provenance(source_evidence),
+    }
     evidence = {
         "version": EVIDENCE_VERSION,
         "contentRevision": content_revision,
-        "source": {
-            "type": source_type,
-            "method": extraction_method,
-        },
+        "source": source,
         "assessment": {
             "ingredientCount": ingredient_count,
             "stepCount": step_count,
@@ -219,24 +257,42 @@ def evidence_source_method(evidence: dict | None) -> str | None:
     return method.strip() if isinstance(method, str) and method.strip() else None
 
 
+def evidence_source_provenance(evidence: dict | None) -> dict | None:
+    """Recover validated provenance when restoring a historical version."""
+
+    if not isinstance(evidence, dict):
+        return None
+    source = evidence.get("source")
+    if not isinstance(source, dict):
+        return None
+    provenance = _source_provenance(source)
+    return provenance or None
+
+
 def apply_recipe_review(
     recipe,
     extracted: dict,
     *,
     user_reviewed: bool = False,
     increment_revision: bool = False,
+    source_evidence: dict | None = None,
 ) -> ReviewAssessment:
     """Persist a new deterministic assessment and old-client warning fields."""
 
     revision = int(getattr(recipe, "content_revision", None) or 1)
     if increment_revision:
         revision += 1
+    if source_evidence is None:
+        source_evidence = evidence_source_provenance(
+            getattr(recipe, "extraction_evidence", None)
+        )
     assessment = assess_recipe_review(
         extracted,
         source_type=recipe.source_type,
         extraction_method=recipe.extraction_method,
         content_revision=revision,
         user_reviewed=user_reviewed,
+        source_evidence=source_evidence,
     )
     updated = dict(extracted)
     if assessment.state == "ready":

@@ -620,7 +620,11 @@ async def extract_recipe(
         is_public=request.is_public,
         total_minutes=_compute_total_minutes(extracted_recipe),
     )
-    apply_recipe_review(new_recipe, extracted_recipe)
+    apply_recipe_review(
+        new_recipe,
+        extracted_recipe,
+        source_evidence=extraction_result.source_evidence,
+    )
     if new_recipe.is_public:
         require_recipe_publishable(new_recipe)
         await require_current_publishing_disclosure(db, user.id)
@@ -996,7 +1000,11 @@ async def run_extraction_job(
                     is_public=is_public,
                     total_minutes=_compute_total_minutes(extracted_data),
                 )
-                review = apply_recipe_review(new_recipe, extracted_data)
+                review = apply_recipe_review(
+                    new_recipe,
+                    extracted_data,
+                    source_evidence=getattr(result, "source_evidence", None),
+                )
                 if new_recipe.is_public:
                     require_recipe_publishable(new_recipe)
                     await require_current_publishing_disclosure(db, user_id)
@@ -1696,6 +1704,7 @@ async def run_re_extraction_job(
                     source_type=recipe.source_type,
                     extraction_method=result.extraction_method,
                     content_revision=starting_content_revision + 1,
+                    source_evidence=getattr(result, "source_evidence", None),
                 )
                 review_failure = _reextraction_review_failure(candidate_review)
                 if review_failure:
@@ -1809,6 +1818,7 @@ async def run_re_extraction_job(
                     recipe,
                     final_extracted,
                     increment_revision=True,
+                    source_evidence=getattr(result, "source_evidence", None),
                 )
                 final_extracted = recipe.extracted
                 if recipe.is_public:

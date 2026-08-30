@@ -6,9 +6,12 @@ from typing import Optional
 
 import sentry_sdk
 
+from app.config import get_settings
 from app.services.llm_client import llm_service
 from app.services.openai_client import openai_service  # Used for transcription
 from app.services.video import VideoMetadata, VideoService, video_service
+
+settings = get_settings()
 
 
 @dataclass
@@ -34,6 +37,7 @@ class FullExtractionResult:
     friendly_error: Optional[str] = None  # User-friendly error message
     low_confidence: bool = False  # True if extraction quality is uncertain
     confidence_warning: Optional[str] = None  # Warning message for low confidence
+    source_evidence: Optional[dict] = None  # Privacy-safe modality/timestamp provenance
 
 
 def _check_extraction_confidence(
@@ -216,6 +220,61 @@ def _has_actionable_recipe_evidence(content: str) -> bool:
             or (len(actions) >= 2 and word_count >= 5)
         )
     )
+
+
+def _recipe_critical_counts(recipe: dict | None) -> tuple[int, int, int]:
+    """Count ingredients, instructions, and unstated ingredient amounts."""
+
+    ingredient_count = 0
+    step_count = 0
+    missing_quantity_count = 0
+    for component in (recipe or {}).get("components") or []:
+        if not isinstance(component, dict):
+            continue
+        for ingredient in component.get("ingredients") or []:
+            if not isinstance(ingredient, dict) or not str(ingredient.get("name") or "").strip():
+                continue
+            ingredient_count += 1
+            quantity = str(ingredient.get("quantity") or "").strip().lower()
+            if quantity in {"", "null", "none", "n/a"}:
+                missing_quantity_count += 1
+        step_count += sum(
+            1
+            for step in (component.get("steps") or [])
+            if isinstance(step, str) and step.strip()
+        )
+    return ingredient_count, step_count, missing_quantity_count
+
+
+def _visual_recovery_improves(
+    initial_recipe: dict | None,
+    candidate_recipe: dict | None,
+) -> bool:
+    """Adopt visual reconciliation only when it preserves coverage and adds evidence."""
+
+    candidate_counts = _recipe_critical_counts(candidate_recipe)
+    if candidate_counts[0] == 0 or candidate_counts[1] == 0:
+        return False
+    if not initial_recipe:
+        return True
+
+    initial_counts = _recipe_critical_counts(initial_recipe)
+    preserves_coverage = (
+        candidate_counts[0] >= initial_counts[0]
+        and candidate_counts[1] >= initial_counts[1]
+    )
+    if not preserves_coverage:
+        return False
+    fewer_missing_amounts = candidate_counts[2] < initial_counts[2]
+    resolves_model_warning = (
+        initial_recipe.get("lowConfidence") is True
+        and candidate_recipe.get("lowConfidence") is not True
+    )
+    adds_supported_content = (
+        candidate_counts[0] > initial_counts[0]
+        or candidate_counts[1] > initial_counts[1]
+    )
+    return fewer_missing_amounts or resolves_model_warning or adds_supported_content
 
 
 class RecipeExtractor:
@@ -489,6 +548,20 @@ class RecipeExtractor:
             )
 
         if not _has_actionable_recipe_evidence(combined_content):
+            visual_result = await self._attempt_video_frame_recovery(
+                url=url,
+                platform=platform,
+                location=location,
+                source_context=combined_content,
+                initial_recipe=None,
+                base_method=extraction_method,
+                thumbnail_url=thumbnail_url,
+                has_audio_transcript=has_audio_transcript,
+                progress_callback=progress_callback,
+                enabled=not fast_mode,
+            )
+            if visual_result:
+                return visual_result
             return FullExtractionResult(
                 success=False,
                 thumbnail_url=thumbnail_url,
@@ -519,6 +592,20 @@ class RecipeExtractor:
         )
         
         if not extraction_result.success:
+            visual_result = await self._attempt_video_frame_recovery(
+                url=url,
+                platform=platform,
+                location=location,
+                source_context=combined_content,
+                initial_recipe=None,
+                base_method=extraction_method,
+                thumbnail_url=thumbnail_url,
+                has_audio_transcript=has_audio_transcript,
+                progress_callback=progress_callback,
+                enabled=not fast_mode,
+            )
+            if visual_result:
+                return visual_result
             return FullExtractionResult(
                 success=False,
                 error=extraction_result.error,
@@ -541,6 +628,20 @@ class RecipeExtractor:
         
         if low_confidence:
             print(f"⚠️ Low confidence extraction: {confidence_warning}")
+            visual_result = await self._attempt_video_frame_recovery(
+                url=url,
+                platform=platform,
+                location=location,
+                source_context=combined_content,
+                initial_recipe=recipe,
+                base_method=extraction_method,
+                thumbnail_url=thumbnail_url,
+                has_audio_transcript=has_audio_transcript,
+                progress_callback=progress_callback,
+                enabled=not fast_mode,
+            )
+            if visual_result:
+                return visual_result
         
         # Note: Don't send "complete" here - let the router handle that
         # after S3 upload is done to avoid progress going backwards
@@ -555,6 +656,93 @@ class RecipeExtractor:
             has_audio_transcript=has_audio_transcript,
             low_confidence=low_confidence,
             confidence_warning=confidence_warning
+        )
+
+    async def _attempt_video_frame_recovery(
+        self,
+        *,
+        url: str,
+        platform: str,
+        location: str,
+        source_context: str,
+        initial_recipe: dict | None,
+        base_method: str,
+        thumbnail_url: str | None,
+        has_audio_transcript: bool,
+        progress_callback,
+        enabled: bool,
+    ) -> FullExtractionResult | None:
+        """Recover uncertain normal-video recipes with bounded visual evidence."""
+
+        if (
+            not enabled
+            or not settings.video_frame_extraction_enabled
+            or platform not in VideoService.SUPPORTED_PLATFORMS
+        ):
+            return None
+        if progress_callback:
+            await progress_callback(
+                ExtractionProgress(
+                    step="analyzing_video_frames",
+                    progress=78,
+                    message="Checking on-screen recipe details...",
+                )
+            )
+
+        frame_result = await video_service.extract_video_frames(url)
+        frames = frame_result.frames or []
+        if not frame_result.success or not frames:
+            print(f"⚠️ Video frame recovery unavailable: {frame_result.error_code}")
+            return None
+
+        timestamps = [frame.timestamp_seconds for frame in frames]
+        visual_result = await llm_service.extract_from_video_frames(
+            images_base64=[frame.image_base64 for frame in frames],
+            frame_timestamps=timestamps,
+            source_url=url,
+            source_context=source_context,
+            initial_recipe=initial_recipe,
+            location=location,
+        )
+        if not visual_result.success or not _visual_recovery_improves(
+            initial_recipe,
+            visual_result.recipe,
+        ):
+            print("⚠️ Video frame reconciliation did not improve the draft")
+            return None
+
+        recipe = visual_result.recipe
+        recipe["media"] = {"thumbnail": thumbnail_url}
+        low_confidence, confidence_warning = _check_extraction_confidence(
+            recipe=recipe,
+            raw_text=source_context,
+            extraction_quality="high" if has_audio_transcript else "good",
+            has_audio_transcript=has_audio_transcript,
+            is_visual_source=True,
+        )
+        modalities = ["video_frames"]
+        if "VIDEO TITLE" in source_context or "VIDEO DESCRIPTION" in source_context:
+            modalities.insert(0, "metadata")
+        if has_audio_transcript:
+            modalities.insert(0, "audio_transcript")
+        return FullExtractionResult(
+            success=True,
+            recipe=recipe,
+            raw_text=source_context,
+            thumbnail_url=thumbnail_url,
+            extraction_method=f"{base_method}+video-frames",
+            extraction_quality="high" if has_audio_transcript else "good",
+            has_audio_transcript=has_audio_transcript,
+            low_confidence=low_confidence,
+            confidence_warning=confidence_warning,
+            source_evidence={
+                "modalities": modalities,
+                "frames": [
+                    {"timestampSeconds": timestamp}
+                    for timestamp in timestamps
+                ],
+                "sourceArtifactsRetained": False,
+            },
         )
     
     async def _extract_from_tiktok_photo(
