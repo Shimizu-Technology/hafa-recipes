@@ -86,6 +86,8 @@ class LLMService:
     }
     
     def __init__(self):
+        """Bind the configured provider credential for this process."""
+
         self.openai_api_key = settings.openai_api_key
         
     async def extract_recipe(
@@ -1097,6 +1099,8 @@ class LLMService:
 
     @staticmethod
     def _raw_recipe_validation_error(recipe: object) -> str | None:
+        """Reject malformed provider shapes before post-processing mutates them."""
+
         if not isinstance(recipe, dict):
             return "invalid_json"
         components = recipe.get("components")
@@ -1115,6 +1119,8 @@ class LLMService:
 
     @staticmethod
     def _recipe_validation_error(recipe: dict) -> str | None:
+        """Return the first cooking-critical structural validation failure."""
+
         title = recipe.get("title")
         if not isinstance(title, str) or not title.strip():
             return "missing_title"

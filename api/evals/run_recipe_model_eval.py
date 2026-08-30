@@ -32,6 +32,8 @@ class ModelRefusal(Exception):
 
 
 def normalize(value: str) -> str:
+    """Normalize free text for deterministic benchmark matching."""
+
     return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
 
 
@@ -65,6 +67,8 @@ def render_page(text: str) -> str:
 
 
 def build_messages(case: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build the production prompt shape for one redacted benchmark case."""
+
     from app.services.prompts import get_ocr_extraction_prompt, get_recipe_extraction_prompt
 
     if case["modality"] == "text":
@@ -90,6 +94,8 @@ def build_messages(case: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def extract_fields(recipe: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Flatten normalized ingredient names and steps for field scoring."""
+
     ingredients: list[str] = []
     steps: list[str] = []
     for component in recipe.get("components") or []:
@@ -109,11 +115,15 @@ def extract_fields(recipe: dict[str, Any]) -> tuple[list[str], list[str]]:
 
 
 def contains_term(values: list[str], term: str) -> bool:
+    """Match a normalized expected term against normalized model fields."""
+
     normalized = normalize(term)
     return any(normalized in value or value in normalized for value in values if value)
 
 
 def score_recipe(case: dict[str, Any], recipe: object) -> dict[str, Any]:
+    """Score structure, coverage, corrections, and unsupported additions."""
+
     if not isinstance(recipe, dict):
         return {
             "schema_valid": False,
@@ -159,6 +169,8 @@ async def evaluate_case(
     case: dict[str, Any],
     reasoning_effort: str,
 ) -> dict[str, Any]:
+    """Run and score one provider call without retaining its recipe output."""
+
     from app.ai_governance import estimate_cost_microusd, extract_token_usage
     from app.services.prompts import RECIPE_RESPONSE_FORMAT
 
@@ -218,6 +230,8 @@ async def evaluate_case(
 
 
 def summarize(model: str, results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate privacy-safe quality, latency, token, and cost metrics."""
+
     successes = [result for result in results if result["task_success"]]
     costs = [
         result["estimated_cost_microusd"]
@@ -251,6 +265,8 @@ def summarize(model: str, results: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 async def run(args: argparse.Namespace) -> Path | None:
+    """Validate the dataset or execute the configured model comparison."""
+
     dataset = json.loads(args.dataset.read_text())
     categories = {case["category"] for case in dataset["cases"]}
     required = {
@@ -319,6 +335,8 @@ async def run(args: argparse.Namespace) -> Path | None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line options for the redacted benchmark runner."""
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
     parser.add_argument(
