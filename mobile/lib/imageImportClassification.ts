@@ -6,6 +6,30 @@ export type ImageImportFailurePresentation = {
   offersManualEntry: boolean;
 };
 
+export type ManualImageDraftRoute = {
+  pathname: '/add-recipe';
+  params: {
+    captureSource: 'photo';
+    fromOcr: 'true';
+    initialImageUri: string;
+  };
+};
+
+/** Carry a failed image import into a private, manually editable recipe draft. */
+export function getManualImageDraftRoute(imageUri?: string): ManualImageDraftRoute | null {
+  const normalizedUri = imageUri?.trim();
+  if (!normalizedUri) return null;
+
+  return {
+    pathname: '/add-recipe',
+    params: {
+      captureSource: 'photo',
+      fromOcr: 'true',
+      initialImageUri: normalizedUri,
+    },
+  };
+}
+
 /** Present classified image failures without implying that a dish photo is a recipe. */
 export function getImageImportFailurePresentation(
   result: OCRExtractionResult,

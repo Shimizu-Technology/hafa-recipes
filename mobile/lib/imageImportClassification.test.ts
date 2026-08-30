@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { getImageImportFailurePresentation } from './imageImportClassification';
+import {
+  getImageImportFailurePresentation,
+  getManualImageDraftRoute,
+} from './imageImportClassification';
 
 describe('image import classification failures', () => {
   it('does not describe a dish photo as an extracted recipe', () => {
@@ -24,5 +27,17 @@ describe('image import classification failures', () => {
       message: 'Provider unavailable',
       offersManualEntry: false,
     });
+  });
+
+  it('carries the selected image into a manually editable photo draft', () => {
+    expect(getManualImageDraftRoute(' file:///recipe-card.jpg ')).toEqual({
+      pathname: '/add-recipe',
+      params: {
+        captureSource: 'photo',
+        fromOcr: 'true',
+        initialImageUri: 'file:///recipe-card.jpg',
+      },
+    });
+    expect(getManualImageDraftRoute()).toBeNull();
   });
 });

@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
     }),
     isPublic: 'false',
     captureSource: 'text',
+    initialImageUri: undefined as string | undefined,
   },
 }));
 
@@ -185,6 +186,15 @@ async function skipOptionalAiPrompt() {
 
 describe('AddRecipeScreen visibility', () => {
   beforeEach(() => {
+    mocks.params.initialData = JSON.stringify({
+      title: 'Red Rice',
+      ingredients: [{ name: 'rice', quantity: '2', unit: 'cups' }],
+      steps: ['Cook the rice.'],
+      tags: ['Dinner'],
+    });
+    mocks.params.isPublic = 'false';
+    mocks.params.captureSource = 'text';
+    mocks.params.initialImageUri = undefined;
     mocks.alert.mockClear();
     mocks.back.mockClear();
     mocks.createManualRecipe.mockClear();
@@ -220,6 +230,34 @@ describe('AddRecipeScreen visibility', () => {
     expect(mocks.createManualRecipe).toHaveBeenCalledWith(
       expect.objectContaining({ is_public: false }),
       null,
+    );
+  });
+
+  it('saves a recovered image-only recipe as an editable private draft', async () => {
+    mocks.params.initialData = undefined as unknown as string;
+    mocks.params.captureSource = 'photo';
+    mocks.params.initialImageUri = 'file:///recipe-card.jpg';
+    const renderer = await renderRecipe();
+    const titleInput = renderer.root.findAllByType(
+      'TextInput' as unknown as React.ComponentType,
+    ).find((node) => node.props.placeholder === 'Recipe name')!;
+
+    await act(async () => titleInput.props.onChangeText('Family recipe card'));
+    await act(async () => headerAction(renderer, 'Save draft').props.onPress());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.createManualRecipe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Family recipe card',
+        ingredients: [],
+        steps: [],
+        is_public: false,
+        source_type: 'photo',
+      }),
+      'file:///recipe-card.jpg',
     );
   });
 });

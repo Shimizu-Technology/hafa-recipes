@@ -77,8 +77,15 @@ export default function AddRecipeScreen() {
   const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
   
   // Get initial data from route params for imported-recipe pre-fill.
-  const { initialData, isPublic: isPublicParam, fromOcr, captureSource } = useLocalSearchParams<{
+  const {
+    initialData,
+    initialImageUri,
+    isPublic: isPublicParam,
+    fromOcr,
+    captureSource,
+  } = useLocalSearchParams<{
     initialData?: string;
+    initialImageUri?: string;
     isPublic?: string;
     fromOcr?: string;
     captureSource?: 'photo' | 'text';
@@ -98,7 +105,8 @@ export default function AddRecipeScreen() {
   const [notes, setNotes] = useState('');
   const [tags, setTags] = useState('');
   const [isPublic, setIsPublic] = useState(false);
-  const [imageUri, setImageUri] = useState<string | null>(null);
+  const recoveredImageUri = initialImageUri?.trim() || null;
+  const [imageUri, setImageUri] = useState<string | null>(recoveredImageUri);
   
   // Dynamic lists
   const [ingredients, setIngredients] = useState<IngredientInput[]>([
@@ -212,12 +220,16 @@ export default function AddRecipeScreen() {
         .filter(step => step.text.trim())
         .map(step => step.text.trim());
 
-      if (validIngredients.length === 0) {
+      const isRecoveredImageDraft = importedSource === 'photo'
+        && Boolean(recoveredImageUri)
+        && Boolean(imageUri);
+      if (validIngredients.length === 0 && !isRecoveredImageDraft) {
         throw new Error('Please add at least one ingredient');
       }
-      if (validSteps.length === 0) {
+      if (validSteps.length === 0 && !isRecoveredImageDraft) {
         throw new Error('Please add at least one step');
       }
+      const isStructurallyComplete = validIngredients.length > 0 && validSteps.length > 0;
 
       const tagList = tags
         .split(',')
@@ -235,7 +247,8 @@ export default function AddRecipeScreen() {
           steps: validSteps,
           notes: notes.trim() || null,
           tags: tagList.length > 0 ? tagList : null,
-          is_public: isPublic,
+          // A source-only recovery remains private until the user completes it.
+          is_public: isStructurallyComplete ? isPublic : false,
           nutrition: estimatedNutrition,
           source_type: importedSource,
         },
@@ -352,6 +365,12 @@ export default function AddRecipeScreen() {
     hasSourceLink: false,
     contributorName: 'your contributor name',
   });
+
+  const isRecoveredIncompleteDraft = importedSource === 'photo'
+    && Boolean(recoveredImageUri)
+    && Boolean(imageUri)
+    && (!ingredients.some(ingredient => ingredient.name.trim())
+      || !steps.some(step => step.text.trim()));
 
   const submitRecipe = async () => {
     if (isPublic && !(await requestPublishing(publishPreview()))) {
@@ -480,7 +499,7 @@ export default function AddRecipeScreen() {
                 <ActivityIndicator size="small" color={colors.tint} />
               ) : (
                 <Text style={[styles.saveButtonText, { color: colors.tint }]}>
-                  {isPublic ? 'Publish' : 'Save private'}
+                  {isRecoveredIncompleteDraft ? 'Save draft' : (isPublic ? 'Publish' : 'Save private')}
                 </Text>
               )}
             </TouchableOpacity>
@@ -813,10 +832,17 @@ export default function AddRecipeScreen() {
               )}
             </RNView>
 
+            {isRecoveredIncompleteDraft && (
+              <Text style={[styles.nutritionDisclaimer, { color: colors.textMuted }]}>
+                This image can be saved privately as a draft. Add at least one ingredient and
+                instruction before publishing.
+              </Text>
+            )}
+
             <RecipeVisibilitySelector
               value={isPublic ? 'public' : 'private'}
               onChange={handleVisibilityChange}
-              disabled={createMutation.isPending || isCheckingDisclosure}
+              disabled={createMutation.isPending || isCheckingDisclosure || isRecoveredIncompleteDraft}
             />
           </ScrollView>
         </View>

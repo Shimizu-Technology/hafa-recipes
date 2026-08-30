@@ -29,7 +29,10 @@ import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/C
 import { api, type RecipeImageUpload } from '@/lib/api';
 import { consumePendingShareCapture } from '@/lib/shareCapture';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
-import { getImageImportFailurePresentation } from '@/lib/imageImportClassification';
+import {
+  getImageImportFailurePresentation,
+  getManualImageDraftRoute,
+} from '@/lib/imageImportClassification';
 
 export default function ExtractScreen() {
   const router = useRouter();
@@ -206,10 +209,12 @@ export default function ExtractScreen() {
         Alert.alert(failure.title, failure.message, failure.offersManualEntry
           ? [
               {
-                text: 'Enter Manually',
+                text: 'Use Image & Enter Manually',
                 onPress: () => {
+                  const draftRoute = getManualImageDraftRoute(selectedImages[0]?.uri);
+                  if (!draftRoute) return;
                   setSelectedImages([]);
-                  router.push('/add-recipe');
+                  router.push(draftRoute);
                 },
               },
               { text: 'Review Images', style: 'cancel' },
