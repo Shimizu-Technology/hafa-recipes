@@ -50,6 +50,13 @@ import { getRecipeVisibilityPresentation } from '@/lib/recipeVisibilityPresentat
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { getSourcePlayback } from '@/lib/sourcePlayback';
+import {
+  canOpenRecipeOriginal,
+  getCookDraftPresentation,
+  getMissingQuantityLabel,
+  getRecipeReviewLabel,
+  isRecipeOwner,
+} from '@/lib/recipeReviewPresentation';
 import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
 import { useTextSize } from '@/hooks/useTextSize';
 import { useAuth, useUser } from '@clerk/expo';
@@ -211,11 +218,11 @@ export default function RecipeDetailScreen() {
   };
 
   // Check if the current user owns this recipe
-  const isOwner = recipe?.user_id === userId;
+  const isOwner = isRecipeOwner(recipe);
   const contributorId = recipe?.contributor_id ?? null;
   const contributorName = recipe?.extractor_display_name || 'this contributor';
   
-  const hasExternalSource = /^https?:\/\//i.test(recipe?.source_url || '');
+  const hasExternalSource = canOpenRecipeOriginal(recipe?.source_url);
   // Re-extraction requires a fetchable source URL; manual and photo recipes
   // intentionally keep their internal source markers out of user actions.
   const canReExtract = hasExternalSource;
@@ -581,7 +588,19 @@ export default function RecipeDetailScreen() {
           recipe.moderation_status,
         );
         Alert.alert(presentation.alertTitle, presentation.alertMessage);
-      } catch {
+      } catch (error: any) {
+        const detail = error?.response?.data?.detail;
+        if (error?.response?.status === 409 && detail?.code === 'RECIPE_REVIEW_REQUIRED') {
+          Alert.alert(
+            'Review before sharing',
+            detail.message || 'Complete and review this recipe before sharing it to Discover.',
+            [
+              { text: 'Not now', style: 'cancel' },
+              { text: 'Edit Recipe', onPress: () => router.push(`/edit-recipe/${id}`) },
+            ],
+          );
+          return;
+        }
         Alert.alert('Error', 'Failed to update sharing settings');
       }
     };
@@ -638,6 +657,43 @@ export default function RecipeDetailScreen() {
   }
 
   const { extracted } = recipe;
+  const instructionCount = extracted.components.reduce(
+    (total, component) => total + (component.steps?.length || 0),
+    0,
+  );
+  const reviewLabel = getRecipeReviewLabel(recipe.review_state);
+  const cookPresentation = getCookDraftPresentation(recipe.review_state, instructionCount);
+  const openCookMode = () => router.push({
+    pathname: `/cook-mode/${id}` as any,
+    params: isScaled ? { scaleFactor: scaleFactor.toString(), servings: currentServings.toString() } : {},
+  });
+  /** Gate cook mode while keeping incomplete drafts usable. */
+  const handleCook = () => {
+    if (!cookPresentation.canCook) {
+      Alert.alert(
+        cookPresentation.alertTitle || 'Recipe needs details',
+        cookPresentation.alertMessage || 'Add the missing recipe details before cooking.',
+        isOwner
+          ? [
+              { text: 'Not now', style: 'cancel' },
+              { text: 'Add Instructions', onPress: () => router.push(`/edit-recipe/${id}`) },
+            ]
+          : [{ text: 'OK' }],
+      );
+      return;
+    }
+    if (cookPresentation.alertTitle && cookPresentation.alertMessage) {
+      Alert.alert(cookPresentation.alertTitle, cookPresentation.alertMessage, [
+        { text: 'Cancel', style: 'cancel' },
+        ...(hasExternalSource
+          ? [{ text: 'Open Original', onPress: handleOpenSource }]
+          : []),
+        { text: 'Cook with Draft', onPress: openCookMode },
+      ]);
+      return;
+    }
+    openCookMode();
+  };
   
   const { icon: sourceIcon, label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
   const sourcePlayback = getSourcePlayback(recipe.source_url);
@@ -786,7 +842,13 @@ export default function RecipeDetailScreen() {
             </RNView>
 
             {/* Quality Badge - show warning if low confidence, otherwise show quality */}
-            {extracted.lowConfidence ? (
+            {reviewLabel ? (
+              <RNView style={[styles.qualityBadge, { backgroundColor: '#fef3c7' }]}>
+                <Text style={[styles.qualityText, { color: '#92400e' }]}>
+                  {reviewLabel}
+                </Text>
+              </RNView>
+            ) : extracted.lowConfidence ? (
               <RNView style={[styles.qualityBadge, { backgroundColor: '#fef3c7' }]}>
                 <Text style={[styles.qualityText, { color: '#92400e' }]}>
                   Needs review · Some details may be inaccurate
@@ -959,6 +1021,7 @@ export default function RecipeDetailScreen() {
                         const unit = ing.unit && ing.unit !== 'null' ? ing.unit : '';
                         const qtyUnit = scaledQty ? `${scaledQty}${unit ? ` ${unit}` : ''} ` : '';
                         const notes = ing.notes && ing.notes !== 'null' ? ing.notes : '';
+                        const missingQuantityLabel = getMissingQuantityLabel(recipe.review_state, ing);
                         const cost = typeof ing.estimatedCost === 'number' 
                           ? `$${(ing.estimatedCost * scaleFactor).toFixed(2)}` 
                           : null;
@@ -967,15 +1030,22 @@ export default function RecipeDetailScreen() {
                           <RNView key={ingIndex} style={styles.ingredientRow}>
                             <RNView style={[styles.bullet, { backgroundColor: isScaled ? colors.tint : colors.tint }]} />
                             <RNView style={styles.ingredientContent}>
-                              <Text style={[styles.ingredientText, { color: colors.text, fontSize: scaleFontSize(fontSize.md), lineHeight: scaleFontSize(22) }]}>
-                                {qtyUnit ? (
-                                  <Text style={[styles.ingredientQty, isScaled && { color: colors.tint }]}>
-                                    {qtyUnit}
+                              <RNView style={styles.ingredientMain}>
+                                <Text style={[styles.ingredientText, { color: colors.text, fontSize: scaleFontSize(fontSize.md), lineHeight: scaleFontSize(22) }]}>
+                                  {qtyUnit ? (
+                                    <Text style={[styles.ingredientQty, isScaled && { color: colors.tint }]}>
+                                      {qtyUnit}
+                                    </Text>
+                                  ) : null}
+                                  {ing.name}
+                                  {notes ? <Text style={[styles.ingredientNotes, { color: colors.textMuted }]}>{` (${notes})`}</Text> : null}
+                                </Text>
+                                {missingQuantityLabel ? (
+                                  <Text style={[styles.ingredientUncertainty, { color: colors.warning }]}>
+                                    {missingQuantityLabel}
                                   </Text>
                                 ) : null}
-                                {ing.name}
-                                {notes ? <Text style={[styles.ingredientNotes, { color: colors.textMuted }]}>{` (${notes})`}</Text> : null}
-                              </Text>
+                              </RNView>
                               {cost ? <Text style={[styles.ingredientCost, { color: colors.textMuted }]}>{cost}</Text> : null}
                             </RNView>
                           </RNView>
@@ -1039,13 +1109,19 @@ export default function RecipeDetailScreen() {
                           {component.ingredients.map((ing, ingIndex) => {
                             const scaledQty = scaleQuantity(ing.quantity ?? null, scaleFactor);
                             const unit = ing.unit && ing.unit !== 'null' ? ing.unit : '';
+                            const missingQuantityLabel = getMissingQuantityLabel(recipe.review_state, ing);
                             return (
                               <RNView key={ingIndex} style={styles.ingredientsRefItem}>
                                 <Text style={[styles.ingredientsRefQty, isScaled && { color: colors.tint }]}>
-                                  {scaledQty || '•'}{unit ? ` ${unit}` : ''}
+                                  {scaledQty || (missingQuantityLabel ? '?' : '•')}{unit ? ` ${unit}` : ''}
                                 </Text>
                                 <Text style={[styles.ingredientsRefName, { color: colors.text }]}>
                                   {ing.name}
+                                  {missingQuantityLabel ? (
+                                    <Text style={{ color: colors.warning }}>
+                                      {`\n${missingQuantityLabel}`}
+                                    </Text>
+                                  ) : null}
                                 </Text>
                               </RNView>
                             );
@@ -1389,14 +1465,15 @@ export default function RecipeDetailScreen() {
         ]}>
           <TouchableOpacity
             style={[styles.floatingCookButton, { backgroundColor: colors.tint }]}
-            onPress={() => router.push({
-              pathname: `/cook-mode/${id}` as any,
-              params: isScaled ? { scaleFactor: scaleFactor.toString(), servings: currentServings.toString() } : {},
-            })}
+            onPress={handleCook}
             activeOpacity={0.8}
           >
-            <Ionicons name="restaurant" size={22} color="#FFFFFF" />
-            <Text style={styles.floatingCookButtonText}>Start Cooking</Text>
+            <Ionicons
+              name={cookPresentation.canCook ? 'restaurant' : 'create-outline'}
+              size={22}
+              color="#FFFFFF"
+            />
+            <Text style={styles.floatingCookButtonText}>{cookPresentation.buttonLabel}</Text>
           </TouchableOpacity>
         </RNView>
       </KeyboardAvoidingView>
@@ -1890,9 +1967,15 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   ingredientText: {
-    flex: 1,
     fontSize: fontSize.md,
     lineHeight: 22,
+  },
+  ingredientMain: {
+    flex: 1,
+  },
+  ingredientUncertainty: {
+    fontSize: fontSize.xs,
+    marginTop: 2,
   },
   ingredientQty: {
     fontWeight: fontWeight.semibold,

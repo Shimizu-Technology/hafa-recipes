@@ -785,6 +785,11 @@ class ApiClient {
     return data;
   }
 
+  async saveFailedExtractionDraft(jobId: string): Promise<{ recipe_id: string; is_existing: boolean }> {
+    const { data } = await this.client.post(`/api/jobs/${jobId}/save-draft`);
+    return data;
+  }
+
   /**
    * Cancel an extraction job.
    */

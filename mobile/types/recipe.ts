@@ -99,7 +99,14 @@ export interface Recipe {
   extractor_display_name: string | null;
   is_public: boolean;
   moderation_status?: 'active' | 'hidden' | null;
+  review_state?: RecipeReviewState | null;
+  review_summary?: string | null;
+  uncertainty_count?: number;
+  extraction_evidence?: Record<string, unknown> | null;
+  content_revision?: number | null;
 }
+
+export type RecipeReviewState = 'source_incomplete' | 'needs_review' | 'ready';
 
 export interface RecipeListItem {
   id: string;
@@ -120,6 +127,9 @@ export interface RecipeListItem {
   extractor_display_name: string | null;
   is_public: boolean;
   moderation_status?: 'active' | 'hidden' | null;
+  review_state?: RecipeReviewState | null;
+  review_summary?: string | null;
+  uncertainty_count?: number;
 }
 
 export interface PaginatedRecipes {
@@ -177,6 +187,9 @@ export interface JobStatus {
   next_attempt_at?: string | null;
   low_confidence?: boolean;  // True if extraction quality is uncertain
   confidence_warning?: string | null;  // Warning message for user
+  can_save_draft?: boolean;
+  review_state?: RecipeReviewState | null;
+  review_summary?: string | null;
 }
 
 export interface Location {

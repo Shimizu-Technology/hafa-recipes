@@ -3,9 +3,11 @@
 import importlib
 import os
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.db.database import Base
@@ -49,7 +51,19 @@ async def test_active_chain_replays_on_current_base_schema(monkeypatch):
         await migration_runner.run_migrations()
         await migration_runner.run_migrations()
 
-        async with engine.connect() as connection:
+        recipe_id = uuid4()
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("""
+                    INSERT INTO recipes (
+                        id, source_url, source_type, extracted, user_id
+                    ) VALUES (
+                        :id, 'manual://migration-default', 'manual', '{}'::jsonb,
+                        'migration_runner_user'
+                    )
+                """),
+                {"id": recipe_id},
+            )
             marker = await connection.scalar(
                 text("""
                     SELECT COUNT(*) FROM schema_migrations
@@ -69,11 +83,39 @@ async def test_active_chain_replays_on_current_base_schema(monkeypatch):
                 SELECT COUNT(*) FROM pg_constraint
                 WHERE conname = 'ck_app_users_publishing_disclosure_version'
             """))
+            review_constraints = await connection.scalar(text("""
+                SELECT COUNT(*) FROM pg_constraint
+                WHERE conname IN (
+                    'ck_recipes_review_state',
+                    'ck_recipes_content_revision',
+                    'ck_recipes_review_public',
+                    'ck_recipe_versions_review_state',
+                    'ck_recipe_versions_content_revision'
+                )
+            """))
+            recipe_revision = await connection.scalar(text("""
+                SELECT content_revision FROM recipes WHERE id = :id
+            """), {"id": recipe_id})
+
+            with pytest.raises(IntegrityError):
+                async with connection.begin_nested():
+                    await connection.execute(
+                        text("UPDATE recipes SET review_state = 'invalid' WHERE id = :id"),
+                        {"id": recipe_id},
+                    )
+            with pytest.raises(IntegrityError):
+                async with connection.begin_nested():
+                    await connection.execute(
+                        text("UPDATE recipes SET content_revision = 0 WHERE id = :id"),
+                        {"id": recipe_id},
+                    )
 
         assert marker == 1
         assert identity == 1
         assert disclosure_version == 0
         assert disclosure_constraint == 1
+        assert review_constraints == 5
+        assert recipe_revision == 1
     finally:
         async with engine.begin() as connection:
             await connection.execute(text("DROP SCHEMA public CASCADE"))

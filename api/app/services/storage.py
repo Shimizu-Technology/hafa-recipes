@@ -111,13 +111,40 @@ class StorageService:
         Returns:
             S3 URL if successful, None if failed or S3 not configured
         """
+        return await self._upload_thumbnail_from_url(
+            image_url,
+            recipe_id,
+            media_lock_held=False,
+        )
+
+    async def upload_thumbnail_from_url_locked(
+        self,
+        image_url: str,
+        recipe_id: str | UUID,
+    ) -> Optional[str]:
+        """Upload while the caller holds the recipe media advisory lock."""
+
+        return await self._upload_thumbnail_from_url(
+            image_url,
+            recipe_id,
+            media_lock_held=True,
+        )
+
+    async def _upload_thumbnail_from_url(
+        self,
+        image_url: str,
+        recipe_id: str | UUID,
+        *,
+        media_lock_held: bool,
+    ) -> Optional[str]:
+        """Download, validate, and store a thumbnail under the requested lock mode."""
+
         if not self.is_enabled:
             print("⚠️ S3 not configured, skipping thumbnail upload")
             return None
-        
         if not image_url:
             return None
-        
+
         try:
             # Download image from external URL
             print(f"📥 Downloading thumbnail from: {image_url[:60]}...")
@@ -144,9 +171,7 @@ class StorageService:
             image_hash = hashlib.sha256(image_data).hexdigest()
             s3_key = f"thumbnails/{recipe_id}/{image_hash}.{extension}"
             
-            async with recipe_media_upload_guard(recipe_id) as recipe_exists:
-                if not recipe_exists:
-                    return None
+            def put_object() -> None:
                 print(f"📤 Uploading to S3: {s3_key}")
                 self.client.put_object(
                     Bucket=self.bucket_name,
@@ -156,6 +181,14 @@ class StorageService:
                     CacheControl="public, max-age=31536000, immutable",
                     # Note: Public access is controlled by bucket policy, not ACL
                 )
+
+            if media_lock_held:
+                put_object()
+            else:
+                async with recipe_media_upload_guard(recipe_id) as recipe_exists:
+                    if not recipe_exists:
+                        return None
+                    put_object()
             
             # Generate public URL
             settings = get_settings()

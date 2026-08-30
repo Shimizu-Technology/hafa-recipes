@@ -144,6 +144,47 @@ async def test_thumbnail_upload_is_rejected_after_recipe_deletion(monkeypatch):
     assert fake_s3.puts == []
 
 
+@pytest.mark.asyncio
+async def test_locked_thumbnail_upload_uses_the_callers_media_lock(monkeypatch):
+    """The lock-aware path must not reacquire its own advisory lock."""
+
+    @asynccontextmanager
+    async def unexpected_guard(_recipe_id):
+        pytest.fail("locked thumbnail upload must use the caller's media lock")
+        yield False
+
+    fake_s3 = RecordingS3()
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_enabled=True,
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+        ),
+    )
+    monkeypatch.setattr(storage, "recipe_media_upload_guard", unexpected_guard)
+    service = StorageService()
+    service._client = fake_s3
+    image_bytes = _png_bytes("red")
+
+    async def download(_url):
+        return image_bytes, "image/png"
+
+    monkeypatch.setattr(service, "_download_public_url", download)
+    result = await service.upload_thumbnail_from_url_locked(
+        "https://cdn.example.test/thumb.png",
+        "11111111-1111-4111-8111-111111111111",
+    )
+
+    image_hash = hashlib.sha256(image_bytes).hexdigest()
+    expected_suffix = (
+        f"/thumbnails/11111111-1111-4111-8111-111111111111/{image_hash}.png"
+    )
+    assert result and result.endswith(expected_suffix)
+    assert len(fake_s3.puts) == 1
+
+
 class DeletingS3:
     def __init__(self, *, errors=None):
         self.remaining = ["prefix/one", "prefix/two"]

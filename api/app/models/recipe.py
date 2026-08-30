@@ -4,6 +4,7 @@ import uuid
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -43,6 +44,9 @@ class Recipe(Base):
     extraction_method = Column(String(32), nullable=True)  # whisper|basic|oembed|manual|ocr|text-ai
     extraction_quality = Column(String(16), nullable=True)  # high|medium|low
     has_audio_transcript = Column(Boolean, default=False)
+    review_state = Column(String(24), nullable=True, index=True)
+    extraction_evidence = Column(JSONB, nullable=True)
+    content_revision = Column(Integer, nullable=False, default=1, server_default="1")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Stable application-user ownership - nullable for legacy recipes
@@ -79,6 +83,22 @@ class Recipe(Base):
         "ExtractionJob",
         back_populates="recipe",
         foreign_keys="ExtractionJob.recipe_id",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "review_state IS NULL OR review_state IN "
+            "('source_incomplete', 'needs_review', 'ready')",
+            name="ck_recipes_review_state",
+        ),
+        CheckConstraint(
+            "content_revision >= 1",
+            name="ck_recipes_content_revision",
+        ),
+        CheckConstraint(
+            "review_state IS NULL OR review_state = 'ready' OR is_public = FALSE",
+            name="ck_recipes_review_public",
+        ),
     )
     
     def __repr__(self):
@@ -199,6 +219,9 @@ class RecipeVersion(Base):
     version_number = Column(Integer, nullable=False)
     extracted = Column(JSONB, nullable=False)  # Snapshot of recipe data
     thumbnail_url = Column(Text, nullable=True)
+    review_state = Column(String(24), nullable=True)
+    extraction_evidence = Column(JSONB, nullable=True)
+    content_revision = Column(Integer, nullable=True)
     change_type = Column(String(32), nullable=False, default="edit")  # initial, edit, re-extract
     change_summary = Column(Text, nullable=True)  # Optional description of changes
     created_by = Column(
@@ -212,6 +235,15 @@ class RecipeVersion(Base):
     recipe = relationship("Recipe", backref="versions")
 
     __table_args__ = (
+        CheckConstraint(
+            "review_state IS NULL OR review_state IN "
+            "('source_incomplete', 'needs_review', 'ready')",
+            name="ck_recipe_versions_review_state",
+        ),
+        CheckConstraint(
+            "content_revision IS NULL OR content_revision >= 1",
+            name="ck_recipe_versions_content_revision",
+        ),
         UniqueConstraint(
             "recipe_id",
             "version_number",

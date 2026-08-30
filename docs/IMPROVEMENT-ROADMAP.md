@@ -4,6 +4,7 @@ Created: 2026-08-18
 Canonicalized: 2026-08-19
 Source audit: [SYSTEM-AUDIT-2026-08-18.md](./SYSTEM-AUDIT-2026-08-18.md)
 Product context: [PRODUCT-AND-SYSTEM.md](./PRODUCT-AND-SYSTEM.md)
+Focused extraction plan: [EXTRACTION-ACCURACY-PLAN.md](./EXTRACTION-ACCURACY-PLAN.md)
 
 ## How to use this roadmap
 

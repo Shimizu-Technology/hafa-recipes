@@ -41,6 +41,7 @@ def _schema():
         Column("user_id", String(64)),
         Column("is_public", Boolean, nullable=False),
         Column("moderation_status", String(16), nullable=False),
+        Column("review_state", String(24)),
     )
     user_blocks = Table(
         "user_blocks",
