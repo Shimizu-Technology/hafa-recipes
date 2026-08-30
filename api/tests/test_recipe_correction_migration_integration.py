@@ -78,6 +78,25 @@ async def test_migration_027_is_idempotent_and_enforces_aggregate_contract(monke
             )
 
         monkeypatch.setattr(migration_027, "engine", engine)
+        monkeypatch.setattr(migration_027.settings, "environment", "production")
+        monkeypatch.setattr(migration_027.settings, "migration_027_restore_point", None)
+        with pytest.raises(RuntimeError, match="MIGRATION_027_RESTORE_POINT"):
+            await migration_027.run_migration()
+        async with engine.connect() as connection:
+            blocked_table = await connection.scalar(
+                text("SELECT to_regclass('public.recipe_correction_events')")
+            )
+            blocked_marker = await connection.scalar(
+                text("SELECT COUNT(*) FROM schema_migrations WHERE version = 27")
+            )
+        assert blocked_table is None
+        assert blocked_marker == 0
+
+        monkeypatch.setattr(
+            migration_027.settings,
+            "migration_027_restore_point",
+            "pre-correction-events-restore-point",
+        )
         await migration_027.run_migration()
         await migration_027.run_migration()
 
