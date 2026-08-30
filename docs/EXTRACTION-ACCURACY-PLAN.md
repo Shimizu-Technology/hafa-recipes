@@ -398,12 +398,18 @@ large migration or mobile release.
   rejection, null-preserving uncertainty checks, the strict website fallback,
   and the supported yt-dlp impersonation dependency.
 - Public platform canaries, field-level evaluation expansion, normal-video frame
-  rollout, image classification, provenance-rich side-by-side review, and
-  correction telemetry remain explicit follow-up work. The normal-video frame
+  rollout, a complete side-by-side editor, and correction telemetry remain
+  explicit follow-up work. The normal-video frame
   path is implemented behind a default-off server flag with bounded download,
   sampling, deduplication, timestamp provenance, conservative reconciliation,
   and cleanup tests. It stays off until public canaries establish acquisition,
   latency, and cost behavior on the deployed runtime.
+- The owner recipe screen now makes review—not cooking—the primary action for
+  incomplete and unverified drafts. It shows the exact missing-amount count,
+  privacy-bounded source modalities/frame timestamps, an original-source link,
+  and keeps `Cook with draft` as a warned secondary action when instructions
+  exist. Broader time/temperature highlighting belongs in the field-evidence
+  expansion rather than being inferred in the client.
 
 ### Release 0 — Lock the baseline before changing behavior
 

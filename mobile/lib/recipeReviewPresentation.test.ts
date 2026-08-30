@@ -4,6 +4,7 @@ import {
   canOpenRecipeOriginal,
   getCookDraftPresentation,
   getMissingQuantityLabel,
+  getRecipeReviewDetails,
   getRecipeReviewLabel,
   isRecipeOwner,
 } from './recipeReviewPresentation';
@@ -53,6 +54,37 @@ describe('recipe review presentation', () => {
     expect(getMissingQuantityLabel(null, { name: 'achiote water' })).toBe(
       'Not stated — verify original',
     );
+  });
+
+  it('turns owner evidence into a precise amount-review action', () => {
+    expect(getRecipeReviewDetails('needs_review', 3, {
+      source: {
+        modalities: ['audio_transcript', 'video_frames'],
+        frames: [
+          { timestampSeconds: 0 },
+          { timestampSeconds: 15 },
+          { timestampSeconds: 65 },
+          { timestampSeconds: 90 },
+          { timestampSeconds: 120 },
+        ],
+      },
+      assessment: { missingQuantityCount: 2 },
+    })).toEqual({
+      actionLabel: 'Review 2 amounts',
+      heading: '2 ingredient amounts were not stated',
+      message: 'Missing amounts stay blank instead of being guessed. Add them only if you can verify them from the source.',
+      missingQuantityCount: 2,
+      sourceSummary: 'Checked spoken audio and video frames at 0:00, 0:15, 1:05, 1:30, +1 more.',
+    });
+  });
+
+  it('makes an incomplete source an add-details task without invented evidence', () => {
+    expect(getRecipeReviewDetails('source_incomplete', 1, null)).toMatchObject({
+      actionLabel: 'Add missing details',
+      heading: 'Finish this saved draft',
+      sourceSummary: null,
+    });
+    expect(getRecipeReviewDetails('ready', 0, null)).toBeNull();
   });
 
   it('uses the stable API ownership verdict when Clerk and application IDs differ', () => {
