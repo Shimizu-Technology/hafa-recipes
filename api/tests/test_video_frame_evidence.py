@@ -249,6 +249,35 @@ async def test_scene_frames_without_parsed_timestamps_are_dropped(monkeypatch, t
 
 
 @pytest.mark.asyncio
+async def test_scene_timeout_preserves_periodic_fallback(monkeypatch, tmp_path):
+    """Optional scene analysis may time out without failing periodic coverage."""
+
+    class TimedOutSceneProcess:
+        returncode = None
+
+        async def communicate(self):
+            raise asyncio.TimeoutError
+
+        def kill(self):
+            self.returncode = -9
+
+        async def wait(self):
+            return self.returncode
+
+    monkeypatch.setattr(
+        "app.services.video.asyncio.create_subprocess_exec",
+        AsyncMock(return_value=TimedOutSceneProcess()),
+    )
+
+    frames = await VideoService()._write_scene_change_frames(
+        "video.mp4",
+        str(tmp_path),
+    )
+
+    assert frames == []
+
+
+@pytest.mark.asyncio
 async def test_frame_media_is_cleaned_after_success(monkeypatch, tmp_path):
     """Downloaded videos and JPEGs must not survive a successful request."""
 

@@ -1212,7 +1212,10 @@ class VideoService:
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=os.name == "posix",
             )
-            _, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+            try:
+                _, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+            except asyncio.TimeoutError:
+                return []
             if process.returncode != 0:
                 return []
             timestamps = [
