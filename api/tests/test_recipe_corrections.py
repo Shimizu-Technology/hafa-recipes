@@ -70,12 +70,12 @@ def test_measurement_counts_field_categories_without_returning_values():
     )
 
 
-def test_measurement_falls_back_to_legacy_fields_when_components_are_empty():
-    """Empty canonical components must not hide corrections from legacy clients."""
+def test_measurement_falls_back_when_components_have_no_valid_records():
+    """Invalid canonical components must not hide corrections from legacy clients."""
 
     before = {
         **_recipe_data(),
-        "components": [],
+        "components": [None, "not-a-component", 3],
         "ingredients": [{"name": "rice", "quantity": None, "unit": None}],
         "steps": ["Cook the rice."],
     }

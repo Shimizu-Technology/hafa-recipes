@@ -128,6 +128,14 @@ export function countUsableInstructions(
   }, 0);
 }
 
+/** Hide edit-oriented recipe actions that a non-owner cannot complete. */
+export function canShowRecipePrimaryAction(
+  isOwner: boolean,
+  canCook: boolean,
+): boolean {
+  return isOwner || canCook;
+}
+
 /** Describe whether a recipe can enter cook mode and what warning it needs. */
 export function getCookDraftPresentation(
   state: RecipeReviewState | null | undefined,

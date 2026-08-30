@@ -51,6 +51,7 @@ import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { getSourcePlayback } from '@/lib/sourcePlayback';
 import {
+  canShowRecipePrimaryAction,
   canOpenRecipeOriginal,
   countUsableInstructions,
   getCookDraftPresentation,
@@ -1555,7 +1556,7 @@ export default function RecipeDetailScreen() {
                 </TouchableOpacity>
               )}
             </>
-          ) : (
+          ) : canShowRecipePrimaryAction(isOwner, cookPresentation.canCook) ? (
             <TouchableOpacity
               style={[styles.floatingCookButton, { backgroundColor: colors.tint }]}
               onPress={handleCook}
@@ -1570,7 +1571,7 @@ export default function RecipeDetailScreen() {
               />
               <Text style={styles.floatingCookButtonText}>{cookPresentation.buttonLabel}</Text>
             </TouchableOpacity>
-          )}
+          ) : null}
         </RNView>
       </KeyboardAvoidingView>
 

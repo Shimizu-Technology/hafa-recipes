@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  canShowRecipePrimaryAction,
   canOpenRecipeOriginal,
   countUsableInstructions,
   getCookDraftPresentation,
@@ -37,6 +38,12 @@ describe('recipe review presentation', () => {
       { steps: [null, '', 'null', '  none  ', 'Simmer the rice.'] },
     ])).toBe(1);
     expect(countUsableInstructions([{ steps: ['unknown'] }])).toBe(0);
+  });
+
+  it('hides an unusable edit-oriented action from non-owners', () => {
+    expect(canShowRecipePrimaryAction(false, false)).toBe(false);
+    expect(canShowRecipePrimaryAction(false, true)).toBe(true);
+    expect(canShowRecipePrimaryAction(true, false)).toBe(true);
   });
 
   it('keeps ready and legacy recipes on the normal cooking path', () => {
