@@ -47,7 +47,7 @@ export function getMissingQuantityLabel(
     !!value && !nullish.has(value.trim().toLowerCase())
   );
   if (hasStatedValue(ingredient.quantity)) return null;
-  const sourceLanguage = `${ingredient.name || ''} ${ingredient.notes || ''}`.toLowerCase();
+  const sourceLanguage = `${ingredient.name || ''} ${ingredient.unit || ''} ${ingredient.notes || ''}`.toLowerCase();
   if (['to taste', 'as needed', 'as desired', 'for garnish', 'optional'].some(
     phrase => sourceLanguage.includes(phrase),
   )) return null;

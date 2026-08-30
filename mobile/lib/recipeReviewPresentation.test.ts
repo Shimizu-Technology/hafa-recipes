@@ -46,6 +46,7 @@ describe('recipe review presentation', () => {
     expect(getMissingQuantityLabel('needs_review', { name: 'soy sauce', unit: 'tablespoon' })).toBe(
       'Not stated — verify original',
     );
+    expect(getMissingQuantityLabel('needs_review', { name: 'salt', unit: 'to taste' })).toBeNull();
     expect(getMissingQuantityLabel('ready', { name: 'water' })).toBe(
       'Not stated — verify original',
     );
