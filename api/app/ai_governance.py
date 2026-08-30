@@ -26,6 +26,7 @@ PROMPT_VERSIONS = {
     "ocr": "recipe-ocr-v3",
     "tiktok_slideshow": "recipe-tiktok-slideshow-v1",
     "video_frames": "recipe-video-frames-v1",
+    "image_classification": "recipe-image-classification-v1",
     "recipe_chat": "recipe-chat-safety-v3",
     "cooking_chat": "cooking-chat-safety-v3",
     "enrichment_tags": "recipe-tags-v1",

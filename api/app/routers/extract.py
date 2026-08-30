@@ -40,7 +40,7 @@ from app.recipe_review import (
 )
 from app.services import recipe_extractor, storage_service, video_service
 from app.services.extractor import ExtractionProgress
-from app.services.llm_client import llm_service
+from app.services.llm_client import ImageClassificationResult, llm_service
 from app.source_urls import canonicalize_source
 
 MAX_OCR_IMAGE_BYTES = 10 * 1024 * 1024
@@ -1905,8 +1905,57 @@ class OCRExtractionResponse(BaseModel):
     latency_seconds: Optional[float] = None
 
 
+class ClassifiedOCRExtractionResponse(OCRExtractionResponse):
+    """Add image-only classification fields without changing text responses."""
+
+    error_code: Optional[str] = None
+    input_classification: Optional[str] = None
+
+
 class TextExtractionResponse(OCRExtractionResponse):
     """Response containing a recipe draft extracted from pasted text."""
+
+
+def _classification_failure_response(
+    classification_result: ImageClassificationResult,
+) -> ClassifiedOCRExtractionResponse | None:
+    """Translate a fail-closed image classification into recovery guidance."""
+
+    if not classification_result.success:
+        return ClassifiedOCRExtractionResponse(
+            success=False,
+            error=(
+                "We couldn't verify that these images contain readable recipe text. "
+                "Try clearer screenshots or enter the recipe manually."
+            ),
+            error_code="IMAGE_CLASSIFICATION_UNAVAILABLE",
+            model_used=classification_result.model_used,
+        )
+
+    classification = classification_result.classification
+    messages = {
+        "dish_photo": (
+            "This looks like a food photo, not a recipe document. Choose screenshots, "
+            "recipe cards, or cookbook pages that show ingredients and instructions."
+        ),
+        "unreadable": (
+            "The recipe text is too blurry, cropped, or small to read reliably. "
+            "Try a clearer, full-page image."
+        ),
+        "unsupported": (
+            "These images don't appear to show one readable recipe. Choose pages from "
+            "the same recipe or enter it manually."
+        ),
+    }
+    if classification in messages:
+        return ClassifiedOCRExtractionResponse(
+            success=False,
+            error=messages[classification],
+            error_code=f"IMAGE_{classification.upper()}",
+            input_classification=classification,
+            model_used=classification_result.model_used,
+        )
+    return None
 
 
 class TextExtractionRequest(BaseModel):
@@ -1945,7 +1994,7 @@ async def extract_recipe_from_text(
     )
 
 
-@router.post("/extract/ocr", response_model=OCRExtractionResponse)
+@router.post("/extract/ocr", response_model=ClassifiedOCRExtractionResponse)
 async def extract_recipe_from_image(
     image: UploadFile = File(..., description="Image file of a recipe (handwritten or printed)"),
     location: str = Form(default="Guam", description="Location for cost estimation"),
@@ -1986,8 +2035,13 @@ async def extract_recipe_from_image(
             detail="Failed to read image",
         ) from e
     
-    # Extract recipe using vision models
     with ai_request_context(user_id=user.id, route="ocr_single"):
+        classification = None
+        if settings.image_input_classification_enabled:
+            classification = await llm_service.classify_recipe_images([image_base64])
+            classification_failure = _classification_failure_response(classification)
+            if classification_failure:
+                return classification_failure
         result = await llm_service.extract_from_image(
             image_base64=image_base64,
             location=location,
@@ -1995,23 +2049,30 @@ async def extract_recipe_from_image(
     
     if result.success:
         print(f"✅ OCR extraction successful: {result.recipe.get('title', 'Untitled')}")
-        return OCRExtractionResponse(
+        return ClassifiedOCRExtractionResponse(
             success=True,
             recipe=result.recipe,
+            input_classification=(
+                classification.classification if classification else None
+            ),
             model_used=result.model_used,
             latency_seconds=result.latency_seconds
         )
     else:
         print(f"❌ OCR extraction failed: {result.error}")
-        return OCRExtractionResponse(
+        return ClassifiedOCRExtractionResponse(
             success=False,
             error=result.error,
+            error_code=result.error_code,
+            input_classification=(
+                classification.classification if classification else None
+            ),
             model_used=result.model_used,
             latency_seconds=result.latency_seconds
         )
 
 
-@router.post("/extract/ocr/multi", response_model=OCRExtractionResponse)
+@router.post("/extract/ocr/multi", response_model=ClassifiedOCRExtractionResponse)
 async def extract_recipe_from_multiple_images(
     images: list[UploadFile] = File(..., description="Multiple image files of a recipe"),
     location: str = Form(default="Guam", description="Location for cost estimation"),
@@ -2075,8 +2136,13 @@ async def extract_recipe_from_multiple_images(
             detail="Total image size too large. Maximum combined size is 40MB."
         )
     
-    # Extract recipe using multi-image vision
     with ai_request_context(user_id=user.id, route="ocr_multi"):
+        classification = None
+        if settings.image_input_classification_enabled:
+            classification = await llm_service.classify_recipe_images(images_base64)
+            classification_failure = _classification_failure_response(classification)
+            if classification_failure:
+                return classification_failure
         result = await llm_service.extract_from_images(
             images_base64=images_base64,
             location=location,
@@ -2084,17 +2150,24 @@ async def extract_recipe_from_multiple_images(
     
     if result.success:
         print(f"✅ Multi-image OCR successful: {result.recipe.get('title', 'Untitled')}")
-        return OCRExtractionResponse(
+        return ClassifiedOCRExtractionResponse(
             success=True,
             recipe=result.recipe,
+            input_classification=(
+                classification.classification if classification else None
+            ),
             model_used=result.model_used,
             latency_seconds=result.latency_seconds
         )
     else:
         print(f"❌ Multi-image OCR failed: {result.error}")
-        return OCRExtractionResponse(
+        return ClassifiedOCRExtractionResponse(
             success=False,
             error=result.error,
+            error_code=result.error_code,
+            input_classification=(
+                classification.classification if classification else None
+            ),
             model_used=result.model_used,
             latency_seconds=result.latency_seconds
         )

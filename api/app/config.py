@@ -155,6 +155,7 @@ class Settings(BaseSettings):
         le=100 * 1024 * 1024,
     )
     video_frame_max_count: int = Field(default=8, ge=6, le=12)
+    image_input_classification_enabled: bool = False
     video_max_concurrency: int = Field(default=2, ge=1, le=4)
     video_queue_timeout_seconds: int = Field(default=5, ge=1, le=60)
 

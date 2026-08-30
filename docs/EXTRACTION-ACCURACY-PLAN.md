@@ -178,6 +178,11 @@ Source URL / screenshots / text
 - Preserve page, bounding-box, and OCR-quality references long enough for the
   review screen; do not expose private source artifacts publicly.
 
+Implementation status: the default-off classification gate and mobile recovery
+copy are implemented. It deliberately stops before the separate inspired-recipe
+concept. Production rollout remains gated on the canaries and measurements in
+[IMAGE-INPUT-CLASSIFICATION-RUNBOOK.md](./IMAGE-INPUT-CLASSIFICATION-RUNBOOK.md).
+
 ## Save and recovery behavior
 
 Recipe readiness and save permission are deliberately separate.
