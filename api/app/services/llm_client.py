@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.services.extraction_confidence import normalize_extraction_confidence
 from app.services.prompts import (
     PASTED_TEXT_SOURCE_URL,
+    RECIPE_RESPONSE_FORMAT,
     get_multi_image_ocr_prompt,
     get_ocr_extraction_prompt,
     get_pasted_text_recipe_extraction_prompt,
@@ -85,6 +86,8 @@ class LLMService:
     }
     
     def __init__(self):
+        """Bind the configured provider credential for this process."""
+
         self.openai_api_key = settings.openai_api_key
         
     async def extract_recipe(
@@ -280,6 +283,8 @@ class LLMService:
     async def extract_from_tiktok_slideshow(
         self,
         images_base64: list[str],
+        source_url: str,
+        source_context: str = "",
         location: str = "Guam",
         use_fallback: bool = True
     ) -> ExtractionResult:
@@ -291,6 +296,8 @@ class LLMService:
         
         Args:
             images_base64: List of base64 encoded slideshow images
+            source_url: Original TikTok slideshow URL
+            source_context: Caption/title metadata to use as source evidence
             location: Location for cost estimation
             use_fallback: Whether to use the configured Terra fallback
             
@@ -304,7 +311,12 @@ class LLMService:
         print(f"🖼️ Total size: {total_size}KB (base64)")
         
         # Use TikTok slideshow-specific prompt (visual analysis)
-        prompt = get_tiktok_slideshow_prompt(num_images, location)
+        prompt = get_tiktok_slideshow_prompt(
+            num_images,
+            source_url=source_url,
+            source_context=self._sanitize_pasted_text(source_context)[:12_000],
+            location=location,
+        )
         
         if not settings.is_ai_capability_enabled("ocr"):
             return ExtractionResult(success=False, error="OCR is temporarily unavailable")
@@ -318,6 +330,8 @@ class LLMService:
                 images_base64=images_base64,
                 location=location,
                 fallback_reason=None,
+                source_url=source_url,
+                prompt_version=PROMPT_VERSIONS["tiktok_slideshow"],
             )
             
             if result.success:
@@ -334,6 +348,8 @@ class LLMService:
                 images_base64=images_base64,
                 location=location,
                 fallback_reason=result.error_code or "primary_failed",
+                source_url=source_url,
+                prompt_version=PROMPT_VERSIONS["tiktok_slideshow"],
             )
             
             if result.success:
@@ -387,6 +403,8 @@ class LLMService:
                 images_base64=images_base64,
                 location=location,
                 fallback_reason=None,
+                source_url="photo-upload",
+                prompt_version=PROMPT_VERSIONS["ocr"],
             )
             
             if result.success:
@@ -403,6 +421,8 @@ class LLMService:
                 images_base64=images_base64,
                 location=location,
                 fallback_reason=result.error_code or "primary_failed",
+                source_url="photo-upload",
+                prompt_version=PROMPT_VERSIONS["ocr"],
             )
             
             if result.success:
@@ -525,6 +545,8 @@ class LLMService:
         images_base64: list[str],
         location: str,
         fallback_reason: str | None,
+        source_url: str,
+        prompt_version: str,
     ) -> ExtractionResult:
         """Try multi-image extraction with a specific model, with retries."""
         
@@ -545,6 +567,8 @@ class LLMService:
                     images_base64=images_base64,
                     location=location,
                     fallback_reason=fallback_reason,
+                    source_url=source_url,
+                    prompt_version=prompt_version,
                 )
                 
                 if result.success:
@@ -572,6 +596,8 @@ class LLMService:
         images_base64: list[str],
         location: str,
         fallback_reason: str | None,
+        source_url: str,
+        prompt_version: str,
     ) -> ExtractionResult:
         """Make a multi-image vision LLM API call."""
         
@@ -608,7 +634,7 @@ class LLMService:
         async with AIInvocationTracker(
             capability="ocr",
             primary_model=config["model"],
-            prompt_version=PROMPT_VERSIONS["ocr"],
+            prompt_version=prompt_version,
             schema_version=RECIPE_SCHEMA_VERSION,
             fallback_reason=fallback_reason,
             allow_canary=config.get("allow_canary", True),
@@ -622,6 +648,7 @@ class LLMService:
                 ],
                 "reasoning_effort": settings.openai_reasoning_effort,
                 "max_completion_tokens": 5000,
+                "response_format": RECIPE_RESPONSE_FORMAT,
             }
             url = f"{config['base_url']}/chat/completions"
             timeout = config["timeout"] + (len(images_base64) * 15)
@@ -642,15 +669,15 @@ class LLMService:
                 )
 
             data = response.json()
-            raw_content = data["choices"][0]["message"]["content"]
-            if not raw_content:
-                invocation.fail("empty_response", data)
+            raw_content, response_error = self._provider_recipe_content(data)
+            if response_error:
+                invocation.fail(response_error, data)
                 return ExtractionResult(
                     success=False,
-                    error="Empty response from vision model",
+                    error="The model could not return a recipe",
                     model_used=invocation.model,
                     latency_seconds=latency,
-                    error_code="empty_response",
+                    error_code=response_error,
                 )
 
             recipe_data = self._parse_json_response(raw_content)
@@ -665,7 +692,7 @@ class LLMService:
                     error_code=raw_validation_error,
                 )
 
-            recipe_data = self._post_process_recipe(recipe_data, "photo-upload", location)
+            recipe_data = self._post_process_recipe(recipe_data, source_url, location)
             validation_error = self._recipe_validation_error(recipe_data)
             if validation_error:
                 invocation.fail(validation_error, data)
@@ -801,6 +828,7 @@ class LLMService:
                 "temperature": 0.1,
                 "reasoning_effort": settings.openai_reasoning_effort,
                 "max_completion_tokens": 4000,
+                "response_format": RECIPE_RESPONSE_FORMAT,
             }
             url = f"{config['base_url']}/chat/completions"
 
@@ -820,15 +848,15 @@ class LLMService:
                 )
 
             data = response.json()
-            raw_content = data["choices"][0]["message"]["content"]
-            if not raw_content:
-                invocation.fail("empty_response", data)
+            raw_content, response_error = self._provider_recipe_content(data)
+            if response_error:
+                invocation.fail(response_error, data)
                 return ExtractionResult(
                     success=False,
-                    error="Empty response from vision model",
+                    error="The model could not return a recipe",
                     model_used=invocation.model,
                     latency_seconds=latency,
-                    error_code="empty_response",
+                    error_code=response_error,
                 )
 
             recipe_data = self._parse_json_response(raw_content)
@@ -950,7 +978,7 @@ class LLMService:
                 ],
                 "reasoning_effort": settings.openai_reasoning_effort,
                 "max_completion_tokens": 4000,
-                "response_format": {"type": "json_object"},
+                "response_format": RECIPE_RESPONSE_FORMAT,
             }
             url = f"{config['base_url']}/chat/completions"
 
@@ -970,15 +998,15 @@ class LLMService:
                 )
 
             data = response.json()
-            raw_content = data["choices"][0]["message"]["content"]
-            if not raw_content:
-                invocation.fail("empty_response", data)
+            raw_content, response_error = self._provider_recipe_content(data)
+            if response_error:
+                invocation.fail(response_error, data)
                 return ExtractionResult(
                     success=False,
-                    error="Empty response from LLM",
+                    error="The model could not return a recipe",
                     model_used=invocation.model,
                     latency_seconds=latency,
-                    error_code="empty_response",
+                    error_code=response_error,
                 )
 
             recipe_data = self._parse_json_response(raw_content)
@@ -1013,6 +1041,24 @@ class LLMService:
                 latency_seconds=latency,
             )
     
+    @staticmethod
+    def _provider_recipe_content(data: object) -> tuple[str | None, str | None]:
+        """Return structured recipe content while handling provider refusals safely."""
+        if not isinstance(data, dict):
+            return None, "invalid_provider_response"
+        try:
+            message = data["choices"][0]["message"]
+        except (KeyError, IndexError, TypeError):
+            return None, "invalid_provider_response"
+        if not isinstance(message, dict):
+            return None, "invalid_provider_response"
+        if message.get("refusal"):
+            return None, "model_refusal"
+        content = message.get("content")
+        if not isinstance(content, str) or not content.strip():
+            return None, "empty_response"
+        return content, None
+
     def _parse_json_response(self, raw_content: str) -> Optional[dict]:
         """Parse JSON from LLM response, handling markdown code blocks."""
         
@@ -1053,6 +1099,8 @@ class LLMService:
 
     @staticmethod
     def _raw_recipe_validation_error(recipe: object) -> str | None:
+        """Reject malformed provider shapes before post-processing mutates them."""
+
         if not isinstance(recipe, dict):
             return "invalid_json"
         components = recipe.get("components")
@@ -1071,6 +1119,8 @@ class LLMService:
 
     @staticmethod
     def _recipe_validation_error(recipe: dict) -> str | None:
+        """Return the first cooking-critical structural validation failure."""
+
         title = recipe.get("title")
         if not isinstance(title, str) or not title.strip():
             return "missing_title"

@@ -50,6 +50,9 @@ describe('recipe review presentation', () => {
     expect(getMissingQuantityLabel('ready', { name: 'water' })).toBe(
       'Not stated — verify original',
     );
+    expect(getMissingQuantityLabel(null, { name: 'achiote water' })).toBe(
+      'Not stated — verify original',
+    );
   });
 
   it('uses the stable API ownership verdict when Clerk and application IDs differ', () => {

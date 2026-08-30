@@ -21,9 +21,10 @@ from app.public_identity import public_contributor_id
 logger = logging.getLogger("hafa.ai")
 
 PROMPT_VERSIONS = {
-    "recipe_extraction": "recipe-extraction-v1",
-    "pasted_text": "recipe-pasted-text-v1",
-    "ocr": "recipe-ocr-v2",
+    "recipe_extraction": "recipe-extraction-v2",
+    "pasted_text": "recipe-pasted-text-v2",
+    "ocr": "recipe-ocr-v3",
+    "tiktok_slideshow": "recipe-tiktok-slideshow-v1",
     "recipe_chat": "recipe-chat-safety-v3",
     "cooking_chat": "cooking-chat-safety-v3",
     "enrichment_tags": "recipe-tags-v1",
@@ -32,7 +33,7 @@ PROMPT_VERSIONS = {
     "transcription": "audio-transcription-v1",
     "tts": "cook-mode-tts-v1",
 }
-RECIPE_SCHEMA_VERSION = "recipe-components-v1"
+RECIPE_SCHEMA_VERSION = "recipe-components-v2-strict"
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,8 @@ _context: ContextVar[AIRequestContext | None] = ContextVar(
 
 
 def current_ai_context() -> AIRequestContext:
+    """Return the active request context or create an anonymous one."""
+
     return _context.get() or AIRequestContext(request_id=uuid4().hex)
 
 
@@ -104,6 +107,8 @@ def select_ai_model(capability: str, primary_model: str) -> ModelSelection:
 
 
 def _value(value: Any, key: str) -> Any:
+    """Read one usage field from either a mapping or SDK object."""
+
     if value is None:
         return None
     if isinstance(value, dict):
@@ -150,6 +155,8 @@ def estimate_cost_microusd(
 
 
 def _safe_job_id(value: str | None) -> UUID | None:
+    """Parse a job identifier without letting invalid context break tracking."""
+
     try:
         return UUID(value) if value else None
     except ValueError:
@@ -255,6 +262,8 @@ class AIInvocationTracker:
         allow_canary: bool = True,
         rollout_variant: str | None = None,
     ):
+        """Select the model and initialize a failure-safe attempt outcome."""
+
         selection = (
             select_ai_model(capability, primary_model)
             if allow_canary
@@ -272,25 +281,35 @@ class AIInvocationTracker:
         self._started = 0.0
 
     async def __aenter__(self) -> "AIInvocationTracker":
+        """Start latency timing for this provider attempt."""
+
         self._started = time.perf_counter()
         return self
 
     def succeed(self, response: Any = None) -> None:
+        """Mark the validated provider attempt successful."""
+
         self.response = response
         self.status = "success"
         self.error_code = None
 
     def fail(self, error_code: str, response: Any = None) -> None:
+        """Mark the provider attempt as a bounded known failure."""
+
         self.response = response
         self.status = "failed"
         self.error_code = error_code[:64]
 
     def outcome(self, status: str, error_code: str | None, response: Any = None) -> None:
+        """Record an explicit nonstandard terminal outcome."""
+
         self.response = response
         self.status = status[:32]
         self.error_code = error_code[:64] if error_code else None
 
     async def __aexit__(self, exc_type, exc, traceback) -> bool:
+        """Persist privacy-safe provenance and never suppress caller errors."""
+
         if exc is not None and self.error_code == "unclassified_provider_error":
             self.status = "provider_error"
             self.error_code = type(exc).__name__[:64]

@@ -37,12 +37,12 @@ def test_multi_image_ocr_prompt_applies_the_same_trust_contract():
     assert "use null rather than inventing a measurement" in prompt
     assert "Set lowConfidence to true" in prompt
     assert "preserve values stated in any image" in prompt
-    assert "omitted time/serving estimates do not trigger it" in prompt
+    assert "use null for" in prompt
 
 
 def test_ocr_prompt_version_tracks_the_trust_contract_change():
     """Prompt telemetry must distinguish the revised OCR trust contract."""
-    assert PROMPT_VERSIONS["ocr"] == "recipe-ocr-v2"
+    assert PROMPT_VERSIONS["ocr"] == "recipe-ocr-v3"
 
 
 def test_ocr_confidence_is_normalized_for_a_reliable_mobile_warning():

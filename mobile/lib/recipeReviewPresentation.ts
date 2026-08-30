@@ -39,7 +39,7 @@ export function getCookDraftPresentation(
 
 /** Label an absent amount honestly unless the source explicitly supplied flexibility. */
 export function getMissingQuantityLabel(
-  state: RecipeReviewState | null | undefined,
+  _state: RecipeReviewState | null | undefined,
   ingredient: { name?: string | null; quantity?: string | null; unit?: string | null; notes?: string | null },
 ): string | null {
   const nullish = new Set(['', 'null', 'none', 'n/a', 'not stated', 'unknown']);
@@ -51,7 +51,7 @@ export function getMissingQuantityLabel(
   if (['to taste', 'as needed', 'as desired', 'for garnish', 'optional'].some(
     phrase => sourceLanguage.includes(phrase),
   )) return null;
-  return state === null || state === undefined ? null : 'Not stated — verify original';
+  return 'Not stated — verify original';
 }
 
 /** Trust the API's stable-identity ownership verdict, not a Clerk subject. */
