@@ -42,7 +42,7 @@ AI can make mistakes. Review extracted ingredients, directions, allergens, tempe
 
 Made in Guam by Shimizu Technology.`;
 const RELEASE_NOTES =
-  'Import recipes from pasted text, screenshots, photos, and native shares. Source videos now play in one tap when supported, grocery and meal-plan links are easier to follow, and the app has a new reef-inspired design. Ask Håfa now keeps context more reliably, streams answers, accepts pasted images and attachments, supports voice dictation and spoken replies, preserves drafts, and gives clearer recovery when a request fails.';
+  'Recipe imports are now easier to verify and fix. Håfa calls out missing amounts instead of guessing, shows when a recipe needs review, keeps incomplete imports private, and lets you save source drafts to finish manually. Website, caption, slideshow, and video extraction are more careful about unsupported details, with a clearer path back to the original. This update also includes pasted-text, screenshot, photo, and native-share imports; improved grocery and meal-plan connections; and more reliable Ask Håfa chat, image, voice, and draft recovery.';
 
 function requiredEnvironmentValue(environment, name) {
   const value = String(environment[name] ?? '').trim();
