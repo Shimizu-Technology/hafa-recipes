@@ -440,6 +440,7 @@ export default function ExtractScreen() {
     setExtractingAsWebsite(false);
   };
 
+  /** Recover a failed import as a private, editable source-only recipe. */
   const handleKeepSourceDraft = async () => {
     try {
       const recipeId = await extraction.saveSourceDraft();

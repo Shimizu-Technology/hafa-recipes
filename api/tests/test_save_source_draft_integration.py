@@ -11,10 +11,15 @@ from app.auth import ClerkUser
 from app.db.database import Base
 from app.models import ai, deletion, grocery, identity, meal_plan, moderation, recipe  # noqa: F401
 from app.models.identity import AppUser
-from app.models.recipe import ExtractionJob, Recipe
+from app.models.recipe import ExtractionJob, Recipe, RecipeVersion
 from app.publishing import PUBLISHING_DISCLOSURE_VERSION
+from app.recipe_review import apply_recipe_review, evidence_was_user_reviewed
 from app.routers.extract import save_failed_extraction_as_draft
-from app.routers.recipes import RecipeUpdate, update_recipe
+from app.routers.recipes import (
+    RecipeUpdate,
+    restore_recipe_version,
+    update_recipe,
+)
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
@@ -24,6 +29,8 @@ pytestmark = pytest.mark.skipif(
 
 
 def _user(user_id: str) -> ClerkUser:
+    """Build an authenticated principal with distinct stable and Clerk IDs."""
+
     return ClerkUser(
         id=user_id,
         clerk_user_id=f"clerk_{user_id}",
@@ -34,6 +41,8 @@ def _user(user_id: str) -> ClerkUser:
 
 @pytest.mark.asyncio
 async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped():
+    """Exercise draft recovery, identity isolation, and trust-preserving edits."""
+
     assert TEST_DATABASE_URL
     engine = create_async_engine(TEST_DATABASE_URL)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -127,6 +136,80 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
             assert updated.is_public is True
             assert updated.review_state is None
             assert legacy_recipe.content_revision == 2
+
+            structured_extracted = {
+                "title": "Structured recipe",
+                "sourceUrl": "https://example.com/structured",
+                "servings": 4,
+                "times": {"prep": "10 minutes", "cook": "20 minutes", "total": "30 minutes"},
+                "components": [{
+                    "name": "Main",
+                    "ingredients": [{"name": "rice", "quantity": "2", "unit": "cups"}],
+                    "steps": ["Cook the rice."],
+                    "notes": None,
+                }],
+                "ingredients": [{"name": "rice", "quantity": "2", "unit": "cups"}],
+                "steps": ["Cook the rice."],
+                "equipment": [],
+                "notes": None,
+                "tags": [],
+                "mealTypes": [],
+                "nutrition": {"perServing": {}, "total": {}},
+            }
+            structured_recipe = Recipe(
+                id=uuid4(),
+                source_url="https://example.com/structured",
+                source_type="website",
+                extracted=structured_extracted,
+                extraction_method="website-jsonld",
+                has_audio_transcript=False,
+                user_id=owner.id,
+                is_public=False,
+            )
+            initial_review = apply_recipe_review(structured_recipe, structured_extracted)
+            db.add(structured_recipe)
+            await db.commit()
+
+            assert initial_review.state == "ready"
+            assert evidence_was_user_reviewed(structured_recipe.extraction_evidence) is False
+
+            renamed = await update_recipe(
+                structured_recipe.id,
+                RecipeUpdate(title="Renamed structured recipe"),
+                db,
+                owner,
+            )
+            assert renamed.review_state == "ready"
+            assert evidence_was_user_reviewed(structured_recipe.extraction_evidence) is False
+
+            version = RecipeVersion(
+                recipe_id=structured_recipe.id,
+                version_number=1,
+                extracted=structured_extracted,
+                review_state=initial_review.state,
+                extraction_evidence=initial_review.evidence,
+                content_revision=1,
+                change_type="edit",
+                created_by=owner.id,
+            )
+            db.add(version)
+            structured_recipe.extraction_method = "website-ai"
+            apply_recipe_review(
+                structured_recipe,
+                structured_extracted,
+                increment_revision=True,
+            )
+            await db.commit()
+
+            restored = await restore_recipe_version(
+                structured_recipe.id,
+                version.id,
+                db,
+                owner,
+            )
+            assert restored.review_state == "ready"
+            assert structured_recipe.extraction_method == "website-jsonld"
+            assert evidence_was_user_reviewed(structured_recipe.extraction_evidence) is False
     finally:
         async with engine.begin() as connection:
             await connection.execute(text("DROP SCHEMA public CASCADE"))

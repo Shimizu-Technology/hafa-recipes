@@ -17,6 +17,7 @@ EXPLICIT_FLEXIBLE_QUANTITIES = (
     "for garnish",
     "optional",
 )
+NULLISH_SOURCE_VALUES = {"", "null", "none", "n/a", "not stated", "unknown"}
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,8 @@ class ReviewAssessment:
 
 
 def _components(extracted: dict) -> list[dict]:
+    """Return canonical components, falling back to legacy flat fields."""
+
     components = extracted.get("components")
     if isinstance(components, list) and components:
         return [item for item in components if isinstance(item, dict)]
@@ -41,11 +44,19 @@ def _components(extracted: dict) -> list[dict]:
 
 
 def _has_explicit_flexible_quantity(ingredient: dict) -> bool:
+    """Recognize flexible quantity language only when it exists in the source."""
+
     text = " ".join(
         str(ingredient.get(key) or "")
         for key in ("quantity", "unit", "notes", "name")
     ).lower()
     return any(phrase in text for phrase in EXPLICIT_FLEXIBLE_QUANTITIES)
+
+
+def _has_stated_source_value(value: object) -> bool:
+    """Treat serialized null sentinels as absent source evidence."""
+
+    return str(value or "").strip().lower() not in NULLISH_SOURCE_VALUES
 
 
 def assess_recipe_review(
@@ -70,9 +81,11 @@ def assess_recipe_review(
     for component_index, component in enumerate(components):
         ingredients = component.get("ingredients") or []
         for ingredient_index, ingredient in enumerate(ingredients):
-            if not isinstance(ingredient, dict) or not str(ingredient.get("name") or "").strip():
+            if not isinstance(ingredient, dict) or not _has_stated_source_value(
+                ingredient.get("name")
+            ):
                 continue
-            has_quantity = bool(str(ingredient.get("quantity") or "").strip())
+            has_quantity = _has_stated_source_value(ingredient.get("quantity"))
             flexible = _has_explicit_flexible_quantity(ingredient)
             status = "supported" if has_quantity or flexible else "not_stated"
             if status == "not_stated":
@@ -86,7 +99,7 @@ def assess_recipe_review(
             )
 
         for step_index, step in enumerate(component.get("steps") or []):
-            if str(step).strip():
+            if _has_stated_source_value(step):
                 step_evidence.append(
                     {
                         "path": f"components.{component_index}.steps.{step_index}",
@@ -107,13 +120,22 @@ def assess_recipe_review(
     is_exact_website_recipe = source_type == "website" and extraction_method in {
         "json-ld",
         "schema.org",
+        "website-jsonld",
     }
     model_reported_uncertainty = extracted.get("lowConfidence") is True
 
     if source_incomplete:
         state: ReviewState = "source_incomplete"
         summary = "Source incomplete — save it now and add the missing details when you can."
-    elif user_reviewed or is_direct_human_entry or is_exact_website_recipe:
+    elif (
+        user_reviewed
+        or is_direct_human_entry
+        or (
+            is_exact_website_recipe
+            and missing_quantity_count == 0
+            and not model_reported_uncertainty
+        )
+    ):
         state = "ready"
         summary = "Ready to cook."
     else:
@@ -140,11 +162,45 @@ def assess_recipe_review(
             "ingredientCount": ingredient_count,
             "stepCount": step_count,
             "missingQuantityCount": missing_quantity_count,
+            "userReviewed": user_reviewed or is_direct_human_entry,
             "reasons": reasons,
         },
         "fields": ingredient_evidence + step_evidence,
     }
     return ReviewAssessment(state, summary, uncertainty_count, evidence)
+
+
+def evidence_was_user_reviewed(evidence: dict | None) -> bool:
+    """Return whether durable evidence says a person reviewed this content.
+
+    The field-status fallback supports evidence written by the first release of
+    this contract, before ``assessment.userReviewed`` was persisted explicitly.
+    A ``ready`` state alone is intentionally insufficient because structured
+    website data can be ready without a person reviewing it.
+    """
+
+    if not isinstance(evidence, dict):
+        return False
+    assessment = evidence.get("assessment")
+    if isinstance(assessment, dict) and assessment.get("userReviewed") is True:
+        return True
+    fields = evidence.get("fields")
+    return bool(fields) and all(
+        isinstance(field, dict) and field.get("status") == "user_verified"
+        for field in fields
+    )
+
+
+def evidence_source_method(evidence: dict | None) -> str | None:
+    """Read the extraction method from a version's validated evidence envelope."""
+
+    if not isinstance(evidence, dict):
+        return None
+    source = evidence.get("source")
+    if not isinstance(source, dict):
+        return None
+    method = source.get("method")
+    return method.strip() if isinstance(method, str) and method.strip() else None
 
 
 def apply_recipe_review(

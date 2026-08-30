@@ -30,7 +30,12 @@ from app.publishing import (
     require_current_publishing_disclosure,
 )
 from app.recipe_derived_data import mark_fresh
-from app.recipe_review import apply_recipe_review, assess_recipe_review, review_response_fields
+from app.recipe_review import (
+    apply_recipe_review,
+    assess_recipe_review,
+    require_recipe_publishable,
+    review_response_fields,
+)
 from app.services import recipe_extractor, storage_service, video_service
 from app.services.extractor import ExtractionProgress
 from app.services.llm_client import llm_service
@@ -526,6 +531,7 @@ async def extract_recipe(
         )
         apply_recipe_review(new_recipe, extracted_recipe)
         if new_recipe.is_public:
+            require_recipe_publishable(new_recipe)
             await require_current_publishing_disclosure(db, user.id)
         
         new_recipe, raced_existing = await _commit_external_recipe(db, new_recipe)
@@ -596,6 +602,7 @@ async def extract_recipe(
     )
     apply_recipe_review(new_recipe, extracted_recipe)
     if new_recipe.is_public:
+        require_recipe_publishable(new_recipe)
         await require_current_publishing_disclosure(db, user.id)
     
     new_recipe, raced_existing = await _commit_external_recipe(db, new_recipe)
@@ -953,8 +960,6 @@ async def run_extraction_job(
                 saved_extracted = dict(extracted_data)
                 
                 # Save recipe WITH USER ID and display name
-                if is_public:
-                    await require_current_publishing_disclosure(db, user_id)
                 canonical_source_key = canonicalize_source(url).key
                 new_recipe = Recipe(
                     source_url=url,
@@ -972,6 +977,9 @@ async def run_extraction_job(
                     total_minutes=_compute_total_minutes(extracted_data),
                 )
                 review = apply_recipe_review(new_recipe, extracted_data)
+                if new_recipe.is_public:
+                    require_recipe_publishable(new_recipe)
+                    await require_current_publishing_disclosure(db, user_id)
                 extracted_data = dict(new_recipe.extracted)
                 saved_extracted = dict(extracted_data)
                 db.add(new_recipe)
@@ -1408,11 +1416,6 @@ async def start_re_extraction_job(
             detail="Cannot re-extract manual recipes. Please edit them directly."
         )
 
-    if recipe.is_public:
-        if not recipe.user_id:
-            raise HTTPException(status_code=409, detail="Public recipe has no publishing owner")
-        await require_current_publishing_disclosure(db, recipe.user_id)
-
     idempotency_key = _normalized_idempotency_key(idempotency_key)
     if idempotency_key:
         idempotent_result = await db.execute(
@@ -1757,6 +1760,7 @@ async def run_re_extraction_job(
                 )
                 final_extracted = recipe.extracted
                 if recipe.is_public:
+                    require_recipe_publishable(recipe)
                     if not recipe.user_id:
                         raise HTTPException(
                             status_code=409,

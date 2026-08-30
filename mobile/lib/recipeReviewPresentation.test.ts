@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  canOpenRecipeOriginal,
   getCookDraftPresentation,
   getMissingQuantityLabel,
   getRecipeReviewLabel,
+  isRecipeOwner,
 } from './recipeReviewPresentation';
 
 describe('recipe review presentation', () => {
@@ -38,6 +40,22 @@ describe('recipe review presentation', () => {
       'Not stated — verify original',
     );
     expect(getMissingQuantityLabel('needs_review', { name: 'salt to taste' })).toBeNull();
-    expect(getMissingQuantityLabel('ready', { name: 'water' })).toBeNull();
+    expect(getMissingQuantityLabel('needs_review', { name: 'soy sauce', quantity: 'null' })).toBe(
+      'Not stated — verify original',
+    );
+    expect(getMissingQuantityLabel('ready', { name: 'water' })).toBe(
+      'Not stated — verify original',
+    );
+  });
+
+  it('uses the stable API ownership verdict when Clerk and application IDs differ', () => {
+    expect(isRecipeOwner({ is_owner: true })).toBe(true);
+    expect(isRecipeOwner({ is_owner: false })).toBe(false);
+  });
+
+  it('offers the original only for a web source, not a photo marker', () => {
+    expect(canOpenRecipeOriginal('https://www.tiktok.com/@cook/video/123')).toBe(true);
+    expect(canOpenRecipeOriginal('photo-upload')).toBe(false);
+    expect(canOpenRecipeOriginal('manual://user-created')).toBe(false);
   });
 });

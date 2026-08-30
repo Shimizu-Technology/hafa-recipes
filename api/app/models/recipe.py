@@ -4,6 +4,7 @@ import uuid
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -82,6 +83,22 @@ class Recipe(Base):
         "ExtractionJob",
         back_populates="recipe",
         foreign_keys="ExtractionJob.recipe_id",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "review_state IS NULL OR review_state IN "
+            "('source_incomplete', 'needs_review', 'ready')",
+            name="ck_recipes_review_state",
+        ),
+        CheckConstraint(
+            "content_revision >= 1",
+            name="ck_recipes_content_revision",
+        ),
+        CheckConstraint(
+            "review_state IS NULL OR review_state = 'ready' OR is_public = FALSE",
+            name="ck_recipes_review_public",
+        ),
     )
     
     def __repr__(self):
@@ -218,6 +235,15 @@ class RecipeVersion(Base):
     recipe = relationship("Recipe", backref="versions")
 
     __table_args__ = (
+        CheckConstraint(
+            "review_state IS NULL OR review_state IN "
+            "('source_incomplete', 'needs_review', 'ready')",
+            name="ck_recipe_versions_review_state",
+        ),
+        CheckConstraint(
+            "content_revision IS NULL OR content_revision >= 1",
+            name="ck_recipe_versions_content_revision",
+        ),
         UniqueConstraint(
             "recipe_id",
             "version_number",

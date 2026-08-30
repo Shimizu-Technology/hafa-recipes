@@ -10,6 +10,8 @@ from app.db.database import engine
 
 
 async def run_migration() -> None:
+    """Add idempotent recipe review columns, constraints, and lookup index."""
+
     async with engine.begin() as conn:
         migration_025_ready = await conn.scalar(text("""
             SELECT EXISTS (
@@ -37,6 +39,7 @@ async def run_migration() -> None:
                 IF NOT EXISTS (
                     SELECT 1 FROM pg_constraint
                     WHERE conname = 'ck_recipes_review_state'
+                      AND conrelid = 'recipes'::regclass
                 ) THEN
                     ALTER TABLE recipes
                     ADD CONSTRAINT ck_recipes_review_state
@@ -49,6 +52,7 @@ async def run_migration() -> None:
                 IF NOT EXISTS (
                     SELECT 1 FROM pg_constraint
                     WHERE conname = 'ck_recipes_content_revision'
+                      AND conrelid = 'recipes'::regclass
                 ) THEN
                     ALTER TABLE recipes
                     ADD CONSTRAINT ck_recipes_content_revision
@@ -56,7 +60,21 @@ async def run_migration() -> None:
                 END IF;
                 IF NOT EXISTS (
                     SELECT 1 FROM pg_constraint
+                    WHERE conname = 'ck_recipes_review_public'
+                      AND conrelid = 'recipes'::regclass
+                ) THEN
+                    ALTER TABLE recipes
+                    ADD CONSTRAINT ck_recipes_review_public
+                    CHECK (
+                        review_state IS NULL
+                        OR review_state = 'ready'
+                        OR is_public = FALSE
+                    );
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
                     WHERE conname = 'ck_recipe_versions_review_state'
+                      AND conrelid = 'recipe_versions'::regclass
                 ) THEN
                     ALTER TABLE recipe_versions
                     ADD CONSTRAINT ck_recipe_versions_review_state
@@ -69,6 +87,7 @@ async def run_migration() -> None:
                 IF NOT EXISTS (
                     SELECT 1 FROM pg_constraint
                     WHERE conname = 'ck_recipe_versions_content_revision'
+                      AND conrelid = 'recipe_versions'::regclass
                 ) THEN
                     ALTER TABLE recipe_versions
                     ADD CONSTRAINT ck_recipe_versions_content_revision

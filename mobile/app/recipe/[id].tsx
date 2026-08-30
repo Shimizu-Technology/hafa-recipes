@@ -51,9 +51,11 @@ import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { getSourcePlayback } from '@/lib/sourcePlayback';
 import {
+  canOpenRecipeOriginal,
   getCookDraftPresentation,
   getMissingQuantityLabel,
   getRecipeReviewLabel,
+  isRecipeOwner,
 } from '@/lib/recipeReviewPresentation';
 import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
 import { useTextSize } from '@/hooks/useTextSize';
@@ -216,11 +218,11 @@ export default function RecipeDetailScreen() {
   };
 
   // Check if the current user owns this recipe
-  const isOwner = recipe?.user_id === userId;
+  const isOwner = isRecipeOwner(recipe);
   const contributorId = recipe?.contributor_id ?? null;
   const contributorName = recipe?.extractor_display_name || 'this contributor';
   
-  const hasExternalSource = /^https?:\/\//i.test(recipe?.source_url || '');
+  const hasExternalSource = canOpenRecipeOriginal(recipe?.source_url);
   // Re-extraction requires a fetchable source URL; manual and photo recipes
   // intentionally keep their internal source markers out of user actions.
   const canReExtract = hasExternalSource;
@@ -665,6 +667,7 @@ export default function RecipeDetailScreen() {
     pathname: `/cook-mode/${id}` as any,
     params: isScaled ? { scaleFactor: scaleFactor.toString(), servings: currentServings.toString() } : {},
   });
+  /** Gate cook mode while keeping incomplete drafts usable. */
   const handleCook = () => {
     if (!cookPresentation.canCook) {
       Alert.alert(
@@ -682,7 +685,9 @@ export default function RecipeDetailScreen() {
     if (cookPresentation.alertTitle && cookPresentation.alertMessage) {
       Alert.alert(cookPresentation.alertTitle, cookPresentation.alertMessage, [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Open Original', onPress: handleOpenSource },
+        ...(hasExternalSource
+          ? [{ text: 'Open Original', onPress: handleOpenSource }]
+          : []),
         { text: 'Cook with Draft', onPress: openCookMode },
       ]);
       return;

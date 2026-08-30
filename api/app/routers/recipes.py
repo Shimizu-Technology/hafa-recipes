@@ -46,6 +46,8 @@ from app.recipe_derived_data import (
 from app.recipe_review import (
     apply_recipe_review,
     assess_recipe_review,
+    evidence_source_method,
+    evidence_was_user_reviewed,
     require_recipe_publishable,
     review_response_fields,
 )
@@ -726,7 +728,8 @@ async def create_manual_recipe(
         total_minutes=compute_total_minutes(extracted),  # Compute for SQL filtering
     )
     apply_recipe_review(new_recipe, extracted, user_reviewed=True)
-    if recipe_input.is_public and new_recipe.review_state == "ready":
+    if new_recipe.is_public:
+        require_recipe_publishable(new_recipe)
         await require_current_publishing_disclosure(db, user.id)
 
     db.add(new_recipe)
@@ -807,7 +810,8 @@ async def _save_captured_recipe(
         total_minutes=compute_total_minutes(extracted),  # Compute for SQL filtering
     )
     apply_recipe_review(new_recipe, extracted, user_reviewed=True)
-    if capture_data.is_public and new_recipe.review_state == "ready":
+    if new_recipe.is_public:
+        require_recipe_publishable(new_recipe)
         await require_current_publishing_disclosure(db, user.id)
 
     db.add(new_recipe)
@@ -1824,10 +1828,11 @@ async def update_recipe(
         apply_recipe_review(
             recipe,
             updated_extracted,
-            user_reviewed=recipe.review_state == "ready",
+            user_reviewed=evidence_was_user_reviewed(recipe.extraction_evidence),
             increment_revision=True,
         )
     if recipe.is_public:
+        require_recipe_publishable(recipe)
         await require_current_publishing_disclosure(db, user.id)
 
     await db.commit()
@@ -2008,6 +2013,7 @@ async def edit_recipe(
     )
     recipe.total_minutes = compute_total_minutes(new_extracted)  # Update for SQL filtering
     if recipe.is_public:
+        require_recipe_publishable(recipe)
         await require_current_publishing_disclosure(db, user.id)
 
     await db.commit()
@@ -2105,6 +2111,7 @@ async def edit_recipe_with_image(
     recipe.thumbnail_url = thumbnail_url
     recipe.total_minutes = compute_total_minutes(new_extracted)  # Update for SQL filtering
     if recipe.is_public:
+        require_recipe_publishable(recipe)
         await require_current_publishing_disclosure(db, user.id)
 
     await db.commit()
@@ -2842,13 +2849,19 @@ async def restore_recipe_version(
     )
 
     # Restore the recipe to the selected version
-    restored_reviewed = version_to_restore.review_state == "ready"
+    restored_reviewed = evidence_was_user_reviewed(version_to_restore.extraction_evidence)
+    restored_method = evidence_source_method(version_to_restore.extraction_evidence)
+    if restored_method:
+        recipe.extraction_method = restored_method
     apply_recipe_review(
         recipe,
         dict(version_to_restore.extracted),
         user_reviewed=restored_reviewed,
         increment_revision=True,
     )
+    if recipe.is_public:
+        require_recipe_publishable(recipe)
+        await require_current_publishing_disclosure(db, user.id)
     if version_to_restore.thumbnail_url:
         recipe.thumbnail_url = version_to_restore.thumbnail_url
 
