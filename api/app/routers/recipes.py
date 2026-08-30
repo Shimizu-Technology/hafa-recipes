@@ -47,6 +47,7 @@ from app.recipe_review import (
     apply_recipe_review,
     assess_recipe_review,
     evidence_source_method,
+    evidence_source_provenance,
     evidence_was_user_reviewed,
     require_recipe_publishable,
     review_response_fields,
@@ -2858,6 +2859,9 @@ async def restore_recipe_version(
         dict(version_to_restore.extracted),
         user_reviewed=restored_reviewed,
         increment_revision=True,
+        source_evidence=evidence_source_provenance(
+            version_to_restore.extraction_evidence
+        ),
     )
     if recipe.is_public:
         require_recipe_publishable(recipe)

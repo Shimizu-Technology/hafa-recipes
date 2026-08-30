@@ -223,6 +223,12 @@ def test_media_resource_limits_reject_unsafe_configuration():
         Settings(**base, audio_max_bytes=25 * 1024 * 1024 + 1)
     with pytest.raises(ValidationError):
         Settings(**base, video_download_timeout_seconds=0)
+    with pytest.raises(ValidationError):
+        Settings(**base, video_frame_max_count=13)
+    with pytest.raises(ValidationError):
+        Settings(**base, video_frame_max_count=5)
+    with pytest.raises(ValidationError):
+        Settings(**base, video_frame_max_bytes=100 * 1024 * 1024 + 1)
 
 
 @pytest.mark.asyncio

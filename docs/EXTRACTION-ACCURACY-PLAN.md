@@ -393,9 +393,12 @@ large migration or mobile release.
   rejection, null-preserving uncertainty checks, the strict website fallback,
   and the supported yt-dlp impersonation dependency.
 - Public platform canaries, field-level evaluation expansion, normal-video frame
-  evidence, image classification, provenance-rich side-by-side review, and
-  correction telemetry remain explicit follow-up work. They are not treated as
-  complete merely because the first trust and extraction guards shipped.
+  rollout, image classification, provenance-rich side-by-side review, and
+  correction telemetry remain explicit follow-up work. The normal-video frame
+  path is implemented behind a default-off server flag with bounded download,
+  sampling, deduplication, timestamp provenance, conservative reconciliation,
+  and cleanup tests. It stays off until public canaries establish acquisition,
+  latency, and cost behavior on the deployed runtime.
 
 ### Release 0 — Lock the baseline before changing behavior
 
@@ -500,6 +503,8 @@ their source or mistaking an uncertain recipe for a finished one.
 
 Exit gate: on-screen-only fixtures pass the field-level gates with acceptable
 cost, latency, and artifact cleanup.
+
+Operational rollout and rollback: [VIDEO-FRAME-EXTRACTION-RUNBOOK.md](./VIDEO-FRAME-EXTRACTION-RUNBOOK.md)
 
 ### Release 6 — Classify image inputs and roll out gradually
 

@@ -19,6 +19,7 @@ from app.services.prompts import (
     get_pasted_text_recipe_extraction_prompt,
     get_recipe_extraction_prompt,
     get_tiktok_slideshow_prompt,
+    get_video_frame_extraction_prompt,
 )
 
 settings = get_settings()
@@ -435,6 +436,74 @@ class LLMService:
             success=False,
             error="All multi-image extraction attempts failed"
         )
+
+    async def extract_from_video_frames(
+        self,
+        *,
+        images_base64: list[str],
+        frame_timestamps: list[float],
+        source_url: str,
+        source_context: str,
+        initial_recipe: dict | None,
+        location: str = "Guam",
+        use_fallback: bool = True,
+    ) -> ExtractionResult:
+        """Reconcile sampled normal-video frames with caption/audio evidence."""
+
+        if not images_base64 or len(images_base64) != len(frame_timestamps):
+            return ExtractionResult(
+                success=False,
+                error="Video frame evidence was incomplete",
+                error_code="invalid_frame_evidence",
+            )
+        if not settings.is_ai_capability_enabled("ocr"):
+            return ExtractionResult(success=False, error="OCR is temporarily unavailable")
+
+        prompt = get_video_frame_extraction_prompt(
+            source_url=source_url,
+            source_context=self._sanitize_pasted_text(source_context)[:20_000],
+            initial_recipe=initial_recipe,
+            frame_timestamps=frame_timestamps,
+            location=location,
+        )
+        labels = [f"VIDEO FRAME @ {timestamp:.2f} SECONDS" for timestamp in frame_timestamps]
+        primary_result: ExtractionResult | None = None
+        if self.openai_api_key:
+            primary_result = await self._try_multi_image_extraction(
+                config=self.PRIMARY_VISION_CONFIG,
+                api_key=self.openai_api_key,
+                prompt=prompt,
+                images_base64=images_base64,
+                location=location,
+                fallback_reason=None,
+                source_url=source_url,
+                prompt_version=PROMPT_VERSIONS["video_frames"],
+                image_labels=labels,
+            )
+            if primary_result.success:
+                return primary_result
+
+        if use_fallback and self.openai_api_key:
+            fallback_result = await self._try_multi_image_extraction(
+                config=self.FALLBACK_VISION_CONFIG,
+                api_key=self.openai_api_key,
+                prompt=prompt,
+                images_base64=images_base64,
+                location=location,
+                fallback_reason=(
+                    primary_result.error_code if primary_result else "primary_unavailable"
+                ),
+                source_url=source_url,
+                prompt_version=PROMPT_VERSIONS["video_frames"],
+                image_labels=labels,
+            )
+            if fallback_result.success:
+                return fallback_result
+
+        return ExtractionResult(
+            success=False,
+            error="All video frame extraction attempts failed",
+        )
     
     async def generate_json(self, prompt: str) -> Optional[dict]:
         """
@@ -547,6 +616,7 @@ class LLMService:
         fallback_reason: str | None,
         source_url: str,
         prompt_version: str,
+        image_labels: list[str] | None = None,
     ) -> ExtractionResult:
         """Try multi-image extraction with a specific model, with retries."""
         
@@ -569,6 +639,7 @@ class LLMService:
                     fallback_reason=fallback_reason,
                     source_url=source_url,
                     prompt_version=prompt_version,
+                    image_labels=image_labels,
                 )
                 
                 if result.success:
@@ -598,6 +669,7 @@ class LLMService:
         fallback_reason: str | None,
         source_url: str,
         prompt_version: str,
+        image_labels: list[str] | None = None,
     ) -> ExtractionResult:
         """Make a multi-image vision LLM API call."""
         
@@ -609,13 +681,16 @@ class LLMService:
             "Content-Type": "application/json",
         }
         
-        # Build content array with all images, labeled by page number
+        # Build content with a provenance label before every image.
         content = []
         for i, img_base64 in enumerate(images_base64):
-            # Add page label before each image
             content.append({
                 "type": "text",
-                "text": f"[PAGE {i + 1} OF {len(images_base64)}]"
+                "text": (
+                    f"[{image_labels[i]}]"
+                    if image_labels and i < len(image_labels)
+                    else f"[PAGE {i + 1} OF {len(images_base64)}]"
+                )
             })
             mime_type = self._get_mime_type(img_base64)
             content.append({
