@@ -410,6 +410,11 @@ large migration or mobile release.
   and keeps `Cook with draft` as a warned secondary action when instructions
   exist. Broader time/temperature highlighting belongs in the field-evidence
   expansion rather than being inferred in the client.
+- Full recipe edits now write transactional, count-only correction events that
+  distinguish initial review corrections, unchanged human verification, and
+  later customization. The schema deliberately excludes recipe values, raw
+  source content, URLs, and field paths; see
+  [CORRECTION-TELEMETRY.md](./CORRECTION-TELEMETRY.md).
 
 ### Release 0 — Lock the baseline before changing behavior
 

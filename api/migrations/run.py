@@ -17,8 +17,9 @@ ACTIVE_MIGRATIONS = (
     "migrations.024_add_grocery_widget_credentials",
     "migrations.025_add_publishing_disclosure_version",
     "migrations.026_add_recipe_review_state",
+    "migrations.027_add_recipe_correction_events",
 )
-LATEST_MIGRATION = 26
+LATEST_MIGRATION = 27
 
 
 async def run_migrations() -> None:

@@ -11,11 +11,12 @@ from .grocery import (
 from .identity import AppUser, ClerkIdentity
 from .meal_plan import MealPlanEntry
 from .moderation import AdminAuditEvent, ContentReport, UserBlock
-from .recipe import ExtractionJob, Recipe
+from .recipe import ExtractionJob, Recipe, RecipeCorrectionEvent
 
 __all__ = [
     "Recipe", 
     "ExtractionJob", 
+    "RecipeCorrectionEvent",
     "MealPlanEntry",
     "GroceryItem",
     "GroceryList",
