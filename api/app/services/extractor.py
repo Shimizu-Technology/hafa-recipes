@@ -1,5 +1,6 @@
 """Main recipe extraction orchestrator service."""
 
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -39,7 +40,8 @@ def _check_extraction_confidence(
     recipe: Optional[dict],
     raw_text: str,
     extraction_quality: str,
-    has_audio_transcript: bool
+    has_audio_transcript: bool,
+    is_visual_source: bool = False,
 ) -> tuple[bool, Optional[str]]:
     """
     Check if the extraction result is low confidence and needs user review.
@@ -48,15 +50,22 @@ def _check_extraction_confidence(
         Tuple of (is_low_confidence, warning_message)
     """
     warnings = []
+
+    if recipe and recipe.get("lowConfidence") is True:
+        model_warning = recipe.get("confidenceWarning")
+        if isinstance(model_warning, str) and model_warning.strip():
+            warnings.append(model_warning.strip().rstrip("."))
+        else:
+            warnings.append("the source contains details that need verification")
     
     # Check 1: No audio transcript (metadata-only extraction)
-    if not has_audio_transcript:
+    if not has_audio_transcript and not is_visual_source:
         if extraction_quality == "low":
             warnings.append("extracted from limited metadata only")
     
     # Check 2: Very short content
     word_count = len(raw_text.split()) if raw_text else 0
-    if word_count < 50:
+    if word_count < 50 and not is_visual_source:
         warnings.append("very little content was found")
     
     # Check 3: Detect if transcript is mostly music/non-recipe content
@@ -112,6 +121,7 @@ def _check_extraction_confidence(
         components = recipe.get("components", [])
         total_ingredients = 0
         vague_ingredients = 0
+        missing_quantity_count = 0
         
         for comp in components:
             ingredients = comp.get("ingredients", [])
@@ -129,14 +139,20 @@ def _check_extraction_confidence(
                                  "to your liking", "to preference", "adjust to"]
                 if any(vp in quantity or vp in unit or vp in notes or vp in name for vp in vague_patterns):
                     vague_ingredients += 1
+                elif not quantity.strip() or quantity in {"none", "null"}:
+                    missing_quantity_count += 1
         
         if total_ingredients == 0:
             warnings.append("no ingredients could be identified")
-        elif total_ingredients < 3:
-            warnings.append("very few ingredients were found")
+        elif missing_quantity_count:
+            noun = "amount was" if missing_quantity_count == 1 else "amounts were"
+            warnings.append(f"{missing_quantity_count} ingredient {noun} not stated")
         elif vague_ingredients > 0 and vague_ingredients >= total_ingredients * 0.5:
             # More than half the ingredients are vague
             warnings.append("many ingredient quantities are unclear")
+
+        if 0 < total_ingredients < 3:
+            warnings.append("very few ingredients were found")
         
         # Check for missing steps
         total_steps = 0
@@ -158,6 +174,48 @@ def _check_extraction_confidence(
         return True, warning_msg
     
     return False, None
+
+
+_COOKING_ACTION_PATTERN = re.compile(
+    r"\b(add|bake|blend|boil|braise|broil|chill|chop|combine|cook|dice|fold|fry|"
+    r"grill|heat|knead|marinate|microwave|mix|peel|pour|preheat|roast|saute|sauté|"
+    r"season|simmer|slice|stir|whisk)\w*\b",
+    re.IGNORECASE,
+)
+_MEASUREMENT_PATTERN = re.compile(
+    r"(?:\b\d+(?:[\s./-]\d+)?\s*(?:cups?|tbsp|tsp|tablespoons?|teaspoons?|"
+    r"ounces?|oz|pounds?|lbs?|grams?|kg|ml|liters?|cloves?|cans?|eggs?|pieces?|"
+    r"packages?|packets?|sprigs?|slices?)\b|[\u00bc\u00bd\u00be])",
+    re.IGNORECASE,
+)
+_COOKING_DETAIL_PATTERN = re.compile(
+    r"(?:\b\d+(?:[.-]\d+)?\s*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|"
+    r"degrees?|[cf])\b|\b\d{2,3}\s*°)",
+    re.IGNORECASE,
+)
+
+
+def _has_actionable_recipe_evidence(content: str) -> bool:
+    """Reject title/hashtag-only metadata before it can invite a guessed recipe."""
+    normalized = content.strip()
+    if not normalized:
+        return False
+
+    actions = {match.group(0).lower() for match in _COOKING_ACTION_PATTERN.finditer(normalized)}
+    has_measurement = _MEASUREMENT_PATTERN.search(normalized) is not None
+    has_cooking_detail = _COOKING_DETAIL_PATTERN.search(normalized) is not None
+    has_ingredient_heading = re.search(r"\bingredients?\s*:", normalized, re.I) is not None
+    word_count = len(re.findall(r"\b[\w'-]+\b", normalized))
+
+    return bool(
+        actions
+        and (
+            has_measurement
+            or has_cooking_detail
+            or has_ingredient_heading
+            or (len(actions) >= 2 and word_count >= 5)
+        )
+    )
 
 
 class RecipeExtractor:
@@ -378,6 +436,23 @@ class RecipeExtractor:
         # Add user notes if provided
         if notes:
             combined_content = f"{combined_content}\n\nADDITIONAL NOTES FROM USER:\n{notes}"
+
+        if not _has_actionable_recipe_evidence(combined_content):
+            return FullExtractionResult(
+                success=False,
+                thumbnail_url=thumbnail_url,
+                extraction_method=extraction_method,
+                extraction_quality="low",
+                error="The available source did not contain actionable recipe evidence",
+                error_code="INSUFFICIENT_SOURCE_EVIDENCE",
+                friendly_error=(
+                    "We found the post, but it did not include enough recipe details to "
+                    "extract accurately. You can keep the source as a draft and add the "
+                    "ingredients or steps yourself."
+                ),
+                low_confidence=True,
+                confidence_warning="The source did not include enough recipe details.",
+            )
         
         # Step 4: Extract the recipe with the configured OpenAI model chain.
         if not combined_content.strip():
@@ -543,6 +618,16 @@ class RecipeExtractor:
                 )
             
             print(f"✅ Downloaded {len(base64_images)} images as base64")
+
+            metadata = await video_service.get_video_metadata_ytdlp(url)
+            source_context_parts = []
+            if metadata.title:
+                source_context_parts.append(f"VIDEO TITLE: {metadata.title}")
+            if metadata.description:
+                source_context_parts.append(f"VIDEO DESCRIPTION: {metadata.description}")
+            if notes:
+                source_context_parts.append(f"ADDITIONAL NOTES FROM USER: {notes}")
+            source_context = "\n\n".join(source_context_parts)
             
             # Step 3: Use vision AI to extract recipe from images
             if progress_callback:
@@ -557,7 +642,9 @@ class RecipeExtractor:
             # so we use a specialized prompt that emphasizes visual analysis
             result = await llm_service.extract_from_tiktok_slideshow(
                 images_base64=base64_images,
-                location=location
+                source_url=url,
+                source_context=source_context,
+                location=location,
             )
             
             if not result.success:
@@ -581,7 +668,7 @@ class RecipeExtractor:
             
             # Add source URL to the recipe
             if recipe:
-                recipe["source_url"] = url
+                recipe["sourceUrl"] = url
             
             print(f"✅ TikTok photo extraction successful: {recipe.get('title', 'Untitled')}")
             
@@ -591,7 +678,8 @@ class RecipeExtractor:
                 recipe=recipe,
                 raw_text=raw_text,
                 extraction_quality="good",  # Vision extraction is typically good
-                has_audio_transcript=False
+                has_audio_transcript=False,
+                is_visual_source=True,
             )
             
             return FullExtractionResult(

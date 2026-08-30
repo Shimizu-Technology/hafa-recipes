@@ -156,6 +156,7 @@ async def evaluate_case(
     reasoning_effort: str,
 ) -> dict[str, Any]:
     from app.ai_governance import estimate_cost_microusd, extract_token_usage
+    from app.services.prompts import RECIPE_RESPONSE_FORMAT
 
     started = time.perf_counter()
     try:
@@ -163,11 +164,14 @@ async def evaluate_case(
             model=model,
             messages=build_messages(case),
             reasoning_effort=reasoning_effort,
-            response_format={"type": "json_object"},
+            response_format=RECIPE_RESPONSE_FORMAT,
             max_completion_tokens=5000,
         )
         latency_ms = round((time.perf_counter() - started) * 1000)
-        raw = response.choices[0].message.content or ""
+        message = response.choices[0].message
+        raw = message.content or ""
+        if getattr(message, "refusal", None):
+            raise ValueError("model_refusal")
         try:
             recipe: object = json.loads(raw)
         except json.JSONDecodeError:

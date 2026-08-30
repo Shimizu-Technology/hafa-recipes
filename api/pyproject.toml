@@ -19,7 +19,7 @@ dependencies = [
     # OpenAI
     "openai>=1.50.0",
     # Video Processing
-    "yt-dlp>=2024.11.0",
+    "yt-dlp[default,curl-cffi]>=2025.11.12",
     # HTTP Client
     "httpx[http2]>=0.28.0",
     # AWS S3

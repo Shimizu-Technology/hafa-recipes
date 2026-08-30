@@ -381,6 +381,22 @@ Each release unit is independently testable and deployable. Later units depend
 on the contracts established earlier; do not combine the whole project into one
 large migration or mobile release.
 
+### Implementation status — 2026-08-31
+
+- Release 1 and Release 3 are live in production. New imports have durable,
+  deterministic review state and evidence; incomplete or failed imports can be
+  kept privately and edited; publish, edit, re-extraction, and restore paths
+  enforce the same readiness contract without rewriting legacy rows.
+- The server-integrity portion of Release 2 is implemented in the current
+  extraction-integrity change: strict Structured Outputs for every recipe model
+  path, no-invention prompts, slideshow caption evidence, metadata/music-only
+  rejection, null-preserving uncertainty checks, the strict website fallback,
+  and the supported yt-dlp impersonation dependency.
+- Public platform canaries, field-level evaluation expansion, normal-video frame
+  evidence, image classification, provenance-rich side-by-side review, and
+  correction telemetry remain explicit follow-up work. They are not treated as
+  complete merely because the first trust and extraction guards shipped.
+
 ### Release 0 — Lock the baseline before changing behavior
 
 - Turn the confirmed failures into redacted, permissioned regression fixtures.

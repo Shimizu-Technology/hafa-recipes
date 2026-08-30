@@ -1007,142 +1007,41 @@ class WebsiteService:
         location: str = "",
         notes: str = "",
     ) -> Optional[dict]:
-        """Use AI to extract recipe from text content."""
+        """Use the strict evidence-preserving extractor for webpage text fallback."""
         from app.services.llm_client import llm_service
-        
-        prompt = f"""Extract the recipe from this webpage content. Return a JSON object with the recipe details.
-
-URL: {url}
-
-WEBPAGE CONTENT:
-{content[:8000]}
-
-Return a JSON object with these fields:
-{{
-  "title": "Recipe title",
-  "description": "Brief description",
-  "servings": number or null,
-  "times": {{
-    "prep": "prep time string",
-    "cook": "cook time string", 
-    "total": "total time string"
-  }},
-  "components": [
-    {{
-      "name": "Component/section name (e.g., 'Chicken Marinade', 'Sauce', 'Main Dish') or empty string if no sections",
-      "ingredients": [
-        {{"name": "ingredient name", "quantity": "amount", "unit": "unit", "notes": "optional notes", "original": "full original text"}}
-      ],
-      "steps": ["step 1 text", "step 2 text"]
-    }}
-  ],
-  "tags": ["tag1", "tag2"],
-  "mealTypes": ["breakfast", "lunch", "dinner", "snack", "dessert"],
-  "nutrition": {{
-    "perServing": {{"calories": number, "protein": number, "carbs": number, "fat": number, "fiber": number, "sugar": number, "sodium": number}}
-  }},
-  "notes": "{notes or 'any recipe notes'}",
-  "location": "{location}"
-}}
-
-IMPORTANT:
-- If the recipe has SECTIONS (like "Chicken Marinade:", "Sauce:", "For the filling:"), create SEPARATE components for each section
-- Each component should have its own name, ingredients, and steps
-- If there are no clear sections, use a single component with an empty name
-- Extract ALL ingredients mentioned, grouped by their section
-- Extract ALL steps in order, grouped by their section
-- Use reasonable estimates for times if not explicitly stated
-- NUTRITION: If the website provides nutrition info, use it. If NOT provided, ESTIMATE the nutrition per serving based on the ingredients and typical values. Always provide nutrition estimates - never leave it empty.
-- Only return valid JSON, no explanation"""
 
         try:
-            result = await llm_service.generate_json(prompt)
-            if result and isinstance(result, dict) and result.get('title'):
-                # Validate that we have REAL recipe content, not placeholder garbage
-                title = result.get('title', '').lower().strip()
-                placeholder_titles = ['recipe title', 'untitled', 'recipe', 'title', 'no title', 'unknown']
-                
-                if title in placeholder_titles:
-                    print(f"⚠️ AI returned placeholder title: '{result.get('title')}' - rejecting")
-                    return None
-                
-                # Check for actual ingredients or steps
-                components = result.get('components', [])
-                flat_ingredients = result.get('ingredients', [])
-                flat_steps = result.get('steps', [])
-                
-                total_ingredients = sum(len(c.get('ingredients', [])) for c in components) + len(flat_ingredients)
-                total_steps = sum(len(c.get('steps', [])) for c in components) + len(flat_steps)
-                
-                # Must have at least 1 ingredient OR 1 step to be considered a valid recipe
-                if total_ingredients == 0 and total_steps == 0:
-                    print("⚠️ AI returned recipe with no ingredients and no steps - rejecting")
-                    return None
-                
-                # Add required fields to match schema
-                result['sourceUrl'] = url
-                result['media'] = {'sourceUrl': url}
-                
-                # Process components - normalize steps within each component
-                components = result.get('components', [])
-                all_ingredients = []
-                all_steps = []
-                
-                for comp in components:
-                    # Normalize steps within component
-                    comp_steps = comp.get('steps', [])
-                    normalized_steps = []
-                    for step in comp_steps:
-                        if isinstance(step, dict) and 'text' in step:
-                            normalized_steps.append(step['text'])
-                        elif isinstance(step, str):
-                            normalized_steps.append(step)
-                    comp['steps'] = normalized_steps
-                    
-                    # Ensure component has name (empty string is ok)
-                    if 'name' not in comp:
-                        comp['name'] = ''
-                    
-                    # Collect all ingredients/steps for legacy fields
-                    all_ingredients.extend(comp.get('ingredients', []))
-                    all_steps.extend(normalized_steps)
-                
-                # If no components were returned, create one from flat fields
-                if not components:
-                    ingredients = result.get('ingredients', [])
-                    steps = result.get('steps', [])
-                    if isinstance(steps, list):
-                        steps = [s['text'] if isinstance(s, dict) and 'text' in s else s for s in steps]
-                    components = [{
-                        "name": "",
-                        "ingredients": ingredients,
-                        "steps": steps if isinstance(steps, list) else [],
-                    }]
-                    all_ingredients = ingredients
-                    all_steps = steps if isinstance(steps, list) else []
-                
-                result['components'] = components
-                # Also set legacy flat fields for compatibility
-                result['ingredients'] = all_ingredients
-                result['steps'] = all_steps
-                
-                # Ensure nutrition has both perServing and total (schema requires both)
-                nutrition = result.get('nutrition') or {}
-                per_serving = nutrition.get('perServing') or {}
-                # Clean None values from perServing
-                per_serving = {k: v for k, v in per_serving.items() if v is not None}
-                result['nutrition'] = {
-                    "perServing": per_serving,
-                    "total": {}  # Schema requires this field
-                }
-                
-                # Ensure times is a dict, not None  
-                if not result.get('times'):
-                    result['times'] = {}
-                    
-                print(f"✅ AI extracted {len(components)} component(s) with {len(all_ingredients)} ingredients and {len(all_steps)} steps")
-                return result
-            return None
+            source_parts = [f"WEBPAGE CONTENT:\n{content[:8000]}"]
+            if notes:
+                source_parts.append(f"ADDITIONAL NOTES FROM USER:\n{notes[:2000]}")
+            extraction = await llm_service.extract_recipe(
+                source_url=url,
+                content="\n\n".join(source_parts),
+                location=location or "Guam",
+            )
+            if not extraction.success or not extraction.recipe:
+                return None
+
+            recipe = extraction.recipe
+            title = str(recipe.get("title") or "").lower().strip()
+            placeholder_titles = {
+                "recipe title",
+                "untitled",
+                "recipe",
+                "title",
+                "no title",
+                "unknown",
+            }
+            if title in placeholder_titles:
+                print(f"⚠️ AI returned placeholder title: '{recipe.get('title')}' - rejecting")
+                return None
+
+            print(
+                f"✅ AI extracted {len(recipe.get('components') or [])} component(s) "
+                f"with {len(recipe.get('ingredients') or [])} ingredients and "
+                f"{len(recipe.get('steps') or [])} steps"
+            )
+            return recipe
         except Exception as e:
             print(f"❌ AI extraction error: {e}")
             return None
