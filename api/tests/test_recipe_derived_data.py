@@ -153,6 +153,7 @@ def test_recalculation_flag_requires_complete_replacement_nutrition(nutrition, m
 
 def test_component_aware_edit_preserves_sections_and_legacy_flat_fields():
     old = recipe()
+    old["mealTypes"] = ["dinner"]
     edit = RecipeEdit(
         title="Layered meal",
         servings=4,
@@ -177,6 +178,7 @@ def test_component_aware_edit_preserves_sections_and_legacy_flat_fields():
     assert result["components"][0]["notes"] == "Make ahead"
     assert [ingredient["name"] for ingredient in result["ingredients"]] == ["soy sauce", "rice"]
     assert result["steps"] == ["Whisk sauce", "Steam rice"]
+    assert result["mealTypes"] == ["dinner"]
 
 
 def test_legacy_flat_edit_is_normalized_to_main_component():

@@ -38,6 +38,7 @@ from app.models.schemas import (
 from app.moderation import is_publicly_viewable, public_recipe_conditions
 from app.public_identity import public_contributor_id, visible_recipe_user_id
 from app.publishing import require_current_publishing_disclosure
+from app.recipe_corrections import build_recipe_correction_event
 from app.recipe_derived_data import (
     ensure_derived_metadata,
     invalidate_changed_inputs,
@@ -490,6 +491,7 @@ def _build_edited_extracted(
         "equipment": old_extracted.get("equipment", []),
         "notes": edit.notes,
         "tags": edit.tags or [],
+        "mealTypes": old_extracted.get("mealTypes", []),
         "media": (
             {"thumbnail": thumbnail_url}
             if thumbnail_url is not None
@@ -1806,6 +1808,8 @@ async def update_recipe(
 
     # Update the extracted JSONB with new values
     old_extracted = dict(recipe.extracted) if recipe.extracted else {}
+    before_review_state = recipe.review_state
+    before_evidence = dict(recipe.extraction_evidence or {})
     extracted = dict(old_extracted)
 
     if update.title is not None:
@@ -1832,6 +1836,15 @@ async def update_recipe(
             user_reviewed=evidence_was_user_reviewed(recipe.extraction_evidence),
             increment_revision=True,
         )
+    correction_event = build_recipe_correction_event(
+        recipe=recipe,
+        user_id=user.id,
+        before_extracted=old_extracted,
+        before_review_state=before_review_state,
+        before_evidence=before_evidence,
+    )
+    if correction_event:
+        db.add(correction_event)
     if recipe.is_public:
         require_recipe_publishable(recipe)
         await require_current_publishing_disclosure(db, user.id)
@@ -1989,7 +2002,9 @@ async def edit_recipe(
     target_is_public = edit.is_public if edit.is_public is not None else recipe.is_public
 
     # Preserve some fields from original extracted data
-    old_extracted = recipe.extracted or {}
+    old_extracted = dict(recipe.extracted or {})
+    before_review_state = recipe.review_state
+    before_evidence = dict(recipe.extraction_evidence or {})
     new_extracted = _build_edited_extracted(old_extracted, edit)
 
     # Create a version snapshot BEFORE applying changes (with change comparison)
@@ -2012,6 +2027,15 @@ async def edit_recipe(
         user_reviewed=True,
         increment_revision=True,
     )
+    correction_event = build_recipe_correction_event(
+        recipe=recipe,
+        user_id=user.id,
+        before_extracted=old_extracted,
+        before_review_state=before_review_state,
+        before_evidence=before_evidence,
+    )
+    if correction_event:
+        db.add(correction_event)
     recipe.total_minutes = compute_total_minutes(new_extracted)  # Update for SQL filtering
     if recipe.is_public:
         require_recipe_publishable(recipe)
@@ -2082,7 +2106,9 @@ async def edit_recipe_with_image(
         if uploaded_url:
             thumbnail_url = uploaded_url
 
-    old_extracted = recipe.extracted or {}
+    old_extracted = dict(recipe.extracted or {})
+    before_review_state = recipe.review_state
+    before_evidence = dict(recipe.extraction_evidence or {})
     new_extracted = _build_edited_extracted(
         old_extracted,
         edit,
@@ -2109,6 +2135,15 @@ async def edit_recipe_with_image(
         user_reviewed=True,
         increment_revision=True,
     )
+    correction_event = build_recipe_correction_event(
+        recipe=recipe,
+        user_id=user.id,
+        before_extracted=old_extracted,
+        before_review_state=before_review_state,
+        before_evidence=before_evidence,
+    )
+    if correction_event:
+        db.add(correction_event)
     recipe.thumbnail_url = thumbnail_url
     recipe.total_minutes = compute_total_minutes(new_extracted)  # Update for SQL filtering
     if recipe.is_public:

@@ -29,6 +29,10 @@ import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/C
 import { api, type RecipeImageUpload } from '@/lib/api';
 import { consumePendingShareCapture } from '@/lib/shareCapture';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
+import {
+  getImageImportFailurePresentation,
+  getManualImageDraftRoute,
+} from '@/lib/imageImportClassification';
 
 export default function ExtractScreen() {
   const router = useRouter();
@@ -201,10 +205,22 @@ export default function ExtractScreen() {
           },
         });
       } else {
-        Alert.alert(
-          'Extraction Failed',
-          result.error || 'Could not extract recipe from image(s). Please try clearer images.'
-        );
+        const failure = getImageImportFailurePresentation(result);
+        Alert.alert(failure.title, failure.message, failure.offersManualEntry
+          ? [
+              {
+                text: 'Use Image & Enter Manually',
+                onPress: () => {
+                  const draftRoute = getManualImageDraftRoute(selectedImages[0]?.uri);
+                  if (!draftRoute) return;
+                  // Keep every selected source on Import so multi-page recovery
+                  // remains available if the user returns from the manual draft.
+                  router.push(draftRoute);
+                },
+              },
+              { text: 'Review Images', style: 'cancel' },
+            ]
+          : [{ text: 'OK' }]);
         setShowImageGallery(true); // Show gallery again to retry
       }
     } catch (error: any) {

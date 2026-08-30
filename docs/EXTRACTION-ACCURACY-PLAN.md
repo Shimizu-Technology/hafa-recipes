@@ -178,6 +178,11 @@ Source URL / screenshots / text
 - Preserve page, bounding-box, and OCR-quality references long enough for the
   review screen; do not expose private source artifacts publicly.
 
+Implementation status: the default-off classification gate and mobile recovery
+copy are implemented. It deliberately stops before the separate inspired-recipe
+concept. Production rollout remains gated on the canaries and measurements in
+[IMAGE-INPUT-CLASSIFICATION-RUNBOOK.md](./IMAGE-INPUT-CLASSIFICATION-RUNBOOK.md).
+
 ## Save and recovery behavior
 
 Recipe readiness and save permission are deliberately separate.
@@ -381,7 +386,7 @@ Each release unit is independently testable and deployable. Later units depend
 on the contracts established earlier; do not combine the whole project into one
 large migration or mobile release.
 
-### Implementation status — 2026-08-31
+### Implementation status — 2026-08-31 (Pacific/Guam)
 
 - Release 1 and Release 3 are live in production. New imports have durable,
   deterministic review state and evidence; incomplete or failed imports can be
@@ -393,12 +398,23 @@ large migration or mobile release.
   rejection, null-preserving uncertainty checks, the strict website fallback,
   and the supported yt-dlp impersonation dependency.
 - Public platform canaries, field-level evaluation expansion, normal-video frame
-  rollout, image classification, provenance-rich side-by-side review, and
-  correction telemetry remain explicit follow-up work. The normal-video frame
+  rollout, a complete side-by-side editor, and correction telemetry remain
+  explicit follow-up work. The normal-video frame
   path is implemented behind a default-off server flag with bounded download,
   sampling, deduplication, timestamp provenance, conservative reconciliation,
   and cleanup tests. It stays off until public canaries establish acquisition,
   latency, and cost behavior on the deployed runtime.
+- The owner recipe screen now makes review—not cooking—the primary action for
+  incomplete and unverified drafts. It shows the exact missing-amount count,
+  privacy-bounded source modalities/frame timestamps, an original-source link,
+  and keeps `Cook with draft` as a warned secondary action when instructions
+  exist. Broader time/temperature highlighting belongs in the field-evidence
+  expansion rather than being inferred in the client.
+- Full recipe edits now write transactional, count-only correction events that
+  distinguish initial review corrections, unchanged human verification, and
+  later customization. The schema deliberately excludes recipe values, raw
+  source content, URLs, and field paths; see
+  [CORRECTION-TELEMETRY.md](./CORRECTION-TELEMETRY.md).
 
 ### Release 0 — Lock the baseline before changing behavior
 

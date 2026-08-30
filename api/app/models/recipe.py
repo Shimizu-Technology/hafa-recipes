@@ -255,6 +255,70 @@ class RecipeVersion(Base):
         return f"<RecipeVersion recipe={self.recipe_id} v{self.version_number}>"
 
 
+class RecipeCorrectionEvent(Base):
+    """Aggregate edit telemetry that never stores recipe field values."""
+
+    __tablename__ = "recipe_correction_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    recipe_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("recipes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(
+        String(64),
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    event_kind = Column(String(24), nullable=False)
+    source_type = Column(String(32), nullable=False)
+    extraction_method = Column(String(64), nullable=True)
+    from_review_state = Column(String(24), nullable=True)
+    to_review_state = Column(String(24), nullable=True)
+    content_revision = Column(Integer, nullable=False)
+    changed_field_count = Column(Integer, nullable=False)
+    ingredient_name_change_count = Column(Integer, nullable=False)
+    quantity_change_count = Column(Integer, nullable=False)
+    unit_change_count = Column(Integer, nullable=False)
+    ingredient_note_change_count = Column(Integer, nullable=False)
+    step_change_count = Column(Integer, nullable=False)
+    time_change_count = Column(Integer, nullable=False)
+    title_changed = Column(Boolean, nullable=False)
+    servings_changed = Column(Boolean, nullable=False)
+    other_change_count = Column(Integer, nullable=False)
+    resolved_missing_quantity_count = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "event_kind IN ('review_correction', 'review_verification', 'customization')",
+            name="ck_recipe_correction_events_kind",
+        ),
+        CheckConstraint(
+            "from_review_state IS NULL OR from_review_state IN "
+            "('source_incomplete', 'needs_review', 'ready')",
+            name="ck_recipe_correction_events_from_state",
+        ),
+        CheckConstraint(
+            "to_review_state IS NULL OR to_review_state IN "
+            "('source_incomplete', 'needs_review', 'ready')",
+            name="ck_recipe_correction_events_to_state",
+        ),
+        CheckConstraint(
+            "content_revision >= 1 AND changed_field_count >= 0 "
+            "AND ingredient_name_change_count >= 0 "
+            "AND quantity_change_count >= 0 AND unit_change_count >= 0 "
+            "AND ingredient_note_change_count >= 0 AND step_change_count >= 0 "
+            "AND time_change_count >= 0 AND other_change_count >= 0 "
+            "AND resolved_missing_quantity_count >= 0",
+            name="ck_recipe_correction_events_nonnegative",
+        ),
+    )
+
+
 class ExtractionJob(Base):
     """
     Extraction job model - matches existing 'extraction_jobs' table in Neon.

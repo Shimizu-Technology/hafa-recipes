@@ -61,6 +61,21 @@ export type RecipeImageUpload = {
   fileName?: string;
   mimeType?: string;
 };
+export type ImageInputClassification =
+  | 'recipe_document'
+  | 'multi_page_recipe'
+  | 'dish_photo'
+  | 'unreadable'
+  | 'unsupported';
+export type OCRExtractionResult = {
+  success: boolean;
+  recipe?: any;
+  error?: string;
+  error_code?: string;
+  input_classification?: ImageInputClassification;
+  model_used?: string;
+  latency_seconds?: number;
+};
 
 function inferImageMimeType(fileName: string): string {
   const extension = fileName.split('?')[0].split('.').pop()?.toLowerCase();
@@ -674,13 +689,7 @@ class ApiClient {
   async extractRecipeFromImage(
     image: string | RecipeImageUpload,
     location: string = 'Guam'
-  ): Promise<{
-    success: boolean;
-    recipe?: any;
-    error?: string;
-    model_used?: string;
-    latency_seconds?: number;
-  }> {
+  ): Promise<OCRExtractionResult> {
     // Create form data with the image
     const formData = new FormData();
     
@@ -720,13 +729,7 @@ class ApiClient {
   async extractRecipeFromMultipleImages(
     images: Array<string | RecipeImageUpload>,
     location: string = 'Guam'
-  ): Promise<{
-    success: boolean;
-    recipe?: any;
-    error?: string;
-    model_used?: string;
-    latency_seconds?: number;
-  }> {
+  ): Promise<OCRExtractionResult> {
     // Create form data with all images
     const formData = new FormData();
     

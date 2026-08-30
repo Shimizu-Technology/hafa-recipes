@@ -12,8 +12,10 @@ from app.ai_governance import PROMPT_VERSIONS, RECIPE_SCHEMA_VERSION, AIInvocati
 from app.config import get_settings
 from app.services.extraction_confidence import normalize_extraction_confidence
 from app.services.prompts import (
+    IMAGE_CLASSIFICATION_RESPONSE_FORMAT,
     PASTED_TEXT_SOURCE_URL,
     RECIPE_RESPONSE_FORMAT,
+    get_image_classification_prompt,
     get_multi_image_ocr_prompt,
     get_ocr_extraction_prompt,
     get_pasted_text_recipe_extraction_prompt,
@@ -34,6 +36,18 @@ class ExtractionResult:
     model_used: Optional[str] = None
     latency_seconds: Optional[float] = None
     error_code: Optional[str] = None
+
+
+@dataclass
+class ImageClassificationResult:
+    """Fail-closed classification for user-supplied recipe images."""
+
+    success: bool
+    classification: Optional[str] = None
+    has_recipe_text: bool = False
+    error: Optional[str] = None
+    error_code: Optional[str] = None
+    model_used: Optional[str] = None
 
 
 class LLMService:
@@ -280,6 +294,215 @@ class LLMService:
             success=False,
             error="All vision extraction attempts failed"
         )
+
+    async def classify_recipe_images(
+        self,
+        images_base64: list[str],
+        *,
+        use_fallback: bool = True,
+    ) -> ImageClassificationResult:
+        """Classify document evidence before allowing recipe OCR extraction."""
+
+        if not images_base64:
+            return ImageClassificationResult(
+                success=False,
+                error="No images were supplied for classification",
+                error_code="missing_images",
+            )
+        if not settings.is_ai_capability_enabled("ocr"):
+            return ImageClassificationResult(
+                success=False,
+                error="OCR is temporarily unavailable",
+                error_code="ocr_disabled",
+            )
+
+        primary_result: ImageClassificationResult | None = None
+        if self.openai_api_key:
+            primary_result = await self._try_image_classification(
+                config=self.PRIMARY_VISION_CONFIG,
+                images_base64=images_base64,
+                fallback_reason=None,
+            )
+            if primary_result.success:
+                return primary_result
+
+        if use_fallback and self.openai_api_key:
+            fallback_result = await self._try_image_classification(
+                config=self.FALLBACK_VISION_CONFIG,
+                images_base64=images_base64,
+                fallback_reason=(
+                    primary_result.error_code if primary_result else "primary_unavailable"
+                ),
+            )
+            if fallback_result.success:
+                return fallback_result
+            return fallback_result
+
+        return primary_result or ImageClassificationResult(
+            success=False,
+            error="Image classification is unavailable",
+            error_code="classification_unavailable",
+        )
+
+    async def _try_image_classification(
+        self,
+        *,
+        config: dict,
+        images_base64: list[str],
+        fallback_reason: str | None,
+    ) -> ImageClassificationResult:
+        """Call one vision model with bounded retries for input classification."""
+
+        last_result: ImageClassificationResult | None = None
+        for attempt in range(config["max_retries"] + 1):
+            if attempt:
+                await asyncio.sleep(2 ** (attempt - 1))
+            try:
+                result = await self._call_image_classification(
+                    config=config,
+                    images_base64=images_base64,
+                    fallback_reason=fallback_reason,
+                )
+            except Exception as error:
+                last_result = ImageClassificationResult(
+                    success=False,
+                    error="Image classification provider call failed",
+                    error_code=type(error).__name__,
+                    model_used=config["name"],
+                )
+                continue
+            if result.success:
+                return result
+            last_result = result
+        return last_result or ImageClassificationResult(
+            success=False,
+            error="Image classification failed",
+            error_code="classification_failed",
+            model_used=config["name"],
+        )
+
+    async def _call_image_classification(
+        self,
+        *,
+        config: dict,
+        images_base64: list[str],
+        fallback_reason: str | None,
+    ) -> ImageClassificationResult:
+        """Send ordered images to the strict classification schema."""
+
+        content = []
+        for index, image_base64 in enumerate(images_base64):
+            content.append(
+                {
+                    "type": "text",
+                    "text": f"[IMAGE {index + 1} OF {len(images_base64)}]",
+                }
+            )
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": (
+                            f"data:{self._get_mime_type(image_base64)};base64,"
+                            f"{image_base64}"
+                        )
+                    },
+                }
+            )
+        content.append(
+            {
+                "type": "text",
+                "text": get_image_classification_prompt(len(images_base64)),
+            }
+        )
+
+        headers = {
+            "Authorization": f"Bearer {self.openai_api_key}",
+            "Content-Type": "application/json",
+        }
+        async with AIInvocationTracker(
+            capability="ocr",
+            primary_model=config["model"],
+            prompt_version=PROMPT_VERSIONS["image_classification"],
+            schema_version="recipe-image-classification-v1",
+            fallback_reason=fallback_reason,
+            allow_canary=config.get("allow_canary", True),
+            rollout_variant=config.get("rollout_variant"),
+        ) as invocation:
+            payload = {
+                "model": invocation.model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "Classify image evidence. Return valid JSON only.",
+                    },
+                    {"role": "user", "content": content},
+                ],
+                "reasoning_effort": settings.openai_reasoning_effort,
+                "max_completion_tokens": 300,
+                "response_format": IMAGE_CLASSIFICATION_RESPONSE_FORMAT,
+            }
+            async with httpx.AsyncClient(
+                timeout=config["timeout"] + len(images_base64) * 5
+            ) as client:
+                response = await client.post(
+                    f"{config['base_url']}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+            if response.status_code != 200:
+                error_code = f"provider_http_{response.status_code}"
+                invocation.fail(error_code)
+                return ImageClassificationResult(
+                    success=False,
+                    error="Image classification provider request failed",
+                    error_code=error_code,
+                    model_used=invocation.model,
+                )
+
+            data = response.json()
+            raw_content, response_error = self._provider_recipe_content(data)
+            if response_error:
+                invocation.fail(response_error, data)
+                return ImageClassificationResult(
+                    success=False,
+                    error="The model could not classify the image",
+                    error_code=response_error,
+                    model_used=invocation.model,
+                )
+            parsed = self._parse_json_response(raw_content)
+            allowed = {
+                "recipe_document",
+                "multi_page_recipe",
+                "dish_photo",
+                "unreadable",
+                "unsupported",
+            }
+            classification = parsed.get("classification") if isinstance(parsed, dict) else None
+            has_recipe_text = parsed.get("hasRecipeText") if isinstance(parsed, dict) else None
+            consistent = (
+                classification in {"recipe_document", "multi_page_recipe"}
+                and has_recipe_text is True
+            ) or (
+                classification in {"dish_photo", "unreadable", "unsupported"}
+                and has_recipe_text is False
+            )
+            if classification not in allowed or not consistent:
+                invocation.fail("invalid_classification", data)
+                return ImageClassificationResult(
+                    success=False,
+                    error="The model returned an invalid image classification",
+                    error_code="invalid_classification",
+                    model_used=invocation.model,
+                )
+
+            invocation.succeed(data)
+            return ImageClassificationResult(
+                success=True,
+                classification=classification,
+                has_recipe_text=has_recipe_text,
+                model_used=invocation.model,
+            )
     
     async def extract_from_tiktok_slideshow(
         self,

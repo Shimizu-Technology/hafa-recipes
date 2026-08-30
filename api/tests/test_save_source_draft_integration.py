@@ -11,12 +11,19 @@ from app.auth import ClerkUser
 from app.db.database import Base
 from app.models import ai, deletion, grocery, identity, meal_plan, moderation, recipe  # noqa: F401
 from app.models.identity import AppUser
-from app.models.recipe import ExtractionJob, Recipe, RecipeVersion
+from app.models.recipe import (
+    ExtractionJob,
+    Recipe,
+    RecipeCorrectionEvent,
+    RecipeVersion,
+)
 from app.publishing import PUBLISHING_DISCLOSURE_VERSION
 from app.recipe_review import apply_recipe_review, evidence_was_user_reviewed
 from app.routers.extract import save_failed_extraction_as_draft
 from app.routers.recipes import (
+    RecipeEdit,
     RecipeUpdate,
+    edit_recipe,
     restore_recipe_version,
     update_recipe,
 )
@@ -138,6 +145,67 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
             assert updated.is_public is True
             assert updated.review_state is None
             assert legacy_recipe.content_revision == 2
+            legacy_event = await db.scalar(
+                select(RecipeCorrectionEvent).where(
+                    RecipeCorrectionEvent.recipe_id == legacy_recipe.id
+                )
+            )
+            assert legacy_event is not None
+            assert legacy_event.event_kind == "customization"
+            assert legacy_event.title_changed is True
+
+            uncertain_extracted = {
+                "title": "Unverified red rice",
+                "sourceUrl": "https://example.com/video",
+                "servings": None,
+                "times": {"prep": None, "cook": None, "total": None},
+                "components": [{
+                    "name": "Main",
+                    "ingredients": [{"name": "rice", "quantity": None, "unit": None}],
+                    "steps": ["Cook the rice."],
+                    "notes": None,
+                }],
+                "equipment": [],
+                "notes": None,
+                "tags": [],
+                "mealTypes": [],
+                "nutrition": {"perServing": {}, "total": {}},
+            }
+            uncertain_recipe = Recipe(
+                id=uuid4(),
+                source_url="https://example.com/video",
+                source_type="youtube",
+                extracted=uncertain_extracted,
+                extraction_method="whisper",
+                has_audio_transcript=True,
+                user_id=owner.id,
+                is_public=False,
+            )
+            apply_recipe_review(uncertain_recipe, uncertain_extracted)
+            db.add(uncertain_recipe)
+            await db.commit()
+
+            corrected = await edit_recipe(
+                uncertain_recipe.id,
+                RecipeEdit(
+                    title="Unverified red rice",
+                    ingredients=[{"name": "rice", "quantity": "2", "unit": "cups"}],
+                    steps=["Cook the rice."],
+                ),
+                db,
+                owner,
+            )
+            correction = await db.scalar(
+                select(RecipeCorrectionEvent).where(
+                    RecipeCorrectionEvent.recipe_id == uncertain_recipe.id
+                )
+            )
+            assert corrected.review_state == "ready"
+            assert correction is not None
+            assert correction.event_kind == "review_correction"
+            assert correction.quantity_change_count == 1
+            assert correction.resolved_missing_quantity_count == 1
+            assert correction.changed_field_count >= 1
 
             structured_extracted = {
                 "title": "Structured recipe",

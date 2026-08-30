@@ -51,9 +51,12 @@ import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { getSourcePlayback } from '@/lib/sourcePlayback';
 import {
+  canShowRecipePrimaryAction,
   canOpenRecipeOriginal,
+  countUsableInstructions,
   getCookDraftPresentation,
   getMissingQuantityLabel,
+  getRecipeReviewDetails,
   getRecipeReviewLabel,
   isRecipeOwner,
 } from '@/lib/recipeReviewPresentation';
@@ -657,11 +660,15 @@ export default function RecipeDetailScreen() {
   }
 
   const { extracted } = recipe;
-  const instructionCount = extracted.components.reduce(
-    (total, component) => total + (component.steps?.length || 0),
-    0,
-  );
+  const instructionCount = countUsableInstructions(extracted.components);
   const reviewLabel = getRecipeReviewLabel(recipe.review_state);
+  const reviewDetails = isOwner
+    ? getRecipeReviewDetails(
+        recipe.review_state,
+        recipe.uncertainty_count,
+        recipe.extraction_evidence,
+      )
+    : null;
   const cookPresentation = getCookDraftPresentation(recipe.review_state, instructionCount);
   const openCookMode = () => router.push({
     pathname: `/cook-mode/${id}` as any,
@@ -751,7 +758,13 @@ export default function RecipeDetailScreen() {
         >
         <ScrollView 
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl + 100 }]}
+          contentContainerStyle={[
+            styles.scrollContent,
+            {
+              paddingBottom: insets.bottom + spacing.xl
+                + (reviewDetails && cookPresentation.canCook ? 170 : 100),
+            },
+          ]}
           keyboardShouldPersistTaps="handled"
         >
           <RecipeHero
@@ -859,6 +872,54 @@ export default function RecipeDetailScreen() {
                 <Text style={[styles.qualityText, { color: colors.success }]}>
                   High quality · Audio transcribed
                 </Text>
+              </RNView>
+            )}
+
+            {reviewDetails && (
+              <RNView
+                style={[
+                  styles.reviewCard,
+                  {
+                    backgroundColor: colors.warning + '10',
+                    borderColor: colors.warning,
+                  },
+                ]}
+                accessibilityRole="summary"
+              >
+                <RNView style={styles.reviewCardHeader}>
+                  <RNView style={[styles.reviewCardIcon, { backgroundColor: colors.warning + '20' }]}>
+                    <Ionicons name="search-outline" size={20} color={colors.warning} />
+                  </RNView>
+                  <RNView style={styles.reviewCardCopy}>
+                    <Text style={[styles.reviewCardTitle, { color: colors.text }]}>
+                      {reviewDetails.heading}
+                    </Text>
+                    <Text style={[styles.reviewCardMessage, { color: colors.textSecondary }]}>
+                      {reviewDetails.message}
+                    </Text>
+                  </RNView>
+                </RNView>
+                {reviewDetails.sourceSummary && (
+                  <RNView style={styles.reviewSourceRow}>
+                    <Ionicons name="shield-checkmark-outline" size={17} color={colors.textMuted} />
+                    <Text style={[styles.reviewSourceText, { color: colors.textMuted }]}>
+                      {reviewDetails.sourceSummary}
+                    </Text>
+                  </RNView>
+                )}
+                {hasExternalSource && (
+                  <TouchableOpacity
+                    style={[styles.reviewSourceButton, { borderColor: colors.border }]}
+                    onPress={handleOpenSource}
+                    accessibilityRole="link"
+                    accessibilityLabel="Open original source while reviewing"
+                  >
+                    <Ionicons name="open-outline" size={17} color={colors.tint} />
+                    <Text style={[styles.reviewSourceButtonText, { color: colors.tint }]}>
+                      Open original
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </RNView>
             )}
 
@@ -1454,7 +1515,7 @@ export default function RecipeDetailScreen() {
           )}
         </ScrollView>
         
-        {/* Floating Start Cooking Button */}
+        {/* Review is primary until cooking-critical details are verified. */}
         <RNView style={[
           styles.floatingButtonContainer,
           { 
@@ -1463,18 +1524,54 @@ export default function RecipeDetailScreen() {
             paddingBottom: insets.bottom + spacing.sm,
           }
         ]}>
-          <TouchableOpacity
-            style={[styles.floatingCookButton, { backgroundColor: colors.tint }]}
-            onPress={handleCook}
-            activeOpacity={0.8}
-          >
-            <Ionicons
-              name={cookPresentation.canCook ? 'restaurant' : 'create-outline'}
-              size={22}
-              color="#FFFFFF"
-            />
-            <Text style={styles.floatingCookButtonText}>{cookPresentation.buttonLabel}</Text>
-          </TouchableOpacity>
+          {reviewDetails ? (
+            <>
+              <TouchableOpacity
+                style={[styles.floatingCookButton, { backgroundColor: colors.tint }]}
+                onPress={() => router.push(`/edit-recipe/${id}`)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={reviewDetails.actionLabel}
+                accessibilityHint="Edit and verify this recipe against the original source"
+              >
+                <Ionicons name="create-outline" size={22} color="#FFFFFF" />
+                <Text style={styles.floatingCookButtonText}>{reviewDetails.actionLabel}</Text>
+              </TouchableOpacity>
+              {cookPresentation.canCook && (
+                <TouchableOpacity
+                  style={[
+                    styles.floatingDraftButton,
+                    { backgroundColor: colors.background, borderColor: colors.border },
+                  ]}
+                  onPress={handleCook}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cook with draft"
+                  accessibilityHint="Review a warning before opening Cook Mode"
+                >
+                  <Ionicons name="restaurant-outline" size={20} color={colors.textSecondary} />
+                  <Text style={[styles.floatingDraftButtonText, { color: colors.text }]}>
+                    Cook with draft
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </>
+          ) : canShowRecipePrimaryAction(isOwner, cookPresentation.canCook) ? (
+            <TouchableOpacity
+              style={[styles.floatingCookButton, { backgroundColor: colors.tint }]}
+              onPress={handleCook}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel={cookPresentation.buttonLabel}
+            >
+              <Ionicons
+                name={cookPresentation.canCook ? 'restaurant' : 'create-outline'}
+                size={22}
+                color="#FFFFFF"
+              />
+              <Text style={styles.floatingCookButtonText}>{cookPresentation.buttonLabel}</Text>
+            </TouchableOpacity>
+          ) : null}
         </RNView>
       </KeyboardAvoidingView>
 
@@ -1815,6 +1912,62 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },
+  reviewCard: {
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+    gap: spacing.md,
+  },
+  reviewCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  reviewCardIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reviewCardCopy: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  reviewCardTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+  },
+  reviewCardMessage: {
+    fontSize: fontSize.sm,
+    lineHeight: 20,
+  },
+  reviewSourceRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  reviewSourceText: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    lineHeight: 19,
+  },
+  reviewSourceButton: {
+    minHeight: 44,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderRadius: radius.md,
+  },
+  reviewSourceButtonText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+  },
   tagContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1868,6 +2021,21 @@ const styles = StyleSheet.create({
   floatingCookButtonText: {
     color: '#FFFFFF',
     fontSize: fontSize.lg,
+    fontFamily: fontFamily.semibold,
+  },
+  floatingDraftButton: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.xl,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+  },
+  floatingDraftButtonText: {
+    fontSize: fontSize.md,
     fontFamily: fontFamily.semibold,
   },
   sourceButton: {
