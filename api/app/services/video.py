@@ -1174,7 +1174,10 @@ class VideoService:
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=os.name == "posix",
             )
-            await asyncio.wait_for(process.communicate(), timeout=20)
+            try:
+                await asyncio.wait_for(process.communicate(), timeout=20)
+            except asyncio.TimeoutError:
+                return False
             return process.returncode == 0 and os.path.isfile(output_path)
         finally:
             await _terminate_process(process)
@@ -1221,8 +1224,9 @@ class VideoService:
             ]
             paths = sorted(Path(temp_dir).glob("scene-*.jpg"))
             return [
-                (timestamps[index] if index < len(timestamps) else 0.0, str(path))
+                (timestamps[index], str(path))
                 for index, path in enumerate(paths)
+                if index < len(timestamps)
             ]
         finally:
             await _terminate_process(process)

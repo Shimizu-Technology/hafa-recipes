@@ -18,6 +18,7 @@ EXPLICIT_FLEXIBLE_QUANTITIES = (
     "optional",
 )
 NULLISH_SOURCE_VALUES = {"", "null", "none", "n/a", "not stated", "unknown"}
+_SOURCE_EVIDENCE_UNSET = object()
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,12 @@ def _has_stated_source_value(value: object) -> bool:
     return str(value or "").strip().lower() not in NULLISH_SOURCE_VALUES
 
 
+def is_missing_quantity(value: object) -> bool:
+    """Return whether a source quantity is absent or a serialized null sentinel."""
+
+    return not _has_stated_source_value(value)
+
+
 def _count_uncertainties(reasons: list[str], missing_quantity_count: int) -> int:
     """Count each missing field once while retaining other review reasons."""
 
@@ -87,13 +94,19 @@ def _source_provenance(source_evidence: dict | None) -> dict:
         "website_data",
         "manual",
     }
+    raw_modalities = source_evidence.get("modalities")
+    if not isinstance(raw_modalities, list):
+        raw_modalities = []
     modalities = [
         value
-        for value in source_evidence.get("modalities", [])
+        for value in raw_modalities
         if isinstance(value, str) and value in allowed_modalities
     ]
+    raw_frames = source_evidence.get("frames")
+    if not isinstance(raw_frames, list):
+        raw_frames = []
     frames = []
-    for frame in source_evidence.get("frames", [])[:12]:
+    for frame in raw_frames[:12]:
         if not isinstance(frame, dict):
             continue
         timestamp = frame.get("timestampSeconds")
@@ -275,17 +288,19 @@ def apply_recipe_review(
     *,
     user_reviewed: bool = False,
     increment_revision: bool = False,
-    source_evidence: dict | None = None,
+    source_evidence: dict | None | object = _SOURCE_EVIDENCE_UNSET,
 ) -> ReviewAssessment:
     """Persist a new deterministic assessment and old-client warning fields."""
 
     revision = int(getattr(recipe, "content_revision", None) or 1)
     if increment_revision:
         revision += 1
-    if source_evidence is None:
+    if source_evidence is _SOURCE_EVIDENCE_UNSET:
         source_evidence = evidence_source_provenance(
             getattr(recipe, "extraction_evidence", None)
         )
+    elif not isinstance(source_evidence, dict):
+        source_evidence = None
     assessment = assess_recipe_review(
         extracted,
         source_type=recipe.source_type,

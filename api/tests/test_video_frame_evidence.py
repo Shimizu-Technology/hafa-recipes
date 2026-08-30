@@ -1,12 +1,15 @@
 """Regression coverage for bounded normal-video visual evidence."""
 
 import asyncio
+import base64
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 
 from app.services.extractor import (
     RecipeExtractor,
+    _check_extraction_confidence,
     _visual_recovery_improves,
 )
 from app.services.llm_client import ExtractionResult, LLMService
@@ -79,6 +82,170 @@ def test_visual_recovery_requires_improvement_without_losing_coverage():
     assert _visual_recovery_improves(initial, _recipe(quantity="2", steps=2)) is True
     assert _visual_recovery_improves(initial, _recipe(quantity="2", steps=1)) is False
     assert _visual_recovery_improves(_recipe(quantity="2"), _recipe(quantity="2")) is False
+    assert _visual_recovery_improves(
+        _recipe(quantity="not stated"),
+        _recipe(quantity="2"),
+    ) is True
+
+
+def test_confidence_uses_the_review_layers_nullish_quantity_semantics():
+    """Every accuracy gate must treat serialized source sentinels as missing."""
+
+    is_low_confidence, warning = _check_extraction_confidence(
+        _recipe(quantity="unknown"),
+        " ".join(["supported recipe transcript"] * 20),
+        "high",
+        True,
+    )
+
+    assert is_low_confidence is True
+    assert warning is not None
+    assert "1 ingredient amount was not stated" in warning
+
+
+class _CompletedMediaProcess:
+    """Minimal successful subprocess used by bounded-download tests."""
+
+    returncode = 0
+
+    async def communicate(self):
+        return b"", b""
+
+
+@pytest.mark.asyncio
+async def test_frame_download_rejects_oversize_file(monkeypatch, tmp_path):
+    """The post-download byte check protects against downloader bypasses."""
+
+    (tmp_path / "source.mp4").write_bytes(b"oversize")
+    monkeypatch.setattr("app.services.video.settings.video_frame_max_bytes", 4)
+    monkeypatch.setattr(
+        "app.services.video.asyncio.create_subprocess_exec",
+        AsyncMock(return_value=_CompletedMediaProcess()),
+    )
+
+    with pytest.raises(RuntimeError, match="size limit"):
+        await VideoService()._download_video_for_frames(
+            "https://www.youtube.com/watch?v=bounded",
+            str(tmp_path),
+        )
+
+
+@pytest.mark.asyncio
+async def test_frame_download_rejects_overduration_file(monkeypatch, tmp_path):
+    """The probed duration is enforced even when downloader metadata is wrong."""
+
+    (tmp_path / "source.mp4").write_bytes(b"video")
+    monkeypatch.setattr("app.services.video.settings.video_frame_max_bytes", 100)
+    monkeypatch.setattr("app.services.video.settings.video_frame_max_duration_seconds", 5)
+    monkeypatch.setattr(
+        "app.services.video.asyncio.create_subprocess_exec",
+        AsyncMock(return_value=_CompletedMediaProcess()),
+    )
+    service = VideoService()
+    monkeypatch.setattr(service, "_get_media_duration", AsyncMock(return_value=6.0))
+
+    with pytest.raises(RuntimeError, match="duration limit"):
+        await service._download_video_for_frames(
+            "https://www.youtube.com/watch?v=bounded",
+            str(tmp_path),
+        )
+
+
+@pytest.mark.asyncio
+async def test_candidate_frames_dedupe_scenes_and_enforce_cap(monkeypatch, tmp_path):
+    """Periodic coverage wins; repeated scenes are dropped within the hard cap."""
+
+    service = VideoService()
+
+    async def write_periodic(_video_path, output_path, _timestamp):
+        Path(output_path).write_bytes(b"0")
+        return True
+
+    duplicate_scene = tmp_path / "scene-01.jpg"
+    distinct_scene = tmp_path / "scene-02.jpg"
+    overflow_scene = tmp_path / "scene-03.jpg"
+    duplicate_scene.write_bytes(b"0")
+    distinct_scene.write_bytes(str((1 << 64) - 1).encode())
+    overflow_scene.write_bytes(str((1 << 63) - 1).encode())
+    monkeypatch.setattr("app.services.video.settings.video_frame_max_count", 7)
+    monkeypatch.setattr(service, "_write_frame", AsyncMock(side_effect=write_periodic))
+    monkeypatch.setattr(
+        service,
+        "_write_scene_change_frames",
+        AsyncMock(
+            return_value=[
+                (1.0, str(duplicate_scene)),
+                (2.0, str(distinct_scene)),
+                (3.0, str(overflow_scene)),
+            ]
+        ),
+    )
+    monkeypatch.setattr(service, "_image_fingerprint", lambda value: int(value.decode()))
+
+    frames = await service._extract_candidate_frames("video.mp4", str(tmp_path), 100.0)
+
+    assert len(frames) == 7
+    assert frames[-1].timestamp_seconds == 99.75
+    assert base64.b64encode(distinct_scene.read_bytes()).decode("ascii") in {
+        frame.image_base64 for frame in frames
+    }
+    assert base64.b64encode(overflow_scene.read_bytes()).decode("ascii") not in {
+        frame.image_base64 for frame in frames
+    }
+
+
+@pytest.mark.asyncio
+async def test_per_frame_timeout_is_contained(monkeypatch, tmp_path):
+    """A slow seek skips one frame without discarding the remaining candidates."""
+
+    class TimedOutProcess:
+        returncode = None
+
+        async def communicate(self):
+            raise asyncio.TimeoutError
+
+        def kill(self):
+            self.returncode = -9
+
+        async def wait(self):
+            return self.returncode
+
+    monkeypatch.setattr(
+        "app.services.video.asyncio.create_subprocess_exec",
+        AsyncMock(return_value=TimedOutProcess()),
+    )
+
+    written = await VideoService()._write_frame(
+        "video.mp4",
+        str(tmp_path / "frame.jpg"),
+        1.0,
+    )
+
+    assert written is False
+
+
+@pytest.mark.asyncio
+async def test_scene_frames_without_parsed_timestamps_are_dropped(monkeypatch, tmp_path):
+    """Owner evidence never receives a fabricated timestamp for an unmatched JPEG."""
+
+    (tmp_path / "scene-01.jpg").write_bytes(b"one")
+    (tmp_path / "scene-02.jpg").write_bytes(b"two")
+
+    class SceneProcess(_CompletedMediaProcess):
+        async def communicate(self):
+            return b"", b"pts_time:4.25"
+
+    monkeypatch.setattr(
+        "app.services.video.asyncio.create_subprocess_exec",
+        AsyncMock(return_value=SceneProcess()),
+    )
+
+    frames = await VideoService()._write_scene_change_frames(
+        "video.mp4",
+        str(tmp_path),
+    )
+
+    assert frames == [(4.25, str(tmp_path / "scene-01.jpg"))]
 
 
 @pytest.mark.asyncio

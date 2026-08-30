@@ -13,9 +13,10 @@ Frame analysis runs only when all of these conditions are true:
 - text extraction was unavailable, failed, or produced an uncertain recipe.
 
 The service downloads a video no larger than `VIDEO_FRAME_MAX_BYTES` and no
-longer than `VIDEO_FRAME_MAX_DURATION_SECONDS`. It samples six opening,
-closing, and periodic frames plus up to two distinct scene-change frames. The
-hard cap is `VIDEO_FRAME_MAX_COUNT`.
+longer than `VIDEO_FRAME_MAX_DURATION_SECONDS`. It samples up to six opening,
+closing, and periodic frames plus up to four distinct scene-change frames. The
+combined hard cap is `VIDEO_FRAME_MAX_COUNT`, so at the default of 8 frames at
+most two scene-change frames are retained.
 
 The visual model receives each frame with its timestamp, available caption and
 audio text, and the tentative text draft. Its prompt forbids guessing hidden

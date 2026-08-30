@@ -298,3 +298,70 @@ def test_video_provenance_is_allowlisted_and_restorable_without_source_content()
         "frames": [{"timestampSeconds": 2.35}],
         "sourceArtifactsRetained": False,
     }
+
+
+def test_video_provenance_tolerates_null_collections_and_enforces_bounds():
+    """Malformed legacy provenance cannot crash review or escape frame bounds."""
+
+    null_collections = assess_recipe_review(
+        _recipe_data(),
+        source_type="youtube",
+        extraction_method="whisper",
+        content_revision=1,
+        source_evidence={"modalities": None, "frames": None},
+    )
+    bounded = assess_recipe_review(
+        _recipe_data(),
+        source_type="youtube",
+        extraction_method="whisper+video-frames",
+        content_revision=1,
+        source_evidence={
+            "frames": [
+                *({"timestampSeconds": value} for value in range(13)),
+                {"timestampSeconds": 14_401},
+            ]
+        },
+    )
+
+    assert "modalities" not in null_collections.evidence["source"]
+    assert "frames" not in null_collections.evidence["source"]
+    assert bounded.evidence["source"]["frames"] == [
+        {"timestampSeconds": float(value)} for value in range(12)
+    ]
+
+
+def test_explicit_none_clears_provenance_while_omission_preserves_it():
+    """New content without frame evidence must not inherit stale provenance."""
+
+    existing_evidence = assess_recipe_review(
+        _recipe_data(),
+        source_type="youtube",
+        extraction_method="whisper+video-frames",
+        content_revision=1,
+        source_evidence={
+            "modalities": ["video_frames"],
+            "frames": [{"timestampSeconds": 3.5}],
+        },
+    ).evidence
+    preserved = SimpleNamespace(
+        source_type="youtube",
+        extraction_method="whisper",
+        content_revision=1,
+        extraction_evidence=existing_evidence,
+        is_public=False,
+    )
+    cleared = SimpleNamespace(
+        source_type="youtube",
+        extraction_method="whisper",
+        content_revision=1,
+        extraction_evidence=existing_evidence,
+        is_public=False,
+    )
+
+    apply_recipe_review(preserved, _recipe_data())
+    apply_recipe_review(cleared, _recipe_data(), source_evidence=None)
+
+    assert preserved.extraction_evidence["source"]["frames"] == [
+        {"timestampSeconds": 3.5}
+    ]
+    assert "frames" not in cleared.extraction_evidence["source"]

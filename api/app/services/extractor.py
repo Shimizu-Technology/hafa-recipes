@@ -7,6 +7,7 @@ from typing import Optional
 import sentry_sdk
 
 from app.config import get_settings
+from app.recipe_review import is_missing_quantity
 from app.services.llm_client import llm_service
 from app.services.openai_client import openai_service  # Used for transcription
 from app.services.video import VideoMetadata, VideoService, video_service
@@ -143,7 +144,7 @@ def _check_extraction_confidence(
                                  "to your liking", "to preference", "adjust to"]
                 if any(vp in quantity or vp in unit or vp in notes or vp in name for vp in vague_patterns):
                     vague_ingredients += 1
-                elif not quantity.strip() or quantity in {"none", "null"}:
+                elif is_missing_quantity(quantity):
                     missing_quantity_count += 1
         
         if total_ingredients == 0:
@@ -235,8 +236,7 @@ def _recipe_critical_counts(recipe: dict | None) -> tuple[int, int, int]:
             if not isinstance(ingredient, dict) or not str(ingredient.get("name") or "").strip():
                 continue
             ingredient_count += 1
-            quantity = str(ingredient.get("quantity") or "").strip().lower()
-            if quantity in {"", "null", "none", "n/a"}:
+            if is_missing_quantity(ingredient.get("quantity")):
                 missing_quantity_count += 1
         step_count += sum(
             1
