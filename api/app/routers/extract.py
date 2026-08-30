@@ -1626,6 +1626,7 @@ async def run_re_extraction_job(
             
             if not recipe:
                 raise Exception(f"Recipe {recipe_id} not found")
+            starting_content_revision = int(recipe.content_revision or 1)
             
             # Detect platform and run appropriate extraction
             platform = video_service.detect_platform(source_url)
@@ -1693,7 +1694,7 @@ async def run_re_extraction_job(
                     final_extracted,
                     source_type=recipe.source_type,
                     extraction_method=result.extraction_method,
-                    content_revision=(recipe.content_revision or 1) + 1,
+                    content_revision=starting_content_revision + 1,
                 )
                 review_failure = _reextraction_review_failure(candidate_review)
                 if review_failure:
@@ -1729,8 +1730,47 @@ async def run_re_extraction_job(
                             final_extracted["media"] = dict(final_extracted.get("media", {}))
                             final_extracted["media"]["thumbnail"] = s3_url
 
+                terminal_job_result = await db.execute(
+                    select(ExtractionJob)
+                    .where(
+                        ExtractionJob.id == job_id,
+                        ExtractionJob.lease_token == lease_token,
+                    )
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+                job = terminal_job_result.scalar_one_or_none()
+                if not job:
+                    raise ExtractionJobCancelled
+
+                recipe_result = await db.execute(
+                    select(Recipe)
+                    .where(
+                        Recipe.id == recipe_id,
+                        Recipe.content_revision == starting_content_revision,
+                    )
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+                recipe = recipe_result.scalar_one_or_none()
+                if not recipe:
+                    conflict_message = (
+                        "The recipe changed while re-extraction was running, so your newer "
+                        "edits were preserved."
+                    )
+                    job.status = "failed"
+                    job.current_step = "error"
+                    job.message = conflict_message
+                    job.error_message = conflict_message
+                    job.error_code = "RECIPE_CHANGED"
+                    job.completed_at = datetime.now(timezone.utc)
+                    job.lease_token = None
+                    job.leased_until = None
+                    job.updated_at = datetime.now(timezone.utc)
+                    await db.commit()
+                    return
+
                 next_version = await next_recipe_version_number(db, recipe.id)
-                await db.refresh(recipe)
                 old_extracted = dict(recipe.extracted) if recipe.extracted else {}
                 old_thumbnail = recipe.thumbnail_url
                 if not recipe.original_extracted and recipe.extracted:
@@ -1753,19 +1793,6 @@ async def run_re_extraction_job(
                 )
                 db.add(version)
                 final_thumbnail_url = uploaded_thumbnail_url or recipe.thumbnail_url
-
-                terminal_job_result = await db.execute(
-                    select(ExtractionJob)
-                    .where(
-                        ExtractionJob.id == job_id,
-                        ExtractionJob.lease_token == lease_token,
-                    )
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
-                )
-                job = terminal_job_result.scalar_one_or_none()
-                if not job:
-                    raise ExtractionJobCancelled
 
                 # Now apply ALL changes to the recipe object at once
                 print(f"🔵 Final extracted has lowConfidence = {final_extracted.get('lowConfidence')}")
