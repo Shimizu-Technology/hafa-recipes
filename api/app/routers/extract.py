@@ -24,6 +24,7 @@ from app.job_worker import (
     job_worker,
     should_retry_extraction_error,
 )
+from app.media_lifecycle import acquire_recipe_media_lock
 from app.models.recipe import ExtractionJob, Recipe, RecipeVersion
 from app.publishing import (
     PublishingDisclosureRequired,
@@ -1713,23 +1714,9 @@ async def run_re_extraction_job(
                     await db.commit()
                     return
 
-                uploaded_thumbnail_url = None
-                if result.thumbnail_url:
-                    await update_progress(ExtractionProgress(
-                        step="saving",
-                        progress=85,
-                        message="Saving thumbnail..."
-                    ))
-                    s3_url = await storage_service.upload_thumbnail_from_url(
-                        result.thumbnail_url,
-                        str(recipe.id)
-                    )
-                    if s3_url:
-                        uploaded_thumbnail_url = s3_url
-                        if "media" in final_extracted:
-                            final_extracted["media"] = dict(final_extracted.get("media", {}))
-                            final_extracted["media"]["thumbnail"] = s3_url
-
+                # Match deletion's media -> row lock ordering, and keep the
+                # thumbnail write inside the successful revision boundary.
+                await acquire_recipe_media_lock(db, recipe_id)
                 terminal_job_result = await db.execute(
                     select(ExtractionJob)
                     .where(
@@ -1770,6 +1757,20 @@ async def run_re_extraction_job(
                     job.updated_at = datetime.now(timezone.utc)
                     await db.commit()
                     return
+
+                uploaded_thumbnail_url = None
+                if result.thumbnail_url:
+                    s3_url = await storage_service.upload_thumbnail_from_url_locked(
+                        result.thumbnail_url,
+                        str(recipe.id),
+                    )
+                    if s3_url:
+                        uploaded_thumbnail_url = s3_url
+                        if "media" in final_extracted:
+                            final_extracted["media"] = dict(
+                                final_extracted.get("media", {})
+                            )
+                            final_extracted["media"]["thumbnail"] = s3_url
 
                 next_version = await next_recipe_version_number(db, recipe.id)
                 old_extracted = dict(recipe.extracted) if recipe.extracted else {}

@@ -4,6 +4,7 @@ import asyncio
 import os
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -70,7 +71,7 @@ async def test_reextraction_revision_compare_and_swap(
             success=True,
             recipe=_recipe_data("Stale extracted title"),
             raw_text="Structured website recipe",
-            thumbnail_url=None,
+            thumbnail_url="https://cdn.example.test/new-thumbnail.jpg",
             extraction_method="website-jsonld",
             extraction_quality="high",
             has_audio_transcript=False,
@@ -138,6 +139,13 @@ async def test_reextraction_revision_compare_and_swap(
             "app.services.website.website_service.extract",
             fake_website_extract,
         )
+        upload_thumbnail = AsyncMock(
+            return_value="https://storage.example.test/new-thumbnail.jpg"
+        )
+        monkeypatch.setattr(
+            "app.routers.extract.storage_service.upload_thumbnail_from_url_locked",
+            upload_thumbnail,
+        )
 
         worker = asyncio.create_task(
             run_re_extraction_job(
@@ -185,11 +193,16 @@ async def test_reextraction_revision_compare_and_swap(
                 assert failed_job.error_code == "RECIPE_CHANGED"
                 assert "newer edits were preserved" in failed_job.error_message
                 assert version_count == 0
+                upload_thumbnail.assert_not_awaited()
             else:
                 assert preserved_recipe.extracted["title"] == "Stale extracted title"
                 assert failed_job.status == "completed"
                 assert failed_job.error_code is None
                 assert version_count == 1
+                upload_thumbnail.assert_awaited_once_with(
+                    "https://cdn.example.test/new-thumbnail.jpg",
+                    str(recipe_id),
+                )
     finally:
         finish_extraction.set()
         require_disposable_test_database(TEST_DATABASE_URL)
