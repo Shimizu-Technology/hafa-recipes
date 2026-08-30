@@ -34,3 +34,17 @@ export function getCookDraftPresentation(
     alertMessage: null,
   };
 }
+
+export function getMissingQuantityLabel(
+  state: RecipeReviewState | null | undefined,
+  ingredient: { name?: string | null; quantity?: string | null; unit?: string | null; notes?: string | null },
+): string | null {
+  if (ingredient.quantity?.trim() || ingredient.unit?.trim()) return null;
+  const sourceLanguage = `${ingredient.name || ''} ${ingredient.notes || ''}`.toLowerCase();
+  if (['to taste', 'as needed', 'as desired', 'for garnish', 'optional'].some(
+    phrase => sourceLanguage.includes(phrase),
+  )) return null;
+  return state === 'source_incomplete' || state === 'needs_review'
+    ? 'Not stated — verify original'
+    : null;
+}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   getCookDraftPresentation,
+  getMissingQuantityLabel,
   getRecipeReviewLabel,
 } from './recipeReviewPresentation';
 
@@ -30,5 +31,13 @@ describe('recipe review presentation', () => {
   it('keeps ready and legacy recipes on the normal cooking path', () => {
     expect(getCookDraftPresentation('ready', 1).buttonLabel).toBe('Start Cooking');
     expect(getCookDraftPresentation(null, 1).buttonLabel).toBe('Start Cooking');
+  });
+
+  it('labels a genuinely missing imported amount without inventing to taste', () => {
+    expect(getMissingQuantityLabel('needs_review', { name: 'soy sauce' })).toBe(
+      'Not stated — verify original',
+    );
+    expect(getMissingQuantityLabel('needs_review', { name: 'salt to taste' })).toBeNull();
+    expect(getMissingQuantityLabel('ready', { name: 'water' })).toBeNull();
   });
 });

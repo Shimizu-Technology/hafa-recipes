@@ -52,6 +52,7 @@ import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { getSourcePlayback } from '@/lib/sourcePlayback';
 import {
   getCookDraftPresentation,
+  getMissingQuantityLabel,
   getRecipeReviewLabel,
 } from '@/lib/recipeReviewPresentation';
 import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
@@ -1015,6 +1016,7 @@ export default function RecipeDetailScreen() {
                         const unit = ing.unit && ing.unit !== 'null' ? ing.unit : '';
                         const qtyUnit = scaledQty ? `${scaledQty}${unit ? ` ${unit}` : ''} ` : '';
                         const notes = ing.notes && ing.notes !== 'null' ? ing.notes : '';
+                        const missingQuantityLabel = getMissingQuantityLabel(recipe.review_state, ing);
                         const cost = typeof ing.estimatedCost === 'number' 
                           ? `$${(ing.estimatedCost * scaleFactor).toFixed(2)}` 
                           : null;
@@ -1023,15 +1025,22 @@ export default function RecipeDetailScreen() {
                           <RNView key={ingIndex} style={styles.ingredientRow}>
                             <RNView style={[styles.bullet, { backgroundColor: isScaled ? colors.tint : colors.tint }]} />
                             <RNView style={styles.ingredientContent}>
-                              <Text style={[styles.ingredientText, { color: colors.text, fontSize: scaleFontSize(fontSize.md), lineHeight: scaleFontSize(22) }]}>
-                                {qtyUnit ? (
-                                  <Text style={[styles.ingredientQty, isScaled && { color: colors.tint }]}>
-                                    {qtyUnit}
+                              <RNView style={styles.ingredientMain}>
+                                <Text style={[styles.ingredientText, { color: colors.text, fontSize: scaleFontSize(fontSize.md), lineHeight: scaleFontSize(22) }]}>
+                                  {qtyUnit ? (
+                                    <Text style={[styles.ingredientQty, isScaled && { color: colors.tint }]}>
+                                      {qtyUnit}
+                                    </Text>
+                                  ) : null}
+                                  {ing.name}
+                                  {notes ? <Text style={[styles.ingredientNotes, { color: colors.textMuted }]}>{` (${notes})`}</Text> : null}
+                                </Text>
+                                {missingQuantityLabel ? (
+                                  <Text style={[styles.ingredientUncertainty, { color: colors.warning }]}>
+                                    {missingQuantityLabel}
                                   </Text>
                                 ) : null}
-                                {ing.name}
-                                {notes ? <Text style={[styles.ingredientNotes, { color: colors.textMuted }]}>{` (${notes})`}</Text> : null}
-                              </Text>
+                              </RNView>
                               {cost ? <Text style={[styles.ingredientCost, { color: colors.textMuted }]}>{cost}</Text> : null}
                             </RNView>
                           </RNView>
@@ -1095,13 +1104,19 @@ export default function RecipeDetailScreen() {
                           {component.ingredients.map((ing, ingIndex) => {
                             const scaledQty = scaleQuantity(ing.quantity ?? null, scaleFactor);
                             const unit = ing.unit && ing.unit !== 'null' ? ing.unit : '';
+                            const missingQuantityLabel = getMissingQuantityLabel(recipe.review_state, ing);
                             return (
                               <RNView key={ingIndex} style={styles.ingredientsRefItem}>
                                 <Text style={[styles.ingredientsRefQty, isScaled && { color: colors.tint }]}>
-                                  {scaledQty || '•'}{unit ? ` ${unit}` : ''}
+                                  {scaledQty || (missingQuantityLabel ? '?' : '•')}{unit ? ` ${unit}` : ''}
                                 </Text>
                                 <Text style={[styles.ingredientsRefName, { color: colors.text }]}>
                                   {ing.name}
+                                  {missingQuantityLabel ? (
+                                    <Text style={{ color: colors.warning }}>
+                                      {`\n${missingQuantityLabel}`}
+                                    </Text>
+                                  ) : null}
                                 </Text>
                               </RNView>
                             );
@@ -1947,9 +1962,15 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   ingredientText: {
-    flex: 1,
     fontSize: fontSize.md,
     lineHeight: 22,
+  },
+  ingredientMain: {
+    flex: 1,
+  },
+  ingredientUncertainty: {
+    fontSize: fontSize.xs,
+    marginTop: 2,
   },
   ingredientQty: {
     fontWeight: fontWeight.semibold,
