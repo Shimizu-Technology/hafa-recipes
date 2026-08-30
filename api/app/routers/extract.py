@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -1112,7 +1112,7 @@ async def run_extraction_job(
                 job.current_step = "complete"
                 job.message = completion_msg
                 job.recipe_id = new_recipe.id
-                job.completed_at = datetime.utcnow()
+                job.completed_at = datetime.now(timezone.utc)
                 job.low_confidence = review.state != "ready"
                 job.confidence_warning = review.summary if review.state != "ready" else None
                 job.lease_token = None
@@ -1747,7 +1747,8 @@ async def run_re_extraction_job(
                     select(Recipe)
                     .where(
                         Recipe.id == recipe_id,
-                        Recipe.content_revision == starting_content_revision,
+                        func.coalesce(Recipe.content_revision, 1)
+                        == starting_content_revision,
                     )
                     .with_for_update()
                     .execution_options(populate_existing=True)
@@ -1833,7 +1834,7 @@ async def run_re_extraction_job(
                 job.current_step = "complete"
                 job.message = completion_msg
                 job.recipe_id = recipe.id
-                job.completed_at = datetime.utcnow()
+                job.completed_at = datetime.now(timezone.utc)
                 job.low_confidence = review.state != "ready"
                 job.confidence_warning = review.summary if review.state != "ready" else None
                 job.lease_token = None

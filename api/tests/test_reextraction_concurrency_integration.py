@@ -48,8 +48,12 @@ def _recipe_data(title: str) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_reextraction_preserves_an_edit_committed_while_the_worker_runs(monkeypatch):
-    """A stale worker must fail with a conflict instead of replacing newer edits."""
+@pytest.mark.parametrize("edit_during_extraction", [True, False])
+async def test_reextraction_revision_compare_and_swap(
+    monkeypatch,
+    edit_during_extraction,
+):
+    """Reject newer edits while treating a legacy NULL revision as revision one."""
 
     assert TEST_DATABASE_URL
     engine = create_async_engine(TEST_DATABASE_URL)
@@ -80,6 +84,10 @@ async def test_reextraction_preserves_an_edit_committed_while_the_worker_runs(mo
             await connection.execute(text("DROP SCHEMA public CASCADE"))
             await connection.execute(text("CREATE SCHEMA public"))
             await connection.run_sync(Base.metadata.create_all)
+            if not edit_during_extraction:
+                await connection.execute(text(
+                    "ALTER TABLE recipes ALTER COLUMN content_revision DROP NOT NULL"
+                ))
 
         async with sessions() as db:
             db.add(AppUser(id=owner_id))
@@ -114,6 +122,13 @@ async def test_reextraction_preserves_an_edit_committed_while_the_worker_runs(mo
             recipe_id = saved_recipe.id
             job_id = job.id
 
+        if not edit_during_extraction:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text("UPDATE recipes SET content_revision = NULL WHERE id = :recipe_id"),
+                    {"recipe_id": recipe_id},
+                )
+
         monkeypatch.setattr(database_module, "AsyncSessionLocal", sessions)
         monkeypatch.setattr(
             "app.routers.extract.video_service.detect_platform",
@@ -136,19 +151,20 @@ async def test_reextraction_preserves_an_edit_committed_while_the_worker_runs(mo
         )
         await asyncio.wait_for(extraction_started.wait(), timeout=5)
 
-        async with sessions() as db:
-            edited_recipe = await db.scalar(
-                select(Recipe).where(Recipe.id == recipe_id).with_for_update()
-            )
-            edited_data = dict(edited_recipe.extracted)
-            edited_data["title"] = "Owner's newer edit"
-            apply_recipe_review(
-                edited_recipe,
-                edited_data,
-                user_reviewed=True,
-                increment_revision=True,
-            )
-            await db.commit()
+        if edit_during_extraction:
+            async with sessions() as db:
+                edited_recipe = await db.scalar(
+                    select(Recipe).where(Recipe.id == recipe_id).with_for_update()
+                )
+                edited_data = dict(edited_recipe.extracted)
+                edited_data["title"] = "Owner's newer edit"
+                apply_recipe_review(
+                    edited_recipe,
+                    edited_data,
+                    user_reviewed=True,
+                    increment_revision=True,
+                )
+                await db.commit()
 
         finish_extraction.set()
         await asyncio.wait_for(worker, timeout=10)
@@ -162,12 +178,18 @@ async def test_reextraction_preserves_an_edit_committed_while_the_worker_runs(mo
                 )
             )
 
-            assert preserved_recipe.extracted["title"] == "Owner's newer edit"
             assert preserved_recipe.content_revision == 2
-            assert failed_job.status == "failed"
-            assert failed_job.error_code == "RECIPE_CHANGED"
-            assert "newer edits were preserved" in failed_job.error_message
-            assert version_count == 0
+            if edit_during_extraction:
+                assert preserved_recipe.extracted["title"] == "Owner's newer edit"
+                assert failed_job.status == "failed"
+                assert failed_job.error_code == "RECIPE_CHANGED"
+                assert "newer edits were preserved" in failed_job.error_message
+                assert version_count == 0
+            else:
+                assert preserved_recipe.extracted["title"] == "Stale extracted title"
+                assert failed_job.status == "completed"
+                assert failed_job.error_code is None
+                assert version_count == 1
     finally:
         finish_extraction.set()
         require_disposable_test_database(TEST_DATABASE_URL)
