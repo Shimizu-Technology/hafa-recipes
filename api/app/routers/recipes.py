@@ -1814,12 +1814,19 @@ async def update_recipe(
 
     updated_extracted = invalidate_changed_inputs(old_extracted, extracted)
     recipe.is_public = target_is_public
-    apply_recipe_review(
-        recipe,
-        updated_extracted,
-        user_reviewed=recipe.review_state == "ready",
-        increment_revision=True,
-    )
+    if recipe.review_state is None:
+        # Released clients use this metadata-only route. Keep historical rows
+        # outside the new trust contract until a full edit or re-extraction
+        # produces evidence that can be assessed honestly.
+        recipe.extracted = updated_extracted
+        recipe.content_revision = int(recipe.content_revision or 1) + 1
+    else:
+        apply_recipe_review(
+            recipe,
+            updated_extracted,
+            user_reviewed=recipe.review_state == "ready",
+            increment_revision=True,
+        )
     if recipe.is_public:
         await require_current_publishing_disclosure(db, user.id)
 

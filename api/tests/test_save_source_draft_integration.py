@@ -1,5 +1,6 @@
 import os
 from datetime import UTC, datetime
+from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -11,7 +12,9 @@ from app.db.database import Base
 from app.models import ai, deletion, grocery, identity, meal_plan, moderation, recipe  # noqa: F401
 from app.models.identity import AppUser
 from app.models.recipe import ExtractionJob, Recipe
+from app.publishing import PUBLISHING_DISCLOSURE_VERSION
 from app.routers.extract import save_failed_extraction_as_draft
+from app.routers.recipes import RecipeUpdate, update_recipe
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
@@ -44,7 +47,13 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
             await connection.run_sync(Base.metadata.create_all)
 
         async with sessions() as db:
-            db.add_all([AppUser(id=owner.id), AppUser(id=other.id)])
+            db.add_all([
+                AppUser(
+                    id=owner.id,
+                    publishing_disclosure_version=PUBLISHING_DISCLOSURE_VERSION,
+                ),
+                AppUser(id=other.id),
+            ])
             job = ExtractionJob(
                 url="https://www.tiktok.com/@cook/video/1234567890123456789",
                 user_id=owner.id,
@@ -81,6 +90,43 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
             assert "to taste" not in str(saved.extracted).lower()
             assert job.status == "failed"
             assert str(job.recipe_id) == first["recipe_id"]
+
+            legacy_recipe = Recipe(
+                id=uuid4(),
+                source_url="manual://legacy",
+                source_type="manual",
+                extracted={
+                    "title": "Legacy recipe",
+                    "sourceUrl": "",
+                    "components": [{
+                        "name": "Main",
+                        "ingredients": [{"name": "rice", "quantity": "1", "unit": "cup"}],
+                        "steps": ["Cook the rice."],
+                    }],
+                    "ingredients": [{"name": "rice", "quantity": "1", "unit": "cup"}],
+                    "steps": ["Cook the rice."],
+                    "tags": [],
+                    "nutrition": {"perServing": {}, "total": {}},
+                },
+                extraction_method="manual",
+                has_audio_transcript=False,
+                user_id=owner.id,
+                is_public=True,
+                review_state=None,
+            )
+            db.add(legacy_recipe)
+            await db.commit()
+
+            updated = await update_recipe(
+                legacy_recipe.id,
+                RecipeUpdate(title="Renamed legacy recipe"),
+                db,
+                owner,
+            )
+            assert updated.extracted.title == "Renamed legacy recipe"
+            assert updated.is_public is True
+            assert updated.review_state is None
+            assert legacy_recipe.content_revision == 2
     finally:
         async with engine.begin() as connection:
             await connection.execute(text("DROP SCHEMA public CASCADE"))
