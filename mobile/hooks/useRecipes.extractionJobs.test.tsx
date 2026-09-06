@@ -1,0 +1,167 @@
+import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
+  .IS_REACT_ACT_ENVIRONMENT = true;
+
+const mocks = vi.hoisted(() => ({
+  getExtractionJobs: vi.fn(),
+  getItem: vi.fn(),
+  getJobStatus: vi.fn(),
+  getUserId: vi.fn(),
+  removeItem: vi.fn(),
+  setItem: vi.fn(),
+}));
+
+vi.mock('@clerk/expo', () => ({
+  useAuth: () => ({ isLoaded: true, userId: mocks.getUserId() }),
+}));
+vi.mock('@react-native-async-storage/async-storage', () => ({
+  default: {
+    getItem: mocks.getItem,
+    removeItem: mocks.removeItem,
+    setItem: mocks.setItem,
+  },
+}));
+vi.mock('react-native', () => ({
+  AppState: {
+    currentState: 'active',
+    addEventListener: vi.fn(() => ({ remove: vi.fn() })),
+  },
+}));
+vi.mock('../lib/api', () => ({
+  api: {
+    getExtractionJobs: mocks.getExtractionJobs,
+    getJobStatus: mocks.getJobStatus,
+  },
+}));
+
+import { useAsyncExtractionController, useExtractionJobs } from './useRecipes';
+
+type Controller = ReturnType<typeof useAsyncExtractionController>;
+
+describe('durable extraction recovery', () => {
+  beforeEach(() => {
+    Object.values(mocks).forEach((mock) => mock.mockReset());
+    mocks.getItem.mockResolvedValue(null);
+    mocks.getUserId.mockReturnValue('clerk-current-user');
+    mocks.removeItem.mockResolvedValue(undefined);
+    mocks.setItem.mockResolvedValue(undefined);
+    mocks.getExtractionJobs.mockResolvedValue([{
+      id: 'server-job',
+      url: 'https://www.tiktok.com/@cook/video/123',
+      job_kind: 'extract',
+      status: 'processing',
+      progress: 40,
+      current_step: 'extracting',
+      message: 'Extracting recipe',
+      recipe_id: null,
+      error_message: null,
+      created_at: '2026-09-07T00:00:00Z',
+    }]);
+    mocks.getJobStatus.mockReturnValue(new Promise(() => undefined));
+  });
+
+  it('keeps recent-job cache data scoped to the signed-in account', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const firstAccountJobs = [{
+      id: 'first-account-job',
+      url: 'https://example.com/first',
+      status: 'completed' as const,
+      progress: 100,
+      current_step: 'complete',
+      message: 'Done',
+      recipe_id: 'first-recipe',
+      error_message: null,
+    }];
+    const secondAccountJobs = [{
+      ...firstAccountJobs[0],
+      id: 'second-account-job',
+      url: 'https://example.com/second',
+      recipe_id: 'second-recipe',
+    }];
+    mocks.getExtractionJobs
+      .mockResolvedValueOnce(firstAccountJobs)
+      .mockResolvedValueOnce(secondAccountJobs);
+
+    function RecentJobsHarness() {
+      useExtractionJobs('extract');
+      return null;
+    }
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <QueryClientProvider client={queryClient}>
+          <RecentJobsHarness />
+        </QueryClientProvider>,
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      renderer!.unmount();
+    });
+
+    mocks.getUserId.mockReturnValue('clerk-second-user');
+    await act(async () => {
+      renderer = create(
+        <QueryClientProvider client={queryClient}>
+          <RecentJobsHarness />
+        </QueryClientProvider>,
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(mocks.getExtractionJobs).toHaveBeenCalledTimes(2);
+    expect(queryClient.getQueryData(['extractionJobs', 'recent', 'clerk-current-user', 'extract']))
+      .toEqual(firstAccountJobs);
+    expect(queryClient.getQueryData(['extractionJobs', 'recent', 'clerk-second-user', 'extract']))
+      .toEqual(secondAccountJobs);
+
+    await act(async () => renderer!.unmount());
+    queryClient.clear();
+  });
+
+  it('rediscovers and resumes an owner job when local storage has no pointer', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    let controller: Controller | null = null;
+    let renderer: ReactTestRenderer;
+
+    function Harness() {
+      controller = useAsyncExtractionController();
+      return null;
+    }
+
+    await act(async () => {
+      renderer = create(
+        <QueryClientProvider client={queryClient}>
+          <Harness />
+        </QueryClientProvider>,
+      );
+    });
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+    }
+
+    expect(mocks.getExtractionJobs).toHaveBeenCalledWith({ limit: 1, activeOnly: true });
+    expect(controller).toMatchObject({
+      jobId: 'server-job',
+      isExtracting: true,
+      progress: 40,
+      sourceUrl: 'https://www.tiktok.com/@cook/video/123',
+    });
+
+    await act(async () => renderer!.unmount());
+    queryClient.clear();
+  });
+});

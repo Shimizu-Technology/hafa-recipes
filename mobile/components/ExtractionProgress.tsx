@@ -237,7 +237,12 @@ export default function ExtractionProgress({
 
       {/* Progress bar */}
       <View style={styles.progressContainer}>
-        <View style={[styles.progressTrack, { backgroundColor: colors.border }]}>
+        <View
+          style={[styles.progressTrack, { backgroundColor: colors.border }]}
+          accessibilityRole="progressbar"
+          accessibilityLabel="Recipe extraction progress"
+          accessibilityValue={{ min: 0, max: 100, now: progress }}
+        >
           <Animated.View
             style={[
               styles.progressFill,

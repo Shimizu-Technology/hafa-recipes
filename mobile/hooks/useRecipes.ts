@@ -28,6 +28,7 @@ const ACTIVE_JOB_KEY_PREFIX = 'active_extraction_job_v2';
 const MAX_STORED_JOB_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const SUCCESS_POLL_DELAY_MS = 2_500;
 const MAX_RETRY_POLL_DELAY_MS = 30_000;
+const ACTIVE_EXTRACTION_STATUSES: JobStatus['status'][] = ['queued', 'claimed', 'processing'];
 
 type StoredExtractionRequest =
   | { kind: 'extract'; payload: ExtractRequest }
@@ -108,6 +109,16 @@ export const recipeKeys = {
   // Ingredient search
   byIngredients: (ingredients: string[], includeSaved: boolean, includePublic: boolean) => 
     [...recipeKeys.all, 'byIngredients', ingredients.join(','), includeSaved, includePublic] as const,
+};
+
+export const extractionJobKeys = {
+  all: ['extractionJobs'] as const,
+  recent: (
+    userId: string | null | undefined,
+    jobKind: 'extract' | 'reextract' | undefined = 'extract',
+  ) => [...extractionJobKeys.all, 'recent', userId, jobKind] as const,
+  active: (userId: string | null | undefined) =>
+    [...extractionJobKeys.all, 'active', userId] as const,
 };
 
 function setDiscoverSavedState(
@@ -300,6 +311,25 @@ export function useLocations() {
   });
 }
 
+/** Keep a small, owner-scoped history of durable extraction jobs. */
+export function useExtractionJobs(
+  jobKind: 'extract' | 'reextract' | undefined = 'extract',
+  enabled = true,
+) {
+  const { isLoaded, userId } = useAuth();
+  return useQuery({
+    queryKey: extractionJobKeys.recent(userId, jobKind),
+    queryFn: () => api.getExtractionJobs({ limit: 8, jobKind, includeCancelled: false }),
+    enabled: enabled && isLoaded && Boolean(userId),
+    staleTime: 15_000,
+    refetchInterval: (query) => (
+      query.state.data?.some((job) => ACTIVE_EXTRACTION_STATUSES.includes(job.status))
+        ? SUCCESS_POLL_DELAY_MS
+        : false
+    ),
+  });
+}
+
 // ============================================================
 // Mutation Hooks
 // ============================================================
@@ -332,6 +362,7 @@ export function useAsyncExtractionController() {
   const [terminalState, setTerminalState] = useState<'failed' | 'cancelled' | 'expired' | null>(null);
   const [canRetryStart, setCanRetryStart] = useState(false);
   const [jobKind, setJobKind] = useState<StoredExtractionRequest['kind']>('extract');
+  const [hasHydratedStoredJob, setHasHydratedStoredJob] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -341,6 +372,16 @@ export function useAsyncExtractionController() {
   const currentJobIdRef = useRef<string | null>(null);
   const currentStartTimeRef = useRef<number | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+
+  const activeJobsQuery = useQuery({
+    queryKey: extractionJobKeys.active(userId),
+    queryFn: () => api.getExtractionJobs({ limit: 1, activeOnly: true }),
+    enabled: Boolean(
+      isAuthLoaded && userId && hasHydratedStoredJob && !jobId && !isStarting,
+    ),
+    staleTime: 0,
+    refetchInterval: 15_000,
+  });
 
   const stopPollingTimers = useCallback((updateState = true) => {
     pollingGenerationRef.current += 1;
@@ -404,6 +445,12 @@ export function useAsyncExtractionController() {
         if (generation !== pollingGenerationRef.current) return;
 
         setJobStatus(status);
+        if (userId) {
+          queryClient.setQueryData<JobStatus[]>(
+            extractionJobKeys.active(userId),
+            ACTIVE_EXTRACTION_STATUSES.includes(status.status) ? [status] : [],
+          );
+        }
         setConnectionNotice(null);
         setError(null);
         setTerminalState(null);
@@ -412,12 +459,14 @@ export function useAsyncExtractionController() {
           stopPollingTimers();
           await clearActiveJob();
           invalidateCompletedRecipe(status.recipe_id);
+          queryClient.invalidateQueries({ queryKey: extractionJobKeys.all });
           return;
         }
 
         if (status.status === 'failed' || status.status === 'cancelled' || status.status === 'expired') {
           stopPollingTimers();
           await clearActiveJob();
+          queryClient.invalidateQueries({ queryKey: extractionJobKeys.all });
           setTerminalState(status.status);
           if (status.status === 'cancelled') {
             setError('This extraction was cancelled. You can start it again whenever you are ready.');
@@ -455,7 +504,41 @@ export function useAsyncExtractionController() {
     };
 
     void poll();
-  }, [clearActiveJob, invalidateCompletedRecipe, stopPollingTimers]);
+  }, [clearActiveJob, invalidateCompletedRecipe, queryClient, stopPollingTimers, userId]);
+
+  const restoreJob = useCallback((status: JobStatus) => {
+    setJobKind(status.job_kind || 'extract');
+    setJobStatus(status);
+    setJobId(status.id);
+    setCanRetryStart(false);
+    setIsStarting(false);
+    setConnectionNotice(null);
+    const parsedStartTime = status.created_at ? new Date(status.created_at).getTime() : NaN;
+    const restoredStartTime = Number.isFinite(parsedStartTime) ? parsedStartTime : Date.now();
+    setStartTime(restoredStartTime);
+    setElapsedTime(Math.max(0, Math.floor((Date.now() - restoredStartTime) / 1_000)));
+
+    if (ACTIVE_EXTRACTION_STATUSES.includes(status.status)) {
+      setError(null);
+      setTerminalState(null);
+      startPolling(status.id, restoredStartTime);
+      return;
+    }
+
+    stopPollingTimers();
+    if (status.status === 'failed' || status.status === 'expired' || status.status === 'cancelled') {
+      setTerminalState(status.status);
+      setError(
+        status.error_message || (
+          status.status === 'expired'
+            ? 'This extraction expired before it finished. Please start a new extraction.'
+            : status.status === 'cancelled'
+              ? 'This extraction was cancelled. You can start it again whenever you are ready.'
+              : 'We could not finish this extraction. Please try again.'
+        ),
+      );
+    }
+  }, [startPolling, stopPollingTimers]);
 
   const beginStoredRequest = useCallback(async (storedJob: StoredExtractionJob) => {
     setIsStarting(true);
@@ -504,6 +587,7 @@ export function useAsyncExtractionController() {
       setStartTime(storedJob.startTime);
       startPolling(result.job_id, storedJob.startTime);
       setIsStarting(false);
+      queryClient.invalidateQueries({ queryKey: extractionJobKeys.all });
 
       return {
         status: 'processing' as const,
@@ -532,7 +616,7 @@ export function useAsyncExtractionController() {
       setError(message);
       throw new Error(message);
     }
-  }, [clearActiveJob, invalidateCompletedRecipe, saveActiveJob, startPolling]);
+  }, [clearActiveJob, invalidateCompletedRecipe, queryClient, saveActiveJob, startPolling]);
 
   const retryPendingStart = useCallback(async () => {
     if (!userId) return;
@@ -573,6 +657,7 @@ export function useAsyncExtractionController() {
   }, [startPolling, stopPollingTimers]);
 
   useEffect(() => {
+    setHasHydratedStoredJob(false);
     stopPollingTimers();
     currentJobIdRef.current = null;
     currentStartTimeRef.current = null;
@@ -611,6 +696,8 @@ export function useAsyncExtractionController() {
       } catch {
         // A malformed/stale local entry must never block a new extraction.
         await AsyncStorage.removeItem(activeJobKey(userId));
+      } finally {
+        if (!cancelled) setHasHydratedStoredJob(true);
       }
     };
     void load();
@@ -620,6 +707,12 @@ export function useAsyncExtractionController() {
       stopPollingTimers();
     };
   }, [isAuthLoaded, startPolling, stopPollingTimers, userId]);
+
+  useEffect(() => {
+    if (!hasHydratedStoredJob || currentJobIdRef.current || isStarting) return;
+    const activeJob = activeJobsQuery.data?.[0];
+    if (activeJob) restoreJob(activeJob);
+  }, [activeJobsQuery.data, hasHydratedStoredJob, isStarting, restoreJob]);
 
   const startExtraction = async (request: ExtractRequest) => {
     if (!userId) throw new Error('Please sign in before extracting a recipe.');
@@ -665,6 +758,10 @@ export function useAsyncExtractionController() {
     setStartTime(null);
     setElapsedTime(0);
     await clearActiveJob();
+    if (userId) {
+      queryClient.setQueryData<JobStatus[]>(extractionJobKeys.active(userId), []);
+    }
+    queryClient.invalidateQueries({ queryKey: extractionJobKeys.all });
   };
 
   const cancel = async () => {
@@ -729,12 +826,16 @@ export function useAsyncExtractionController() {
     attemptCount: jobStatus?.attempt_count || 0,
     maxAttempts: jobStatus?.max_attempts || 0,
     sourceUrl,
+    sourceLocation: jobStatus?.location || null,
+    sourceNotes: jobStatus?.notes || '',
+    requestedIsPublic: jobStatus?.requested_is_public || false,
     isWebsiteExtraction,
     lowConfidence: jobStatus?.low_confidence || false,
     confidenceWarning: jobStatus?.confidence_warning || null,
     canSaveDraft: jobStatus?.can_save_draft || false,
     reviewState: jobStatus?.review_state || null,
     reviewSummary: jobStatus?.review_summary || null,
+    restoreJob,
     startExtraction,
     startReExtraction,
     retryPendingStart,

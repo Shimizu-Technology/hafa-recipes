@@ -788,6 +788,23 @@ class ApiClient {
     return data;
   }
 
+  async getExtractionJobs(options: {
+    limit?: number;
+    activeOnly?: boolean;
+    includeCancelled?: boolean;
+    jobKind?: 'extract' | 'reextract';
+  } = {}): Promise<JobStatus[]> {
+    const { data } = await this.client.get('/api/jobs', {
+      params: {
+        limit: options.limit ?? 8,
+        active_only: options.activeOnly || undefined,
+        include_cancelled: options.includeCancelled,
+        job_kind: options.jobKind,
+      },
+    });
+    return data;
+  }
+
   async saveFailedExtractionDraft(jobId: string): Promise<{ recipe_id: string; is_existing: boolean }> {
     const { data } = await this.client.post(`/api/jobs/${jobId}/save-draft`);
     return data;
