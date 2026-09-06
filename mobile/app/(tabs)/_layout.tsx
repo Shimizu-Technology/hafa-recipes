@@ -14,13 +14,15 @@ export default function TabLayout() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const queryClient = useQueryClient();
-  const { isSignedIn, isLoaded } = useAuth();
+  const { isSignedIn, isLoaded, userId } = useAuth();
 
-  // Warm Discover for guests too; private library data still waits for sign-in.
+  // `userId` is only an identity-change signal here. AuthTokenSync clears the
+  // entire QueryClient in a parent layout effect before this descendant effect
+  // runs, so private entries cannot cross accounts and the new account is warmed.
   useEffect(() => {
     if (!isLoaded) return;
     prefetchTabData(queryClient, Boolean(isSignedIn));
-  }, [queryClient, isSignedIn, isLoaded]);
+  }, [queryClient, isSignedIn, isLoaded, userId]);
 
   return (
     <Tabs
