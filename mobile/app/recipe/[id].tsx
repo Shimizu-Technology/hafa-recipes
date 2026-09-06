@@ -2,7 +2,6 @@ import { useState, useMemo } from 'react';
 import {
   StyleSheet,
   ScrollView,
-  Image,
   TouchableOpacity,
   Alert,
   Linking,
@@ -74,6 +73,7 @@ import { getSafetyErrorMessage } from '@/lib/communitySafety';
 import { collectionsContainingRecipe } from '@/lib/recipeRelationships';
 import { appRoutes } from '@/lib/routes';
 import type { ReportCategory, SafetyTargetType } from '@/types/communitySafety';
+import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 
 type TabType = 'ingredients' | 'steps' | 'nutrition' | 'cost';
 type RecipeMenuAction = {
@@ -94,26 +94,17 @@ function SimilarRecipeCard({
   onPress: () => void;
   colors: ReturnType<typeof useColors>;
 }) {
-  const [imageError, setImageError] = useState(false);
-  const showPlaceholder = !item.thumbnail_url || imageError;
-
   return (
     <TouchableOpacity
       style={[styles.similarCard, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
       onPress={onPress}
       activeOpacity={0.7}
     >
-      {showPlaceholder ? (
-        <RNView style={[styles.similarImagePlaceholder, { backgroundColor: colors.tint + '15' }]}>
-          <Ionicons name="restaurant-outline" size={32} color={colors.tint} />
-        </RNView>
-      ) : (
-        <Image 
-          source={{ uri: item.thumbnail_url! }} 
-          style={styles.similarImage}
-          onError={() => setImageError(true)}
-        />
-      )}
+      <RecipeThumbnail
+        uri={item.thumbnail_url}
+        style={styles.similarImage}
+        accessibilityLabel={`${item.title} photo`}
+      />
       <RNView style={styles.similarCardContent}>
         <Text 
           style={[styles.similarCardTitle, { color: colors.text }]} 
@@ -2479,13 +2470,6 @@ const styles = StyleSheet.create({
   similarImage: {
     width: '100%',
     height: 100,
-    resizeMode: 'cover',
-  },
-  similarImagePlaceholder: {
-    width: '100%',
-    height: 100,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   similarCardContent: {
     padding: spacing.sm,

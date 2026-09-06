@@ -85,16 +85,46 @@ describe('PlannerRecipeHandoffCard', () => {
 
       expect(textNodes(renderer).some((text) => text.props.children === 'Chicken Kelaguen')).toBe(true);
       const thumbnail = renderer.container.queryAll(
-        (instance) => instance.type === 'Image',
+        (instance) => instance.props.accessibilityLabel === 'Chicken Kelaguen thumbnail',
       )[0];
       expect(thumbnail.props.accessible).toBe(true);
       expect(thumbnail.props.accessibilityRole).toBe('image');
       expect(thumbnail.props.accessibilityLabel).toBe('Chicken Kelaguen thumbnail');
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'ExpoImage',
+      )).toHaveLength(1);
       const dismiss = renderer.container.queryAll(
         (instance) => instance.type === 'TouchableOpacity',
       ).find((button) => button.props.accessibilityLabel === 'Stop planning this recipe');
       await act(async () => dismiss!.props.onPress());
       expect(onDismiss).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('announces a whitespace-only thumbnail as unavailable', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(PlannerRecipeHandoffCard, {
+          title: 'Chicken Kelaguen',
+          thumbnailUrl: '   ',
+          isLoading: false,
+          hasError: false,
+          isRetrying: false,
+          onRetry: vi.fn(),
+          onDismiss: vi.fn(),
+        }));
+      });
+
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Recipe thumbnail unavailable',
+      )).toHaveLength(1);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'ExpoImage',
+      )).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());
     }
@@ -209,7 +239,7 @@ describe('PlannerRecipeHandoffCard', () => {
       expect(fallback[0].props.accessible).toBe(true);
       expect(fallback[0].props.accessibilityRole).toBe('image');
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'Image',
+        (instance) => instance.type === 'ExpoImage',
       )).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());

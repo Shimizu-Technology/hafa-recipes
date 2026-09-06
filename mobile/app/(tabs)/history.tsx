@@ -3,7 +3,6 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Image,
   RefreshControl,
   View as RNView,
   ActivityIndicator,
@@ -43,6 +42,7 @@ import Colors from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { RecipeTrustBadge } from '@/components/RecipeTrustBadge';
+import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_PADDING = spacing.lg; // 24px on each side
@@ -53,6 +53,7 @@ import { useViewPreference } from '@/hooks/useViewPreference';
 
 const ITEMS_PER_PAGE = 20;
 
+/** Render a library recipe as a compact list card. */
 export function RecipeCard({
   recipe,
   onPress,
@@ -64,11 +65,7 @@ export function RecipeCard({
   colors: ReturnType<typeof useColors>;
   isSavedRecipe?: boolean;
 }) {
-  const [imageError, setImageError] = useState(false);
-
   const { icon: sourceIcon, label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
-
-  const showPlaceholder = !recipe.thumbnail_url || imageError;
 
   return (
     <ScalePressable
@@ -77,24 +74,17 @@ export function RecipeCard({
     >
       {/* Thumbnail with gradient overlay */}
       <RNView style={styles.thumbnailContainer}>
-        {showPlaceholder ? (
-          <RNView style={[styles.placeholderThumbnail, { backgroundColor: colors.tint + '15' }]}>
-            <Ionicons name="restaurant-outline" size={32} color={colors.tint} />
-          </RNView>
-        ) : (
-          <>
-            <Image
-              source={{ uri: recipe.thumbnail_url! }}
-              style={styles.thumbnail}
-              onError={() => setImageError(true)}
-            />
-            {/* Subtle gradient for depth */}
+        <RecipeThumbnail
+          uri={recipe.thumbnail_url}
+          style={styles.thumbnail}
+          accessibilityLabel={`${recipe.title} photo`}
+          overlay={(
             <LinearGradient
               colors={['transparent', 'rgba(0,0,0,0.3)']}
               style={styles.thumbnailOverlay}
             />
-          </>
-        )}
+          )}
+        />
         {/* Saved badge */}
         {isSavedRecipe && (
           <RNView style={[styles.savedBadge, { backgroundColor: colors.error }]}>
@@ -164,6 +154,7 @@ export function RecipeCard({
 }
 
 // Grid recipe card - square image with title overlay
+/** Render a library recipe as an image-led grid card. */
 export function GridRecipeCard({
   recipe,
   onPress,
@@ -175,9 +166,6 @@ export function GridRecipeCard({
   colors: ReturnType<typeof useColors>;
   isSavedRecipe?: boolean;
 }) {
-  const [imageError, setImageError] = useState(false);
-  const showPlaceholder = !recipe.thumbnail_url || imageError;
-
   return (
     <ScalePressable
       style={[styles.gridCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
@@ -185,17 +173,12 @@ export function GridRecipeCard({
     >
       {/* Full card is the image with overlay */}
       <RNView style={styles.gridThumbnailContainer}>
-        {showPlaceholder ? (
-          <RNView style={[styles.gridPlaceholder, { backgroundColor: colors.tint + '15' }]}>
-            <Ionicons name="restaurant-outline" size={40} color={colors.tint} />
-          </RNView>
-        ) : (
-          <Image
-            source={{ uri: recipe.thumbnail_url! }}
-            style={styles.gridThumbnail}
-            onError={() => setImageError(true)}
-          />
-        )}
+        <RecipeThumbnail
+          uri={recipe.thumbnail_url}
+          style={styles.gridThumbnail}
+          accessibilityLabel={`${recipe.title} photo`}
+          placeholderIconSize={40}
+        />
         {/* Saved badge */}
         {isSavedRecipe && (
           <RNView style={[styles.gridSavedBadge, { backgroundColor: colors.error }]}>
@@ -243,7 +226,6 @@ function CollectionCard({
   colors: ReturnType<typeof useColors>;
 }) {
   const firstThumbnail = collection.preview_thumbnails?.[0];
-  const [imageError, setImageError] = useState(false);
 
   return (
     <TouchableOpacity
@@ -253,17 +235,13 @@ function CollectionCard({
     >
       {/* Single cover image or emoji */}
       <RNView style={styles.collectionPreview}>
-        {firstThumbnail && !imageError ? (
-          <Image
-            source={{ uri: firstThumbnail }}
-            style={styles.collectionCoverImage}
-            onError={() => setImageError(true)}
-          />
-        ) : (
-          <RNView style={[styles.collectionEmptyPreview, { backgroundColor: colors.tint + '15' }]}>
-            <Ionicons name="folder-open-outline" size={30} color={colors.tint} />
-          </RNView>
-        )}
+        <RecipeThumbnail
+          uri={firstThumbnail}
+          style={styles.collectionCoverImage}
+          accessibilityLabel={`${collection.name} collection cover`}
+          placeholderIconName="folder-open-outline"
+          placeholderIconSize={30}
+        />
         {/* Recipe count badge */}
         {collection.recipe_count > 0 && (
           <RNView style={[styles.collectionBadge, { backgroundColor: colors.tint }]}>
@@ -1252,12 +1230,6 @@ const styles = StyleSheet.create({
     right: 0,
     height: '40%',
   },
-  placeholderThumbnail: {
-    width: 110,
-    height: 130,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   savedBadge: {
     position: 'absolute',
     top: spacing.xs,
@@ -1293,12 +1265,6 @@ const styles = StyleSheet.create({
   gridThumbnail: {
     width: '100%',
     height: '100%',
-  },
-  gridPlaceholder: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   gridSavedBadge: {
     position: 'absolute',
@@ -1521,11 +1487,6 @@ const styles = StyleSheet.create({
   collectionCoverImage: {
     width: '100%',
     height: '100%',
-  },
-  collectionEmptyPreview: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   collectionBadge: {
     position: 'absolute',

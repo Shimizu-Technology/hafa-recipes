@@ -116,8 +116,10 @@ describe('IngredientMatchCard', () => {
       expect(onOpen).toHaveBeenCalledOnce();
       expect(onAddMissing).toHaveBeenCalledOnce();
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'Image'
-          && instance.props.accessibilityLabel === 'Chicken Kelaguen thumbnail',
+        (instance) => instance.props.accessibilityLabel === 'Chicken Kelaguen thumbnail',
+      )).toHaveLength(1);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'ExpoImage',
       )).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());
@@ -136,12 +138,12 @@ describe('IngredientMatchCard', () => {
         }));
       });
       const image = renderer.container.queryAll(
-        (instance) => instance.type === 'Image',
+        (instance) => instance.type === 'ExpoImage',
       )[0];
-      await act(async () => image.props.onError());
+      await act(async () => image.props.onError({ error: 'not found' }));
 
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'Image',
+        (instance) => instance.type === 'ExpoImage',
       )).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());

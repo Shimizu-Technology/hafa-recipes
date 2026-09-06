@@ -11,7 +11,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Image,
   View as RNView,
   RefreshControl,
   Alert,
@@ -30,6 +29,7 @@ import { guestPromptBottomPadding, useGuestPromptHeight } from '../../lib/guestP
 import { AnimatedListItem, ScalePressable } from '@/components/Animated';
 import RecipePickerModal from '@/components/RecipePickerModal';
 import { PlannerRecipeHandoffCard } from '@/components/PlannerRecipeHandoffCard';
+import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 import {
   useMealPlanWeek,
   useAddMeal,
@@ -151,6 +151,7 @@ function DayPill({
 }
 
 // Meal slot component (shows either a recipe or "Add" button)
+/** Render one meal-plan slot and its assigned recipe, if present. */
 export function MealSlot({
   mealType,
   entries,
@@ -224,21 +225,12 @@ export function MealSlot({
               onPress={() => onViewRecipe(entry.recipe_id)}
               scaleValue={0.98}
             >
-              {entry.recipe_thumbnail ? (
-                <Image
-                  source={{ uri: entry.recipe_thumbnail }}
-                  style={styles.mealThumbnail}
-                />
-              ) : (
-                <RNView
-                  style={[
-                    styles.mealThumbnailPlaceholder,
-                    { backgroundColor: colors.tint + '15' },
-                  ]}
-                >
-                  <Ionicons name="restaurant-outline" size={16} color={colors.tint} />
-                </RNView>
-              )}
+              <RecipeThumbnail
+                uri={entry.recipe_thumbnail}
+                style={styles.mealThumbnail}
+                accessibilityLabel={`${entry.recipe_title} photo`}
+                placeholderIconSize={16}
+              />
               <RNView style={styles.mealCardContent}>
                 <Text
                   style={[styles.mealCardTitle, { color: colors.text }]}
@@ -1069,13 +1061,6 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: radius.sm,
-  },
-  mealThumbnailPlaceholder: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   mealCardContent: {
     flex: 1,

@@ -1,7 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   ActivityIndicator,
-  Image,
   StyleSheet,
   TouchableOpacity,
   View as RNView,
@@ -11,6 +10,7 @@ import { Text, useColors } from '@/components/Themed';
 import { fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
 import { RecipeTrustBadge } from './RecipeTrustBadge';
 import type { RecipeReviewState } from '@/types/recipe';
+import { RecipeThumbnail } from './RecipeThumbnail';
 
 type PlannerRecipeHandoffCardProps = {
   title?: string;
@@ -35,6 +35,7 @@ export function PlannerRecipeHandoffCard({
   onDismiss,
 }: PlannerRecipeHandoffCardProps) {
   const colors = useColors();
+  const normalizedThumbnailUrl = thumbnailUrl?.trim() || null;
 
   return (
     <RNView
@@ -88,24 +89,14 @@ export function PlannerRecipeHandoffCard({
         </RNView>
       ) : (
         <RNView style={styles.recipeRow}>
-          {thumbnailUrl ? (
-            <Image
-              source={{ uri: thumbnailUrl }}
-              style={styles.thumbnail}
-              accessible
-              accessibilityRole="image"
-              accessibilityLabel={`${title} thumbnail`}
-            />
-          ) : (
-            <RNView
-              style={[styles.thumbnail, styles.placeholder, { backgroundColor: colors.tint + '15' }]}
-              accessible
-              accessibilityRole="image"
-              accessibilityLabel="Recipe thumbnail unavailable"
-            >
-              <Ionicons name="restaurant-outline" size={22} color={colors.tint} />
-            </RNView>
-          )}
+          <RecipeThumbnail
+            uri={normalizedThumbnailUrl}
+            style={styles.thumbnail}
+            accessibilityLabel={normalizedThumbnailUrl
+              ? `${title} thumbnail`
+              : 'Recipe thumbnail unavailable'}
+            placeholderIconSize={22}
+          />
           <RNView style={styles.recipeCopy}>
             <Text style={[styles.eyebrow, { color: colors.tint }]}>Planning this recipe</Text>
             <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
@@ -188,10 +179,6 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: radius.md,
-  },
-  placeholder: {
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   recipeCopy: {
     flex: 1,

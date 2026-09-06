@@ -13,6 +13,7 @@ import Animated, {
   withSequence,
   runOnJS,
 } from 'react-native-reanimated';
+import { listEntranceDelay } from '@/lib/listAnimation';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -44,7 +45,7 @@ export function AnimatedListItem({
       transition={{
         type: 'timing',
         duration: 350,
-        delay: index * delay,
+        delay: listEntranceDelay(index, delay),
       }}
       style={style}
     >
@@ -261,4 +262,3 @@ export default {
   SlideUpView,
   BounceView,
 };
-

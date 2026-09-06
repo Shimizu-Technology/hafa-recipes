@@ -6,51 +6,23 @@ import { useAuth } from '@clerk/expo';
 
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { api } from '@/lib/api';
-import { recipeKeys } from '@/hooks/useRecipes';
 import { AccountHeaderButton, ImportTabIcon, TabHeaderBrand } from '@/components/TabChrome';
+import { prefetchTabData } from '@/lib/tabPrefetch';
 
 /** Configure the five primary cooking workflows and their shared app chrome. */
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const queryClient = useQueryClient();
-  const { isSignedIn, isLoaded } = useAuth();
+  const { isSignedIn, isLoaded, userId } = useAuth();
 
-  // Prefetch both tabs' data when the user is authenticated
+  // `userId` is only an identity-change signal here. AuthTokenSync clears the
+  // entire QueryClient in a parent layout effect before this descendant effect
+  // runs, so private entries cannot cross accounts and the new account is warmed.
   useEffect(() => {
-    // Wait for auth to be loaded AND user to be signed in
-    if (!isLoaded || !isSignedIn) return;
-
-    // Prefetch My Recipes (first page of infinite query)
-    queryClient.prefetchInfiniteQuery({
-      queryKey: recipeKeys.infinite(undefined),
-      queryFn: ({ pageParam = 0 }) => api.getRecipes(20, pageParam),
-      initialPageParam: 0,
-      staleTime: 30_000,
-    });
-
-    // Prefetch Discover (first page of infinite query)
-    queryClient.prefetchInfiniteQuery({
-      queryKey: recipeKeys.discoverInfinite(undefined),
-      queryFn: ({ pageParam = 0 }) => api.getPublicRecipes(20, pageParam),
-      initialPageParam: 0,
-      staleTime: 30_000,
-    });
-
-    // Prefetch popular tags for both scopes
-    queryClient.prefetchQuery({
-      queryKey: recipeKeys.popularTags('user'),
-      queryFn: () => api.getPopularTags('user'),
-      staleTime: 60_000,
-    });
-
-    queryClient.prefetchQuery({
-      queryKey: recipeKeys.popularTags('public'),
-      queryFn: () => api.getPopularTags('public'),
-      staleTime: 60_000,
-    });
-  }, [queryClient, isSignedIn, isLoaded]);
+    if (!isLoaded) return;
+    prefetchTabData(queryClient, Boolean(isSignedIn));
+  }, [queryClient, isSignedIn, isLoaded, userId]);
 
   return (
     <Tabs
