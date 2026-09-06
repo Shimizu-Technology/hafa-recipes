@@ -23,7 +23,9 @@ from app.models.meal_plan import MealPlanEntry
 from app.routers.meal_plans import (
     _has_stated_quantity,
     _recipe_plan_entries_statement,
+    get_day_plan,
     get_recipe_plan_entries,
+    get_week_plan,
     meal_plan_entry_response,
 )
 
@@ -282,20 +284,68 @@ def test_relationship_query_excludes_private_and_moderated_recipes():
 
 
 class _ScalarResult:
+    def __init__(self, rows=None):
+        self.rows = rows or []
+
     def scalars(self):
         return self
 
     def all(self):
-        return []
+        return self.rows
 
 
 class _RecordingSession:
-    def __init__(self):
+    def __init__(self, rows=None):
         self.statement = None
+        self.rows = rows or []
 
     async def execute(self, statement):
         self.statement = statement
-        return _ScalarResult()
+        return _ScalarResult(self.rows)
+
+
+def _planned_entry(planned_date: date) -> MealPlanEntry:
+    """Build an accessible endpoint-response fixture."""
+    return MealPlanEntry(
+        id=uuid4(),
+        user_id="stable-app-user",
+        date=planned_date,
+        meal_type="dinner",
+        recipe_id=uuid4(),
+        recipe_title="Chicken kelaguen",
+        created_at=datetime(2026, 8, 26, 8),
+    )
+
+
+@pytest.mark.asyncio
+async def test_week_plan_includes_current_recipe_readiness():
+    planned_date = date(2026, 8, 27)
+    session = _RecordingSession([(_planned_entry(planned_date), "needs_review")])
+
+    result = await get_week_plan(
+        week_of=planned_date,
+        db=session,
+        user=SimpleNamespace(id="stable-app-user"),
+    )
+
+    planned_day = next(day for day in result.days if day.date == planned_date)
+    assert planned_day.dinner[0].recipe_review_state == "needs_review"
+    assert session.statement is not None
+
+
+@pytest.mark.asyncio
+async def test_day_plan_includes_current_recipe_readiness():
+    planned_date = date(2026, 8, 27)
+    session = _RecordingSession([(_planned_entry(planned_date), "source_incomplete")])
+
+    result = await get_day_plan(
+        target_date=planned_date,
+        db=session,
+        user=SimpleNamespace(id="stable-app-user"),
+    )
+
+    assert result.dinner[0].recipe_review_state == "source_incomplete"
+    assert session.statement is not None
 
 
 @pytest.mark.asyncio
