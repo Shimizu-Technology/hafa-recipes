@@ -103,7 +103,7 @@ async def test_report_block_moderate_and_recover_workflow(monkeypatch):
                     user_id=contributor.id,
                     extractor_display_name="Workflow Cook",
                     is_public=True,
-                    review_state="needs_review",
+                    review_state="ready",
                 )
             )
             db.add(
@@ -189,7 +189,7 @@ async def test_report_block_moderate_and_recover_workflow(monkeypatch):
             )
             assert len(collection_recipes) == 1
             assert collection_recipes[0].id == str(recipe_id)
-            assert collection_recipes[0].review_state == "needs_review"
+            assert collection_recipes[0].review_state == "ready"
 
             await block_contributor(public_contributor_id(contributor.id), db, reporter)
             report = await create_report(
