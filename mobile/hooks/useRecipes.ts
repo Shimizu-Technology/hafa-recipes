@@ -121,6 +121,20 @@ export const extractionJobKeys = {
     [...extractionJobKeys.all, 'active', userId] as const,
 };
 
+const currentUserIdentityKey = (clerkUserId: string | null | undefined) =>
+  ['currentUserIdentity', clerkUserId] as const;
+
+/** Resolve a replaceable auth subject to Håfa's durable application owner. */
+function useCurrentUserIdentity(enabled = true) {
+  const { isLoaded, userId: clerkUserId } = useAuth();
+  return useQuery({
+    queryKey: currentUserIdentityKey(clerkUserId),
+    queryFn: () => api.getCurrentUserIdentity(),
+    enabled: enabled && isLoaded && Boolean(clerkUserId),
+    staleTime: Infinity,
+  });
+}
+
 function setDiscoverSavedState(
   queryClient: QueryClient,
   recipeId: string,
@@ -316,11 +330,12 @@ export function useExtractionJobs(
   jobKind: 'extract' | 'reextract' | undefined = 'extract',
   enabled = true,
 ) {
-  const { isLoaded, userId } = useAuth();
+  const identity = useCurrentUserIdentity(enabled);
+  const durableUserId = identity.data?.id;
   return useQuery({
-    queryKey: extractionJobKeys.recent(userId, jobKind),
+    queryKey: extractionJobKeys.recent(durableUserId, jobKind),
     queryFn: () => api.getExtractionJobs({ limit: 8, jobKind, includeCancelled: false }),
-    enabled: enabled && isLoaded && Boolean(userId),
+    enabled: enabled && identity.isSuccess && Boolean(durableUserId),
     staleTime: 15_000,
     refetchInterval: (query) => (
       query.state.data?.some((job) => ACTIVE_EXTRACTION_STATUSES.includes(job.status))
@@ -352,7 +367,9 @@ export function useExtractRecipe() {
  */
 export function useAsyncExtractionController() {
   const queryClient = useQueryClient();
-  const { userId, isLoaded: isAuthLoaded } = useAuth();
+  const { userId: clerkUserId, isLoaded: isAuthLoaded } = useAuth();
+  const identity = useCurrentUserIdentity();
+  const durableUserId = identity.data?.id;
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const [isPolling, setIsPolling] = useState(false);
@@ -374,10 +391,11 @@ export function useAsyncExtractionController() {
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   const activeJobsQuery = useQuery({
-    queryKey: extractionJobKeys.active(userId),
+    queryKey: extractionJobKeys.active(durableUserId),
     queryFn: () => api.getExtractionJobs({ limit: 1, activeOnly: true }),
     enabled: Boolean(
-      isAuthLoaded && userId && hasHydratedStoredJob && !jobId && !isStarting,
+      isAuthLoaded && clerkUserId && identity.isSuccess && durableUserId &&
+      hasHydratedStoredJob && !jobId && !isStarting,
     ),
     staleTime: 0,
     refetchInterval: 15_000,
@@ -393,13 +411,13 @@ export function useAsyncExtractionController() {
   }, []);
 
   const clearActiveJob = useCallback(async () => {
-    if (!userId) return;
+    if (!durableUserId) return;
     try {
-      await AsyncStorage.removeItem(activeJobKey(userId));
+      await AsyncStorage.removeItem(activeJobKey(durableUserId));
     } catch {
       // Non-critical: a terminal entry is ignored once it ages out or is replaced.
     }
-  }, [userId]);
+  }, [durableUserId]);
 
   const saveActiveJob = useCallback(async (storedJob: StoredExtractionJob) => {
     try {
@@ -445,9 +463,9 @@ export function useAsyncExtractionController() {
         if (generation !== pollingGenerationRef.current) return;
 
         setJobStatus(status);
-        if (userId) {
+        if (durableUserId) {
           queryClient.setQueryData<JobStatus[]>(
-            extractionJobKeys.active(userId),
+            extractionJobKeys.active(durableUserId),
             ACTIVE_EXTRACTION_STATUSES.includes(status.status) ? [status] : [],
           );
         }
@@ -504,7 +522,7 @@ export function useAsyncExtractionController() {
     };
 
     void poll();
-  }, [clearActiveJob, invalidateCompletedRecipe, queryClient, stopPollingTimers, userId]);
+  }, [clearActiveJob, durableUserId, invalidateCompletedRecipe, queryClient, stopPollingTimers]);
 
   const restoreJob = useCallback((status: JobStatus) => {
     setJobKind(status.job_kind || 'extract');
@@ -619,16 +637,16 @@ export function useAsyncExtractionController() {
   }, [clearActiveJob, invalidateCompletedRecipe, queryClient, saveActiveJob, startPolling]);
 
   const retryPendingStart = useCallback(async () => {
-    if (!userId) return;
+    if (!durableUserId) return;
     try {
-      const raw = await AsyncStorage.getItem(activeJobKey(userId));
+      const raw = await AsyncStorage.getItem(activeJobKey(durableUserId));
       if (!raw) {
         setCanRetryStart(false);
         setError('The pending extraction is no longer available. Please start again.');
         return;
       }
       const storedJob = JSON.parse(raw) as StoredExtractionJob;
-      if (storedJob.userId !== userId || storedJob.jobId) {
+      if (storedJob.userId !== durableUserId || storedJob.jobId) {
         setCanRetryStart(false);
         if (storedJob.jobId) startPolling(storedJob.jobId, storedJob.startTime);
         return;
@@ -637,7 +655,7 @@ export function useAsyncExtractionController() {
     } catch {
       // beginStoredRequest already preserves the pending key and friendly error.
     }
-  }, [beginStoredRequest, startPolling, userId]);
+  }, [beginStoredRequest, durableUserId, startPolling]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
@@ -670,18 +688,39 @@ export function useAsyncExtractionController() {
     setStartTime(null);
     setElapsedTime(0);
 
-    if (!isAuthLoaded || !userId) return;
+    if (!isAuthLoaded || !clerkUserId || !durableUserId) return;
 
     let cancelled = false;
     const load = async () => {
+      const durableKey = activeJobKey(durableUserId);
+      let loadedKey = durableKey;
       try {
         // The legacy entry was not account-scoped and cannot be resumed safely.
         await AsyncStorage.removeItem(LEGACY_ACTIVE_JOB_KEY);
-        const raw = await AsyncStorage.getItem(activeJobKey(userId));
+        let raw = await AsyncStorage.getItem(durableKey);
+        if (!raw && clerkUserId !== durableUserId) {
+          const clerkKey = activeJobKey(clerkUserId);
+          loadedKey = clerkKey;
+          const clerkScopedRaw = await AsyncStorage.getItem(clerkKey);
+          if (clerkScopedRaw && !cancelled) {
+            const clerkScopedJob = JSON.parse(clerkScopedRaw) as StoredExtractionJob;
+            if (clerkScopedJob.userId === clerkUserId) {
+              const migratedJob = { ...clerkScopedJob, userId: durableUserId };
+              await AsyncStorage.setItem(durableKey, JSON.stringify(migratedJob));
+              await AsyncStorage.removeItem(clerkKey);
+              raw = JSON.stringify(migratedJob);
+            } else {
+              await AsyncStorage.removeItem(clerkKey);
+            }
+          }
+        }
         if (!raw || cancelled) return;
         const storedJob = JSON.parse(raw) as StoredExtractionJob;
-        if (storedJob.userId !== userId || Date.now() - storedJob.startTime > MAX_STORED_JOB_AGE_MS) {
-          await AsyncStorage.removeItem(activeJobKey(userId));
+        if (
+          storedJob.userId !== durableUserId ||
+          Date.now() - storedJob.startTime > MAX_STORED_JOB_AGE_MS
+        ) {
+          await AsyncStorage.removeItem(durableKey);
           return;
         }
 
@@ -695,7 +734,7 @@ export function useAsyncExtractionController() {
         }
       } catch {
         // A malformed/stale local entry must never block a new extraction.
-        await AsyncStorage.removeItem(activeJobKey(userId));
+        await AsyncStorage.removeItem(loadedKey);
       } finally {
         if (!cancelled) setHasHydratedStoredJob(true);
       }
@@ -706,7 +745,7 @@ export function useAsyncExtractionController() {
       cancelled = true;
       stopPollingTimers();
     };
-  }, [isAuthLoaded, startPolling, stopPollingTimers, userId]);
+  }, [clerkUserId, durableUserId, isAuthLoaded, startPolling, stopPollingTimers]);
 
   useEffect(() => {
     if (!hasHydratedStoredJob || currentJobIdRef.current || isStarting) return;
@@ -715,11 +754,15 @@ export function useAsyncExtractionController() {
   }, [activeJobsQuery.data, hasHydratedStoredJob, isStarting, restoreJob]);
 
   const startExtraction = async (request: ExtractRequest) => {
-    if (!userId) throw new Error('Please sign in before extracting a recipe.');
+    if (!durableUserId) {
+      throw new Error(clerkUserId
+        ? 'Please wait while we verify your recipe library, then try again.'
+        : 'Please sign in before extracting a recipe.');
+    }
     if (isPolling || isStarting) throw new Error('An extraction is already in progress.');
 
     const storedJob: StoredExtractionJob = {
-      userId,
+      userId: durableUserId,
       jobId: null,
       idempotencyKey: createIdempotencyKey('extract'),
       startTime: Date.now(),
@@ -730,11 +773,15 @@ export function useAsyncExtractionController() {
   };
 
   const startReExtraction = async (recipeId: string, location = 'Guam') => {
-    if (!userId) throw new Error('Please sign in before re-extracting a recipe.');
+    if (!durableUserId) {
+      throw new Error(clerkUserId
+        ? 'Please wait while we verify your recipe library, then try again.'
+        : 'Please sign in before re-extracting a recipe.');
+    }
     if (isPolling || isStarting) throw new Error('Another extraction is already in progress.');
 
     const storedJob: StoredExtractionJob = {
-      userId,
+      userId: durableUserId,
       jobId: null,
       idempotencyKey: createIdempotencyKey('reextract'),
       startTime: Date.now(),
@@ -758,8 +805,8 @@ export function useAsyncExtractionController() {
     setStartTime(null);
     setElapsedTime(0);
     await clearActiveJob();
-    if (userId) {
-      queryClient.setQueryData<JobStatus[]>(extractionJobKeys.active(userId), []);
+    if (durableUserId) {
+      queryClient.setQueryData<JobStatus[]>(extractionJobKeys.active(durableUserId), []);
     }
     queryClient.invalidateQueries({ queryKey: extractionJobKeys.all });
   };

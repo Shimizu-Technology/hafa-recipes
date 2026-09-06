@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   alert: vi.fn(),
+  checkDuplicate: vi.fn(),
   extraction: {
     canRetryStart: false,
     canSaveDraft: false,
@@ -51,6 +52,7 @@ const mocks = vi.hoisted(() => ({
     ],
   })),
   push: vi.fn(),
+  requestPublishing: vi.fn(),
 }));
 
 vi.mock('react-native', async () => {
@@ -128,7 +130,7 @@ vi.mock('../../lib/guestPromptLayout', () => ({
   useGuestPromptHeight: () => 0,
 }));
 vi.mock('@/hooks/useRecipes', () => ({
-  useCheckDuplicate: () => ({ mutateAsync: vi.fn() }),
+  useCheckDuplicate: () => ({ mutateAsync: mocks.checkDuplicate }),
   useExtractionJobs: () => ({ data: [] }),
   useLocations: () => ({ data: { locations: [
     { code: 'Guam', name: 'Guam' },
@@ -146,7 +148,10 @@ vi.mock('@/lib/api', () => ({
 }));
 vi.mock('@/lib/shareCapture', () => ({ consumePendingShareCapture: () => null }));
 vi.mock('@/hooks/usePublishingDisclosure', () => ({
-  usePublishingDisclosure: () => ({ requestPublishing: vi.fn(), isCheckingDisclosure: false }),
+  usePublishingDisclosure: () => ({
+    requestPublishing: mocks.requestPublishing,
+    isCheckingDisclosure: false,
+  }),
 }));
 vi.mock('@/lib/imageImportClassification', async () => (
   await import('../lib/imageImportClassification')
@@ -166,9 +171,13 @@ function touchableWithText(renderer: ReactTestRenderer, text: string) {
 describe('classified image recovery', () => {
   beforeEach(() => {
     mocks.alert.mockClear();
+    mocks.checkDuplicate.mockReset();
+    mocks.checkDuplicate.mockResolvedValue({ exists: false });
     mocks.extractMultiple.mockClear();
     mocks.launchLibrary.mockClear();
     mocks.push.mockClear();
+    mocks.requestPublishing.mockReset();
+    mocks.requestPublishing.mockResolvedValue(true);
     mocks.extraction.isComplete = false;
     mocks.extraction.isExtracting = false;
     mocks.extraction.isFailed = false;
@@ -181,6 +190,8 @@ describe('classified image recovery', () => {
     mocks.extraction.sourceNotes = '';
     mocks.extraction.sourceUrl = '';
     mocks.extraction.reset.mockClear();
+    mocks.extraction.startExtraction.mockReset();
+    mocks.extraction.startExtraction.mockResolvedValue({ isExisting: false });
   });
 
   it('opens a private photo draft while retaining every selected source image', async () => {
@@ -277,5 +288,16 @@ describe('classified image recovery', () => {
     expect(renderer!.root.findByProps({
       accessibilityLabel: 'Share recipe to the public library',
     }).props.accessibilityState.checked).toBe(true);
+
+    const extractButton = renderer!.root.findAllByType(
+      'Button' as unknown as React.ComponentType,
+    ).find(node => node.props.children === 'Extract Recipe')!;
+    await act(async () => extractButton.props.onPress());
+    expect(mocks.extraction.startExtraction).toHaveBeenCalledWith({
+      url: 'https://example.com/recipe',
+      location: 'Hawaii',
+      notes: 'Use the caption measurements',
+      is_public: true,
+    });
   });
 });

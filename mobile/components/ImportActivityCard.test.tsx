@@ -1,20 +1,9 @@
 import React from 'react';
-import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
 
-vi.mock('react-native', async () => {
-  const ReactModule = await import('react');
-  const host = (name: string) => (props: Record<string, unknown>) =>
-    ReactModule.createElement(name, props, props.children as React.ReactNode);
-  return {
-    StyleSheet: { create: <T,>(styles: T) => styles, hairlineWidth: 1 },
-    TouchableOpacity: host('TouchableOpacity'),
-    View: host('NativeView'),
-  };
-});
 vi.mock('@expo/vector-icons/Ionicons', () => ({
   default: Object.assign(() => null, { glyphMap: {} }),
 }));
@@ -22,7 +11,7 @@ vi.mock('@/components/Themed', async () => {
   const ReactModule = await import('react');
   return {
     Text: (props: Record<string, unknown>) =>
-      ReactModule.createElement('ThemedText', props, props.children as React.ReactNode),
+      ReactModule.createElement('Text', props, props.children as React.ReactNode),
     useColors: () => ({
       backgroundElevated: '#fff', border: '#ddd', borderLight: '#eee', error: '#c00',
       success: '#070', text: '#111', textMuted: '#666', tint: '#066', warning: '#960',
@@ -35,6 +24,31 @@ vi.mock('@/constants/Colors', () => ({
   radius: { md: 14, full: 9999, xl: 28 },
   spacing: { xs: 4, sm: 8, md: 16, lg: 24 },
 }));
+
+const reactNativeShim = await import('../tests/react-native-shim');
+// @ts-expect-error Node's module loader is available in Vitest but excluded from Expo app types.
+const nodeModule = await import('node:module');
+type ModuleLoader = (
+  request: string,
+  parent: unknown,
+  isMain: boolean,
+) => unknown;
+const commonJsModule = nodeModule.default as typeof nodeModule.default & {
+  _load: ModuleLoader;
+};
+const originalLoad = commonJsModule._load;
+commonJsModule._load = (request: string, parent: unknown, isMain: boolean) =>
+  request === 'react-native'
+    ? reactNativeShim
+    : originalLoad(request, parent, isMain);
+
+let testingLibrary: typeof import('@testing-library/react-native/pure');
+try {
+  testingLibrary = await import('@testing-library/react-native/pure');
+} finally {
+  commonJsModule._load = originalLoad;
+}
+const { fireEvent, render } = testingLibrary;
 
 import {
   ImportActivityCard,
@@ -89,27 +103,24 @@ describe('ImportActivityCard', () => {
       completed_at: null,
     });
     const failed = job({ id: 'failed', status: 'failed', recipe_id: null });
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(
-        <ImportActivityCard
-          jobs={[active, job(), failed, job({ id: 'cancelled', status: 'cancelled' })]}
-          onOpenRecipe={onOpenRecipe}
-          onRestore={onRestore}
-        />,
-      );
-    });
+    const screen = await render(
+      <ImportActivityCard
+        jobs={[active, job(), failed, job({ id: 'cancelled', status: 'cancelled' })]}
+        onOpenRecipe={onOpenRecipe}
+        onRestore={onRestore}
+      />,
+    );
 
-    const buttons = renderer!.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType);
-    buttons.find((button) => button.props.accessibilityLabel === 'View progress YouTube import')!.props.onPress();
-    buttons.find((button) => button.props.accessibilityLabel === 'Open YouTube import')!.props.onPress();
-    buttons.find((button) => button.props.accessibilityLabel === 'View options YouTube import')!.props.onPress();
+    await fireEvent.press(screen.getByLabelText('View progress YouTube import'));
+    await fireEvent.press(screen.getByLabelText('Open YouTube import'));
+    await fireEvent.press(screen.getByLabelText('View options YouTube import'));
 
     expect(onRestore).toHaveBeenCalledWith(active);
     expect(onOpenRecipe).toHaveBeenCalledWith(expect.objectContaining({ id: 'job-1' }));
     expect(onRestore).toHaveBeenCalledWith(failed);
-    expect(renderer!.root.findByProps({ accessibilityRole: 'progressbar' }).props.accessibilityValue)
+    expect(screen.getByLabelText('YouTube import progress').props.accessibilityValue)
       .toEqual({ min: 0, max: 100, now: 42 });
-    expect(renderer!.root.findAllByProps({ children: 'Cancelled' })).toHaveLength(0);
+    expect(screen.queryByText('Cancelled')).toBeNull();
+    screen.unmount();
   });
 });

@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getExtractionJobs: vi.fn(),
+  getCurrentUserIdentity: vi.fn(),
   getItem: vi.fn(),
   getJobStatus: vi.fn(),
   getUserId: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('../lib/api', () => ({
   api: {
+    getCurrentUserIdentity: mocks.getCurrentUserIdentity,
     getExtractionJobs: mocks.getExtractionJobs,
     getJobStatus: mocks.getJobStatus,
   },
@@ -47,6 +49,7 @@ describe('durable extraction recovery', () => {
     Object.values(mocks).forEach((mock) => mock.mockReset());
     mocks.getItem.mockResolvedValue(null);
     mocks.getUserId.mockReturnValue('clerk-current-user');
+    mocks.getCurrentUserIdentity.mockResolvedValue({ id: 'app-stable-user' });
     mocks.removeItem.mockResolvedValue(undefined);
     mocks.setItem.mockResolvedValue(undefined);
     mocks.getExtractionJobs.mockResolvedValue([{
@@ -87,6 +90,9 @@ describe('durable extraction recovery', () => {
     mocks.getExtractionJobs
       .mockResolvedValueOnce(firstAccountJobs)
       .mockResolvedValueOnce(secondAccountJobs);
+    mocks.getCurrentUserIdentity
+      .mockResolvedValueOnce({ id: 'app-stable-user' })
+      .mockResolvedValueOnce({ id: 'app-second-user' });
 
     function RecentJobsHarness() {
       useExtractionJobs('extract');
@@ -101,10 +107,12 @@ describe('durable extraction recovery', () => {
         </QueryClientProvider>,
       );
     });
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      renderer!.unmount();
-    });
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+    }
+    await act(async () => renderer!.unmount());
 
     mocks.getUserId.mockReturnValue('clerk-second-user');
     await act(async () => {
@@ -114,15 +122,72 @@ describe('durable extraction recovery', () => {
         </QueryClientProvider>,
       );
     });
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+    }
 
     expect(mocks.getExtractionJobs).toHaveBeenCalledTimes(2);
-    expect(queryClient.getQueryData(['extractionJobs', 'recent', 'clerk-current-user', 'extract']))
+    expect(queryClient.getQueryData(['extractionJobs', 'recent', 'app-stable-user', 'extract']))
       .toEqual(firstAccountJobs);
-    expect(queryClient.getQueryData(['extractionJobs', 'recent', 'clerk-second-user', 'extract']))
+    expect(queryClient.getQueryData(['extractionJobs', 'recent', 'app-second-user', 'extract']))
       .toEqual(secondAccountJobs);
+
+    await act(async () => renderer!.unmount());
+    queryClient.clear();
+  });
+
+  it('uses the same durable job key after the Clerk subject changes', async () => {
+    const storedJob = {
+      userId: 'app-stable-user',
+      jobId: 'persisted-job',
+      idempotencyKey: 'persisted-key',
+      startTime: Date.now(),
+      request: { kind: 'extract' as const, payload: { url: 'https://example.com/recipe' } },
+    };
+    mocks.getItem.mockImplementation(async (key: string) => (
+      key === 'active_extraction_job_v2:app-stable-user'
+        ? JSON.stringify(storedJob)
+        : null
+    ));
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    function Harness() {
+      useAsyncExtractionController();
+      return null;
+    }
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <QueryClientProvider client={queryClient}>
+          <Harness />
+        </QueryClientProvider>,
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      renderer!.unmount();
+    });
+
+    mocks.getUserId.mockReturnValue('clerk-replacement-subject');
+    await act(async () => {
+      renderer = create(
+        <QueryClientProvider client={queryClient}>
+          <Harness />
+        </QueryClientProvider>,
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    expect(mocks.getCurrentUserIdentity).toHaveBeenCalledTimes(2);
+    expect(mocks.getItem).toHaveBeenCalledWith('active_extraction_job_v2:app-stable-user');
+    expect(mocks.getItem).not.toHaveBeenCalledWith('active_extraction_job_v2:clerk-replacement-subject');
 
     await act(async () => renderer!.unmount());
     queryClient.clear();
