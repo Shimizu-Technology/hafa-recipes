@@ -1,7 +1,7 @@
 """Meal planning API endpoints."""
 
 from datetime import date, datetime, timedelta
-from typing import List, Optional
+from typing import List, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -53,6 +53,9 @@ class MealPlanEntryResponse(BaseModel):
     recipe_thumbnail: Optional[str] = None
     notes: Optional[str] = None
     servings: Optional[str] = None
+    recipe_review_state: Optional[
+        Literal["source_incomplete", "needs_review", "ready"]
+    ] = None
     created_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
@@ -80,6 +83,11 @@ class AddToGroceryRequest(BaseModel):
     end_date: date
 
 
+RecipeReviewState = Optional[
+    Literal["source_incomplete", "needs_review", "ready"]
+]
+
+
 # ============================================================
 # Helper Functions
 # ============================================================
@@ -91,6 +99,20 @@ def get_week_bounds(target_date: date) -> tuple[date, date]:
     week_start = target_date - timedelta(days=days_since_monday)
     week_end = week_start + timedelta(days=6)
     return week_start, week_end
+
+
+def _normalized_quantity(quantity: object) -> Optional[str]:
+    """Normalize stated quantities without preserving legacy null sentinels."""
+    if isinstance(quantity, str):
+        normalized = quantity.strip()
+        return normalized if normalized and normalized.lower() != "null" else None
+    if isinstance(quantity, (int, float)) and not isinstance(quantity, bool):
+        return str(quantity)
+    return None
+
+
+def _has_stated_quantity(quantity: object) -> bool:
+    return _normalized_quantity(quantity) is not None
 
 
 async def get_accessible_recipe(
@@ -110,16 +132,32 @@ async def get_accessible_recipe(
     return recipe if await is_publicly_viewable(db, recipe, user.id) else None
 
 
-def organize_by_day(entries: List[MealPlanEntry], week_start: date, week_end: date) -> List[DayMeals]:
+def meal_plan_entry_response(
+    entry: MealPlanEntry,
+    recipe_review_state: RecipeReviewState,
+) -> MealPlanEntryResponse:
+    """Attach current recipe readiness without persisting a stale snapshot."""
+    return MealPlanEntryResponse.model_validate(entry).model_copy(
+        update={"recipe_review_state": recipe_review_state}
+    )
+
+
+def organize_by_day(
+    entries: List[tuple[MealPlanEntry, RecipeReviewState]],
+    week_start: date,
+    week_end: date,
+) -> List[DayMeals]:
     """Organize entries into days with meal slots."""
     # Create a dict for quick lookup
     entries_by_date = {}
-    for entry in entries:
+    for entry, recipe_review_state in entries:
         if entry.date not in entries_by_date:
             entries_by_date[entry.date] = {"breakfast": [], "lunch": [], "dinner": [], "snack": []}
         meal_type = entry.meal_type.lower()
         if meal_type in entries_by_date[entry.date]:
-            entries_by_date[entry.date][meal_type].append(entry)
+            entries_by_date[entry.date][meal_type].append(
+                meal_plan_entry_response(entry, recipe_review_state)
+            )
     
     # Build the response for each day of the week
     days = []
@@ -151,7 +189,7 @@ def _recipe_plan_entries_statement(
 ):
     """Build the bounded, policy-scoped recipe relationship query."""
     return (
-        select(MealPlanEntry)
+        select(MealPlanEntry, Recipe.review_state)
         .join(Recipe, Recipe.id == MealPlanEntry.recipe_id)
         .where(
             MealPlanEntry.user_id == user_id,
@@ -184,7 +222,7 @@ async def get_week_plan(
     
     # Fetch all entries for this week
     result = await db.execute(
-        select(MealPlanEntry)
+        select(MealPlanEntry, Recipe.review_state)
         .join(Recipe, Recipe.id == MealPlanEntry.recipe_id)
         .where(
             MealPlanEntry.user_id == user.id,
@@ -194,7 +232,7 @@ async def get_week_plan(
         )
         .order_by(MealPlanEntry.date, MealPlanEntry.meal_type, MealPlanEntry.created_at)
     )
-    entries = result.scalars().all()
+    entries = result.all()
     
     # Organize by day
     days = organize_by_day(entries, week_start, week_end)
@@ -216,7 +254,7 @@ async def get_day_plan(
     target = target_date or date.today()
     
     result = await db.execute(
-        select(MealPlanEntry)
+        select(MealPlanEntry, Recipe.review_state)
         .join(Recipe, Recipe.id == MealPlanEntry.recipe_id)
         .where(
             MealPlanEntry.user_id == user.id,
@@ -225,14 +263,16 @@ async def get_day_plan(
         )
         .order_by(MealPlanEntry.meal_type, MealPlanEntry.created_at)
     )
-    entries = result.scalars().all()
+    entries = result.all()
     
     # Organize into meal slots
     meals = {"breakfast": [], "lunch": [], "dinner": [], "snack": []}
-    for entry in entries:
+    for entry, recipe_review_state in entries:
         meal_type = entry.meal_type.lower()
         if meal_type in meals:
-            meals[meal_type].append(entry)
+            meals[meal_type].append(
+                meal_plan_entry_response(entry, recipe_review_state)
+            )
     
     return DayMeals(
         date=target,
@@ -259,7 +299,10 @@ async def get_recipe_plan_entries(
     result = await db.execute(
         _recipe_plan_entries_statement(recipe_id, user.id, first_date, limit)
     )
-    return list(result.scalars().all())
+    return [
+        meal_plan_entry_response(entry, recipe_review_state)
+        for entry, recipe_review_state in result.all()
+    ]
 
 
 @router.post("/", response_model=MealPlanEntryResponse)
@@ -298,7 +341,7 @@ async def add_meal(
     await db.commit()
     await db.refresh(new_entry)
     
-    return new_entry
+    return meal_plan_entry_response(new_entry, recipe.review_state)
 
 
 @router.put("/{entry_id}", response_model=MealPlanEntryResponse)
@@ -319,7 +362,8 @@ async def update_meal(
     
     if not entry:
         raise HTTPException(status_code=404, detail="Meal plan entry not found")
-    if await get_accessible_recipe(db, entry.recipe_id, user) is None:
+    recipe = await get_accessible_recipe(db, entry.recipe_id, user)
+    if recipe is None:
         raise HTTPException(status_code=404, detail="Meal plan entry not found")
     
     if update.meal_type is not None:
@@ -340,7 +384,7 @@ async def update_meal(
     await db.commit()
     await db.refresh(entry)
     
-    return entry
+    return meal_plan_entry_response(entry, recipe.review_state)
 
 
 @router.delete("/{entry_id}")
@@ -416,7 +460,11 @@ async def add_plan_to_grocery(
     entries = result.scalars().all()
     
     if not entries:
-        return {"message": "No meals planned in this date range", "items_added": 0}
+        return {
+            "message": "No meals planned in this date range",
+            "items_added": 0,
+            "items_missing_amount": 0,
+        }
     
     # Get unique recipe IDs
     recipe_ids = list(set(entry.recipe_id for entry in entries))
@@ -432,6 +480,7 @@ async def add_plan_to_grocery(
 
     # Add ingredients to grocery list
     items_added = 0
+    items_missing_amount = 0
     for entry in entries:
         recipe = recipes.get(entry.recipe_id)
         if not recipe or not recipe.extracted:
@@ -443,12 +492,15 @@ async def add_plan_to_grocery(
         for component in components:
             ingredients = component.get("ingredients", [])
             for ing in ingredients:
+                quantity = _normalized_quantity(ing.get("quantity"))
+                if quantity is None:
+                    items_missing_amount += 1
                 # Create grocery item
                 grocery_item = GroceryItem(
                     user_id=user.id,
                     list_id=grocery_list.id,
                     name=ing.get("name", "Unknown"),
-                    quantity=ing.get("quantity"),
+                    quantity=quantity,
                     unit=ing.get("unit"),
                     notes=ing.get("notes"),
                     recipe_id=entry.recipe_id,
@@ -464,6 +516,7 @@ async def add_plan_to_grocery(
     return {
         "message": f"Added {items_added} ingredients to grocery list",
         "items_added": items_added,
+        "items_missing_amount": items_missing_amount,
         "recipes_processed": len(recipe_ids)
     }
 

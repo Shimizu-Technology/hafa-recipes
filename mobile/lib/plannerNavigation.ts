@@ -1,6 +1,14 @@
 import type { MealPlanEntryCreate, MealType, RecipeListItem } from '@/types/recipe';
 
-export type MealPlanRecipe = Pick<RecipeListItem, 'id' | 'title' | 'thumbnail_url'>;
+export type MealPlanRecipe = Pick<
+  RecipeListItem,
+  'id' | 'title' | 'thumbnail_url' | 'review_state'
+>;
+
+type PlannerGroceryResult = {
+  items_added: number;
+  items_missing_amount?: number;
+};
 
 /** Parse an exact planner date without allowing JavaScript date rollover. */
 export function parsePlannerDateParam(value: string | undefined): Date | null {
@@ -39,4 +47,15 @@ export function buildMealPlanEntry(
     recipe_title: recipe.title,
     recipe_thumbnail: recipe.thumbnail_url,
   };
+}
+
+/** Explain planner-to-grocery results without hiding unstated source amounts. */
+export function plannerGrocerySuccessMessage(result: PlannerGroceryResult): string {
+  const added = `Added ${result.items_added} ingredients from your meal plan.`;
+  const missing = result.items_missing_amount ?? 0;
+  if (missing <= 0) return added;
+
+  const subject = missing === 1 ? 'ingredient has' : 'ingredients have';
+  const pronoun = missing === 1 ? 'it is' : 'they are';
+  return `${added} ${missing} ${subject} no stated amount, so ${pronoun} clearly marked in your list.`;
 }

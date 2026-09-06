@@ -4,7 +4,7 @@ Collections router - API endpoints for recipe collections/folders.
 
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -64,6 +64,7 @@ class RecipeInCollection(BaseModel):
     tags: List[str]
     total_time: Optional[str]
     servings: Optional[int]
+    review_state: Optional[Literal["source_incomplete", "needs_review", "ready"]] = None
     added_at: datetime
 
 
@@ -325,6 +326,7 @@ async def get_collection_recipes(
             tags=recipe.extracted.get("tags", []),
             total_time=(recipe.extracted.get("times") or {}).get("total"),
             servings=recipe.extracted.get("servings"),
+            review_state=recipe.review_state,
             added_at=added_at
         )
         for recipe, added_at in recipes

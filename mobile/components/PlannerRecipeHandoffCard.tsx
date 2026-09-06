@@ -9,10 +9,13 @@ import {
 
 import { Text, useColors } from '@/components/Themed';
 import { fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
+import { RecipeTrustBadge } from './RecipeTrustBadge';
+import type { RecipeReviewState } from '@/types/recipe';
 
 type PlannerRecipeHandoffCardProps = {
   title?: string;
   thumbnailUrl?: string | null;
+  reviewState?: RecipeReviewState | null;
   isLoading: boolean;
   hasError: boolean;
   isRetrying: boolean;
@@ -24,6 +27,7 @@ type PlannerRecipeHandoffCardProps = {
 export function PlannerRecipeHandoffCard({
   title,
   thumbnailUrl,
+  reviewState,
   isLoading,
   hasError,
   isRetrying,
@@ -107,8 +111,11 @@ export function PlannerRecipeHandoffCard({
             <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
               {title}
             </Text>
+            <RecipeTrustBadge reviewState={reviewState} />
             <Text style={[styles.instructions, { color: colors.textMuted }]}>
-              Choose a day, then tap a meal slot.
+              {reviewState && reviewState !== 'ready'
+                ? 'You can plan this now. Review it before cooking.'
+                : 'Choose a day, then tap a meal slot.'}
             </Text>
           </RNView>
           <TouchableOpacity

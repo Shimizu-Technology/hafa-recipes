@@ -24,6 +24,8 @@ const mocks = vi.hoisted(() => ({
   listInfoState: { is_shared: false },
   listEnabledArgs: [] as boolean[],
   countEnabledArgs: [] as boolean[],
+  alert: vi.fn(),
+  share: vi.fn(),
   refetch: vi.fn(),
   routerPush: vi.fn(),
   routerSetParams: vi.fn(),
@@ -36,7 +38,7 @@ function host(name: string) {
 
 vi.mock('react-native', () => ({
   ActivityIndicator: host('ActivityIndicator'),
-  Alert: { alert: vi.fn() },
+  Alert: { alert: mocks.alert },
   Keyboard: { dismiss: vi.fn() },
   Platform: { OS: 'ios' },
   RefreshControl: host('RefreshControl'),
@@ -64,7 +66,7 @@ vi.mock('react-native', () => ({
           )),
         ]),
   ),
-  Share: { share: vi.fn() },
+  Share: { share: mocks.share },
   StyleSheet: { create: <T,>(styles: T) => styles },
   TextInput: host('TextInput'),
   TouchableOpacity: host('TouchableOpacity'),
@@ -103,6 +105,7 @@ vi.mock('@/components/Themed', () => ({
     textMuted: '#666',
     textSecondary: '#444',
     tint: '#a43',
+    warning: '#b70',
   }),
 }));
 vi.mock('@/components/SignInBanner', () => ({ SignInBanner: host('SignInBanner') }));
@@ -238,6 +241,8 @@ describe('GroceryScreen shopping views', () => {
     mocks.groceryState.isRefetchError = false;
     mocks.groceryState.isRefetching = false;
     mocks.refetch.mockReset();
+    mocks.alert.mockReset();
+    mocks.share.mockReset();
   });
 
   it('shows an intentional guest preview without starting private grocery queries', async () => {
@@ -380,6 +385,87 @@ describe('GroceryScreen shopping views', () => {
       ).find((button) => button.props.accessibilityLabel === '1 items to buy');
       await act(async () => toBuyTab!.props.onPress());
       expect(renderer.container.queryAll((instance) => instance.type === 'ScalePressable')).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('labels a grocery item when its recipe did not state an amount', async () => {
+    mocks.collapsedSections = '[]';
+    mocks.groceryState.items = [item({
+      id: 'lime',
+      name: 'Lime',
+      quantity: null,
+      unit: 'piece',
+    })];
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(GroceryScreen));
+      });
+
+      expect(renderedText(renderer)).toContain('Amount not stated');
+      expect(renderedText(renderer)).not.toContain('piece');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('does not turn a quick manual grocery entry into a recipe warning', async () => {
+    mocks.collapsedSections = '[]';
+    mocks.groceryState.items = [item({
+      id: 'milk',
+      name: 'Milk',
+      quantity: null,
+      recipe_id: null,
+      recipe_title: null,
+    })];
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(GroceryScreen));
+      });
+
+      expect(renderedText(renderer)).not.toContain('Amount not stated');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('normalizes legacy units in grocery rows and exported text', async () => {
+    mocks.collapsedSections = '[]';
+    mocks.groceryState.items = [
+      item({ id: 'salt', name: 'Salt', quantity: '1', unit: ' NULL ' }),
+      item({ id: 'oil', name: 'Oil', quantity: '1', unit: ' tbsp ' }),
+    ];
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(GroceryScreen));
+      });
+
+      const copy = renderedText(renderer);
+      expect(copy.toLowerCase()).not.toContain('null');
+      expect(copy).toContain('tbsp ');
+
+      const overflow = renderer.container.queryAll(
+        (instance) => instance.type === 'TouchableOpacity',
+      ).find((button) => button.props.accessibilityLabel === 'More grocery list actions');
+      await act(async () => overflow!.props.onPress());
+      const actions = mocks.alert.mock.calls.at(-1)?.[2] as Array<{
+        text: string;
+        onPress?: () => Promise<void>;
+      }>;
+      const exportAction = actions.find((action) => action.text === 'Export list');
+      await act(async () => exportAction!.onPress!());
+
+      const message = mocks.share.mock.calls.at(-1)?.[0]?.message as string;
+      expect(message).toContain('[ ] 1 Salt');
+      expect(message).toContain('[ ] 1 tbsp Oil');
+      expect(message.toLowerCase()).not.toContain('null');
     } finally {
       await act(async () => renderer.unmount());
     }

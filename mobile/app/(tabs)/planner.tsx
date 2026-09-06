@@ -51,9 +51,11 @@ import {
   buildMealPlanEntry,
   parsePlannerDateParam,
   parsePlannerRecipeParam,
+  plannerGrocerySuccessMessage,
   type MealPlanRecipe,
 } from '@/lib/plannerNavigation';
 import { appRoutes } from '@/lib/routes';
+import { RecipeTrustBadge } from '@/components/RecipeTrustBadge';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DAY_WIDTH = (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm * 6) / 7;
@@ -149,7 +151,7 @@ function DayPill({
 }
 
 // Meal slot component (shows either a recipe or "Add" button)
-function MealSlot({
+export function MealSlot({
   mealType,
   entries,
   colors,
@@ -244,6 +246,7 @@ function MealSlot({
                 >
                   {entry.recipe_title}
                 </Text>
+                <RecipeTrustBadge reviewState={entry.recipe_review_state} />
                 {entry.notes && (
                   <Text
                     style={[styles.mealCardNotes, { color: colors.textMuted }]}
@@ -341,6 +344,7 @@ export default function PlannerScreen() {
       id: requestedRecipe.id,
       title: requestedRecipe.extracted.title || 'Untitled recipe',
       thumbnail_url: requestedRecipe.thumbnail_url,
+      review_state: requestedRecipe.review_state,
     };
   }, [requestedRecipe]);
   const requestedRecipeHasBlockingError = isRequestedRecipeError && !handoffRecipe;
@@ -512,7 +516,7 @@ export default function PlannerScreen() {
       successHaptic();
       Alert.alert(
         'Added to Grocery List',
-        `Added ${result.items_added} ingredients from your meal plan.`,
+        plannerGrocerySuccessMessage(result),
         [
           { text: 'OK' },
           {
@@ -719,6 +723,7 @@ export default function PlannerScreen() {
           <PlannerRecipeHandoffCard
             title={handoffRecipe?.title}
             thumbnailUrl={handoffRecipe?.thumbnail_url}
+            reviewState={handoffRecipe?.review_state}
             isLoading={requestedRecipeHandoffIsLoading}
             hasError={requestedRecipeHasBlockingError}
             isRetrying={isRequestedRecipeRetrying}

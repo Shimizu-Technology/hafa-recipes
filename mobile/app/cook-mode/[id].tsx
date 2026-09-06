@@ -28,10 +28,10 @@ import { useTimerSoundPreference, getTimerSoundFile } from '@/hooks/useTimerSoun
 import { useBackgroundTimer } from '@/hooks/useBackgroundTimer';
 import { useTextSize } from '@/hooks/useTextSize';
 import { useTimerContext } from '@/contexts/TimerContext';
+import { CookIngredientsList } from '@/components/CookIngredientsList';
 import { lightHaptic, mediumHaptic, successHaptic, heavyHaptic } from '@/utils/haptics';
 import { brand, spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
-import { RecipeComponent, Ingredient } from '@/types/recipe';
-import { scaleQuantity } from '@/hooks/useScaledServings';
+import { RecipeComponent } from '@/types/recipe';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.2;
@@ -1014,19 +1014,13 @@ export default function CookModeScreen() {
                 <Ionicons name="close" size={28} color="#ffffff" />
               </TouchableOpacity>
             </RNView>
-            <ScrollView style={styles.ingredientsList} showsVerticalScrollIndicator={false}>
-              {allIngredients.map((ing: Ingredient, index: number) => {
-                const scaledQty = scaleQuantity(ing.quantity ?? null, scaleFactor);
-                return (
-                  <RNView key={index} style={styles.ingredientRow}>
-                    <Text style={[styles.ingredientQuantity, isScaled && styles.ingredientQuantityScaled, { fontSize: scaleFontSize(fontSize.md) }]}>
-                      {scaledQty ? `${scaledQty}${ing.unit ? ` ${ing.unit}` : ''}` : '•'}
-                    </Text>
-                    <Text style={[styles.ingredientName, { fontSize: scaleFontSize(fontSize.md) }]}>{ing.name}</Text>
-                  </RNView>
-                );
-              })}
-            </ScrollView>
+            <CookIngredientsList
+              ingredients={allIngredients}
+              scaleFactor={scaleFactor}
+              isScaled={isScaled}
+              warningColor={colors.warning}
+              scaleFontSize={scaleFontSize}
+            />
           </RNView>
         </TouchableOpacity>
       </Modal>
@@ -1592,29 +1586,6 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  ingredientsList: {
-    padding: spacing.lg,
-  },
-  ingredientRow: {
-    flexDirection: 'row',
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: '#222',
-  },
-  ingredientQuantity: {
-    color: brand.reefHighlight,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
-    width: 100,
-  },
-  ingredientQuantityScaled: {
-    color: brand.reefHighlight,
-  },
-  ingredientName: {
-    color: '#ffffff',
-    fontSize: fontSize.md,
-    flex: 1,
   },
   // Add Timer Button (when no detected time)
   addTimerButton: {

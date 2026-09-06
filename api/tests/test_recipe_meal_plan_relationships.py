@@ -19,9 +19,14 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Session
 
+from app.models.meal_plan import MealPlanEntry
 from app.routers.meal_plans import (
+    _has_stated_quantity,
     _recipe_plan_entries_statement,
+    get_day_plan,
     get_recipe_plan_entries,
+    get_week_plan,
+    meal_plan_entry_response,
 )
 
 
@@ -126,9 +131,10 @@ def test_relationship_query_executes_ownership_date_policy_order_and_limit():
             insert(recipes),
             [{
                 "id": recipe_id,
-                "user_id": owner_id,
-                "is_public": True,
+                "user_id": viewer_id,
+                "is_public": False,
                 "moderation_status": "active",
+                "review_state": "needs_review",
             }],
         )
         connection.execute(insert(meal_plan_entries), eligible_rows)
@@ -155,16 +161,46 @@ def test_relationship_query_executes_ownership_date_policy_order_and_limit():
         )
 
     with Session(engine) as session:
-        result = session.execute(
+        rows = session.execute(
             _recipe_plan_entries_statement(recipe_id, viewer_id, first_date, 12)
-        ).scalars().all()
+        ).all()
 
     expected_rows = sorted(
         eligible_rows,
         key=lambda row: (row["date"], row["meal_type"], row["created_at"]),
     )[:12]
-    assert [entry.id for entry in result] == [row["id"] for row in expected_rows]
-    assert len(result) == 12
+    assert [entry.id for entry, _review_state in rows] == [
+        row["id"] for row in expected_rows
+    ]
+    assert {review_state for _entry, review_state in rows} == {"needs_review"}
+    assert len(rows) == 12
+
+
+def test_meal_plan_response_exposes_current_recipe_readiness():
+    entry = MealPlanEntry(
+        id=uuid4(),
+        user_id="stable-app-user",
+        date=date(2026, 8, 27),
+        meal_type="dinner",
+        recipe_id=uuid4(),
+        recipe_title="Chicken kelaguen",
+        created_at=datetime(2026, 8, 26, 8),
+    )
+
+    response = meal_plan_entry_response(entry, "source_incomplete")
+
+    assert response.recipe_review_state == "source_incomplete"
+    assert response.recipe_title == "Chicken kelaguen"
+
+
+@pytest.mark.parametrize("quantity", [None, "", "   ", "null", " NULL ", True])
+def test_missing_quantities_stay_explicit_in_planner_grocery_handoff(quantity):
+    assert _has_stated_quantity(quantity) is False
+
+
+@pytest.mark.parametrize("quantity", ["1 1/2", 2, 2.5])
+def test_real_quantities_are_preserved_in_planner_grocery_handoff(quantity):
+    assert _has_stated_quantity(quantity) is True
 
 
 def test_relationship_query_excludes_private_and_moderated_recipes():
@@ -248,20 +284,68 @@ def test_relationship_query_excludes_private_and_moderated_recipes():
 
 
 class _ScalarResult:
+    def __init__(self, rows=None):
+        self.rows = rows or []
+
     def scalars(self):
         return self
 
     def all(self):
-        return []
+        return self.rows
 
 
 class _RecordingSession:
-    def __init__(self):
+    def __init__(self, rows=None):
         self.statement = None
+        self.rows = rows or []
 
     async def execute(self, statement):
         self.statement = statement
-        return _ScalarResult()
+        return _ScalarResult(self.rows)
+
+
+def _planned_entry(planned_date: date) -> MealPlanEntry:
+    """Build an accessible endpoint-response fixture."""
+    return MealPlanEntry(
+        id=uuid4(),
+        user_id="stable-app-user",
+        date=planned_date,
+        meal_type="dinner",
+        recipe_id=uuid4(),
+        recipe_title="Chicken kelaguen",
+        created_at=datetime(2026, 8, 26, 8),
+    )
+
+
+@pytest.mark.asyncio
+async def test_week_plan_includes_current_recipe_readiness():
+    planned_date = date(2026, 8, 27)
+    session = _RecordingSession([(_planned_entry(planned_date), "needs_review")])
+
+    result = await get_week_plan(
+        week_of=planned_date,
+        db=session,
+        user=SimpleNamespace(id="stable-app-user"),
+    )
+
+    planned_day = next(day for day in result.days if day.date == planned_date)
+    assert planned_day.dinner[0].recipe_review_state == "needs_review"
+    assert session.statement is not None
+
+
+@pytest.mark.asyncio
+async def test_day_plan_includes_current_recipe_readiness():
+    planned_date = date(2026, 8, 27)
+    session = _RecordingSession([(_planned_entry(planned_date), "source_incomplete")])
+
+    result = await get_day_plan(
+        target_date=planned_date,
+        db=session,
+        user=SimpleNamespace(id="stable-app-user"),
+    )
+
+    assert result.dinner[0].recipe_review_state == "source_incomplete"
+    assert session.statement is not None
 
 
 @pytest.mark.asyncio

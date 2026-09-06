@@ -25,8 +25,9 @@ import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { AnimatedListItem, ScalePressable } from '@/components/Animated';
+import { RecipeTrustBadge } from '@/components/RecipeTrustBadge';
 
-function RecipeCard({
+export function RecipeCard({
   recipe,
   onPress,
   onRemove,
@@ -66,6 +67,11 @@ function RecipeCard({
         <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
           {recipe.title}
         </Text>
+        {recipe.review_state && recipe.review_state !== 'ready' && (
+          <RNView style={styles.trustBadge}>
+            <RecipeTrustBadge reviewState={recipe.review_state} />
+          </RNView>
+        )}
 
         {/* Meta info */}
         <RNView style={styles.metaRow}>
@@ -284,6 +290,9 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
     lineHeight: 20,
+  },
+  trustBadge: {
+    marginTop: spacing.xs,
   },
   metaRow: {
     flexDirection: 'row',

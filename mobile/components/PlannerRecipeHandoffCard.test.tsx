@@ -21,6 +21,7 @@ vi.mock('@/components/Themed', () => ({
     text: '#111',
     textMuted: '#666',
     tint: '#b44',
+    warning: '#b70',
   }),
 }));
 vi.mock('@/constants/Colors', () => ({
@@ -98,6 +99,92 @@ describe('PlannerRecipeHandoffCard', () => {
       await act(async () => renderer.unmount());
     }
   });
+
+  it('keeps draft readiness visible while allowing planning to continue', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(PlannerRecipeHandoffCard, {
+          title: 'Chicken Kelaguen',
+          thumbnailUrl: null,
+          reviewState: 'needs_review',
+          isLoading: false,
+          hasError: false,
+          isRetrying: false,
+          onRetry: vi.fn(),
+          onDismiss: vi.fn(),
+        }));
+      });
+
+      expect(textNodes(renderer).some((text) => text.props.children === 'Needs review')).toBe(true);
+      expect(textNodes(renderer).some(
+        (text) => text.props.children === 'You can plan this now. Review it before cooking.',
+      )).toBe(true);
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Recipe needs review',
+      )).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('identifies source-incomplete handoffs without blocking planning', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(PlannerRecipeHandoffCard, {
+          title: 'Red Rice',
+          thumbnailUrl: null,
+          reviewState: 'source_incomplete',
+          isLoading: false,
+          hasError: false,
+          isRetrying: false,
+          onRetry: vi.fn(),
+          onDismiss: vi.fn(),
+        }));
+      });
+
+      expect(textNodes(renderer).some((text) => text.props.children === 'Needs details')).toBe(true);
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Recipe needs source details',
+      )).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it.each(['ready', undefined] as const)(
+    'hides readiness UI for %s handoffs',
+    async (reviewState) => {
+      const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+      try {
+        await act(async () => {
+          renderer.render(React.createElement(PlannerRecipeHandoffCard, {
+            title: 'Finished Recipe',
+            thumbnailUrl: null,
+            reviewState,
+            isLoading: false,
+            hasError: false,
+            isRetrying: false,
+            onRetry: vi.fn(),
+            onDismiss: vi.fn(),
+          }));
+        });
+
+        expect(textNodes(renderer).some(
+          (text) => text.props.children === 'Choose a day, then tap a meal slot.',
+        )).toBe(true);
+        expect(renderer.container.queryAll(
+          (instance) => instance.props.accessibilityLabel?.startsWith('Recipe needs'),
+        )).toHaveLength(0);
+      } finally {
+        await act(async () => renderer.unmount());
+      }
+    },
+  );
 
   it('shows an accessible fallback when the loaded recipe has no thumbnail', async () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
