@@ -388,7 +388,12 @@ describe('GroceryScreen shopping views', () => {
 
   it('labels a grocery item when its recipe did not state an amount', async () => {
     mocks.collapsedSections = '[]';
-    mocks.groceryState.items = [item({ id: 'lime', name: 'Lime', quantity: null })];
+    mocks.groceryState.items = [item({
+      id: 'lime',
+      name: 'Lime',
+      quantity: null,
+      unit: 'piece',
+    })];
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
     try {
@@ -397,6 +402,7 @@ describe('GroceryScreen shopping views', () => {
       });
 
       expect(renderedText(renderer)).toContain('Amount not stated');
+      expect(renderedText(renderer)).not.toContain('piece');
     } finally {
       await act(async () => renderer.unmount());
     }

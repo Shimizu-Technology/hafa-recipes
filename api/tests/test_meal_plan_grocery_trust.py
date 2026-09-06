@@ -37,6 +37,25 @@ class _Session:
 
 
 @pytest.mark.asyncio
+async def test_planner_grocery_handoff_reports_an_empty_plan():
+    session = _Session([])
+
+    result = await meal_plans.add_plan_to_grocery(
+        meal_plans.AddToGroceryRequest(
+            start_date=date(2026, 9, 1),
+            end_date=date(2026, 9, 7),
+        ),
+        session,
+        SimpleNamespace(id="stable-app-user", display_name="Cook"),
+    )
+
+    assert result["items_added"] == 0
+    assert result["items_missing_amount"] == 0
+    assert session.added == []
+    assert session.committed is False
+
+
+@pytest.mark.asyncio
 async def test_planner_grocery_handoff_counts_and_normalizes_missing_amounts(
     monkeypatch,
 ):

@@ -118,7 +118,7 @@ function GroceryItemRow({
             ellipsizeMode="tail"
           >
             {hasAmount && `${item.quantity} `}
-            {item.unit && item.unit !== 'null' && `${item.unit} `}
+            {hasAmount && item.unit && item.unit !== 'null' && `${item.unit} `}
             {item.name}
           </Text>
           {isSharedList && item.added_by_name && (

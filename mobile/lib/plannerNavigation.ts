@@ -5,6 +5,11 @@ export type MealPlanRecipe = Pick<
   'id' | 'title' | 'thumbnail_url' | 'review_state'
 >;
 
+type PlannerGroceryResult = {
+  items_added: number;
+  items_missing_amount?: number;
+};
+
 /** Parse an exact planner date without allowing JavaScript date rollover. */
 export function parsePlannerDateParam(value: string | undefined): Date | null {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
@@ -42,4 +47,14 @@ export function buildMealPlanEntry(
     recipe_title: recipe.title,
     recipe_thumbnail: recipe.thumbnail_url,
   };
+}
+
+/** Explain planner-to-grocery results without hiding unstated source amounts. */
+export function plannerGrocerySuccessMessage(result: PlannerGroceryResult): string {
+  const added = `Added ${result.items_added} ingredients from your meal plan.`;
+  const missing = result.items_missing_amount ?? 0;
+  if (missing <= 0) return added;
+
+  const verb = missing === 1 ? 'has' : 'have';
+  return `${added} ${missing} ${verb} an amount not stated, so they are clearly marked in your list.`;
 }

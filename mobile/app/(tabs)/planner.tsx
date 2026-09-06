@@ -51,6 +51,7 @@ import {
   buildMealPlanEntry,
   parsePlannerDateParam,
   parsePlannerRecipeParam,
+  plannerGrocerySuccessMessage,
   type MealPlanRecipe,
 } from '@/lib/plannerNavigation';
 import { appRoutes } from '@/lib/routes';
@@ -515,9 +516,7 @@ export default function PlannerScreen() {
       successHaptic();
       Alert.alert(
         'Added to Grocery List',
-        result.items_missing_amount > 0
-          ? `Added ${result.items_added} ingredients from your meal plan. ${result.items_missing_amount} ${result.items_missing_amount === 1 ? 'has' : 'have'} an amount not stated, so they are clearly marked in your list.`
-          : `Added ${result.items_added} ingredients from your meal plan.`,
+        plannerGrocerySuccessMessage(result),
         [
           { text: 'OK' },
           {

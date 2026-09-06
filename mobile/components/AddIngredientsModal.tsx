@@ -180,7 +180,7 @@ export default function AddIngredientsModal({
                         {scaleQuantity(ingredient.quantity!, scaleFactor)}{' '}
                       </Text>
                     )}
-                    {ingredient.unit && ingredient.unit !== 'null' && `${ingredient.unit} `}
+                    {hasAmount && ingredient.unit && ingredient.unit !== 'null' && `${ingredient.unit} `}
                     {ingredient.name}
                   </Text>
                   {!hasAmount && (

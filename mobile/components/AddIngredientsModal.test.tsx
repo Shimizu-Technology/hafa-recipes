@@ -55,13 +55,14 @@ describe('AddIngredientsModal', () => {
           recipeTitle: 'Chicken Kelaguen',
           ingredients: [
             { name: 'Chicken', quantity: '2', unit: 'lb' },
-            { name: 'Salt', quantity: null, unit: null },
+            { name: 'Salt', quantity: null, unit: 'tsp' },
           ],
         }));
       });
 
       const text = renderer.container.queryAll((instance) => instance.type === 'Text');
       expect(text.some((node) => node.props.children === 'Amount not stated')).toBe(true);
+      expect(JSON.stringify(renderer.container.toJSON())).not.toContain('tsp');
     } finally {
       await act(async () => renderer.unmount());
     }
