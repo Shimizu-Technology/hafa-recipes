@@ -1,7 +1,7 @@
 import React from 'react';
 import { act } from 'react';
 import { createRoot } from 'test-renderer';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
@@ -15,6 +15,10 @@ vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('@/components/Themed', () => ({
   useColors: () => ({ tint: '#155C52' }),
 }));
+const playbackPolicy = vi.hoisted(() => ({ mode: 'embedded' }));
+vi.mock('../lib/sourcePlaybackConfig', () => ({
+  getSourcePlaybackMode: () => playbackPolicy.mode,
+}));
 vi.mock('./SourcePlaybackCard', () => ({ SourcePlaybackCard: 'SourcePlaybackCard' }));
 
 import { RecipeHero } from './RecipeHero';
@@ -25,6 +29,10 @@ const commonProps = {
   onImageError: vi.fn(),
   onOpenSource: vi.fn(),
 };
+
+afterEach(() => {
+  playbackPolicy.mode = 'embedded';
+});
 
 describe('RecipeHero', () => {
   it('uses the official player as the hero for a playable source', async () => {
@@ -76,6 +84,29 @@ describe('RecipeHero', () => {
         mode: 'external',
         mediaKind: 'reel',
       });
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('passes an external-only release policy through the recipe hero', async () => {
+    playbackPolicy.mode = 'external';
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(RecipeHero, {
+          ...commonProps,
+          sourceUrl: 'https://www.youtube.com/watch?v=abcDEF_1234',
+          thumbnailUrl: 'https://example.com/kelaguen.jpg',
+        }));
+      });
+
+      const player = renderer.container.queryAll(
+        (instance) => instance.type === 'SourcePlaybackCard',
+      )[0];
+      expect(player.props.embeddedPlaybackEnabled).toBe(false);
+      expect(player.props.playback).toMatchObject({ provider: 'youtube', mode: 'modal' });
     } finally {
       await act(async () => renderer.unmount());
     }

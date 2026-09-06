@@ -11,6 +11,7 @@ export function resolveSourcePlaybackMode(configured: string | undefined): Sourc
   return 'external';
 }
 
-export const SOURCE_PLAYBACK_MODE = resolveSourcePlaybackMode(
-  process.env.EXPO_PUBLIC_SOURCE_PLAYBACK_MODE,
-);
+/** Resolve the playback policy from the build or update environment. */
+export function getSourcePlaybackMode(): SourcePlaybackMode {
+  return resolveSourcePlaybackMode(process.env.EXPO_PUBLIC_SOURCE_PLAYBACK_MODE);
+}
