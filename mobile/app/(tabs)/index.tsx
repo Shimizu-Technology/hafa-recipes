@@ -22,8 +22,9 @@ import { View, Text, Input, Button, Chip, useColors } from '@/components/Themed'
 import ExtractionProgress from '@/components/ExtractionProgress';
 import { SignInBanner } from '@/components/SignInBanner';
 import { guestPromptBottomPadding, useGuestPromptHeight } from '../../lib/guestPromptLayout';
-import { useLocations, useCheckDuplicate } from '@/hooks/useRecipes';
+import { useExtractionJobs, useLocations, useCheckDuplicate } from '@/hooks/useRecipes';
 import { useAsyncExtraction } from '@/contexts/ExtractionContext';
+import { ImportActivityCard } from '@/components/ImportActivityCard';
 import { BrandMark } from '@/components/BrandMark';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import { api, type RecipeImageUpload } from '@/lib/api';
@@ -64,6 +65,7 @@ export default function ExtractScreen() {
 
   const { data: locationsData } = useLocations();
   const extraction = useAsyncExtraction();
+  const recentImports = useExtractionJobs('extract', Boolean(isSignedIn));
   const checkDuplicate = useCheckDuplicate();
   const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
 
@@ -236,40 +238,20 @@ export default function ExtractScreen() {
     }
   };
 
-  // Navigate to recipe when extraction completes
-  useEffect(() => {
-    if (extraction.isComplete && extraction.recipeId) {
-      const navigateToRecipe = () => {
-        router.push(`/recipe/${extraction.recipeId}`);
-        extraction.reset();
-        setUrl('');
-        setNotes('');
-        setIsPublic(false);
-        setExtractingAsWebsite(false);
-      };
+  const clearCompletedExtraction = async () => {
+    await extraction.reset();
+    setUrl('');
+    setNotes('');
+    setIsPublic(false);
+    setExtractingAsWebsite(false);
+  };
 
-      // Show warning if low confidence extraction
-      if (extraction.lowConfidence && extraction.confidenceWarning) {
-        const timer = setTimeout(() => {
-          Alert.alert(
-            "Recipe May Need Review",
-            extraction.confidenceWarning + "\n\nYou can edit the recipe to fix any issues.",
-            [
-              {
-                text: "Review Recipe",
-                onPress: navigateToRecipe,
-              }
-            ]
-          );
-        }, 500);
-        return () => clearTimeout(timer);
-      } else {
-        // Normal flow - navigate after brief delay
-        const timer = setTimeout(navigateToRecipe, 1000);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [extraction.isComplete, extraction.recipeId, extraction.lowConfidence, extraction.confidenceWarning]);
+  const handleReviewCompletedRecipe = async () => {
+    if (!extraction.recipeId) return;
+    const recipeId = extraction.recipeId;
+    await clearCompletedExtraction();
+    router.push(`/recipe/${recipeId}`);
+  };
 
   // Proceed with extraction (called after duplicate check or when user chooses "Extract Anyway")
   const proceedWithExtraction = async () => {
@@ -452,8 +434,19 @@ export default function ExtractScreen() {
     );
   };
 
-  const handleRetry = () => {
-    extraction.reset();
+  const handleRetry = async () => {
+    const sourceUrl = extraction.sourceUrl;
+    const sourceLocation = extraction.sourceLocation;
+    const sourceNotes = extraction.sourceNotes;
+    const requestedIsPublic = extraction.requestedIsPublic;
+    const isLinkImport = extraction.jobKind === 'extract';
+    await extraction.reset();
+    if (isLinkImport && sourceUrl) {
+      setUrl(sourceUrl);
+      if (sourceLocation) setSelectedLocation(sourceLocation);
+      setNotes(sourceNotes);
+      setIsPublic(requestedIsPublic);
+    }
     setExtractingAsWebsite(false);
   };
 
@@ -477,6 +470,7 @@ export default function ExtractScreen() {
   };
 
   const isLoading = isChecking || extraction.isExtracting || isOcrExtracting || isSavingSourceDraft;
+  const isPreparingImports = Boolean(isSignedIn && extraction.isPreparing);
 
   // Show OCR progress UI
   if (isOcrExtracting) {
@@ -573,7 +567,7 @@ export default function ExtractScreen() {
 
   // Show progress UI when extracting.
   // Only show failed state if there's an actual error message (prevents brief flash).
-  const showExtractionUI = extraction.isExtracting || (extraction.isFailed && extraction.error);
+  const showExtractionUI = extraction.isExtracting || extraction.isComplete || (extraction.isFailed && extraction.error);
   if (showExtractionUI) {
     return (
       <RNView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -598,7 +592,25 @@ export default function ExtractScreen() {
             confidenceWarning={extraction.confidenceWarning}
           />
 
-          {extraction.isFailed ? (
+          {extraction.isComplete && extraction.recipeId ? (
+            <>
+              <RNView style={styles.buttonRow}>
+                <Button
+                  title={extraction.jobKind === 'reextract' ? 'Review Updated Recipe' : 'Review Recipe'}
+                  onPress={handleReviewCompletedRecipe}
+                  size="lg"
+                />
+              </RNView>
+              <RNView style={styles.buttonRow}>
+                <Button
+                  title="Import Another"
+                  onPress={clearCompletedExtraction}
+                  variant="secondary"
+                  size="lg"
+                />
+              </RNView>
+            </>
+          ) : extraction.isFailed ? (
             <>
               {extraction.canSaveDraft && (
                 <RNView style={styles.buttonRow}>
@@ -633,7 +645,9 @@ export default function ExtractScreen() {
           )}
 
           <Text style={[styles.backgroundHint, { color: colors.textMuted }]}>
-            {extraction.isFailed
+            {extraction.isComplete
+              ? 'Your recipe is saved. Review the details before you cook or share it.'
+              : extraction.isFailed
               ? 'Your recipe URL and options are still here, ready when you are.'
               : 'You can leave this screen — extraction continues in the background'}
           </Text>
@@ -817,13 +831,29 @@ export default function ExtractScreen() {
           {/* Extract Button */}
           <RNView style={styles.section}>
             <Button
-              title={!isSignedIn ? 'Sign In to Extract' : isChecking ? 'Checking...' : 'Extract Recipe'}
+              title={!isSignedIn
+                ? 'Sign In to Extract'
+                : isPreparingImports
+                  ? 'Preparing Imports...'
+                  : isChecking
+                    ? 'Checking...'
+                    : 'Extract Recipe'}
               onPress={handleExtract}
-              disabled={!isSignedIn || isLoading || !url.trim()}
+              disabled={!isSignedIn || isPreparingImports || isLoading || !url.trim()}
               loading={isChecking}
               size="lg"
             />
           </RNView>
+
+          {isSignedIn && (
+            <ImportActivityCard
+              jobs={recentImports.data || []}
+              onOpenRecipe={(job) => {
+                if (job.recipe_id) router.push(`/recipe/${job.recipe_id}`);
+              }}
+              onRestore={extraction.restoreJob}
+            />
+          )}
 
           {/* Divider */}
           <RNView style={styles.dividerContainer}>

@@ -7,6 +7,39 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   alert: vi.fn(),
+  checkDuplicate: vi.fn(),
+  extraction: {
+    canRetryStart: false,
+    canSaveDraft: false,
+    confidenceWarning: null,
+    connectionNotice: null,
+    currentStep: '',
+    elapsedTime: 0,
+    error: null as string | null,
+    isComplete: false,
+    isExtracting: false,
+    isFailed: false,
+    isPreparing: false,
+    isRetrying: false,
+    jobKind: 'extract',
+    lowConfidence: false,
+    maxAttempts: 0,
+    message: '',
+    nextAttemptAt: null,
+    progress: 0,
+    recipeId: null as string | null,
+    requestedIsPublic: false,
+    reset: vi.fn(async () => undefined),
+    restoreJob: vi.fn(),
+    retryPendingStart: vi.fn(),
+    saveSourceDraft: vi.fn(),
+    sourceLocation: null as string | null,
+    sourceNotes: '',
+    sourceUrl: '',
+    startExtraction: vi.fn(),
+    startReExtraction: vi.fn(),
+    terminalStatus: null,
+  },
   extractMultiple: vi.fn(async () => ({
     success: false,
     error_code: 'IMAGE_UNSUPPORTED',
@@ -20,6 +53,7 @@ const mocks = vi.hoisted(() => ({
     ],
   })),
   push: vi.fn(),
+  requestPublishing: vi.fn(),
 }));
 
 vi.mock('react-native', async () => {
@@ -27,6 +61,7 @@ vi.mock('react-native', async () => {
   const host = (name: string) => (props: Record<string, unknown>) =>
     ReactModule.createElement(name, props, props.children as React.ReactNode);
   return {
+    AccessibilityInfo: { announceForAccessibility: vi.fn() },
     ActivityIndicator: host('ActivityIndicator'),
     Alert: { alert: mocks.alert },
     Image: host('Image'),
@@ -96,15 +131,15 @@ vi.mock('../../lib/guestPromptLayout', () => ({
   useGuestPromptHeight: () => 0,
 }));
 vi.mock('@/hooks/useRecipes', () => ({
-  useCheckDuplicate: () => ({ mutateAsync: vi.fn() }),
-  useLocations: () => ({ data: { locations: [{ code: 'Guam', name: 'Guam' }] } }),
+  useCheckDuplicate: () => ({ mutateAsync: mocks.checkDuplicate }),
+  useExtractionJobs: () => ({ data: [] }),
+  useLocations: () => ({ data: { locations: [
+    { code: 'Guam', name: 'Guam' },
+    { code: 'Hawaii', name: 'Hawaii' },
+  ] } }),
 }));
 vi.mock('@/contexts/ExtractionContext', () => ({
-  useAsyncExtraction: () => ({
-    currentStep: '', elapsedTime: 0, error: null, isExtracting: false, isFailed: false,
-    message: '', progress: 0, reset: vi.fn(), startExtraction: vi.fn(),
-    startReExtraction: vi.fn(), terminalStatus: null,
-  }),
+  useAsyncExtraction: () => mocks.extraction,
 }));
 vi.mock('@/lib/api', () => ({
   api: {
@@ -114,7 +149,10 @@ vi.mock('@/lib/api', () => ({
 }));
 vi.mock('@/lib/shareCapture', () => ({ consumePendingShareCapture: () => null }));
 vi.mock('@/hooks/usePublishingDisclosure', () => ({
-  usePublishingDisclosure: () => ({ requestPublishing: vi.fn(), isCheckingDisclosure: false }),
+  usePublishingDisclosure: () => ({
+    requestPublishing: mocks.requestPublishing,
+    isCheckingDisclosure: false,
+  }),
 }));
 vi.mock('@/lib/imageImportClassification', async () => (
   await import('../lib/imageImportClassification')
@@ -134,9 +172,28 @@ function touchableWithText(renderer: ReactTestRenderer, text: string) {
 describe('classified image recovery', () => {
   beforeEach(() => {
     mocks.alert.mockClear();
+    mocks.checkDuplicate.mockReset();
+    mocks.checkDuplicate.mockResolvedValue({ exists: false });
     mocks.extractMultiple.mockClear();
     mocks.launchLibrary.mockClear();
     mocks.push.mockClear();
+    mocks.requestPublishing.mockReset();
+    mocks.requestPublishing.mockResolvedValue(true);
+    mocks.extraction.isComplete = false;
+    mocks.extraction.isExtracting = false;
+    mocks.extraction.isFailed = false;
+    mocks.extraction.isPreparing = false;
+    mocks.extraction.error = null;
+    mocks.extraction.currentStep = '';
+    mocks.extraction.jobKind = 'extract';
+    mocks.extraction.recipeId = null;
+    mocks.extraction.requestedIsPublic = false;
+    mocks.extraction.sourceLocation = null;
+    mocks.extraction.sourceNotes = '';
+    mocks.extraction.sourceUrl = '';
+    mocks.extraction.reset.mockClear();
+    mocks.extraction.startExtraction.mockReset();
+    mocks.extraction.startExtraction.mockResolvedValue({ isExisting: false });
   });
 
   it('opens a private photo draft while retaining every selected source image', async () => {
@@ -180,5 +237,83 @@ describe('classified image recovery', () => {
       'file:///recipe-front.jpg',
       'file:///recipe-back.jpg',
     ]);
+  });
+
+  it('waits for an explicit review action after a completed link import', async () => {
+    mocks.extraction.isComplete = true;
+    mocks.extraction.currentStep = 'complete';
+    mocks.extraction.progress = 100;
+    mocks.extraction.recipeId = 'completed-recipe';
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<ExtractScreen />);
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+    });
+
+    expect(mocks.push).not.toHaveBeenCalled();
+    const reviewButton = renderer!.root.findAllByType(
+      'Button' as unknown as React.ComponentType,
+    ).find(node => node.props.children === 'Review Recipe')!;
+    await act(async () => reviewButton.props.onPress());
+
+    expect(mocks.extraction.reset).toHaveBeenCalledOnce();
+    expect(mocks.push).toHaveBeenCalledWith('/recipe/completed-recipe');
+  });
+
+  it('keeps new imports disabled until durable recovery finishes', async () => {
+    mocks.extraction.isPreparing = true;
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<ExtractScreen />);
+    });
+
+    const preparingButton = renderer!.root.findAllByType(
+      'Button' as unknown as React.ComponentType,
+    ).find(node => node.props.children === 'Preparing Imports...')!;
+    expect(preparingButton.props.disabled).toBe(true);
+  });
+
+  it('restores the original link options when restarting a failed import', async () => {
+    mocks.extraction.isFailed = true;
+    mocks.extraction.error = 'Could not read the page';
+    mocks.extraction.sourceUrl = 'https://example.com/recipe';
+    mocks.extraction.sourceLocation = 'Hawaii';
+    mocks.extraction.sourceNotes = 'Use the caption measurements';
+    mocks.extraction.requestedIsPublic = true;
+    mocks.extraction.reset.mockImplementationOnce(async () => {
+      mocks.extraction.isFailed = false;
+      mocks.extraction.error = null;
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<ExtractScreen />);
+    });
+    const startAgain = renderer!.root.findAllByType(
+      'Button' as unknown as React.ComponentType,
+    ).find(node => node.props.children === 'Start Again')!;
+    await act(async () => startAgain.props.onPress());
+
+    const linkInput = renderer!.root.findByProps({
+      placeholder: 'TikTok, Instagram, YouTube, or recipe website link',
+    });
+    expect(linkInput.props.value).toBe('https://example.com/recipe');
+    expect(renderer!.root.findByProps({ label: 'Hawaii' }).props.selected).toBe(true);
+    expect(renderer!.root.findByProps({
+      accessibilityLabel: 'Share recipe to the public library',
+    }).props.accessibilityState.checked).toBe(true);
+
+    const extractButton = renderer!.root.findAllByType(
+      'Button' as unknown as React.ComponentType,
+    ).find(node => node.props.children === 'Extract Recipe')!;
+    await act(async () => extractButton.props.onPress());
+    expect(mocks.extraction.startExtraction).toHaveBeenCalledWith({
+      url: 'https://example.com/recipe',
+      location: 'Hawaii',
+      notes: 'Use the caption measurements',
+      is_public: true,
+    });
   });
 });

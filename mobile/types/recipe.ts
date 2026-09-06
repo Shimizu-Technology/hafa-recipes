@@ -177,6 +177,10 @@ export interface ExtractResponse {
 export interface JobStatus {
   id: string;
   url: string;
+  job_kind?: 'extract' | 'reextract';
+  location?: string;
+  notes?: string;
+  requested_is_public?: boolean;
   status: 'queued' | 'claimed' | 'processing' | 'completed' | 'failed' | 'cancelled' | 'expired';
   progress: number;
   current_step: string;
@@ -192,6 +196,9 @@ export interface JobStatus {
   can_save_draft?: boolean;
   review_state?: RecipeReviewState | null;
   review_summary?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  completed_at?: string | null;
 }
 
 export interface Location {

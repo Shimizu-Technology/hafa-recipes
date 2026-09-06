@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal, Optional
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -439,6 +439,10 @@ class JobStatusResponse(BaseModel):
     """Status of an extraction job."""
     id: UUID
     url: str
+    job_kind: Literal["extract", "reextract"] = "extract"
+    location: str
+    notes: str
+    requested_is_public: bool = False
     status: Literal["queued", "claimed", "processing", "completed", "failed", "cancelled", "expired"]
     progress: int
     current_step: str
@@ -454,6 +458,9 @@ class JobStatusResponse(BaseModel):
     can_save_draft: bool = False
     review_state: Optional[Literal["source_incomplete", "needs_review", "ready"]] = None
     review_summary: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    completed_at: Optional[datetime] = None
 
 
 @router.post("/extract", response_model=ExtractResponse)
@@ -1179,24 +1186,12 @@ async def run_extraction_job(
             )
 
 
-@router.get("/jobs/{job_id}", response_model=JobStatusResponse)
-async def get_job_status(
-    job_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user),
-):
-    """Get the status of an extraction job."""
-    result = await db.execute(
-        select(ExtractionJob).where(ExtractionJob.id == job_id)
-    )
-    job = result.scalar_one_or_none()
+def _job_status_response(
+    job: ExtractionJob,
+    linked_recipe: Recipe | None = None,
+) -> JobStatusResponse:
+    """Build the shared owner-only job contract used by status and inbox views."""
 
-    if not await _user_can_access_job(db, job, user):
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    linked_recipe = None
-    if job.recipe_id:
-        linked_recipe = await db.scalar(select(Recipe).where(Recipe.id == job.recipe_id))
     review_fields = (
         review_response_fields(linked_recipe, include_evidence=False)
         if linked_recipe
@@ -1205,6 +1200,10 @@ async def get_job_status(
     return JobStatusResponse(
         id=job.id,
         url=job.url,
+        job_kind=job.job_kind,
+        location=job.location,
+        notes=job.notes,
+        requested_is_public=job.requested_is_public,
         status=job.status,
         progress=job.progress,
         current_step=job.current_step,
@@ -1224,7 +1223,63 @@ async def get_job_status(
         ),
         review_state=review_fields.get("review_state"),
         review_summary=review_fields.get("review_summary"),
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        completed_at=job.completed_at,
     )
+
+
+@router.get("/jobs", response_model=list[JobStatusResponse])
+async def list_extraction_jobs(
+    limit: Annotated[int, Query(ge=1, le=20)] = 8,
+    active_only: bool = False,
+    include_cancelled: bool = True,
+    job_kind: Optional[Literal["extract", "reextract"]] = None,
+    db: AsyncSession = Depends(get_db),
+    user: ClerkUser = Depends(get_current_user),
+):
+    """List the signed-in user's newest jobs for recovery and recent activity."""
+
+    filters = [ExtractionJob.user_id == user.id]
+    if active_only:
+        filters.append(ExtractionJob.status.in_(ACTIVE_JOB_STATUSES))
+    elif not include_cancelled:
+        filters.append(ExtractionJob.status != "cancelled")
+    if job_kind:
+        filters.append(ExtractionJob.job_kind == job_kind)
+
+    result = await db.execute(
+        select(ExtractionJob, Recipe)
+        .outerjoin(Recipe, Recipe.id == ExtractionJob.recipe_id)
+        .where(*filters)
+        .order_by(ExtractionJob.created_at.desc(), ExtractionJob.id.desc())
+        .limit(limit)
+    )
+    return [
+        _job_status_response(job, linked_recipe)
+        for job, linked_recipe in result.all()
+    ]
+
+
+@router.get("/jobs/{job_id}", response_model=JobStatusResponse)
+async def get_job_status(
+    job_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: ClerkUser = Depends(get_current_user),
+):
+    """Get the status of an extraction job."""
+    result = await db.execute(
+        select(ExtractionJob).where(ExtractionJob.id == job_id)
+    )
+    job = result.scalar_one_or_none()
+
+    if not await _user_can_access_job(db, job, user):
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    linked_recipe = None
+    if job.recipe_id:
+        linked_recipe = await db.scalar(select(Recipe).where(Recipe.id == job.recipe_id))
+    return _job_status_response(job, linked_recipe)
 
 
 @router.post("/jobs/{job_id}/save-draft")
