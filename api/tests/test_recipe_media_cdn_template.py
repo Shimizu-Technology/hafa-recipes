@@ -8,6 +8,8 @@ TEMPLATE_PATH = REPOSITORY_ROOT / "infra/cloudformation/recipe-media-cdn.yaml"
 
 
 class CloudFormationLoader(yaml.SafeLoader):
+    """Preserve CloudFormation short-form intrinsic functions while loading YAML."""
+
     pass
 
 
@@ -16,6 +18,8 @@ def _construct_cloudformation_tag(
     tag_suffix: str,
     node: yaml.Node,
 ) -> dict[str, Any]:
+    """Convert a short-form intrinsic tag into its long-form mapping."""
+
     if isinstance(node, yaml.ScalarNode):
         value: Any = loader.construct_scalar(node)
     elif isinstance(node, yaml.SequenceNode):
@@ -29,10 +33,14 @@ CloudFormationLoader.add_multi_constructor("!", _construct_cloudformation_tag)
 
 
 def _template() -> dict[str, Any]:
+    """Load the recipe media CDN template for contract assertions."""
+
     return yaml.load(TEMPLATE_PATH.read_text(), Loader=CloudFormationLoader)
 
 
 def test_cdn_can_read_only_thumbnail_objects() -> None:
+    """Keep every CDN and compatibility read scoped to recipe thumbnails."""
+
     template = _template()
     resources = template["Resources"]
     bucket_policy = resources["ThumbnailBucketPolicy"]
@@ -58,6 +66,8 @@ def test_cdn_can_read_only_thumbnail_objects() -> None:
 
 
 def test_distribution_uses_signed_origin_and_managed_immutable_cache_policy() -> None:
+    """Attach signed origin access and stable managed policies to the distribution."""
+
     resources = _template()["Resources"]
     oac = resources["RecipeMediaOriginAccessControl"]["Properties"][
         "OriginAccessControlConfig"
@@ -66,10 +76,16 @@ def test_distribution_uses_signed_origin_and_managed_immutable_cache_policy() ->
         "DistributionConfig"
     ]
     behavior = distribution["DefaultCacheBehavior"]
+    origin = distribution["Origins"][0]
 
     assert oac["OriginAccessControlOriginType"] == "s3"
     assert oac["SigningBehavior"] == "always"
     assert oac["SigningProtocol"] == "sigv4"
+    assert origin["Id"] == "RecipeThumbnailS3Origin"
+    assert origin["OriginAccessControlId"] == {
+        "GetAtt": "RecipeMediaOriginAccessControl.Id"
+    }
+    assert origin["S3OriginConfig"] == {"OriginAccessIdentity": ""}
     assert behavior["CachePolicyId"] == "658327ea-f89d-4fab-a63d-7e88639e58f6"
     assert behavior["ResponseHeadersPolicyId"] == (
         "5cc3b908-e619-4b99-88e5-2cf7f45965bd"
@@ -82,6 +98,8 @@ def test_distribution_uses_signed_origin_and_managed_immutable_cache_policy() ->
 
 
 def test_waf_blocks_non_thumbnail_paths_and_rate_limits_thumbnail_requests() -> None:
+    """Block non-thumbnail viewer paths and bound abuse of the public path."""
+
     web_acl = _template()["Resources"]["RecipeMediaWebAcl"]["Properties"]
     rules = {rule["Name"]: rule for rule in web_acl["Rules"]}
 
@@ -103,6 +121,8 @@ def test_waf_blocks_non_thumbnail_paths_and_rate_limits_thumbnail_requests() -> 
 
 
 def test_distribution_is_covered_by_the_free_flat_rate_plan() -> None:
+    """Associate the distribution and WAF with one zero-cost pricing plan."""
+
     subscription = _template()["Resources"]["RecipeMediaFreePricingPlan"]
     properties = subscription["Properties"]
 

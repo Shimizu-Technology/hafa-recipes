@@ -24,8 +24,11 @@ uploads. The CDN must never be granted access to the whole bucket.
 - A per-IP rate rule blocks more than 10,000 thumbnail requests in five minutes.
 - The Free plan uses AWS-managed cache and response-header policies. It does not
   depend on query strings, cookies, or viewer identity.
-- CloudFront standard access logs are intentionally disabled because the Free
-  plan does not include them. WAF metrics and sampled requests remain enabled.
+- CloudFront standard access logs are intentionally disabled because the
+  current operational value does not justify retaining request-level data.
+  The Free plan includes standard-log ingestion into CloudWatch Logs, but log
+  storage and queries can incur separate costs. WAF metrics and sampled
+  requests remain enabled.
 
 Never change the bucket resource in the policy from
 `arn:aws:s3:::recipe-extractor-thumbnails/thumbnails/*` to a bucket-wide ARN.
@@ -72,24 +75,47 @@ aws cloudformation describe-stacks \
 
 ## Verify before changing production traffic
 
-Choose an existing public thumbnail key. Verify the CDN returns the same ETag,
-content type, and bytes as S3. Make the CDN request twice and require the second
-response to contain `X-Cache: Hit from cloudfront` and a positive `Age` header.
+Choose an existing public thumbnail key and one known private chat-image key.
+Download the public object from both S3 and CloudFront, then verify that their
+hashes match. Make the CDN request twice and require the second response to
+contain `X-Cache: Hit from cloudfront` and a positive `Age` header. Download the
+private object only through authenticated S3 access, require CloudFront to
+return `403`, and prove the response body is not the private object.
 
 ```bash
-curl --fail --silent --show-error --head \
-  "https://DISTRIBUTION_DOMAIN/thumbnails/EXISTING_KEY"
-curl --fail --silent --show-error --head \
-  "https://DISTRIBUTION_DOMAIN/thumbnails/EXISTING_KEY"
-```
+VERIFY_DIR="$(mktemp -d)"
+trap 'rm -rf "$VERIFY_DIR"' EXIT
 
-Prove the privacy boundary with a known chat-image path. Both the WAF and the S3
-policy prevent access; the CDN request must return `403` and must never return
-the object's bytes.
+aws s3api get-object \
+  --bucket recipe-extractor-thumbnails \
+  --key "thumbnails/EXISTING_KEY" \
+  "$VERIFY_DIR/s3-thumbnail" >/dev/null
+curl --fail --silent --show-error \
+  --dump-header "$VERIFY_DIR/cdn-first.headers" \
+  --output "$VERIFY_DIR/cdn-first" \
+  "https://DISTRIBUTION_DOMAIN/thumbnails/EXISTING_KEY"
+curl --fail --silent --show-error \
+  --dump-header "$VERIFY_DIR/cdn-second.headers" \
+  --output "$VERIFY_DIR/cdn-second" \
+  "https://DISTRIBUTION_DOMAIN/thumbnails/EXISTING_KEY"
 
-```bash
-curl --silent --output /dev/null --write-out '%{http_code}\n' \
-  "https://DISTRIBUTION_DOMAIN/chat-images/KNOWN_EXISTING_KEY"
+shasum -a 256 \
+  "$VERIFY_DIR/s3-thumbnail" \
+  "$VERIFY_DIR/cdn-first" \
+  "$VERIFY_DIR/cdn-second"
+grep -i '^x-cache: Hit from cloudfront' "$VERIFY_DIR/cdn-second.headers"
+grep -Ei '^age: [1-9][0-9]*' "$VERIFY_DIR/cdn-second.headers"
+
+aws s3api get-object \
+  --bucket recipe-extractor-thumbnails \
+  --key "chat-images/KNOWN_EXISTING_KEY" \
+  "$VERIFY_DIR/private-object" >/dev/null
+test "$(curl --silent --show-error \
+  --output "$VERIFY_DIR/blocked-response" \
+  --write-out '%{http_code}' \
+  "https://DISTRIBUTION_DOMAIN/chat-images/KNOWN_EXISTING_KEY")" = '403'
+test "$(shasum -a 256 "$VERIFY_DIR/private-object" | awk '{print $1}')" != \
+  "$(shasum -a 256 "$VERIFY_DIR/blocked-response" | awk '{print $1}')"
 ```
 
 Also require:
@@ -174,8 +200,10 @@ Reversing the order creates broken images.
 ## Destructive cleanup
 
 Do not delete the stack during an incident. First switch Render back to direct
-S3 delivery and verify images. A Free pricing-plan subscription is canceled
-immediately when deleted, but CloudFront distributions must be disabled before
-they can be deleted. The bucket policy has a `Retain` deletion policy so stack
-deletion cannot silently remove the bucket's access policy; reconcile it
-manually after every destructive stack operation.
+S3 delivery and verify images. Deleting an active pricing-plan subscription
+schedules cancellation for the end of the current billing period; keep its
+associated resources intact until cancellation completes. CloudFront
+distributions must also be disabled before they can be deleted. The bucket
+policy has a `Retain` deletion policy so stack deletion cannot silently remove
+the bucket's access policy; reconcile it manually after every destructive stack
+operation.
