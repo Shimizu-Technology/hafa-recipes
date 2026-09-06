@@ -36,4 +36,14 @@ describe('mobile runtime audit policy', () => {
       lockfile: changedLockfile,
     })).toBe(false);
   });
+
+  it('rejects a changed intermediate package even when its edges are unchanged', () => {
+    const changedLockfile = structuredClone(lockfile);
+    changedLockfile.packages['node_modules/jayson'].version = '4.3.1';
+
+    expect(isAcceptedAdvisory({
+      ...streamJsonAdvisory,
+      lockfile: changedLockfile,
+    })).toBe(false);
+  });
 });

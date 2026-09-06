@@ -23,11 +23,43 @@ const reviewedStreamJsonChain = [
   ['node_modules/jayson', 'dependencies', 'stream-json'],
 ];
 
+const reviewedStreamJsonPackages = {
+  'node_modules/@clerk/expo': {
+    version: '4.5.2',
+    integrity: 'sha512-sdvcXJ9dPIaZaGTM8clxyQCwpEYuL4mSBnMoXLoOKzHPKSxeW6Y4FQqQbiT/Rr954cUKAjeFYD4oPSboP9yWog==',
+  },
+  'node_modules/@clerk/clerk-js': {
+    version: '6.29.3',
+    integrity: 'sha512-CfamNIf04jhwAMr4+tMI/ZOXj04Tep725cTrnz/Ve6PtjAFzS2XkYlOPjiBA9yfk8gYMbuI4zZeAklbs84UC8g==',
+  },
+  'node_modules/@solana/wallet-adapter-base': {
+    version: '0.9.27',
+    integrity: 'sha512-kXjeNfNFVs/NE9GPmysBRKQ/nf+foSaq3kfVSeMcO/iVgigyRmB551OjU3WyAolLG/1jeEfKLqF9fKwMCRkUqg==',
+  },
+  'node_modules/@solana/web3.js': {
+    version: '1.98.4',
+    integrity: 'sha512-vv9lfnvjUsRiq//+j5pBdXig0IQdtzA0BRZ3bXEP4KaIyF1CcaydWqgyzQgfZMNIsWNWmG+AUHwPy4AHOD6gpw==',
+  },
+  'node_modules/jayson': {
+    version: '4.3.0',
+    integrity: 'sha512-AauzHcUcqs8OBnCHOkJY280VaTiCm57AbuO7lqzcw7JapGj50BisE3xhksye4zlTSR1+1tAz67wLTl8tEH1obQ==',
+  },
+  'node_modules/stream-json': {
+    version: '1.9.1',
+    integrity: 'sha512-uWkjJ+2Nt/LO9Z/JyKZbMusL8Dkh97uUBTv3AJQ74y07lVahLY4eEFsPsE97pxYBwr8nnjMAIch5eqI0gPShyw==',
+  },
+};
+
 function hasReviewedStreamJsonPath(lockfile) {
   const packages = lockfile?.packages;
-  if (!packages || packages['node_modules/stream-json']?.version !== '1.9.1') {
-    return false;
-  }
+  if (!packages) return false;
+
+  const metadataMatches = Object.entries(reviewedStreamJsonPackages).every(
+    ([packagePath, expected]) =>
+      packages[packagePath]?.version === expected.version
+      && packages[packagePath]?.integrity === expected.integrity,
+  );
+  if (!metadataMatches) return false;
 
   const chainExists = reviewedStreamJsonChain.every(
     ([packagePath, dependencyKind, dependencyName]) =>
