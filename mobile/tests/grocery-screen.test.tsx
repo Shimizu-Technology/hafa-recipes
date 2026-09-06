@@ -448,7 +448,7 @@ describe('GroceryScreen shopping views', () => {
       });
 
       const copy = renderedText(renderer);
-      expect(copy).not.toContain('NULL');
+      expect(copy.toLowerCase()).not.toContain('null');
       expect(copy).toContain('tbsp ');
 
       const overflow = renderer.container.queryAll(
@@ -465,7 +465,7 @@ describe('GroceryScreen shopping views', () => {
       const message = mocks.share.mock.calls.at(-1)?.[0]?.message as string;
       expect(message).toContain('[ ] 1 Salt');
       expect(message).toContain('[ ] 1 tbsp Oil');
-      expect(message).not.toContain('NULL');
+      expect(message.toLowerCase()).not.toContain('null');
     } finally {
       await act(async () => renderer.unmount());
     }
