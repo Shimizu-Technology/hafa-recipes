@@ -90,7 +90,9 @@ export default function AddIngredientsModal({
       .map((ing) => ({
         ...ing,
         // Scale quantity for grocery list
-        quantity: scaleQuantity(ing.quantity ?? null, scaleFactor),
+        quantity: hasStatedIngredientAmount(ing.quantity)
+          ? scaleQuantity(ing.quantity!, scaleFactor)
+          : null,
         // Scale cost estimate
         estimatedCost: ing.estimatedCost ? ing.estimatedCost * scaleFactor : ing.estimatedCost,
       }));

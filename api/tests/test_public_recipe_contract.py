@@ -94,6 +94,9 @@ def test_detail_response_normalizes_legacy_ingredient_quantities(monkeypatch):
     recipe = _public_recipe()
     ingredients = [
         {"name": "Chicken", "quantity": 2, "unit": "lb"},
+        {"name": "Water", "quantity": 0, "unit": "cups"},
+        {"name": "Oil", "quantity": False, "unit": "tsp"},
+        {"name": "Sugar", "quantity": "   ", "unit": "tsp"},
         {"name": "Salt", "quantity": " null ", "unit": "tsp"},
         {"name": "Pepper", "quantity": {"unexpected": True}, "unit": None},
     ]
@@ -108,11 +111,22 @@ def test_detail_response_normalizes_legacy_ingredient_quantities(monkeypatch):
         ingredient.quantity
         for ingredient in response.extracted.components[0].ingredients
     ]
-    assert component_quantities == ["2", None, None]
+    assert component_quantities == ["2", "0", None, None, None, None]
     assert [ingredient.quantity for ingredient in response.extracted.ingredients] == [
         "2",
+        "0",
         None,
         None,
+        None,
+        None,
+    ]
+    assert [ingredient["quantity"] for ingredient in recipe.extracted["ingredients"]] == [
+        2,
+        0,
+        False,
+        "   ",
+        " null ",
+        {"unexpected": True},
     ]
 
 

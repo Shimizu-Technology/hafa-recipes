@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ============================================================
 # Nested Types (matching TypeScript interfaces)
@@ -24,6 +24,17 @@ class Ingredient(BaseModel):
     name: str
     notes: Optional[str] = None
     estimatedCost: Optional[float] = None
+
+    @field_validator("quantity", mode="before")
+    @classmethod
+    def normalize_legacy_quantity(cls, value: object) -> str | None:
+        """Coerce legacy JSON quantities to the nullable string contract."""
+        if isinstance(value, str):
+            normalized = value.strip()
+            return normalized if normalized and normalized.lower() != "null" else None
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return str(value)
+        return None
 
 
 class RecipeComponent(BaseModel):

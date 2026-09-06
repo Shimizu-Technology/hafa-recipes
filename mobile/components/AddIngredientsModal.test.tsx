@@ -67,4 +67,40 @@ describe('AddIngredientsModal', () => {
       await act(async () => renderer.unmount());
     }
   });
+
+  it('normalizes unstated amounts in the confirmation payload', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    const onConfirm = vi.fn();
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(AddIngredientsModal, {
+          visible: true,
+          onClose: vi.fn(),
+          onConfirm,
+          recipeTitle: 'Red Rice',
+          ingredients: [
+            { name: 'Water', quantity: null, unit: 'cups' },
+            { name: 'Salt', quantity: 'null', unit: 'tsp' },
+            { name: 'Pepper', quantity: '   ', unit: 'tsp' },
+            { name: 'Rice', quantity: '2', unit: 'cups' },
+          ],
+        }));
+      });
+
+      const buttons = renderer.container.queryAll(
+        (instance) => instance.type === 'TouchableOpacity',
+      );
+      await act(async () => buttons[1].props.onPress());
+
+      expect(onConfirm).toHaveBeenCalledWith([
+        { name: 'Water', quantity: null, unit: 'cups' },
+        { name: 'Salt', quantity: null, unit: 'tsp' },
+        { name: 'Pepper', quantity: null, unit: 'tsp' },
+        { name: 'Rice', quantity: '2', unit: 'cups' },
+      ]);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
 });

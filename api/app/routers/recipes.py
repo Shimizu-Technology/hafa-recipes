@@ -65,72 +65,31 @@ MAX_RECIPE_UPLOAD_BYTES = 10 * 1024 * 1024
 settings = get_settings()
 
 
-def _normalize_response_quantity(value: object) -> str | None:
-    """Coerce legacy JSON quantities to the nullable string API contract."""
-    if isinstance(value, str):
-        normalized = value.strip()
-        return normalized if normalized and normalized.lower() != "null" else None
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return str(value)
-    return None
-
-
-def _normalize_response_ingredients(extracted: dict) -> None:
-    """Normalize quantities in canonical and legacy ingredient collections."""
-    ingredient_groups: list[object] = [extracted.get("ingredients")]
-    components = extracted.get("components")
-    if isinstance(components, list):
-        ingredient_groups.extend(
-            component.get("ingredients")
-            for component in components
-            if isinstance(component, dict)
-        )
-
-    for ingredients in ingredient_groups:
-        if not isinstance(ingredients, list):
-            continue
-        for ingredient in ingredients:
-            if isinstance(ingredient, dict):
-                ingredient["quantity"] = _normalize_response_quantity(
-                    ingredient.get("quantity")
-                )
-
-
-def normalize_recipe_data(recipe: Recipe) -> Recipe:
+def normalized_recipe_extracted(recipe: Recipe) -> dict:
     """
     Normalize recipe data to ensure all required fields have valid values.
     This prevents validation errors when returning recipes.
     """
     if not recipe.extracted:
-        return recipe
+        return {}
 
     extracted = deepcopy(recipe.extracted)
-    modified = False
-
-    _normalize_response_ingredients(extracted)
 
     # Ensure nutrition has proper structure
     nutrition = extracted.get("nutrition")
     if not nutrition or not isinstance(nutrition, dict):
         extracted["nutrition"] = {"perServing": {}, "total": {}}
-        modified = True
     elif not nutrition.get("perServing") or not nutrition.get("total"):
         extracted["nutrition"] = {
             "perServing": nutrition.get("perServing") or {},
             "total": nutrition.get("total") or {}
         }
-        modified = True
 
     # Ensure times has proper structure
     if extracted.get("times") is None:
         extracted["times"] = {}
-        modified = True
 
-    extracted = ensure_derived_metadata(extracted)
-    if modified or extracted != recipe.extracted:
-        recipe.extracted = extracted
-
-    return recipe
+    return ensure_derived_metadata(extracted)
 
 
 def generate_change_summary(old_extracted: dict, new_extracted: dict) -> str:
@@ -633,9 +592,14 @@ def recipe_to_detail_response(
     viewer_user_id: str | None,
 ) -> RecipeResponse:
     """Shape a recipe for its viewer without leaking public-only internals."""
-    normalized_recipe = normalize_recipe_data(recipe)
+    response_data = {
+        field_name: getattr(recipe, field_name)
+        for field_name in RecipeResponse.model_fields
+        if hasattr(recipe, field_name)
+    }
+    response_data["extracted"] = normalized_recipe_extracted(recipe)
     is_owner = bool(recipe.user_id and recipe.user_id == viewer_user_id)
-    response = RecipeResponse.model_validate(normalized_recipe)
+    response = RecipeResponse.model_validate(response_data)
 
     return response.model_copy(
         update={
