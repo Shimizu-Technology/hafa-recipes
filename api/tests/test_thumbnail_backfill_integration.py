@@ -156,7 +156,11 @@ async def _reset_schema(database_engine: AsyncEngine) -> None:
         await connection.execute(text("CREATE SCHEMA public"))
 
 
-async def _create_recipe_schema(database_engine: AsyncEngine) -> None:
+async def _create_recipe_schema(
+    database_engine: AsyncEngine,
+    *,
+    install_audit_schema: bool = True,
+) -> None:
     """Create the minimal recipe projection used by the operational command."""
     async with database_engine.begin() as connection:
         await connection.execute(text("""
@@ -168,10 +172,11 @@ async def _create_recipe_schema(database_engine: AsyncEngine) -> None:
                 extracted JSONB NOT NULL DEFAULT '{}'::jsonb
             )
         """))
-        audit_migration = import_module(
-            "migrations.028_add_thumbnail_backfill_audit"
-        )
-        await audit_migration.install_thumbnail_backfill_audit_schema(connection)
+        if install_audit_schema:
+            audit_migration = import_module(
+                "migrations.028_add_thumbnail_backfill_audit"
+            )
+            await audit_migration.install_thumbnail_backfill_audit_schema(connection)
 
 
 async def _insert_recipe(
@@ -218,6 +223,42 @@ def _apply_kwargs(plan: dict, *, backfill_id: str) -> dict:
         "expected_release_id": plan["release_id"],
         "batch_size": plan["batch_size"],
     }
+
+
+@pytest.mark.asyncio
+async def test_apply_stops_before_storage_when_audit_migration_is_missing():
+    assert TEST_DATABASE_URL
+    database_engine = create_async_engine(TEST_DATABASE_URL)
+    source_url = "https://images.example/migration-required.png"
+    storage = FakeThumbnailStorage({source_url: b"migration-required-source"})
+    try:
+        await _reset_schema(database_engine)
+        await _create_recipe_schema(
+            database_engine,
+            install_audit_schema=False,
+        )
+        await _insert_recipe(
+            database_engine,
+            recipe_id="09900000-0000-4000-8000-000000000001",
+            thumbnail_url=source_url,
+        )
+        plan = await run_backfill(database_engine=database_engine, storage=storage)
+
+        with pytest.raises(ThumbnailBackfillBlocked, match="Migration 028"):
+            await run_backfill(
+                database_engine=database_engine,
+                storage=storage,
+                **_apply_kwargs(plan, backfill_id="migration-required-batch"),
+            )
+
+        assert storage.store_calls == []
+        async with database_engine.connect() as connection:
+            assert not await connection.scalar(
+                text("SELECT to_regclass('public.thumbnail_backfill_runs') IS NOT NULL")
+            )
+    finally:
+        await _reset_schema(database_engine)
+        await database_engine.dispose()
 
 
 @pytest.mark.asyncio
