@@ -50,19 +50,49 @@ def test_cdn_can_read_only_thumbnail_objects() -> None:
     assert all(resource["Type"] != "AWS::S3::Bucket" for resource in resources.values())
 
     statements = bucket_policy["Properties"]["PolicyDocument"]["Statement"]
+    assert len(statements) == 2
     cloudfront_read = statements[0]
-    assert cloudfront_read["Principal"] == {"Service": "cloudfront.amazonaws.com"}
-    assert cloudfront_read["Action"] == "s3:GetObject"
-    assert cloudfront_read["Resource"]["Sub"].endswith("/thumbnails/*")
-    assert "/chat-images/" not in cloudfront_read["Resource"]["Sub"]
-    assert set(cloudfront_read["Condition"]["StringEquals"]) == {
-        "AWS:SourceArn",
-        "AWS:SourceAccount",
+    assert cloudfront_read == {
+        "Sid": "AllowCloudFrontReadRecipeThumbnails",
+        "Effect": "Allow",
+        "Principal": {"Service": "cloudfront.amazonaws.com"},
+        "Action": "s3:GetObject",
+        "Resource": {
+            "Sub": (
+                "arn:${AWS::Partition}:s3:::${ThumbnailBucketName}/thumbnails/*"
+            )
+        },
+        "Condition": {
+            "StringEquals": {
+                "AWS:SourceArn": {
+                    "Sub": (
+                        "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:"
+                        "distribution/${RecipeMediaDistribution}"
+                    )
+                },
+                "AWS:SourceAccount": {"Ref": "AWS::AccountId"},
+            }
+        },
     }
 
-    guarded_public_read = statements[1]["If"]
-    assert guarded_public_read[0] == "PreserveLegacyPublicRead"
-    assert guarded_public_read[1]["Resource"]["Sub"].endswith("/thumbnails/*")
+    assert statements[1] == {
+        "If": [
+            "PreserveLegacyPublicRead",
+            {
+                "Sid": "PublicReadForThumbnails",
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "s3:GetObject",
+                "Resource": {
+                    "Sub": (
+                        "arn:${AWS::Partition}:s3:::${ThumbnailBucketName}/"
+                        "thumbnails/*"
+                    )
+                },
+            },
+            {"Ref": "AWS::NoValue"},
+        ]
+    }
 
 
 def test_distribution_uses_signed_origin_and_managed_immutable_cache_policy() -> None:
@@ -101,9 +131,18 @@ def test_waf_blocks_non_thumbnail_paths_and_rate_limits_thumbnail_requests() -> 
     """Block non-thumbnail viewer paths and bound abuse of the public path."""
 
     web_acl = _template()["Resources"]["RecipeMediaWebAcl"]["Properties"]
-    rules = {rule["Name"]: rule for rule in web_acl["Rules"]}
+    ordered_rules = web_acl["Rules"]
+    assert [rule["Name"] for rule in ordered_rules] == [
+        "RateLimitThumbnailRequests",
+        "AllowThumbnailPaths",
+    ]
+    rules = {rule["Name"]: rule for rule in ordered_rules}
 
     assert web_acl["DefaultAction"] == {"Block": {}}
+    assert rules["RateLimitThumbnailRequests"]["Priority"] == 0
+    assert rules["RateLimitThumbnailRequests"]["Action"] == {"Block": {}}
+    assert rules["AllowThumbnailPaths"]["Priority"] == 1
+    assert rules["AllowThumbnailPaths"]["Action"] == {"Allow": {}}
     allow_statement = rules["AllowThumbnailPaths"]["Statement"]["ByteMatchStatement"]
     assert allow_statement["FieldToMatch"] == {"UriPath": {}}
     assert allow_statement["PositionalConstraint"] == "STARTS_WITH"
@@ -115,9 +154,12 @@ def test_waf_blocks_non_thumbnail_paths_and_rate_limits_thumbnail_requests() -> 
     assert rate_statement["AggregateKeyType"] == "IP"
     assert rate_statement["EvaluationWindowSec"] == 300
     assert rate_statement["Limit"] == {"Ref": "ThumbnailRateLimit"}
-    assert rate_statement["ScopeDownStatement"]["ByteMatchStatement"][
-        "SearchString"
-    ] == "/thumbnails/"
+    assert rate_statement["ScopeDownStatement"]["ByteMatchStatement"] == {
+        "FieldToMatch": {"UriPath": {}},
+        "PositionalConstraint": "STARTS_WITH",
+        "SearchString": "/thumbnails/",
+        "TextTransformations": [{"Priority": 0, "Type": "NONE"}],
+    }
 
 
 def test_distribution_is_covered_by_the_free_flat_rate_plan() -> None:
@@ -130,4 +172,12 @@ def test_distribution_is_covered_by_the_free_flat_rate_plan() -> None:
     assert properties["PlanFamily"] == "CloudFront"
     assert properties["PlanTier"] == "FREE"
     assert properties["UsageLevel"] == "DEFAULT"
-    assert len(properties["ResourceArns"]) == 2
+    assert properties["ResourceArns"] == [
+        {
+            "Sub": (
+                "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:"
+                "distribution/${RecipeMediaDistribution}"
+            )
+        },
+        {"GetAtt": "RecipeMediaWebAcl.Arn"},
+    ]

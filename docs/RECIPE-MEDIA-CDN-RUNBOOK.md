@@ -87,6 +87,7 @@ VERIFY_DIR="$(mktemp -d)"
 trap 'rm -rf "$VERIFY_DIR"' EXIT
 
 aws s3api get-object \
+  --no-sign-request \
   --bucket recipe-extractor-thumbnails \
   --key "thumbnails/EXISTING_KEY" \
   "$VERIFY_DIR/s3-thumbnail" >/dev/null
@@ -99,10 +100,11 @@ curl --fail --silent --show-error \
   --output "$VERIFY_DIR/cdn-second" \
   "https://DISTRIBUTION_DOMAIN/thumbnails/EXISTING_KEY"
 
-shasum -a 256 \
-  "$VERIFY_DIR/s3-thumbnail" \
-  "$VERIFY_DIR/cdn-first" \
-  "$VERIFY_DIR/cdn-second"
+S3_HASH="$(shasum -a 256 "$VERIFY_DIR/s3-thumbnail" | awk '{print $1}')"
+CDN_FIRST_HASH="$(shasum -a 256 "$VERIFY_DIR/cdn-first" | awk '{print $1}')"
+CDN_SECOND_HASH="$(shasum -a 256 "$VERIFY_DIR/cdn-second" | awk '{print $1}')"
+test "$S3_HASH" = "$CDN_FIRST_HASH"
+test "$S3_HASH" = "$CDN_SECOND_HASH"
 grep -i '^x-cache: Hit from cloudfront' "$VERIFY_DIR/cdn-second.headers"
 grep -Ei '^age: [1-9][0-9]*' "$VERIFY_DIR/cdn-second.headers"
 
