@@ -17,6 +17,7 @@ import { Text, View, useColors } from './Themed';
 import { Ingredient } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { scaleQuantity } from '@/hooks/useScaledServings';
+import { hasStatedIngredientAmount, MISSING_AMOUNT_LABEL } from '../lib/recipeTrust';
 
 interface AddIngredientsModalProps {
   visible: boolean;
@@ -153,6 +154,7 @@ export default function AddIngredientsModal({
         >
           {ingredients.map((ingredient, index) => {
             const isSelected = selected.has(index);
+            const hasAmount = hasStatedIngredientAmount(ingredient.quantity);
             return (
               <TouchableOpacity
                 key={index}
@@ -173,14 +175,19 @@ export default function AddIngredientsModal({
                 />
                 <RNView style={styles.ingredientContent}>
                   <Text style={[styles.ingredientName, { color: colors.text }]}>
-                    {ingredient.quantity && ingredient.quantity !== 'null' && (
+                    {hasAmount && (
                       <Text style={isScaled ? { color: colors.tint, fontWeight: fontWeight.semibold } : {}}>
-                        {scaleQuantity(ingredient.quantity, scaleFactor)}{' '}
+                        {scaleQuantity(ingredient.quantity!, scaleFactor)}{' '}
                       </Text>
                     )}
                     {ingredient.unit && ingredient.unit !== 'null' && `${ingredient.unit} `}
                     {ingredient.name}
                   </Text>
+                  {!hasAmount && (
+                    <Text style={[styles.missingAmount, { color: colors.warning }]}>
+                      {MISSING_AMOUNT_LABEL}
+                    </Text>
+                  )}
                   {ingredient.notes && ingredient.notes !== 'null' && (
                     <Text style={[styles.ingredientNotes, { color: colors.textMuted }]}>
                       {ingredient.notes}
@@ -273,8 +280,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontStyle: 'italic',
   },
+  missingAmount: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+    marginTop: 2,
+  },
   ingredientCost: {
     fontSize: fontSize.sm,
   },
 });
-

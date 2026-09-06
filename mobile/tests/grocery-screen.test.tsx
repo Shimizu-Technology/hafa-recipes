@@ -103,6 +103,7 @@ vi.mock('@/components/Themed', () => ({
     textMuted: '#666',
     textSecondary: '#444',
     tint: '#a43',
+    warning: '#b70',
   }),
 }));
 vi.mock('@/components/SignInBanner', () => ({ SignInBanner: host('SignInBanner') }));
@@ -380,6 +381,44 @@ describe('GroceryScreen shopping views', () => {
       ).find((button) => button.props.accessibilityLabel === '1 items to buy');
       await act(async () => toBuyTab!.props.onPress());
       expect(renderer.container.queryAll((instance) => instance.type === 'ScalePressable')).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('labels a grocery item when its recipe did not state an amount', async () => {
+    mocks.collapsedSections = '[]';
+    mocks.groceryState.items = [item({ id: 'lime', name: 'Lime', quantity: null })];
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(GroceryScreen));
+      });
+
+      expect(renderedText(renderer)).toContain('Amount not stated');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('does not turn a quick manual grocery entry into a recipe warning', async () => {
+    mocks.collapsedSections = '[]';
+    mocks.groceryState.items = [item({
+      id: 'milk',
+      name: 'Milk',
+      quantity: null,
+      recipe_id: null,
+      recipe_title: null,
+    })];
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(GroceryScreen));
+      });
+
+      expect(renderedText(renderer)).not.toContain('Amount not stated');
     } finally {
       await act(async () => renderer.unmount());
     }

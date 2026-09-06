@@ -55,6 +55,7 @@ import {
 } from '@/lib/grocerySections';
 import { appRoutes } from '@/lib/routes';
 import { filterGroceryItems } from '@/lib/groceryFilters';
+import { hasStatedIngredientAmount, MISSING_AMOUNT_LABEL } from '../../lib/recipeTrust';
 
 const COLLAPSED_SECTIONS_KEY = 'grocery_collapsed_sections';
 
@@ -77,6 +78,9 @@ function GroceryItemRow({
   isSharedList?: boolean;
   scaleFontSize: (size: number) => number;
 }) {
+  const hasAmount = hasStatedIngredientAmount(item.quantity);
+  const showMissingAmount = Boolean(item.recipe_id) && !hasAmount;
+
   return (
     <ScalePressable 
       style={[
@@ -113,7 +117,7 @@ function GroceryItemRow({
             numberOfLines={2}
             ellipsizeMode="tail"
           >
-            {item.quantity && item.quantity !== 'null' && `${item.quantity} `}
+            {hasAmount && `${item.quantity} `}
             {item.unit && item.unit !== 'null' && `${item.unit} `}
             {item.name}
           </Text>
@@ -126,6 +130,11 @@ function GroceryItemRow({
             </Text>
           )}
         </RNView>
+        {showMissingAmount && (
+          <Text style={[styles.missingAmount, { color: colors.warning }]}>
+            {MISSING_AMOUNT_LABEL}
+          </Text>
+        )}
         {showRecipeLabel && item.recipe_title && (
           <Text style={[styles.recipeLabel, { color: colors.textMuted }]} numberOfLines={1}>
             from {item.recipe_title}
@@ -469,11 +478,13 @@ export default function GroceryScreen() {
     // Format items with simple list style
     const formatItem = (item: GroceryItem) => {
       const marker = item.checked ? '[x]' : '[ ]';
-      const qty = item.quantity && item.quantity !== 'null' ? item.quantity : '';
+      const hasAmount = hasStatedIngredientAmount(item.quantity);
+      const qty = hasAmount ? item.quantity : '';
       const unit = item.unit && item.unit !== 'null' ? item.unit : '';
       const qtyUnit = qty ? `${qty}${unit ? ' ' + unit : ''} ` : '';
       const notes = item.notes && item.notes !== 'null' ? ` (${item.notes})` : '';
-      return `${marker} ${qtyUnit}${item.name}${notes}`;
+      const amountWarning = item.recipe_id && !hasAmount ? ` — ${MISSING_AMOUNT_LABEL}` : '';
+      return `${marker} ${qtyUnit}${item.name}${notes}${amountWarning}`;
     };
 
     sections.forEach((section, index) => {
@@ -1088,6 +1099,11 @@ const styles = StyleSheet.create({
   },
   itemNotes: {
     fontSize: fontSize.xs,
+    marginTop: 2,
+  },
+  missingAmount: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
     marginTop: 2,
   },
   editButton: {

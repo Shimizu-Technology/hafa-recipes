@@ -28,6 +28,7 @@ import { useRecipes, useSavedRecipes, useInfiniteDiscoverRecipes, usePopularTags
 import { RecipeListItem } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { lightHaptic } from '@/utils/haptics';
+import { RecipeTrustBadge } from '@/components/RecipeTrustBadge';
 
 type TabType = 'mine' | 'saved' | 'discover';
 
@@ -225,6 +226,7 @@ export default function RecipePickerModal({
           <Text style={[styles.recipeTitle, { color: colors.text }]} numberOfLines={2}>
             {item.title}
           </Text>
+          <RecipeTrustBadge reviewState={item.review_state} />
           <RNView style={styles.recipeMeta}>
             {item.total_time && (
               <RNView style={styles.metaItem}>

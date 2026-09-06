@@ -21,6 +21,7 @@ vi.mock('@/components/Themed', () => ({
     text: '#111',
     textMuted: '#666',
     tint: '#b44',
+    warning: '#b70',
   }),
 }));
 vi.mock('@/constants/Colors', () => ({
@@ -94,6 +95,35 @@ describe('PlannerRecipeHandoffCard', () => {
       ).find((button) => button.props.accessibilityLabel === 'Stop planning this recipe');
       await act(async () => dismiss!.props.onPress());
       expect(onDismiss).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('keeps draft readiness visible while allowing planning to continue', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(PlannerRecipeHandoffCard, {
+          title: 'Chicken Kelaguen',
+          thumbnailUrl: null,
+          reviewState: 'needs_review',
+          isLoading: false,
+          hasError: false,
+          isRetrying: false,
+          onRetry: vi.fn(),
+          onDismiss: vi.fn(),
+        }));
+      });
+
+      expect(textNodes(renderer).some((text) => text.props.children === 'Needs review')).toBe(true);
+      expect(textNodes(renderer).some(
+        (text) => text.props.children === 'You can plan this now. Review it before cooking.',
+      )).toBe(true);
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Recipe needs review',
+      )).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());
     }

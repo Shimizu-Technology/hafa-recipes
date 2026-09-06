@@ -359,6 +359,7 @@ export interface CollectionRecipe {
   tags: string[];
   total_time: string | null;
   servings: number | null;
+  review_state?: RecipeReviewState | null;
   added_at: string;
 }
 
@@ -377,6 +378,7 @@ export interface MealPlanEntry {
   recipe_thumbnail: string | null;
   notes: string | null;
   servings: string | null;
+  recipe_review_state?: RecipeReviewState | null;
   created_at: string;
 }
 

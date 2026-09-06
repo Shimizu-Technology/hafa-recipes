@@ -19,9 +19,12 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Session
 
+from app.models.meal_plan import MealPlanEntry
 from app.routers.meal_plans import (
+    _has_stated_quantity,
     _recipe_plan_entries_statement,
     get_recipe_plan_entries,
+    meal_plan_entry_response,
 )
 
 
@@ -126,9 +129,10 @@ def test_relationship_query_executes_ownership_date_policy_order_and_limit():
             insert(recipes),
             [{
                 "id": recipe_id,
-                "user_id": owner_id,
-                "is_public": True,
+                "user_id": viewer_id,
+                "is_public": False,
                 "moderation_status": "active",
+                "review_state": "needs_review",
             }],
         )
         connection.execute(insert(meal_plan_entries), eligible_rows)
@@ -155,16 +159,46 @@ def test_relationship_query_executes_ownership_date_policy_order_and_limit():
         )
 
     with Session(engine) as session:
-        result = session.execute(
+        rows = session.execute(
             _recipe_plan_entries_statement(recipe_id, viewer_id, first_date, 12)
-        ).scalars().all()
+        ).all()
 
     expected_rows = sorted(
         eligible_rows,
         key=lambda row: (row["date"], row["meal_type"], row["created_at"]),
     )[:12]
-    assert [entry.id for entry in result] == [row["id"] for row in expected_rows]
-    assert len(result) == 12
+    assert [entry.id for entry, _review_state in rows] == [
+        row["id"] for row in expected_rows
+    ]
+    assert {review_state for _entry, review_state in rows} == {"needs_review"}
+    assert len(rows) == 12
+
+
+def test_meal_plan_response_exposes_current_recipe_readiness():
+    entry = MealPlanEntry(
+        id=uuid4(),
+        user_id="stable-app-user",
+        date=date(2026, 8, 27),
+        meal_type="dinner",
+        recipe_id=uuid4(),
+        recipe_title="Chicken kelaguen",
+        created_at=datetime(2026, 8, 26, 8),
+    )
+
+    response = meal_plan_entry_response(entry, "source_incomplete")
+
+    assert response.recipe_review_state == "source_incomplete"
+    assert response.recipe_title == "Chicken kelaguen"
+
+
+@pytest.mark.parametrize("quantity", [None, "", "   ", "null", " NULL ", True])
+def test_missing_quantities_stay_explicit_in_planner_grocery_handoff(quantity):
+    assert _has_stated_quantity(quantity) is False
+
+
+@pytest.mark.parametrize("quantity", ["1 1/2", 2, 2.5])
+def test_real_quantities_are_preserved_in_planner_grocery_handoff(quantity):
+    assert _has_stated_quantity(quantity) is True
 
 
 def test_relationship_query_excludes_private_and_moderated_recipes():

@@ -1,6 +1,9 @@
 import type { MealPlanEntryCreate, MealType, RecipeListItem } from '@/types/recipe';
 
-export type MealPlanRecipe = Pick<RecipeListItem, 'id' | 'title' | 'thumbnail_url'>;
+export type MealPlanRecipe = Pick<
+  RecipeListItem,
+  'id' | 'title' | 'thumbnail_url' | 'review_state'
+>;
 
 /** Parse an exact planner date without allowing JavaScript date rollover. */
 export function parsePlannerDateParam(value: string | undefined): Date | null {

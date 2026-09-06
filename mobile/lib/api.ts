@@ -1467,7 +1467,11 @@ class ApiClient {
     return data;
   }
 
-  async addMealPlanToGrocery(startDate: string, endDate: string): Promise<{ message: string; items_added: number }> {
+  async addMealPlanToGrocery(startDate: string, endDate: string): Promise<{
+    message: string;
+    items_added: number;
+    items_missing_amount: number;
+  }> {
     const { data } = await this.client.post('/api/meal-plans/to-grocery', {
       start_date: startDate,
       end_date: endDate,

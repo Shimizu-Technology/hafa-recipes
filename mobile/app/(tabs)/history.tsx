@@ -42,6 +42,7 @@ import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/co
 import Colors from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
+import { RecipeTrustBadge } from '@/components/RecipeTrustBadge';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_PADDING = spacing.lg; // 24px on each side
@@ -107,6 +108,11 @@ function RecipeCard({
         <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
           {recipe.title}
         </Text>
+        {recipe.review_state && recipe.review_state !== 'ready' && (
+          <RNView style={styles.cardTrustBadge}>
+            <RecipeTrustBadge reviewState={recipe.review_state} />
+          </RNView>
+        )}
 
         {/* Meta info */}
         <RNView style={styles.metaRow}>
@@ -194,6 +200,11 @@ function GridRecipeCard({
         {isSavedRecipe && (
           <RNView style={[styles.gridSavedBadge, { backgroundColor: colors.error }]}>
             <Ionicons name="heart" size={12} color="#FFFFFF" />
+          </RNView>
+        )}
+        {recipe.review_state && recipe.review_state !== 'ready' && (
+          <RNView style={styles.gridTrustBadge}>
+            <RecipeTrustBadge reviewState={recipe.review_state} inverted />
           </RNView>
         )}
         {/* Cook time badge */}
@@ -1296,6 +1307,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     padding: 5,
   },
+  gridTrustBadge: {
+    position: 'absolute',
+    top: spacing.xs,
+    right: spacing.xs,
+  },
   gridTimeBadge: {
     position: 'absolute',
     bottom: spacing.xs,
@@ -1355,6 +1371,9 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontFamily: fontFamily.semibold,
     lineHeight: 20,
+  },
+  cardTrustBadge: {
+    marginTop: spacing.xs,
   },
   metaRow: {
     flexDirection: 'row',

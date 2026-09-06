@@ -32,6 +32,7 @@ import { lightHaptic, mediumHaptic, successHaptic, heavyHaptic } from '@/utils/h
 import { brand, spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { RecipeComponent, Ingredient } from '@/types/recipe';
 import { scaleQuantity } from '@/hooks/useScaledServings';
+import { hasStatedIngredientAmount, MISSING_AMOUNT_LABEL } from '../../lib/recipeTrust';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.2;
@@ -1017,10 +1018,20 @@ export default function CookModeScreen() {
             <ScrollView style={styles.ingredientsList} showsVerticalScrollIndicator={false}>
               {allIngredients.map((ing: Ingredient, index: number) => {
                 const scaledQty = scaleQuantity(ing.quantity ?? null, scaleFactor);
+                const hasAmount = hasStatedIngredientAmount(ing.quantity);
                 return (
                   <RNView key={index} style={styles.ingredientRow}>
-                    <Text style={[styles.ingredientQuantity, isScaled && styles.ingredientQuantityScaled, { fontSize: scaleFontSize(fontSize.md) }]}>
-                      {scaledQty ? `${scaledQty}${ing.unit ? ` ${ing.unit}` : ''}` : '•'}
+                    <Text
+                      style={[
+                        styles.ingredientQuantity,
+                        isScaled && styles.ingredientQuantityScaled,
+                        !hasAmount && { color: colors.warning },
+                        { fontSize: scaleFontSize(hasAmount ? fontSize.md : fontSize.sm) },
+                      ]}
+                    >
+                      {hasAmount
+                        ? `${scaledQty}${ing.unit ? ` ${ing.unit}` : ''}`
+                        : MISSING_AMOUNT_LABEL}
                     </Text>
                     <Text style={[styles.ingredientName, { fontSize: scaleFontSize(fontSize.md) }]}>{ing.name}</Text>
                   </RNView>
@@ -1606,7 +1617,7 @@ const styles = StyleSheet.create({
     color: brand.reefHighlight,
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
-    width: 100,
+    width: 124,
   },
   ingredientQuantityScaled: {
     color: brand.reefHighlight,
