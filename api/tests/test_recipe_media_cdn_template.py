@@ -65,6 +65,7 @@ def test_distribution_uses_signed_origin_and_managed_immutable_cache_policy() ->
     assert origin["Id"] == "RecipeThumbnailS3Origin"
     assert origin["OriginAccessControlId"] == {"GetAtt": "RecipeMediaOriginAccessControl.Id"}
     assert origin["S3OriginConfig"] == {"OriginAccessIdentity": ""}
+    assert behavior["TargetOriginId"] == "RecipeThumbnailS3Origin"
     assert behavior["CachePolicyId"] == "658327ea-f89d-4fab-a63d-7e88639e58f6"
     assert behavior["ResponseHeadersPolicyId"] == ("5cc3b908-e619-4b99-88e5-2cf7f45965bd")
     assert behavior["ViewerProtocolPolicy"] == "redirect-to-https"
@@ -72,6 +73,22 @@ def test_distribution_uses_signed_origin_and_managed_immutable_cache_policy() ->
     assert distribution["HttpVersion"] == "http2and3"
     assert distribution["IPV6Enabled"] is True
     assert distribution["WebACLId"] == {"GetAtt": "RecipeMediaWebAcl.Arn"}
+    assert distribution["Aliases"] == [{"Ref": "MediaDomainName"}]
+    assert distribution["ViewerCertificate"] == {
+        "AcmCertificateArn": {"Ref": "AcmCertificateArn"},
+        "MinimumProtocolVersion": "TLSv1.2_2021",
+        "SslSupportMethod": "sni-only",
+    }
+
+
+def test_custom_domain_is_required_and_dotted_bucket_names_are_rejected() -> None:
+    """Require modern viewer TLS and an HTTPS-compatible S3 origin hostname."""
+
+    parameters = _template()["Parameters"]
+
+    assert "Default" not in parameters["MediaDomainName"]
+    assert "Default" not in parameters["AcmCertificateArn"]
+    assert "." not in parameters["ThumbnailBucketName"]["AllowedPattern"]
 
 
 def test_waf_blocks_non_thumbnail_paths_and_rate_limits_thumbnail_requests() -> None:

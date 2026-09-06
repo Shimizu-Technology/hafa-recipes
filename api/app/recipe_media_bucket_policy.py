@@ -229,6 +229,13 @@ def _desired_policy(
             distribution_id=distribution_id,
         )
 
+    if action == "detach-cloudfront":
+        return remove_owned_statement(
+            current,
+            sid=CLOUDFRONT_STATEMENT_SID,
+            expected=expected_cloudfront,
+        )
+
     current_with_cloudfront = merge_cloudfront_access(
         current,
         bucket=bucket,
@@ -242,12 +249,6 @@ def _desired_policy(
             current,
             sid=PUBLIC_STATEMENT_SID,
             expected=public_statement(bucket=bucket),
-        )
-    if action == "detach-cloudfront":
-        return remove_owned_statement(
-            current,
-            sid=CLOUDFRONT_STATEMENT_SID,
-            expected=expected_cloudfront,
         )
     raise ValueError(f"Unsupported action: {action}")
 

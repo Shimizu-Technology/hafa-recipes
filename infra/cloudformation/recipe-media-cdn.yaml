@@ -7,7 +7,7 @@ Parameters:
   ThumbnailBucketName:
     Type: String
     Description: Existing S3 bucket that stores recipe thumbnails.
-    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+    AllowedPattern: '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$'
   ThumbnailBucketRegion:
     Type: String
     Default: ap-southeast-2
@@ -15,47 +15,18 @@ Parameters:
     AllowedPattern: '^[a-z]{2}(?:-gov)?-[a-z]+-\d$'
   MediaDomainName:
     Type: String
-    Default: ''
-    Description: Optional custom hostname, for example media.hafa-recipes.com.
+    Description: Required custom hostname, for example media.hafa-recipes.com.
+    AllowedPattern: '^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$'
   AcmCertificateArn:
     Type: String
-    Default: ''
     Description: >-
-      Optional us-east-1 ACM certificate ARN for MediaDomainName. Supply both
-      custom-domain parameters together or leave both empty.
+      Required us-east-1 ACM certificate ARN for MediaDomainName.
+    AllowedPattern: '^arn:aws:acm:us-east-1:[0-9]{12}:certificate/[0-9a-f-]{36}$'
   ThumbnailRateLimit:
     Type: Number
     Default: 10000
     MinValue: 100
     Description: Maximum requests from one IP during a five-minute window.
-
-Rules:
-  CustomDomainRequiresCertificate:
-    Assertions:
-      - Assert:
-          Fn::Or:
-            - Fn::And:
-                - Fn::Equals:
-                    - Ref: MediaDomainName
-                    - ''
-                - Fn::Equals:
-                    - Ref: AcmCertificateArn
-                    - ''
-            - Fn::And:
-                - Fn::Not:
-                    - Fn::Equals:
-                        - Ref: MediaDomainName
-                        - ''
-                - Fn::Not:
-                    - Fn::Equals:
-                        - Ref: AcmCertificateArn
-                        - ''
-        AssertDescription: >-
-          MediaDomainName and AcmCertificateArn must either both be supplied or
-          both be empty.
-
-Conditions:
-  HasCustomDomain: !Not [!Equals [!Ref MediaDomainName, '']]
 
 Resources:
   RecipeMediaWebAcl:
@@ -132,10 +103,8 @@ Resources:
     Type: AWS::CloudFront::Distribution
     Properties:
       DistributionConfig:
-        Aliases: !If
-          - HasCustomDomain
-          - - !Ref MediaDomainName
-          - !Ref AWS::NoValue
+        Aliases:
+          - !Ref MediaDomainName
         Comment: Hafa Recipes content-addressed recipe thumbnails
         DefaultCacheBehavior:
           AllowedMethods:
@@ -163,12 +132,10 @@ Resources:
         Restrictions:
           GeoRestriction:
             RestrictionType: none
-        ViewerCertificate: !If
-          - HasCustomDomain
-          - AcmCertificateArn: !Ref AcmCertificateArn
-            MinimumProtocolVersion: TLSv1.2_2021
-            SslSupportMethod: sni-only
-          - CloudFrontDefaultCertificate: true
+        ViewerCertificate:
+          AcmCertificateArn: !Ref AcmCertificateArn
+          MinimumProtocolVersion: TLSv1.2_2021
+          SslSupportMethod: sni-only
         WebACLId: !GetAtt RecipeMediaWebAcl.Arn
       Tags:
         - Key: Application
@@ -198,10 +165,7 @@ Outputs:
     Value: !GetAtt RecipeMediaDistribution.DomainName
   MediaBaseUrl:
     Description: Value to assign to Render RECIPE_MEDIA_BASE_URL.
-    Value: !If
-      - HasCustomDomain
-      - !Sub 'https://${MediaDomainName}'
-      - !Sub 'https://${RecipeMediaDistribution.DomainName}'
+    Value: !Sub 'https://${MediaDomainName}'
   PricingPlanArn:
     Description: Free flat-rate pricing subscription ARN.
     Value: !Ref RecipeMediaFreePricingPlan

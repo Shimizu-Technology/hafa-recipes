@@ -8,6 +8,7 @@ import pytest
 from app.recipe_media_bucket_policy import (
     CLOUDFRONT_STATEMENT_SID,
     PUBLIC_STATEMENT_SID,
+    _desired_policy,
     apply_policy_change,
     canonical_policy,
     cloudfront_statement,
@@ -141,6 +142,20 @@ def test_remove_rejects_a_conflicting_owned_statement() -> None:
         )
 
 
+def test_detach_cloudfront_is_idempotent_when_statement_is_absent() -> None:
+    current = {"Version": "2012-10-17", "Statement": [_unrelated_statement()]}
+
+    desired = _desired_policy(
+        "detach-cloudfront",
+        current,
+        bucket=BUCKET,
+        account_id=ACCOUNT_ID,
+        distribution_id=DISTRIBUTION_ID,
+    )
+
+    assert desired == current
+
+
 def test_write_backup_is_private_and_never_overwrites(tmp_path: Path) -> None:
     backup_path = tmp_path / "policy.json"
     policy = empty_policy()
@@ -199,6 +214,7 @@ def test_apply_writes_and_verifies_exact_desired_policy(tmp_path: Path) -> None:
     assert json.loads(backup_path.read_text()) == observed
     assert client.put_calls == [{"Bucket": BUCKET, "Policy": canonical_policy(desired)}]
     assert policy_sha256(json.loads(client.put_calls[0]["Policy"])) == policy_sha256(desired)
+    assert client.policies == []
 
 
 def test_apply_requires_exclusive_writer_window_before_backup_or_write(

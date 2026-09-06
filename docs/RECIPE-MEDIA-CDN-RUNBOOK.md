@@ -54,6 +54,8 @@ aws cloudformation deploy \
   --parameter-overrides \
     ThumbnailBucketName=recipe-extractor-thumbnails \
     ThumbnailBucketRegion=ap-southeast-2 \
+    MediaDomainName=media.hafa-recipes.com \
+    AcmCertificateArn=arn:aws:acm:us-east-1:ACCOUNT:certificate/CERTIFICATE_ID \
   --no-execute-changeset
 ```
 
@@ -210,24 +212,18 @@ Rollback is immediate and does not require a database change: unset
 statement remains in the bucket policy, the API will return the original S3
 delivery URL.
 
-## Add the custom hostname
+## Custom hostname prerequisite
 
-The initial cutover may safely use the generated CloudFront hostname. For
-`media.hafa-recipes.com`, request an ACM public certificate in `us-east-1`, add
-its DNS validation CNAME in the authoritative DNS provider, and wait until the
-certificate status is `ISSUED`. Do not expose validation credentials or move
-the domain's nameservers.
-
-Create another CloudFormation change set with both parameters:
-
-```text
-MediaDomainName=media.hafa-recipes.com
-AcmCertificateArn=arn:aws:acm:us-east-1:ACCOUNT:certificate/CERTIFICATE_ID
-```
+Production deployment requires `media.hafa-recipes.com` and an ACM public
+certificate in `us-east-1`; the template deliberately has no default-certificate
+fallback because CloudFront's generated-hostname certificate cannot enforce the
+configured TLS 1.2 minimum. Before creating the stack, add ACM's DNS validation
+CNAME in the authoritative DNS provider and wait for the certificate to become
+`ISSUED`. Do not expose validation credentials or move the domain's nameservers.
 
 After the distribution is deployed, add the DNS CNAME
 `media.hafa-recipes.com` to the distribution hostname. Verify TLS and CDN cache
-behavior through the custom hostname, then change Render's
+behavior through the custom hostname before changing Render's
 `RECIPE_MEDIA_BASE_URL` to `https://media.hafa-recipes.com`.
 
 ## Repair legacy thumbnails
@@ -273,6 +269,28 @@ aws s3api put-public-access-block \
 Re-run the CDN thumbnail and chat-image tests. A direct unauthenticated S3
 thumbnail request must now return `403`, while the same key through CloudFront
 must remain available.
+
+Verify those two outcomes independently so the expected S3 denial cannot stop
+the CloudFront check:
+
+```bash
+(
+set -euo pipefail
+VERIFY_DIR="$(mktemp -d)"
+trap 'rm -rf "$VERIFY_DIR"' EXIT
+
+S3_STATUS="$(curl --silent --show-error \
+  --output "$VERIFY_DIR/direct-s3-response" \
+  --write-out '%{http_code}' \
+  "https://recipe-extractor-thumbnails.s3.ap-southeast-2.amazonaws.com/thumbnails/EXISTING_KEY")"
+test "$S3_STATUS" = '403'
+
+curl --fail --silent --show-error \
+  --output "$VERIFY_DIR/cdn-thumbnail" \
+  "https://media.hafa-recipes.com/thumbnails/EXISTING_KEY"
+test -s "$VERIFY_DIR/cdn-thumbnail"
+)
+```
 
 To roll back after closing the compatibility window, first restore the prior
 public-access-block configuration. Then restore the exact pre-close policy,
