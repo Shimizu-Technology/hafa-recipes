@@ -17,6 +17,13 @@ const mocks = vi.hoisted(() => ({
     isRefetchError: false,
     isRefetching: false,
   },
+  authState: {
+    isLoaded: true,
+    isSignedIn: true as boolean | undefined,
+  },
+  listInfoState: { is_shared: false },
+  listEnabledArgs: [] as boolean[],
+  countEnabledArgs: [] as boolean[],
   refetch: vi.fn(),
   routerPush: vi.fn(),
   routerSetParams: vi.fn(),
@@ -73,7 +80,7 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ bottom: 0 }),
 }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: host('Ionicons') }));
-vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isSignedIn: true }) }));
+vi.mock('@clerk/expo', () => ({ useAuth: () => mocks.authState }));
 vi.mock('@react-native-async-storage/async-storage', () => ({
   default: {
     getItem: vi.fn(async () => mocks.collapsedSections),
@@ -170,26 +177,37 @@ vi.mock('@/hooks/useGrocery', () => ({
   useClearCheckedItems: mutation,
   useDeleteGroceryItem: mutation,
   useDeleteGroceryItems: mutation,
-  useGroceryCount: () => {
+  useGroceryCount: (isSignedIn: boolean) => {
+    mocks.countEnabledArgs.push(isSignedIn);
     const items = mocks.groceryState.items ?? [];
     const checked = items.filter((item) => item.checked).length;
     return { data: { total: items.length, checked, unchecked: items.length - checked } };
   },
-  useGroceryList: (includeChecked: boolean) => ({
-    data: mocks.groceryState.items?.filter((item) => includeChecked || !item.checked),
-    isLoading: mocks.groceryState.isLoading,
-    isError: mocks.groceryState.isError,
-    isRefetchError: mocks.groceryState.isRefetchError,
-    isRefetching: mocks.groceryState.isRefetching,
-    refetch: mocks.refetch,
-  }),
-  useGroceryListInfo: () => ({ data: { is_shared: false } }),
+  useGroceryList: (includeChecked: boolean, isSignedIn: boolean) => {
+    mocks.listEnabledArgs.push(isSignedIn);
+    return {
+      data: mocks.groceryState.items?.filter((item) => includeChecked || !item.checked),
+      isLoading: mocks.groceryState.isLoading,
+      isError: mocks.groceryState.isError,
+      isRefetchError: mocks.groceryState.isRefetchError,
+      isRefetching: mocks.groceryState.isRefetching,
+      refetch: mocks.refetch,
+    };
+  },
+  useGroceryListInfo: () => ({ data: mocks.listInfoState }),
   useGrocerySync: () => ({ lastSyncResult: null, clearSyncResult: vi.fn() }),
   useToggleGroceryItem: mutation,
   useUpdateGroceryItem: mutation,
 }));
 
 import GroceryScreen from '../app/(tabs)/grocery';
+
+function renderedText(renderer: ReturnType<typeof createRoot>): string {
+  return renderer.container.queryAll((instance) => instance.type === 'Text')
+    .flatMap((instance) => instance.props.children ?? [])
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ');
+}
 
 function item(overrides: Partial<GroceryItem> & Pick<GroceryItem, 'id' | 'name'>): GroceryItem {
   return {
@@ -208,6 +226,11 @@ function item(overrides: Partial<GroceryItem> & Pick<GroceryItem, 'id' | 'name'>
 
 describe('GroceryScreen shopping views', () => {
   beforeEach(() => {
+    mocks.authState.isLoaded = true;
+    mocks.authState.isSignedIn = true;
+    mocks.listInfoState.is_shared = false;
+    mocks.listEnabledArgs = [];
+    mocks.countEnabledArgs = [];
     mocks.collapsedSections = JSON.stringify(['recipe:recipe-1']);
     mocks.groceryState.items = [];
     mocks.groceryState.isLoading = false;
@@ -215,6 +238,96 @@ describe('GroceryScreen shopping views', () => {
     mocks.groceryState.isRefetchError = false;
     mocks.groceryState.isRefetching = false;
     mocks.refetch.mockReset();
+  });
+
+  it('shows an intentional guest preview without starting private grocery queries', async () => {
+    mocks.authState.isSignedIn = false;
+    mocks.groceryState.isLoading = true;
+    mocks.groceryState.isError = true;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(GroceryScreen));
+      });
+
+      expect(mocks.listEnabledArgs.at(-1)).toBe(false);
+      expect(mocks.countEnabledArgs.at(-1)).toBe(false);
+      const copy = renderedText(renderer);
+      expect(copy).toContain('One list for the whole meal');
+      expect(copy).not.toContain('Loading your grocery list');
+      expect(copy).not.toContain('Couldn’t load your list');
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )).toHaveLength(0);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'GroceryListSettingsModal',
+      )).toHaveLength(0);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'SignInBanner',
+      )).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('waits for Clerk without flashing guest UI or starting private queries', async () => {
+    mocks.authState.isLoaded = false;
+    mocks.authState.isSignedIn = undefined;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(GroceryScreen));
+      });
+
+      expect(mocks.listEnabledArgs.at(-1)).toBe(false);
+      expect(mocks.countEnabledArgs.at(-1)).toBe(false);
+      const copy = renderedText(renderer);
+      expect(copy).toContain('Checking your account…');
+      expect(copy).not.toContain('One list for the whole meal');
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'SignInBanner',
+      )).toHaveLength(0);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )).toHaveLength(0);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('hides cached account data and shared-list controls after sign-out', async () => {
+    mocks.collapsedSections = '[]';
+    mocks.groceryState.items = [item({ id: 'private-rice', name: 'Private rice' })];
+    mocks.listInfoState.is_shared = true;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(GroceryScreen));
+      });
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'ScalePressable',
+      )).toHaveLength(1);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Ionicons' && instance.props.name === 'people',
+      )).toHaveLength(1);
+
+      mocks.authState.isSignedIn = false;
+      await act(async () => {
+        renderer.render(React.createElement(GroceryScreen));
+      });
+
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'ScalePressable',
+      )).toHaveLength(0);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Ionicons' && instance.props.name === 'people',
+      )).toHaveLength(0);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
   });
 
   it('exposes a search match from a previously collapsed recipe section', async () => {

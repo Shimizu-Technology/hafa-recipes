@@ -302,10 +302,13 @@ export default function SignInScreen() {
 
             <Link href={'/(auth)/recover-account' as any} asChild>
               <TouchableOpacity
-                style={[styles.recoveryButton, {
-                  backgroundColor: colors.backgroundSecondary,
-                  borderColor: colors.border,
-                }]}
+                style={StyleSheet.flatten([
+                  styles.recoveryButton,
+                  {
+                    backgroundColor: colors.backgroundSecondary,
+                    borderColor: colors.border,
+                  },
+                ])}
                 disabled={isLoading}
                 activeOpacity={0.7}
               >
