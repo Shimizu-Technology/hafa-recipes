@@ -12,6 +12,9 @@ const acceptedUpstreamAdvisories = new Set([
   // Build tooling and Clerk's unused wallet dependency path; app code does not
   // call UUID v3/v5/v6 with caller-controlled output buffers.
   'uuid:1119441',
+  // Clerk includes Solana wallet support, but Håfa does not import or expose
+  // that path. Its nested JSON filter never receives app or user input.
+  'stream-json:1164823',
 ]);
 
 const audit = spawnSync('npm', ['audit', '--omit=dev', '--json'], {

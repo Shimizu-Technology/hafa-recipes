@@ -214,8 +214,8 @@ export default function GroceryScreen() {
     isRefetchError,
     refetch,
     isRefetching,
-  } = useGroceryList(showChecked, isSignedIn);
-  const { data: countData } = useGroceryCount(isSignedIn);
+  } = useGroceryList(showChecked, !!isSignedIn);
+  const { data: countData } = useGroceryCount(!!isSignedIn);
 
   // Refetch when tab gains focus to ensure we always have fresh data
   // This is critical for shared lists where others may have made changes
@@ -559,6 +559,26 @@ export default function GroceryScreen() {
   );
 
   const ListEmpty = () => {
+    if (!isSignedIn) {
+      return (
+        <RNView style={styles.emptyContainer}>
+          <RNView style={[styles.guestIconContainer, { backgroundColor: colors.tint + '15' }]}>
+            <Ionicons name="basket-outline" size={42} color={colors.tint} />
+          </RNView>
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>One list for the whole meal</Text>
+          <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+            Sign in to add ingredients from recipes, plan your shopping trip, and keep your list in sync.
+          </Text>
+          <Button
+            title="Browse recipes"
+            variant="outline"
+            onPress={() => router.push(appRoutes.discover)}
+            style={styles.emptyPrimaryAction}
+          />
+        </RNView>
+      );
+    }
+
     // Show loading indicator if data is being fetched
     if (isLoading) {
       return (
@@ -697,7 +717,7 @@ export default function GroceryScreen() {
         {/* Title row - clean with just title and icons */}
         <RNView style={styles.titleRow}>
           <Text style={[styles.headerTitle, { color: colors.text }]}>Grocery List</Text>
-          <RNView style={styles.headerButtons}>
+          {isSignedIn && <RNView style={styles.headerButtons}>
             <TouchableOpacity 
               onPress={() => {
                 haptics.light();
@@ -718,27 +738,29 @@ export default function GroceryScreen() {
             >
               <Ionicons name="settings-outline" size={22} color={colors.tint} />
             </TouchableOpacity>
-          </RNView>
+          </RNView>}
         </RNView>
 
         {/* Subtitle row - shared status + item count */}
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.subtitleRow}
-          onPress={listInfo?.is_shared ? () => setShowSettings(true) : undefined}
-          activeOpacity={listInfo?.is_shared ? 0.7 : 1}
+          onPress={isSignedIn && listInfo?.is_shared ? () => setShowSettings(true) : undefined}
+          activeOpacity={isSignedIn && listInfo?.is_shared ? 0.7 : 1}
         >
           {listInfo?.is_shared && (
             <Ionicons name="people" size={14} color={colors.success} style={styles.subtitleIcon} />
           )}
           <Text style={[styles.subtitleText, { color: colors.textSecondary }]}>
-            {getSubtitleText()}
+            {isSignedIn ? getSubtitleText() : 'Turn any recipe into a ready-to-shop list'}
           </Text>
           {isRefetching && (
             <ActivityIndicator size="small" color={colors.tint} style={styles.subtitleSpinner} />
           )}
         </TouchableOpacity>
 
-        {/* Add item input */}
+        {/* Editing controls appear only when there is an authenticated list. */}
+        {isSignedIn && (
+          <>
         <RNView style={[styles.addItemRow, { borderColor: colors.border }]}>
           <TextInput
             ref={addItemInputRef}
@@ -833,6 +855,8 @@ export default function GroceryScreen() {
             </TouchableOpacity>
           </RNView>
         )}
+          </>
+        )}
       </RNView>
 
       <SectionList
@@ -856,29 +880,29 @@ export default function GroceryScreen() {
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         keyboardShouldPersistTaps="handled"
         onTouchStart={() => Keyboard.dismiss()}
-        refreshControl={
+        refreshControl={isSignedIn ? (
           <RefreshControl
             refreshing={isRefetching}
             onRefresh={handleRefresh}
             tintColor={colors.tint}
           />
-        }
+        ) : undefined}
       />
 
       {/* Edit Modal */}
-      <EditGroceryItemModal
+      {isSignedIn && <EditGroceryItemModal
         visible={!!editingItem}
         onClose={() => setEditingItem(null)}
         onSave={handleSaveEdit}
         item={editingItem}
         isLoading={updateItemMutation.isPending}
-      />
+      />}
 
       {/* Settings Modal */}
-      <GroceryListSettingsModal
+      {isSignedIn && <GroceryListSettingsModal
         isVisible={showSettings}
         onClose={() => setShowSettings(false)}
-      />
+      />}
       
       {/* Sign In Banner for guests */}
       {!isSignedIn && <SignInBanner message="Sign in to create grocery lists" />}
@@ -1059,6 +1083,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.xxl,
     paddingHorizontal: spacing.lg,
+  },
+  guestIconContainer: {
+    width: 76,
+    height: 76,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyTitle: {
     fontSize: fontSize.xl,

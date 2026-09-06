@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from migrations import run as migration_runner
+from scripts import seed_development
 
 
 @pytest.mark.asyncio
@@ -80,3 +81,35 @@ def test_runner_registers_every_active_numbered_migration_file():
     assert migration_runner.LATEST_MIGRATION == int(
         discovered_modules[-1].removeprefix("migrations.")[:3]
     )
+
+
+@pytest.mark.asyncio
+async def test_development_seed_delegates_to_the_complete_migration_runner(monkeypatch):
+    """Local setup must not maintain a second, partial migration list."""
+
+    calls: list[str] = []
+
+    class FakeConnection:
+        async def run_sync(self, _callback):
+            calls.append("create_all")
+
+    class FakeBegin:
+        async def __aenter__(self):
+            return FakeConnection()
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class FakeEngine:
+        def begin(self):
+            return FakeBegin()
+
+    async def run_all_migrations():
+        calls.append("migrate")
+
+    monkeypatch.setattr(seed_development, "engine", FakeEngine())
+    monkeypatch.setattr(seed_development, "run_migrations", run_all_migrations)
+
+    await seed_development.prepare_schema()
+
+    assert calls == ["create_all", "migrate"]

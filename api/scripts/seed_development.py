@@ -1,7 +1,6 @@
 """Create an idempotent local schema and safe synthetic starter recipe."""
 
 import asyncio
-import importlib
 
 from sqlalchemy import select
 
@@ -10,9 +9,23 @@ from app.db.database import AsyncSessionLocal, Base, engine
 from app.models import ai, deletion, grocery, identity, meal_plan, moderation, recipe  # noqa: F401
 from app.models.identity import AppUser
 from app.models.recipe import Recipe
+from migrations.run import run_migrations
 
 SEED_USER_ID = "development_seed_user"
 SEED_SOURCE_URL = "manual://development-seed/chamorro-red-rice"
+
+
+async def prepare_schema() -> None:
+    """Create the current base schema, then apply every tracked migration."""
+
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    # create_all gives a new developer the current base schema; the complete
+    # tracked chain adds the same invariants and verification markers required
+    # at API startup. Keeping one migration owner prevents local setup from
+    # falling behind when a new startup contract is introduced.
+    await run_migrations()
 
 
 async def seed() -> None:
@@ -22,17 +35,7 @@ async def seed() -> None:
     if settings.allow_remote_database_in_development:
         raise RuntimeError("Development seed refuses the remote-database override")
 
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
-
-    # create_all gives a new developer the base schema; the tracked migrations
-    # add the same named invariants and verification markers production requires.
-    migration_20 = importlib.import_module("migrations.020_add_database_invariants")
-    migration_21 = importlib.import_module("migrations.021_add_ai_invocation_provenance")
-    migration_22 = importlib.import_module("migrations.022_add_admin_moderation")
-    await migration_20.run_migration()
-    await migration_21.run_migration()
-    await migration_22.run_migration()
+    await prepare_schema()
 
     async with AsyncSessionLocal() as session:
         user = await session.get(AppUser, SEED_USER_ID)
