@@ -56,13 +56,18 @@ describe('AddIngredientsModal', () => {
           ingredients: [
             { name: 'Chicken', quantity: '2', unit: 'lb' },
             { name: 'Salt', quantity: null, unit: 'tsp' },
+            { name: 'Pepper', quantity: '1', unit: ' NULL ' },
+            { name: 'Oil', quantity: '1', unit: ' tbsp ' },
           ],
         }));
       });
 
       const text = renderer.container.queryAll((instance) => instance.type === 'Text');
       expect(text.some((node) => node.props.children === 'Amount not stated')).toBe(true);
-      expect(JSON.stringify(renderer.container.toJSON())).not.toContain('tsp');
+      const rendered = JSON.stringify(renderer.container.toJSON());
+      expect(rendered).not.toContain('tsp');
+      expect(rendered).not.toContain('NULL');
+      expect(rendered).toContain('tbsp ');
     } finally {
       await act(async () => renderer.unmount());
     }

@@ -157,6 +157,10 @@ export default function AddIngredientsModal({
           {ingredients.map((ingredient, index) => {
             const isSelected = selected.has(index);
             const hasAmount = hasStatedIngredientAmount(ingredient.quantity);
+            const normalizedUnit = ingredient.unit?.trim();
+            const hasUnit = Boolean(
+              normalizedUnit && normalizedUnit.toLowerCase() !== 'null',
+            );
             return (
               <TouchableOpacity
                 key={index}
@@ -182,7 +186,7 @@ export default function AddIngredientsModal({
                         {scaleQuantity(ingredient.quantity!, scaleFactor)}{' '}
                       </Text>
                     )}
-                    {hasAmount && ingredient.unit && ingredient.unit !== 'null' && `${ingredient.unit} `}
+                    {hasAmount && hasUnit && `${normalizedUnit} `}
                     {ingredient.name}
                   </Text>
                   {!hasAmount && (
