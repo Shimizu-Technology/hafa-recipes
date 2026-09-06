@@ -4,8 +4,8 @@ vi.mock('@/hooks/useRecipes', () => ({
   recipeKeys: {
     infinite: (sourceType?: string) => ['recipes', 'infinite', sourceType],
     discoverFeed: (sourceType?: string, sort = 'recent', mealType?: string) =>
-      ['recipes', 'discover', 'infinite', sourceType, sort, mealType],
-    popularTags: (scope: string) => ['recipes', 'tags', 'popular', scope],
+      ['discover', 'infinite', sourceType, sort, mealType],
+    popularTags: (scope: string) => ['recipes', 'popularTags', scope],
   },
 }));
 vi.mock('@/lib/api', () => ({
@@ -36,11 +36,11 @@ describe('prefetchTabData', () => {
 
     expect(queryClient.prefetchInfiniteQuery).toHaveBeenCalledOnce();
     expect(queryClient.prefetchInfiniteQuery.mock.calls[0][0].queryKey).toEqual(
-      ['recipes', 'discover', 'infinite', undefined, 'recent', undefined],
+      ['discover', 'infinite', undefined, 'recent', undefined],
     );
     expect(queryClient.prefetchQuery).toHaveBeenCalledOnce();
     expect(queryClient.prefetchQuery.mock.calls[0][0].queryKey).toEqual(
-      ['recipes', 'tags', 'popular', 'public'],
+      ['recipes', 'popularTags', 'public'],
     );
   });
 
@@ -51,7 +51,7 @@ describe('prefetchTabData', () => {
     expect(queryClient.prefetchInfiniteQuery).toHaveBeenCalledTimes(2);
     expect(queryClient.prefetchInfiniteQuery.mock.calls.map(([options]) => options.queryKey)).toEqual([
       ['recipes', 'infinite', undefined],
-      ['recipes', 'discover', 'infinite', undefined, 'recent', undefined],
+      ['discover', 'infinite', undefined, 'recent', undefined],
     ]);
     expect(queryClient.prefetchQuery).toHaveBeenCalledTimes(2);
   });
