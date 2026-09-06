@@ -2,7 +2,7 @@
 
 import asyncio
 import hashlib
-import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from urllib.parse import urljoin, urlparse
 from uuid import UUID, uuid4
@@ -27,8 +27,9 @@ STORED_THUMBNAIL_QUALITY = 82
 MAX_CONCURRENT_THUMBNAIL_NORMALIZATIONS = 2
 MAX_CHAT_IMAGE_BYTES = 8 * 1024 * 1024
 
-_thumbnail_processing_slots = threading.BoundedSemaphore(
-    MAX_CONCURRENT_THUMBNAIL_NORMALIZATIONS
+_thumbnail_executor = ThreadPoolExecutor(
+    max_workers=MAX_CONCURRENT_THUMBNAIL_NORMALIZATIONS,
+    thread_name_prefix="thumbnail-normalizer",
 )
 
 
@@ -78,24 +79,24 @@ class StorageService:
         """Validate and normalize thumbnail bytes without blocking the event loop."""
 
         def prepare() -> tuple[bytes, str]:
-            # A valid source may decode to roughly 160 MB. Keep simultaneous
-            # decodes bounded even if the default executor has many workers.
-            with _thumbnail_processing_slots:
-                validated = validate_image_bytes(
-                    image_data,
-                    max_bytes=MAX_THUMBNAIL_BYTES,
-                    declared_content_type=declared_content_type,
-                )
-                normalized = normalize_thumbnail_image(
-                    validated,
-                    max_dimension=MAX_STORED_THUMBNAIL_DIMENSION,
-                    quality=STORED_THUMBNAIL_QUALITY,
-                )
-                if len(normalized.data) > MAX_THUMBNAIL_BYTES:
-                    raise ImageValidationError("Normalized thumbnail exceeds maximum size")
-                return normalized.data, normalized.content_type
+            validated = validate_image_bytes(
+                image_data,
+                max_bytes=MAX_THUMBNAIL_BYTES,
+                declared_content_type=declared_content_type,
+            )
+            normalized = normalize_thumbnail_image(
+                validated,
+                max_dimension=MAX_STORED_THUMBNAIL_DIMENSION,
+                quality=STORED_THUMBNAIL_QUALITY,
+            )
+            if len(normalized.data) > MAX_THUMBNAIL_BYTES:
+                raise ImageValidationError("Normalized thumbnail exceeds maximum size")
+            return normalized.data, normalized.content_type
 
-        return await asyncio.to_thread(prepare)
+        # A valid source may decode to roughly 160 MB. A dedicated two-worker
+        # pool bounds memory without occupying asyncio's shared default executor.
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_thumbnail_executor, prepare)
     
     async def _download_public_url(self, image_url: str) -> tuple[bytes, str]:
         """Download a public HTTP(S) URL, validating every redirect target."""

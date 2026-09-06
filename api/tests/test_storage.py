@@ -122,6 +122,22 @@ async def test_thumbnail_upload_uses_content_hash_and_immutable_cache(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_thumbnail_preparation_does_not_use_shared_default_executor(monkeypatch):
+    async def unexpected_to_thread(*_args, **_kwargs):
+        pytest.fail("thumbnail preparation must use its bounded dedicated executor")
+
+    monkeypatch.setattr(storage.asyncio, "to_thread", unexpected_to_thread)
+
+    image_data, content_type = await StorageService()._prepare_thumbnail(
+        _png_bytes("red"),
+        "image/png",
+    )
+
+    assert image_data
+    assert content_type == "image/webp"
+
+
+@pytest.mark.asyncio
 async def test_thumbnail_upload_is_rejected_after_recipe_deletion(monkeypatch):
     @asynccontextmanager
     async def deleted_recipe_guard(_recipe_id):
