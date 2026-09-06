@@ -89,6 +89,32 @@ def test_thumbnail_normalization_preserves_transparency_without_upscaling():
         assert normalized.getpixel((0, 0))[3] == 64
 
 
+def test_thumbnail_normalization_uses_first_animation_frame():
+    output = io.BytesIO()
+    first = Image.new("RGB", (20, 10), color="red")
+    second = Image.new("RGB", (20, 10), color="blue")
+    first.save(
+        output,
+        format="GIF",
+        save_all=True,
+        append_images=[second],
+        duration=100,
+        loop=0,
+    )
+
+    result = normalize_thumbnail_image(
+        validated(output.getvalue(), "image/gif"),
+        max_dimension=1_600,
+    )
+
+    with Image.open(io.BytesIO(result.data)) as normalized:
+        assert not getattr(normalized, "is_animated", False)
+        red, green, blue = normalized.convert("RGB").getpixel((0, 0))
+        assert red > 200
+        assert green < 40
+        assert blue < 40
+
+
 @pytest.mark.parametrize(
     ("max_dimension", "quality"),
     [(0, 82), (1_600, 0), (1_600, 101)],
