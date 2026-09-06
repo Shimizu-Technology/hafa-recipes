@@ -33,6 +33,12 @@ export function hasStatedIngredientAmount(quantity: string | null | undefined): 
   return normalized.length > 0 && normalized !== 'null';
 }
 
+/** Normalize legacy null-like units before display, export, or persistence. */
+export function normalizeIngredientUnit(unit: string | null | undefined): string | null {
+  const normalized = unit?.trim();
+  return normalized && normalized.toLowerCase() !== 'null' ? normalized : null;
+}
+
 /** Format Cook Mode amounts while filtering legacy null-like units. */
 export function formatIngredientAmount(
   quantity: string | null | undefined,
@@ -42,10 +48,8 @@ export function formatIngredientAmount(
   if (!hasStatedIngredientAmount(quantity)) return MISSING_AMOUNT_LABEL;
 
   const displayQuantity = scaledQuantity ?? quantity!.trim();
-  const normalizedUnit = unit?.trim();
-  const displayUnit = normalizedUnit && normalizedUnit.toLowerCase() !== 'null'
-    ? ` ${normalizedUnit}`
-    : '';
+  const normalizedUnit = normalizeIngredientUnit(unit);
+  const displayUnit = normalizedUnit ? ` ${normalizedUnit}` : '';
   return `${displayQuantity}${displayUnit}`;
 }
 

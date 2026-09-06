@@ -55,7 +55,11 @@ import {
 } from '@/lib/grocerySections';
 import { appRoutes } from '@/lib/routes';
 import { filterGroceryItems } from '@/lib/groceryFilters';
-import { hasStatedIngredientAmount, MISSING_AMOUNT_LABEL } from '../../lib/recipeTrust';
+import {
+  hasStatedIngredientAmount,
+  MISSING_AMOUNT_LABEL,
+  normalizeIngredientUnit,
+} from '../../lib/recipeTrust';
 
 const COLLAPSED_SECTIONS_KEY = 'grocery_collapsed_sections';
 
@@ -80,6 +84,7 @@ function GroceryItemRow({
 }) {
   const hasAmount = hasStatedIngredientAmount(item.quantity);
   const showMissingAmount = Boolean(item.recipe_id) && !hasAmount;
+  const normalizedUnit = normalizeIngredientUnit(item.unit);
 
   return (
     <ScalePressable 
@@ -118,7 +123,7 @@ function GroceryItemRow({
             ellipsizeMode="tail"
           >
             {hasAmount && `${item.quantity} `}
-            {hasAmount && item.unit && item.unit !== 'null' && `${item.unit} `}
+            {hasAmount && normalizedUnit && `${normalizedUnit} `}
             {item.name}
           </Text>
           {isSharedList && item.added_by_name && (
@@ -480,7 +485,7 @@ export default function GroceryScreen() {
       const marker = item.checked ? '[x]' : '[ ]';
       const hasAmount = hasStatedIngredientAmount(item.quantity);
       const qty = hasAmount ? item.quantity : '';
-      const unit = item.unit && item.unit !== 'null' ? item.unit : '';
+      const unit = normalizeIngredientUnit(item.unit) ?? '';
       const qtyUnit = qty ? `${qty}${unit ? ' ' + unit : ''} ` : '';
       const notes = item.notes && item.notes !== 'null' ? ` (${item.notes})` : '';
       const amountWarning = item.recipe_id && !hasAmount ? ` — ${MISSING_AMOUNT_LABEL}` : '';

@@ -86,9 +86,9 @@ describe('AddIngredientsModal', () => {
           recipeTitle: 'Red Rice',
           ingredients: [
             { name: 'Water', quantity: null, unit: 'cups' },
-            { name: 'Salt', quantity: 'null', unit: 'tsp' },
-            { name: 'Pepper', quantity: '   ', unit: 'tsp' },
-            { name: 'Rice', quantity: '2', unit: 'cups' },
+            { name: 'Salt', quantity: 'null', unit: ' NULL ' },
+            { name: 'Pepper', quantity: '   ', unit: '   ' },
+            { name: 'Rice', quantity: '2', unit: ' cups ' },
           ],
         }));
       });
@@ -100,8 +100,8 @@ describe('AddIngredientsModal', () => {
 
       expect(onConfirm).toHaveBeenCalledWith([
         { name: 'Water', quantity: null, unit: 'cups' },
-        { name: 'Salt', quantity: null, unit: 'tsp' },
-        { name: 'Pepper', quantity: null, unit: 'tsp' },
+        { name: 'Salt', quantity: null, unit: null },
+        { name: 'Pepper', quantity: null, unit: null },
         { name: 'Rice', quantity: '2', unit: 'cups' },
       ]);
     } finally {

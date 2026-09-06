@@ -17,7 +17,11 @@ import { Text, View, useColors } from './Themed';
 import { Ingredient } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { scaleQuantity } from '@/hooks/useScaledServings';
-import { hasStatedIngredientAmount, MISSING_AMOUNT_LABEL } from '../lib/recipeTrust';
+import {
+  hasStatedIngredientAmount,
+  MISSING_AMOUNT_LABEL,
+  normalizeIngredientUnit,
+} from '../lib/recipeTrust';
 
 interface AddIngredientsModalProps {
   visible: boolean;
@@ -93,6 +97,7 @@ export default function AddIngredientsModal({
         quantity: hasStatedIngredientAmount(ing.quantity)
           ? scaleQuantity(ing.quantity!, scaleFactor)
           : null,
+        unit: normalizeIngredientUnit(ing.unit),
         // Scale cost estimate
         estimatedCost: ing.estimatedCost ? ing.estimatedCost * scaleFactor : ing.estimatedCost,
       }));
@@ -157,10 +162,7 @@ export default function AddIngredientsModal({
           {ingredients.map((ingredient, index) => {
             const isSelected = selected.has(index);
             const hasAmount = hasStatedIngredientAmount(ingredient.quantity);
-            const normalizedUnit = ingredient.unit?.trim();
-            const hasUnit = Boolean(
-              normalizedUnit && normalizedUnit.toLowerCase() !== 'null',
-            );
+            const normalizedUnit = normalizeIngredientUnit(ingredient.unit);
             return (
               <TouchableOpacity
                 key={index}
@@ -186,7 +188,7 @@ export default function AddIngredientsModal({
                         {scaleQuantity(ingredient.quantity!, scaleFactor)}{' '}
                       </Text>
                     )}
-                    {hasAmount && hasUnit && `${normalizedUnit} `}
+                    {hasAmount && normalizedUnit && `${normalizedUnit} `}
                     {ingredient.name}
                   </Text>
                   {!hasAmount && (

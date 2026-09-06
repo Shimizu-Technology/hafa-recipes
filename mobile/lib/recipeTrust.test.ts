@@ -5,6 +5,7 @@ import {
   getRecipeTrustPresentation,
   hasStatedIngredientAmount,
   MISSING_AMOUNT_LABEL,
+  normalizeIngredientUnit,
 } from './recipeTrust';
 
 describe('recipe trust presentation', () => {
@@ -35,5 +36,12 @@ describe('recipe trust presentation', () => {
     expect(formatIngredientAmount('2', ' NULL ')).toBe('2');
     expect(formatIngredientAmount('2', null, '4')).toBe('4');
     expect(formatIngredientAmount(null, 'tsp')).toBe(MISSING_AMOUNT_LABEL);
+  });
+
+  it('normalizes units shared by display, export, and persistence', () => {
+    expect(normalizeIngredientUnit(null)).toBeNull();
+    expect(normalizeIngredientUnit('   ')).toBeNull();
+    expect(normalizeIngredientUnit(' NULL ')).toBeNull();
+    expect(normalizeIngredientUnit(' tbsp ')).toBe('tbsp');
   });
 });
