@@ -2470,7 +2470,6 @@ const styles = StyleSheet.create({
   similarImage: {
     width: '100%',
     height: 100,
-    resizeMode: 'cover',
   },
   similarCardContent: {
     padding: spacing.sm,
