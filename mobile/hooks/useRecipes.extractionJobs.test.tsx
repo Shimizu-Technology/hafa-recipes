@@ -245,6 +245,131 @@ describe('durable extraction recovery', () => {
     queryClient.clear();
   });
 
+  it('does not start a new request while stale-pointer hydration is pending', async () => {
+    let resolveDurableRead: (value: string | null) => void = () => undefined;
+    const durableRead = new Promise<string | null>((resolve) => {
+      resolveDurableRead = resolve;
+    });
+    const staleClerkJob = {
+      userId: 'clerk-current-user',
+      jobId: null,
+      idempotencyKey: 'stale-key',
+      startTime: Date.now() - (8 * 24 * 60 * 60 * 1_000),
+      request: { kind: 'extract' as const, payload: { url: 'https://example.com/stale' } },
+    };
+    mocks.getItem.mockImplementation(async (key: string) => {
+      if (key === 'active_extraction_job_v2:app-stable-user') return durableRead;
+      if (key === 'active_extraction_job_v2:clerk-current-user') {
+        return JSON.stringify(staleClerkJob);
+      }
+      return null;
+    });
+    mocks.getExtractionJobs.mockResolvedValue([]);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    let controller: Controller | null = null;
+
+    function Harness() {
+      controller = useAsyncExtractionController();
+      return null;
+    }
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <QueryClientProvider client={queryClient}>
+          <Harness />
+        </QueryClientProvider>,
+      );
+    });
+    for (let attempt = 0; attempt < 5 && mocks.getItem.mock.calls.length === 0; attempt += 1) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+    }
+
+    await expect(controller!.startExtraction({ url: 'https://example.com/new' }))
+      .rejects.toThrow('prepare your recent imports');
+    expect(mocks.setItem).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveDurableRead(null);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(controller).toMatchObject({ isReady: true, isPreparing: false });
+
+    await act(async () => renderer!.unmount());
+    queryClient.clear();
+  });
+
+  it('clears a prior failure when restoring a completed job', async () => {
+    mocks.getExtractionJobs.mockResolvedValue([]);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    let controller: Controller | null = null;
+
+    function Harness() {
+      controller = useAsyncExtractionController();
+      return null;
+    }
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <QueryClientProvider client={queryClient}>
+          <Harness />
+        </QueryClientProvider>,
+      );
+    });
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+    }
+
+    await act(async () => {
+      controller!.restoreJob({
+        id: 'failed-job',
+        url: 'https://example.com/failed',
+        status: 'failed',
+        progress: 20,
+        current_step: 'error',
+        message: 'Failed',
+        recipe_id: null,
+        error_message: 'Could not read the source',
+      });
+    });
+    expect(controller).toMatchObject({
+      error: 'Could not read the source',
+      isComplete: false,
+      isFailed: true,
+    });
+
+    await act(async () => {
+      controller!.restoreJob({
+        id: 'completed-job',
+        url: 'https://example.com/completed',
+        status: 'completed',
+        progress: 100,
+        current_step: 'complete',
+        message: 'Done',
+        recipe_id: 'completed-recipe',
+        error_message: null,
+      });
+    });
+    expect(controller).toMatchObject({
+      error: null,
+      isComplete: true,
+      isFailed: false,
+      recipeId: 'completed-recipe',
+    });
+
+    await act(async () => renderer!.unmount());
+    queryClient.clear();
+  });
+
   it('rediscovers and resumes an owner job when local storage has no pointer', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },

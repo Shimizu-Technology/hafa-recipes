@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
     isComplete: false,
     isExtracting: false,
     isFailed: false,
+    isPreparing: false,
     isRetrying: false,
     jobKind: 'extract',
     lowConfidence: false,
@@ -181,6 +182,7 @@ describe('classified image recovery', () => {
     mocks.extraction.isComplete = false;
     mocks.extraction.isExtracting = false;
     mocks.extraction.isFailed = false;
+    mocks.extraction.isPreparing = false;
     mocks.extraction.error = null;
     mocks.extraction.currentStep = '';
     mocks.extraction.jobKind = 'extract';
@@ -257,6 +259,20 @@ describe('classified image recovery', () => {
 
     expect(mocks.extraction.reset).toHaveBeenCalledOnce();
     expect(mocks.push).toHaveBeenCalledWith('/recipe/completed-recipe');
+  });
+
+  it('keeps new imports disabled until durable recovery finishes', async () => {
+    mocks.extraction.isPreparing = true;
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<ExtractScreen />);
+    });
+
+    const preparingButton = renderer!.root.findAllByType(
+      'Button' as unknown as React.ComponentType,
+    ).find(node => node.props.children === 'Preparing Imports...')!;
+    expect(preparingButton.props.disabled).toBe(true);
   });
 
   it('restores the original link options when restarting a failed import', async () => {

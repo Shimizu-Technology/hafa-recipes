@@ -470,6 +470,7 @@ export default function ExtractScreen() {
   };
 
   const isLoading = isChecking || extraction.isExtracting || isOcrExtracting || isSavingSourceDraft;
+  const isPreparingImports = Boolean(isSignedIn && extraction.isPreparing);
 
   // Show OCR progress UI
   if (isOcrExtracting) {
@@ -830,9 +831,15 @@ export default function ExtractScreen() {
           {/* Extract Button */}
           <RNView style={styles.section}>
             <Button
-              title={!isSignedIn ? 'Sign In to Extract' : isChecking ? 'Checking...' : 'Extract Recipe'}
+              title={!isSignedIn
+                ? 'Sign In to Extract'
+                : isPreparingImports
+                  ? 'Preparing Imports...'
+                  : isChecking
+                    ? 'Checking...'
+                    : 'Extract Recipe'}
               onPress={handleExtract}
-              disabled={!isSignedIn || isLoading || !url.trim()}
+              disabled={!isSignedIn || isPreparingImports || isLoading || !url.trim()}
               loading={isChecking}
               size="lg"
             />

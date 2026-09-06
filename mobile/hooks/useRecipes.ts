@@ -531,14 +531,14 @@ export function useAsyncExtractionController() {
     setCanRetryStart(false);
     setIsStarting(false);
     setConnectionNotice(null);
+    setError(null);
+    setTerminalState(null);
     const parsedStartTime = status.created_at ? new Date(status.created_at).getTime() : NaN;
     const restoredStartTime = Number.isFinite(parsedStartTime) ? parsedStartTime : Date.now();
     setStartTime(restoredStartTime);
     setElapsedTime(Math.max(0, Math.floor((Date.now() - restoredStartTime) / 1_000)));
 
     if (ACTIVE_EXTRACTION_STATUSES.includes(status.status)) {
-      setError(null);
-      setTerminalState(null);
       startPolling(status.id, restoredStartTime);
       return;
     }
@@ -768,6 +768,9 @@ export function useAsyncExtractionController() {
         ? 'Please wait while we verify your recipe library, then try again.'
         : 'Please sign in before extracting a recipe.');
     }
+    if (!hasHydratedStoredJob) {
+      throw new Error('Please wait while we prepare your recent imports, then try again.');
+    }
     if (isPolling || isStarting) throw new Error('An extraction is already in progress.');
 
     const storedJob: StoredExtractionJob = {
@@ -786,6 +789,9 @@ export function useAsyncExtractionController() {
       throw new Error(clerkUserId
         ? 'Please wait while we verify your recipe library, then try again.'
         : 'Please sign in before re-extracting a recipe.');
+    }
+    if (!hasHydratedStoredJob) {
+      throw new Error('Please wait while we prepare your recent imports, then try again.');
     }
     if (isPolling || isStarting) throw new Error('Another extraction is already in progress.');
 
@@ -865,6 +871,10 @@ export function useAsyncExtractionController() {
     jobKind,
     isPolling,
     isStarting,
+    isReady: Boolean(clerkUserId && identity.isSuccess && hasHydratedStoredJob),
+    isPreparing: Boolean(
+      clerkUserId && (identity.isPending || (identity.isSuccess && !hasHydratedStoredJob)),
+    ),
     error,
     connectionNotice,
     canRetryStart,
