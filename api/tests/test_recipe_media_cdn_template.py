@@ -1,0 +1,113 @@
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+TEMPLATE_PATH = REPOSITORY_ROOT / "infra/cloudformation/recipe-media-cdn.yaml"
+
+
+class CloudFormationLoader(yaml.SafeLoader):
+    pass
+
+
+def _construct_cloudformation_tag(
+    loader: CloudFormationLoader,
+    tag_suffix: str,
+    node: yaml.Node,
+) -> dict[str, Any]:
+    if isinstance(node, yaml.ScalarNode):
+        value: Any = loader.construct_scalar(node)
+    elif isinstance(node, yaml.SequenceNode):
+        value = loader.construct_sequence(node)
+    else:
+        value = loader.construct_mapping(node)
+    return {tag_suffix: value}
+
+
+CloudFormationLoader.add_multi_constructor("!", _construct_cloudformation_tag)
+
+
+def _template() -> dict[str, Any]:
+    return yaml.load(TEMPLATE_PATH.read_text(), Loader=CloudFormationLoader)
+
+
+def test_cdn_can_read_only_thumbnail_objects() -> None:
+    template = _template()
+    resources = template["Resources"]
+    bucket_policy = resources["ThumbnailBucketPolicy"]
+
+    assert bucket_policy["DeletionPolicy"] == "Retain"
+    assert bucket_policy["UpdateReplacePolicy"] == "Retain"
+    assert all(resource["Type"] != "AWS::S3::Bucket" for resource in resources.values())
+
+    statements = bucket_policy["Properties"]["PolicyDocument"]["Statement"]
+    cloudfront_read = statements[0]
+    assert cloudfront_read["Principal"] == {"Service": "cloudfront.amazonaws.com"}
+    assert cloudfront_read["Action"] == "s3:GetObject"
+    assert cloudfront_read["Resource"]["Sub"].endswith("/thumbnails/*")
+    assert "/chat-images/" not in cloudfront_read["Resource"]["Sub"]
+    assert set(cloudfront_read["Condition"]["StringEquals"]) == {
+        "AWS:SourceArn",
+        "AWS:SourceAccount",
+    }
+
+    guarded_public_read = statements[1]["If"]
+    assert guarded_public_read[0] == "PreserveLegacyPublicRead"
+    assert guarded_public_read[1]["Resource"]["Sub"].endswith("/thumbnails/*")
+
+
+def test_distribution_uses_signed_origin_and_managed_immutable_cache_policy() -> None:
+    resources = _template()["Resources"]
+    oac = resources["RecipeMediaOriginAccessControl"]["Properties"][
+        "OriginAccessControlConfig"
+    ]
+    distribution = resources["RecipeMediaDistribution"]["Properties"][
+        "DistributionConfig"
+    ]
+    behavior = distribution["DefaultCacheBehavior"]
+
+    assert oac["OriginAccessControlOriginType"] == "s3"
+    assert oac["SigningBehavior"] == "always"
+    assert oac["SigningProtocol"] == "sigv4"
+    assert behavior["CachePolicyId"] == "658327ea-f89d-4fab-a63d-7e88639e58f6"
+    assert behavior["ResponseHeadersPolicyId"] == (
+        "5cc3b908-e619-4b99-88e5-2cf7f45965bd"
+    )
+    assert behavior["ViewerProtocolPolicy"] == "redirect-to-https"
+    assert behavior["AllowedMethods"] == ["GET", "HEAD", "OPTIONS"]
+    assert distribution["HttpVersion"] == "http2and3"
+    assert distribution["IPV6Enabled"] is True
+    assert distribution["WebACLId"] == {"GetAtt": "RecipeMediaWebAcl.Arn"}
+
+
+def test_waf_blocks_non_thumbnail_paths_and_rate_limits_thumbnail_requests() -> None:
+    web_acl = _template()["Resources"]["RecipeMediaWebAcl"]["Properties"]
+    rules = {rule["Name"]: rule for rule in web_acl["Rules"]}
+
+    assert web_acl["DefaultAction"] == {"Block": {}}
+    allow_statement = rules["AllowThumbnailPaths"]["Statement"]["ByteMatchStatement"]
+    assert allow_statement["FieldToMatch"] == {"UriPath": {}}
+    assert allow_statement["PositionalConstraint"] == "STARTS_WITH"
+    assert allow_statement["SearchString"] == "/thumbnails/"
+
+    rate_statement = rules["RateLimitThumbnailRequests"]["Statement"][
+        "RateBasedStatement"
+    ]
+    assert rate_statement["AggregateKeyType"] == "IP"
+    assert rate_statement["EvaluationWindowSec"] == 300
+    assert rate_statement["Limit"] == {"Ref": "ThumbnailRateLimit"}
+    assert rate_statement["ScopeDownStatement"]["ByteMatchStatement"][
+        "SearchString"
+    ] == "/thumbnails/"
+
+
+def test_distribution_is_covered_by_the_free_flat_rate_plan() -> None:
+    subscription = _template()["Resources"]["RecipeMediaFreePricingPlan"]
+    properties = subscription["Properties"]
+
+    assert subscription["Type"] == "AWS::PricingPlanManager::Subscription"
+    assert properties["PlanFamily"] == "CloudFront"
+    assert properties["PlanTier"] == "FREE"
+    assert properties["UsageLevel"] == "DEFAULT"
+    assert len(properties["ResourceArns"]) == 2

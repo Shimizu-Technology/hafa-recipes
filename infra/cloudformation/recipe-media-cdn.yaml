@@ -1,0 +1,249 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Hafa Recipes public thumbnail delivery through CloudFront. This stack must be
+  deployed in us-east-1 because its CLOUDFRONT-scope WAF web ACL is global.
+
+Parameters:
+  ThumbnailBucketName:
+    Type: String
+    Description: Existing S3 bucket that stores recipe thumbnails.
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  ThumbnailBucketRegion:
+    Type: String
+    Default: ap-southeast-2
+    Description: AWS Region containing the existing thumbnail bucket.
+    AllowedPattern: '^[a-z]{2}(?:-gov)?-[a-z]+-\d$'
+  KeepLegacyPublicRead:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: >-
+      Keep direct public S3 reads during the compatibility window. Change to
+      false only after the API returns CDN URLs and the rollback path is proven.
+  MediaDomainName:
+    Type: String
+    Default: ''
+    Description: Optional custom hostname, for example media.hafa-recipes.com.
+  AcmCertificateArn:
+    Type: String
+    Default: ''
+    Description: >-
+      Optional us-east-1 ACM certificate ARN for MediaDomainName. Supply both
+      custom-domain parameters together or leave both empty.
+  ThumbnailRateLimit:
+    Type: Number
+    Default: 10000
+    MinValue: 100
+    Description: Maximum requests from one IP during a five-minute window.
+
+Rules:
+  CustomDomainRequiresCertificate:
+    Assertions:
+      - Assert:
+          Fn::Or:
+            - Fn::And:
+                - Fn::Equals:
+                    - Ref: MediaDomainName
+                    - ''
+                - Fn::Equals:
+                    - Ref: AcmCertificateArn
+                    - ''
+            - Fn::And:
+                - Fn::Not:
+                    - Fn::Equals:
+                        - Ref: MediaDomainName
+                        - ''
+                - Fn::Not:
+                    - Fn::Equals:
+                        - Ref: AcmCertificateArn
+                        - ''
+        AssertDescription: >-
+          MediaDomainName and AcmCertificateArn must either both be supplied or
+          both be empty.
+
+Conditions:
+  HasCustomDomain: !Not [!Equals [!Ref MediaDomainName, '']]
+  PreserveLegacyPublicRead: !Equals [!Ref KeepLegacyPublicRead, 'true']
+
+Resources:
+  RecipeMediaWebAcl:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub '${AWS::StackName}-web-acl'
+      Description: Allows recipe thumbnails and blocks all other bucket paths.
+      Scope: CLOUDFRONT
+      DefaultAction:
+        Block: {}
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub '${AWS::StackName}-web-acl'
+        SampledRequestsEnabled: true
+      Rules:
+        - Name: RateLimitThumbnailRequests
+          Priority: 0
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              AggregateKeyType: IP
+              EvaluationWindowSec: 300
+              Limit: !Ref ThumbnailRateLimit
+              ScopeDownStatement:
+                ByteMatchStatement:
+                  FieldToMatch:
+                    UriPath: {}
+                  PositionalConstraint: STARTS_WITH
+                  SearchString: /thumbnails/
+                  TextTransformations:
+                    - Priority: 0
+                      Type: NONE
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub '${AWS::StackName}-rate-limit'
+            SampledRequestsEnabled: true
+        - Name: AllowThumbnailPaths
+          Priority: 1
+          Action:
+            Allow: {}
+          Statement:
+            ByteMatchStatement:
+              FieldToMatch:
+                UriPath: {}
+              PositionalConstraint: STARTS_WITH
+              SearchString: /thumbnails/
+              TextTransformations:
+                - Priority: 0
+                  Type: NONE
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub '${AWS::StackName}-thumbnail-paths'
+            SampledRequestsEnabled: true
+      Tags:
+        - Key: Application
+          Value: hafa-recipes
+        - Key: Environment
+          Value: production
+        - Key: ManagedBy
+          Value: cloudformation
+
+  RecipeMediaOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Description: Signed access to Hafa Recipes public thumbnail objects.
+        Name: !Sub '${AWS::StackName}-oac'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  RecipeMediaDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases: !If
+          - HasCustomDomain
+          - - !Ref MediaDomainName
+          - !Ref AWS::NoValue
+        Comment: Hafa Recipes content-addressed recipe thumbnails
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          Compress: true
+          ResponseHeadersPolicyId: 5cc3b908-e619-4b99-88e5-2cf7f45965bd
+          TargetOriginId: RecipeThumbnailS3Origin
+          ViewerProtocolPolicy: redirect-to-https
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        Origins:
+          - DomainName: !Sub '${ThumbnailBucketName}.s3.${ThumbnailBucketRegion}.amazonaws.com'
+            Id: RecipeThumbnailS3Origin
+            OriginAccessControlId: !GetAtt RecipeMediaOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: none
+        ViewerCertificate: !If
+          - HasCustomDomain
+          - AcmCertificateArn: !Ref AcmCertificateArn
+            MinimumProtocolVersion: TLSv1.2_2021
+            SslSupportMethod: sni-only
+          - CloudFrontDefaultCertificate: true
+        WebACLId: !GetAtt RecipeMediaWebAcl.Arn
+      Tags:
+        - Key: Application
+          Value: hafa-recipes
+        - Key: Environment
+          Value: production
+        - Key: ManagedBy
+          Value: cloudformation
+
+  ThumbnailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Bucket: !Ref ThumbnailBucketName
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontReadRecipeThumbnails
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${ThumbnailBucketName}/thumbnails/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub >-
+                  arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${RecipeMediaDistribution}
+                AWS:SourceAccount: !Ref AWS::AccountId
+          - !If
+            - PreserveLegacyPublicRead
+            - Sid: PublicReadForThumbnails
+              Effect: Allow
+              Principal: '*'
+              Action: s3:GetObject
+              Resource: !Sub 'arn:${AWS::Partition}:s3:::${ThumbnailBucketName}/thumbnails/*'
+            - !Ref AWS::NoValue
+
+  RecipeMediaFreePricingPlan:
+    Type: AWS::PricingPlanManager::Subscription
+    Properties:
+      PlanFamily: CloudFront
+      PlanTier: FREE
+      UsageLevel: DEFAULT
+      ResourceArns:
+        - !Sub >-
+          arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${RecipeMediaDistribution}
+        - !GetAtt RecipeMediaWebAcl.Arn
+
+Outputs:
+  DistributionId:
+    Description: CloudFront distribution ID.
+    Value: !Ref RecipeMediaDistribution
+  DistributionDomainName:
+    Description: CloudFront-generated hostname.
+    Value: !GetAtt RecipeMediaDistribution.DomainName
+  MediaBaseUrl:
+    Description: Value to assign to Render RECIPE_MEDIA_BASE_URL.
+    Value: !If
+      - HasCustomDomain
+      - !Sub 'https://${MediaDomainName}'
+      - !Sub 'https://${RecipeMediaDistribution.DomainName}'
+  PricingPlanArn:
+    Description: Free flat-rate pricing subscription ARN.
+    Value: !Ref RecipeMediaFreePricingPlan
+  WebAclArn:
+    Description: CloudFront-scope WAF web ACL ARN.
+    Value: !GetAtt RecipeMediaWebAcl.Arn
