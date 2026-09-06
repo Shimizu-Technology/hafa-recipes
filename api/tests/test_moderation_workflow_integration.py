@@ -184,6 +184,18 @@ async def test_report_block_moderate_and_recover_workflow(monkeypatch):
                 user=None,
             )
             assert visible.total == 1
+            assert visible.items[0].is_saved is False
+            saved_visible = await get_public_recipes(
+                limit=20,
+                offset=0,
+                source_type="website",
+                sort="recent",
+                extractor_id=None,
+                meal_type=None,
+                db=db,
+                user=reporter,
+            )
+            assert saved_visible.items[0].is_saved is True
             collection_recipes = await get_collection_recipes(
                 str(collection_id), reporter, db
             )

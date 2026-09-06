@@ -102,6 +102,68 @@ def test_recipe_responses_choose_list_and_hero_thumbnail_variants(monkeypatch):
     assert detail.thumbnail_url == f"{version_root}/hero.webp"
 
 
+def test_list_item_exposes_batched_saved_state(monkeypatch):
+    _, recipes = _load_recipe_routers(monkeypatch)
+    recipe = _public_recipe()
+
+    unsaved = recipes.recipe_to_list_item(recipe, viewer_user_id="viewer")
+    saved = recipes.recipe_to_list_item(
+        recipe,
+        viewer_user_id="viewer",
+        is_saved=True,
+    )
+
+    assert unsaved.is_saved is None
+    assert saved.is_saved is True
+
+
+@pytest.mark.asyncio
+async def test_saved_recipe_ids_are_loaded_once_for_the_page(monkeypatch):
+    _, recipes = _load_recipe_routers(monkeypatch)
+    first = _public_recipe()
+    second = _public_recipe()
+
+    class ScalarResult:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return [second.id]
+
+    class RecordingSession:
+        def __init__(self):
+            self.statements = []
+
+        async def execute(self, statement):
+            self.statements.append(statement)
+            return ScalarResult()
+
+    db = RecordingSession()
+    saved_ids = await recipes.saved_recipe_ids_for_viewer(
+        db,
+        "stable_app_user_id",
+        [first, second],
+    )
+
+    assert saved_ids == {second.id}
+    assert len(db.statements) == 1
+
+
+@pytest.mark.asyncio
+async def test_guest_saved_state_does_not_query_the_database(monkeypatch):
+    _, recipes = _load_recipe_routers(monkeypatch)
+
+    class FailingSession:
+        async def execute(self, statement):
+            raise AssertionError(f"guest lookup must not execute {statement}")
+
+    assert await recipes.saved_recipe_ids_for_viewer(
+        FailingSession(),
+        None,
+        [_public_recipe()],
+    ) == set()
+
+
 def test_detail_response_normalizes_legacy_ingredient_quantities(monkeypatch):
     _, recipes = _load_recipe_routers(monkeypatch)
     recipe = _public_recipe()
