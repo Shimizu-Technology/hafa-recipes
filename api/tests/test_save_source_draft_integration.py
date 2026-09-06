@@ -24,6 +24,7 @@ from app.routers.recipes import (
     RecipeEdit,
     RecipeUpdate,
     edit_recipe,
+    restore_original_recipe,
     restore_recipe_version,
     update_recipe,
 )
@@ -206,6 +207,241 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
             assert correction.quantity_change_count == 1
             assert correction.resolved_missing_quantity_count == 1
             assert correction.changed_field_count >= 1
+
+            field_review_recipe = Recipe(
+                id=uuid4(),
+                source_url="https://example.com/field-review",
+                source_type="youtube",
+                extracted=uncertain_extracted,
+                extraction_method="whisper",
+                has_audio_transcript=True,
+                user_id=owner.id,
+                is_public=False,
+            )
+            field_review_recipe_id = field_review_recipe.id
+            apply_recipe_review(field_review_recipe, uncertain_extracted)
+            db.add(field_review_recipe)
+            await db.commit()
+
+            partially_reviewed = await edit_recipe(
+                field_review_recipe_id,
+                RecipeEdit(
+                    title="Better unverified red rice",
+                    ingredients=[{"name": "rice", "quantity": None, "unit": None}],
+                    steps=["Cook the rice."],
+                    review_content_revision=1,
+                    verified_paths=["title"],
+                ),
+                db,
+                owner,
+            )
+            assert partially_reviewed.review_state == "needs_review"
+            assert partially_reviewed.content_revision == 2
+            assert partially_reviewed.extraction_evidence is not None
+            amount = next(
+                field
+                for field in partially_reviewed.extraction_evidence["fields"]
+                if field["path"] == "components.0.ingredients.0.quantity"
+            )
+            assert amount["status"] == "not_stated"
+
+            with pytest.raises(HTTPException) as stale:
+                await edit_recipe(
+                    field_review_recipe_id,
+                    RecipeEdit(
+                        title="Stale change",
+                        ingredients=[{"name": "rice", "quantity": None, "unit": None}],
+                        steps=["Cook the rice."],
+                        review_content_revision=1,
+                        verified_paths=[],
+                    ),
+                    db,
+                    owner,
+                )
+            assert stale.value.status_code == 409
+            await db.rollback()
+
+            current_paths = [
+                field["path"]
+                for field in partially_reviewed.extraction_evidence["fields"]
+            ]
+            fully_reviewed = await edit_recipe(
+                field_review_recipe_id,
+                RecipeEdit(
+                    title="Better unverified red rice",
+                    ingredients=[{"name": "rice", "quantity": None, "unit": None}],
+                    steps=["Cook the rice."],
+                    review_content_revision=2,
+                    verified_paths=current_paths,
+                ),
+                db,
+                owner,
+            )
+            assert fully_reviewed.review_state == "ready"
+            assert fully_reviewed.extraction_evidence is not None
+            assert fully_reviewed.extraction_evidence["assessment"][
+                "missingQuantityCount"
+            ] == 1
+            assert fully_reviewed.extraction_evidence["assessment"][
+                "unresolvedMissingQuantityCount"
+            ] == 0
+
+            published = await update_recipe(
+                field_review_recipe_id,
+                RecipeUpdate(is_public=True),
+                db,
+                owner,
+            )
+            assert published.is_public is True
+            assert published.review_state == "ready"
+
+            renamed_reviewed = await update_recipe(
+                field_review_recipe_id,
+                RecipeUpdate(title="Family red rice"),
+                db,
+                owner,
+            )
+            assert renamed_reviewed.is_public is True
+            assert renamed_reviewed.review_state == "ready"
+            assert renamed_reviewed.extracted.title == "Family red rice"
+            assert renamed_reviewed.extraction_evidence is not None
+            title_evidence = next(
+                field
+                for field in renamed_reviewed.extraction_evidence["fields"]
+                if field["path"] == "title"
+            )
+            assert title_evidence["status"] == "user_verified"
+
+            reviewed_original_extracted = {
+                **uncertain_extracted,
+                "title": "Reviewed original recipe",
+                "components": [{
+                    "name": "Main",
+                    "ingredients": [
+                        {"name": "rice", "quantity": "2", "unit": "cups"}
+                    ],
+                    "steps": ["Cook the rice."],
+                    "notes": None,
+                }],
+                "ingredients": [
+                    {"name": "rice", "quantity": "2", "unit": "cups"}
+                ],
+            }
+            reviewed_original_recipe = Recipe(
+                id=uuid4(),
+                source_url="https://example.com/reviewed-original",
+                source_type="youtube",
+                extracted=reviewed_original_extracted,
+                extraction_method="whisper",
+                has_audio_transcript=True,
+                user_id=owner.id,
+                is_public=True,
+            )
+            original_assessment = apply_recipe_review(
+                reviewed_original_recipe,
+                reviewed_original_extracted,
+                user_reviewed=True,
+            )
+            db.add(reviewed_original_recipe)
+            await db.flush()
+            db.add(
+                RecipeVersion(
+                    recipe_id=reviewed_original_recipe.id,
+                    version_number=1,
+                    extracted=reviewed_original_extracted,
+                    review_state=original_assessment.state,
+                    extraction_evidence=original_assessment.evidence,
+                    content_revision=1,
+                    change_type="re-extract",
+                    created_by=owner.id,
+                )
+            )
+            reviewed_original_recipe.original_extracted = reviewed_original_extracted
+            edited_extracted = {
+                **reviewed_original_extracted,
+                "title": "Reviewed edited recipe",
+            }
+            apply_recipe_review(
+                reviewed_original_recipe,
+                edited_extracted,
+                user_reviewed=True,
+                increment_revision=True,
+            )
+            await db.commit()
+
+            restored_original = await restore_original_recipe(
+                reviewed_original_recipe.id,
+                db,
+                owner,
+            )
+            assert restored_original.extracted.title == "Reviewed original recipe"
+            assert restored_original.review_state == "ready"
+            assert restored_original.is_public is True
+            assert restored_original.extraction_evidence is not None
+            assert all(
+                field["status"] == "user_verified"
+                for field in restored_original.extraction_evidence["fields"]
+            )
+
+            partially_verified_original = {
+                **reviewed_original_extracted,
+                "title": "Partially reviewed original",
+            }
+            apply_recipe_review(
+                reviewed_original_recipe,
+                partially_verified_original,
+                increment_revision=True,
+            )
+            partial_original_assessment = apply_recipe_review(
+                reviewed_original_recipe,
+                partially_verified_original,
+                increment_revision=True,
+                previous_extracted=partially_verified_original,
+                verified_paths={"title"},
+            )
+            reviewed_original_recipe.original_extracted = partially_verified_original
+            db.add(
+                RecipeVersion(
+                    recipe_id=reviewed_original_recipe.id,
+                    version_number=2,
+                    extracted=partially_verified_original,
+                    review_state=partial_original_assessment.state,
+                    extraction_evidence=partial_original_assessment.evidence,
+                    content_revision=reviewed_original_recipe.content_revision,
+                    change_type="re-extract",
+                    created_by=owner.id,
+                )
+            )
+            current_extracted = {
+                **reviewed_original_extracted,
+                "title": "Current reviewed recipe",
+            }
+            apply_recipe_review(
+                reviewed_original_recipe,
+                current_extracted,
+                user_reviewed=True,
+                increment_revision=True,
+            )
+            reviewed_original_recipe.is_public = True
+            await db.commit()
+
+            restored_partial = await restore_original_recipe(
+                reviewed_original_recipe.id,
+                db,
+                owner,
+            )
+            assert restored_partial.review_state == "needs_review"
+            assert restored_partial.is_public is False
+            assert restored_partial.extraction_evidence is not None
+            restored_fields = {
+                field["path"]: field["status"]
+                for field in restored_partial.extraction_evidence["fields"]
+            }
+            assert restored_fields["title"] == "user_verified"
+            assert (
+                restored_fields["components.0.ingredients.0.quantity"]
+                == "supported"
+            )
 
             structured_extracted = {
                 "title": "Structured recipe",
