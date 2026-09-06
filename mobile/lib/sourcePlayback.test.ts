@@ -31,7 +31,8 @@ describe('getSourcePlayback', () => {
       'https://youtu.be/abcDEF_1234?si=tracking',
       'https://m.youtube.com/shorts/abcDEF_1234',
     ]) {
-      expect(getSourcePlayback(sourceUrl)).toMatchObject({
+      const playback = getSourcePlayback(sourceUrl);
+      expect(playback).toMatchObject({
         provider: 'youtube',
         providerLabel: 'YouTube',
         mode: 'modal',
@@ -39,6 +40,9 @@ describe('getSourcePlayback', () => {
         embedUrl: expect.stringContaining('/embed/abcDEF_1234?'),
         requestHeaders: { Referer: YOUTUBE_APP_REFERRER },
       });
+      expect(playback?.mode === 'modal' && playback.embedUrl).toContain(
+        'https://www.youtube-nocookie.com/embed/',
+      );
     }
   });
 
@@ -120,6 +124,10 @@ describe('isSourcePlaybackNavigationAllowed', () => {
     expect(isSourcePlaybackNavigationAllowed(
       youtube,
       'https://www.youtube.com/watch?v=abcDEF_1234',
+    )).toBe(false);
+    expect(isSourcePlaybackNavigationAllowed(
+      youtube,
+      'https://www.youtube.com/embed/abcDEF_1234',
     )).toBe(false);
     expect(isSourcePlaybackNavigationAllowed(
       youtube,

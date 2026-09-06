@@ -66,7 +66,9 @@ describe('SourcePlaybackCard', () => {
         (instance) => instance.props.accessibilityLabel
           === 'Play YouTube video for Chicken Kelaguen',
       )[0];
-      expect(preview.props.accessibilityHint).toBe('Opens a full-screen player');
+      expect(preview.props.accessibilityHint).toBe(
+        'Loading this player connects to YouTube; its privacy terms apply',
+      );
 
       await act(async () => preview.props.onPress());
 
@@ -75,6 +77,45 @@ describe('SourcePlaybackCard', () => {
       )[0];
       expect(modal.props).toMatchObject({ visible: true, playback: youtubePlayback });
       await act(async () => modal.props.onClose());
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'SourcePlaybackModal',
+      )).toHaveLength(0);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('turns a modal provider into one external action when playback is rolled back', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    const onOpenSource = vi.fn();
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(SourcePlaybackCard, {
+          playback: youtubePlayback,
+          recipeTitle: 'Chicken Kelaguen',
+          thumbnailUrl: 'https://example.com/thumbnail.jpg',
+          onOpenSource,
+          embeddedPlaybackEnabled: false,
+        }));
+      });
+
+      const externalAction = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel
+          === 'Watch original video on YouTube for Chicken Kelaguen',
+      )[0];
+      expect(externalAction.props.accessibilityRole).toBe('link');
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'SourcePlaybackModal',
+      )).toHaveLength(0);
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityRole === 'link',
+      )).toHaveLength(1);
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.children === 'YouTube opens in its app or website.',
+      )).toHaveLength(1);
+
+      await act(async () => externalAction.props.onPress());
+      expect(onOpenSource).toHaveBeenCalledOnce();
       expect(renderer.container.queryAll(
         (instance) => instance.type === 'SourcePlaybackModal',
       )).toHaveLength(0);

@@ -1,6 +1,7 @@
 import { StyleSheet } from 'react-native';
 
 import { getSourcePlayback } from '../lib/sourcePlayback';
+import { getSourcePlaybackMode } from '../lib/sourcePlaybackConfig';
 import { SourcePlaybackCard } from './SourcePlaybackCard';
 import { RecipeThumbnail } from './RecipeThumbnail';
 
@@ -34,6 +35,7 @@ export function RecipeHero({
         thumbnailUrl={usableThumbnailUrl}
         onThumbnailError={onImageError}
         onOpenSource={onOpenSource}
+        embeddedPlaybackEnabled={getSourcePlaybackMode() === 'embedded'}
       />
     );
   }

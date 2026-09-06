@@ -14,6 +14,7 @@ type SourcePlaybackCardProps = {
   thumbnailUrl?: string | null;
   onThumbnailError?: () => void;
   onOpenSource: () => void | Promise<void>;
+  embeddedPlaybackEnabled?: boolean;
 };
 
 const PROVIDER_ICONS = {
@@ -27,11 +28,14 @@ function mediaLabel(kind: SourceMediaKind): string {
   return kind;
 }
 
-function previewAction(playback: SourcePlayback): string {
-  if (playback.mode === 'external') {
+function previewAction(playback: SourcePlayback, opensExternally: boolean): string {
+  if (opensExternally) {
     if (playback.mediaKind === 'post') return 'View original post on Instagram';
     if (playback.mediaKind === 'reel') return 'Watch original Reel on Instagram';
-    return 'Watch original video on Instagram';
+    if (playback.mediaKind === 'photo') {
+      return `View original photo post on ${playback.providerLabel}`;
+    }
+    return `Watch original video on ${playback.providerLabel}`;
   }
   return playback.mediaKind === 'photo'
     ? 'View TikTok photo post'
@@ -45,12 +49,13 @@ export function SourcePlaybackCard({
   thumbnailUrl,
   onThumbnailError,
   onOpenSource,
+  embeddedPlaybackEnabled = true,
 }: SourcePlaybackCardProps) {
   const colors = useColors();
   const [isPlayerVisible, setIsPlayerVisible] = useState(false);
   const shouldOpenSource = useRef(false);
-  const actionLabel = previewAction(playback);
-  const isExternal = playback.mode === 'external';
+  const isExternal = playback.mode === 'external' || !embeddedPlaybackEnabled;
+  const actionLabel = previewAction(playback, isExternal);
 
   useEffect(() => {
     if (isPlayerVisible || !shouldOpenSource.current) return;
@@ -81,7 +86,7 @@ export function SourcePlaybackCard({
         accessibilityLabel={`${actionLabel} for ${recipeTitle}`}
         accessibilityHint={isExternal
           ? 'Opens the original source outside Håfa Recipes'
-          : 'Opens a full-screen player'}
+          : `Loading this player connects to ${playback.providerLabel}; its privacy terms apply`}
       >
         <RecipeThumbnail
           uri={thumbnailUrl}
@@ -117,12 +122,14 @@ export function SourcePlaybackCard({
       <RNView style={styles.footer}>
         <RNView style={styles.footerCopy}>
           <Text style={[styles.footerTitle, { color: colors.text }]}>
-            {isExternal ? 'Continue with the creator' : 'Watch the original'}
+            {isExternal
+              ? 'Continue with the creator'
+              : `Watch here or on ${playback.providerLabel}`}
           </Text>
           <Text style={[styles.footerText, { color: colors.textMuted }]}>
             {isExternal
-              ? 'Instagram opens in its app or website.'
-              : `Opens a focused ${playback.providerLabel} player.`}
+              ? `${playback.providerLabel} opens in its app or website.`
+              : `Loading this player connects to ${playback.providerLabel}; its privacy terms apply.`}
           </Text>
         </RNView>
         {!isExternal && (
@@ -138,7 +145,7 @@ export function SourcePlaybackCard({
         )}
       </RNView>
 
-      {playback.mode === 'modal' && isPlayerVisible && (
+      {playback.mode === 'modal' && embeddedPlaybackEnabled && isPlayerVisible && (
         <SourcePlaybackModal
           key={playback.embedUrl}
           visible

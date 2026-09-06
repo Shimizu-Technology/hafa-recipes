@@ -34,6 +34,8 @@ then use `npm start` for subsequent Metro sessions.
 EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
 EXPO_PUBLIC_CLERK_ENVIRONMENT=development
 EXPO_PUBLIC_APP_ENV=development
+# `external` keeps source links but disables in-app YouTube/TikTok players
+EXPO_PUBLIC_SOURCE_PLAYBACK_MODE=embedded
 # Usually auto-detected; set only if the simulator/device cannot find the host
 # EXPO_PUBLIC_API_BASE_URL=http://localhost:8000
 
@@ -47,6 +49,18 @@ For production builds, set these in **Expo Dashboard → Environment variables**
 must use `production` with a matching `pk_live_` publishable key. The historical
 bridge release intentionally used development credentials, but current source
 fails closed if a production build is configured that way again.
+
+`EXPO_PUBLIC_SOURCE_PLAYBACK_MODE` is the playback rollback control. `embedded`
+allows the user-initiated YouTube and TikTok players; `external` keeps the same
+creator-source actions but never mounts a provider WebView. Builds made after
+the EAS Update setup include the native update client and environment-specific
+channels. Store this plaintext variable in each matching EAS environment so
+builds and updates resolve the same value. To roll back, set `external` in the
+preview EAS environment. Publish it with
+`eas update --channel preview --environment preview`, verify it, then repeat
+both steps for production. Restore `embedded` through the same preview-first
+flow. App versions installed before the update client ships still require a new
+binary.
 
 Customers who missed the bridge can use **Find my existing recipes** on the
 sign-in screen. It verifies the existing account by email code and never creates

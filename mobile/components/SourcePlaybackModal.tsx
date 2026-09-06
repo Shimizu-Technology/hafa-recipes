@@ -223,7 +223,7 @@ export function SourcePlaybackModal({
               {recipeTitle}
             </Text>
             <Text style={[styles.footerText, { color: colors.textMuted }]}>
-              Playback stays with the creator.
+              Player provided by {playback.providerLabel}. Its privacy terms apply.
             </Text>
           </RNView>
           <TouchableOpacity
