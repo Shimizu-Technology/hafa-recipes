@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     isLoaded: true,
     isSignedIn: true as boolean | undefined,
   },
+  listInfoState: { is_shared: false },
   listEnabledArgs: [] as boolean[],
   countEnabledArgs: [] as boolean[],
   refetch: vi.fn(),
@@ -193,7 +194,7 @@ vi.mock('@/hooks/useGrocery', () => ({
       refetch: mocks.refetch,
     };
   },
-  useGroceryListInfo: () => ({ data: { is_shared: false } }),
+  useGroceryListInfo: () => ({ data: mocks.listInfoState }),
   useGrocerySync: () => ({ lastSyncResult: null, clearSyncResult: vi.fn() }),
   useToggleGroceryItem: mutation,
   useUpdateGroceryItem: mutation,
@@ -227,6 +228,7 @@ describe('GroceryScreen shopping views', () => {
   beforeEach(() => {
     mocks.authState.isLoaded = true;
     mocks.authState.isSignedIn = true;
+    mocks.listInfoState.is_shared = false;
     mocks.listEnabledArgs = [];
     mocks.countEnabledArgs = [];
     mocks.collapsedSections = JSON.stringify(['recipe:recipe-1']);
@@ -289,6 +291,39 @@ describe('GroceryScreen shopping views', () => {
       )).toHaveLength(0);
       expect(renderer.container.queryAll(
         (instance) => instance.type === 'TextInput',
+      )).toHaveLength(0);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('hides cached account data and shared-list controls after sign-out', async () => {
+    mocks.collapsedSections = '[]';
+    mocks.groceryState.items = [item({ id: 'private-rice', name: 'Private rice' })];
+    mocks.listInfoState.is_shared = true;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(GroceryScreen));
+      });
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'ScalePressable',
+      )).toHaveLength(1);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Ionicons' && instance.props.name === 'people',
+      )).toHaveLength(1);
+
+      mocks.authState.isSignedIn = false;
+      await act(async () => {
+        renderer.render(React.createElement(GroceryScreen));
+      });
+
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'ScalePressable',
+      )).toHaveLength(0);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Ionicons' && instance.props.name === 'people',
       )).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());

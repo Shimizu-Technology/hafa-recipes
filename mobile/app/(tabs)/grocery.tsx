@@ -760,7 +760,7 @@ export default function GroceryScreen() {
           onPress={isAuthenticated && listInfo?.is_shared ? () => setShowSettings(true) : undefined}
           activeOpacity={isAuthenticated && listInfo?.is_shared ? 0.7 : 1}
         >
-          {listInfo?.is_shared && (
+          {isAuthenticated && listInfo?.is_shared && (
             <Ionicons name="people" size={14} color={colors.success} style={styles.subtitleIcon} />
           )}
           <Text style={[styles.subtitleText, { color: colors.textSecondary }]}>
@@ -877,7 +877,7 @@ export default function GroceryScreen() {
       </RNView>
 
       <SectionList
-        sections={sections}
+        sections={isAuthenticated ? sections : []}
         renderItem={renderItem}
         renderSectionHeader={renderSectionHeader}
         keyExtractor={(item) => item.id}
