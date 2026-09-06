@@ -65,6 +65,20 @@ MAX_RECIPE_UPLOAD_BYTES = 10 * 1024 * 1024
 settings = get_settings()
 
 
+def preserve_current_thumbnail(
+    extracted: dict,
+    thumbnail_url: str | None,
+) -> dict:
+    """Restore recipe content without reviving a stale historical image URL."""
+    restored = deepcopy(extracted)
+    media = restored.get("media")
+    if not isinstance(media, dict):
+        media = {}
+    media["thumbnail"] = thumbnail_url
+    restored["media"] = media
+    return restored
+
+
 def normalized_recipe_extracted(recipe: Recipe) -> dict:
     """
     Normalize recipe data to ensure all required fields have valid values.
@@ -2288,6 +2302,12 @@ async def restore_original_recipe(
         if original_evidence is not None
         else {}
     )
+    # Image selection is independent from content history. Preserve the current
+    # canonical image so a restore cannot revive an expired legacy source URL.
+    original_extracted = preserve_current_thumbnail(
+        original_extracted,
+        recipe.thumbnail_url,
+    )
     # Restore the original content and its matching review evidence when available.
     apply_recipe_review(
         recipe,
@@ -3004,13 +3024,17 @@ async def restore_recipe_version(
     restored_method = evidence_source_method(version_to_restore.extraction_evidence)
     if restored_method:
         recipe.extraction_method = restored_method
+    restored_extracted = preserve_current_thumbnail(
+        dict(version_to_restore.extracted),
+        recipe.thumbnail_url,
+    )
     apply_recipe_review(
         recipe,
-        dict(version_to_restore.extracted),
+        restored_extracted,
         user_reviewed=restored_reviewed,
         increment_revision=True,
         previous_extracted=(
-            dict(version_to_restore.extracted) if restored_field_review else None
+            restored_extracted if restored_field_review else None
         ),
         previous_evidence=restored_evidence,
         verified_paths=(
@@ -3025,9 +3049,6 @@ async def restore_recipe_version(
     if recipe.is_public:
         require_recipe_publishable(recipe)
         await require_current_publishing_disclosure(db, user.id)
-    if version_to_restore.thumbnail_url:
-        recipe.thumbnail_url = version_to_restore.thumbnail_url
-
     await db.commit()
     await db.refresh(recipe)
 

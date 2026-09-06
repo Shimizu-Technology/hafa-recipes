@@ -365,6 +365,23 @@ Apply it before enabling `JOB_WORKER_ENABLED`; the API startup preflight refuses
 to run the worker against an incomplete queue schema. See
 `docs/DURABLE_EXTRACTION_QUEUE_RUNBOOK.md` for rollout and rollback steps.
 
+## Legacy Thumbnail Backfill
+
+Legacy public-recipe images are repaired by a separate bounded operator command.
+Migration 028 installs the empty append-only audit schema during pre-deploy;
+the image repair itself is dry-run by default and must not be added to Render
+pre-deploy:
+
+```bash
+uv run python -m app.thumbnail_backfill --batch-size 10
+```
+
+Apply mode requires the repeated dry-run's exact row count, source-byte total,
+destination fingerprint, runtime-derived release ID, and plan digest plus a
+unique backfill ID and verified restore-point name. See
+`../docs/THUMBNAIL-BACKFILL-RUNBOOK.md` for the complete rollout, resume, and
+reconciliation procedure.
+
 ## Deployment (Render)
 
 1. Connect GitHub repo to Render

@@ -1,5 +1,6 @@
 """Release-contract tests for the active migration runner."""
 
+from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -7,6 +8,10 @@ import pytest
 
 from migrations import run as migration_runner
 from scripts import seed_development
+
+thumbnail_audit_migration = import_module(
+    "migrations.028_add_thumbnail_backfill_audit"
+)
 
 
 @pytest.mark.asyncio
@@ -66,6 +71,15 @@ def test_render_runs_the_locked_repair_before_the_versioned_migration_runner():
     assert "python -m migrations.022_add_admin_moderation" not in render_config
 
 
+def test_render_never_runs_remote_thumbnail_backfill_during_deploy():
+    """A long remote-image repair must remain an explicit operator action."""
+    render_config = (
+        Path(__file__).resolve().parents[2] / "render.yaml"
+    ).read_text(encoding="utf-8")
+
+    assert "thumbnail_backfill" not in render_config
+
+
 def test_runner_registers_every_active_numbered_migration_file():
     migrations_directory = Path(migration_runner.__file__).resolve().parent
     first_active_version = int(
@@ -80,6 +94,41 @@ def test_runner_registers_every_active_numbered_migration_file():
     assert discovered_modules == migration_runner.ACTIVE_MIGRATIONS
     assert migration_runner.LATEST_MIGRATION == int(
         discovered_modules[-1].removeprefix("migrations.")[:3]
+    )
+
+
+def test_thumbnail_audit_migration_requires_production_restore_point(monkeypatch):
+    monkeypatch.setattr(
+        thumbnail_audit_migration,
+        "settings",
+        SimpleNamespace(
+            environment="production",
+            migration_028_restore_point=None,
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="MIGRATION_028_RESTORE_POINT"):
+        thumbnail_audit_migration._require_production_restore_point(
+            migration_already_applied=False,
+        )
+
+
+def test_thumbnail_audit_migration_allows_verified_or_completed_run(monkeypatch):
+    monkeypatch.setattr(
+        thumbnail_audit_migration,
+        "settings",
+        SimpleNamespace(
+            environment="production",
+            migration_028_restore_point=" verified-neon-restore ",
+        ),
+    )
+    thumbnail_audit_migration._require_production_restore_point(
+        migration_already_applied=False,
+    )
+
+    thumbnail_audit_migration.settings.migration_028_restore_point = None
+    thumbnail_audit_migration._require_production_restore_point(
+        migration_already_applied=True,
     )
 
 

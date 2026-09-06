@@ -18,8 +18,9 @@ ACTIVE_MIGRATIONS = (
     "migrations.025_add_publishing_disclosure_version",
     "migrations.026_add_recipe_review_state",
     "migrations.027_add_recipe_correction_events",
+    "migrations.028_add_thumbnail_backfill_audit",
 )
-LATEST_MIGRATION = 27
+LATEST_MIGRATION = 28
 
 
 async def run_migrations() -> None:

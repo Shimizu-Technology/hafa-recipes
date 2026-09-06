@@ -7,7 +7,11 @@ import pytest
 from PIL import Image
 
 import app.services.storage as storage
-from app.services.storage import StorageCleanupError, StorageService
+from app.services.storage import (
+    StorageCleanupError,
+    StorageService,
+    is_versioned_thumbnail_url,
+)
 
 
 @asynccontextmanager
@@ -27,6 +31,21 @@ class RecordingS3:
 
     def put_object(self, **kwargs):
         self.puts.append(kwargs)
+
+
+class ReadableS3(RecordingS3):
+    def __init__(self, image_data: bytes):
+        super().__init__()
+        self.image_data = image_data
+        self.gets = []
+
+    def get_object(self, **kwargs):
+        self.gets.append(kwargs)
+        return {
+            "Body": io.BytesIO(self.image_data),
+            "ContentLength": len(self.image_data),
+            "ContentType": "image/png",
+        }
 
 
 class ChatImageS3(RecordingS3):
@@ -202,6 +221,255 @@ def test_thumbnail_delivery_maps_owned_legacy_and_preserves_external(monkeypatch
         "https://media.hafa.example/thumbnails/old.webp"
     )
     assert service.thumbnail_delivery_url(external, variant="list") == external
+
+
+def test_versioned_thumbnail_detection_is_host_independent_and_exact():
+    version_root = f"thumbnails/recipe-id/{'a' * 64}"
+
+    assert is_versioned_thumbnail_url(
+        f"https://media.hafa.example/{version_root}/list.webp"
+    )
+    assert is_versioned_thumbnail_url(
+        f"https://bucket.s3.amazonaws.com/{version_root}/hero.webp"
+    )
+    assert not is_versioned_thumbnail_url(
+        "https://bucket.s3.amazonaws.com/thumbnails/legacy.webp"
+    )
+    assert not is_versioned_thumbnail_url(
+        f"https://media.hafa.example/{version_root}/unexpected.webp"
+    )
+
+
+def test_thumbnail_origin_recognizes_owned_s3_and_media_hosts(monkeypatch):
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+            recipe_media_base_url="https://media.hafa.example/assets",
+        ),
+    )
+    service = StorageService()
+
+    assert service.thumbnail_origin(
+        "https://recipe-images.s3.us-west-2.amazonaws.com/thumbnails/old.webp"
+    ) == "app_owned"
+    assert service.thumbnail_origin(
+        "https://media.hafa.example/assets/thumbnails/new.webp"
+    ) == "app_owned"
+    assert service.thumbnail_origin(
+        "https://images.example/recipe.jpg"
+    ) == "external"
+
+
+def test_owned_versioned_thumbnail_requires_strict_owned_https_url(monkeypatch):
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+            recipe_media_base_url="https://media.hafa.example/assets",
+        ),
+    )
+    service = StorageService()
+    recipe_id = "10000000-0000-4000-8000-000000000001"
+    version_root = f"thumbnails/{recipe_id}/{'a' * 64}"
+
+    assert service.is_owned_versioned_thumbnail_url(
+        f"https://recipe-images.s3.us-west-2.amazonaws.com/{version_root}/hero.webp",
+        recipe_id,
+    )
+    assert service.is_owned_versioned_thumbnail_url(
+        f"https://media.hafa.example/assets/{version_root}/list.webp",
+        recipe_id,
+    )
+    assert not service.is_owned_versioned_thumbnail_url(
+        f"https://provider.example/{version_root}/hero.webp",
+        recipe_id,
+    )
+    for unsafe in (
+        f"http://media.hafa.example/assets/{version_root}/hero.webp",
+        f"https://media.hafa.example:8443/assets/{version_root}/hero.webp",
+        f"https://user@media.hafa.example/assets/{version_root}/hero.webp",
+        f"https://media.hafa.example/assets/{version_root}/hero.webp?token=x",
+        f"https://media.hafa.example/assets/{version_root}/hero.webp#fragment",
+    ):
+        assert not service.is_owned_versioned_thumbnail_url(unsafe, recipe_id)
+
+
+@pytest.mark.asyncio
+async def test_owned_thumbnail_fetch_uses_authenticated_s3(monkeypatch):
+    image_data = _png_bytes("red")
+    fake_s3 = ReadableS3(image_data)
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_enabled=True,
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+            aws_access_key_id="key",
+            aws_secret_access_key="secret",
+            recipe_media_base_url="https://media.hafa.example/assets",
+        ),
+    )
+    service = StorageService()
+    service._client = fake_s3
+
+    validated = await service.fetch_thumbnail_source(
+        "https://media.hafa.example/assets/"
+        "thumbnails/10000000-0000-4000-8000-000000000001.png",
+        "10000000-0000-4000-8000-000000000001",
+    )
+
+    assert validated.data == image_data
+    assert fake_s3.gets == [
+        {
+            "Bucket": "recipe-images",
+            "Key": "thumbnails/10000000-0000-4000-8000-000000000001.png",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "key",
+    [
+        "chat-images/stable-user/photo.png",
+        "thumbnails/20000000-0000-4000-8000-000000000002/old.png",
+        "exports/archive.png",
+    ],
+)
+async def test_owned_thumbnail_fetch_rejects_cross_scope_keys(monkeypatch, key):
+    fake_s3 = ReadableS3(_png_bytes("red"))
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_enabled=True,
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+            aws_access_key_id="key",
+            aws_secret_access_key="secret",
+            recipe_media_base_url=None,
+        ),
+    )
+    service = StorageService()
+    service._client = fake_s3
+
+    with pytest.raises(ValueError, match="does not match recipe"):
+        await service.fetch_thumbnail_source(
+            f"https://recipe-images.s3.us-west-2.amazonaws.com/{key}",
+            "10000000-0000-4000-8000-000000000001",
+        )
+
+    assert fake_s3.gets == []
+
+
+def test_backfill_contract_uses_trusted_runtime_release(monkeypatch):
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "render-commit-abcdef123456")
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+            recipe_media_base_url="https://media.hafa.example",
+            app_release_id="manual-release-that-must-not-win",
+            environment="production",
+        ),
+    )
+
+    contract = StorageService().thumbnail_backfill_contract()
+
+    assert contract["release_id"] == "render-commit-abcdef123456"
+    assert len(contract["destination_fingerprint"]) == 64
+
+
+def test_backfill_contract_fingerprint_covers_every_destination_input(monkeypatch):
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "render-commit-abcdef123456")
+
+    def contract(**overrides):
+        values = {
+            "s3_bucket_name": "recipe-images",
+            "aws_region": "us-west-2",
+            "recipe_media_base_url": "https://media.hafa.example",
+            "app_release_id": "manual-release",
+            "environment": "production",
+        }
+        values.update(overrides)
+        monkeypatch.setattr(storage, "get_settings", lambda: SimpleNamespace(**values))
+        return StorageService().thumbnail_backfill_contract()
+
+    baseline = contract()["destination_fingerprint"]
+    assert contract(s3_bucket_name="other-bucket")["destination_fingerprint"] != baseline
+    assert contract(aws_region="us-east-1")["destination_fingerprint"] != baseline
+    assert (
+        contract(recipe_media_base_url="https://other-media.example")[
+            "destination_fingerprint"
+        ]
+        != baseline
+    )
+
+    monkeypatch.setattr(storage, "THUMBNAIL_TRANSFORM_VERSION", "test-transform-v2")
+    assert contract()["destination_fingerprint"] != baseline
+
+
+def test_backfill_contract_uses_configured_release_fallback_in_production(monkeypatch):
+    monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+            recipe_media_base_url=None,
+            app_release_id="manual-production-release",
+            environment="production",
+        ),
+    )
+
+    contract = StorageService().thumbnail_backfill_contract()
+
+    assert contract["release_id"] == "manual-production-release"
+
+
+def test_backfill_contract_rejects_local_release_in_production(monkeypatch):
+    monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+            recipe_media_base_url=None,
+            app_release_id="local-development",
+            environment="production",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="deployed release ID"):
+        StorageService().thumbnail_backfill_contract()
+
+
+def test_backfill_contract_rejects_padded_local_release_in_production(monkeypatch):
+    monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+            recipe_media_base_url=None,
+            app_release_id=" local-development ",
+            environment="production",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="deployed release ID"):
+        StorageService().thumbnail_backfill_contract()
 
 
 @pytest.mark.asyncio
