@@ -126,6 +126,8 @@ def test_recipe_media_base_url_requires_a_safe_https_origin():
         "https://user:secret@media.hafa.example",
         "https://media.hafa.example?token=secret",
         "https://media.hafa.example#fragment",
+        "https://media.hafa.example:not-a-port",
+        "https://media.hafa.example:70000",
     ):
         with pytest.raises(ValidationError, match="RECIPE_MEDIA_BASE_URL"):
             Settings(

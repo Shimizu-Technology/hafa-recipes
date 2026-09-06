@@ -262,7 +262,15 @@ class Settings(BaseSettings):
         if self.deletion_cleanup_max_attempts < 1:
             raise ValueError("DELETION_CLEANUP_MAX_ATTEMPTS must be at least 1")
         if self.recipe_media_base_url:
-            media_url = urlsplit(self.recipe_media_base_url)
+            media_url_error = (
+                "RECIPE_MEDIA_BASE_URL must be an HTTPS origin without credentials, "
+                "query parameters, or a fragment"
+            )
+            try:
+                media_url = urlsplit(self.recipe_media_base_url)
+                media_url.port
+            except ValueError as exc:
+                raise ValueError(media_url_error) from exc
             if (
                 media_url.scheme != "https"
                 or not media_url.hostname
@@ -271,10 +279,7 @@ class Settings(BaseSettings):
                 or media_url.query
                 or media_url.fragment
             ):
-                raise ValueError(
-                    "RECIPE_MEDIA_BASE_URL must be an HTTPS origin without credentials, "
-                    "query parameters, or a fragment"
-                )
+                raise ValueError(media_url_error)
         database_is_local = _database_target_is_local(self.database_url)
         if (
             self.environment == "development"
