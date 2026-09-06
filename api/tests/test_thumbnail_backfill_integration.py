@@ -243,6 +243,7 @@ async def test_apply_stops_before_storage_when_audit_migration_is_missing():
             thumbnail_url=source_url,
         )
         plan = await run_backfill(database_engine=database_engine, storage=storage)
+        fetch_calls_before_apply = len(storage.fetch_calls)
 
         with pytest.raises(ThumbnailBackfillBlocked, match="Migration 028"):
             await run_backfill(
@@ -251,6 +252,7 @@ async def test_apply_stops_before_storage_when_audit_migration_is_missing():
                 **_apply_kwargs(plan, backfill_id="migration-required-batch"),
             )
 
+        assert len(storage.fetch_calls) == fetch_calls_before_apply
         assert storage.store_calls == []
         async with database_engine.connect() as connection:
             assert not await connection.scalar(
