@@ -640,6 +640,10 @@ def recipe_to_detail_response(
         recipe.thumbnail_url,
         variant="hero",
     )
+    # Legacy rows can predate the column default and contain NULL. Keep the
+    # public detail contract aligned with list responses instead of turning an
+    # otherwise valid recipe into a response-validation 500.
+    response_data["has_audio_transcript"] = bool(recipe.has_audio_transcript)
     response_data["extracted"] = normalized_recipe_extracted(recipe)
     is_owner = bool(recipe.user_id and recipe.user_id == viewer_user_id)
     response = RecipeResponse.model_validate(response_data)
