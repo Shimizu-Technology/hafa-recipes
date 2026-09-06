@@ -180,6 +180,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     app_release_id: str = "local-development"
     migration_027_restore_point: str | None = None
+    migration_028_restore_point: str | None = None
     cors_origins: str = ""
     enable_sentry_debug: bool = False
     

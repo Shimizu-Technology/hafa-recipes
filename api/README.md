@@ -368,7 +368,9 @@ to run the worker against an incomplete queue schema. See
 ## Legacy Thumbnail Backfill
 
 Legacy public-recipe images are repaired by a separate bounded operator command.
-It is dry-run by default and must not be added to Render pre-deploy:
+Migration 028 installs the empty append-only audit schema during pre-deploy;
+the image repair itself is dry-run by default and must not be added to Render
+pre-deploy:
 
 ```bash
 uv run python -m app.thumbnail_backfill --batch-size 10

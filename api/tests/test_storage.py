@@ -388,6 +388,54 @@ def test_backfill_contract_uses_trusted_runtime_release(monkeypatch):
     assert len(contract["destination_fingerprint"]) == 64
 
 
+def test_backfill_contract_fingerprint_covers_every_destination_input(monkeypatch):
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "render-commit-abcdef123456")
+
+    def contract(**overrides):
+        values = {
+            "s3_bucket_name": "recipe-images",
+            "aws_region": "us-west-2",
+            "recipe_media_base_url": "https://media.hafa.example",
+            "app_release_id": "manual-release",
+            "environment": "production",
+        }
+        values.update(overrides)
+        monkeypatch.setattr(storage, "get_settings", lambda: SimpleNamespace(**values))
+        return StorageService().thumbnail_backfill_contract()
+
+    baseline = contract()["destination_fingerprint"]
+    assert contract(s3_bucket_name="other-bucket")["destination_fingerprint"] != baseline
+    assert contract(aws_region="us-east-1")["destination_fingerprint"] != baseline
+    assert (
+        contract(recipe_media_base_url="https://other-media.example")[
+            "destination_fingerprint"
+        ]
+        != baseline
+    )
+
+    monkeypatch.setattr(storage, "THUMBNAIL_TRANSFORM_VERSION", "test-transform-v2")
+    assert contract()["destination_fingerprint"] != baseline
+
+
+def test_backfill_contract_uses_configured_release_fallback_in_production(monkeypatch):
+    monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+            recipe_media_base_url=None,
+            app_release_id="manual-production-release",
+            environment="production",
+        ),
+    )
+
+    contract = StorageService().thumbnail_backfill_contract()
+
+    assert contract["release_id"] == "manual-production-release"
+
+
 def test_backfill_contract_rejects_local_release_in_production(monkeypatch):
     monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
     monkeypatch.setattr(
@@ -398,6 +446,24 @@ def test_backfill_contract_rejects_local_release_in_production(monkeypatch):
             aws_region="us-west-2",
             recipe_media_base_url=None,
             app_release_id="local-development",
+            environment="production",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="deployed release ID"):
+        StorageService().thumbnail_backfill_contract()
+
+
+def test_backfill_contract_rejects_padded_local_release_in_production(monkeypatch):
+    monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+            recipe_media_base_url=None,
+            app_release_id=" local-development ",
             environment="production",
         ),
     )

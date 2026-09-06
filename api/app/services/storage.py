@@ -251,14 +251,15 @@ class StorageService:
         fingerprint = hashlib.sha256(
             json.dumps(destination, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
-        release_id = os.environ.get("RENDER_GIT_COMMIT") or getattr(
+        raw_release_id = os.environ.get("RENDER_GIT_COMMIT") or getattr(
             settings,
             "app_release_id",
             None,
         )
-        if not release_id or not re.fullmatch(
+        release_id = (raw_release_id or "").strip()
+        if not re.fullmatch(
             r"[A-Za-z0-9][A-Za-z0-9._:@+-]{0,159}",
-            release_id.strip(),
+            release_id,
         ):
             raise ValueError("A safe runtime release ID is required for thumbnail backfill")
         if (
@@ -269,7 +270,7 @@ class StorageService:
         return {
             "destination_fingerprint": fingerprint,
             "transform_version": THUMBNAIL_TRANSFORM_VERSION,
-            "release_id": release_id.strip(),
+            "release_id": release_id,
         }
 
     async def fetch_thumbnail_source(

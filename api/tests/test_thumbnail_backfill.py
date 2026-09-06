@@ -6,6 +6,8 @@ import httpx
 import pytest
 
 from app.thumbnail_backfill import (
+    MAX_ATTEMPTS,
+    MAX_BATCH_SIZE,
     BackfillPlan,
     PlanItem,
     ThumbnailBackfillBlocked,
@@ -13,6 +15,7 @@ from app.thumbnail_backfill import (
     _failure_code,
     _validate_apply_arguments,
     _validate_plan_expectations,
+    _validate_scope,
 )
 
 
@@ -107,6 +110,26 @@ def test_cli_is_dry_run_by_default_and_bounds_scope():
     assert dry_run.batch_size == 50
     assert apply.apply is True
     assert apply.batch_size == 20
+
+
+@pytest.mark.parametrize("batch_size", [0, MAX_BATCH_SIZE + 1])
+def test_scope_rejects_out_of_bounds_batch_size(batch_size):
+    with pytest.raises(ThumbnailBackfillBlocked, match="batch_size must be between"):
+        _validate_scope(batch_size=batch_size, after_recipe_id=None)
+
+
+def test_apply_rejects_out_of_bounds_attempt_limit():
+    with pytest.raises(ThumbnailBackfillBlocked, match="max_attempts must be between"):
+        _validate_apply_arguments(
+            backfill_id="legacy-images-batch-1",
+            restore_point="verified-restore-point",
+            expected_rows=1,
+            expected_source_bytes=1,
+            expected_destination_fingerprint="e" * 64,
+            expected_plan_digest="d" * 64,
+            expected_release_id="release-1",
+            max_attempts=MAX_ATTEMPTS + 1,
+        )
 
 
 def test_failure_codes_distinguish_missing_and_oversized_sources():

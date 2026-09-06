@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from collections.abc import Awaitable, Callable
+from importlib import import_module
 from urllib.parse import urlparse
 
 import pytest
@@ -15,7 +16,11 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.image_validation import ValidatedImage
-from app.thumbnail_backfill import ThumbnailBackfillBlocked, run_backfill
+from app.thumbnail_backfill import (
+    BACKFILL_LOCK_NAME,
+    ThumbnailBackfillBlocked,
+    run_backfill,
+)
 from tests.database_safety import require_disposable_test_database
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
@@ -163,6 +168,10 @@ async def _create_recipe_schema(database_engine: AsyncEngine) -> None:
                 extracted JSONB NOT NULL DEFAULT '{}'::jsonb
             )
         """))
+        audit_migration = import_module(
+            "migrations.028_add_thumbnail_backfill_audit"
+        )
+        await audit_migration.install_thumbnail_backfill_audit_schema(connection)
 
 
 async def _insert_recipe(
@@ -280,9 +289,9 @@ async def test_backfill_is_dry_run_audited_retryable_and_idempotent():
         assert private_url not in storage.fetch_calls
         assert "not-audited" not in str(first_plan)
         async with database_engine.connect() as connection:
-            assert not await connection.scalar(
-                text("SELECT to_regclass('public.thumbnail_backfill_runs') IS NOT NULL")
-            )
+            assert await connection.scalar(
+                text("SELECT COUNT(*) FROM thumbnail_backfill_runs")
+            ) == 0
 
         applied = await run_backfill(
             database_engine=database_engine,
@@ -711,12 +720,24 @@ async def test_lost_global_lock_session_stops_and_resumes_safely():
             async with database_engine.begin() as connection:
                 lock_pid = await connection.scalar(
                     text("""
-                        SELECT pid
-                        FROM pg_locks
-                        WHERE locktype = 'advisory' AND granted
-                        ORDER BY pid
+                        SELECT locks.pid
+                        FROM pg_locks AS locks
+                        JOIN pg_stat_activity AS activity
+                          ON activity.pid = locks.pid
+                        WHERE locks.locktype = 'advisory'
+                          AND locks.granted
+                          AND activity.datname = current_database()
+                          AND locks.pid <> pg_backend_pid()
+                          AND locks.classid = (
+                              (hashtext(:lock_name)::bigint >> 32)
+                              & 4294967295
+                          )::oid
+                          AND locks.objid = (
+                              hashtext(:lock_name)::bigint & 4294967295
+                          )::oid
                         LIMIT 1
-                    """)
+                    """),
+                    {"lock_name": BACKFILL_LOCK_NAME},
                 )
                 assert lock_pid is not None
                 assert await connection.scalar(
@@ -782,9 +803,9 @@ async def test_apply_stops_before_audit_writes_when_plan_drifted():
                 **_apply_kwargs(plan, backfill_id="drifted-batch"),
             )
         async with database_engine.connect() as connection:
-            assert not await connection.scalar(
-                text("SELECT to_regclass('public.thumbnail_backfill_runs') IS NOT NULL")
-            )
+            assert await connection.scalar(
+                text("SELECT COUNT(*) FROM thumbnail_backfill_runs")
+            ) == 0
     finally:
         await _reset_schema(database_engine)
         await database_engine.dispose()

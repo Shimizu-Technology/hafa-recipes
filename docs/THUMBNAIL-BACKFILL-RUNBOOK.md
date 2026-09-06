@@ -1,11 +1,12 @@
 # Legacy Thumbnail Backfill Runbook
 
-This is a separate operator workflow. It is never part of Render pre-deploy or
-the versioned migration chain. It downloads legacy public-recipe images,
-creates the bounded `list.webp` and `hero.webp` variants, and swaps the current
-recipe URL. It never deletes the original image. Private recipes are excluded
-until private thumbnail delivery no longer depends on anonymously cacheable
-objects.
+The image repair is a separate operator workflow and never runs during Render
+pre-deploy. Migration 028 installs only its empty append-only audit schema; it
+does not inspect or rewrite recipes. The later operator command downloads
+legacy public-recipe images, creates the bounded `list.webp` and `hero.webp`
+variants, and swaps the current recipe URL. It never deletes the original
+image. Private recipes are excluded until private thumbnail delivery no longer
+depends on anonymously cacheable objects.
 
 ## Safety contract
 
@@ -36,11 +37,15 @@ objects.
 
 ## Before production apply
 
-1. Confirm every deployed writer now creates derivative images. Retire older
+1. Create and verify a Neon restore point before deploying migration 028, then
+   set `MIGRATION_028_RESTORE_POINT` to its operator-facing name. Confirm the
+   migration installed all three audit tables before attempting apply mode.
+2. Confirm every deployed writer now creates derivative images. Retire older
    legacy-writing releases before scanning the first page.
-2. Create and verify a Neon restore point. Record its exact operator-facing name.
-3. Confirm S3 credentials and bucket settings point to the intended environment.
-4. Start with a small batch (for example, 10), then increase only after checking
+3. Create and verify a fresh Neon restore point for the image repair itself.
+   Record its exact operator-facing name.
+4. Confirm S3 credentials and bucket settings point to the intended environment.
+5. Start with a small batch (for example, 10), then increase only after checking
    transfer, memory, API latency, and failure categories.
 
 ## Dry-run twice
