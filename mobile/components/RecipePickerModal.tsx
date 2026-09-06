@@ -12,7 +12,6 @@ import {
   Modal,
   FlatList,
   TouchableOpacity,
-  Image,
   View as RNView,
   TextInput,
   ActivityIndicator,
@@ -29,6 +28,7 @@ import { RecipeListItem } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { lightHaptic } from '@/utils/haptics';
 import { RecipeTrustBadge } from '@/components/RecipeTrustBadge';
+import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 
 type TabType = 'mine' | 'saved' | 'discover';
 
@@ -101,18 +101,12 @@ export function RecipePickerRow({ item, colors, onPress }: RecipePickerRowProps)
       onPress={onPress}
       activeOpacity={0.7}
     >
-      {item.thumbnail_url ? (
-        <Image source={{ uri: item.thumbnail_url }} style={styles.thumbnail} />
-      ) : (
-        <RNView
-          style={[
-            styles.thumbnailPlaceholder,
-            { backgroundColor: colors.tint + '15' },
-          ]}
-        >
-          <Ionicons name="restaurant-outline" size={24} color={colors.tint} />
-        </RNView>
-      )}
+      <RecipeThumbnail
+        uri={item.thumbnail_url}
+        style={styles.thumbnail}
+        accessibilityLabel={`${item.title} photo`}
+        placeholderIconSize={24}
+      />
       <RNView style={styles.recipeInfo}>
         <Text style={[styles.recipeTitle, { color: colors.text }]} numberOfLines={2}>
           {item.title}
@@ -628,13 +622,6 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: radius.sm,
-  },
-  thumbnailPlaceholder: {
-    width: 56,
-    height: 56,
-    borderRadius: radius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   recipeInfo: {
     flex: 1,

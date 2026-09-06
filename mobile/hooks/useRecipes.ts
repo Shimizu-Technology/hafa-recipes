@@ -87,6 +87,11 @@ export const recipeKeys = {
   discoverList: (filters: { limit?: number; offset?: number; sourceType?: string }) =>
     [...recipeKeys.discover(), 'list', filters] as const,
   discoverInfinite: (sourceType?: string) => [...recipeKeys.discover(), 'infinite', sourceType] as const,
+  discoverFeed: (
+    sourceType?: string,
+    sort: DiscoverSort = 'recent',
+    mealType?: string,
+  ) => [...recipeKeys.discoverInfinite(sourceType), sort, mealType] as const,
   discoverInfiniteSearch: (filters: SearchFilters) => [...recipeKeys.discover(), 'infiniteSearch', filters] as const,
   discoverSearch: (filters: SearchFilters) => [...recipeKeys.discover(), 'search', filters] as const,
   discoverCount: (sourceType?: string) => [...recipeKeys.discover(), 'count', sourceType] as const,
@@ -839,7 +844,7 @@ export function useInfiniteDiscoverRecipes(
   mealType?: string
 ) {
   return useInfiniteQuery({
-    queryKey: [...recipeKeys.discoverInfinite(sourceType), sort, mealType],
+    queryKey: recipeKeys.discoverFeed(sourceType, sort, mealType),
     queryFn: ({ pageParam = 0 }) => api.getPublicRecipes(PAGE_SIZE, pageParam, sourceType, sort, undefined, mealType),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {

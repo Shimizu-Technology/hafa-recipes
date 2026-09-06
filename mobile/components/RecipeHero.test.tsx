@@ -85,9 +85,11 @@ describe('RecipeHero', () => {
         }));
       });
 
-      const image = renderer.container.queryAll((instance) => instance.type === 'Image')[0];
+      const image = renderer.container.queryAll((instance) => instance.type === 'ExpoImage')[0];
       expect(image.props.source).toEqual({ uri: 'https://example.com/kelaguen.jpg' });
-      expect(image.props.accessibilityLabel).toBe('Chicken Kelaguen recipe');
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Chicken Kelaguen recipe',
+      )).toHaveLength(1);
       expect(renderer.container.queryAll(
         (instance) => instance.type === 'SourcePlaybackCard',
       )).toHaveLength(0);
@@ -112,6 +114,7 @@ describe('RecipeHero', () => {
         (instance) => instance.props.accessibilityLabel
           === 'Chicken Kelaguen recipe image placeholder',
       )).toHaveLength(1);
+      expect(renderer.container.queryAll((instance) => instance.type === 'ExpoImage')).toHaveLength(0);
       expect(renderer.container.queryAll((instance) => instance.type === 'Ionicons')).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());

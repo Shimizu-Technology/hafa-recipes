@@ -1,9 +1,8 @@
-import { Image, StyleSheet, View as RNView } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import { StyleSheet } from 'react-native';
 
-import { useColors } from '@/components/Themed';
 import { getSourcePlayback } from '../lib/sourcePlayback';
 import { SourcePlaybackCard } from './SourcePlaybackCard';
+import { RecipeThumbnail } from './RecipeThumbnail';
 
 type RecipeHeroProps = {
   recipeTitle: string;
@@ -23,7 +22,6 @@ export function RecipeHero({
   onImageError,
   onOpenSource,
 }: RecipeHeroProps) {
-  const colors = useColors();
   const playback = getSourcePlayback(sourceUrl);
 
   if (playback) {
@@ -38,24 +36,17 @@ export function RecipeHero({
     );
   }
 
-  if (thumbnailUrl && !imageError) {
-    return (
-      <Image
-        source={{ uri: thumbnailUrl }}
-        style={styles.heroImage}
-        onError={onImageError}
-        accessibilityLabel={`${recipeTitle} recipe`}
-      />
-    );
-  }
-
   return (
-    <RNView
-      style={[styles.placeholderHero, { backgroundColor: colors.tint + '15' }]}
-      accessibilityLabel={`${recipeTitle} recipe image placeholder`}
-    >
-      <Ionicons name="restaurant-outline" size={64} color={colors.tint} />
-    </RNView>
+    <RecipeThumbnail
+      uri={imageError ? null : thumbnailUrl}
+      style={thumbnailUrl && !imageError ? styles.heroImage : styles.placeholderHero}
+      onError={onImageError}
+      accessibilityLabel={thumbnailUrl && !imageError
+        ? `${recipeTitle} recipe`
+        : `${recipeTitle} recipe image placeholder`}
+      placeholderIconSize={64}
+      priority="high"
+    />
   );
 }
 
@@ -67,7 +58,5 @@ const styles = StyleSheet.create({
   placeholderHero: {
     width: '100%',
     height: 200,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
 });

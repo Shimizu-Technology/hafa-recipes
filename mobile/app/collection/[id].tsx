@@ -7,7 +7,6 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Image,
   RefreshControl,
   View as RNView,
   ActivityIndicator,
@@ -26,6 +25,7 @@ import { haptics } from '@/utils/haptics';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { AnimatedListItem, ScalePressable } from '@/components/Animated';
 import { RecipeTrustBadge } from '@/components/RecipeTrustBadge';
+import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 
 export function RecipeCard({
   recipe,
@@ -38,11 +38,7 @@ export function RecipeCard({
   onRemove: () => void;
   colors: ReturnType<typeof useColors>;
 }) {
-  const [imageError, setImageError] = useState(false);
-
   const { icon: sourceIcon, label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
-
-  const showPlaceholder = !recipe.thumbnail_url || imageError;
 
   return (
     <ScalePressable
@@ -50,17 +46,11 @@ export function RecipeCard({
       onPress={onPress}
     >
       {/* Thumbnail */}
-      {showPlaceholder ? (
-        <RNView style={[styles.placeholderThumbnail, { backgroundColor: colors.tint + '15' }]}>
-          <Ionicons name="restaurant-outline" size={32} color={colors.tint} />
-        </RNView>
-      ) : (
-        <Image
-          source={{ uri: recipe.thumbnail_url! }}
-          style={styles.thumbnail}
-          onError={() => setImageError(true)}
-        />
-      )}
+      <RecipeThumbnail
+        uri={recipe.thumbnail_url}
+        style={styles.thumbnail}
+        accessibilityLabel={`${recipe.title} photo`}
+      />
 
       {/* Content */}
       <RNView style={styles.cardContent}>
@@ -274,12 +264,6 @@ const styles = StyleSheet.create({
   thumbnail: {
     width: 100,
     height: 100,
-  },
-  placeholderThumbnail: {
-    width: 100,
-    height: 100,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   cardContent: {
     flex: 1,

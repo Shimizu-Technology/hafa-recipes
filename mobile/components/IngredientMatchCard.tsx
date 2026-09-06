@@ -1,7 +1,5 @@
-import { useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   StyleSheet,
   TouchableOpacity,
   View as RNView,
@@ -11,6 +9,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
 import type { IngredientMatchResult } from '@/types/recipe';
+import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 
 type IngredientMatchCardProps = {
   result: IngredientMatchResult;
@@ -54,7 +53,6 @@ export function IngredientMatchCard({
   isGroceryActionDisabled = false,
 }: IngredientMatchCardProps) {
   const colors = useColors();
-  const [imageFailed, setImageFailed] = useState(false);
   const { recipe } = result;
   const presentation = getIngredientMatchPresentation(result);
   const missingCount = result.missing_ingredients.length;
@@ -64,7 +62,6 @@ export function IngredientMatchCard({
     : presentation.tone === 'warning'
       ? colors.warning
       : colors.tint;
-  const showPlaceholder = !recipe.thumbnail_url || imageFailed;
 
   return (
     <RNView style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
@@ -75,19 +72,12 @@ export function IngredientMatchCard({
         accessibilityRole="link"
         accessibilityLabel={`Open ${recipe.title} recipe. ${presentation.label}. ${presentation.detail}`}
       >
-        {showPlaceholder ? (
-          <RNView style={[styles.thumbnail, styles.thumbnailPlaceholder, { backgroundColor: colors.tint + '14' }]}>
-            <Ionicons name="restaurant-outline" size={30} color={colors.tint} />
-          </RNView>
-        ) : (
-          <Image
-            source={{ uri: recipe.thumbnail_url! }}
-            style={styles.thumbnail}
-            onError={() => setImageFailed(true)}
-            accessible
-            accessibilityLabel={`${recipe.title} thumbnail`}
-          />
-        )}
+        <RecipeThumbnail
+          uri={recipe.thumbnail_url}
+          style={styles.thumbnail}
+          accessibilityLabel={`${recipe.title} thumbnail`}
+          placeholderIconSize={30}
+        />
 
         <RNView style={styles.content}>
           <RNView style={styles.titleRow}>
@@ -190,10 +180,6 @@ const styles = StyleSheet.create({
     width: 88,
     height: 88,
     borderRadius: radius.md,
-  },
-  thumbnailPlaceholder: {
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   content: {
     flex: 1,

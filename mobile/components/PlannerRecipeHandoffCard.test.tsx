@@ -85,11 +85,14 @@ describe('PlannerRecipeHandoffCard', () => {
 
       expect(textNodes(renderer).some((text) => text.props.children === 'Chicken Kelaguen')).toBe(true);
       const thumbnail = renderer.container.queryAll(
-        (instance) => instance.type === 'Image',
+        (instance) => instance.props.accessibilityLabel === 'Chicken Kelaguen thumbnail',
       )[0];
       expect(thumbnail.props.accessible).toBe(true);
       expect(thumbnail.props.accessibilityRole).toBe('image');
       expect(thumbnail.props.accessibilityLabel).toBe('Chicken Kelaguen thumbnail');
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'ExpoImage',
+      )).toHaveLength(1);
       const dismiss = renderer.container.queryAll(
         (instance) => instance.type === 'TouchableOpacity',
       ).find((button) => button.props.accessibilityLabel === 'Stop planning this recipe');
@@ -209,7 +212,7 @@ describe('PlannerRecipeHandoffCard', () => {
       expect(fallback[0].props.accessible).toBe(true);
       expect(fallback[0].props.accessibilityRole).toBe('image');
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'Image',
+        (instance) => instance.type === 'ExpoImage',
       )).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());

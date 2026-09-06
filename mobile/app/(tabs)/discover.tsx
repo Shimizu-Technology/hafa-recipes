@@ -3,7 +3,6 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Image,
   RefreshControl,
   View as RNView,
   ActivityIndicator,
@@ -59,6 +58,7 @@ import Animated, {
   withSequence,
   withSpring,
 } from 'react-native-reanimated';
+import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -168,11 +168,7 @@ function RecipeCard({
   colors: ReturnType<typeof useColors>;
   currentUserId?: string | null;
 }) {
-  const [imageError, setImageError] = useState(false);
-
   const { icon: sourceIcon, label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
-
-  const showPlaceholder = !recipe.thumbnail_url || imageError;
   const isOwner = recipe.is_owner ?? recipe.user_id === currentUserId;
   const contributorId = getContributorId(recipe);
 
@@ -190,24 +186,17 @@ function RecipeCard({
     >
       {/* Thumbnail with gradient overlay */}
       <RNView style={styles.thumbnailContainer}>
-        {showPlaceholder ? (
-          <RNView style={[styles.placeholderThumbnail, { backgroundColor: colors.tint + '15' }]}>
-            <Ionicons name="restaurant-outline" size={32} color={colors.tint} />
-          </RNView>
-        ) : (
-          <>
-            <Image
-              source={{ uri: recipe.thumbnail_url! }}
-              style={styles.thumbnail}
-              onError={() => setImageError(true)}
-            />
-            {/* Subtle gradient for depth */}
+        <RecipeThumbnail
+          uri={recipe.thumbnail_url}
+          style={styles.thumbnail}
+          accessibilityLabel={`${recipe.title} photo`}
+          overlay={(
             <LinearGradient
               colors={['transparent', 'rgba(0,0,0,0.3)']}
               style={styles.thumbnailOverlay}
             />
-          </>
-        )}
+          )}
+        />
         {/* Save button overlay */}
         {currentUserId && (
           <RNView style={styles.saveButtonContainer}>
@@ -310,9 +299,6 @@ function GridRecipeCard({
   colors: ReturnType<typeof useColors>;
   currentUserId?: string | null;
 }) {
-  const [imageError, setImageError] = useState(false);
-  const showPlaceholder = !recipe.thumbnail_url || imageError;
-
   // Can filter by this user if they have a user_id and display name, and it's not the current user
   const contributorId = getContributorId(recipe);
   const isOwner = recipe.is_owner ?? recipe.user_id === currentUserId;
@@ -325,17 +311,12 @@ function GridRecipeCard({
     >
       {/* Full card is the image with overlay */}
       <RNView style={styles.gridThumbnailContainer}>
-        {showPlaceholder ? (
-          <RNView style={[styles.gridPlaceholder, { backgroundColor: colors.tint + '15' }]}>
-            <Ionicons name="restaurant-outline" size={40} color={colors.tint} />
-          </RNView>
-        ) : (
-          <Image
-            source={{ uri: recipe.thumbnail_url! }}
-            style={styles.gridThumbnail}
-            onError={() => setImageError(true)}
-          />
-        )}
+        <RecipeThumbnail
+          uri={recipe.thumbnail_url}
+          style={styles.gridThumbnail}
+          accessibilityLabel={`${recipe.title} photo`}
+          placeholderIconSize={40}
+        />
 
         {/* Cook time badge - top left */}
         {recipe.total_time && (
@@ -1465,12 +1446,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  gridPlaceholder: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   gridTimeBadge: {
     position: 'absolute',
     bottom: spacing.xs,
@@ -1542,12 +1517,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: '40%',
-  },
-  placeholderThumbnail: {
-    width: 110,
-    height: 130,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   saveButtonContainer: {
     position: 'absolute',
