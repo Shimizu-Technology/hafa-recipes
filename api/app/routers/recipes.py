@@ -2128,24 +2128,24 @@ async def edit_recipe_with_image(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid recipe data: {e}")
 
-    # Get the recipe
+    # Authorize before external storage I/O without holding a recipe row lock.
     result = await db.execute(
-        select(Recipe).where(Recipe.id == recipe_id).with_for_update()
+        select(Recipe).where(Recipe.id == recipe_id)
     )
-    recipe = result.scalar_one_or_none()
+    authorized_recipe = result.scalar_one_or_none()
 
-    if not recipe:
+    if not authorized_recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
-    # Only owner can edit
-    if recipe.user_id != user.id:
+    if authorized_recipe.user_id != user.id:
         raise HTTPException(status_code=403, detail="You can only edit your own recipes")
 
-    verified_paths = _review_paths_for_edit(edit, recipe)
-    target_is_public = edit.is_public if edit.is_public is not None else recipe.is_public
+    # Fail an already-stale review before doing a needless upload, then close
+    # the read transaction so external storage latency cannot extend it.
+    _review_paths_for_edit(edit, authorized_recipe)
+    await db.rollback()
 
-    # Handle image upload first
-    thumbnail_url = recipe.thumbnail_url
+    uploaded_url = None
     if image:
         try:
             validated_upload = validate_image_bytes(
@@ -2161,8 +2161,21 @@ async def edit_recipe_with_image(
             str(recipe_id),
             validated_upload.content_type,
         )
-        if uploaded_url:
-            thumbnail_url = uploaded_url
+
+    # Re-read under lock after the upload. New review-aware clients will fail
+    # the revision check if another writer changed the recipe in the meantime.
+    result = await db.execute(
+        select(Recipe).where(Recipe.id == recipe_id).with_for_update()
+    )
+    recipe = result.scalar_one_or_none()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    if recipe.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You can only edit your own recipes")
+
+    verified_paths = _review_paths_for_edit(edit, recipe)
+    target_is_public = edit.is_public if edit.is_public is not None else recipe.is_public
+    thumbnail_url = uploaded_url or recipe.thumbnail_url
 
     old_extracted = dict(recipe.extracted or {})
     before_review_state = recipe.review_state
