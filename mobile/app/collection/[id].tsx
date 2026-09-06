@@ -27,6 +27,7 @@ import { AnimatedListItem, ScalePressable } from '@/components/Animated';
 import { RecipeTrustBadge } from '@/components/RecipeTrustBadge';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 
+/** Render a recipe row within a collection. */
 export function RecipeCard({
   recipe,
   onPress,

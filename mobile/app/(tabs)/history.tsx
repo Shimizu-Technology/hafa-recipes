@@ -53,6 +53,7 @@ import { useViewPreference } from '@/hooks/useViewPreference';
 
 const ITEMS_PER_PAGE = 20;
 
+/** Render a library recipe as a compact list card. */
 export function RecipeCard({
   recipe,
   onPress,
@@ -153,6 +154,7 @@ export function RecipeCard({
 }
 
 // Grid recipe card - square image with title overlay
+/** Render a library recipe as an image-led grid card. */
 export function GridRecipeCard({
   recipe,
   onPress,

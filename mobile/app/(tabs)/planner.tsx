@@ -151,6 +151,7 @@ function DayPill({
 }
 
 // Meal slot component (shows either a recipe or "Add" button)
+/** Render one meal-plan slot and its assigned recipe, if present. */
 export function MealSlot({
   mealType,
   entries,

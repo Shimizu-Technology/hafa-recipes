@@ -91,6 +91,7 @@ function matchesTimeFilter(recipe: RecipeListItem, filter: string | null): boole
 }
 
 /** Render one recipe choice with its current readiness state. */
+/** Render one selectable recipe in the planner picker. */
 export function RecipePickerRow({ item, colors, onPress }: RecipePickerRowProps) {
   return (
     <TouchableOpacity
