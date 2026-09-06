@@ -83,6 +83,8 @@ private object only through authenticated S3 access, require CloudFront to
 return `403`, and prove the response body is not the private object.
 
 ```bash
+(
+set -euo pipefail
 VERIFY_DIR="$(mktemp -d)"
 trap 'rm -rf "$VERIFY_DIR"' EXIT
 
@@ -118,6 +120,7 @@ test "$(curl --silent --show-error \
   "https://DISTRIBUTION_DOMAIN/chat-images/KNOWN_EXISTING_KEY")" = '403'
 test "$(shasum -a 256 "$VERIFY_DIR/private-object" | awk '{print $1}')" != \
   "$(shasum -a 256 "$VERIFY_DIR/blocked-response" | awk '{print $1}')"
+)
 ```
 
 Also require:
