@@ -20,9 +20,30 @@ type DiscoverFilterRouting = {
   hideMyRecipes: boolean;
 };
 
+/** Use one canonical query value for routing, caching, and API requests. */
+export function normalizeDiscoverSearchQuery(query?: string): string | undefined {
+  return query?.trim() || undefined;
+}
+
+export function hasDiscoverSearchRequestFilters(filters: {
+  query?: string;
+  sourceType?: string;
+  timeFilter?: string;
+  tags?: string[];
+  extractorId?: string;
+  mealType?: string;
+}): boolean {
+  return normalizeDiscoverSearchQuery(filters.query) !== undefined
+    || Boolean(filters.sourceType)
+    || Boolean(filters.timeFilter)
+    || Boolean(filters.tags?.length)
+    || Boolean(filters.extractorId)
+    || Boolean(filters.mealType);
+}
+
 /** Local-only filters must not disable or reroute the paginated base feed. */
 export function hasServerDiscoverFilters(filters: DiscoverFilterRouting): boolean {
-  return filters.query.trim().length > 0
+  return normalizeDiscoverSearchQuery(filters.query) !== undefined
     || filters.sourceFilter !== 'all'
     || filters.timeFilter !== 'all'
     || filters.mealTypeFilter !== 'all'

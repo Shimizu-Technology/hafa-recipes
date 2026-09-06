@@ -4,8 +4,10 @@ import type { RecipeListItem } from '@/types/recipe';
 import {
   baseDiscoverQueryOptions,
   canFilterDiscoverLocally,
+  hasDiscoverSearchRequestFilters,
   hasServerDiscoverFilters,
   hideOwnedDiscoverRecipes,
+  normalizeDiscoverSearchQuery,
   resolveDiscoverResults,
 } from './discoverResults';
 
@@ -25,6 +27,10 @@ describe('resolveDiscoverResults', () => {
   });
 
   it('treats a whitespace-only query as the unfiltered base feed', () => {
+    expect(normalizeDiscoverSearchQuery('   ')).toBeUndefined();
+    expect(normalizeDiscoverSearchQuery('  pasta  ')).toBe('pasta');
+    expect(hasDiscoverSearchRequestFilters({ query: '   ' })).toBe(false);
+    expect(hasDiscoverSearchRequestFilters({ query: '  pasta  ' })).toBe(true);
     expect(hasServerDiscoverFilters({
       query: '   ',
       sourceFilter: 'all',

@@ -14,6 +14,10 @@ import {
   updateSavedStateInRecipePages,
 } from '../lib/recipeCache';
 import { getApiErrorMessage } from '../lib/apiErrorMessage';
+import {
+  hasDiscoverSearchRequestFilters,
+  normalizeDiscoverSearchQuery,
+} from '../lib/discoverResults';
 import { ExtractRequest, JobStatus, RecipeListItem, PaginatedRecipes } from '../types/recipe';
 
 // Page size for infinite scroll
@@ -930,11 +934,15 @@ export function useDiscoverRecipes(
  * Search and filter public recipes with infinite scroll
  */
 export function useInfiniteSearchPublicRecipes(filters: SearchFilters, enabled = true) {
-  const { query, sourceType, timeFilter, tags, extractorId, mealType } = filters;
-  const hasFilters = query || sourceType || timeFilter || (tags && tags.length > 0) || extractorId || mealType;
+  const normalizedFilters = {
+    ...filters,
+    query: normalizeDiscoverSearchQuery(filters.query),
+  };
+  const { query, sourceType, timeFilter, tags, extractorId, mealType } = normalizedFilters;
+  const hasFilters = hasDiscoverSearchRequestFilters(normalizedFilters);
   
   return useInfiniteQuery({
-    queryKey: recipeKeys.discoverInfiniteSearch(filters),
+    queryKey: recipeKeys.discoverInfiniteSearch(normalizedFilters),
     queryFn: ({ pageParam = 0 }) => 
       api.searchPublicRecipes(query || '', PAGE_SIZE, pageParam, sourceType, timeFilter, tags, extractorId, mealType),
     initialPageParam: 0,
@@ -942,7 +950,7 @@ export function useInfiniteSearchPublicRecipes(filters: SearchFilters, enabled =
       if (!lastPage.has_more) return undefined;
       return lastPage.offset + lastPage.limit;
     },
-    enabled: enabled && !!hasFilters,
+    enabled: enabled && hasFilters,
     staleTime: 30_000,
   });
 }
@@ -951,8 +959,16 @@ export function useInfiniteSearchPublicRecipes(filters: SearchFilters, enabled =
  * Helper hook that flattens public search results into a single array
  */
 export function useSearchPublicRecipes(filters: SearchFilters, enabled = true) {
-  const { query, sourceType, timeFilter, tags, extractorId, mealType } = filters;
-  const hasFilters = query || sourceType || timeFilter || (tags && tags.length > 0) || extractorId || mealType;
+  const query = normalizeDiscoverSearchQuery(filters.query);
+  const { sourceType, timeFilter, tags, extractorId, mealType } = filters;
+  const hasFilters = hasDiscoverSearchRequestFilters({
+    query,
+    sourceType,
+    timeFilter,
+    tags,
+    extractorId,
+    mealType,
+  });
   
   const infiniteQuery = useInfiniteSearchPublicRecipes(filters, enabled);
   
