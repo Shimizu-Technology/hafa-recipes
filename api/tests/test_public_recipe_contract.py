@@ -102,6 +102,18 @@ def test_recipe_responses_choose_list_and_hero_thumbnail_variants(monkeypatch):
     assert detail.thumbnail_url == f"{version_root}/hero.webp"
 
 
+def test_recipe_responses_normalize_legacy_null_audio_state(monkeypatch):
+    _, recipes = _load_recipe_routers(monkeypatch)
+    recipe = _public_recipe()
+    recipe.has_audio_transcript = None
+
+    list_item = recipes.recipe_to_list_item(recipe, viewer_user_id=None)
+    detail = recipes.recipe_to_detail_response(recipe, viewer_user_id=None)
+
+    assert list_item.has_audio_transcript is False
+    assert detail.has_audio_transcript is False
+
+
 def test_list_item_exposes_batched_saved_state(monkeypatch):
     _, recipes = _load_recipe_routers(monkeypatch)
     recipe = _public_recipe()
