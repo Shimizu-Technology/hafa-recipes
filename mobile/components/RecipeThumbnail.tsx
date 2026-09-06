@@ -9,6 +9,7 @@ type RecipeThumbnailProps = {
   uri?: string | null;
   style: StyleProp<ViewStyle>;
   accessibilityLabel?: string;
+  accessible?: boolean;
   placeholderIconName?: ComponentProps<typeof Ionicons>['name'];
   placeholderIconSize?: number;
   priority?: 'low' | 'normal' | 'high';
@@ -21,6 +22,7 @@ export function RecipeThumbnail({
   uri,
   style,
   accessibilityLabel = 'Recipe photo',
+  accessible = true,
   placeholderIconName = 'restaurant-outline',
   placeholderIconSize = 32,
   priority = 'normal',
@@ -39,9 +41,9 @@ export function RecipeThumbnail({
   return (
     <RNView
       style={[styles.container, { backgroundColor: `${colors.tint}15` }, style]}
-      accessible
-      accessibilityRole="image"
-      accessibilityLabel={accessibilityLabel}
+      accessible={accessible}
+      accessibilityRole={accessible ? 'image' : undefined}
+      accessibilityLabel={accessible ? accessibilityLabel : undefined}
     >
       <Ionicons
         name={placeholderIconName}

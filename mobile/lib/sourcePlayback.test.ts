@@ -8,19 +8,19 @@ import {
 } from './sourcePlayback';
 
 describe('getAutoplayEmbedUrl', () => {
-  it('turns autoplay on for YouTube and TikTok after explicit user intent', () => {
+  it('turns autoplay on for videos after explicit user intent', () => {
     const youtube = getSourcePlayback('https://youtu.be/abcDEF_1234');
     const tiktok = getSourcePlayback('https://www.tiktok.com/@cook/video/7412345678901234567');
 
-    expect(youtube && getAutoplayEmbedUrl(youtube)).toContain('autoplay=1');
-    expect(tiktok && getAutoplayEmbedUrl(tiktok)).toContain('autoplay=1');
-    expect(tiktok && getAutoplayEmbedUrl(tiktok)).not.toContain('autoplay=0');
+    expect(youtube?.mode === 'modal' && getAutoplayEmbedUrl(youtube)).toContain('autoplay=1');
+    expect(tiktok?.mode === 'modal' && getAutoplayEmbedUrl(tiktok)).toContain('autoplay=1');
+    expect(tiktok?.mode === 'modal' && getAutoplayEmbedUrl(tiktok)).not.toContain('autoplay=0');
   });
 
-  it('keeps the official Instagram embed URL unchanged', () => {
-    const instagram = getSourcePlayback('https://www.instagram.com/reel/Example_42/');
+  it('does not autoplay a TikTok photo post', () => {
+    const photo = getSourcePlayback('https://www.tiktok.com/@cook/photo/7412345678901234568');
 
-    expect(instagram && getAutoplayEmbedUrl(instagram)).toBe(instagram?.embedUrl);
+    expect(photo?.mode === 'modal' && getAutoplayEmbedUrl(photo)).toContain('autoplay=0');
   });
 });
 
@@ -34,6 +34,8 @@ describe('getSourcePlayback', () => {
       expect(getSourcePlayback(sourceUrl)).toMatchObject({
         provider: 'youtube',
         providerLabel: 'YouTube',
+        mode: 'modal',
+        mediaKind: 'video',
         embedUrl: expect.stringContaining('/embed/abcDEF_1234?'),
         requestHeaders: { Referer: YOUTUBE_APP_REFERRER },
       });
@@ -45,23 +47,38 @@ describe('getSourcePlayback', () => {
       'https://www.tiktok.com/@cook/video/7412345678901234567?_r=1',
     )).toMatchObject({
       provider: 'tiktok',
+      mode: 'modal',
+      mediaKind: 'video',
       embedUrl: expect.stringContaining('/player/v1/7412345678901234567'),
       aspectRatio: 9 / 16,
     });
     expect(getSourcePlayback(
       'https://m.tiktok.com/@cook/photo/7412345678901234568',
-    )?.provider).toBe('tiktok');
+    )).toMatchObject({ provider: 'tiktok', mode: 'modal', mediaKind: 'photo' });
   });
 
-  it('builds Instagram public post and reel embed URLs', () => {
-    expect(getSourcePlayback('https://www.instagram.com/reel/Example_42/?igsh=tracking')).toMatchObject({
+  it('recognizes Instagram sources without embedding their post document', () => {
+    const reel = getSourcePlayback('https://www.instagram.com/reel/Example_42/?igsh=tracking');
+    expect(reel).toMatchObject({
       provider: 'instagram',
-      embedUrl: 'https://www.instagram.com/reel/Example_42/embed/',
-      aspectRatio: 4 / 5,
+      mode: 'external',
+      mediaKind: 'reel',
     });
+    expect(reel && 'embedUrl' in reel).toBe(false);
     expect(getSourcePlayback('https://instagram.com/p/Post_123/')).toMatchObject({
       provider: 'instagram',
-      embedUrl: 'https://www.instagram.com/p/Post_123/embed/',
+      mode: 'external',
+      mediaKind: 'post',
+    });
+    expect(getSourcePlayback('https://instagram.com/reels/Reel_123/')).toMatchObject({
+      provider: 'instagram',
+      mode: 'external',
+      mediaKind: 'reel',
+    });
+    expect(getSourcePlayback('https://instagram.com/tv/Video_123/')).toMatchObject({
+      provider: 'instagram',
+      mode: 'external',
+      mediaKind: 'video',
     });
   });
 
@@ -81,28 +98,44 @@ describe('getSourcePlayback', () => {
 });
 
 describe('isSourcePlaybackNavigationAllowed', () => {
-  it('allows blank startup and secure destinations owned by the selected provider', () => {
-    expect(isSourcePlaybackNavigationAllowed('instagram', 'about:blank')).toBe(true);
+  const youtube = getSourcePlayback('https://youtu.be/abcDEF_1234');
+  const tiktok = getSourcePlayback('https://www.tiktok.com/@cook/video/7412345678901234567');
+  if (youtube?.mode !== 'modal' || tiktok?.mode !== 'modal') {
+    throw new Error('Expected modal playback fixtures');
+  }
+
+  it('allows blank startup, the exact player path, and a scoped YouTube consent redirect', () => {
+    expect(isSourcePlaybackNavigationAllowed(youtube, 'about:blank')).toBe(true);
     expect(isSourcePlaybackNavigationAllowed(
-      'instagram',
-      'https://www.instagram.com/reel/Example_42/',
+      tiktok,
+      `${tiktok.embedUrl}&lang=en`,
     )).toBe(true);
     expect(isSourcePlaybackNavigationAllowed(
-      'youtube',
-      'https://consent.youtube.com/m?continue=example',
+      youtube,
+      `https://consent.youtube.com/m?continue=${encodeURIComponent(youtube.embedUrl)}`,
     )).toBe(true);
   });
 
-  it('blocks external, insecure, app-scheme, lookalike, and malformed destinations', () => {
+  it('blocks provider browsing, unscoped consent, external, insecure, and malformed destinations', () => {
+    expect(isSourcePlaybackNavigationAllowed(
+      youtube,
+      'https://www.youtube.com/watch?v=abcDEF_1234',
+    )).toBe(false);
+    expect(isSourcePlaybackNavigationAllowed(
+      youtube,
+      'https://consent.youtube.com/m?continue=https%3A%2F%2Fexample.com',
+    )).toBe(false);
+
     for (const destinationUrl of [
-      'https://apps.apple.com/app/instagram/id389801252',
-      'http://www.instagram.com/reel/Example_42/',
+      'https://www.tiktok.com/@cook/video/7412345678901234567',
+      'https://apps.apple.com/app/tiktok/id835599320',
+      'http://www.tiktok.com/@cook/video/7412345678901234567',
       'instagram://reel/Example_42',
-      'https://instagram.com.evil.example/reel/Example_42/',
+      'https://tiktok.com.evil.example/@cook/video/7412345678901234567',
       'javascript:alert(1)',
       'not a URL',
     ]) {
-      expect(isSourcePlaybackNavigationAllowed('instagram', destinationUrl)).toBe(false);
+      expect(isSourcePlaybackNavigationAllowed(tiktok, destinationUrl)).toBe(false);
     }
   });
 });

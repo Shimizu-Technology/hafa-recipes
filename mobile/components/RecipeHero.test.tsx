@@ -42,9 +42,39 @@ describe('RecipeHero', () => {
       const player = renderer.container.queryAll(
         (instance) => instance.type === 'SourcePlaybackCard',
       )[0];
-      expect(player.props.playback).toMatchObject({ provider: 'youtube' });
+      expect(player.props.playback).toMatchObject({
+        provider: 'youtube',
+        mode: 'modal',
+        mediaKind: 'video',
+      });
       expect(player.props.thumbnailUrl).toBe('https://example.com/kelaguen.jpg');
       expect(renderer.container.queryAll((instance) => instance.type === 'Image')).toHaveLength(0);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('keeps Instagram as an explicit external hero action', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(RecipeHero, {
+          ...commonProps,
+          sourceUrl: 'https://www.instagram.com/reel/Example_42/',
+          thumbnailUrl: 'https://example.com/kelaguen.jpg',
+        }));
+      });
+
+      const sourceCard = renderer.container.queryAll(
+        (instance) => instance.type === 'SourcePlaybackCard',
+      )[0];
+      expect(sourceCard.props.playback).toEqual({
+        provider: 'instagram',
+        providerLabel: 'Instagram',
+        mode: 'external',
+        mediaKind: 'reel',
+      });
     } finally {
       await act(async () => renderer.unmount());
     }
