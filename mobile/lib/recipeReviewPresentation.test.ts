@@ -93,6 +93,19 @@ describe('recipe review presentation', () => {
     });
   });
 
+  it('does not reopen an accepted missing amount when other review work remains', () => {
+    expect(getRecipeReviewDetails('needs_review', 1, {
+      assessment: {
+        missingQuantityCount: 1,
+        unresolvedMissingQuantityCount: 0,
+      },
+    })).toMatchObject({
+      actionLabel: 'Review 1 detail',
+      heading: 'Compare this draft with the original',
+      missingQuantityCount: 0,
+    });
+  });
+
   it('makes an incomplete source an add-details task without invented evidence', () => {
     expect(getRecipeReviewDetails('source_incomplete', 1, null)).toMatchObject({
       actionLabel: 'Add missing details',

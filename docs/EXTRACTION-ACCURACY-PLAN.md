@@ -233,13 +233,16 @@ recipes remain unchanged and a null state is handled as a legacy recipe.
   "content_revision": 3,
   "uncertainty_count": 2,
   "extraction_evidence": {
-    "version": 1,
+    "version": 2,
     "contentRevision": 3,
     "source": { "type": "tiktok", "method": "whisper" },
     "assessment": {
       "ingredientCount": 4,
       "stepCount": 5,
       "missingQuantityCount": 1,
+      "unresolvedMissingQuantityCount": 1,
+      "verifiedFieldCount": 0,
+      "unverifiedFieldCount": 14,
       "uncertaintyCount": 2,
       "userReviewed": false,
       "reasons": [
@@ -249,7 +252,7 @@ recipes remain unchanged and a null state is handled as a legacy recipe.
     },
     "fields": [
       {
-        "path": "components.0.ingredients.2",
+        "path": "components.0.ingredients.2.quantity",
         "status": "not_stated",
         "quantityStatus": "not_stated"
       },
@@ -281,6 +284,24 @@ that revision and recomputes or remaps evidence in the same transaction so a
 reordered ingredient cannot inherit a stale warning. Stable per-field IDs are
 not required for the first release unless the edit-diff tests show that revision
 and value matching are insufficient.
+
+New review-aware clients send `review_content_revision` and `verified_paths`
+together on a full edit. The server rejects stale revisions, carries verification
+only when the exact path value is unchanged, and rejects paths that are not
+present in the submitted recipe. The client includes paths the person corrected
+and paths they explicitly accepted; the server does not infer verification from
+positional differences because ingredient and step indexes can shift.
+An explicitly accepted missing quantity remains `quantityStatus: not_stated`
+while its review status becomes `user_verified`. Older clients omit both request
+fields and retain the released full-review behavior during the additive rollout.
+Stored version 1 evidence has no granular paths. If it records a completed
+whole-recipe review, the server treats every path in the previous revision as
+verified and carries forward only paths whose values and enclosing ingredient
+records are unchanged. Unreviewed version 1 evidence starts with no verified
+paths. The next full edit writes a version 2 envelope.
+Existing version 1 rows remain readable indefinitely and require no backfill.
+A version 2 carry-forward request without the previous revision content fails
+closed with `MISSING_PREVIOUS_RECIPE_REVISION` and HTTP 422.
 
 For compatibility, the API continues returning the existing recipe shape and
 derives `lowConfidence` and `confidenceWarning` from the new state for older

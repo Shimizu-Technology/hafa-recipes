@@ -150,3 +150,73 @@ def test_review_verification_can_record_zero_content_changes():
     assert event is not None
     assert event.event_kind == "review_verification"
     assert event.changed_field_count == 0
+
+
+def test_partial_review_verification_records_progress_without_state_change():
+    """Checking one field is useful aggregate feedback even before readiness."""
+
+    recipe = _recipe()
+    before = _recipe_data(quantity=None)
+    apply_recipe_review(recipe, before)
+    before_state = recipe.review_state
+    before_evidence = dict(recipe.extraction_evidence)
+
+    apply_recipe_review(
+        recipe,
+        before,
+        increment_revision=True,
+        previous_extracted=before,
+        verified_paths={"components.0.ingredients.0.quantity"},
+    )
+    event = build_recipe_correction_event(
+        recipe=recipe,
+        user_id="stable_user",
+        before_extracted=before,
+        before_review_state=before_state,
+        before_evidence=before_evidence,
+    )
+
+    assert recipe.review_state == "needs_review"
+    assert event is not None
+    assert event.event_kind == "review_verification"
+    assert event.changed_field_count == 0
+    assert event.resolved_missing_quantity_count == 0
+
+
+def test_legacy_whole_review_does_not_mask_new_field_review_progress():
+    """Version 1 field rows are not comparable with granular v2 progress."""
+
+    recipe = _recipe()
+    before = _recipe_data(quantity=None)
+    recipe.extracted = before
+    recipe.review_state = "needs_review"
+    recipe.content_revision = 2
+    recipe.extraction_evidence = {
+        "version": 2,
+        "assessment": {"verifiedFieldCount": 1},
+        "fields": [
+            {
+                "path": "components.0.ingredients.0.quantity",
+                "status": "user_verified",
+            }
+        ],
+    }
+    legacy_evidence = {
+        "version": 1,
+        "assessment": {"userReviewed": True, "verifiedFieldCount": 99},
+        "fields": [
+            {"path": "components.0.ingredients.0", "status": "user_verified"}
+        ],
+    }
+
+    event = build_recipe_correction_event(
+        recipe=recipe,
+        user_id="stable_user",
+        before_extracted=before,
+        before_review_state="needs_review",
+        before_evidence=legacy_evidence,
+    )
+
+    assert event is not None
+    assert event.event_kind == "review_verification"
+    assert event.changed_field_count == 0

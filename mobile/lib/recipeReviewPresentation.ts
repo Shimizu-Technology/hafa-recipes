@@ -7,6 +7,7 @@ type ReviewEvidence = {
   };
   assessment?: {
     missingQuantityCount?: unknown;
+    unresolvedMissingQuantityCount?: unknown;
   };
 };
 
@@ -50,7 +51,10 @@ export function getRecipeReviewDetails(
   if (state !== 'source_incomplete' && state !== 'needs_review') return null;
 
   const envelope = (evidence && typeof evidence === 'object' ? evidence : {}) as ReviewEvidence;
-  const rawMissing = envelope.assessment?.missingQuantityCount;
+  const unresolvedMissing = envelope.assessment?.unresolvedMissingQuantityCount;
+  const rawMissing = typeof unresolvedMissing === 'number'
+    ? unresolvedMissing
+    : envelope.assessment?.missingQuantityCount;
   const missingQuantityCount = typeof rawMissing === 'number' && rawMissing > 0
     ? Math.floor(rawMissing)
     : 0;

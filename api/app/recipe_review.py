@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Literal
 
@@ -9,7 +10,7 @@ from fastapi import HTTPException
 
 ReviewState = Literal["source_incomplete", "needs_review", "ready"]
 
-EVIDENCE_VERSION = 1
+EVIDENCE_VERSION = 2
 EXPLICIT_FLEXIBLE_QUANTITIES = (
     "to taste",
     "as needed",
@@ -19,6 +20,7 @@ EXPLICIT_FLEXIBLE_QUANTITIES = (
 )
 NULLISH_SOURCE_VALUES = {"", "null", "none", "n/a", "not stated", "unknown"}
 _SOURCE_EVIDENCE_UNSET = object()
+_PREVIOUS_EVIDENCE_UNSET = object()
 
 
 @dataclass(frozen=True)
@@ -57,7 +59,9 @@ def _has_explicit_flexible_quantity(ingredient: dict) -> bool:
 def _has_stated_source_value(value: object) -> bool:
     """Treat serialized null sentinels as absent source evidence."""
 
-    return str(value or "").strip().lower() not in NULLISH_SOURCE_VALUES
+    if value is None:
+        return False
+    return str(value).strip().lower() not in NULLISH_SOURCE_VALUES
 
 
 def is_missing_quantity(value: object) -> bool:
@@ -79,6 +83,124 @@ def _count_uncertainties(reasons: list[str], missing_quantity_count: int) -> int
         else False
     )
     return len(reasons) - int(has_quantity_summary) + missing_quantity_count
+
+
+def _normalized_review_value(value: object) -> object:
+    """Normalize harmless serialization differences before comparing revisions."""
+
+    if not _has_stated_source_value(value):
+        return None
+    return value.strip() if isinstance(value, str) else value
+
+
+def _review_fields(extracted: dict) -> tuple[list[dict], dict[str, object]]:
+    """Build privacy-safe field evidence plus an in-memory comparison map."""
+
+    fields: list[dict] = []
+    values: dict[str, object] = {}
+
+    def add_field(
+        path: str,
+        value: object,
+        *,
+        status: str = "supported",
+        quantity_status: str | None = None,
+    ) -> None:
+        field = {"path": path, "status": status}
+        if quantity_status is not None:
+            field["quantityStatus"] = quantity_status
+        fields.append(field)
+        values[path] = _normalized_review_value(value)
+
+    if _has_stated_source_value(extracted.get("title")):
+        add_field("title", extracted.get("title"))
+    if _has_stated_source_value(extracted.get("servings")):
+        add_field("servings", extracted.get("servings"))
+
+    times = extracted.get("times")
+    if isinstance(times, dict):
+        for key in ("prep", "cook", "total"):
+            if _has_stated_source_value(times.get(key)):
+                add_field(f"times.{key}", times.get(key))
+
+    for component_index, component in enumerate(_components(extracted)):
+        ingredients = component.get("ingredients") or []
+        for ingredient_index, ingredient in enumerate(ingredients):
+            if not isinstance(ingredient, dict) or not _has_stated_source_value(
+                ingredient.get("name")
+            ):
+                continue
+            prefix = f"components.{component_index}.ingredients.{ingredient_index}"
+            add_field(f"{prefix}.name", ingredient.get("name"))
+
+            has_quantity = _has_stated_source_value(ingredient.get("quantity"))
+            flexible = _has_explicit_flexible_quantity(ingredient)
+            quantity_status = "supported" if has_quantity or flexible else "not_stated"
+            add_field(
+                f"{prefix}.quantity",
+                ingredient.get("quantity"),
+                status=quantity_status,
+                quantity_status=quantity_status,
+            )
+            if _has_stated_source_value(ingredient.get("unit")):
+                add_field(f"{prefix}.unit", ingredient.get("unit"))
+
+        for step_index, step in enumerate(component.get("steps") or []):
+            if _has_stated_source_value(step):
+                add_field(
+                    f"components.{component_index}.steps.{step_index}",
+                    step,
+                )
+
+    return fields, values
+
+
+def evidence_user_verified_paths(evidence: dict | None) -> set[str]:
+    """Return only exact v2 paths explicitly recorded as user verified."""
+
+    if not isinstance(evidence, dict) or evidence.get("version") != EVIDENCE_VERSION:
+        return set()
+    fields = evidence.get("fields")
+    if not isinstance(fields, list):
+        return set()
+    return {
+        field["path"]
+        for field in fields
+        if isinstance(field, dict)
+        and isinstance(field.get("path"), str)
+        and field.get("status") == "user_verified"
+    }
+
+
+def evidence_uses_field_review(evidence: dict | None) -> bool:
+    """Return whether evidence follows the current granular review protocol."""
+
+    return isinstance(evidence, dict) and evidence.get("version") == EVIDENCE_VERSION
+
+
+def reviewable_recipe_paths(extracted: dict) -> set[str]:
+    """Return the current allowlisted paths without exposing their values."""
+
+    _, values = _review_fields(extracted)
+    return set(values)
+
+
+def _record_siblings(path: str, values: dict[str, object]) -> tuple[tuple, ...]:
+    """Return an ingredient field with the identity-bearing fields beside it."""
+
+    parts = path.split(".")
+    if (
+        len(parts) == 5
+        and parts[0] == "components"
+        and parts[2] == "ingredients"
+        and parts[4] in {"name", "quantity", "unit"}
+    ):
+        prefix = ".".join(parts[:4])
+        return tuple(
+            (sibling, f"{prefix}.{sibling}" in values, values.get(f"{prefix}.{sibling}"))
+            for sibling in ("name", "quantity", "unit")
+        )
+    return ((path, path in values, values.get(path)),)
 
 
 def _source_provenance(source_evidence: dict | None) -> dict:
@@ -130,6 +252,9 @@ def assess_recipe_review(
     content_revision: int,
     user_reviewed: bool = False,
     source_evidence: dict | None = None,
+    previous_extracted: dict | None = None,
+    previous_evidence: dict | None = None,
+    verified_paths: Collection[str] | None = None,
 ) -> ReviewAssessment:
     """Assess cooking readiness without pretending that absence is evidence.
 
@@ -138,41 +263,90 @@ def assess_recipe_review(
     """
 
     components = _components(extracted)
-    ingredient_evidence: list[dict] = []
-    step_evidence: list[dict] = []
-    missing_quantity_count = 0
+    ingredient_count = sum(
+        1
+        for component in components
+        for ingredient in component.get("ingredients") or []
+        if isinstance(ingredient, dict)
+        and _has_stated_source_value(ingredient.get("name"))
+    )
+    step_count = sum(
+        1
+        for component in components
+        for step in component.get("steps") or []
+        if _has_stated_source_value(step)
+    )
+    field_evidence, current_values = _review_fields(extracted)
 
-    for component_index, component in enumerate(components):
-        ingredients = component.get("ingredients") or []
-        for ingredient_index, ingredient in enumerate(ingredients):
-            if not isinstance(ingredient, dict) or not _has_stated_source_value(
-                ingredient.get("name")
-            ):
-                continue
-            has_quantity = _has_stated_source_value(ingredient.get("quantity"))
-            flexible = _has_explicit_flexible_quantity(ingredient)
-            status = "supported" if has_quantity or flexible else "not_stated"
-            if status == "not_stated":
-                missing_quantity_count += 1
-            ingredient_evidence.append(
-                {
-                    "path": f"components.{component_index}.ingredients.{ingredient_index}",
-                    "status": "user_verified" if user_reviewed else status,
-                    "quantityStatus": status,
-                }
+    is_direct_human_entry = source_type == "manual" and extraction_method == "manual"
+    verified: set[str] = set()
+    if user_reviewed or is_direct_human_entry:
+        verified = set(current_values)
+    elif verified_paths is not None:
+        requested = set(verified_paths)
+        unknown = sorted(requested - current_values.keys())
+        if unknown:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "INVALID_RECIPE_REVIEW_PATH",
+                    "message": "One or more review fields are not part of this recipe revision.",
+                    "paths": unknown[:10],
+                },
             )
 
-        for step_index, step in enumerate(component.get("steps") or []):
-            if _has_stated_source_value(step):
-                step_evidence.append(
-                    {
-                        "path": f"components.{component_index}.steps.{step_index}",
-                        "status": "user_verified" if user_reviewed else "supported",
-                    }
-                )
+        previous_values: dict[str, object] = {}
+        if previous_extracted is not None:
+            _, previous_values = _review_fields(previous_extracted)
+        prior_verified = evidence_user_verified_paths(previous_evidence)
+        if (
+            isinstance(previous_evidence, dict)
+            and previous_evidence.get("version") != EVIDENCE_VERSION
+            and evidence_was_user_reviewed(previous_evidence)
+        ):
+            prior_verified = set(previous_values)
 
-    ingredient_count = len(ingredient_evidence)
-    step_count = len(step_evidence)
+        if prior_verified and previous_extracted is None:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "MISSING_PREVIOUS_RECIPE_REVISION",
+                    "message": "Previous recipe content is required to carry review status.",
+                },
+            )
+
+        carried = {
+            path
+            for path in prior_verified
+            if path in current_values
+            and path in previous_values
+            and current_values[path] == previous_values[path]
+            and _record_siblings(path, current_values)
+            == _record_siblings(path, previous_values)
+        }
+        # Positional recipe paths can shift after a reorder or deletion. Only
+        # the client knows which current fields the person actually corrected;
+        # inferring that every positional difference was reviewed would clear
+        # unrelated warnings. The client therefore submits corrected and
+        # explicitly accepted paths together in ``verified_paths``.
+        verified = requested | carried
+
+    for field in field_evidence:
+        if field["path"] in verified:
+            field["status"] = "user_verified"
+
+    missing_quantity_count = sum(
+        field.get("quantityStatus") == "not_stated" for field in field_evidence
+    )
+    unresolved_missing_quantity_count = sum(
+        field.get("quantityStatus") == "not_stated"
+        and field.get("status") != "user_verified"
+        for field in field_evidence
+    )
+    verified_field_count = sum(
+        field.get("status") == "user_verified" for field in field_evidence
+    )
+    unverified_field_count = len(field_evidence) - verified_field_count
     reasons: list[str] = []
     if ingredient_count == 0:
         reasons.append("No ingredients were found in the source.")
@@ -180,20 +354,21 @@ def assess_recipe_review(
         reasons.append("No cooking instructions were found in the source.")
 
     source_incomplete = ingredient_count == 0 or step_count == 0
-    is_direct_human_entry = source_type == "manual" and extraction_method == "manual"
     is_exact_website_recipe = source_type == "website" and extraction_method in {
         "json-ld",
         "schema.org",
         "website-jsonld",
     }
+    fully_verified_by_person = (
+        bool(field_evidence) and unverified_field_count == 0
+    ) or is_direct_human_entry
     model_reported_uncertainty = extracted.get("lowConfidence") is True
 
     if source_incomplete:
         state: ReviewState = "source_incomplete"
         summary = "Source incomplete — save it now and add the missing details when you can."
     elif (
-        user_reviewed
-        or is_direct_human_entry
+        fully_verified_by_person
         or (
             is_exact_website_recipe
             and missing_quantity_count == 0
@@ -204,17 +379,20 @@ def assess_recipe_review(
         summary = "Ready to cook."
     else:
         state = "needs_review"
-        reasons.append("The imported details have not been verified by a person yet.")
-        if missing_quantity_count:
+        reasons.append("The imported details have not been fully verified by a person yet.")
+        if unresolved_missing_quantity_count:
             reasons.append(
-                f"{missing_quantity_count} ingredient "
-                f"{'quantity is' if missing_quantity_count == 1 else 'quantities are'} not stated."
+                f"{unresolved_missing_quantity_count} ingredient "
+                f"{'quantity is' if unresolved_missing_quantity_count == 1 else 'quantities are'} not stated."
             )
         if model_reported_uncertainty and extracted.get("confidenceWarning"):
             reasons.append(str(extracted["confidenceWarning"]).strip())
         summary = "Needs review — compare the draft with the original before cooking."
 
-    uncertainty_count = _count_uncertainties(reasons, missing_quantity_count)
+    uncertainty_count = _count_uncertainties(
+        reasons,
+        unresolved_missing_quantity_count,
+    )
     source = {
         "type": source_type,
         "method": extraction_method,
@@ -228,11 +406,14 @@ def assess_recipe_review(
             "ingredientCount": ingredient_count,
             "stepCount": step_count,
             "missingQuantityCount": missing_quantity_count,
+            "unresolvedMissingQuantityCount": unresolved_missing_quantity_count,
+            "verifiedFieldCount": verified_field_count,
+            "unverifiedFieldCount": unverified_field_count,
             "uncertaintyCount": uncertainty_count,
-            "userReviewed": user_reviewed or is_direct_human_entry,
+            "userReviewed": fully_verified_by_person,
             "reasons": reasons,
         },
-        "fields": ingredient_evidence + step_evidence,
+        "fields": field_evidence,
     }
     return ReviewAssessment(state, summary, uncertainty_count, evidence)
 
@@ -289,10 +470,15 @@ def apply_recipe_review(
     user_reviewed: bool = False,
     increment_revision: bool = False,
     source_evidence: dict | None | object = _SOURCE_EVIDENCE_UNSET,
+    previous_extracted: dict | None = None,
+    previous_evidence: dict | None | object = _PREVIOUS_EVIDENCE_UNSET,
+    verified_paths: Collection[str] | None = None,
 ) -> ReviewAssessment:
     """Persist a new deterministic assessment and old-client warning fields."""
 
     revision = int(getattr(recipe, "content_revision", None) or 1)
+    if previous_evidence is _PREVIOUS_EVIDENCE_UNSET:
+        previous_evidence = getattr(recipe, "extraction_evidence", None)
     if increment_revision:
         revision += 1
     if source_evidence is _SOURCE_EVIDENCE_UNSET:
@@ -308,6 +494,9 @@ def apply_recipe_review(
         content_revision=revision,
         user_reviewed=user_reviewed,
         source_evidence=source_evidence,
+        previous_extracted=previous_extracted,
+        previous_evidence=previous_evidence,
+        verified_paths=verified_paths,
     )
     updated = dict(extracted)
     if assessment.state == "ready":

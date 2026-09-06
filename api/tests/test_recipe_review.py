@@ -11,10 +11,17 @@ from app.recipe_review import (
     require_recipe_publishable,
     review_response_fields,
 )
-from app.routers.recipes import ManualComponent, RecipeEdit, _serialize_edit_components
+from app.routers.recipes import (
+    ManualComponent,
+    RecipeEdit,
+    _review_paths_for_edit,
+    _serialize_edit_components,
+)
 
 
-def _recipe_data(*, quantity: str | None = "2", steps: list[str] | None = None) -> dict:
+def _recipe_data(
+    *, quantity: str | int | None = "2", steps: list[str] | None = None
+) -> dict:
     """Build the smallest component recipe used by readiness tests."""
 
     ingredient = {"name": "rice", "quantity": quantity, "unit": "cups"}
@@ -28,6 +35,14 @@ def _recipe_data(*, quantity: str | None = "2", steps: list[str] | None = None) 
             }
         ],
     }
+
+
+def _field(evidence: dict, path: str) -> dict:
+    """Return one field from the privacy-safe evidence envelope."""
+
+    matches = [field for field in evidence["fields"] if field["path"] == path]
+    assert matches, f"no evidence field for path {path}"
+    return matches[0]
 
 
 def test_imported_recipe_requires_review_even_when_it_looks_complete():
@@ -78,10 +93,31 @@ def test_missing_quantity_is_not_rewritten_as_to_taste():
         content_revision=1,
     )
 
-    field = assessment.evidence["fields"][0]
+    field = _field(
+        assessment.evidence,
+        "components.0.ingredients.0.quantity",
+    )
     assert field["quantityStatus"] == "not_stated"
     assert assessment.evidence["assessment"]["missingQuantityCount"] == 1
     assert assessment.uncertainty_count == 2
+
+
+def test_numeric_zero_is_preserved_as_a_stated_quantity():
+    """A numeric zero is source content, not an empty-value sentinel."""
+
+    assessment = assess_recipe_review(
+        _recipe_data(quantity=0),
+        source_type="website",
+        extraction_method="json-ld",
+        content_revision=1,
+    )
+
+    quantity = _field(
+        assessment.evidence,
+        "components.0.ingredients.0.quantity",
+    )
+    assert quantity["quantityStatus"] == "supported"
+    assert assessment.evidence["assessment"]["missingQuantityCount"] == 0
 
 
 def test_each_missing_quantity_is_counted_once():
@@ -133,7 +169,10 @@ def test_explicit_to_taste_is_supported_source_language():
         content_revision=1,
     )
 
-    assert assessment.evidence["fields"][0]["quantityStatus"] == "supported"
+    assert _field(
+        assessment.evidence,
+        "components.0.ingredients.0.quantity",
+    )["quantityStatus"] == "supported"
 
 
 def test_structured_website_with_unstated_quantity_still_needs_review():
@@ -189,6 +228,311 @@ def test_ready_state_alone_does_not_claim_a_person_reviewed_the_recipe():
     assert evidence_was_user_reviewed(reviewed.evidence) is True
 
 
+def test_field_review_verifies_only_changed_paths_and_keeps_other_warnings():
+    """A full-form save must not imply that untouched fields were checked."""
+
+    before = _recipe_data(quantity=None)
+    initial = assess_recipe_review(
+        before,
+        source_type="tiktok",
+        extraction_method="whisper",
+        content_revision=1,
+    )
+    after = {**before, "title": "Better Red Rice"}
+
+    reviewed = assess_recipe_review(
+        after,
+        source_type="tiktok",
+        extraction_method="whisper",
+        content_revision=2,
+        previous_extracted=before,
+        previous_evidence=initial.evidence,
+        verified_paths={"title"},
+    )
+
+    assert reviewed.state == "needs_review"
+    assert _field(reviewed.evidence, "title")["status"] == "user_verified"
+    assert _field(
+        reviewed.evidence,
+        "components.0.ingredients.0.quantity",
+    )["status"] == "not_stated"
+    assert _field(
+        reviewed.evidence,
+        "components.0.steps.0",
+    )["status"] == "supported"
+    assert reviewed.evidence["assessment"]["unresolvedMissingQuantityCount"] == 1
+
+
+def test_unchanged_field_review_does_not_make_an_import_ready():
+    """Opening and saving the editor is not evidence of human verification."""
+
+    extracted = _recipe_data()
+    initial = assess_recipe_review(
+        extracted,
+        source_type="instagram",
+        extraction_method="basic",
+        content_revision=1,
+    )
+
+    reviewed = assess_recipe_review(
+        extracted,
+        source_type="instagram",
+        extraction_method="basic",
+        content_revision=2,
+        previous_extracted=extracted,
+        previous_evidence=initial.evidence,
+        verified_paths=set(),
+    )
+
+    assert reviewed.state == "needs_review"
+    assert reviewed.evidence["assessment"]["verifiedFieldCount"] == 0
+    assert reviewed.evidence["assessment"]["userReviewed"] is False
+
+
+def test_explicitly_accepted_missing_quantity_stays_honest_and_can_be_ready():
+    """Acceptance resolves review work without inventing a source amount."""
+
+    extracted = _recipe_data(quantity=None)
+    initial = assess_recipe_review(
+        extracted,
+        source_type="youtube",
+        extraction_method="whisper",
+        content_revision=1,
+    )
+    every_path = {field["path"] for field in initial.evidence["fields"]}
+
+    reviewed = assess_recipe_review(
+        extracted,
+        source_type="youtube",
+        extraction_method="whisper",
+        content_revision=2,
+        previous_extracted=extracted,
+        previous_evidence=initial.evidence,
+        verified_paths=every_path,
+    )
+
+    quantity = _field(
+        reviewed.evidence,
+        "components.0.ingredients.0.quantity",
+    )
+    assert reviewed.state == "ready"
+    assert quantity == {
+        "path": "components.0.ingredients.0.quantity",
+        "status": "user_verified",
+        "quantityStatus": "not_stated",
+    }
+    assert reviewed.evidence["assessment"]["missingQuantityCount"] == 1
+    assert reviewed.evidence["assessment"]["unresolvedMissingQuantityCount"] == 0
+
+
+def test_field_review_rejects_paths_outside_the_current_revision():
+    """Clients cannot create arbitrary durable verification claims."""
+
+    with pytest.raises(HTTPException) as error:
+        assess_recipe_review(
+            _recipe_data(),
+            source_type="youtube",
+            extraction_method="whisper",
+            content_revision=2,
+            previous_extracted=_recipe_data(),
+            verified_paths={"components.9.ingredients.9.quantity"},
+        )
+
+    assert error.value.status_code == 422
+    assert error.value.detail["code"] == "INVALID_RECIPE_REVIEW_PATH"
+
+
+def test_field_review_requires_previous_content_to_carry_verified_paths():
+    """A v2 verification claim cannot be carried without its source revision."""
+
+    extracted = _recipe_data()
+    previous = assess_recipe_review(
+        extracted,
+        source_type="youtube",
+        extraction_method="whisper",
+        content_revision=1,
+        user_reviewed=True,
+    )
+
+    with pytest.raises(HTTPException) as error:
+        assess_recipe_review(
+            extracted,
+            source_type="youtube",
+            extraction_method="whisper",
+            content_revision=2,
+            previous_evidence=previous.evidence,
+            verified_paths=set(),
+        )
+
+    assert error.value.status_code == 422
+    assert error.value.detail["code"] == "MISSING_PREVIOUS_RECIPE_REVISION"
+
+
+def test_field_review_carries_prior_work_without_blessing_untouched_fields():
+    """Prior confirmations and current edits remain path-specific."""
+
+    before = _recipe_data()
+    initial = assess_recipe_review(
+        before,
+        source_type="youtube",
+        extraction_method="whisper",
+        content_revision=1,
+    )
+    partially_verified = assess_recipe_review(
+        before,
+        source_type="youtube",
+        extraction_method="whisper",
+        content_revision=2,
+        previous_extracted=before,
+        previous_evidence=initial.evidence,
+        verified_paths={"title"},
+    )
+    after = _recipe_data(steps=["Cook until tender."])
+
+    reassessed = assess_recipe_review(
+        after,
+        source_type="youtube",
+        extraction_method="whisper",
+        content_revision=3,
+        previous_extracted=before,
+        previous_evidence=partially_verified.evidence,
+        verified_paths={"components.0.steps.0"},
+    )
+
+    assert reassessed.state == "needs_review"
+    assert _field(reassessed.evidence, "title")["status"] == "user_verified"
+    assert _field(
+        reassessed.evidence,
+        "components.0.steps.0",
+    )["status"] == "user_verified"
+    assert _field(
+        reassessed.evidence,
+        "components.0.ingredients.0.name",
+    )["status"] == "supported"
+
+
+def test_reordering_ingredients_does_not_verify_shifted_paths():
+    """A positional move cannot inherit or manufacture review status."""
+
+    before = _recipe_data()
+    before["components"][0]["ingredients"].append(
+        {"name": "water", "quantity": "2", "unit": "cups"}
+    )
+    initial = assess_recipe_review(
+        before,
+        source_type="youtube",
+        extraction_method="whisper",
+        content_revision=1,
+    )
+    partially_verified = assess_recipe_review(
+        before,
+        source_type="youtube",
+        extraction_method="whisper",
+        content_revision=2,
+        previous_extracted=before,
+        previous_evidence=initial.evidence,
+        verified_paths={"components.0.ingredients.0.quantity"},
+    )
+    after = _recipe_data()
+    after["components"][0]["ingredients"] = list(
+        reversed(before["components"][0]["ingredients"])
+    )
+
+    reassessed = assess_recipe_review(
+        after,
+        source_type="youtube",
+        extraction_method="whisper",
+        content_revision=3,
+        previous_extracted=before,
+        previous_evidence=partially_verified.evidence,
+        verified_paths=set(),
+    )
+
+    assert _field(
+        reassessed.evidence,
+        "components.0.ingredients.0.quantity",
+    )["status"] == "supported"
+    assert _field(
+        reassessed.evidence,
+        "components.0.ingredients.1.quantity",
+    )["status"] == "supported"
+
+
+def test_recipe_edit_requires_both_parts_of_the_review_protocol():
+    """The revision and explicit path list form one atomic client contract."""
+
+    with pytest.raises(ValueError):
+        RecipeEdit(
+            title="Red Rice",
+            ingredients=[],
+            steps=[],
+            verified_paths=[],
+        )
+    with pytest.raises(ValueError):
+        RecipeEdit(
+            title="Red Rice",
+            ingredients=[],
+            steps=[],
+            review_content_revision=1,
+        )
+
+
+def test_recipe_edit_allows_only_bounded_reviewable_paths():
+    """The client contract accepts every field family but no arbitrary paths."""
+
+    supported = [
+        "title",
+        "servings",
+        "times.prep",
+        "components.0.steps.0",
+        "components.0.ingredients.0.quantity",
+    ]
+    edit = RecipeEdit(
+        title="Red Rice",
+        ingredients=[],
+        steps=[],
+        review_content_revision=1,
+        verified_paths=supported,
+    )
+    assert edit.verified_paths == supported
+
+    with pytest.raises(ValueError):
+        RecipeEdit(
+            title="Red Rice",
+            ingredients=[],
+            steps=[],
+            review_content_revision=1,
+            verified_paths=["notes"],
+        )
+    with pytest.raises(ValueError):
+        RecipeEdit(
+            title="Red Rice",
+            ingredients=[],
+            steps=[],
+            review_content_revision=1,
+            verified_paths=[f"components.{('1' * 200)}.steps.0"],
+        )
+
+
+def test_field_review_rejects_a_stale_recipe_revision():
+    """An older editor snapshot cannot overwrite newer review work."""
+
+    edit = RecipeEdit(
+        title="Red Rice",
+        ingredients=[],
+        steps=[],
+        review_content_revision=2,
+        verified_paths=[],
+    )
+
+    with pytest.raises(HTTPException) as error:
+        _review_paths_for_edit(edit, SimpleNamespace(content_revision=3))
+
+    assert error.value.status_code == 409
+    assert error.value.detail["code"] == "STALE_RECIPE_REVIEW"
+    assert error.value.detail["content_revision"] == 3
+
+
 def test_review_response_contract_matches_evidence_schema_and_privacy_boundary():
     """Owner responses expose the documented evidence envelope; public ones do not."""
 
@@ -214,8 +558,11 @@ def test_review_response_contract_matches_evidence_schema_and_privacy_boundary()
         "extraction_evidence": assessment.evidence,
         "content_revision": 3,
     }
-    assert assessment.evidence["fields"][0] == {
-        "path": "components.0.ingredients.0",
+    assert _field(
+        assessment.evidence,
+        "components.0.ingredients.0.quantity",
+    ) == {
+        "path": "components.0.ingredients.0.quantity",
         "status": "not_stated",
         "quantityStatus": "not_stated",
     }

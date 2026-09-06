@@ -49,9 +49,12 @@ from app.recipe_review import (
     assess_recipe_review,
     evidence_source_method,
     evidence_source_provenance,
+    evidence_user_verified_paths,
+    evidence_uses_field_review,
     evidence_was_user_reviewed,
     require_recipe_publishable,
     review_response_fields,
+    reviewable_recipe_paths,
 )
 from app.services.extraction_confidence import normalize_extraction_confidence
 from app.services.storage import storage_service
@@ -399,10 +402,24 @@ class RecipeEdit(BaseModel):
     nutrition: Optional[ManualNutrition] = None
     nutrition_recalculated: bool = False
     nutrition_model: Optional[str] = None
+    review_content_revision: Optional[int] = Field(default=None, ge=1)
+    verified_paths: Optional[List[str]] = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
-    def require_recalculated_nutrition_payload(self) -> "RecipeEdit":
-        """A freshness claim is valid only when replacement values are supplied."""
+    def validate_edit_contract(self) -> "RecipeEdit":
+        """Validate the review pair and any recalculated nutrition claim."""
+        if (self.review_content_revision is None) != (self.verified_paths is None):
+            raise ValueError(
+                "review_content_revision and verified_paths must be supplied together"
+            )
+        for path in self.verified_paths or []:
+            if len(path) > 160 or not re.fullmatch(
+                r"(?:title|servings|times\.(?:prep|cook|total)|"
+                r"components\.\d+\.(?:steps\.\d+|"
+                r"ingredients\.\d+\.(?:name|quantity|unit)))",
+                path,
+            ):
+                raise ValueError(f"invalid recipe review path: {path}")
         if self.nutrition_recalculated and self.nutrition is None:
             raise ValueError("nutrition is required when nutrition_recalculated is true")
         if self.nutrition_recalculated and self.nutrition is not None:
@@ -417,6 +434,24 @@ class RecipeEdit(BaseModel):
                     "calories, protein, carbs, and fat are required for recalculated nutrition"
                 )
         return self
+
+
+def _review_paths_for_edit(edit: RecipeEdit, recipe: Recipe) -> set[str] | None:
+    """Validate the optimistic review revision while preserving old clients."""
+
+    if edit.verified_paths is None:
+        return None
+    current_revision = int(recipe.content_revision or 1)
+    if edit.review_content_revision != current_revision:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "STALE_RECIPE_REVIEW",
+                "message": "This recipe changed after review started. Reload it before saving.",
+                "content_revision": current_revision,
+            },
+        )
+    return set(edit.verified_paths)
 
 
 class ManualRecipeCreate(BaseModel):
@@ -1793,7 +1828,7 @@ async def update_recipe(
     Only the recipe owner can update it.
     """
     result = await db.execute(
-        select(Recipe).where(Recipe.id == recipe_id)
+        select(Recipe).where(Recipe.id == recipe_id).with_for_update()
     )
     recipe = result.scalar_one_or_none()
 
@@ -1830,11 +1865,30 @@ async def update_recipe(
         recipe.extracted = updated_extracted
         recipe.content_revision = int(recipe.content_revision or 1) + 1
     else:
+        uses_field_review = evidence_uses_field_review(recipe.extraction_evidence)
+        # A non-null title or servings value is a direct owner correction, not
+        # implicit acceptance of an untouched field. Treat only the values this
+        # request actually changed as verified and carry the rest conservatively.
+        owner_edited_metadata_paths = set()
+        if update.title is not None and old_extracted.get("title") != extracted.get("title"):
+            owner_edited_metadata_paths.add("title")
+        if (
+            update.servings is not None
+            and old_extracted.get("servings") != extracted.get("servings")
+        ):
+            owner_edited_metadata_paths.add("servings")
+        owner_edited_metadata_paths &= reviewable_recipe_paths(updated_extracted)
         apply_recipe_review(
             recipe,
             updated_extracted,
-            user_reviewed=evidence_was_user_reviewed(recipe.extraction_evidence),
+            user_reviewed=(
+                evidence_was_user_reviewed(recipe.extraction_evidence)
+                if not uses_field_review
+                else False
+            ),
             increment_revision=True,
+            previous_extracted=old_extracted if uses_field_review else None,
+            verified_paths=owner_edited_metadata_paths if uses_field_review else None,
         )
     correction_event = build_recipe_correction_event(
         recipe=recipe,
@@ -1988,7 +2042,7 @@ async def edit_recipe(
     Only the recipe owner can edit.
     """
     result = await db.execute(
-        select(Recipe).where(Recipe.id == recipe_id)
+        select(Recipe).where(Recipe.id == recipe_id).with_for_update()
     )
     recipe = result.scalar_one_or_none()
 
@@ -1999,6 +2053,7 @@ async def edit_recipe(
     if recipe.user_id != user.id:
         raise HTTPException(status_code=403, detail="You can only edit your own recipes")
 
+    verified_paths = _review_paths_for_edit(edit, recipe)
     target_is_public = edit.is_public if edit.is_public is not None else recipe.is_public
 
     # Preserve some fields from original extracted data
@@ -2024,8 +2079,10 @@ async def edit_recipe(
     apply_recipe_review(
         recipe,
         new_extracted,
-        user_reviewed=True,
+        user_reviewed=verified_paths is None,
         increment_revision=True,
+        previous_extracted=old_extracted if verified_paths is not None else None,
+        verified_paths=verified_paths,
     )
     correction_event = build_recipe_correction_event(
         recipe=recipe,
@@ -2073,7 +2130,7 @@ async def edit_recipe_with_image(
 
     # Get the recipe
     result = await db.execute(
-        select(Recipe).where(Recipe.id == recipe_id)
+        select(Recipe).where(Recipe.id == recipe_id).with_for_update()
     )
     recipe = result.scalar_one_or_none()
 
@@ -2084,6 +2141,7 @@ async def edit_recipe_with_image(
     if recipe.user_id != user.id:
         raise HTTPException(status_code=403, detail="You can only edit your own recipes")
 
+    verified_paths = _review_paths_for_edit(edit, recipe)
     target_is_public = edit.is_public if edit.is_public is not None else recipe.is_public
 
     # Handle image upload first
@@ -2132,8 +2190,10 @@ async def edit_recipe_with_image(
     apply_recipe_review(
         recipe,
         new_extracted,
-        user_reviewed=True,
+        user_reviewed=verified_paths is None,
         increment_revision=True,
+        previous_extracted=old_extracted if verified_paths is not None else None,
+        verified_paths=verified_paths,
     )
     correction_event = build_recipe_correction_event(
         recipe=recipe,
@@ -2168,7 +2228,7 @@ async def restore_original_recipe(
     Only works for extracted recipes that have been edited.
     """
     result = await db.execute(
-        select(Recipe).where(Recipe.id == recipe_id)
+        select(Recipe).where(Recipe.id == recipe_id).with_for_update()
     )
     recipe = result.scalar_one_or_none()
 
@@ -2186,12 +2246,44 @@ async def restore_original_recipe(
             detail="No original version available. This recipe hasn't been edited or is a manual recipe."
         )
 
-    # Restore the original
+    original_extracted = dict(recipe.original_extracted)
+    original_version = await db.scalar(
+        select(RecipeVersion)
+        .where(
+            RecipeVersion.recipe_id == recipe_id,
+            RecipeVersion.extracted == original_extracted,
+        )
+        .order_by(RecipeVersion.version_number.asc())
+        .limit(1)
+    )
+    original_evidence = (
+        original_version.extraction_evidence if original_version is not None else None
+    )
+    original_field_review = evidence_uses_field_review(original_evidence)
+    original_reviewed = evidence_was_user_reviewed(original_evidence)
+    original_method = evidence_source_method(original_evidence)
+    if original_method:
+        recipe.extraction_method = original_method
+
+    review_source_kwargs = (
+        {"source_evidence": evidence_source_provenance(original_evidence)}
+        if original_evidence is not None
+        else {}
+    )
+    # Restore the original content and its matching review evidence when available.
     apply_recipe_review(
         recipe,
-        dict(recipe.original_extracted),
-        user_reviewed=False,
+        original_extracted,
+        user_reviewed=original_reviewed,
         increment_revision=True,
+        previous_extracted=original_extracted if original_field_review else None,
+        previous_evidence=original_evidence,
+        verified_paths=(
+            evidence_user_verified_paths(original_evidence)
+            if original_field_review
+            else None
+        ),
+        **review_source_kwargs,
     )
     recipe.original_extracted = None  # Clear the backup
 
@@ -2853,7 +2945,7 @@ async def restore_recipe_version(
     """
     # First verify the recipe exists and user owns it
     result = await db.execute(
-        select(Recipe).where(Recipe.id == recipe_id)
+        select(Recipe).where(Recipe.id == recipe_id).with_for_update()
     )
     recipe = result.scalar_one_or_none()
 
@@ -2885,7 +2977,9 @@ async def restore_recipe_version(
     )
 
     # Restore the recipe to the selected version
-    restored_reviewed = evidence_was_user_reviewed(version_to_restore.extraction_evidence)
+    restored_evidence = version_to_restore.extraction_evidence
+    restored_field_review = evidence_uses_field_review(restored_evidence)
+    restored_reviewed = evidence_was_user_reviewed(restored_evidence)
     restored_method = evidence_source_method(version_to_restore.extraction_evidence)
     if restored_method:
         recipe.extraction_method = restored_method
@@ -2894,8 +2988,17 @@ async def restore_recipe_version(
         dict(version_to_restore.extracted),
         user_reviewed=restored_reviewed,
         increment_revision=True,
+        previous_extracted=(
+            dict(version_to_restore.extracted) if restored_field_review else None
+        ),
+        previous_evidence=restored_evidence,
+        verified_paths=(
+            evidence_user_verified_paths(restored_evidence)
+            if restored_field_review
+            else None
+        ),
         source_evidence=evidence_source_provenance(
-            version_to_restore.extraction_evidence
+            restored_evidence
         ),
     )
     if recipe.is_public:

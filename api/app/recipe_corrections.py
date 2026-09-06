@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from itertools import zip_longest
 
 from app.models.recipe import RecipeCorrectionEvent
+from app.recipe_review import evidence_uses_field_review
 
 
 @dataclass(frozen=True)
@@ -147,7 +148,7 @@ def measure_recipe_correction(before: dict, after: dict) -> CorrectionMetrics:
 
 
 def _missing_quantity_count(evidence: object) -> int:
-    """Read only the aggregate missing-amount count from evidence."""
+    """Read the total missing-amount count without recipe content."""
 
     if not isinstance(evidence, dict):
         return 0
@@ -156,6 +157,27 @@ def _missing_quantity_count(evidence: object) -> int:
         return 0
     value = assessment.get("missingQuantityCount")
     return max(0, value) if isinstance(value, int) else 0
+
+
+def _verified_field_count(evidence: object) -> int:
+    """Count verified paths for aggregate telemetry only."""
+
+    if not isinstance(evidence, dict):
+        return 0
+    if not evidence_uses_field_review(evidence):
+        return 0
+    assessment = evidence.get("assessment")
+    if isinstance(assessment, dict):
+        count = assessment.get("verifiedFieldCount")
+        if isinstance(count, int):
+            return max(0, count)
+    fields = evidence.get("fields")
+    if not isinstance(fields, list):
+        return 0
+    return sum(
+        isinstance(field, dict) and field.get("status") == "user_verified"
+        for field in fields
+    )
 
 
 def build_recipe_correction_event(
@@ -172,13 +194,22 @@ def build_recipe_correction_event(
     metrics = measure_recipe_correction(before_extracted, after_extracted)
     after_review_state = getattr(recipe, "review_state", None)
     state_changed = before_review_state != after_review_state
-    if metrics.changed_field_count == 0 and not state_changed:
+    verified_field_count_increased = _verified_field_count(
+        getattr(recipe, "extraction_evidence", None)
+    ) > _verified_field_count(before_evidence)
+    if (
+        metrics.changed_field_count == 0
+        and not state_changed
+        and not verified_field_count_increased
+    ):
         return None
 
     was_under_review = before_review_state in {"source_incomplete", "needs_review"}
     event_kind = (
         "review_verification"
-        if was_under_review and metrics.changed_field_count == 0
+        if was_under_review
+        and metrics.changed_field_count == 0
+        and (state_changed or verified_field_count_increased)
         else "review_correction"
         if was_under_review
         else "customization"
