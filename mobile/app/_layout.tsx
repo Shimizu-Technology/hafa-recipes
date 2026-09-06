@@ -214,8 +214,6 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
     if (isSignedIn && user) {
       setSentryUser({
         id: user.id,
-        email: user.primaryEmailAddress?.emailAddress,
-        username: user.username,
       });
       addBreadcrumb('auth', 'User signed in', { userId: user.id });
     } else {

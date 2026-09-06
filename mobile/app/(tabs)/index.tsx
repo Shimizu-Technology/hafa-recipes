@@ -354,9 +354,7 @@ export default function ExtractScreen() {
       setIsChecking(true);
 
       // Check for duplicate first (both user's own and public recipes)
-      console.log('Checking duplicate for URL:', url.trim());
       const duplicate = await checkDuplicate.mutateAsync(url.trim());
-      console.log('Duplicate check result:', JSON.stringify(duplicate));
 
       if (duplicate.exists && duplicate.recipe_id) {
         setIsChecking(false);

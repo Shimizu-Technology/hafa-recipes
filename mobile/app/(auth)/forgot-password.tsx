@@ -16,6 +16,7 @@ import { View, Text, Input, Button, useColors } from '@/components/Themed';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { shouldNavigateAfterSessionActivation } from '@/lib/accountAccess';
 import { CLERK_ENVIRONMENT } from '@/lib/clerkMigration';
+import { leaveAuthScreen } from '@/lib/authNavigation';
 
 export default function ForgotPasswordScreen() {
   const { signIn, setActive, isLoaded } = useSignIn();
@@ -102,7 +103,6 @@ export default function ForgotPasswordScreen() {
         await setActive({ session: result.createdSessionId });
         if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)');
       } else {
-        console.log('Reset result:', result);
         setErrorMessage('Could not reset password. Please try again.');
       }
     } catch (error: any) {
@@ -137,8 +137,10 @@ export default function ForgotPasswordScreen() {
           {/* Back Button */}
           <TouchableOpacity
             style={[styles.backButton, { backgroundColor: colors.backgroundSecondary }]}
-            onPress={() => step === 'code' ? setStep('email') : router.back()}
+            onPress={() => step === 'code' ? setStep('email') : leaveAuthScreen(router)}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={step === 'code' ? 'Back to email' : 'Back to Håfa Recipes'}
           >
             <Ionicons name="chevron-back" size={24} color={colors.text} />
             <Text style={[styles.backButtonText, { color: colors.text }]}>Back</Text>

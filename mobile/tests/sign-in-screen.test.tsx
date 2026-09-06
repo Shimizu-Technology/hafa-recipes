@@ -1,10 +1,16 @@
 import React from 'react';
 import { act } from 'react';
 import { createRoot } from 'test-renderer';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
+
+const routerMocks = vi.hoisted(() => ({
+  back: vi.fn(),
+  canGoBack: vi.fn(),
+  replace: vi.fn(),
+}));
 
 function host(name: string) {
   return (props: Record<string, unknown>) =>
@@ -39,7 +45,7 @@ vi.mock('expo-router', () => ({
     }
     return children;
   },
-  useRouter: () => ({ back: vi.fn(), replace: vi.fn() }),
+  useRouter: () => routerMocks,
 }));
 vi.mock('expo-apple-authentication', () => ({
   AppleAuthenticationScope: { EMAIL: 0, FULL_NAME: 1 },
@@ -98,6 +104,13 @@ function renderedText(renderer: ReturnType<typeof createRoot>): string {
 }
 
 describe('SignInScreen', () => {
+  beforeEach(() => {
+    routerMocks.back.mockReset();
+    routerMocks.canGoBack.mockReset();
+    routerMocks.canGoBack.mockReturnValue(false);
+    routerMocks.replace.mockReset();
+  });
+
   it('renders every Link child with a flattened style', async () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
@@ -109,6 +122,26 @@ describe('SignInScreen', () => {
       const copy = renderedText(renderer);
       expect(copy).toContain('Welcome back');
       expect(copy).toContain('Find my existing recipes');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('offers an accessible escape when restored without navigation history', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(SignInScreen));
+      });
+      const backButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Back to Håfa Recipes',
+      )[0];
+
+      expect(backButton.props.accessibilityRole).toBe('button');
+      await act(async () => backButton.props.onPress());
+      expect(routerMocks.back).not.toHaveBeenCalled();
+      expect(routerMocks.replace).toHaveBeenCalledWith('/(tabs)');
     } finally {
       await act(async () => renderer.unmount());
     }

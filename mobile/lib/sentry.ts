@@ -85,15 +85,9 @@ export function initSentry() {
  */
 export function setSentryUser(user: {
   id: string;
-  email?: string | null;
-  username?: string | null;
 } | null) {
   if (user) {
-    Sentry.setUser({
-      id: user.id,
-      email: user.email || undefined,
-      username: user.username || undefined,
-    });
+    Sentry.setUser({ id: user.id });
   } else {
     Sentry.setUser(null);
   }
