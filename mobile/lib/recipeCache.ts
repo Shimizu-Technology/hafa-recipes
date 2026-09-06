@@ -1,4 +1,4 @@
-import type { InfiniteData } from '@tanstack/react-query';
+import type { InfiniteData, QueryClient } from '@tanstack/react-query';
 
 import type { PaginatedRecipes } from '@/types/recipe';
 
@@ -42,4 +42,19 @@ export function savedStateInRecipePages(
     if (recipe) return { found: true, isSaved: recipe.is_saved };
   }
   return { found: false, isSaved: undefined };
+}
+
+/**
+ * A failed optimistic mutation may have overlapped another mutation for the
+ * same recipe. Re-read both active views so snapshot ordering cannot leave a
+ * stale saved state behind.
+ */
+export async function reconcileSavedStateAfterError(
+  queryClient: QueryClient,
+  recipeId: string,
+): Promise<void> {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['discover'] }),
+    queryClient.invalidateQueries({ queryKey: ['recipeSaved', recipeId], exact: true }),
+  ]);
 }

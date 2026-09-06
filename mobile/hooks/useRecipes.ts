@@ -8,7 +8,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@clerk/expo';
 import { AppState, AppStateStatus } from 'react-native';
 import { api, type CaptureSourceType } from '../lib/api';
-import { savedStateInRecipePages, updateSavedStateInRecipePages } from '../lib/recipeCache';
+import {
+  reconcileSavedStateAfterError,
+  savedStateInRecipePages,
+  updateSavedStateInRecipePages,
+} from '../lib/recipeCache';
 import { getApiErrorMessage } from '../lib/apiErrorMessage';
 import { ExtractRequest, JobStatus, RecipeListItem, PaginatedRecipes } from '../types/recipe';
 
@@ -1183,9 +1187,10 @@ export function useSaveRecipe() {
       queryClient.setQueryData(['recipeSaved', recipeId], { is_saved: data.saved });
       setDiscoverSavedState(queryClient, recipeId, data.saved);
     },
-    onSettled: () => {
+    onSettled: async (_data, error, recipeId) => {
       queryClient.invalidateQueries({ queryKey: ['savedRecipes'] });
       queryClient.invalidateQueries({ queryKey: ['savedRecipesCount'] });
+      if (error) await reconcileSavedStateAfterError(queryClient, recipeId);
     },
   });
 }
@@ -1232,9 +1237,10 @@ export function useUnsaveRecipe() {
       queryClient.setQueryData(['recipeSaved', recipeId], { is_saved: data.saved });
       setDiscoverSavedState(queryClient, recipeId, data.saved);
     },
-    onSettled: () => {
+    onSettled: async (_data, error, recipeId) => {
       queryClient.invalidateQueries({ queryKey: ['savedRecipes'] });
       queryClient.invalidateQueries({ queryKey: ['savedRecipesCount'] });
+      if (error) await reconcileSavedStateAfterError(queryClient, recipeId);
     },
   });
 }

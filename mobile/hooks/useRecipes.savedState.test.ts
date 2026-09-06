@@ -1,8 +1,9 @@
-import { QueryClient, type InfiniteData } from '@tanstack/react-query';
+import { QueryClient, QueryObserver, type InfiniteData } from '@tanstack/react-query';
 import { describe, expect, it } from 'vitest';
 
 import type { PaginatedRecipes, RecipeListItem } from '@/types/recipe';
 import {
+  reconcileSavedStateAfterError,
   savedStateInRecipePages,
   updateSavedStateInRecipePages,
 } from '@/lib/recipeCache';
@@ -96,5 +97,37 @@ describe('updateSavedStateInRecipePages', () => {
 
     expect(afterFirstFails.pages[0].items[0].is_saved).toBe(false);
     expect(afterFirstFails.pages[1].items[0].is_saved).toBe(true);
+  });
+
+  it('reconciles a stale same-recipe rollback with authoritative state', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const queryKey = ['discover', 'feed'];
+    const authoritativePages = pages();
+    const afterSave = updateSavedStateInRecipePages(authoritativePages, 'one', true)!;
+    const unsaveSnapshot = savedStateInRecipePages(afterSave, 'one');
+    const afterUnsave = updateSavedStateInRecipePages(afterSave, 'one', false)!;
+    const afterSaveFails = updateSavedStateInRecipePages(afterUnsave, 'one', false)!;
+    const afterBothFail = updateSavedStateInRecipePages(
+      afterSaveFails,
+      'one',
+      unsaveSnapshot.isSaved,
+    )!;
+    expect(afterBothFail.pages[0].items[0].is_saved).toBe(true);
+    queryClient.setQueryData(queryKey, afterBothFail);
+
+    const observer = new QueryObserver(queryClient, {
+      queryKey,
+      queryFn: async () => authoritativePages,
+      staleTime: Infinity,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+
+    await reconcileSavedStateAfterError(queryClient, 'one');
+
+    const reconciled = queryClient.getQueryData<InfiniteData<PaginatedRecipes>>(queryKey);
+    expect(reconciled?.pages[0].items[0].is_saved).toBe(false);
+    unsubscribe();
   });
 });
