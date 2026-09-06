@@ -22,6 +22,7 @@ from app.recipe_media_bucket_policy import (
 BUCKET = "recipe-extractor-thumbnails"
 ACCOUNT_ID = "123456789012"
 DISTRIBUTION_ID = "E123EXAMPLE"
+WRITER_TOKEN = "CHG-20260907-CDN"
 
 
 def _cloudfront_statement() -> dict[str, Any]:
@@ -169,6 +170,7 @@ def test_apply_detects_concurrent_policy_change_before_write(tmp_path: Path) -> 
             observed_policy=observed,
             desired_policy=desired,
             backup_path=backup_path,
+            exclusive_writer_token=WRITER_TOKEN,
         )
 
     assert json.loads(backup_path.read_text()) == observed
@@ -190,12 +192,40 @@ def test_apply_writes_and_verifies_exact_desired_policy(tmp_path: Path) -> None:
         observed_policy=observed,
         desired_policy=desired,
         backup_path=backup_path,
+        exclusive_writer_token=WRITER_TOKEN,
     )
 
     assert changed is True
     assert json.loads(backup_path.read_text()) == observed
     assert client.put_calls == [{"Bucket": BUCKET, "Policy": canonical_policy(desired)}]
     assert policy_sha256(json.loads(client.put_calls[0]["Policy"])) == policy_sha256(desired)
+
+
+def test_apply_requires_exclusive_writer_window_before_backup_or_write(
+    tmp_path: Path,
+) -> None:
+    """S3 has no policy CAS, so coordination evidence is a mutation prerequisite."""
+
+    observed = {"Version": "2012-10-17", "Statement": [_unrelated_statement()]}
+    desired = {
+        "Version": "2012-10-17",
+        "Statement": [_unrelated_statement(), _cloudfront_statement()],
+    }
+    client = FakePolicyClient([])
+    backup_path = tmp_path / "must-not-exist.json"
+
+    with pytest.raises(ValueError, match="exclusive bucket-policy writer window"):
+        apply_policy_change(
+            client,
+            bucket=BUCKET,
+            observed_policy=observed,
+            desired_policy=desired,
+            backup_path=backup_path,
+            exclusive_writer_token=None,
+        )
+
+    assert backup_path.exists() is False
+    assert client.put_calls == []
 
 
 def test_cloudfront_statement_is_thumbnail_and_distribution_scoped() -> None:

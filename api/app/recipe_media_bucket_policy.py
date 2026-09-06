@@ -173,8 +173,15 @@ def apply_policy_change(
     observed_policy: dict[str, Any],
     desired_policy: dict[str, Any],
     backup_path: Path,
+    exclusive_writer_token: str | None,
 ) -> bool:
-    """Back up, concurrency-check, write, and verify one policy change."""
+    """Back up, concurrency-check, write, and verify during an exclusive window."""
+
+    if not exclusive_writer_token or len(exclusive_writer_token.strip()) < 8:
+        raise ValueError(
+            "A documented exclusive bucket-policy writer window is required; "
+            "provide its change-record token"
+        )
 
     observed_canonical = canonical_policy(observed_policy)
     desired_canonical = canonical_policy(desired_policy)
@@ -258,6 +265,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--distribution-id")
     parser.add_argument("--backup-path", type=Path)
     parser.add_argument("--pre-restore-backup-path", type=Path)
+    parser.add_argument(
+        "--exclusive-writer-token",
+        help="Non-secret change-record ID proving an exclusive policy-writer window.",
+    )
     return parser
 
 
@@ -278,6 +289,7 @@ def main() -> None:
             observed_policy=current,
             desired_policy=restored,
             backup_path=args.pre_restore_backup_path,
+            exclusive_writer_token=args.exclusive_writer_token,
         )
         print(f"restore_changed={str(changed).lower()}")
         print(f"policy_sha256={policy_sha256(restored)}")
@@ -307,6 +319,7 @@ def main() -> None:
         observed_policy=current,
         desired_policy=desired,
         backup_path=args.backup_path,
+        exclusive_writer_token=args.exclusive_writer_token,
     )
     print(f"applied={str(changed).lower()}")
 

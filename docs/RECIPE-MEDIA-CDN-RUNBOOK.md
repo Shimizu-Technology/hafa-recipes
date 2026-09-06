@@ -16,8 +16,9 @@ the account reaches its 50%, 80%, or 100% notifications.
 The existing `recipe-extractor-thumbnails` bucket also contains private chat
 uploads. The CDN must never be granted access to the whole bucket.
 
-- The policy tool adds one distribution-scoped CloudFront `s3:GetObject` grant
-  for `thumbnails/*` and preserves every unrelated bucket-policy statement.
+- During an exclusive policy-writer window, the policy tool adds one
+  distribution-scoped CloudFront `s3:GetObject` grant for `thumbnails/*` and
+  preserves every unrelated bucket-policy statement.
 - The WAF allows only viewer paths beginning with `/thumbnails/` and blocks all
   other paths before they reach S3.
 - The distribution uses an Origin Access Control that signs every S3 request.
@@ -79,6 +80,23 @@ could remove unrelated statements that are added outside this stack. The
 policy tool reads the live policy, preserves every unrelated statement, and
 adds only the exact `AllowCloudFrontReadRecipeThumbnails` statement.
 
+S3 does not offer compare-and-swap for `PutBucketPolicy`. A final pre-write read
+cannot prevent another writer from changing the policy in the interval before
+the tool writes. Every mutation therefore requires an exclusive bucket-policy
+writer window. Before opening the window:
+
+- inventory IAM, CloudFormation, deployment workflows, and human operators that
+  can call `s3:PutBucketPolicy` or `s3:DeleteBucketPolicy` for this bucket;
+- pause or coordinate every such automation and operator so this tool is the
+  only writer;
+- create a non-secret change-record ID for the window; and
+- keep the window active from before the tool's plan through its final read-back
+  verification.
+
+Do not treat the CLI token as an AWS lock. It is fail-closed evidence that the
+external writer coordination has been completed. If another writer cannot be
+paused or coordinated, do not mutate the policy.
+
 The tool's unit tests prove merge preservation, thumbnail and distribution
 scope, non-overwriting backups, concurrent-change detection, exact write
 verification, and fail-closed handling of conflicting managed statements. The
@@ -105,6 +123,7 @@ uv run python -m app.recipe_media_bucket_policy apply \
   --bucket recipe-extractor-thumbnails \
   --region ap-southeast-2 \
   --distribution-id "$DISTRIBUTION_ID" \
+  --exclusive-writer-token CHG-YYYYMMDD-RECIPE-CDN \
   --backup-path /ABSOLUTE/APPROVED/BACKUP-DIRECTORY/policy-before-cdn.json
 cd ..
 ```
@@ -112,7 +131,8 @@ cd ..
 The apply step writes only when the policy observed immediately before the
 write still matches the planned policy. It then reads the policy back and
 requires an exact match. If either check fails, stop and reconcile the live
-policy; do not retry by deleting or replacing unrelated statements.
+policy; do not retry by deleting or replacing unrelated statements. Release the
+exclusive writer window only after the read-back verification succeeds.
 
 ## Verify before changing production traffic
 
@@ -235,6 +255,7 @@ uv run python -m app.recipe_media_bucket_policy close-compatibility \
   --bucket recipe-extractor-thumbnails \
   --region ap-southeast-2 \
   --distribution-id "$DISTRIBUTION_ID" \
+  --exclusive-writer-token CHG-YYYYMMDD-RECIPE-CDN-CLOSE \
   --backup-path /ABSOLUTE/APPROVED/BACKUP-DIRECTORY/policy-before-public-close.json
 cd ..
 ```
@@ -263,6 +284,7 @@ uv run python -m app.recipe_media_bucket_policy restore \
   --bucket recipe-extractor-thumbnails \
   --region ap-southeast-2 \
   --backup-path /ABSOLUTE/APPROVED/BACKUP-DIRECTORY/policy-before-public-close.json \
+  --exclusive-writer-token CHG-YYYYMMDD-RECIPE-CDN-ROLLBACK \
   --pre-restore-backup-path /ABSOLUTE/APPROVED/BACKUP-DIRECTORY/policy-before-rollback.json
 cd ..
 ```
@@ -275,9 +297,10 @@ order creates broken images.
 Do not delete the stack during an incident. First switch Render back to direct
 S3 delivery and verify images. Before planned teardown, use the policy tool's
 `detach-cloudfront` action with a new backup path; it removes only the exact
-distribution-scoped statement and preserves everything else. Deleting an
-active pricing-plan subscription schedules cancellation for the end of the
-current billing period, so keep its associated resources intact until
-cancellation completes. CloudFront distributions must also be disabled before
-they can be deleted. Because the stack never owns the bucket or its policy,
-stack deletion cannot remove either one.
+distribution-scoped statement and preserves everything else. This action also
+requires an exclusive-writer token and window. Deleting an active pricing-plan
+subscription schedules cancellation for the end of the current billing period,
+so keep its associated resources intact until cancellation completes.
+CloudFront distributions must also be disabled before they can be deleted.
+Because the stack never owns the bucket or its policy, stack deletion cannot
+remove either one.
