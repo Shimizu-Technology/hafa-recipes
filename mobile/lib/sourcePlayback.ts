@@ -110,7 +110,7 @@ export function getSourcePlayback(sourceUrl: string): SourcePlayback | null {
       providerLabel: 'YouTube',
       mode: 'modal',
       mediaKind: 'video',
-      embedUrl: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?playsinline=1&rel=0&origin=${origin}`,
+      embedUrl: `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?playsinline=1&rel=0&origin=${origin}`,
       aspectRatio: 16 / 9,
       requestHeaders: { Referer: YOUTUBE_APP_REFERRER },
     };

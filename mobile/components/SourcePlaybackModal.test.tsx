@@ -59,7 +59,7 @@ const youtubePlayback: ModalSourcePlayback = {
   provider: 'youtube',
   providerLabel: 'YouTube',
   mediaKind: 'video',
-  embedUrl: 'https://www.youtube.com/embed/abcDEF_1234?playsinline=1&rel=0',
+  embedUrl: 'https://www.youtube-nocookie.com/embed/abcDEF_1234?playsinline=1&rel=0',
   aspectRatio: 16 / 9,
   requestHeaders: { Referer: 'https://com.shimizutechnology.recipeextractor' },
 };
@@ -111,6 +111,10 @@ describe('containedPlayerSize', () => {
       expect(renderer.container.queryAll((instance) => instance.type === 'ActivityIndicator')).toHaveLength(0);
       expect(renderer.container.queryAll(
         (instance) => instance.props.children === 'Loaded from YouTube',
+      )).toHaveLength(1);
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.children?.join?.('')
+          === 'Player provided by YouTube. Its privacy terms apply.',
       )).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());

@@ -48,6 +48,7 @@ describe('RecipeHero', () => {
         mediaKind: 'video',
       });
       expect(player.props.thumbnailUrl).toBe('https://example.com/kelaguen.jpg');
+      expect(player.props.embeddedPlaybackEnabled).toBe(true);
       expect(renderer.container.queryAll((instance) => instance.type === 'Image')).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());

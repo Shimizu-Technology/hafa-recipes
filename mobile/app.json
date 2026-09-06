@@ -7,6 +7,12 @@
     "icon": "./assets/images/icon.png",
     "scheme": "hafarecipes",
     "userInterfaceStyle": "automatic",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/97e94fdf-ea37-44c2-82ea-ede6ab0b06b7"
+    },
     "ios": {
       "supportsTablet": true,
       "usesAppleSignIn": true,
