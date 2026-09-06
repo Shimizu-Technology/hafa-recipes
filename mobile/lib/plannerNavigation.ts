@@ -55,6 +55,7 @@ export function plannerGrocerySuccessMessage(result: PlannerGroceryResult): stri
   const missing = result.items_missing_amount ?? 0;
   if (missing <= 0) return added;
 
-  const verb = missing === 1 ? 'has' : 'have';
-  return `${added} ${missing} ${verb} an amount not stated, so they are clearly marked in your list.`;
+  const subject = missing === 1 ? 'ingredient has' : 'ingredients have';
+  const pronoun = missing === 1 ? 'it is' : 'they are';
+  return `${added} ${missing} ${subject} no stated amount, so ${pronoun} clearly marked in your list.`;
 }

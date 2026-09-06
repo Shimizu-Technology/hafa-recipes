@@ -59,8 +59,8 @@ describe('planner grocery handoff messaging', () => {
   it.each([
     [0, 'Added 8 ingredients from your meal plan.'],
     [undefined, 'Added 8 ingredients from your meal plan.'],
-    [1, 'Added 8 ingredients from your meal plan. 1 has an amount not stated, so they are clearly marked in your list.'],
-    [3, 'Added 8 ingredients from your meal plan. 3 have an amount not stated, so they are clearly marked in your list.'],
+    [1, 'Added 8 ingredients from your meal plan. 1 ingredient has no stated amount, so it is clearly marked in your list.'],
+    [3, 'Added 8 ingredients from your meal plan. 3 ingredients have no stated amount, so they are clearly marked in your list.'],
   ])('keeps the missing-amount count explicit for %i missing', (missing, expected) => {
     expect(plannerGrocerySuccessMessage({
       items_added: 8,

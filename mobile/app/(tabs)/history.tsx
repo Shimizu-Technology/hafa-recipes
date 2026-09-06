@@ -53,7 +53,7 @@ import { useViewPreference } from '@/hooks/useViewPreference';
 
 const ITEMS_PER_PAGE = 20;
 
-function RecipeCard({
+export function RecipeCard({
   recipe,
   onPress,
   colors,
@@ -164,7 +164,7 @@ function RecipeCard({
 }
 
 // Grid recipe card - square image with title overlay
-function GridRecipeCard({
+export function GridRecipeCard({
   recipe,
   onPress,
   colors,
