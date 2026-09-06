@@ -25,6 +25,7 @@ import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/C
 import { clerkErrorMessage, isCancelledAppleSignIn, shouldNavigateAfterSessionActivation } from '@/lib/accountAccess';
 import { CLERK_ENVIRONMENT } from '@/lib/clerkMigration';
 import { signInWithAppleToken, signInWithBrowserProvider } from '@/lib/socialAuthentication';
+import { authBackAccessibilityLabel, leaveAuthScreen } from '@/lib/authNavigation';
 
 // Required for OAuth to work properly (for Apple Sign-In)
 WebBrowser.maybeCompleteAuthSession();
@@ -70,10 +71,8 @@ export default function SignInScreen() {
         if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)');
       } else if (result.status === 'needs_second_factor') {
         // 2FA is enabled on this account - not currently supported in app
-        console.log('Sign in requires 2FA:', result);
         setErrorMessage('This account has two-factor authentication enabled. Please disable 2FA in your account settings or use Apple/Google sign-in.');
       } else {
-        console.log('Sign in result:', result);
         setErrorMessage('Could not complete sign in. Please try again.');
       }
     } catch (error: any) {
@@ -184,8 +183,10 @@ export default function SignInScreen() {
           {/* Back Button */}
           <TouchableOpacity
             style={[styles.backButton, { backgroundColor: colors.backgroundSecondary }]}
-            onPress={() => router.back()}
+            onPress={() => leaveAuthScreen(router)}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={authBackAccessibilityLabel(router)}
           >
             <Ionicons name="chevron-back" size={24} color={colors.text} />
             <Text style={[styles.backButtonText, { color: colors.text }]}>Back</Text>

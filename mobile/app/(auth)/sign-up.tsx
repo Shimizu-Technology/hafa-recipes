@@ -24,6 +24,7 @@ import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/C
 import { clerkErrorMessage, isCancelledAppleSignIn } from '@/lib/accountAccess';
 import { beginAccountOnboarding, clearAccountOnboarding, failAccountOnboarding } from '@/lib/accountOnboarding';
 import { CLERK_ENVIRONMENT, getOrCreateInstallationId, onboardProductionAccount } from '@/lib/clerkMigration';
+import { authBackAccessibilityLabel, leaveAuthScreen } from '@/lib/authNavigation';
 
 // Required for OAuth to work properly (for Apple Sign-In)
 WebBrowser.maybeCompleteAuthSession();
@@ -165,7 +166,6 @@ export default function SignUpScreen() {
       if (result.status === 'complete' && result.createdSessionId && result.createdUserId) {
         await completeExplicitSignUp(result.createdSessionId, result.createdUserId);
       } else {
-        console.log('Verification result:', result);
         setErrorMessage('Could not complete verification. Please try again.');
       }
     } catch (error: any) {
@@ -274,6 +274,8 @@ export default function SignUpScreen() {
             style={[styles.backButton, { backgroundColor: colors.backgroundSecondary }]}
             onPress={() => setPendingVerification(false)}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Back to account details"
           >
             <Ionicons name="chevron-back" size={24} color={colors.text} />
             <Text style={[styles.backButtonText, { color: colors.text }]}>Back</Text>
@@ -343,8 +345,10 @@ export default function SignUpScreen() {
           {/* Back Button */}
           <TouchableOpacity
             style={[styles.backButton, { backgroundColor: colors.backgroundSecondary }]}
-            onPress={() => router.back()}
+            onPress={() => leaveAuthScreen(router)}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={authBackAccessibilityLabel(router)}
           >
             <Ionicons name="chevron-back" size={24} color={colors.text} />
             <Text style={[styles.backButtonText, { color: colors.text }]}>Back</Text>
