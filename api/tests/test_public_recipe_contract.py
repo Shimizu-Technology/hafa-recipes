@@ -89,6 +89,33 @@ def test_owner_detail_keeps_owner_debug_fields(monkeypatch):
     assert response.is_owner is True
 
 
+def test_detail_response_normalizes_legacy_ingredient_quantities(monkeypatch):
+    _, recipes = _load_recipe_routers(monkeypatch)
+    recipe = _public_recipe()
+    ingredients = [
+        {"name": "Chicken", "quantity": 2, "unit": "lb"},
+        {"name": "Salt", "quantity": " null ", "unit": "tsp"},
+        {"name": "Pepper", "quantity": {"unexpected": True}, "unit": None},
+    ]
+    recipe.extracted["components"] = [
+        {"name": "Main", "ingredients": ingredients, "steps": []}
+    ]
+    recipe.extracted["ingredients"] = ingredients
+
+    response = recipes.recipe_to_detail_response(recipe, viewer_user_id=recipe.user_id)
+
+    component_quantities = [
+        ingredient.quantity
+        for ingredient in response.extracted.components[0].ingredients
+    ]
+    assert component_quantities == ["2", None, None]
+    assert [ingredient.quantity for ingredient in response.extracted.ingredients] == [
+        "2",
+        None,
+        None,
+    ]
+
+
 def test_recipe_creation_defaults_are_private(monkeypatch):
     extract, recipes = _load_recipe_routers(monkeypatch)
 

@@ -2,6 +2,7 @@
 
 import json
 import re
+from copy import deepcopy
 from typing import List, Literal, Optional
 from uuid import UUID
 
@@ -64,6 +65,37 @@ MAX_RECIPE_UPLOAD_BYTES = 10 * 1024 * 1024
 settings = get_settings()
 
 
+def _normalize_response_quantity(value: object) -> str | None:
+    """Coerce legacy JSON quantities to the nullable string API contract."""
+    if isinstance(value, str):
+        normalized = value.strip()
+        return normalized if normalized and normalized.lower() != "null" else None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    return None
+
+
+def _normalize_response_ingredients(extracted: dict) -> None:
+    """Normalize quantities in canonical and legacy ingredient collections."""
+    ingredient_groups: list[object] = [extracted.get("ingredients")]
+    components = extracted.get("components")
+    if isinstance(components, list):
+        ingredient_groups.extend(
+            component.get("ingredients")
+            for component in components
+            if isinstance(component, dict)
+        )
+
+    for ingredients in ingredient_groups:
+        if not isinstance(ingredients, list):
+            continue
+        for ingredient in ingredients:
+            if isinstance(ingredient, dict):
+                ingredient["quantity"] = _normalize_response_quantity(
+                    ingredient.get("quantity")
+                )
+
+
 def normalize_recipe_data(recipe: Recipe) -> Recipe:
     """
     Normalize recipe data to ensure all required fields have valid values.
@@ -72,8 +104,10 @@ def normalize_recipe_data(recipe: Recipe) -> Recipe:
     if not recipe.extracted:
         return recipe
 
-    extracted = dict(recipe.extracted)
+    extracted = deepcopy(recipe.extracted)
     modified = False
+
+    _normalize_response_ingredients(extracted)
 
     # Ensure nutrition has proper structure
     nutrition = extracted.get("nutrition")
