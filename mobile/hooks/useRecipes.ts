@@ -706,9 +706,15 @@ export function useAsyncExtractionController() {
             const clerkScopedJob = JSON.parse(clerkScopedRaw) as StoredExtractionJob;
             if (clerkScopedJob.userId === clerkUserId) {
               const migratedJob = { ...clerkScopedJob, userId: durableUserId };
-              await AsyncStorage.setItem(durableKey, JSON.stringify(migratedJob));
-              await AsyncStorage.removeItem(clerkKey);
-              raw = JSON.stringify(migratedJob);
+              const migratedRaw = JSON.stringify(migratedJob);
+              try {
+                await AsyncStorage.setItem(durableKey, migratedRaw);
+                await AsyncStorage.removeItem(clerkKey).catch(() => undefined);
+              } catch {
+                // Keep the only durable pointer under the current auth subject.
+                // The verified in-memory copy can still resume this session.
+              }
+              raw = migratedRaw;
             } else {
               await AsyncStorage.removeItem(clerkKey);
             }
@@ -720,7 +726,10 @@ export function useAsyncExtractionController() {
           storedJob.userId !== durableUserId ||
           Date.now() - storedJob.startTime > MAX_STORED_JOB_AGE_MS
         ) {
-          await AsyncStorage.removeItem(durableKey);
+          await AsyncStorage.removeItem(loadedKey);
+          if (loadedKey !== durableKey) {
+            await AsyncStorage.removeItem(durableKey);
+          }
           return;
         }
 

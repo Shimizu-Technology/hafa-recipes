@@ -193,6 +193,58 @@ describe('durable extraction recovery', () => {
     queryClient.clear();
   });
 
+  it('preserves and resumes the Clerk-scoped pointer when durable migration storage fails', async () => {
+    const clerkScopedKey = 'active_extraction_job_v2:clerk-current-user';
+    const durableKey = 'active_extraction_job_v2:app-stable-user';
+    const storedJob = {
+      userId: 'clerk-current-user',
+      jobId: 'pending-server-job',
+      idempotencyKey: 'pending-server-key',
+      startTime: Date.now(),
+      request: { kind: 'extract' as const, payload: { url: 'https://example.com/recipe' } },
+    };
+    mocks.getItem.mockImplementation(async (key: string) => (
+      key === clerkScopedKey ? JSON.stringify(storedJob) : null
+    ));
+    mocks.setItem.mockRejectedValueOnce(new Error('storage unavailable'));
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    let controller: Controller | null = null;
+
+    function Harness() {
+      controller = useAsyncExtractionController();
+      return null;
+    }
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <QueryClientProvider client={queryClient}>
+          <Harness />
+        </QueryClientProvider>,
+      );
+    });
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+    }
+
+    expect(mocks.setItem).toHaveBeenCalledWith(
+      durableKey,
+      expect.stringContaining('"userId":"app-stable-user"'),
+    );
+    expect(mocks.removeItem).not.toHaveBeenCalledWith(clerkScopedKey);
+    expect(controller).toMatchObject({
+      jobId: 'pending-server-job',
+      isExtracting: true,
+    });
+
+    await act(async () => renderer!.unmount());
+    queryClient.clear();
+  });
+
   it('rediscovers and resumes an owner job when local storage has no pointer', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
