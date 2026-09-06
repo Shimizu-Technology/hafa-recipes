@@ -15,6 +15,7 @@ from app.auth import ClerkUser, get_current_user
 from app.db.database import get_db
 from app.models.recipe import Collection, CollectionRecipe, Recipe
 from app.moderation import accessible_recipe_conditions, is_publicly_viewable
+from app.services.storage import storage_service
 
 router = APIRouter(prefix="/api/collections", tags=["collections"])
 
@@ -121,7 +122,10 @@ async def get_collections(
             .limit(4)
         )
         preview_result = await db.execute(preview_query)
-        thumbnails = [row[0] for row in preview_result.all()]
+        thumbnails = [
+            storage_service.thumbnail_delivery_url(row[0], variant="list")
+            for row in preview_result.all()
+        ]
         
         response.append(CollectionWithRecipesResponse(
             id=str(collection.id),
@@ -322,7 +326,10 @@ async def get_collection_recipes(
             id=str(recipe.id),
             title=recipe.extracted.get("title", "Untitled"),
             source_type=recipe.source_type,
-            thumbnail_url=recipe.thumbnail_url,
+            thumbnail_url=storage_service.thumbnail_delivery_url(
+                recipe.thumbnail_url,
+                variant="list",
+            ),
             tags=recipe.extracted.get("tags", []),
             total_time=(recipe.extracted.get("times") or {}).get("total"),
             servings=recipe.extracted.get("servings"),

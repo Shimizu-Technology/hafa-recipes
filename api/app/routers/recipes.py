@@ -562,7 +562,10 @@ def recipe_to_list_item(
         title=extracted.get("title", "Untitled Recipe"),
         source_url=recipe.source_url,
         source_type=recipe.source_type,
-        thumbnail_url=recipe.thumbnail_url,
+        thumbnail_url=storage_service.thumbnail_delivery_url(
+            recipe.thumbnail_url,
+            variant="list",
+        ),
         extraction_quality=recipe.extraction_quality,
         has_audio_transcript=recipe.has_audio_transcript or False,
         tags=extracted.get("tags", []),
@@ -597,6 +600,10 @@ def recipe_to_detail_response(
         for field_name in RecipeResponse.model_fields
         if hasattr(recipe, field_name)
     }
+    response_data["thumbnail_url"] = storage_service.thumbnail_delivery_url(
+        recipe.thumbnail_url,
+        variant="hero",
+    )
     response_data["extracted"] = normalized_recipe_extracted(recipe)
     is_owner = bool(recipe.user_id and recipe.user_id == viewer_user_id)
     response = RecipeResponse.model_validate(response_data)
@@ -2934,7 +2941,10 @@ async def get_recipe_version_detail(
         "recipe_id": str(version.recipe_id),
         "version_number": version.version_number,
         "extracted": version.extracted,
-        "thumbnail_url": version.thumbnail_url,
+        "thumbnail_url": storage_service.thumbnail_delivery_url(
+            version.thumbnail_url,
+            variant="hero",
+        ),
         "change_type": version.change_type,
         "change_summary": version.change_summary,
         "created_by": version.created_by,

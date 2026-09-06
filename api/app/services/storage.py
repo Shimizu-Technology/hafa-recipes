@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from urllib.parse import urljoin, urlparse
@@ -14,18 +15,26 @@ from botocore.exceptions import ClientError
 from app.config import get_settings
 from app.image_validation import (
     ImageValidationError,
+    ThumbnailVariantSpec,
+    ValidatedImage,
     decode_and_validate_base64_image,
-    normalize_thumbnail_image,
+    normalize_thumbnail_variants,
     validate_image_bytes,
 )
 from app.media_lifecycle import recipe_media_upload_guard
 from app.security import PublicHTTPTransport
 
 MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024
-MAX_STORED_THUMBNAIL_DIMENSION = 1_600
 STORED_THUMBNAIL_QUALITY = 82
 MAX_CONCURRENT_THUMBNAIL_NORMALIZATIONS = 2
 MAX_CHAT_IMAGE_BYTES = 8 * 1024 * 1024
+THUMBNAIL_VARIANT_SPECS = {
+    "list": ThumbnailVariantSpec(max_dimension=640, max_bytes=200 * 1024),
+    "hero": ThumbnailVariantSpec(max_dimension=1_280, max_bytes=500 * 1024),
+}
+_VERSIONED_THUMBNAIL_KEY = re.compile(
+    r"^(thumbnails/[^/]+/[0-9a-f]{64})/(?:list|hero)\.webp$"
+)
 
 _thumbnail_executor = ThreadPoolExecutor(
     max_workers=MAX_CONCURRENT_THUMBNAIL_NORMALIZATIONS,
@@ -71,32 +80,109 @@ class StorageService:
         """Check if S3 storage is enabled."""
         return get_settings().s3_enabled
 
-    async def _prepare_thumbnail(
+    async def _prepare_thumbnail_variants(
         self,
         image_data: bytes,
         declared_content_type: str,
-    ) -> tuple[bytes, str]:
-        """Validate and normalize thumbnail bytes without blocking the event loop."""
+    ) -> dict[str, ValidatedImage]:
+        """Validate and render delivery-sized variants off the event loop."""
 
-        def prepare() -> tuple[bytes, str]:
+        def prepare() -> dict[str, ValidatedImage]:
             validated = validate_image_bytes(
                 image_data,
                 max_bytes=MAX_THUMBNAIL_BYTES,
                 declared_content_type=declared_content_type,
             )
-            normalized = normalize_thumbnail_image(
+            return normalize_thumbnail_variants(
                 validated,
-                max_dimension=MAX_STORED_THUMBNAIL_DIMENSION,
+                variants=THUMBNAIL_VARIANT_SPECS,
                 quality=STORED_THUMBNAIL_QUALITY,
             )
-            if len(normalized.data) > MAX_THUMBNAIL_BYTES:
-                raise ImageValidationError("Normalized thumbnail exceeds maximum size")
-            return normalized.data, normalized.content_type
 
         # A valid source may decode to roughly 160 MB. A dedicated two-worker
         # pool bounds memory without occupying asyncio's shared default executor.
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(_thumbnail_executor, prepare)
+
+    def canonical_thumbnail_url(self, key: str) -> str:
+        """Return the stable S3 URL persisted in the recipe row."""
+        settings = get_settings()
+        return (
+            f"https://{self.bucket_name}.s3.{settings.aws_region}.amazonaws.com/{key}"
+        )
+
+    def thumbnail_delivery_url(
+        self,
+        image_url: str | None,
+        *,
+        variant: str,
+    ) -> str | None:
+        """Select a stored variant and optionally map an owned S3 URL to the CDN."""
+        if not image_url:
+            return None
+        if variant not in THUMBNAIL_VARIANT_SPECS:
+            raise ValueError(f"Unknown thumbnail variant: {variant}")
+
+        parsed = urlparse(image_url)
+        key = parsed.path.lstrip("/")
+        versioned_match = _VERSIONED_THUMBNAIL_KEY.fullmatch(key)
+        if versioned_match:
+            key = f"{versioned_match.group(1)}/{variant}.webp"
+            parsed = parsed._replace(path=f"/{key}")
+
+        settings = get_settings()
+        bucket_hosts = {
+            f"{self.bucket_name}.s3.{settings.aws_region}.amazonaws.com",
+            f"{self.bucket_name}.s3.amazonaws.com",
+        }
+        media_base_url = (settings.recipe_media_base_url or "").rstrip("/")
+        if media_base_url and parsed.hostname in bucket_hosts:
+            return f"{media_base_url}/{key}"
+        return parsed.geturl()
+
+    async def _store_thumbnail_variants(
+        self,
+        variants: dict[str, ValidatedImage],
+        recipe_id: str | UUID,
+        *,
+        media_lock_held: bool,
+    ) -> str | None:
+        """Store one content-addressed variant set and return its canonical hero URL."""
+        variant_set = hashlib.sha256()
+        for name in sorted(THUMBNAIL_VARIANT_SPECS):
+            variant_set.update(name.encode("utf-8"))
+            variant_set.update(b"\0")
+            variant_set.update(variants[name].data)
+        image_hash = variant_set.hexdigest()
+        keys = {
+            name: f"thumbnails/{recipe_id}/{image_hash}/{name}.webp"
+            for name in THUMBNAIL_VARIANT_SPECS
+        }
+
+        def put_objects() -> None:
+            for name, key in keys.items():
+                image = variants[name]
+                print(f"📤 Uploading to S3: {key}")
+                self.client.put_object(
+                    Bucket=self.bucket_name,
+                    Key=key,
+                    Body=image.data,
+                    ContentType=image.content_type,
+                    CacheControl="public, max-age=31536000, immutable",
+                )
+
+        async def upload() -> None:
+            await asyncio.to_thread(put_objects)
+
+        if media_lock_held:
+            await upload()
+        else:
+            async with recipe_media_upload_guard(recipe_id) as recipe_exists:
+                if not recipe_exists:
+                    return None
+                await upload()
+
+        return self.canonical_thumbnail_url(keys["hero"])
     
     async def _download_public_url(self, image_url: str) -> tuple[bytes, str]:
         """Download a public HTTP(S) URL, validating every redirect target."""
@@ -187,39 +273,17 @@ class StorageService:
             # Download image from external URL
             print(f"📥 Downloading thumbnail from: {image_url[:60]}...")
             image_data, content_type = await self._download_public_url(image_url)
-            image_data, content_type = await self._prepare_thumbnail(
+            variants = await self._prepare_thumbnail_variants(
                 image_data,
                 content_type,
             )
-            extension = "webp"
-            
-            # Changing content changes the URL, preventing stale client/CDN caches.
-            image_hash = hashlib.sha256(image_data).hexdigest()
-            s3_key = f"thumbnails/{recipe_id}/{image_hash}.{extension}"
-            
-            def put_object() -> None:
-                print(f"📤 Uploading to S3: {s3_key}")
-                self.client.put_object(
-                    Bucket=self.bucket_name,
-                    Key=s3_key,
-                    Body=image_data,
-                    ContentType=content_type,
-                    CacheControl="public, max-age=31536000, immutable",
-                    # Note: Public access is controlled by bucket policy, not ACL
-                )
-
-            if media_lock_held:
-                put_object()
-            else:
-                async with recipe_media_upload_guard(recipe_id) as recipe_exists:
-                    if not recipe_exists:
-                        return None
-                    put_object()
-            
-            # Generate public URL
-            settings = get_settings()
-            s3_url = f"https://{self.bucket_name}.s3.{settings.aws_region}.amazonaws.com/{s3_key}"
-            
+            s3_url = await self._store_thumbnail_variants(
+                variants,
+                recipe_id,
+                media_lock_held=media_lock_held,
+            )
+            if not s3_url:
+                return None
             print(f"✅ Thumbnail uploaded: {s3_url}")
             return s3_url
             
@@ -331,31 +395,17 @@ class StorageService:
             return None
         
         try:
-            image_data, content_type = await self._prepare_thumbnail(
+            variants = await self._prepare_thumbnail_variants(
                 image_data,
                 content_type,
             )
-            extension = "webp"
-            
-            image_hash = hashlib.sha256(image_data).hexdigest()
-            s3_key = f"thumbnails/{recipe_id}/{image_hash}.{extension}"
-            
-            async with recipe_media_upload_guard(recipe_id) as recipe_exists:
-                if not recipe_exists:
-                    return None
-                print(f"📤 Uploading to S3: {s3_key}")
-                self.client.put_object(
-                    Bucket=self.bucket_name,
-                    Key=s3_key,
-                    Body=image_data,
-                    ContentType=content_type,
-                    CacheControl="public, max-age=31536000, immutable",
-                )
-            
-            # Generate public URL
-            settings = get_settings()
-            s3_url = f"https://{self.bucket_name}.s3.{settings.aws_region}.amazonaws.com/{s3_key}"
-            
+            s3_url = await self._store_thumbnail_variants(
+                variants,
+                recipe_id,
+                media_lock_held=False,
+            )
+            if not s3_url:
+                return None
             print(f"✅ Thumbnail uploaded: {s3_url}")
             return s3_url
             

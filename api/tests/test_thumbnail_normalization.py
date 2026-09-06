@@ -4,7 +4,9 @@ import pytest
 from PIL import Image
 
 from app.image_validation import (
+    ThumbnailVariantSpec,
     normalize_thumbnail_image,
+    normalize_thumbnail_variants,
     validate_image_bytes,
 )
 
@@ -113,6 +115,25 @@ def test_thumbnail_normalization_uses_first_animation_frame():
         assert red > 200
         assert green < 40
         assert blue < 40
+
+
+def test_thumbnail_variants_enforce_dimension_and_transfer_budgets():
+    noisy = Image.effect_noise((2_000, 1_500), 100).convert("RGB")
+    output = io.BytesIO()
+    noisy.save(output, format="JPEG", quality=95)
+
+    variants = normalize_thumbnail_variants(
+        validated(output.getvalue(), "image/jpeg"),
+        variants={
+            "list": ThumbnailVariantSpec(max_dimension=640, max_bytes=200 * 1024),
+            "hero": ThumbnailVariantSpec(max_dimension=1_280, max_bytes=500 * 1024),
+        },
+    )
+
+    assert max(variants["list"].width, variants["list"].height) <= 640
+    assert len(variants["list"].data) <= 200 * 1024
+    assert max(variants["hero"].width, variants["hero"].height) <= 1_280
+    assert len(variants["hero"].data) <= 500 * 1024
 
 
 @pytest.mark.parametrize(

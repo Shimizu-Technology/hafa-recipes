@@ -91,6 +91,7 @@ async def test_thumbnail_upload_uses_content_hash_and_immutable_cache(monkeypatc
             aws_region="us-west-2",
             aws_access_key_id="key",
             aws_secret_access_key="secret",
+            recipe_media_base_url=None,
         ),
     )
     monkeypatch.setattr(storage, "recipe_media_upload_guard", _existing_recipe_guard)
@@ -106,17 +107,41 @@ async def test_thumbnail_upload_uses_content_hash_and_immutable_cache(monkeypatc
         second_image, "recipe-id", "image/png"
     )
 
-    first_stored = fake_s3.puts[0]["Body"]
-    second_stored = fake_s3.puts[1]["Body"]
-    first_hash = hashlib.sha256(first_stored).hexdigest()
-    second_hash = hashlib.sha256(second_stored).hexdigest()
-    assert first_url and first_url.endswith(f"/thumbnails/recipe-id/{first_hash}.webp")
-    assert second_url and second_url.endswith(f"/thumbnails/recipe-id/{second_hash}.webp")
-    assert first_url != second_url
-    assert fake_s3.puts[0]["ContentType"] == "image/webp"
-    assert fake_s3.puts[0]["CacheControl"] == "public, max-age=31536000, immutable"
+    def variant_set_hash(start: int) -> str:
+        digest = hashlib.sha256()
+        for put in sorted(
+            fake_s3.puts[start : start + 2],
+            key=lambda item: item["Key"],
+        ):
+            name = put["Key"].rsplit("/", 1)[-1].removesuffix(".webp")
+            digest.update(name.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(put["Body"])
+        return digest.hexdigest()
 
-    with Image.open(io.BytesIO(first_stored)) as stored_image:
+    first_hero = fake_s3.puts[1]["Body"]
+    first_hash = variant_set_hash(0)
+    second_hash = variant_set_hash(2)
+    assert first_url and first_url.endswith(
+        f"/thumbnails/recipe-id/{first_hash}/hero.webp"
+    )
+    assert second_url and second_url.endswith(
+        f"/thumbnails/recipe-id/{second_hash}/hero.webp"
+    )
+    assert first_url != second_url
+    assert [put["Key"].rsplit("/", 1)[-1] for put in fake_s3.puts] == [
+        "list.webp",
+        "hero.webp",
+        "list.webp",
+        "hero.webp",
+    ]
+    assert all(put["ContentType"] == "image/webp" for put in fake_s3.puts)
+    assert all(
+        put["CacheControl"] == "public, max-age=31536000, immutable"
+        for put in fake_s3.puts
+    )
+
+    with Image.open(io.BytesIO(first_hero)) as stored_image:
         assert stored_image.format == "WEBP"
         assert stored_image.size == (2, 2)
 
@@ -128,13 +153,55 @@ async def test_thumbnail_preparation_does_not_use_shared_default_executor(monkey
 
     monkeypatch.setattr(storage.asyncio, "to_thread", unexpected_to_thread)
 
-    image_data, content_type = await StorageService()._prepare_thumbnail(
+    variants = await StorageService()._prepare_thumbnail_variants(
         _png_bytes("red"),
         "image/png",
     )
 
-    assert image_data
-    assert content_type == "image/webp"
+    assert variants["list"].data
+    assert variants["hero"].content_type == "image/webp"
+
+
+def test_thumbnail_delivery_selects_variant_and_owned_cdn(monkeypatch):
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+            recipe_media_base_url="https://media.hafa.example/assets",
+        ),
+    )
+    service = StorageService()
+    source = (
+        "https://recipe-images.s3.us-west-2.amazonaws.com/"
+        f"thumbnails/recipe-id/{'a' * 64}/hero.webp"
+    )
+
+    assert service.thumbnail_delivery_url(source, variant="list") == (
+        "https://media.hafa.example/assets/"
+        f"thumbnails/recipe-id/{'a' * 64}/list.webp"
+    )
+
+
+def test_thumbnail_delivery_maps_owned_legacy_and_preserves_external(monkeypatch):
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+            recipe_media_base_url="https://media.hafa.example",
+        ),
+    )
+    service = StorageService()
+    legacy = "https://recipe-images.s3.us-west-2.amazonaws.com/thumbnails/old.webp"
+    external = "https://images.example.com/recipe.jpg?version=2"
+
+    assert service.thumbnail_delivery_url(legacy, variant="list") == (
+        "https://media.hafa.example/thumbnails/old.webp"
+    )
+    assert service.thumbnail_delivery_url(external, variant="list") == external
 
 
 @pytest.mark.asyncio
@@ -151,6 +218,7 @@ async def test_thumbnail_upload_is_rejected_after_recipe_deletion(monkeypatch):
             s3_enabled=True,
             s3_bucket_name="recipe-images",
             aws_region="us-west-2",
+            recipe_media_base_url=None,
         ),
     )
     monkeypatch.setattr(storage, "recipe_media_upload_guard", deleted_recipe_guard)
@@ -184,6 +252,7 @@ async def test_locked_thumbnail_upload_uses_the_callers_media_lock(monkeypatch):
             s3_enabled=True,
             s3_bucket_name="recipe-images",
             aws_region="us-west-2",
+            recipe_media_base_url=None,
         ),
     )
     monkeypatch.setattr(storage, "recipe_media_upload_guard", unexpected_guard)
@@ -200,13 +269,17 @@ async def test_locked_thumbnail_upload_uses_the_callers_media_lock(monkeypatch):
         "11111111-1111-4111-8111-111111111111",
     )
 
-    stored_image = fake_s3.puts[0]["Body"]
-    image_hash = hashlib.sha256(stored_image).hexdigest()
+    image_hash = hashlib.sha256()
+    for put in sorted(fake_s3.puts, key=lambda item: item["Key"]):
+        name = put["Key"].rsplit("/", 1)[-1].removesuffix(".webp")
+        image_hash.update(name.encode("utf-8"))
+        image_hash.update(b"\0")
+        image_hash.update(put["Body"])
     expected_suffix = (
-        f"/thumbnails/11111111-1111-4111-8111-111111111111/{image_hash}.webp"
+        f"/thumbnails/11111111-1111-4111-8111-111111111111/{image_hash.hexdigest()}/hero.webp"
     )
     assert result and result.endswith(expected_suffix)
-    assert len(fake_s3.puts) == 1
+    assert len(fake_s3.puts) == 2
 
 
 class DeletingS3:
