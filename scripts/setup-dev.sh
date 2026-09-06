@@ -23,7 +23,7 @@ docker compose -f "$repository_root/docker-compose.dev.yml" up -d --wait
 (
   cd "$repository_root/api"
   uv sync --dev
-  uv run python -m scripts.seed_development
+  uv run python -m scripts.seed_development --apply
 )
 
 (

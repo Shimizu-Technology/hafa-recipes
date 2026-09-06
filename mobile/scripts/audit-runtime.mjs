@@ -1,21 +1,11 @@
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
-const acceptedUpstreamAdvisories = new Set([
-  // Expo/Metro build-time image metadata parsing; app inputs do not reach it.
-  'image-size:1138808',
-  'image-size:1138809',
-  // Expo/Metro CSS build pipeline; only trusted repository CSS is processed.
-  'postcss:1117015',
-  'postcss:1124252',
-  'postcss:1130709',
-  'postcss:1139510',
-  // Build tooling and Clerk's unused wallet dependency path; app code does not
-  // call UUID v3/v5/v6 with caller-controlled output buffers.
-  'uuid:1119441',
-  // Clerk includes Solana wallet support, but Håfa does not import or expose
-  // that path. Its nested JSON filter never receives app or user input.
-  'stream-json:1164823',
-]);
+import { isAcceptedAdvisory, reviewedAdvisoryCount } from './audit-policy.mjs';
+
+const lockfile = JSON.parse(
+  readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'),
+);
 
 const audit = spawnSync('npm', ['audit', '--omit=dev', '--json'], {
   encoding: 'utf8',
@@ -35,7 +25,7 @@ for (const [packageName, vulnerability] of Object.entries(report.vulnerabilities
   for (const advisory of vulnerability.via ?? []) {
     if (typeof advisory !== 'object') continue;
     const key = `${packageName}:${advisory.source}`;
-    if (!acceptedUpstreamAdvisories.has(key)) {
+    if (!isAcceptedAdvisory({ packageName, source: advisory.source, lockfile })) {
       unexpected.push(`${key} (${advisory.severity}) ${advisory.title}`);
     }
   }
@@ -50,5 +40,5 @@ if ((counts.critical ?? 0) > 0 || unexpected.length > 0) {
 
 console.log(
   `Mobile audit checked: ${counts.total ?? 0} inherited findings, ` +
-    `${acceptedUpstreamAdvisories.size} reviewed upstream advisories, 0 unexpected.`,
+    `${reviewedAdvisoryCount} reviewed upstream advisories, 0 unexpected.`,
 );

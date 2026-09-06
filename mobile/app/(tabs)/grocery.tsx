@@ -168,7 +168,9 @@ function GroceryItemRow({
 export default function GroceryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAuth();
+  const isAuthenticated = isLoaded && isSignedIn === true;
+  const isGuest = isLoaded && isSignedIn === false;
   const guestPromptHeight = useGuestPromptHeight();
   const { scaleFontSize } = useTextSize();
   const router = useRouter();
@@ -188,7 +190,7 @@ export default function GroceryScreen() {
   const [showSettings, setShowSettings] = useState(false);
 
   // Set up offline sync (syncs pending changes when back online)
-  const { lastSyncResult, clearSyncResult } = useGrocerySync(!!isSignedIn);
+  const { lastSyncResult, clearSyncResult } = useGrocerySync(isAuthenticated);
   
   // Show alert when sync has failures
   useEffect(() => {
@@ -204,9 +206,9 @@ export default function GroceryScreen() {
   }, [lastSyncResult, clearSyncResult]);
   
   // Get list info for shared status
-  const { data: listInfo } = useGroceryListInfo(!!isSignedIn);
+  const { data: listInfo } = useGroceryListInfo(isAuthenticated);
 
-  // Pass isSignedIn to prevent queries from running when not authenticated
+  // Wait for Clerk before enabling any private grocery request.
   const {
     data: groceryItems,
     isLoading,
@@ -214,26 +216,26 @@ export default function GroceryScreen() {
     isRefetchError,
     refetch,
     isRefetching,
-  } = useGroceryList(showChecked, !!isSignedIn);
-  const { data: countData } = useGroceryCount(!!isSignedIn);
+  } = useGroceryList(showChecked, isAuthenticated);
+  const { data: countData } = useGroceryCount(isAuthenticated);
 
   // Refetch when tab gains focus to ensure we always have fresh data
   // This is critical for shared lists where others may have made changes
   useFocusEffect(
     useCallback(() => {
-      if (isSignedIn) {
+      if (isAuthenticated) {
         // Force refetch to get the latest data from server
         // This ensures we don't show stale cache data
         refetch();
       }
-      if (isSignedIn && focusAdd === '1') {
+      if (isAuthenticated && focusAdd === '1') {
         const focusTimer = setTimeout(() => {
           addItemInputRef.current?.focus();
           router.setParams({ focusAdd: undefined });
         }, 150);
         return () => clearTimeout(focusTimer);
       }
-    }, [focusAdd, isSignedIn, refetch, router])
+    }, [focusAdd, isAuthenticated, refetch, router])
   );
   const toggleMutation = useToggleGroceryItem();
   const deleteMutation = useDeleteGroceryItem();
@@ -247,7 +249,7 @@ export default function GroceryScreen() {
   // for the authenticated snapshot so a cold-start deep link is reliable.
   useEffect(() => {
     if (
-      !isSignedIn
+      !isAuthenticated
       || !editItem
       || !groceryItems
       || isRefetching
@@ -267,7 +269,7 @@ export default function GroceryScreen() {
     groceryItems,
     isRefetchError,
     isRefetching,
-    isSignedIn,
+    isAuthenticated,
     router,
     showChecked,
   ]);
@@ -559,7 +561,18 @@ export default function GroceryScreen() {
   );
 
   const ListEmpty = () => {
-    if (!isSignedIn) {
+    if (!isLoaded) {
+      return (
+        <RNView style={styles.emptyContainer}>
+          <ActivityIndicator size="large" color={colors.tint} />
+          <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+            Checking your account…
+          </Text>
+        </RNView>
+      );
+    }
+
+    if (isGuest) {
       return (
         <RNView style={styles.emptyContainer}>
           <RNView style={[styles.guestIconContainer, { backgroundColor: colors.tint + '15' }]}>
@@ -654,7 +667,7 @@ export default function GroceryScreen() {
             onPress={() => router.push(appRoutes.discover)}
             style={styles.emptyAction}
           />
-          {isSignedIn && (
+          {isAuthenticated && (
             <Button
               title="Open meal plan"
               variant="outline"
@@ -717,7 +730,7 @@ export default function GroceryScreen() {
         {/* Title row - clean with just title and icons */}
         <RNView style={styles.titleRow}>
           <Text style={[styles.headerTitle, { color: colors.text }]}>Grocery List</Text>
-          {isSignedIn && <RNView style={styles.headerButtons}>
+          {isAuthenticated && <RNView style={styles.headerButtons}>
             <TouchableOpacity 
               onPress={() => {
                 haptics.light();
@@ -744,14 +757,18 @@ export default function GroceryScreen() {
         {/* Subtitle row - shared status + item count */}
         <TouchableOpacity
           style={styles.subtitleRow}
-          onPress={isSignedIn && listInfo?.is_shared ? () => setShowSettings(true) : undefined}
-          activeOpacity={isSignedIn && listInfo?.is_shared ? 0.7 : 1}
+          onPress={isAuthenticated && listInfo?.is_shared ? () => setShowSettings(true) : undefined}
+          activeOpacity={isAuthenticated && listInfo?.is_shared ? 0.7 : 1}
         >
           {listInfo?.is_shared && (
             <Ionicons name="people" size={14} color={colors.success} style={styles.subtitleIcon} />
           )}
           <Text style={[styles.subtitleText, { color: colors.textSecondary }]}>
-            {isSignedIn ? getSubtitleText() : 'Turn any recipe into a ready-to-shop list'}
+            {isAuthenticated
+              ? getSubtitleText()
+              : isGuest
+                ? 'Turn any recipe into a ready-to-shop list'
+                : 'Getting your list ready…'}
           </Text>
           {isRefetching && (
             <ActivityIndicator size="small" color={colors.tint} style={styles.subtitleSpinner} />
@@ -759,7 +776,7 @@ export default function GroceryScreen() {
         </TouchableOpacity>
 
         {/* Editing controls appear only when there is an authenticated list. */}
-        {isSignedIn && (
+        {isAuthenticated && (
           <>
         <RNView style={[styles.addItemRow, { borderColor: colors.border }]}>
           <TextInput
@@ -870,7 +887,7 @@ export default function GroceryScreen() {
           {
             paddingBottom: guestPromptBottomPadding(
               Math.max(insets.bottom, 80) + spacing.xl,
-              Boolean(isSignedIn),
+              !isGuest,
               guestPromptHeight,
             ),
           },
@@ -880,7 +897,7 @@ export default function GroceryScreen() {
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         keyboardShouldPersistTaps="handled"
         onTouchStart={() => Keyboard.dismiss()}
-        refreshControl={isSignedIn ? (
+        refreshControl={isAuthenticated ? (
           <RefreshControl
             refreshing={isRefetching}
             onRefresh={handleRefresh}
@@ -890,7 +907,7 @@ export default function GroceryScreen() {
       />
 
       {/* Edit Modal */}
-      {isSignedIn && <EditGroceryItemModal
+      {isAuthenticated && <EditGroceryItemModal
         visible={!!editingItem}
         onClose={() => setEditingItem(null)}
         onSave={handleSaveEdit}
@@ -899,13 +916,13 @@ export default function GroceryScreen() {
       />}
 
       {/* Settings Modal */}
-      {isSignedIn && <GroceryListSettingsModal
+      {isAuthenticated && <GroceryListSettingsModal
         isVisible={showSettings}
         onClose={() => setShowSettings(false)}
       />}
       
       {/* Sign In Banner for guests */}
-      {!isSignedIn && <SignInBanner message="Sign in to create grocery lists" />}
+      {isGuest && <SignInBanner message="Sign in to create grocery lists" />}
     </RNView>
   );
 }

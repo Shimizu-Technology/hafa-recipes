@@ -17,7 +17,10 @@ const mocks = vi.hoisted(() => ({
     isRefetchError: false,
     isRefetching: false,
   },
-  authState: { isSignedIn: true as boolean | undefined },
+  authState: {
+    isLoaded: true,
+    isSignedIn: true as boolean | undefined,
+  },
   listEnabledArgs: [] as boolean[],
   countEnabledArgs: [] as boolean[],
   refetch: vi.fn(),
@@ -222,6 +225,7 @@ function item(overrides: Partial<GroceryItem> & Pick<GroceryItem, 'id' | 'name'>
 
 describe('GroceryScreen shopping views', () => {
   beforeEach(() => {
+    mocks.authState.isLoaded = true;
     mocks.authState.isSignedIn = true;
     mocks.listEnabledArgs = [];
     mocks.countEnabledArgs = [];
@@ -235,7 +239,7 @@ describe('GroceryScreen shopping views', () => {
   });
 
   it('shows an intentional guest preview without starting private grocery queries', async () => {
-    mocks.authState.isSignedIn = undefined;
+    mocks.authState.isSignedIn = false;
     mocks.groceryState.isLoading = true;
     mocks.groceryState.isError = true;
     const renderer = createRoot({ textComponentTypes: ['Text'] });
@@ -260,6 +264,32 @@ describe('GroceryScreen shopping views', () => {
       expect(renderer.container.queryAll(
         (instance) => instance.type === 'SignInBanner',
       )).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('waits for Clerk without flashing guest UI or starting private queries', async () => {
+    mocks.authState.isLoaded = false;
+    mocks.authState.isSignedIn = undefined;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(GroceryScreen));
+      });
+
+      expect(mocks.listEnabledArgs.at(-1)).toBe(false);
+      expect(mocks.countEnabledArgs.at(-1)).toBe(false);
+      const copy = renderedText(renderer);
+      expect(copy).toContain('Checking your account…');
+      expect(copy).not.toContain('One list for the whole meal');
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'SignInBanner',
+      )).toHaveLength(0);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'TextInput',
+      )).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());
     }

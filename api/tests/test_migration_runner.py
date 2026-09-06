@@ -113,3 +113,38 @@ async def test_development_seed_delegates_to_the_complete_migration_runner(monke
     await seed_development.prepare_schema()
 
     assert calls == ["create_all", "migrate"]
+
+
+@pytest.mark.asyncio
+async def test_development_seed_is_dry_run_by_default(monkeypatch, capsys):
+    """Direct provisioner use must require an explicit write intent."""
+
+    calls: list[str] = []
+
+    async def prepare_schema():
+        calls.append("prepare_schema")
+
+    monkeypatch.setattr(
+        seed_development,
+        "get_settings",
+        lambda: SimpleNamespace(
+            environment="development",
+            allow_remote_database_in_development=False,
+        ),
+    )
+    monkeypatch.setattr(seed_development, "prepare_schema", prepare_schema)
+
+    await seed_development.seed()
+
+    assert calls == []
+    assert "Dry run" in capsys.readouterr().out
+
+
+def test_setup_script_explicitly_applies_development_seed():
+    """The intentional local bootstrap path opts in to provisioner writes."""
+
+    setup_script = (
+        Path(__file__).resolve().parents[2] / "scripts" / "setup-dev.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "python -m scripts.seed_development --apply" in setup_script

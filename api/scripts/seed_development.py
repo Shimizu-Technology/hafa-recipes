@@ -1,6 +1,7 @@
 """Create an idempotent local schema and safe synthetic starter recipe."""
 
 import asyncio
+from argparse import ArgumentParser
 
 from sqlalchemy import select
 
@@ -28,12 +29,21 @@ async def prepare_schema() -> None:
     await run_migrations()
 
 
-async def seed() -> None:
+async def seed(*, apply: bool = False) -> None:
+    """Describe or apply the local-only schema and synthetic record provisioner."""
+
     settings = get_settings()
     if settings.environment != "development":
         raise RuntimeError("Development seed is only allowed when ENVIRONMENT=development")
     if settings.allow_remote_database_in_development:
         raise RuntimeError("Development seed refuses the remote-database override")
+
+    if not apply:
+        print(
+            "Dry run: would prepare the local schema and upsert one synthetic "
+            "development recipe. Re-run with --apply to make changes."
+        )
+        return
 
     await prepare_schema()
 
@@ -99,4 +109,10 @@ async def seed() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(seed())
+    parser = ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="prepare the local schema and upsert the synthetic recipe",
+    )
+    asyncio.run(seed(apply=parser.parse_args().apply))
