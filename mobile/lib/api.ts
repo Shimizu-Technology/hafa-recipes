@@ -1208,6 +1208,8 @@ class ApiClient {
       } | null;
       nutrition_recalculated?: boolean;
       nutrition_model?: string | null;
+      review_content_revision?: number;
+      verified_paths?: string[];
     },
     imageUri?: string | null
   ): Promise<Recipe> {
@@ -1243,7 +1245,12 @@ class ApiClient {
     
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Failed to update recipe' }));
-      throw new Error(error.detail || 'Failed to update recipe');
+      const detail = error?.detail;
+      throw new Error(
+        typeof detail === 'string'
+          ? detail
+          : detail?.message || 'Failed to update recipe',
+      );
     }
     
     return response.json();

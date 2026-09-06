@@ -16,6 +16,7 @@ import {
   KeyboardAvoidingView,
   Keyboard,
   Platform,
+  Linking,
   View as RNView,
   ActivityIndicator,
 } from 'react-native';
@@ -27,7 +28,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { View, Text, useColors } from '@/components/Themed';
 import { api } from '@/lib/api';
+import { getApiErrorMessage } from '@/lib/apiErrorMessage';
+import {
+  getRecipeFieldReviewProgress,
+  isRecipePathVerified,
+  usesRecipeFieldReview,
+  type IngredientFieldReview,
+} from '@/lib/recipeFieldReview';
 import { formatPublishDisclosure, getPublishDisclosure } from '@/lib/recipePublishing';
+import { canOpenRecipeOriginal } from '@/lib/recipeReviewPresentation';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
@@ -39,12 +48,14 @@ interface IngredientInput {
   unit: string;
   notes: string;
   estimatedCost?: number | null;
+  reviewedFields: IngredientFieldReview;
 }
 
 interface StepInput {
   id: string;
   componentId: string;
   text: string;
+  reviewed: boolean;
 }
 
 interface ComponentInput {
@@ -59,7 +70,14 @@ interface EditSnapshot {
   data: EditRecipeData;
   imageUri: string | null;
   publishingPreview: string | null;
+  reviewProgress: ReturnType<typeof getRecipeFieldReviewProgress> | null;
 }
+
+const UNREVIEWED_INGREDIENT_FIELDS: IngredientFieldReview = {
+  name: false,
+  quantity: false,
+  unit: false,
+};
 
 // Common unit options including "to taste" style options
 const UNIT_OPTIONS = [
@@ -108,11 +126,20 @@ export default function EditRecipeScreen() {
     { id: 'component-1', name: 'Main', notes: '' },
   ]);
   const [ingredients, setIngredients] = useState<IngredientInput[]>([
-    { id: 'ingredient-1', componentId: 'component-1', name: '', quantity: '', unit: '', notes: '' },
+    {
+      id: 'ingredient-1',
+      componentId: 'component-1',
+      name: '',
+      quantity: '',
+      unit: '',
+      notes: '',
+      reviewedFields: { ...UNREVIEWED_INGREDIENT_FIELDS },
+    },
   ]);
   const [steps, setSteps] = useState<StepInput[]>([
-    { id: 'step-1', componentId: 'component-1', text: '' },
+    { id: 'step-1', componentId: 'component-1', text: '', reviewed: false },
   ]);
+  const [reviewedScalarPaths, setReviewedScalarPaths] = useState<Set<string>>(new Set());
   const [nutritionRecalculated, setNutritionRecalculated] = useState(false);
   const [nutritionModel, setNutritionModel] = useState<string | null>(null);
   const [estimateInputsChanged, setEstimateInputsChanged] = useState(false);
@@ -147,6 +174,7 @@ export default function EditRecipeScreen() {
       const extracted = recipe.extracted;
       const times = extracted.times || {};
       const nutrition = extracted.nutrition?.perServing || {};
+      const evidence = recipe.extraction_evidence;
       
       setTitle(extracted.title || '');
       setServings(extracted.servings?.toString() || '');
@@ -160,6 +188,10 @@ export default function EditRecipeScreen() {
       setEstimateInputsChanged(false);
       setNutritionRecalculated(false);
       setNutritionModel(extracted.derivedData?.nutrition?.model || null);
+      setReviewedScalarPaths(new Set(
+        ['title', 'servings', 'times.prep', 'times.cook', 'times.total']
+          .filter(path => isRecipePathVerified(evidence, path)),
+      ));
       
       // Set nutrition if available
       if (nutrition.calories || nutrition.protein || nutrition.carbs || nutrition.fat) {
@@ -182,39 +214,56 @@ export default function EditRecipeScreen() {
       }));
       setRecipeComponents(componentInputs);
       const allIngredients = components.flatMap((component: any, componentIndex: number) =>
-        (component.ingredients || []).map((ingredient: any) => ({
+        (component.ingredients || []).map((ingredient: any, ingredientIndex: number) => ({
           ingredient,
           componentId: componentInputs[componentIndex].id,
+          evidencePrefix: `components.${componentIndex}.ingredients.${ingredientIndex}`,
         }))
       );
       
-      if (allIngredients.length > 0) {
-        setIngredients(allIngredients.map(({ ingredient, componentId }: any, idx: number) => ({
+      setIngredients(allIngredients.length > 0
+        ? allIngredients.map(({ ingredient, componentId, evidencePrefix }: any, idx: number) => ({
           id: `ingredient-${idx + 1}`,
           componentId,
           name: ingredient.name || '',
-          quantity: ingredient.quantity || '',
+          quantity: ingredient.quantity == null ? '' : String(ingredient.quantity),
           unit: ingredient.unit || '',
           notes: ingredient.notes || '',
           estimatedCost: ingredient.estimatedCost ?? null,
-        })));
-      }
+          reviewedFields: {
+            name: isRecipePathVerified(evidence, `${evidencePrefix}.name`),
+            quantity: isRecipePathVerified(evidence, `${evidencePrefix}.quantity`),
+            unit: isRecipePathVerified(evidence, `${evidencePrefix}.unit`),
+          },
+        }))
+        : [{
+          id: 'ingredient-1',
+          componentId: componentInputs[0].id,
+          name: '',
+          quantity: '',
+          unit: '',
+          notes: '',
+          estimatedCost: null,
+          reviewedFields: { ...UNREVIEWED_INGREDIENT_FIELDS },
+        }]);
       
       // Get steps from components or legacy field
       const allSteps = components.flatMap((component: any, componentIndex: number) =>
-        (component.steps || []).map((text: string) => ({
+        (component.steps || []).map((text: string, stepIndex: number) => ({
           text,
           componentId: componentInputs[componentIndex].id,
+          evidencePath: `components.${componentIndex}.steps.${stepIndex}`,
         }))
       );
       
-      if (allSteps.length > 0) {
-        setSteps(allSteps.map((step: any, idx: number) => ({
+      setSteps(allSteps.length > 0
+        ? allSteps.map((step: any, idx: number) => ({
           id: `step-${idx + 1}`,
           componentId: step.componentId,
           text: step.text,
-        })));
-      }
+          reviewed: isRecipePathVerified(evidence, step.evidencePath),
+        }))
+        : [{ id: 'step-1', componentId: componentInputs[0].id, text: '', reviewed: false }]);
     }
   }, [recipe]);
 
@@ -258,6 +307,21 @@ export default function EditRecipeScreen() {
       .map(t => t.trim())
       .filter(t => t);
 
+    const fieldReviewEnabled = usesRecipeFieldReview(recipe?.extraction_evidence);
+    const reviewProgress = fieldReviewEnabled
+      ? getRecipeFieldReviewProgress({
+        title,
+        servings,
+        prepTime,
+        cookTime,
+        totalTime,
+        reviewedScalarPaths,
+        components: recipeComponents,
+        ingredients,
+        steps,
+      })
+      : null;
+
     const data: EditRecipeData = {
       title: title.trim(),
       servings: servings ? parseInt(servings, 10) : null,
@@ -275,6 +339,14 @@ export default function EditRecipeScreen() {
       nutrition_model: nutritionModel,
     };
 
+    if (fieldReviewEnabled) {
+      if (!Number.isInteger(recipe?.content_revision) || Number(recipe?.content_revision) < 1) {
+        throw new Error('Review details are out of date. Close this screen and try again.');
+      }
+      data.review_content_revision = Number(recipe?.content_revision);
+      data.verified_paths = reviewProgress?.verifiedPaths || [];
+    }
+
     const previewRecipe = recipe ? {
       ...recipe,
       extracted: {
@@ -291,6 +363,7 @@ export default function EditRecipeScreen() {
       publishingPreview: previewRecipe
         ? formatPublishDisclosure(getPublishDisclosure(previewRecipe))
         : null,
+      reviewProgress,
     };
   };
 
@@ -299,7 +372,7 @@ export default function EditRecipeScreen() {
     mutationFn: ({ data, imageUri }: EditSnapshot) => {
       return api.editRecipe(id!, data, imageUri);
     },
-    onSuccess: () => {
+    onSuccess: (_updatedRecipe, snapshot) => {
       // Invalidate recipe queries to refresh
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
       queryClient.invalidateQueries({ queryKey: ['recipe', id] });
@@ -308,12 +381,15 @@ export default function EditRecipeScreen() {
       queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'list', id] });
       queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'count', id] });
       
-      Alert.alert('Success!', 'Recipe updated successfully.', [
+      const message = snapshot.reviewProgress?.remaining
+        ? 'Your review progress was saved. The recipe will stay private until every detail is checked.'
+        : 'Recipe updated successfully.';
+      Alert.alert('Saved', message, [
         { text: 'OK', onPress: () => router.back() },
       ]);
     },
-    onError: (error: Error) => {
-      Alert.alert('Error', error.message || 'Failed to update recipe');
+    onError: (error: unknown) => {
+      Alert.alert('Couldn’t save recipe', getApiErrorMessage(error, 'Failed to update recipe'));
     },
   });
 
@@ -352,6 +428,27 @@ export default function EditRecipeScreen() {
       snapshot = createEditSnapshot();
     } catch (error) {
       Alert.alert('Error', error instanceof Error ? error.message : 'Failed to prepare recipe');
+      return;
+    }
+
+    if (snapshot.data.is_public && snapshot.reviewProgress?.remaining) {
+      Alert.alert(
+        'Finish checking before sharing',
+        `${snapshot.reviewProgress.remaining} ${snapshot.reviewProgress.remaining === 1 ? 'detail still needs' : 'details still need'} your review. You can save your progress privately and share when everything is checked.`,
+        [
+          { text: 'Keep reviewing', style: 'cancel' },
+          {
+            text: 'Save privately',
+            onPress: () => {
+              setIsPublic(false);
+              editMutation.mutate({
+                ...snapshot,
+                data: { ...snapshot.data, is_public: false },
+              });
+            },
+          },
+        ],
+      );
       return;
     }
 
@@ -533,17 +630,49 @@ export default function EditRecipeScreen() {
   // Ingredient helpers
   const addIngredient = (componentId: string) => {
     const newId = `ingredient-${Date.now()}`;
-    setIngredients([...ingredients, { id: newId, componentId, name: '', quantity: '', unit: '', notes: '', estimatedCost: null }]);
+    setIngredients([...ingredients, {
+      id: newId,
+      componentId,
+      name: '',
+      quantity: '',
+      unit: '',
+      notes: '',
+      estimatedCost: null,
+      reviewedFields: { ...UNREVIEWED_INGREDIENT_FIELDS },
+    }]);
     setEstimateInputsChanged(true);
     setNutritionRecalculated(false);
   };
 
-  const updateIngredient = (id: string, field: keyof IngredientInput, value: string) => {
-    setIngredients(ingredients.map(ing => 
-      ing.id === id ? { ...ing, [field]: value } : ing
-    ));
+  const updateIngredient = (
+    id: string,
+    field: 'name' | 'quantity' | 'unit' | 'notes',
+    value: string,
+  ) => {
+    setIngredients(current => current.map(ingredient => {
+      if (ingredient.id !== id) return ingredient;
+      if (field === 'notes') return { ...ingredient, notes: value };
+      return {
+        ...ingredient,
+        [field]: value,
+        reviewedFields: { ...ingredient.reviewedFields, [field]: true },
+      };
+    }));
     setEstimateInputsChanged(true);
     setNutritionRecalculated(false);
+  };
+
+  const confirmIngredient = (id: string) => {
+    setIngredients(current => current.map(ingredient => ingredient.id === id
+      ? {
+        ...ingredient,
+        reviewedFields: {
+          name: true,
+          quantity: true,
+          unit: ingredient.unit.trim() ? true : ingredient.reviewedFields.unit,
+        },
+      }
+      : ingredient));
   };
 
   const removeIngredient = (id: string) => {
@@ -555,13 +684,19 @@ export default function EditRecipeScreen() {
   // Step helpers
   const addStep = (componentId: string) => {
     const newId = `step-${Date.now()}`;
-    setSteps([...steps, { id: newId, componentId, text: '' }]);
+    setSteps([...steps, { id: newId, componentId, text: '', reviewed: false }]);
   };
 
   const updateStep = (id: string, text: string) => {
-    setSteps(steps.map(step => 
-      step.id === id ? { ...step, text } : step
+    setSteps(steps.map(step =>
+      step.id === id ? { ...step, text, reviewed: true } : step
     ));
+  };
+
+  const confirmStep = (id: string) => {
+    setSteps(current => current.map(step => step.id === id
+      ? { ...step, reviewed: true }
+      : step));
   };
 
   const removeStep = (id: string) => {
@@ -576,9 +711,18 @@ export default function EditRecipeScreen() {
     ]);
     setIngredients([
       ...ingredients,
-      { id: `ingredient-${Date.now()}`, componentId, name: '', quantity: '', unit: '', notes: '', estimatedCost: null },
+      {
+        id: `ingredient-${Date.now()}`,
+        componentId,
+        name: '',
+        quantity: '',
+        unit: '',
+        notes: '',
+        estimatedCost: null,
+        reviewedFields: { ...UNREVIEWED_INGREDIENT_FIELDS },
+      },
     ]);
-    setSteps([...steps, { id: `step-${Date.now()}`, componentId, text: '' }]);
+    setSteps([...steps, { id: `step-${Date.now()}`, componentId, text: '', reviewed: false }]);
   };
 
   const removeComponent = (componentId: string) => {
@@ -605,6 +749,77 @@ export default function EditRecipeScreen() {
   const componentName = (componentId: string) =>
     recipeComponents.find(component => component.id === componentId)?.name || 'Main';
 
+  const fieldReviewEnabled = usesRecipeFieldReview(recipe?.extraction_evidence);
+  const fieldReviewProgress = fieldReviewEnabled
+    ? getRecipeFieldReviewProgress({
+      title,
+      servings,
+      prepTime,
+      cookTime,
+      totalTime,
+      reviewedScalarPaths,
+      components: recipeComponents,
+      ingredients,
+      steps,
+    })
+    : null;
+  const showReviewWorkflow = Boolean(
+    fieldReviewProgress
+      && (recipe?.review_state !== 'ready' || fieldReviewProgress.remaining > 0),
+  );
+
+  const markScalarReviewed = (path: string) => {
+    setReviewedScalarPaths(current => new Set(current).add(path));
+  };
+
+  const updateReviewedScalar = (
+    path: string,
+    setter: (value: string) => void,
+    value: string,
+  ) => {
+    setter(value);
+    markScalarReviewed(path);
+  };
+
+  const renderReviewAction = (
+    reviewed: boolean,
+    onPress: () => void,
+    label = 'Looks right',
+  ) => (
+    <TouchableOpacity
+      style={[
+        styles.reviewAction,
+        {
+          backgroundColor: reviewed ? colors.tint + '18' : colors.background,
+          borderColor: reviewed ? colors.tint : colors.border,
+        },
+      ]}
+      onPress={onPress}
+      disabled={reviewed}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: reviewed }}
+      accessibilityLabel={reviewed ? `${label}, checked` : label}
+    >
+      <Ionicons
+        name={reviewed ? 'checkmark-circle' : 'ellipse-outline'}
+        size={17}
+        color={reviewed ? colors.tint : colors.textMuted}
+      />
+      <Text style={[styles.reviewActionText, { color: reviewed ? colors.tint : colors.textSecondary }]}>
+        {reviewed ? 'Checked' : label}
+      </Text>
+    </TouchableOpacity>
+  );
+
+  const handleOpenOriginal = async () => {
+    if (!canOpenRecipeOriginal(recipe?.source_url)) return;
+    try {
+      await Linking.openURL(recipe!.source_url);
+    } catch {
+      Alert.alert('Couldn’t open source', 'Try again when you have a connection.');
+    }
+  };
+
   const handlePublicToggle = async () => {
     if (isPublic) {
       Alert.alert(
@@ -616,6 +831,14 @@ export default function EditRecipeScreen() {
           { text: 'Keep shared', style: 'cancel' },
           { text: 'Make private', style: 'destructive', onPress: () => setIsPublic(false) },
         ],
+      );
+      return;
+    }
+
+    if (fieldReviewProgress?.remaining) {
+      Alert.alert(
+        'Finish checking first',
+        `${fieldReviewProgress.remaining} ${fieldReviewProgress.remaining === 1 ? 'detail still needs' : 'details still need'} your review before this recipe can be shared.`,
       );
       return;
     }
@@ -639,7 +862,7 @@ export default function EditRecipeScreen() {
     <>
       <Stack.Screen
         options={{
-          headerTitle: 'Edit Recipe',
+          headerTitle: showReviewWorkflow ? 'Review Recipe' : 'Edit Recipe',
           headerRight: () => (
             <TouchableOpacity
               onPress={handleSubmit}
@@ -649,7 +872,9 @@ export default function EditRecipeScreen() {
               {editMutation.isPending || isCheckingDisclosure ? (
                 <ActivityIndicator size="small" color={colors.tint} />
               ) : (
-                <Text style={[styles.saveButtonText, { color: colors.tint }]}>Save</Text>
+                <Text style={[styles.saveButtonText, { color: colors.tint }]}>
+                  {fieldReviewProgress?.remaining ? 'Save progress' : 'Save'}
+                </Text>
               )}
             </TouchableOpacity>
           ),
@@ -668,7 +893,53 @@ export default function EditRecipeScreen() {
             showsVerticalScrollIndicator={false}
             contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           >
+            {showReviewWorkflow && fieldReviewProgress && (
+              <RNView style={[styles.reviewCard, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
+                <RNView style={styles.reviewCardHeader}>
+                  <RNView style={styles.reviewCardCopy}>
+                    <Text style={[styles.reviewCardTitle, { color: colors.text }]}>
+                      {fieldReviewProgress.remaining === 0 ? 'Ready to save' : 'Check the imported details'}
+                    </Text>
+                    <Text style={[styles.reviewCardCount, { color: colors.tint }]}>
+                      {fieldReviewProgress.verified} of {fieldReviewProgress.total} checked
+                    </Text>
+                  </RNView>
+                  {canOpenRecipeOriginal(recipe?.source_url) && (
+                    <TouchableOpacity
+                      style={[styles.originalButton, { borderColor: colors.tint }]}
+                      onPress={() => void handleOpenOriginal()}
+                      accessibilityRole="link"
+                      accessibilityLabel="Open original recipe source"
+                    >
+                      <Ionicons name="open-outline" size={16} color={colors.tint} />
+                      <Text style={[styles.originalButtonText, { color: colors.tint }]}>Original</Text>
+                    </TouchableOpacity>
+                  )}
+                </RNView>
+                {fieldReviewProgress.total > 0 && (
+                  <RNView style={[styles.reviewProgressTrack, { backgroundColor: colors.borderLight }]}>
+                    <RNView
+                      style={[
+                        styles.reviewProgressFill,
+                        {
+                          backgroundColor: colors.tint,
+                          flex: fieldReviewProgress.verified,
+                        },
+                      ]}
+                    />
+                    <RNView style={{ flex: fieldReviewProgress.remaining }} />
+                  </RNView>
+                )}
+                <Text style={[styles.reviewCardBody, { color: colors.textSecondary }]}>
+                  {fieldReviewProgress.remaining === 0
+                    ? 'Everything shown has been checked. Save to finish the review.'
+                    : 'Fix anything that’s wrong. If it’s correct, tap Looks right. You can save and finish later.'}
+                </Text>
+              </RNView>
+            )}
+
             {/* Image Section */}
             <TouchableOpacity
               style={[styles.imageSection, { backgroundColor: colors.backgroundSecondary }]}
@@ -699,10 +970,16 @@ export default function EditRecipeScreen() {
               <TextInput
                 style={[styles.input, { backgroundColor: colors.backgroundSecondary, color: colors.text, borderColor: colors.border }]}
                 value={title}
-                onChangeText={setTitle}
+                onChangeText={value => updateReviewedScalar('title', setTitle, value)}
                 placeholder="Recipe name"
                 placeholderTextColor={colors.textMuted}
+                accessibilityLabel="Recipe title"
               />
+              {showReviewWorkflow && title.trim() && renderReviewAction(
+                reviewedScalarPaths.has('title'),
+                () => markScalarReviewed('title'),
+                'Title looks right',
+              )}
             </RNView>
 
             {/* Meta Info Row */}
@@ -713,24 +990,36 @@ export default function EditRecipeScreen() {
                   style={[styles.input, styles.smallInput, { backgroundColor: colors.backgroundSecondary, color: colors.text, borderColor: colors.border }]}
                   value={servings}
                   onChangeText={(value) => {
-                    setServings(value);
+                    updateReviewedScalar('servings', setServings, value);
                     setEstimateInputsChanged(true);
                     setNutritionRecalculated(false);
                   }}
                   placeholder="4"
                   placeholderTextColor={colors.textMuted}
                   keyboardType="numeric"
+                  accessibilityLabel="Recipe servings"
                 />
+                {showReviewWorkflow && servings.trim() && renderReviewAction(
+                  reviewedScalarPaths.has('servings'),
+                  () => markScalarReviewed('servings'),
+                  'Servings look right',
+                )}
               </RNView>
               <RNView style={styles.metaItem}>
                 <Text style={[styles.label, { color: colors.text }]}>Total Time</Text>
                 <TextInput
                   style={[styles.input, styles.smallInput, { backgroundColor: colors.backgroundSecondary, color: colors.text, borderColor: colors.border }]}
                   value={totalTime}
-                  onChangeText={setTotalTime}
+                  onChangeText={value => updateReviewedScalar('times.total', setTotalTime, value)}
                   placeholder="30 min"
                   placeholderTextColor={colors.textMuted}
+                  accessibilityLabel="Total time"
                 />
+                {showReviewWorkflow && totalTime.trim() && renderReviewAction(
+                  reviewedScalarPaths.has('times.total'),
+                  () => markScalarReviewed('times.total'),
+                  'Total time looks right',
+                )}
               </RNView>
             </RNView>
 
@@ -741,20 +1030,32 @@ export default function EditRecipeScreen() {
                 <TextInput
                   style={[styles.input, styles.smallInput, { backgroundColor: colors.backgroundSecondary, color: colors.text, borderColor: colors.border }]}
                   value={prepTime}
-                  onChangeText={setPrepTime}
+                  onChangeText={value => updateReviewedScalar('times.prep', setPrepTime, value)}
                   placeholder="15 min"
                   placeholderTextColor={colors.textMuted}
+                  accessibilityLabel="Prep time"
                 />
+                {showReviewWorkflow && prepTime.trim() && renderReviewAction(
+                  reviewedScalarPaths.has('times.prep'),
+                  () => markScalarReviewed('times.prep'),
+                  'Prep time looks right',
+                )}
               </RNView>
               <RNView style={styles.metaItem}>
                 <Text style={[styles.label, { color: colors.text }]}>Cook Time</Text>
                 <TextInput
                   style={[styles.input, styles.smallInput, { backgroundColor: colors.backgroundSecondary, color: colors.text, borderColor: colors.border }]}
                   value={cookTime}
-                  onChangeText={setCookTime}
+                  onChangeText={value => updateReviewedScalar('times.cook', setCookTime, value)}
                   placeholder="20 min"
                   placeholderTextColor={colors.textMuted}
+                  accessibilityLabel="Cook time"
                 />
+                {showReviewWorkflow && cookTime.trim() && renderReviewAction(
+                  reviewedScalarPaths.has('times.cook'),
+                  () => markScalarReviewed('times.cook'),
+                  'Cook time looks right',
+                )}
               </RNView>
             </RNView>
 
@@ -838,6 +1139,8 @@ export default function EditRecipeScreen() {
                       <TouchableOpacity
                         onPress={() => removeIngredient(ingredient.id)}
                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove ingredient ${index + 1}`}
                       >
                         <Ionicons name="trash-outline" size={18} color={colors.error} />
                       </TouchableOpacity>
@@ -851,6 +1154,7 @@ export default function EditRecipeScreen() {
                     onChangeText={(v) => updateIngredient(ingredient.id, 'name', v)}
                     placeholder="Ingredient name"
                     placeholderTextColor={colors.textMuted}
+                    accessibilityLabel={`Ingredient ${index + 1} name`}
                   />
                   
                   {/* Qty + Unit row */}
@@ -861,6 +1165,7 @@ export default function EditRecipeScreen() {
                       onChangeText={(v) => updateIngredient(ingredient.id, 'quantity', v)}
                       placeholder="½"
                       placeholderTextColor={colors.textMuted}
+                      accessibilityLabel={`Ingredient ${index + 1} amount`}
                     />
                     <RNView style={[styles.unitPickerContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
                       <TextInput
@@ -869,6 +1174,7 @@ export default function EditRecipeScreen() {
                         onChangeText={(v) => updateIngredient(ingredient.id, 'unit', v)}
                         placeholder="Unit"
                         placeholderTextColor={colors.textMuted}
+                        accessibilityLabel={`Ingredient ${index + 1} unit`}
                       />
                       <TouchableOpacity
                         style={styles.unitDropdownButton}
@@ -898,7 +1204,22 @@ export default function EditRecipeScreen() {
                     onChangeText={(v) => updateIngredient(ingredient.id, 'notes', v)}
                     placeholder="Notes (e.g., diced, room temp)"
                     placeholderTextColor={colors.textMuted}
+                    accessibilityLabel={`Ingredient ${index + 1} notes`}
                   />
+                  {showReviewWorkflow && ingredient.name.trim() && (
+                    <RNView style={styles.ingredientReviewRow}>
+                      {!ingredient.quantity.trim() && (
+                        <Text style={[styles.missingAmountText, { color: colors.warning }]}>No amount stated</Text>
+                      )}
+                      {renderReviewAction(
+                        ingredient.reviewedFields.name
+                          && ingredient.reviewedFields.quantity
+                          && (!ingredient.unit.trim() || ingredient.reviewedFields.unit),
+                        () => confirmIngredient(ingredient.id),
+                        'Ingredient looks right',
+                      )}
+                    </RNView>
+                  )}
                 </RNView>
               ))}
               
@@ -918,37 +1239,51 @@ export default function EditRecipeScreen() {
               </RNView>
               
               {steps.map((step, index) => (
-                <RNView key={step.id} style={styles.stepRow}>
-                  <RNView style={styles.stepIdentity}>
-                    <Text style={[styles.stepNumber, { color: colors.tint }]}>{index + 1}.</Text>
-                    <TouchableOpacity
-                      style={[styles.stepComponentButton, { borderColor: colors.border }]}
-                      onPress={() => selectComponent('Move instruction', componentId => {
-                        setSteps(steps.map(item => item.id === step.id ? { ...item, componentId } : item));
-                      })}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Recipe part: ${componentName(step.componentId)}`}
-                    >
-                      <Text style={[styles.stepComponentText, { color: colors.textMuted }]} numberOfLines={1}>
-                        {componentName(step.componentId)}
-                      </Text>
-                    </TouchableOpacity>
+                <RNView key={step.id} style={styles.stepCard}>
+                  <RNView style={styles.stepRow}>
+                    <RNView style={styles.stepIdentity}>
+                      <Text style={[styles.stepNumber, { color: colors.tint }]}>{index + 1}.</Text>
+                      <TouchableOpacity
+                        style={[styles.stepComponentButton, { borderColor: colors.border }]}
+                        onPress={() => selectComponent('Move instruction', componentId => {
+                          setSteps(steps.map(item => item.id === step.id ? { ...item, componentId } : item));
+                        })}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Recipe part: ${componentName(step.componentId)}`}
+                      >
+                        <Text style={[styles.stepComponentText, { color: colors.textMuted }]} numberOfLines={1}>
+                          {componentName(step.componentId)}
+                        </Text>
+                      </TouchableOpacity>
+                    </RNView>
+                    <TextInput
+                      style={[styles.input, styles.stepInput, { backgroundColor: colors.backgroundSecondary, color: colors.text, borderColor: colors.border }]}
+                      value={step.text}
+                      onChangeText={(v) => updateStep(step.id, v)}
+                      placeholder="Describe this step..."
+                      placeholderTextColor={colors.textMuted}
+                      multiline
+                      accessibilityLabel={`Instruction ${index + 1}`}
+                    />
+                    {steps.length > 1 && (
+                      <TouchableOpacity
+                        onPress={() => removeStep(step.id)}
+                        style={styles.removeButton}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove instruction ${index + 1}`}
+                      >
+                        <Ionicons name="close-circle" size={24} color={colors.error} />
+                      </TouchableOpacity>
+                    )}
                   </RNView>
-                  <TextInput
-                    style={[styles.input, styles.stepInput, { backgroundColor: colors.backgroundSecondary, color: colors.text, borderColor: colors.border }]}
-                    value={step.text}
-                    onChangeText={(v) => updateStep(step.id, v)}
-                    placeholder="Describe this step..."
-                    placeholderTextColor={colors.textMuted}
-                    multiline
-                  />
-                  {steps.length > 1 && (
-                    <TouchableOpacity
-                      onPress={() => removeStep(step.id)}
-                      style={styles.removeButton}
-                    >
-                      <Ionicons name="close-circle" size={24} color={colors.error} />
-                    </TouchableOpacity>
+                  {showReviewWorkflow && step.text.trim() && (
+                    <RNView style={styles.stepReviewRow}>
+                      {renderReviewAction(
+                        step.reviewed,
+                        () => confirmStep(step.id),
+                        `Instruction ${index + 1} looks right`,
+                      )}
+                    </RNView>
                   )}
                 </RNView>
               ))}
@@ -1144,6 +1479,72 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: spacing.md,
   },
+  reviewCard: {
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+    gap: spacing.sm,
+  },
+  reviewCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  reviewCardCopy: {
+    flex: 1,
+  },
+  reviewCardTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.semibold,
+  },
+  reviewCardCount: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    marginTop: 2,
+  },
+  reviewCardBody: {
+    fontSize: fontSize.sm,
+    lineHeight: 19,
+  },
+  reviewProgressTrack: {
+    height: 6,
+    borderRadius: radius.full,
+    overflow: 'hidden',
+    flexDirection: 'row',
+  },
+  reviewProgressFill: {
+    borderRadius: radius.full,
+  },
+  originalButton: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    borderWidth: 1,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.sm,
+  },
+  originalButtonText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+  },
+  reviewAction: {
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  reviewActionText: {
+    flexShrink: 1,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+  },
   saveButton: {
     paddingHorizontal: spacing.md,
   },
@@ -1332,6 +1733,17 @@ const styles = StyleSheet.create({
   ingredientNotes: {
     flex: 1,
   },
+  ingredientReviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  missingAmountText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+  },
   unitPickerContainer: {
     flex: 1,
     flexDirection: 'row',
@@ -1370,8 +1782,14 @@ const styles = StyleSheet.create({
   stepRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: spacing.sm,
     gap: spacing.sm,
+  },
+  stepCard: {
+    marginBottom: spacing.md,
+    gap: spacing.xs,
+  },
+  stepReviewRow: {
+    paddingLeft: 76 + spacing.sm,
   },
   stepIdentity: {
     width: 76,
