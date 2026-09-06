@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   FlatList,
@@ -44,6 +44,14 @@ import { api } from '@/lib/api';
 import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
+import {
+  baseDiscoverQueryOptions,
+  canFilterDiscoverLocally,
+  hasServerDiscoverFilters,
+  hideOwnedDiscoverRecipes,
+  resolveDiscoverResults,
+} from '@/lib/discoverResults';
+import { newlyExposedThumbnailUrls } from '@/lib/recipeImagePrefetch';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_PADDING = spacing.lg; // 24px on each side
@@ -59,6 +67,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
+import { Image as ExpoImage } from 'expo-image';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -69,14 +78,22 @@ function getContributorId(value: { contributor_id?: string | null; user_id?: str
 // Save/Bookmark button component with heart pulse animation
 function SaveButton({
   recipeId,
+  initialIsSaved,
   colors,
   isOwner,
 }: {
   recipeId: string;
+  initialIsSaved?: boolean | null;
   colors: ReturnType<typeof useColors>;
   isOwner: boolean;
 }) {
-  const { data: savedStatus, isLoading } = useIsRecipeSaved(recipeId);
+  // New APIs include saved state in the feed response. Keep the one-card query
+  // only as a rolling-deploy fallback for an older API response.
+  const shouldFetchSavedStatus = !isOwner && initialIsSaved == null;
+  const { data: savedStatus, isLoading } = useIsRecipeSaved(
+    recipeId,
+    shouldFetchSavedStatus,
+  );
   const saveMutation = useSaveRecipe();
   const unsaveMutation = useUnsaveRecipe();
   const scale = useSharedValue(1);
@@ -84,7 +101,7 @@ function SaveButton({
   // Don't show save button for own recipes
   if (isOwner) return null;
 
-  const isSaved = savedStatus?.is_saved ?? false;
+  const isSaved = initialIsSaved ?? savedStatus?.is_saved ?? false;
   const isPending = saveMutation.isPending || unsaveMutation.isPending;
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -108,7 +125,7 @@ function SaveButton({
     }
   };
 
-  if (isLoading) {
+  if (shouldFetchSavedStatus && isLoading) {
     return (
       <RNView style={styles.saveButton}>
         <ActivityIndicator size="small" color={colors.textMuted} />
@@ -120,7 +137,11 @@ function SaveButton({
     <TouchableOpacity
       style={styles.saveButton}
       onPress={handlePress}
+      disabled={isPending}
       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      accessibilityRole="button"
+      accessibilityLabel={isSaved ? 'Remove recipe from saved' : 'Save recipe'}
+      accessibilityState={{ selected: isSaved, disabled: isPending }}
     >
       <Animated.View style={animatedStyle}>
         <Ionicons
@@ -161,12 +182,14 @@ function RecipeCard({
   onUserPress,
   colors,
   currentUserId,
+  imagePriority = 'normal',
 }: {
   recipe: RecipeListItem;
   onPress: () => void;
   onUserPress?: (userId: string, userName: string) => void;
   colors: ReturnType<typeof useColors>;
   currentUserId?: string | null;
+  imagePriority?: 'normal' | 'high';
 }) {
   const { icon: sourceIcon, label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
   const isOwner = recipe.is_owner ?? recipe.user_id === currentUserId;
@@ -190,6 +213,7 @@ function RecipeCard({
           uri={recipe.thumbnail_url}
           style={styles.thumbnail}
           accessibilityLabel={`${recipe.title} photo`}
+          priority={imagePriority}
           overlay={(
             <LinearGradient
               colors={['transparent', 'rgba(0,0,0,0.3)']}
@@ -200,7 +224,12 @@ function RecipeCard({
         {/* Save button overlay */}
         {currentUserId && (
           <RNView style={styles.saveButtonContainer}>
-            <SaveButton recipeId={recipe.id} colors={colors} isOwner={isOwner} />
+            <SaveButton
+              recipeId={recipe.id}
+              initialIsSaved={recipe.is_saved}
+              colors={colors}
+              isOwner={isOwner}
+            />
           </RNView>
         )}
       </RNView>
@@ -292,12 +321,14 @@ function GridRecipeCard({
   onUserPress,
   colors,
   currentUserId,
+  imagePriority = 'normal',
 }: {
   recipe: RecipeListItem;
   onPress: () => void;
   onUserPress?: (userId: string, userName: string) => void;
   colors: ReturnType<typeof useColors>;
   currentUserId?: string | null;
+  imagePriority?: 'normal' | 'high';
 }) {
   // Can filter by this user if they have a user_id and display name, and it's not the current user
   const contributorId = getContributorId(recipe);
@@ -316,6 +347,7 @@ function GridRecipeCard({
           style={styles.gridThumbnail}
           accessibilityLabel={`${recipe.title} photo`}
           placeholderIconSize={40}
+          priority={imagePriority}
         />
 
         {/* Cook time badge - top left */}
@@ -329,7 +361,12 @@ function GridRecipeCard({
         {/* Save button - top right */}
         {currentUserId && (
           <RNView style={styles.gridSaveButtonContainer}>
-            <SaveButton recipeId={recipe.id} colors={colors} isOwner={isOwner} />
+            <SaveButton
+              recipeId={recipe.id}
+              initialIsSaved={recipe.is_saved}
+              colors={colors}
+              isOwner={isOwner}
+            />
           </RNView>
         )}
 
@@ -382,6 +419,7 @@ export default function DiscoverScreen() {
   const [showAllContributors, setShowAllContributors] = useState(false);
   const [isRandomLoading, setIsRandomLoading] = useState(false);
   const [showSurpriseModal, setShowSurpriseModal] = useState(false);
+  const prefetchedThumbnailUrls = useRef(new Set<string>());
 
   // View preference (grid or list)
   const { viewMode, toggleViewMode, isGrid } = useViewPreference();
@@ -405,6 +443,9 @@ export default function DiscoverScreen() {
   const [hideMyRecipes, setHideMyRecipes] = useState(false);
   const [sortOrder, setSortOrder] = useState<DiscoverSort>('recent');
   const [mealTypeFilter, setMealTypeFilter] = useState<MealTypeFilter>('all');
+  const lastPopulatedBaseSort = useRef<DiscoverSort>(sortOrder);
+  const hasFocusedDiscover = useRef(false);
+  const focusRefresh = useRef({ hasServerFilters: false, refetch: () => {}, refetchSearch: () => {} });
 
   // Pass source filter to server-side queries
   const sourceTypeParam = sourceFilter === 'all' ? undefined : sourceFilter;
@@ -417,14 +458,35 @@ export default function DiscoverScreen() {
     (timeFilter !== 'all' ? 1 : 0) +
     (mealTypeFilter !== 'all' ? 1 : 0) +
     selectedTags.length +
+    (hideMyRecipes ? 1 : 0) +
     (selectedExtractor ? 1 : 0);
 
-  // Check if search or filters are active
-  const hasActiveFilters = searchQuery.length > 0 || activeFilterCount > 0 || !!selectedExtractor;
+  // Hide-mine is local-only. Keep it out of server-query routing so the base
+  // feed stays enabled and can continue paginating while the local view hides
+  // the current user's cards.
+  const hasServerFilters = hasServerDiscoverFilters({
+    query: searchQuery,
+    sourceFilter,
+    timeFilter,
+    mealTypeFilter,
+    selectedTags,
+    hasSelectedExtractor: !!selectedExtractor,
+    hideMyRecipes,
+  });
+  const hasVisibleFilters = hasServerFilters || hideMyRecipes;
 
   // Discover is a public community library. Guests can browse; sign-in is only
   // required for saving recipes and personalized actions.
   const canBrowseDiscover = true;
+  const baseDiscoverQuery = baseDiscoverQueryOptions(
+    canBrowseDiscover,
+    hasServerFilters,
+    sortOrder,
+    lastPopulatedBaseSort.current,
+  );
+  useEffect(() => {
+    if (!hasServerFilters) lastPopulatedBaseSort.current = sortOrder;
+  }, [hasServerFilters, sortOrder]);
 
   // Discover recipes with infinite scroll
   const {
@@ -437,7 +499,12 @@ export default function DiscoverScreen() {
     hasNextPage: hasMoreRecipes,
     isFetchingNextPage,
     isError: isDiscoverError,
-  } = useDiscoverRecipes(sourceTypeParam, canBrowseDiscover, sortOrder, mealTypeParam);
+  } = useDiscoverRecipes(
+    baseDiscoverQuery.sourceType,
+    baseDiscoverQuery.enabled,
+    baseDiscoverQuery.sort,
+    baseDiscoverQuery.mealType,
+  );
 
   // Search/filter results (when filters are active)
   const {
@@ -447,6 +514,7 @@ export default function DiscoverScreen() {
     hasNextPage: hasMoreSearchResults,
     isFetchingNextPage: isFetchingNextSearchResults,
     isFetching: isDiscoverSearchFetching,
+    isSuccess: hasResolvedSearchResults,
     isError: isSearchError,
     refetch: refetchSearch,
   } = useSearchPublicRecipes({
@@ -499,58 +567,93 @@ export default function DiscoverScreen() {
 
   // Determine what to display:
   // - For text search: ONLY use server results (local can't search ingredients)
-  // - For other filters: use optimistic local filtering while server loads
+  // - For filters represented in cached cards: show accurate local matches
+  // - For meal/contributor filters: wait for the authoritative server result
   const hasTextSearch = !!searchQuery?.trim();
+  const canUseLocalFallback = canFilterDiscoverLocally({
+    mealType: mealTypeParam,
+    extractorId: selectedExtractor?.id,
+  });
 
   const filteredRecipes = useMemo(() => {
-    let result: RecipeListItem[] | undefined;
+    const result = resolveDiscoverResults({
+      hasTextSearch,
+      hasActiveFilters: hasServerFilters,
+      hasResolvedSearchResults,
+      canUseLocalFallback,
+      searchResults,
+      localFilteredRecipes: filterRecipesLocally(recipes, currentFilters),
+      recipes,
+    });
 
-    if (hasTextSearch) {
-      // Text search MUST use server results - local filter can't search ingredients
-      result = searchResults;
-    } else if (hasActiveFilters) {
-      // For non-text filters, use server results if available, otherwise filter locally
-      result = searchResults?.length ? searchResults : filterRecipesLocally(recipes, currentFilters);
-    } else {
-      // No filters - use the discover results
-      result = recipes;
+    return hideOwnedDiscoverRecipes(result, hideMyRecipes);
+  }, [hasTextSearch, hasServerFilters, recipes, searchResults, hasResolvedSearchResults, canUseLocalFallback, currentFilters, hideMyRecipes]);
+
+  const displayRecipes = useMemo(
+    () => filteredRecipes?.slice(0, displayCount),
+    [filteredRecipes, displayCount],
+  );
+  const hasPrimaryLoadError = hasServerFilters ? isSearchError : isDiscoverError;
+
+  // Warm every thumbnail currently exposed by the feed. The first cards retain
+  // high render priority while the remaining optimized derivatives fill the
+  // persistent cache for fast scrolling and filter transitions.
+  useEffect(() => {
+    const thumbnailUrls = newlyExposedThumbnailUrls(
+      displayRecipes ?? [],
+      prefetchedThumbnailUrls.current,
+    );
+    if (thumbnailUrls.length > 0) {
+      void ExpoImage.prefetch(thumbnailUrls, { cachePolicy: 'disk' })
+        .then((succeeded) => {
+          if (!succeeded) {
+            thumbnailUrls.forEach((url) => prefetchedThumbnailUrls.current.delete(url));
+          }
+        })
+        .catch(() => {
+          thumbnailUrls.forEach((url) => prefetchedThumbnailUrls.current.delete(url));
+        });
     }
-
-    // Filter out user's own recipes if toggle is on
-    if (hideMyRecipes && userId && result) {
-      result = result.filter(recipe => !(recipe.is_owner ?? recipe.user_id === userId));
-    }
-
-    return result;
-  }, [hasTextSearch, hasActiveFilters, recipes, searchResults, currentFilters, hideMyRecipes, userId]);
-
-  const displayRecipes = filteredRecipes?.slice(0, displayCount);
-  const hasPrimaryLoadError = hasActiveFilters ? isSearchError : isDiscoverError;
+  }, [displayRecipes]);
 
   // Determine if there's more to load - either from server or locally
   const hasMoreLocal = filteredRecipes && displayCount < filteredRecipes.length;
-  const hasMoreServer = hasActiveFilters ? hasMoreSearchResults : hasMoreRecipes;
+  const hasMoreServer = hasServerFilters ? hasMoreSearchResults : hasMoreRecipes;
   const hasMore = hasMoreLocal || hasMoreServer;
   const isFetchingMore = isFetchingNextPage || isFetchingNextSearchResults;
 
   const handleRefresh = useCallback(() => {
     setDisplayCount(ITEMS_PER_PAGE);
-    if (hasActiveFilters) {
+    if (hasServerFilters) {
       refetchSearch();
     } else {
       refetch();
     }
-  }, [hasActiveFilters, refetch, refetchSearch]);
+  }, [hasServerFilters, refetch, refetchSearch]);
 
-  // Refetch when tab gains focus (handles cache cleared on user change)
+  focusRefresh.current = {
+    hasServerFilters,
+    refetch: () => { void refetch(); },
+    refetchSearch: () => { void refetchSearch(); },
+  };
+
+  // The active query already fetches when it mounts or its filters change.
+  // Only refetch here after a real tab re-entry; otherwise useFocusEffect also
+  // runs for dependency changes and duplicates every Discover request.
   useFocusEffect(
     useCallback(() => {
-      if (hasActiveFilters) {
-        refetchSearch();
-      } else {
-        refetch();
+      if (!hasFocusedDiscover.current) {
+        hasFocusedDiscover.current = true;
+        return;
       }
-    }, [hasActiveFilters, refetch, refetchSearch])
+
+      const current = focusRefresh.current;
+      if (current.hasServerFilters) {
+        current.refetchSearch();
+      } else {
+        current.refetch();
+      }
+    }, [])
   );
 
   const handleLoadMore = () => {
@@ -559,7 +662,7 @@ export default function DiscoverScreen() {
       setDisplayCount(prev => prev + ITEMS_PER_PAGE);
     } else if (hasMoreServer) {
       // Then, fetch more from the server
-      if (hasActiveFilters && hasMoreSearchResults) {
+      if (hasServerFilters && hasMoreSearchResults) {
         fetchNextSearchResults();
       } else if (hasMoreRecipes) {
         fetchNextPage();
@@ -614,6 +717,7 @@ export default function DiscoverScreen() {
             }}
             onUserPress={handleUserPress}
             currentUserId={userId}
+            imagePriority={index < 4 ? 'high' : 'normal'}
           />
         </AnimatedListItem>
       );
@@ -629,6 +733,7 @@ export default function DiscoverScreen() {
           }}
           onUserPress={handleUserPress}
           currentUserId={userId}
+          imagePriority={index < 4 ? 'high' : 'normal'}
         />
       </AnimatedListItem>
     );
@@ -644,7 +749,7 @@ export default function DiscoverScreen() {
         {countData && (
           <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
             <Text style={styles.countText}>
-              {hasActiveFilters && searchTotal > 0
+              {hasServerFilters
                 ? searchTotal  // Just show the filtered count, not "X of Y"
                 : countData.count}
             </Text>
@@ -671,7 +776,7 @@ export default function DiscoverScreen() {
         />
       </TouchableOpacity>
     </RNView>
-  ), [colors.text, colors.tint, countData, isRefetching, hasActiveFilters, searchTotal, isGrid, toggleViewMode]);
+  ), [colors.text, colors.tint, countData, isRefetching, hasServerFilters, searchTotal, isGrid, toggleViewMode]);
 
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
@@ -682,7 +787,7 @@ export default function DiscoverScreen() {
         No recipes found
       </Text>
       <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-        {hasActiveFilters
+        {hasVisibleFilters
           ? 'Try adjusting your filters or search term'
           : 'Be the first to share a recipe with the community!'}
       </Text>
@@ -999,12 +1104,27 @@ export default function DiscoverScreen() {
                 </Text>
               </RNView>
             )}
+            {mealTypeFilter !== 'all' && (
+              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
+                <Text style={[styles.activeFilterText, { color: colors.tint }]}>
+                  {mealTypeFilter[0].toUpperCase() + mealTypeFilter.slice(1)}
+                </Text>
+              </RNView>
+            )}
+            {hideMyRecipes && (
+              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
+                <Text style={[styles.activeFilterText, { color: colors.tint }]}>Mine hidden</Text>
+              </RNView>
+            )}
             <TouchableOpacity
               onPress={() => {
                 setSourceFilter('all');
                 setTimeFilter('all');
                 setSelectedTags([]);
                 setSelectedExtractor(null);
+                setMealTypeFilter('all');
+                setHideMyRecipes(false);
+                setSortOrder('recent');
               }}
             >
               <Text style={[styles.clearFiltersText, { color: colors.textMuted }]}>
@@ -1103,7 +1223,7 @@ export default function DiscoverScreen() {
         )}
       </RNView>
 
-      {(isLoading || (hasTextSearch && isDiscoverSearchFetching)) && !displayRecipes?.length ? (
+      {(isLoading || (hasServerFilters && isDiscoverSearchFetching)) && !displayRecipes?.length ? (
         <SkeletonRecipeList count={5} />
       ) : (
         <FlatList

@@ -182,6 +182,7 @@ class RecipeListItem(BaseModel):
     user_id: Optional[str] = None
     contributor_id: Optional[str] = None
     is_owner: bool = False
+    is_saved: Optional[bool] = None
     is_public: bool = False
     extractor_display_name: Optional[str] = None  # For attribution on Discover
     moderation_status: Optional[Literal["active", "hidden"]] = None

@@ -565,6 +565,8 @@ def _build_edited_extracted(
 def recipe_to_list_item(
     recipe: Recipe,
     viewer_user_id: str | None = None,
+    *,
+    is_saved: bool | None = None,
 ) -> RecipeListItem:
     """Convert Recipe model to RecipeListItem schema."""
     extracted = recipe.extracted or {}
@@ -591,6 +593,7 @@ def recipe_to_list_item(
         user_id=visible_recipe_user_id(recipe.user_id, viewer_user_id),
         contributor_id=public_contributor_id(recipe.user_id),
         is_owner=is_owner,
+        is_saved=is_saved,
         extractor_display_name=recipe.extractor_display_name,
         # A moderation hold is private operational state. Owners need it to
         # understand why their recipe is absent from Discover and to appeal;
@@ -602,6 +605,25 @@ def recipe_to_list_item(
             if key != "extraction_evidence" and key != "content_revision"
         },
     )
+
+
+async def saved_recipe_ids_for_viewer(
+    db: AsyncSession,
+    viewer_user_id: str | None,
+    recipes: List[Recipe],
+) -> set[UUID]:
+    """Load one page's saved state without one request or query per card."""
+    if not viewer_user_id or not recipes:
+        return set()
+
+    recipe_ids = [recipe.id for recipe in recipes]
+    result = await db.execute(
+        select(SavedRecipe.recipe_id).where(
+            SavedRecipe.user_id == viewer_user_id,
+            SavedRecipe.recipe_id.in_(recipe_ids),
+        )
+    )
+    return set(result.scalars().all())
 
 
 def recipe_to_detail_response(
@@ -1031,7 +1053,15 @@ async def get_public_recipes(
     )
     recipes = result.scalars().all()
 
-    items = [recipe_to_list_item(r, user.id if user else None) for r in recipes]
+    saved_recipe_ids = await saved_recipe_ids_for_viewer(db, viewer_user_id, list(recipes))
+    items = [
+        recipe_to_list_item(
+            recipe,
+            viewer_user_id,
+            is_saved=(recipe.id in saved_recipe_ids) if viewer_user_id else None,
+        )
+        for recipe in recipes
+    ]
     has_more = offset + len(items) < total_count
 
     return PaginatedRecipes(
@@ -1523,7 +1553,16 @@ async def search_public_recipes(
     )
     recipes = list(result.scalars().all())
 
-    items = [recipe_to_list_item(r, user.id if user else None) for r in recipes]
+    viewer_user_id = user.id if user else None
+    saved_recipe_ids = await saved_recipe_ids_for_viewer(db, viewer_user_id, recipes)
+    items = [
+        recipe_to_list_item(
+            recipe,
+            viewer_user_id,
+            is_saved=(recipe.id in saved_recipe_ids) if viewer_user_id else None,
+        )
+        for recipe in recipes
+    ]
     has_more = offset + len(items) < total_count
 
     return PaginatedRecipes(
@@ -2503,7 +2542,7 @@ async def get_saved_recipes(
     )
     recipes = result.scalars().all()
 
-    items = [recipe_to_list_item(recipe, user.id) for recipe in recipes]
+    items = [recipe_to_list_item(recipe, user.id, is_saved=True) for recipe in recipes]
     has_more = offset + len(items) < total_count
 
     return PaginatedRecipes(

@@ -124,6 +124,8 @@ export interface RecipeListItem {
   user_id: string | null;
   contributor_id?: string | null;
   is_owner?: boolean;
+  /** Undefined only while talking to an API version from before feed-level saved state. */
+  is_saved?: boolean | null;
   extractor_display_name: string | null;
   is_public: boolean;
   moderation_status?: 'active' | 'hidden' | null;
