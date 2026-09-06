@@ -23,9 +23,9 @@ describe('Sentry user context', () => {
   beforeEach(() => mocks.setUser.mockReset());
 
   it('uses only a pseudonymous account identifier', () => {
-    setSentryUser({ id: 'clerk_subject_123' });
+    setSentryUser({ id: 'app-stable-user' });
 
-    expect(mocks.setUser).toHaveBeenCalledWith({ id: 'clerk_subject_123' });
+    expect(mocks.setUser).toHaveBeenCalledWith({ id: 'app-stable-user' });
   });
 
   it('clears user context after sign out', () => {

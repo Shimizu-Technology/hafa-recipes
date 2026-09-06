@@ -18,7 +18,7 @@ import { fontFamily, fontSize, radius, spacing } from '@/constants/Colors';
 import { clerkErrorMessage, shouldNavigateAfterSessionActivation } from '@/lib/accountAccess';
 import { sendExistingAccountCode, verifyExistingAccountCode } from '@/lib/accountRecovery';
 import { CLERK_ENVIRONMENT } from '@/lib/clerkMigration';
-import { leaveAuthScreen } from '@/lib/authNavigation';
+import { authBackAccessibilityLabel, leaveAuthScreen } from '@/lib/authNavigation';
 
 export default function RecoverAccountScreen() {
   const { signIn, setActive, isLoaded } = useSignIn();
@@ -90,7 +90,7 @@ export default function RecoverAccountScreen() {
             }}
             disabled={isLoading}
             accessibilityRole="button"
-            accessibilityLabel={step === 'code' ? 'Back to email' : 'Back to Håfa Recipes'}
+            accessibilityLabel={step === 'code' ? 'Back to email' : authBackAccessibilityLabel(router)}
           >
             <Ionicons name="chevron-back" size={22} color={colors.text} />
             <Text style={[styles.backLabel, { color: colors.text }]}>Back</Text>

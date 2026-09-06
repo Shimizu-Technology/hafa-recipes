@@ -165,8 +165,8 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
       void queryClient.cancelQueries();
       queryClient.clear();
       addBreadcrumb('auth', 'Query cache cleared due to user change', {
-        previousUserId: previousUserId ?? 'signed-out',
-        newUserId: currentUserId,
+        previousState: previousUserId ? 'signed-in' : 'signed-out',
+        nextState: currentUserId ? 'signed-in' : 'signed-out',
       });
     }
 
@@ -209,20 +209,33 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
 
   // Sync user context with Sentry
   useEffect(() => {
-    if (!isLoaded) return;
-    
+    let isCurrentIdentity = true;
+    if (!isLoaded) return () => { isCurrentIdentity = false; };
+
     if (isSignedIn && user) {
-      setSentryUser({
-        id: user.id,
-      });
-      addBreadcrumb('auth', 'User signed in', { userId: user.id });
+      setSentryUser(null);
+      addBreadcrumb('auth', 'User signed in');
+      void api.getCurrentUserIdentity()
+        .then((identity) => {
+          if (isCurrentIdentity) setSentryUser(identity);
+        })
+        .catch(() => {
+          if (!isCurrentIdentity) return;
+          setSentryUser(null);
+          addBreadcrumb(
+            'auth',
+            'Durable user identity unavailable for error attribution',
+            undefined,
+            'warning',
+          );
+        });
     } else {
       setSentryUser(null);
-      if (isLoaded) {
-        addBreadcrumb('auth', 'User signed out or not authenticated');
-      }
+      addBreadcrumb('auth', 'User signed out or not authenticated');
     }
-  }, [isSignedIn, isLoaded, user]);
+
+    return () => { isCurrentIdentity = false; };
+  }, [isSignedIn, isLoaded, user?.id]);
 
   const currentUserId = isLoaded ? user?.id ?? null : undefined;
   if (offlineIdentityBindingFailed) {

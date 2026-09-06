@@ -24,7 +24,7 @@ import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/C
 import { clerkErrorMessage, isCancelledAppleSignIn } from '@/lib/accountAccess';
 import { beginAccountOnboarding, clearAccountOnboarding, failAccountOnboarding } from '@/lib/accountOnboarding';
 import { CLERK_ENVIRONMENT, getOrCreateInstallationId, onboardProductionAccount } from '@/lib/clerkMigration';
-import { leaveAuthScreen } from '@/lib/authNavigation';
+import { authBackAccessibilityLabel, leaveAuthScreen } from '@/lib/authNavigation';
 
 // Required for OAuth to work properly (for Apple Sign-In)
 WebBrowser.maybeCompleteAuthSession();
@@ -348,7 +348,7 @@ export default function SignUpScreen() {
             onPress={() => leaveAuthScreen(router)}
             activeOpacity={0.7}
             accessibilityRole="button"
-            accessibilityLabel="Back to Håfa Recipes"
+            accessibilityLabel={authBackAccessibilityLabel(router)}
           >
             <Ionicons name="chevron-back" size={24} color={colors.text} />
             <Text style={[styles.backButtonText, { color: colors.text }]}>Back</Text>

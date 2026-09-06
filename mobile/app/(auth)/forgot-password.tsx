@@ -16,7 +16,7 @@ import { View, Text, Input, Button, useColors } from '@/components/Themed';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { shouldNavigateAfterSessionActivation } from '@/lib/accountAccess';
 import { CLERK_ENVIRONMENT } from '@/lib/clerkMigration';
-import { leaveAuthScreen } from '@/lib/authNavigation';
+import { authBackAccessibilityLabel, leaveAuthScreen } from '@/lib/authNavigation';
 
 export default function ForgotPasswordScreen() {
   const { signIn, setActive, isLoaded } = useSignIn();
@@ -140,7 +140,7 @@ export default function ForgotPasswordScreen() {
             onPress={() => step === 'code' ? setStep('email') : leaveAuthScreen(router)}
             activeOpacity={0.7}
             accessibilityRole="button"
-            accessibilityLabel={step === 'code' ? 'Back to email' : 'Back to Håfa Recipes'}
+            accessibilityLabel={step === 'code' ? 'Back to email' : authBackAccessibilityLabel(router)}
           >
             <Ionicons name="chevron-back" size={24} color={colors.text} />
             <Text style={[styles.backButtonText, { color: colors.text }]}>Back</Text>

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { leaveAuthScreen } from './authNavigation';
+import { authBackAccessibilityLabel, leaveAuthScreen } from './authNavigation';
 
 describe('leaveAuthScreen', () => {
   it('returns through navigation history when one exists', () => {
@@ -27,5 +27,17 @@ describe('leaveAuthScreen', () => {
 
     expect(router.back).not.toHaveBeenCalled();
     expect(router.replace).toHaveBeenCalledWith('/(tabs)');
+  });
+
+  it('describes the actual Back destination for assistive technology', () => {
+    const router = {
+      back: vi.fn(),
+      canGoBack: vi.fn(() => true),
+      replace: vi.fn(),
+    };
+
+    expect(authBackAccessibilityLabel(router)).toBe('Back to previous screen');
+    router.canGoBack.mockReturnValue(false);
+    expect(authBackAccessibilityLabel(router)).toBe('Back to Håfa Recipes');
   });
 });

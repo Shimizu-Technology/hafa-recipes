@@ -146,4 +146,25 @@ describe('SignInScreen', () => {
       await act(async () => renderer.unmount());
     }
   });
+
+  it('describes normal Back navigation without promising the tabs destination', async () => {
+    routerMocks.canGoBack.mockReturnValue(true);
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(SignInScreen));
+      });
+      const backButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Back to previous screen',
+      )[0];
+
+      expect(backButton.props.accessibilityRole).toBe('button');
+      await act(async () => backButton.props.onPress());
+      expect(routerMocks.back).toHaveBeenCalledOnce();
+      expect(routerMocks.replace).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
 });
