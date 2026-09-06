@@ -315,6 +315,7 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
             reviewed_original_extracted = {
                 **uncertain_extracted,
                 "title": "Reviewed original recipe",
+                "media": {"thumbnail": "https://legacy.example/original.jpg"},
                 "components": [{
                     "name": "Main",
                     "ingredients": [
@@ -336,6 +337,7 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
                 has_audio_transcript=True,
                 user_id=owner.id,
                 is_public=True,
+                thumbnail_url="https://media.hafa.example/current-normalized.webp",
             )
             original_assessment = apply_recipe_review(
                 reviewed_original_recipe,
@@ -349,6 +351,7 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
                     recipe_id=reviewed_original_recipe.id,
                     version_number=1,
                     extracted=reviewed_original_extracted,
+                    thumbnail_url="https://legacy.example/original.jpg",
                     review_state=original_assessment.state,
                     extraction_evidence=original_assessment.evidence,
                     content_revision=1,
@@ -360,6 +363,9 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
             edited_extracted = {
                 **reviewed_original_extracted,
                 "title": "Reviewed edited recipe",
+                "media": {
+                    "thumbnail": "https://media.hafa.example/current-normalized.webp"
+                },
             }
             apply_recipe_review(
                 reviewed_original_recipe,
@@ -375,6 +381,12 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
                 owner,
             )
             assert restored_original.extracted.title == "Reviewed original recipe"
+            assert restored_original.thumbnail_url == (
+                "https://media.hafa.example/current-normalized.webp"
+            )
+            assert restored_original.extracted.media.thumbnail == (
+                "https://media.hafa.example/current-normalized.webp"
+            )
             assert restored_original.review_state == "ready"
             assert restored_original.is_public is True
             assert restored_original.extraction_evidence is not None
@@ -461,6 +473,7 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
                 "tags": [],
                 "mealTypes": [],
                 "nutrition": {"perServing": {}, "total": {}},
+                "media": {"thumbnail": "https://legacy.example/version.jpg"},
             }
             structured_recipe = Recipe(
                 id=uuid4(),
@@ -471,6 +484,7 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
                 has_audio_transcript=False,
                 user_id=owner.id,
                 is_public=False,
+                thumbnail_url="https://media.hafa.example/structured-current.webp",
             )
             initial_review = apply_recipe_review(structured_recipe, structured_extracted)
             db.add(structured_recipe)
@@ -492,6 +506,7 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
                 recipe_id=structured_recipe.id,
                 version_number=1,
                 extracted=structured_extracted,
+                thumbnail_url="https://legacy.example/version.jpg",
                 review_state=initial_review.state,
                 extraction_evidence=initial_review.evidence,
                 content_revision=1,
@@ -502,7 +517,14 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
             structured_recipe.extraction_method = "website-ai"
             apply_recipe_review(
                 structured_recipe,
-                structured_extracted,
+                {
+                    **structured_extracted,
+                    "media": {
+                        "thumbnail": (
+                            "https://media.hafa.example/structured-current.webp"
+                        )
+                    },
+                },
                 increment_revision=True,
             )
             await db.commit()
@@ -515,6 +537,12 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
             )
             assert restored.review_state == "ready"
             assert structured_recipe.extraction_method == "website-jsonld"
+            assert structured_recipe.thumbnail_url == (
+                "https://media.hafa.example/structured-current.webp"
+            )
+            assert restored.extracted.media.thumbnail == (
+                "https://media.hafa.example/structured-current.webp"
+            )
             assert evidence_was_user_reviewed(structured_recipe.extraction_evidence) is False
     finally:
         require_disposable_test_database(TEST_DATABASE_URL)

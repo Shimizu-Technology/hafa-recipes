@@ -66,6 +66,15 @@ def test_render_runs_the_locked_repair_before_the_versioned_migration_runner():
     assert "python -m migrations.022_add_admin_moderation" not in render_config
 
 
+def test_render_never_runs_remote_thumbnail_backfill_during_deploy():
+    """A long remote-image repair must remain an explicit operator action."""
+    render_config = (
+        Path(__file__).resolve().parents[2] / "render.yaml"
+    ).read_text(encoding="utf-8")
+
+    assert "thumbnail_backfill" not in render_config
+
+
 def test_runner_registers_every_active_numbered_migration_file():
     migrations_directory = Path(migration_runner.__file__).resolve().parent
     first_active_version = int(
