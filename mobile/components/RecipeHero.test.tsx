@@ -120,4 +120,26 @@ describe('RecipeHero', () => {
       await act(async () => renderer.unmount());
     }
   });
+
+  it('treats a whitespace-only thumbnail as unavailable', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(RecipeHero, {
+          ...commonProps,
+          sourceUrl: 'manual://recipe',
+          thumbnailUrl: '   ',
+        }));
+      });
+
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel
+          === 'Chicken Kelaguen recipe image placeholder',
+      )).toHaveLength(1);
+      expect(renderer.container.queryAll((instance) => instance.type === 'ExpoImage')).toHaveLength(0);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
 });

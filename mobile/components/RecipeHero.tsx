@@ -23,13 +23,15 @@ export function RecipeHero({
   onOpenSource,
 }: RecipeHeroProps) {
   const playback = getSourcePlayback(sourceUrl);
+  const normalizedThumbnailUrl = thumbnailUrl?.trim() || null;
+  const usableThumbnailUrl = imageError ? null : normalizedThumbnailUrl;
 
   if (playback) {
     return (
       <SourcePlaybackCard
         playback={playback}
         recipeTitle={recipeTitle}
-        thumbnailUrl={imageError ? null : thumbnailUrl}
+        thumbnailUrl={usableThumbnailUrl}
         onThumbnailError={onImageError}
         onOpenSource={onOpenSource}
       />
@@ -38,10 +40,10 @@ export function RecipeHero({
 
   return (
     <RecipeThumbnail
-      uri={imageError ? null : thumbnailUrl}
-      style={thumbnailUrl && !imageError ? styles.heroImage : styles.placeholderHero}
+      uri={usableThumbnailUrl}
+      style={usableThumbnailUrl ? styles.heroImage : styles.placeholderHero}
       onError={onImageError}
-      accessibilityLabel={thumbnailUrl && !imageError
+      accessibilityLabel={usableThumbnailUrl
         ? `${recipeTitle} recipe`
         : `${recipeTitle} recipe image placeholder`}
       placeholderIconSize={64}

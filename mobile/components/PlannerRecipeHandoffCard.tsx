@@ -35,6 +35,7 @@ export function PlannerRecipeHandoffCard({
   onDismiss,
 }: PlannerRecipeHandoffCardProps) {
   const colors = useColors();
+  const normalizedThumbnailUrl = thumbnailUrl?.trim() || null;
 
   return (
     <RNView
@@ -89,9 +90,11 @@ export function PlannerRecipeHandoffCard({
       ) : (
         <RNView style={styles.recipeRow}>
           <RecipeThumbnail
-            uri={thumbnailUrl}
+            uri={normalizedThumbnailUrl}
             style={styles.thumbnail}
-            accessibilityLabel={thumbnailUrl ? `${title} thumbnail` : 'Recipe thumbnail unavailable'}
+            accessibilityLabel={normalizedThumbnailUrl
+              ? `${title} thumbnail`
+              : 'Recipe thumbnail unavailable'}
             placeholderIconSize={22}
           />
           <RNView style={styles.recipeCopy}>

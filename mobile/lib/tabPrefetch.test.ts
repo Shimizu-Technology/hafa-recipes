@@ -53,6 +53,9 @@ describe('prefetchTabData', () => {
       ['recipes', 'infinite', undefined],
       ['discover', 'infinite', undefined, 'recent', undefined],
     ]);
-    expect(queryClient.prefetchQuery).toHaveBeenCalledTimes(2);
+    expect(queryClient.prefetchQuery.mock.calls.map(([options]) => options.queryKey)).toEqual([
+      ['recipes', 'popularTags', 'user'],
+      ['recipes', 'popularTags', 'public'],
+    ]);
   });
 });

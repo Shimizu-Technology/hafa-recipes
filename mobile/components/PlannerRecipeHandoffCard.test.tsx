@@ -103,6 +103,33 @@ describe('PlannerRecipeHandoffCard', () => {
     }
   });
 
+  it('announces a whitespace-only thumbnail as unavailable', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(PlannerRecipeHandoffCard, {
+          title: 'Chicken Kelaguen',
+          thumbnailUrl: '   ',
+          isLoading: false,
+          hasError: false,
+          isRetrying: false,
+          onRetry: vi.fn(),
+          onDismiss: vi.fn(),
+        }));
+      });
+
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Recipe thumbnail unavailable',
+      )).toHaveLength(1);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'ExpoImage',
+      )).toHaveLength(0);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
   it('keeps draft readiness visible while allowing planning to continue', async () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
