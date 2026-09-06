@@ -64,7 +64,56 @@ describe('recipe image multipart requests', () => {
     mocks.addBreadcrumb.mockClear();
     mocks.captureError.mockClear();
     mocks.captureMessage.mockClear();
+    mocks.client.patch.mockReset();
     vi.stubGlobal('FormData', InspectableFormData);
+  });
+
+  it('sends the granular review contract on recipe edits without an image', async () => {
+    mocks.client.patch.mockResolvedValueOnce({ data: { id: 'recipe-1' } });
+    const edit = {
+      title: 'Chicken Kelaguen',
+      ingredients: [],
+      steps: [],
+      review_content_revision: 4,
+      verified_paths: ['title', 'components.0.ingredients.0.quantity'],
+    };
+
+    await api.editRecipe('recipe-1', edit);
+
+    expect(mocks.client.patch).toHaveBeenCalledWith('/api/recipes/recipe-1', edit);
+  });
+
+  it('preserves review fields in image edits and surfaces structured stale-review errors', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 'recipe-1' }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({
+          detail: {
+            code: 'STALE_RECIPE_REVIEW',
+            message: 'This recipe changed after review started. Reload it before saving.',
+          },
+        }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+    const edit = {
+      title: 'Chicken Kelaguen',
+      ingredients: [],
+      steps: [],
+      review_content_revision: 4,
+      verified_paths: ['title'],
+    };
+
+    await api.editRecipe('recipe-1', edit, 'file:///recipe.jpg');
+    const request = fetchMock.mock.calls[0][1];
+    const fields = (request.body as InspectableFormData).fields;
+    expect(fields).toContainEqual({ name: 'recipe_data', value: JSON.stringify(edit) });
+
+    await expect(api.editRecipe('recipe-1', edit, 'file:///recipe.jpg'))
+      .rejects.toThrow('This recipe changed after review started. Reload it before saving.');
   });
 
   it('preserves explicit shared-image metadata in the single-image OCR request', async () => {
