@@ -5,6 +5,7 @@ import binascii
 import io
 import warnings
 from dataclasses import dataclass
+from typing import Mapping
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -30,17 +31,72 @@ class ValidatedImage:
     height: int
 
 
-def normalize_thumbnail_image(
+@dataclass(frozen=True)
+class ThumbnailVariantSpec:
+    """Output bounds for one recipe-thumbnail delivery surface."""
+
+    max_dimension: int
+    max_bytes: int | None = None
+
+
+def _encode_webp(image: Image.Image, quality: int) -> bytes:
+    output = io.BytesIO()
+    image.save(output, format="WEBP", quality=quality, method=4)
+    return output.getvalue()
+
+
+def _render_thumbnail_variant(
+    source: Image.Image,
+    spec: ThumbnailVariantSpec,
+    quality: int,
+) -> ValidatedImage:
+    rendered = source.copy()
+    rendered.thumbnail(
+        (spec.max_dimension, spec.max_dimension),
+        Image.Resampling.LANCZOS,
+    )
+
+    qualities = [quality]
+    if spec.max_bytes is not None and quality > 50:
+        qualities = list(range(quality, 49, -8))
+    while True:
+        for candidate_quality in qualities:
+            data = _encode_webp(rendered, candidate_quality)
+            if spec.max_bytes is None or len(data) <= spec.max_bytes:
+                width, height = rendered.size
+                return ValidatedImage(
+                    data=data,
+                    content_type="image/webp",
+                    width=width,
+                    height=height,
+                )
+
+        width, height = rendered.size
+        next_size = (
+            max(1, int(width * 0.85)),
+            max(1, int(height * 0.85)),
+        )
+        if next_size == rendered.size:
+            raise ImageValidationError("Thumbnail cannot fit its delivery byte limit")
+        rendered = rendered.resize(next_size, Image.Resampling.LANCZOS)
+
+
+def normalize_thumbnail_variants(
     image: ValidatedImage,
     *,
-    max_dimension: int,
+    variants: Mapping[str, ThumbnailVariantSpec],
     quality: int = 82,
-) -> ValidatedImage:
-    """Create a bounded, metadata-free WebP thumbnail from validated image bytes."""
-    if max_dimension < 1:
-        raise ValueError("Thumbnail maximum dimension must be positive")
+) -> dict[str, ValidatedImage]:
+    """Create bounded, metadata-free WebP variants with one source decode."""
+    if not variants:
+        raise ValueError("At least one thumbnail variant is required")
     if quality < 1 or quality > 100:
         raise ValueError("Thumbnail quality must be between 1 and 100")
+    for spec in variants.values():
+        if spec.max_dimension < 1:
+            raise ValueError("Thumbnail maximum dimension must be positive")
+        if spec.max_bytes is not None and spec.max_bytes < 1:
+            raise ValueError("Thumbnail maximum bytes must be positive")
 
     try:
         with Image.open(io.BytesIO(image.data)) as source:
@@ -53,29 +109,34 @@ def normalize_thumbnail_image(
                 normalized.mode == "P" and "transparency" in normalized.info
             )
             normalized = normalized.convert("RGBA" if has_alpha else "RGB")
+            largest_dimension = max(spec.max_dimension for spec in variants.values())
             normalized.thumbnail(
-                (max_dimension, max_dimension),
+                (largest_dimension, largest_dimension),
                 Image.Resampling.LANCZOS,
             )
 
-            output = io.BytesIO()
-            normalized.save(
-                output,
-                format="WEBP",
-                quality=quality,
-                method=4,
-            )
-            data = output.getvalue()
-            width, height = normalized.size
+            return {
+                name: _render_thumbnail_variant(normalized, spec, quality)
+                for name, spec in variants.items()
+            }
+    except ImageValidationError:
+        raise
     except (UnidentifiedImageError, OSError, SyntaxError) as exc:
         raise ImageValidationError("Image normalization failed") from exc
 
-    return ValidatedImage(
-        data=data,
-        content_type="image/webp",
-        width=width,
-        height=height,
-    )
+
+def normalize_thumbnail_image(
+    image: ValidatedImage,
+    *,
+    max_dimension: int,
+    quality: int = 82,
+) -> ValidatedImage:
+    """Create a bounded, metadata-free WebP thumbnail from validated image bytes."""
+    return normalize_thumbnail_variants(
+        image,
+        variants={"thumbnail": ThumbnailVariantSpec(max_dimension=max_dimension)},
+        quality=quality,
+    )["thumbnail"]
 
 
 def decode_and_validate_base64_image(

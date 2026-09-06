@@ -56,6 +56,8 @@ AWS_ACCESS_KEY_ID=AKIA...
 AWS_SECRET_ACCESS_KEY=...
 AWS_REGION=us-east-1
 S3_BUCKET_NAME=your-bucket-name
+# Optional CloudFront origin for recipe-image delivery
+RECIPE_MEDIA_BASE_URL=https://media.example.com
 
 # Instagram Authentication (for video extraction)
 # Required for Instagram videos - export cookies from logged-in browser

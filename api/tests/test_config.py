@@ -110,6 +110,33 @@ def test_local_database_can_disable_ssl_but_production_cannot():
         )
 
 
+def test_recipe_media_base_url_requires_a_safe_https_origin():
+    settings = Settings(
+        database_url="postgresql://localhost/hafa_test",
+        database_use_ssl=False,
+        openai_api_key="test-openai-key",
+        environment="development",
+        recipe_media_base_url="https://media.hafa.example/assets/",
+    )
+
+    assert settings.recipe_media_base_url == "https://media.hafa.example/assets/"
+
+    for invalid_url in (
+        "http://media.hafa.example",
+        "https://user:secret@media.hafa.example",
+        "https://media.hafa.example?token=secret",
+        "https://media.hafa.example#fragment",
+    ):
+        with pytest.raises(ValidationError, match="RECIPE_MEDIA_BASE_URL"):
+            Settings(
+                database_url="postgresql://localhost/hafa_test",
+                database_use_ssl=False,
+                openai_api_key="test-openai-key",
+                environment="development",
+                recipe_media_base_url=invalid_url,
+            )
+
+
 def test_development_rejects_remote_database_without_exceptional_override():
     with pytest.raises(ValidationError, match="Development must use local PostgreSQL"):
         Settings(

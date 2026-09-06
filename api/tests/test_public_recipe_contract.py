@@ -89,6 +89,19 @@ def test_owner_detail_keeps_owner_debug_fields(monkeypatch):
     assert response.is_owner is True
 
 
+def test_recipe_responses_choose_list_and_hero_thumbnail_variants(monkeypatch):
+    _, recipes = _load_recipe_routers(monkeypatch)
+    recipe = _public_recipe()
+    version_root = f"https://media.example/thumbnails/{recipe.id}/{'a' * 64}"
+    recipe.thumbnail_url = f"{version_root}/hero.webp"
+
+    list_item = recipes.recipe_to_list_item(recipe, viewer_user_id=recipe.user_id)
+    detail = recipes.recipe_to_detail_response(recipe, viewer_user_id=recipe.user_id)
+
+    assert list_item.thumbnail_url == f"{version_root}/list.webp"
+    assert detail.thumbnail_url == f"{version_root}/hero.webp"
+
+
 def test_detail_response_normalizes_legacy_ingredient_quantities(monkeypatch):
     _, recipes = _load_recipe_routers(monkeypatch)
     recipe = _public_recipe()
