@@ -13,15 +13,6 @@ Parameters:
     Default: ap-southeast-2
     Description: AWS Region containing the existing thumbnail bucket.
     AllowedPattern: '^[a-z]{2}(?:-gov)?-[a-z]+-\d$'
-  KeepLegacyPublicRead:
-    Type: String
-    Default: 'true'
-    AllowedValues:
-      - 'true'
-      - 'false'
-    Description: >-
-      Keep direct public S3 reads during the compatibility window. Change to
-      false only after the API returns CDN URLs and the rollback path is proven.
   MediaDomainName:
     Type: String
     Default: ''
@@ -65,7 +56,6 @@ Rules:
 
 Conditions:
   HasCustomDomain: !Not [!Equals [!Ref MediaDomainName, '']]
-  PreserveLegacyPublicRead: !Equals [!Ref KeepLegacyPublicRead, 'true']
 
 Resources:
   RecipeMediaWebAcl:
@@ -187,35 +177,6 @@ Resources:
           Value: production
         - Key: ManagedBy
           Value: cloudformation
-
-  ThumbnailBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      Bucket: !Ref ThumbnailBucketName
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: AllowCloudFrontReadRecipeThumbnails
-            Effect: Allow
-            Principal:
-              Service: cloudfront.amazonaws.com
-            Action: s3:GetObject
-            Resource: !Sub 'arn:${AWS::Partition}:s3:::${ThumbnailBucketName}/thumbnails/*'
-            Condition:
-              StringEquals:
-                AWS:SourceArn: !Sub >-
-                  arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${RecipeMediaDistribution}
-                AWS:SourceAccount: !Ref AWS::AccountId
-          - !If
-            - PreserveLegacyPublicRead
-            - Sid: PublicReadForThumbnails
-              Effect: Allow
-              Principal: '*'
-              Action: s3:GetObject
-              Resource: !Sub 'arn:${AWS::Partition}:s3:::${ThumbnailBucketName}/thumbnails/*'
-            - !Ref AWS::NoValue
 
   RecipeMediaFreePricingPlan:
     Type: AWS::PricingPlanManager::Subscription

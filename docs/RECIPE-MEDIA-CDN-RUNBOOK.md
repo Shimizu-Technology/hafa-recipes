@@ -16,8 +16,8 @@ the account reaches its 50%, 80%, or 100% notifications.
 The existing `recipe-extractor-thumbnails` bucket also contains private chat
 uploads. The CDN must never be granted access to the whole bucket.
 
-- The S3 bucket policy grants CloudFront `s3:GetObject` only for
-  `thumbnails/*`.
+- The policy tool adds one distribution-scoped CloudFront `s3:GetObject` grant
+  for `thumbnails/*` and preserves every unrelated bucket-policy statement.
 - The WAF allows only viewer paths beginning with `/thumbnails/` and blocks all
   other paths before they reach S3.
 - The distribution uses an Origin Access Control that signs every S3 request.
@@ -53,15 +53,13 @@ aws cloudformation deploy \
   --parameter-overrides \
     ThumbnailBucketName=recipe-extractor-thumbnails \
     ThumbnailBucketRegion=ap-southeast-2 \
-    KeepLegacyPublicRead=true \
   --no-execute-changeset
 ```
 
 Inspect the generated change set in CloudFormation. It must create one WAF web
-ACL, one OAC, one distribution, one Free pricing-plan subscription, and update
-the existing thumbnail-only bucket policy. It must not create or replace the S3
-bucket. Execute the exact reviewed change set, then wait for the stack and the
-distribution to finish deploying.
+ACL, one OAC, one distribution, and one Free pricing-plan subscription. It must
+not create or modify an S3 bucket or bucket policy. Execute the exact reviewed
+change set, then wait for the stack and the distribution to finish deploying.
 
 Record these stack outputs in the deployment log:
 
@@ -72,6 +70,49 @@ aws cloudformation describe-stacks \
   --query 'Stacks[0].Outputs' \
   --output table
 ```
+
+## Attach CloudFront without replacing the bucket policy
+
+CloudFormation intentionally does not own the existing bucket policy. An
+`AWS::S3::BucketPolicy` resource represents the complete policy document and
+could remove unrelated statements that are added outside this stack. The
+policy tool reads the live policy, preserves every unrelated statement, and
+adds only the exact `AllowCloudFrontReadRecipeThumbnails` statement.
+
+The tool's unit tests prove merge preservation, thumbnail and distribution
+scope, non-overwriting backups, concurrent-change detection, exact write
+verification, and fail-closed handling of conflicting managed statements. The
+CloudFormation template test cannot prove the state of an external live bucket
+policy; the runtime plan and apply checks provide that proof.
+
+Run a read-only plan, then apply it with a new absolute backup path in approved
+deployment storage. The backup is created with mode `0600`; the command refuses
+to overwrite an existing file. Keep it with the deployment record.
+
+```bash
+DISTRIBUTION_ID="$(aws cloudformation describe-stacks \
+  --region us-east-1 \
+  --stack-name hafa-recipes-media-cdn-production \
+  --query 'Stacks[0].Outputs[?OutputKey==`DistributionId`].OutputValue | [0]' \
+  --output text)"
+
+cd api
+uv run python -m app.recipe_media_bucket_policy plan \
+  --bucket recipe-extractor-thumbnails \
+  --region ap-southeast-2 \
+  --distribution-id "$DISTRIBUTION_ID"
+uv run python -m app.recipe_media_bucket_policy apply \
+  --bucket recipe-extractor-thumbnails \
+  --region ap-southeast-2 \
+  --distribution-id "$DISTRIBUTION_ID" \
+  --backup-path /ABSOLUTE/APPROVED/BACKUP-DIRECTORY/policy-before-cdn.json
+cd ..
+```
+
+The apply step writes only when the policy observed immediately before the
+write still matches the planned policy. It then reads the policy back and
+requires an exact match. If either check fails, stop and reconcile the live
+policy; do not retry by deleting or replacing unrelated statements.
 
 ## Verify before changing production traffic
 
@@ -145,8 +186,9 @@ search, collection, saved, and detail responses use the CDN base URL for owned
 thumbnails and do not rewrite external images.
 
 Rollback is immediate and does not require a database change: unset
-`RECIPE_MEDIA_BASE_URL` in Render and redeploy. While
-`KeepLegacyPublicRead=true`, the API will return the original S3 delivery URL.
+`RECIPE_MEDIA_BASE_URL` in Render and redeploy. While the legacy public-read
+statement remains in the bucket policy, the API will return the original S3
+delivery URL.
 
 ## Add the custom hostname
 
@@ -182,9 +224,23 @@ zero eligible public thumbnails or explicitly reconcile every exception.
 ## End the compatibility window
 
 Keep direct public S3 thumbnail reads until the API cutover, CDN monitoring, and
-current TestFlight build are verified. Then create and execute a CloudFormation
-change set with `KeepLegacyPublicRead=false`. After it deploys, enable all four
-S3 Block Public Access settings:
+current TestFlight build are verified. Then remove only the exact legacy
+`PublicReadForThumbnails` statement, preserving the CloudFront and every
+unrelated statement. Use a new backup path and keep it with the deployment
+record.
+
+```bash
+cd api
+uv run python -m app.recipe_media_bucket_policy close-compatibility \
+  --bucket recipe-extractor-thumbnails \
+  --region ap-southeast-2 \
+  --distribution-id "$DISTRIBUTION_ID" \
+  --backup-path /ABSOLUTE/APPROVED/BACKUP-DIRECTORY/policy-before-public-close.json
+cd ..
+```
+
+After the verified policy change, enable all four S3 Block Public Access
+settings:
 
 ```bash
 aws s3api put-public-access-block \
@@ -198,17 +254,30 @@ thumbnail request must now return `403`, while the same key through CloudFront
 must remain available.
 
 To roll back after closing the compatibility window, first restore the prior
-public-access-block configuration, then deploy the stack with
-`KeepLegacyPublicRead=true`, and only then unset `RECIPE_MEDIA_BASE_URL`.
-Reversing the order creates broken images.
+public-access-block configuration. Then restore the exact pre-close policy,
+while creating a separate backup of the current policy:
+
+```bash
+cd api
+uv run python -m app.recipe_media_bucket_policy restore \
+  --bucket recipe-extractor-thumbnails \
+  --region ap-southeast-2 \
+  --backup-path /ABSOLUTE/APPROVED/BACKUP-DIRECTORY/policy-before-public-close.json \
+  --pre-restore-backup-path /ABSOLUTE/APPROVED/BACKUP-DIRECTORY/policy-before-rollback.json
+cd ..
+```
+
+Verify direct S3 access before unsetting `RECIPE_MEDIA_BASE_URL`. Reversing the
+order creates broken images.
 
 ## Destructive cleanup
 
 Do not delete the stack during an incident. First switch Render back to direct
-S3 delivery and verify images. Deleting an active pricing-plan subscription
-schedules cancellation for the end of the current billing period; keep its
-associated resources intact until cancellation completes. CloudFront
-distributions must also be disabled before they can be deleted. The bucket
-policy has a `Retain` deletion policy so stack deletion cannot silently remove
-the bucket's access policy; reconcile it manually after every destructive stack
-operation.
+S3 delivery and verify images. Before planned teardown, use the policy tool's
+`detach-cloudfront` action with a new backup path; it removes only the exact
+distribution-scoped statement and preserves everything else. Deleting an
+active pricing-plan subscription schedules cancellation for the end of the
+current billing period, so keep its associated resources intact until
+cancellation completes. CloudFront distributions must also be disabled before
+they can be deleted. Because the stack never owns the bucket or its policy,
+stack deletion cannot remove either one.

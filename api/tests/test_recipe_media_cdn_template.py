@@ -38,73 +38,24 @@ def _template() -> dict[str, Any]:
     return yaml.load(TEMPLATE_PATH.read_text(), Loader=CloudFormationLoader)
 
 
-def test_cdn_can_read_only_thumbnail_objects() -> None:
-    """Keep every CDN and compatibility read scoped to recipe thumbnails."""
+def test_stack_never_owns_the_existing_thumbnail_bucket_or_policy() -> None:
+    """Keep the existing bucket and its policy outside CloudFormation ownership."""
 
     template = _template()
     resources = template["Resources"]
-    bucket_policy = resources["ThumbnailBucketPolicy"]
+    resource_types = {resource["Type"] for resource in resources.values()}
 
-    assert bucket_policy["DeletionPolicy"] == "Retain"
-    assert bucket_policy["UpdateReplacePolicy"] == "Retain"
-    assert all(resource["Type"] != "AWS::S3::Bucket" for resource in resources.values())
-
-    statements = bucket_policy["Properties"]["PolicyDocument"]["Statement"]
-    assert len(statements) == 2
-    cloudfront_read = statements[0]
-    assert cloudfront_read == {
-        "Sid": "AllowCloudFrontReadRecipeThumbnails",
-        "Effect": "Allow",
-        "Principal": {"Service": "cloudfront.amazonaws.com"},
-        "Action": "s3:GetObject",
-        "Resource": {
-            "Sub": (
-                "arn:${AWS::Partition}:s3:::${ThumbnailBucketName}/thumbnails/*"
-            )
-        },
-        "Condition": {
-            "StringEquals": {
-                "AWS:SourceArn": {
-                    "Sub": (
-                        "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:"
-                        "distribution/${RecipeMediaDistribution}"
-                    )
-                },
-                "AWS:SourceAccount": {"Ref": "AWS::AccountId"},
-            }
-        },
-    }
-
-    assert statements[1] == {
-        "If": [
-            "PreserveLegacyPublicRead",
-            {
-                "Sid": "PublicReadForThumbnails",
-                "Effect": "Allow",
-                "Principal": "*",
-                "Action": "s3:GetObject",
-                "Resource": {
-                    "Sub": (
-                        "arn:${AWS::Partition}:s3:::${ThumbnailBucketName}/"
-                        "thumbnails/*"
-                    )
-                },
-            },
-            {"Ref": "AWS::NoValue"},
-        ]
-    }
+    assert "AWS::S3::Bucket" not in resource_types
+    assert "AWS::S3::BucketPolicy" not in resource_types
+    assert "KeepLegacyPublicRead" not in template["Parameters"]
 
 
 def test_distribution_uses_signed_origin_and_managed_immutable_cache_policy() -> None:
     """Attach signed origin access and stable managed policies to the distribution."""
 
     resources = _template()["Resources"]
-    oac = resources["RecipeMediaOriginAccessControl"]["Properties"][
-        "OriginAccessControlConfig"
-    ]
-    distribution = resources["RecipeMediaDistribution"]["Properties"][
-        "DistributionConfig"
-    ]
+    oac = resources["RecipeMediaOriginAccessControl"]["Properties"]["OriginAccessControlConfig"]
+    distribution = resources["RecipeMediaDistribution"]["Properties"]["DistributionConfig"]
     behavior = distribution["DefaultCacheBehavior"]
     origin = distribution["Origins"][0]
 
@@ -112,14 +63,10 @@ def test_distribution_uses_signed_origin_and_managed_immutable_cache_policy() ->
     assert oac["SigningBehavior"] == "always"
     assert oac["SigningProtocol"] == "sigv4"
     assert origin["Id"] == "RecipeThumbnailS3Origin"
-    assert origin["OriginAccessControlId"] == {
-        "GetAtt": "RecipeMediaOriginAccessControl.Id"
-    }
+    assert origin["OriginAccessControlId"] == {"GetAtt": "RecipeMediaOriginAccessControl.Id"}
     assert origin["S3OriginConfig"] == {"OriginAccessIdentity": ""}
     assert behavior["CachePolicyId"] == "658327ea-f89d-4fab-a63d-7e88639e58f6"
-    assert behavior["ResponseHeadersPolicyId"] == (
-        "5cc3b908-e619-4b99-88e5-2cf7f45965bd"
-    )
+    assert behavior["ResponseHeadersPolicyId"] == ("5cc3b908-e619-4b99-88e5-2cf7f45965bd")
     assert behavior["ViewerProtocolPolicy"] == "redirect-to-https"
     assert behavior["AllowedMethods"] == ["GET", "HEAD", "OPTIONS"]
     assert distribution["HttpVersion"] == "http2and3"
@@ -148,9 +95,7 @@ def test_waf_blocks_non_thumbnail_paths_and_rate_limits_thumbnail_requests() -> 
     assert allow_statement["PositionalConstraint"] == "STARTS_WITH"
     assert allow_statement["SearchString"] == "/thumbnails/"
 
-    rate_statement = rules["RateLimitThumbnailRequests"]["Statement"][
-        "RateBasedStatement"
-    ]
+    rate_statement = rules["RateLimitThumbnailRequests"]["Statement"]["RateBasedStatement"]
     assert rate_statement["AggregateKeyType"] == "IP"
     assert rate_statement["EvaluationWindowSec"] == 300
     assert rate_statement["Limit"] == {"Ref": "ThumbnailRateLimit"}
