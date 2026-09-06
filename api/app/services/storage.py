@@ -1,6 +1,8 @@
 """S3 storage service for persisting recipe thumbnails."""
 
+import asyncio
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from urllib.parse import urljoin, urlparse
 from uuid import UUID, uuid4
@@ -13,13 +15,22 @@ from app.config import get_settings
 from app.image_validation import (
     ImageValidationError,
     decode_and_validate_base64_image,
+    normalize_thumbnail_image,
     validate_image_bytes,
 )
 from app.media_lifecycle import recipe_media_upload_guard
 from app.security import PublicHTTPTransport
 
 MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024
+MAX_STORED_THUMBNAIL_DIMENSION = 1_600
+STORED_THUMBNAIL_QUALITY = 82
+MAX_CONCURRENT_THUMBNAIL_NORMALIZATIONS = 2
 MAX_CHAT_IMAGE_BYTES = 8 * 1024 * 1024
+
+_thumbnail_executor = ThreadPoolExecutor(
+    max_workers=MAX_CONCURRENT_THUMBNAIL_NORMALIZATIONS,
+    thread_name_prefix="thumbnail-normalizer",
+)
 
 
 class StorageCleanupError(RuntimeError):
@@ -59,6 +70,33 @@ class StorageService:
     def is_enabled(self) -> bool:
         """Check if S3 storage is enabled."""
         return get_settings().s3_enabled
+
+    async def _prepare_thumbnail(
+        self,
+        image_data: bytes,
+        declared_content_type: str,
+    ) -> tuple[bytes, str]:
+        """Validate and normalize thumbnail bytes without blocking the event loop."""
+
+        def prepare() -> tuple[bytes, str]:
+            validated = validate_image_bytes(
+                image_data,
+                max_bytes=MAX_THUMBNAIL_BYTES,
+                declared_content_type=declared_content_type,
+            )
+            normalized = normalize_thumbnail_image(
+                validated,
+                max_dimension=MAX_STORED_THUMBNAIL_DIMENSION,
+                quality=STORED_THUMBNAIL_QUALITY,
+            )
+            if len(normalized.data) > MAX_THUMBNAIL_BYTES:
+                raise ImageValidationError("Normalized thumbnail exceeds maximum size")
+            return normalized.data, normalized.content_type
+
+        # A valid source may decode to roughly 160 MB. A dedicated two-worker
+        # pool bounds memory without occupying asyncio's shared default executor.
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_thumbnail_executor, prepare)
     
     async def _download_public_url(self, image_url: str) -> tuple[bytes, str]:
         """Download a public HTTP(S) URL, validating every redirect target."""
@@ -149,23 +187,11 @@ class StorageService:
             # Download image from external URL
             print(f"📥 Downloading thumbnail from: {image_url[:60]}...")
             image_data, content_type = await self._download_public_url(image_url)
-            validated = validate_image_bytes(
+            image_data, content_type = await self._prepare_thumbnail(
                 image_data,
-                max_bytes=MAX_THUMBNAIL_BYTES,
-                declared_content_type=content_type,
+                content_type,
             )
-            image_data = validated.data
-            content_type = validated.content_type
-            
-            # Determine file extension
-            if "png" in content_type:
-                extension = "png"
-            elif "webp" in content_type:
-                extension = "webp"
-            elif "gif" in content_type:
-                extension = "gif"
-            else:
-                extension = "jpg"
+            extension = "webp"
             
             # Changing content changes the URL, preventing stale client/CDN caches.
             image_hash = hashlib.sha256(image_data).hexdigest()
@@ -305,23 +331,11 @@ class StorageService:
             return None
         
         try:
-            validated = validate_image_bytes(
+            image_data, content_type = await self._prepare_thumbnail(
                 image_data,
-                max_bytes=MAX_THUMBNAIL_BYTES,
-                declared_content_type=content_type,
+                content_type,
             )
-            image_data = validated.data
-            content_type = validated.content_type
-
-            # Determine file extension from content type
-            if "png" in content_type:
-                extension = "png"
-            elif "webp" in content_type:
-                extension = "webp"
-            elif "gif" in content_type:
-                extension = "gif"
-            else:
-                extension = "jpg"
+            extension = "webp"
             
             image_hash = hashlib.sha256(image_data).hexdigest()
             s3_key = f"thumbnails/{recipe_id}/{image_hash}.{extension}"

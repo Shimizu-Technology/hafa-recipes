@@ -6,7 +6,7 @@ import io
 import warnings
 from dataclasses import dataclass
 
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 MAX_IMAGE_DIMENSION = 12_000
 MAX_IMAGE_PIXELS = 40_000_000
@@ -28,6 +28,54 @@ class ValidatedImage:
     content_type: str
     width: int
     height: int
+
+
+def normalize_thumbnail_image(
+    image: ValidatedImage,
+    *,
+    max_dimension: int,
+    quality: int = 82,
+) -> ValidatedImage:
+    """Create a bounded, metadata-free WebP thumbnail from validated image bytes."""
+    if max_dimension < 1:
+        raise ValueError("Thumbnail maximum dimension must be positive")
+    if quality < 1 or quality > 100:
+        raise ValueError("Thumbnail quality must be between 1 and 100")
+
+    try:
+        with Image.open(io.BytesIO(image.data)) as source:
+            # Thumbnails are intentionally still images, including for GIF inputs.
+            source.seek(0)
+            normalized = ImageOps.exif_transpose(source)
+            normalized.load()
+
+            has_alpha = normalized.mode in {"RGBA", "LA"} or (
+                normalized.mode == "P" and "transparency" in normalized.info
+            )
+            normalized = normalized.convert("RGBA" if has_alpha else "RGB")
+            normalized.thumbnail(
+                (max_dimension, max_dimension),
+                Image.Resampling.LANCZOS,
+            )
+
+            output = io.BytesIO()
+            normalized.save(
+                output,
+                format="WEBP",
+                quality=quality,
+                method=4,
+            )
+            data = output.getvalue()
+            width, height = normalized.size
+    except (UnidentifiedImageError, OSError, SyntaxError) as exc:
+        raise ImageValidationError("Image normalization failed") from exc
+
+    return ValidatedImage(
+        data=data,
+        content_type="image/webp",
+        width=width,
+        height=height,
+    )
 
 
 def decode_and_validate_base64_image(

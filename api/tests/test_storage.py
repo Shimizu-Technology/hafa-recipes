@@ -106,12 +106,35 @@ async def test_thumbnail_upload_uses_content_hash_and_immutable_cache(monkeypatc
         second_image, "recipe-id", "image/png"
     )
 
-    first_hash = hashlib.sha256(first_image).hexdigest()
-    second_hash = hashlib.sha256(second_image).hexdigest()
-    assert first_url and first_url.endswith(f"/thumbnails/recipe-id/{first_hash}.png")
-    assert second_url and second_url.endswith(f"/thumbnails/recipe-id/{second_hash}.png")
+    first_stored = fake_s3.puts[0]["Body"]
+    second_stored = fake_s3.puts[1]["Body"]
+    first_hash = hashlib.sha256(first_stored).hexdigest()
+    second_hash = hashlib.sha256(second_stored).hexdigest()
+    assert first_url and first_url.endswith(f"/thumbnails/recipe-id/{first_hash}.webp")
+    assert second_url and second_url.endswith(f"/thumbnails/recipe-id/{second_hash}.webp")
     assert first_url != second_url
+    assert fake_s3.puts[0]["ContentType"] == "image/webp"
     assert fake_s3.puts[0]["CacheControl"] == "public, max-age=31536000, immutable"
+
+    with Image.open(io.BytesIO(first_stored)) as stored_image:
+        assert stored_image.format == "WEBP"
+        assert stored_image.size == (2, 2)
+
+
+@pytest.mark.asyncio
+async def test_thumbnail_preparation_does_not_use_shared_default_executor(monkeypatch):
+    async def unexpected_to_thread(*_args, **_kwargs):
+        pytest.fail("thumbnail preparation must use its bounded dedicated executor")
+
+    monkeypatch.setattr(storage.asyncio, "to_thread", unexpected_to_thread)
+
+    image_data, content_type = await StorageService()._prepare_thumbnail(
+        _png_bytes("red"),
+        "image/png",
+    )
+
+    assert image_data
+    assert content_type == "image/webp"
 
 
 @pytest.mark.asyncio
@@ -177,9 +200,10 @@ async def test_locked_thumbnail_upload_uses_the_callers_media_lock(monkeypatch):
         "11111111-1111-4111-8111-111111111111",
     )
 
-    image_hash = hashlib.sha256(image_bytes).hexdigest()
+    stored_image = fake_s3.puts[0]["Body"]
+    image_hash = hashlib.sha256(stored_image).hexdigest()
     expected_suffix = (
-        f"/thumbnails/11111111-1111-4111-8111-111111111111/{image_hash}.png"
+        f"/thumbnails/11111111-1111-4111-8111-111111111111/{image_hash}.webp"
     )
     assert result and result.endswith(expected_suffix)
     assert len(fake_s3.puts) == 1
