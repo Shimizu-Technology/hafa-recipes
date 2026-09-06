@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException, UploadFile
+from sqlalchemy.dialects import postgresql
 from starlette.datastructures import Headers
 
 from app.routers import recipes
@@ -86,5 +87,7 @@ async def test_image_upload_finishes_before_lock_and_rechecks_revision(monkeypat
 
     assert error.value.status_code == 409
     assert error.value.detail["code"] == "STALE_RECIPE_REVIEW"
-    assert db.selects[0]._for_update_arg is None
-    assert db.selects[1]._for_update_arg is not None
+    unlocked_sql = str(db.selects[0].compile(dialect=postgresql.dialect()))
+    locked_sql = str(db.selects[1].compile(dialect=postgresql.dialect()))
+    assert "FOR UPDATE" not in unlocked_sql
+    assert "FOR UPDATE" in locked_sql
