@@ -32,7 +32,7 @@ import { lightHaptic, mediumHaptic, successHaptic, heavyHaptic } from '@/utils/h
 import { brand, spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { RecipeComponent, Ingredient } from '@/types/recipe';
 import { scaleQuantity } from '@/hooks/useScaledServings';
-import { hasStatedIngredientAmount, MISSING_AMOUNT_LABEL } from '../../lib/recipeTrust';
+import { formatIngredientAmount, hasStatedIngredientAmount } from '../../lib/recipeTrust';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.2;
@@ -1029,9 +1029,7 @@ export default function CookModeScreen() {
                         { fontSize: scaleFontSize(hasAmount ? fontSize.md : fontSize.sm) },
                       ]}
                     >
-                      {hasAmount
-                        ? `${scaledQty}${ing.unit ? ` ${ing.unit}` : ''}`
-                        : MISSING_AMOUNT_LABEL}
+                      {formatIngredientAmount(ing.quantity, ing.unit, scaledQty)}
                     </Text>
                     <Text style={[styles.ingredientName, { fontSize: scaleFontSize(fontSize.md) }]}>{ing.name}</Text>
                   </RNView>

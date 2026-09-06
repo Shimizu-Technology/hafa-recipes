@@ -27,7 +27,7 @@ import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { AnimatedListItem, ScalePressable } from '@/components/Animated';
 import { RecipeTrustBadge } from '@/components/RecipeTrustBadge';
 
-function RecipeCard({
+export function RecipeCard({
   recipe,
   onPress,
   onRemove,

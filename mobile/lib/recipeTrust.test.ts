@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  formatIngredientAmount,
   getRecipeTrustPresentation,
   hasStatedIngredientAmount,
   MISSING_AMOUNT_LABEL,
@@ -26,5 +27,13 @@ describe('recipe trust presentation', () => {
     expect(hasStatedIngredientAmount(' NULL ')).toBe(false);
     expect(hasStatedIngredientAmount('2')).toBe(true);
     expect(MISSING_AMOUNT_LABEL).toBe('Amount not stated');
+  });
+
+  it('formats Cook Mode amounts without exposing legacy unit sentinels', () => {
+    expect(formatIngredientAmount('2', 'tbsp')).toBe('2 tbsp');
+    expect(formatIngredientAmount('2', 'null')).toBe('2');
+    expect(formatIngredientAmount('2', ' NULL ')).toBe('2');
+    expect(formatIngredientAmount('2', null, '4')).toBe('4');
+    expect(formatIngredientAmount(null, 'tsp')).toBe(MISSING_AMOUNT_LABEL);
   });
 });

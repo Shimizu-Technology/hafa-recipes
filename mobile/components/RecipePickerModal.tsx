@@ -39,6 +39,12 @@ interface RecipePickerModalProps {
   title?: string;
 }
 
+type RecipePickerRowProps = {
+  item: RecipeListItem;
+  colors: ReturnType<typeof useColors>;
+  onPress: () => void;
+};
+
 // Time filter options
 const TIME_FILTERS = [
   { label: 'All', value: null },
@@ -82,6 +88,54 @@ function matchesTimeFilter(recipe: RecipeListItem, filter: string | null): boole
     case 'long': return minutes > 60;
     default: return true;
   }
+}
+
+/** Render one recipe choice with its current readiness state. */
+export function RecipePickerRow({ item, colors, onPress }: RecipePickerRowProps) {
+  return (
+    <TouchableOpacity
+      style={[
+        styles.recipeItem,
+        { backgroundColor: colors.card, borderColor: colors.cardBorder },
+      ]}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      {item.thumbnail_url ? (
+        <Image source={{ uri: item.thumbnail_url }} style={styles.thumbnail} />
+      ) : (
+        <RNView
+          style={[
+            styles.thumbnailPlaceholder,
+            { backgroundColor: colors.tint + '15' },
+          ]}
+        >
+          <Ionicons name="restaurant-outline" size={24} color={colors.tint} />
+        </RNView>
+      )}
+      <RNView style={styles.recipeInfo}>
+        <Text style={[styles.recipeTitle, { color: colors.text }]} numberOfLines={2}>
+          {item.title}
+        </Text>
+        <RecipeTrustBadge reviewState={item.review_state} />
+        <RNView style={styles.recipeMeta}>
+          {item.total_time && (
+            <RNView style={styles.metaItem}>
+              <Ionicons name="time-outline" size={12} color={colors.textMuted} />
+              <Text style={[styles.metaText, { color: colors.textMuted }]}>{item.total_time}</Text>
+            </RNView>
+          )}
+          {item.servings && (
+            <RNView style={styles.metaItem}>
+              <Ionicons name="people-outline" size={12} color={colors.textMuted} />
+              <Text style={[styles.metaText, { color: colors.textMuted }]}>{item.servings}</Text>
+            </RNView>
+          )}
+        </RNView>
+      </RNView>
+      <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+    </TouchableOpacity>
+  );
 }
 
 export default function RecipePickerModal({
@@ -202,48 +256,11 @@ export default function RecipePickerModal({
 
   const renderRecipe = useCallback(
     ({ item }: { item: RecipeListItem }) => (
-      <TouchableOpacity
-        style={[
-          styles.recipeItem,
-          { backgroundColor: colors.card, borderColor: colors.cardBorder },
-        ]}
+      <RecipePickerRow
+        item={item}
+        colors={colors}
         onPress={() => handleSelect(item)}
-        activeOpacity={0.7}
-      >
-        {item.thumbnail_url ? (
-          <Image source={{ uri: item.thumbnail_url }} style={styles.thumbnail} />
-        ) : (
-          <RNView
-            style={[
-              styles.thumbnailPlaceholder,
-              { backgroundColor: colors.tint + '15' },
-            ]}
-          >
-            <Ionicons name="restaurant-outline" size={24} color={colors.tint} />
-          </RNView>
-        )}
-        <RNView style={styles.recipeInfo}>
-          <Text style={[styles.recipeTitle, { color: colors.text }]} numberOfLines={2}>
-            {item.title}
-          </Text>
-          <RecipeTrustBadge reviewState={item.review_state} />
-          <RNView style={styles.recipeMeta}>
-            {item.total_time && (
-              <RNView style={styles.metaItem}>
-                <Ionicons name="time-outline" size={12} color={colors.textMuted} />
-                <Text style={[styles.metaText, { color: colors.textMuted }]}>{item.total_time}</Text>
-              </RNView>
-            )}
-            {item.servings && (
-              <RNView style={styles.metaItem}>
-                <Ionicons name="people-outline" size={12} color={colors.textMuted} />
-                <Text style={[styles.metaText, { color: colors.textMuted }]}>{item.servings}</Text>
-              </RNView>
-            )}
-          </RNView>
-        </RNView>
-        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-      </TouchableOpacity>
+      />
     ),
     [colors, handleSelect]
   );

@@ -33,4 +33,20 @@ export function hasStatedIngredientAmount(quantity: string | null | undefined): 
   return normalized.length > 0 && normalized !== 'null';
 }
 
+/** Format Cook Mode amounts while filtering legacy null-like units. */
+export function formatIngredientAmount(
+  quantity: string | null | undefined,
+  unit: string | null | undefined,
+  scaledQuantity?: string | null,
+): string {
+  if (!hasStatedIngredientAmount(quantity)) return MISSING_AMOUNT_LABEL;
+
+  const displayQuantity = scaledQuantity ?? quantity!.trim();
+  const normalizedUnit = unit?.trim();
+  const displayUnit = normalizedUnit && normalizedUnit.toLowerCase() !== 'null'
+    ? ` ${normalizedUnit}`
+    : '';
+  return `${displayQuantity}${displayUnit}`;
+}
+
 export const MISSING_AMOUNT_LABEL = 'Amount not stated';
