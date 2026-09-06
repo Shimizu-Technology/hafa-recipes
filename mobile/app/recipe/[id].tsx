@@ -4,7 +4,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
-  Linking,
   Share,
   View as RNView,
   ActivityIndicator,
@@ -74,6 +73,7 @@ import { collectionsContainingRecipe } from '@/lib/recipeRelationships';
 import { appRoutes } from '@/lib/routes';
 import type { ReportCategory, SafetyTargetType } from '@/types/communitySafety';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
+import { openRecipeSource } from '@/lib/openRecipeSource';
 
 type TabType = 'ingredients' | 'steps' | 'nutrition' | 'cost';
 type RecipeMenuAction = {
@@ -566,9 +566,9 @@ export default function RecipeDetailScreen() {
     );
   };
 
-  const handleOpenSource = () => {
+  const handleOpenSource = async () => {
     if (recipe?.source_url) {
-      Linking.openURL(recipe.source_url);
+      await openRecipeSource(recipe.source_url);
     }
   };
 

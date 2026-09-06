@@ -8,15 +8,7 @@ import type { SourcePlayback } from '@/lib/sourcePlayback';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
 
-const { navigationAllowed } = vi.hoisted(() => ({
-  navigationAllowed: vi.fn((provider: string, url: string) => (
-    provider === 'youtube' && url.startsWith('https://www.youtube.com/')
-  )),
-}));
-
 vi.mock('react-native', () => ({
-  ActivityIndicator: 'ActivityIndicator',
-  ImageBackground: 'ImageBackground',
   StyleSheet: {
     absoluteFill: { position: 'absolute', inset: 0 },
     create: (styles: unknown) => styles,
@@ -25,162 +17,173 @@ vi.mock('react-native', () => ({
   View: 'View',
 }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
-vi.mock('react-native-webview', () => ({ WebView: 'WebView' }));
 vi.mock('@/components/Themed', () => ({
   Text: 'Text',
   useColors: () => ({
-    backgroundSecondary: '#eee',
     card: '#fff',
     cardBorder: '#ddd',
     text: '#111',
     textMuted: '#666',
-    tint: '#a43',
+    tint: '#155c52',
   }),
 }));
-vi.mock('@/constants/Colors', () => ({
-  fontFamily: { semibold: 'DMSans_600SemiBold' },
-  fontSize: { xs: 10, sm: 12, md: 14, lg: 18 },
-  fontWeight: { semibold: '600', bold: '700' },
-  radius: { md: 12, lg: 16, full: 999 },
-  spacing: { xs: 4, sm: 8, md: 16, lg: 24 },
-}));
-vi.mock('../lib/sourcePlayback', () => ({
-  getAutoplayEmbedUrl: (playback: SourcePlayback) => `${playback.embedUrl}&autoplay=1`,
-  isSourcePlaybackNavigationAllowed: navigationAllowed,
-}));
+vi.mock('@/components/RecipeThumbnail', () => ({ RecipeThumbnail: 'RecipeThumbnail' }));
+vi.mock('./SourcePlaybackModal', () => ({ SourcePlaybackModal: 'SourcePlaybackModal' }));
 
 import { SourcePlaybackCard } from './SourcePlaybackCard';
 
 const youtubePlayback: SourcePlayback = {
+  mode: 'modal',
   provider: 'youtube',
   providerLabel: 'YouTube',
+  mediaKind: 'video',
   embedUrl: 'https://www.youtube.com/embed/abcDEF_1234?playsinline=1',
   aspectRatio: 16 / 9,
   requestHeaders: { Referer: 'https://com.shimizutechnology.recipeextractor' },
 };
 
+const renderCard = async (playback: SourcePlayback, onOpenSource = vi.fn()) => {
+  const renderer = createRoot({ textComponentTypes: ['Text'] });
+  await act(async () => {
+    renderer.render(React.createElement(SourcePlaybackCard, {
+      playback,
+      recipeTitle: 'Chicken Kelaguen',
+      thumbnailUrl: 'https://example.com/thumbnail.jpg',
+      onOpenSource,
+    }));
+  });
+  return { renderer, onOpenSource };
+};
+
 describe('SourcePlaybackCard', () => {
-  it('loads the official player only after the cook asks to play', async () => {
-    const renderer = createRoot({ textComponentTypes: ['Text'] });
-
+  it('opens YouTube in a modal without mounting a player inline', async () => {
+    const { renderer } = await renderCard(youtubePlayback);
     try {
-      await act(async () => {
-        renderer.render(React.createElement(SourcePlaybackCard, {
-          playback: youtubePlayback,
-          recipeTitle: 'Chicken Kelaguen',
-          thumbnailUrl: 'https://example.com/thumbnail.jpg',
-          onOpenSource: vi.fn(),
-        }));
-      });
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'WebView',
+        (instance) => instance.type === 'SourcePlaybackModal',
       )).toHaveLength(0);
-
-      const playButton = renderer.container.queryAll(
-        (instance) => instance.type === 'TouchableOpacity',
-      ).find((button) => button.props.accessibilityLabel
-        === 'Play the YouTube video for Chicken Kelaguen');
-      await act(async () => playButton!.props.onPress());
-
-      const webView = renderer.container.queryAll(
-        (instance) => instance.type === 'WebView',
+      const preview = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel
+          === 'Play YouTube video for Chicken Kelaguen',
       )[0];
-      expect(webView.props.source).toEqual({
-        uri: `${youtubePlayback.embedUrl}&autoplay=1`,
-        headers: youtubePlayback.requestHeaders,
-      });
-      expect(webView.props.originWhitelist).toEqual(['*']);
-      expect(webView.props.setSupportMultipleWindows).toBe(false);
-      expect(webView.props.onShouldStartLoadWithRequest({
-        url: 'https://www.youtube.com/watch?v=abcDEF_1234',
-      })).toBe(true);
-      expect(webView.props.onShouldStartLoadWithRequest({
-        url: 'https://apps.apple.com/app/youtube/id544007664',
-      })).toBe(false);
-      expect(webView.props.onShouldStartLoadWithRequest({
-        url: 'youtube://watch?v=abcDEF_1234',
-      })).toBe(false);
-      webView.props.onOpenWindow({
-        nativeEvent: { targetUrl: 'https://apps.apple.com/app/youtube/id544007664' },
-      });
-      expect(navigationAllowed).toHaveBeenCalledWith(
-        'youtube',
-        'https://apps.apple.com/app/youtube/id544007664',
-      );
-      expect(webView.props.allowsInlineMediaPlayback).toBe(true);
-      expect(webView.props.allowsFullscreenVideo).toBe(true);
-      expect(webView.props.mediaPlaybackRequiresUserAction).toBe(false);
-      expect(webView.props.accessibilityLabel).toBe('YouTube player for Chicken Kelaguen');
+      expect(preview.props.accessibilityHint).toBe('Opens a full-screen player');
+
+      await act(async () => preview.props.onPress());
+
+      const modal = renderer.container.queryAll(
+        (instance) => instance.type === 'SourcePlaybackModal',
+      )[0];
+      expect(modal.props).toMatchObject({ visible: true, playback: youtubePlayback });
+      await act(async () => modal.props.onClose());
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'ActivityIndicator',
+        (instance) => instance.type === 'SourcePlaybackModal',
+      )).toHaveLength(0);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('removes the WebView-owning modal before opening the original source', async () => {
+    let modalCountWhenSourceOpened: number | null = null;
+    let renderer: Awaited<ReturnType<typeof renderCard>>['renderer'];
+    const onOpenSource = vi.fn(() => {
+      modalCountWhenSourceOpened = renderer.container.queryAll(
+        (instance) => instance.type === 'SourcePlaybackModal',
+      ).length;
+    });
+    ({ renderer } = await renderCard(youtubePlayback, onOpenSource));
+    try {
+      const preview = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel
+          === 'Play YouTube video for Chicken Kelaguen',
+      )[0];
+      await act(async () => preview.props.onPress());
+      const modal = renderer.container.queryAll(
+        (instance) => instance.type === 'SourcePlaybackModal',
+      )[0];
+
+      await act(async () => modal.props.onRequestOpenSource());
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'SourcePlaybackModal',
+      )).toHaveLength(0);
+      expect(onOpenSource).toHaveBeenCalledOnce();
+      expect(modalCountWhenSourceOpened).toBe(0);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('describes a TikTok photo as a photo post instead of a video', async () => {
+    const photoPlayback: SourcePlayback = {
+      mode: 'modal',
+      provider: 'tiktok',
+      providerLabel: 'TikTok',
+      mediaKind: 'photo',
+      embedUrl: 'https://www.tiktok.com/player/v1/7412345678901234568?autoplay=0',
+      aspectRatio: 9 / 16,
+    };
+    const { renderer } = await renderCard(photoPlayback);
+    try {
+      const preview = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel
+          === 'View TikTok photo post for Chicken Kelaguen',
+      )[0];
+      expect(preview).toBeDefined();
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Ionicons' && instance.props.name === 'images-outline',
       )).toHaveLength(1);
-      await act(async () => webView.props.onLoadProgress({ nativeEvent: { progress: 0.8 } }));
-      expect(renderer.container.queryAll(
-        (instance) => instance.type === 'ActivityIndicator',
-      )).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());
     }
   });
 
-  it('reports a failed preview image so its parent can show the fallback', async () => {
-    const onThumbnailError = vi.fn();
-    const renderer = createRoot({ textComponentTypes: ['Text'] });
-
-    try {
-      await act(async () => {
-        renderer.render(React.createElement(SourcePlaybackCard, {
-          playback: youtubePlayback,
-          recipeTitle: 'Chicken Kelaguen',
-          thumbnailUrl: 'https://example.com/missing.jpg',
-          onThumbnailError,
-          onOpenSource: vi.fn(),
-        }));
-      });
-
-      const image = renderer.container.queryAll(
-        (instance) => instance.type === 'ImageBackground',
-      )[0];
-      await act(async () => image.props.onError());
-      expect(onThumbnailError).toHaveBeenCalledOnce();
-    } finally {
-      await act(async () => renderer.unmount());
-    }
-  });
-
-  it('offers retry and the exact original when an embed is unavailable', async () => {
+  it('opens Instagram externally and never mounts a modal', async () => {
+    const instagramPlayback: SourcePlayback = {
+      mode: 'external',
+      provider: 'instagram',
+      providerLabel: 'Instagram',
+      mediaKind: 'reel',
+    };
     const onOpenSource = vi.fn();
-    const renderer = createRoot({ textComponentTypes: ['Text'] });
-
+    const { renderer } = await renderCard(instagramPlayback, onOpenSource);
     try {
-      await act(async () => {
-        renderer.render(React.createElement(SourcePlaybackCard, {
-          playback: youtubePlayback,
-          recipeTitle: 'Chicken Kelaguen',
-          onOpenSource,
-        }));
-      });
-      const playButton = renderer.container.queryAll(
+      const preview = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel
-          === 'Play the YouTube video for Chicken Kelaguen',
+          === 'Watch original Reel on Instagram for Chicken Kelaguen',
       )[0];
-      await act(async () => playButton.props.onPress());
-      const webView = renderer.container.queryAll(
-        (instance) => instance.type === 'WebView',
-      )[0];
-      await act(async () => webView.props.onHttpError({ nativeEvent: { statusCode: 404 } }));
-
+      expect(preview.props.accessibilityRole).toBe('link');
+      expect(preview.props.accessibilityHint).toBe('Opens the original source outside Håfa Recipes');
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'WebView',
+        (instance) => instance.props.accessibilityRole === 'link',
+      )).toHaveLength(1);
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Open original recipe on Instagram',
       )).toHaveLength(0);
+
+      await act(async () => preview.props.onPress());
+
+      expect(onOpenSource).toHaveBeenCalledOnce();
       expect(renderer.container.queryAll(
-        (instance) => instance.props.accessibilityLabel
-          === 'Retry YouTube player for Chicken Kelaguen',
-      )).toHaveLength(1);
-      expect(renderer.container.queryAll(
-        (instance) => instance.type === 'View'
-          && instance.props.style?.backgroundColor === 'rgba(20, 12, 8, 0.82)',
-      )).toHaveLength(1);
+        (instance) => instance.type === 'SourcePlaybackModal',
+      )).toHaveLength(0);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('keeps the cached thumbnail and original-source action available', async () => {
+    const onOpenSource = vi.fn();
+    const { renderer } = await renderCard(youtubePlayback, onOpenSource);
+    try {
+      const thumbnail = renderer.container.queryAll(
+        (instance) => instance.type === 'RecipeThumbnail',
+      )[0];
+      expect(thumbnail.props).toMatchObject({
+        uri: 'https://example.com/thumbnail.jpg',
+        accessible: false,
+        priority: 'high',
+      });
+
       const openOriginal = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Open original recipe on YouTube',
       )[0];

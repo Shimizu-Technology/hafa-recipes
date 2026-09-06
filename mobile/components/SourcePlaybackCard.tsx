@@ -1,28 +1,19 @@
-import { useState } from 'react';
-import {
-  ActivityIndicator,
-  ImageBackground,
-  StyleSheet,
-  TouchableOpacity,
-  View as RNView,
-} from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { StyleSheet, TouchableOpacity, View as RNView } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { WebView } from 'react-native-webview';
 
 import { Text, useColors } from '@/components/Themed';
+import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 import { fontFamily, fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
-import {
-  getAutoplayEmbedUrl,
-  isSourcePlaybackNavigationAllowed,
-  type SourcePlayback,
-} from '../lib/sourcePlayback';
+import type { SourceMediaKind, SourcePlayback } from '@/lib/sourcePlayback';
+import { SourcePlaybackModal } from './SourcePlaybackModal';
 
 type SourcePlaybackCardProps = {
   playback: SourcePlayback;
   recipeTitle: string;
   thumbnailUrl?: string | null;
   onThumbnailError?: () => void;
-  onOpenSource: () => void;
+  onOpenSource: () => void | Promise<void>;
 };
 
 const PROVIDER_ICONS = {
@@ -31,7 +22,23 @@ const PROVIDER_ICONS = {
   instagram: 'logo-instagram',
 } as const;
 
-/** Lazily loads an official provider player inside the recipe detail screen. */
+function mediaLabel(kind: SourceMediaKind): string {
+  if (kind === 'photo') return 'photo post';
+  return kind;
+}
+
+function previewAction(playback: SourcePlayback): string {
+  if (playback.mode === 'external') {
+    if (playback.mediaKind === 'post') return 'View original post on Instagram';
+    if (playback.mediaKind === 'reel') return 'Watch original Reel on Instagram';
+    return 'Watch original video on Instagram';
+  }
+  return playback.mediaKind === 'photo'
+    ? 'View TikTok photo post'
+    : `Play ${playback.providerLabel} video`;
+}
+
+/** Compact source preview that opens a focused player or the original post. */
 export function SourcePlaybackCard({
   playback,
   recipeTitle,
@@ -40,132 +47,107 @@ export function SourcePlaybackCard({
   onOpenSource,
 }: SourcePlaybackCardProps) {
   const colors = useColors();
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isPlayerLoading, setIsPlayerLoading] = useState(false);
-  const [hasPlaybackError, setHasPlaybackError] = useState(false);
-  const playerStyle = [
-    styles.player,
-    playback.aspectRatio < 1 && styles.portraitPlayer,
-    { aspectRatio: playback.aspectRatio, backgroundColor: colors.backgroundSecondary },
-  ];
+  const [isPlayerVisible, setIsPlayerVisible] = useState(false);
+  const shouldOpenSource = useRef(false);
+  const actionLabel = previewAction(playback);
+  const isExternal = playback.mode === 'external';
 
-  const handlePlay = () => {
-    setHasPlaybackError(false);
-    setIsPlayerLoading(true);
-    setIsPlaying(true);
+  useEffect(() => {
+    if (isPlayerVisible || !shouldOpenSource.current) return;
+    shouldOpenSource.current = false;
+    void onOpenSource();
+  }, [isPlayerVisible, onOpenSource]);
+
+  const handlePreviewPress = () => {
+    if (isExternal) {
+      void onOpenSource();
+      return;
+    }
+    setIsPlayerVisible(true);
+  };
+
+  const handlePlayerOpenSource = () => {
+    setIsPlayerVisible(false);
+    shouldOpenSource.current = true;
   };
 
   return (
     <RNView style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-      <RNView style={styles.mediaStage}>
-        {isPlaying && !hasPlaybackError ? (
-          <RNView style={playerStyle}>
-          <WebView
-            source={{ uri: getAutoplayEmbedUrl(playback), headers: playback.requestHeaders }}
-            style={styles.webView}
-            // WebView opens schemes outside this list through the operating system before
-            // calling our validator. Match every scheme here so the provider gate below is
-            // always authoritative, including for instagram:// and other app deep links.
-            originWhitelist={['*']}
-            onShouldStartLoadWithRequest={({ url }) => (
-              isSourcePlaybackNavigationAllowed(playback.provider, url)
-            )}
-            // Android otherwise creates an unguarded native child WebView for target=_blank.
-            // Popups are unnecessary here because the card provides its own source action.
-            setSupportMultipleWindows={false}
-            onOpenWindow={({ nativeEvent }) => {
-              if (!isSourcePlaybackNavigationAllowed(playback.provider, nativeEvent.targetUrl)) {
-                return;
-              }
-              // Provider-owned popup requests also remain closed so playback stays inline.
-            }}
-            onLoadProgress={({ nativeEvent }) => {
-              if (nativeEvent.progress >= 0.8) setIsPlayerLoading(false);
-            }}
-            onLoadEnd={() => setIsPlayerLoading(false)}
-            onError={() => {
-              setIsPlayerLoading(false);
-              setHasPlaybackError(true);
-            }}
-            onHttpError={({ nativeEvent }) => {
-              if (nativeEvent.statusCode >= 400) {
-                setIsPlayerLoading(false);
-                setHasPlaybackError(true);
-              }
-            }}
-            allowsInlineMediaPlayback
-            allowsFullscreenVideo
-            mediaPlaybackRequiresUserAction={false}
-            accessibilityLabel={`${playback.providerLabel} player for ${recipeTitle}`}
-          />
-          {isPlayerLoading && (
-            <RNView
-              pointerEvents="none"
-              style={[styles.loading, { backgroundColor: colors.backgroundSecondary }]}
-            >
-              <ActivityIndicator color={colors.tint} />
-              <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading {playback.providerLabel}…</Text>
-            </RNView>
-          )}
-          </RNView>
-        ) : (
-          <TouchableOpacity
-            style={playerStyle}
-            onPress={handlePlay}
-            activeOpacity={0.9}
-            accessibilityRole="button"
-            accessibilityLabel={hasPlaybackError
-              ? `Retry ${playback.providerLabel} player for ${recipeTitle}`
-              : `Play the ${playback.providerLabel} video for ${recipeTitle}`}
-          >
-            {thumbnailUrl ? (
-              <ImageBackground
-                source={{ uri: thumbnailUrl }}
-                style={styles.previewImage}
-                imageStyle={styles.previewImageRadius}
-                resizeMode="cover"
-                onError={onThumbnailError}
-              >
-                <RNView style={styles.previewScrim} />
-              </ImageBackground>
-            ) : (
-              <RNView style={[styles.previewImage, { backgroundColor: colors.backgroundSecondary }]} />
-            )}
-            <RNView style={[styles.playButtonHalo, { backgroundColor: colors.card + 'D9' }]}>
-              <RNView style={[styles.playButton, { backgroundColor: colors.tint }]}>
-                <Ionicons name={hasPlaybackError ? 'refresh' : 'play'} size={28} color="#FFFFFF" />
-              </RNView>
-            </RNView>
-            {hasPlaybackError && (
-              <RNView style={styles.errorCopy}>
-                <Text style={styles.errorTitle}>Player unavailable</Text>
-                <Text style={styles.errorText}>The post may be private, removed, or blocking embeds. Tap to retry.</Text>
-              </RNView>
-            )}
-          </TouchableOpacity>
-        )}
-
+      <TouchableOpacity
+        style={styles.preview}
+        onPress={handlePreviewPress}
+        activeOpacity={0.9}
+        accessibilityRole={isExternal ? 'link' : 'button'}
+        accessibilityLabel={`${actionLabel} for ${recipeTitle}`}
+        accessibilityHint={isExternal
+          ? 'Opens the original source outside Håfa Recipes'
+          : 'Opens a full-screen player'}
+      >
+        <RecipeThumbnail
+          uri={thumbnailUrl}
+          style={styles.previewImage}
+          accessible={false}
+          placeholderIconSize={56}
+          priority="high"
+          onError={onThumbnailError}
+        />
+        <RNView pointerEvents="none" style={styles.previewScrim} />
         <RNView style={styles.providerBadge} pointerEvents="none">
           <Ionicons name={PROVIDER_ICONS[playback.provider]} size={15} color="#FFFFFF" />
-          <Text style={styles.providerBadgeText}>Original · {playback.providerLabel}</Text>
+          <Text style={styles.providerBadgeText}>
+            {playback.providerLabel} {mediaLabel(playback.mediaKind)}
+          </Text>
         </RNView>
-      </RNView>
+        <RNView style={styles.previewAction} pointerEvents="none">
+          <RNView style={[styles.actionIcon, { backgroundColor: colors.tint }]}>
+            <Ionicons
+              name={isExternal
+                ? 'open-outline'
+                : playback.mediaKind === 'photo'
+                  ? 'images-outline'
+                  : 'play'}
+              size={27}
+              color="#FFFFFF"
+            />
+          </RNView>
+          <Text style={styles.previewActionText}>{actionLabel}</Text>
+        </RNView>
+      </TouchableOpacity>
 
       <RNView style={styles.footer}>
         <RNView style={styles.footerCopy}>
-          <Text style={[styles.footerTitle, { color: colors.text }]}>Watch the original</Text>
-          <Text style={[styles.footerText, { color: colors.textMuted }]}>Playback stays with the creator.</Text>
+          <Text style={[styles.footerTitle, { color: colors.text }]}>
+            {isExternal ? 'Continue with the creator' : 'Watch the original'}
+          </Text>
+          <Text style={[styles.footerText, { color: colors.textMuted }]}>
+            {isExternal
+              ? 'Instagram opens in its app or website.'
+              : `Opens a focused ${playback.providerLabel} player.`}
+          </Text>
         </RNView>
-        <TouchableOpacity
-          onPress={onOpenSource}
-          style={styles.openButton}
-          accessibilityRole="link"
-          accessibilityLabel={`Open original recipe on ${playback.providerLabel}`}
-        >
-          <Text style={[styles.openButtonText, { color: colors.tint }]}>Open original</Text>
-          <Ionicons name="open-outline" size={16} color={colors.tint} />
-        </TouchableOpacity>
+        {!isExternal && (
+          <TouchableOpacity
+            onPress={() => { void onOpenSource(); }}
+            style={styles.openButton}
+            accessibilityRole="link"
+            accessibilityLabel={`Open original recipe on ${playback.providerLabel}`}
+          >
+            <Text style={[styles.openButtonText, { color: colors.tint }]}>Open {playback.providerLabel}</Text>
+            <Ionicons name="open-outline" size={16} color={colors.tint} />
+          </TouchableOpacity>
+        )}
       </RNView>
+
+      {playback.mode === 'modal' && isPlayerVisible && (
+        <SourcePlaybackModal
+          key={playback.embedUrl}
+          visible
+          playback={playback}
+          recipeTitle={recipeTitle}
+          onClose={() => setIsPlayerVisible(false)}
+          onRequestOpenSource={handlePlayerOpenSource}
+        />
+      )}
     </RNView>
   );
 }
@@ -177,34 +159,17 @@ const styles = StyleSheet.create({
     borderLeftWidth: 0,
     borderRightWidth: 0,
   },
-  mediaStage: {
-    position: 'relative',
-    alignItems: 'center',
-    backgroundColor: '#12100E',
-  },
-  player: {
+  preview: {
+    aspectRatio: 16 / 9,
     width: '100%',
-    minHeight: 210,
     position: 'relative',
     overflow: 'hidden',
+    backgroundColor: '#12100E',
   },
-  portraitPlayer: {
-    width: '78%',
-    maxWidth: 390,
-  },
-  webView: { flex: 1, backgroundColor: 'transparent' },
-  loading: {
-    ...StyleSheet.absoluteFill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-  loadingText: { fontSize: fontSize.sm },
   previewImage: { ...StyleSheet.absoluteFill },
-  previewImageRadius: { borderRadius: 0 },
   previewScrim: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(20, 12, 8, 0.28)',
+    backgroundColor: 'rgba(20, 12, 8, 0.34)',
   },
   providerBadge: {
     position: 'absolute',
@@ -223,39 +188,36 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     fontWeight: fontWeight.bold,
     letterSpacing: 0.2,
+    textTransform: 'capitalize',
   },
-  playButtonHalo: {
-    position: 'absolute',
-    alignSelf: 'center',
-    top: '50%',
-    width: 80,
-    height: 80,
-    marginTop: -40,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  playButton: {
-    width: 64,
-    height: 64,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingLeft: 3,
-  },
-  errorCopy: {
+  previewAction: {
     position: 'absolute',
     left: spacing.md,
     right: spacing.md,
-    bottom: spacing.md,
+    top: 0,
+    bottom: 0,
     alignItems: 'center',
-    backgroundColor: 'rgba(20, 12, 8, 0.82)',
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
+    justifyContent: 'center',
+    gap: spacing.sm,
   },
-  errorTitle: { color: '#FFFFFF', fontWeight: fontWeight.bold, fontSize: fontSize.md },
-  errorText: { color: '#FFFFFF', fontSize: fontSize.sm, textAlign: 'center', marginTop: 2 },
+  actionIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingLeft: 2,
+    borderWidth: 4,
+    borderColor: 'rgba(255,255,255,0.72)',
+  },
+  previewActionText: {
+    color: '#FFFFFF',
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSize.md,
+    textShadowColor: 'rgba(0,0,0,0.55)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
   footer: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,

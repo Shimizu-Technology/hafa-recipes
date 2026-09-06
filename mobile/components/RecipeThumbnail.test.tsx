@@ -88,4 +88,30 @@ describe('RecipeThumbnail', () => {
       await act(async () => renderer.unmount());
     }
   });
+
+  it('can suppress nested image semantics without changing placeholder overlays', async () => {
+    const renderer = createRoot();
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(RecipeThumbnail, {
+          uri: null,
+          style: { width: 160, height: 90 },
+          accessible: false,
+          overlay: React.createElement('OverlayAction'),
+        }));
+      });
+
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'OverlayAction',
+      )).toHaveLength(0);
+      const wrapper = renderer.container.queryAll(
+        (instance) => instance.type === 'NativeView',
+      )[0];
+      expect(wrapper.props.accessible).toBe(false);
+      expect(wrapper.props.accessibilityRole).toBeUndefined();
+      expect(wrapper.props.accessibilityLabel).toBeUndefined();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
 });
