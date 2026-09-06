@@ -46,7 +46,9 @@ import { haptics } from '@/utils/haptics';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import {
   baseDiscoverQueryOptions,
+  canFilterDiscoverLocally,
   hasServerDiscoverFilters,
+  hideOwnedDiscoverRecipes,
   resolveDiscoverResults,
 } from '@/lib/discoverResults';
 import { newlyExposedThumbnailUrls } from '@/lib/recipeImagePrefetch';
@@ -565,26 +567,27 @@ export default function DiscoverScreen() {
 
   // Determine what to display:
   // - For text search: ONLY use server results (local can't search ingredients)
-  // - For other filters: use optimistic local filtering while server loads
+  // - For filters represented in cached cards: show accurate local matches
+  // - For meal/contributor filters: wait for the authoritative server result
   const hasTextSearch = !!searchQuery?.trim();
+  const canUseLocalFallback = canFilterDiscoverLocally({
+    mealType: mealTypeParam,
+    extractorId: selectedExtractor?.id,
+  });
 
   const filteredRecipes = useMemo(() => {
-    let result = resolveDiscoverResults({
+    const result = resolveDiscoverResults({
       hasTextSearch,
       hasActiveFilters: hasServerFilters,
       hasResolvedSearchResults,
+      canUseLocalFallback,
       searchResults,
       localFilteredRecipes: filterRecipesLocally(recipes, currentFilters),
       recipes,
     });
 
-    // Filter out user's own recipes if toggle is on
-    if (hideMyRecipes && userId) {
-      result = result.filter(recipe => !(recipe.is_owner ?? recipe.user_id === userId));
-    }
-
-    return result;
-  }, [hasTextSearch, hasServerFilters, recipes, searchResults, hasResolvedSearchResults, currentFilters, hideMyRecipes, userId]);
+    return hideOwnedDiscoverRecipes(result, hideMyRecipes);
+  }, [hasTextSearch, hasServerFilters, recipes, searchResults, hasResolvedSearchResults, canUseLocalFallback, currentFilters, hideMyRecipes]);
 
   const displayRecipes = useMemo(
     () => filteredRecipes?.slice(0, displayCount),

@@ -43,6 +43,7 @@ from app.routers.recipes import (
     get_public_recipes,
     get_saved_recipes,
     get_saved_recipes_count,
+    search_public_recipes,
 )
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
@@ -184,7 +185,21 @@ async def test_report_block_moderate_and_recover_workflow(monkeypatch):
                 user=None,
             )
             assert visible.total == 1
-            assert visible.items[0].is_saved is False
+            assert visible.items[0].is_saved is None
+            guest_search = await search_public_recipes(
+                q="Workflow",
+                limit=20,
+                offset=0,
+                source_type="website",
+                time_filter=None,
+                tags=None,
+                extractor_id=None,
+                meal_type=None,
+                db=db,
+                user=None,
+            )
+            assert guest_search.total == 1
+            assert guest_search.items[0].is_saved is None
             saved_visible = await get_public_recipes(
                 limit=20,
                 offset=0,

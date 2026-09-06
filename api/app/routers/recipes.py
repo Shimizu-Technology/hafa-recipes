@@ -1058,7 +1058,7 @@ async def get_public_recipes(
         recipe_to_list_item(
             recipe,
             viewer_user_id,
-            is_saved=recipe.id in saved_recipe_ids,
+            is_saved=(recipe.id in saved_recipe_ids) if viewer_user_id else None,
         )
         for recipe in recipes
     ]
@@ -1559,7 +1559,7 @@ async def search_public_recipes(
         recipe_to_list_item(
             recipe,
             viewer_user_id,
-            is_saved=recipe.id in saved_recipe_ids,
+            is_saved=(recipe.id in saved_recipe_ids) if viewer_user_id else None,
         )
         for recipe in recipes
     ]
