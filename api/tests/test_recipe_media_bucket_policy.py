@@ -1,10 +1,12 @@
 import json
 import stat
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+import app.recipe_media_bucket_policy as policy_module
 from app.recipe_media_bucket_policy import (
     CLOUDFRONT_STATEMENT_SID,
     PUBLIC_STATEMENT_SID,
@@ -188,7 +190,7 @@ def test_apply_detects_concurrent_policy_change_before_write(tmp_path: Path) -> 
             exclusive_writer_token=WRITER_TOKEN,
         )
 
-    assert json.loads(backup_path.read_text()) == observed
+    assert backup_path.exists() is False
     assert client.put_calls == []
 
 
@@ -217,6 +219,30 @@ def test_apply_writes_and_verifies_exact_desired_policy(tmp_path: Path) -> None:
     assert client.policies == []
 
 
+def test_apply_retries_post_write_verification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observed = {"Version": "2012-10-17", "Statement": [_unrelated_statement()]}
+    desired = {
+        "Version": "2012-10-17",
+        "Statement": [_unrelated_statement(), _cloudfront_statement()],
+    }
+    client = FakePolicyClient([observed, observed, observed, desired])
+    monkeypatch.setattr(policy_module, "POLICY_VERIFY_DELAYS_SECONDS", (0.0, 0.0, 0.0))
+
+    changed = apply_policy_change(
+        client,
+        bucket=BUCKET,
+        observed_policy=observed,
+        desired_policy=desired,
+        backup_path=tmp_path / "before-retry.json",
+        exclusive_writer_token=WRITER_TOKEN,
+    )
+
+    assert changed is True
+    assert client.policies == []
+
+
 def test_apply_requires_exclusive_writer_window_before_backup_or_write(
     tmp_path: Path,
 ) -> None:
@@ -241,6 +267,94 @@ def test_apply_requires_exclusive_writer_window_before_backup_or_write(
         )
 
     assert backup_path.exists() is False
+    assert client.put_calls == []
+
+
+class FakeStsClient:
+    def get_caller_identity(self) -> dict[str, str]:
+        return {"Account": ACCOUNT_ID}
+
+
+@pytest.mark.parametrize(
+    ("action", "current"),
+    [
+        ("apply", {"Version": "2012-10-17", "Statement": []}),
+        (
+            "close-compatibility",
+            {
+                "Version": "2012-10-17",
+                "Statement": [public_statement(bucket=BUCKET), _cloudfront_statement()],
+            },
+        ),
+        (
+            "detach-cloudfront",
+            {"Version": "2012-10-17", "Statement": [_cloudfront_statement()]},
+        ),
+    ],
+)
+def test_cli_mutations_require_writer_token_before_backup_or_write(
+    action: str,
+    current: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakePolicyClient([current])
+    backup_path = tmp_path / f"{action}.json"
+    monkeypatch.setattr(
+        policy_module.boto3,
+        "client",
+        lambda service, **_kwargs: client if service == "s3" else FakeStsClient(),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "recipe_media_bucket_policy",
+            action,
+            "--bucket",
+            BUCKET,
+            "--distribution-id",
+            DISTRIBUTION_ID,
+            "--backup-path",
+            str(backup_path),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="exclusive bucket-policy writer window"):
+        policy_module.main()
+
+    assert backup_path.exists() is False
+    assert client.put_calls == []
+
+
+def test_cli_restore_requires_writer_token_before_backup_or_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current = {"Version": "2012-10-17", "Statement": [_cloudfront_statement()]}
+    client = FakePolicyClient([current])
+    restore_source = tmp_path / "restore-source.json"
+    restore_source.write_text(json.dumps(empty_policy()))
+    pre_restore_backup = tmp_path / "pre-restore.json"
+    monkeypatch.setattr(policy_module.boto3, "client", lambda *_args, **_kwargs: client)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "recipe_media_bucket_policy",
+            "restore",
+            "--bucket",
+            BUCKET,
+            "--backup-path",
+            str(restore_source),
+            "--pre-restore-backup-path",
+            str(pre_restore_backup),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="exclusive bucket-policy writer window"):
+        policy_module.main()
+
+    assert pre_restore_backup.exists() is False
     assert client.put_calls == []
 
 

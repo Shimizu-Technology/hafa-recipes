@@ -67,7 +67,7 @@ def test_distribution_uses_signed_origin_and_managed_immutable_cache_policy() ->
     assert origin["S3OriginConfig"] == {"OriginAccessIdentity": ""}
     assert behavior["TargetOriginId"] == "RecipeThumbnailS3Origin"
     assert behavior["CachePolicyId"] == "658327ea-f89d-4fab-a63d-7e88639e58f6"
-    assert behavior["ResponseHeadersPolicyId"] == ("5cc3b908-e619-4b99-88e5-2cf7f45965bd")
+    assert behavior["ResponseHeadersPolicyId"] == ("eaab4381-ed33-4a86-88ca-d9558dc6cd63")
     assert behavior["ViewerProtocolPolicy"] == "redirect-to-https"
     assert behavior["AllowedMethods"] == ["GET", "HEAD", "OPTIONS"]
     assert distribution["HttpVersion"] == "http2and3"
@@ -143,3 +143,32 @@ def test_distribution_is_covered_by_the_free_flat_rate_plan() -> None:
         },
         {"GetAtt": "RecipeMediaWebAcl.Arn"},
     ]
+
+
+def test_access_logs_are_privacy_minimized_and_expire() -> None:
+    """Retain enough delivery evidence without storing direct viewer identifiers."""
+
+    resources = _template()["Resources"]
+    log_group = resources["RecipeMediaAccessLogGroup"]["Properties"]
+    source = resources["RecipeMediaAccessLogDeliverySource"]["Properties"]
+    destination = resources["RecipeMediaAccessLogDestination"]["Properties"]
+    delivery = resources["RecipeMediaAccessLogDelivery"]["Properties"]
+
+    assert log_group["RetentionInDays"] == 14
+    assert source["LogType"] == "ACCESS_LOGS"
+    assert destination["DeliveryDestinationType"] == "CWL"
+    assert destination["OutputFormat"] == "json"
+    assert delivery["DeliverySourceName"] == {"Ref": "RecipeMediaAccessLogDeliverySource"}
+    assert delivery["DeliveryDestinationArn"] == {
+        "GetAtt": "RecipeMediaAccessLogDestination.Arn"
+    }
+    fields = delivery["RecordFields"]
+    assert "cs-uri-stem" in fields
+    assert "sc-status" in fields
+    assert "time-taken" in fields
+    assert "c-ip" not in fields
+    assert "cs(User-Agent)" not in fields
+    assert "cs(Referer)" not in fields
+    assert "cs-uri-query" not in fields
+    assert "cs(Cookie)" not in fields
+    assert "x-forwarded-for" not in fields

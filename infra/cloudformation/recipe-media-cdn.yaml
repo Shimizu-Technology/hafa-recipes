@@ -117,7 +117,8 @@ Resources:
             - OPTIONS
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
           Compress: true
-          ResponseHeadersPolicyId: 5cc3b908-e619-4b99-88e5-2cf7f45965bd
+          # Managed-CORS-with-preflight-and-SecurityHeadersPolicy
+          ResponseHeadersPolicyId: eaab4381-ed33-4a86-88ca-d9558dc6cd63
           TargetOriginId: RecipeThumbnailS3Origin
           ViewerProtocolPolicy: redirect-to-https
         Enabled: true
@@ -144,6 +145,56 @@ Resources:
           Value: production
         - Key: ManagedBy
           Value: cloudformation
+
+  RecipeMediaAccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/cloudfront/${AWS::StackName}'
+      RetentionInDays: 14
+      Tags:
+        - Key: Application
+          Value: hafa-recipes
+        - Key: Environment
+          Value: production
+        - Key: ManagedBy
+          Value: cloudformation
+
+  RecipeMediaAccessLogDeliverySource:
+    Type: AWS::Logs::DeliverySource
+    Properties:
+      Name: !Sub '${AWS::StackName}-access-logs'
+      ResourceArn: !Sub >-
+        arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${RecipeMediaDistribution}
+      LogType: ACCESS_LOGS
+
+  RecipeMediaAccessLogDestination:
+    Type: AWS::Logs::DeliveryDestination
+    Properties:
+      Name: !Sub '${AWS::StackName}-access-logs'
+      DestinationResourceArn: !GetAtt RecipeMediaAccessLogGroup.Arn
+      DeliveryDestinationType: CWL
+      OutputFormat: json
+
+  RecipeMediaAccessLogDelivery:
+    Type: AWS::Logs::Delivery
+    Properties:
+      DeliverySourceName: !Ref RecipeMediaAccessLogDeliverySource
+      DeliveryDestinationArn: !GetAtt RecipeMediaAccessLogDestination.Arn
+      RecordFields:
+        - date
+        - time
+        - x-edge-location
+        - sc-bytes
+        - cs-method
+        - cs(Host)
+        - cs-uri-stem
+        - sc-status
+        - x-edge-result-type
+        - time-taken
+        - ssl-protocol
+        - cs-protocol-version
+        - sc-content-type
+        - sc-content-len
 
   RecipeMediaFreePricingPlan:
     Type: AWS::PricingPlanManager::Subscription

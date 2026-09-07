@@ -25,11 +25,11 @@ uploads. The CDN must never be granted access to the whole bucket.
 - A per-IP rate rule blocks more than 10,000 thumbnail requests in five minutes.
 - The Free plan uses AWS-managed cache and response-header policies. It does not
   depend on query strings, cookies, or viewer identity.
-- CloudFront standard access logs are intentionally disabled because the
-  current operational value does not justify retaining request-level data.
-  The Free plan includes standard-log ingestion into CloudWatch Logs, but log
-  storage and queries can incur separate costs. WAF metrics and sampled
-  requests remain enabled.
+- Privacy-minimized standard access logs go to CloudWatch Logs for 14 days.
+  They retain delivery status, latency, TLS, object path, and edge-location
+  evidence while excluding viewer IPs, forwarded IPs, user agents, referrers,
+  query strings, and cookies. The Free plan includes standard-log ingestion;
+  CloudWatch Logs storage and queries can still incur separate charges.
 
 Never change the bucket resource in the policy from
 `arn:aws:s3:::recipe-extractor-thumbnails/thumbnails/*` to a bucket-wide ARN.
@@ -43,6 +43,10 @@ web ACL can only be created from that Region.
 Validate and create a reviewable change set from the repository root:
 
 ```bash
+cd api
+uv run python -m app.recipe_media_pricing_preflight
+cd ..
+
 aws cloudformation validate-template \
   --region us-east-1 \
   --template-body file://infra/cloudformation/recipe-media-cdn.yaml
@@ -60,9 +64,13 @@ aws cloudformation deploy \
 ```
 
 Inspect the generated change set in CloudFormation. It must create one WAF web
-ACL, one OAC, one distribution, and one Free pricing-plan subscription. It must
-not create or modify an S3 bucket or bucket policy. Execute the exact reviewed
-change set, then wait for the stack and the distribution to finish deploying.
+ACL, one OAC, one distribution, one Free pricing-plan subscription, and the
+four CloudWatch Logs delivery resources. It must not create or modify an S3
+bucket or bucket policy. Execute the exact reviewed change set, then wait for
+the stack and the distribution to finish deploying.
+The pricing preflight must report `eligible: true`; it rejects new AWS Free Tier
+accounts and accounts already at the three-CloudFront-Free-plan limit before
+CloudFormation attempts to create the subscription.
 
 Record these stack outputs in the deployment log:
 
@@ -256,10 +264,24 @@ uv run python -m app.recipe_media_bucket_policy close-compatibility \
 cd ..
 ```
 
-After the verified policy change, enable all four S3 Block Public Access
-settings:
+After the verified policy change, record the current S3 Block Public Access
+configuration in a new private deployment backup, then enable all four settings:
 
 ```bash
+(
+set -euo pipefail
+umask 077
+PAB_BACKUP_PATH=/ABSOLUTE/APPROVED/BACKUP-DIRECTORY/public-access-block-before-close.json
+set -o noclobber
+aws s3api get-public-access-block \
+  --bucket recipe-extractor-thumbnails \
+  --output json \
+  | jq --arg bucket recipe-extractor-thumbnails \
+      '{Bucket: $bucket, PublicAccessBlockConfiguration: .PublicAccessBlockConfiguration}' \
+      > "$PAB_BACKUP_PATH"
+test -s "$PAB_BACKUP_PATH"
+)
+
 aws s3api put-public-access-block \
   --bucket recipe-extractor-thumbnails \
   --public-access-block-configuration \
@@ -292,11 +314,14 @@ test -s "$VERIFY_DIR/cdn-thumbnail"
 )
 ```
 
-To roll back after closing the compatibility window, first restore the prior
+To roll back after closing the compatibility window, first restore the captured
 public-access-block configuration. Then restore the exact pre-close policy,
 while creating a separate backup of the current policy:
 
 ```bash
+aws s3api put-public-access-block \
+  --cli-input-json file:///ABSOLUTE/APPROVED/BACKUP-DIRECTORY/public-access-block-before-close.json
+
 cd api
 uv run python -m app.recipe_media_bucket_policy restore \
   --bucket recipe-extractor-thumbnails \

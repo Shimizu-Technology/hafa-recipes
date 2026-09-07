@@ -7,6 +7,7 @@ import copy
 import hashlib
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -16,6 +17,7 @@ from botocore.exceptions import ClientError
 POLICY_VERSION = "2012-10-17"
 CLOUDFRONT_STATEMENT_SID = "AllowCloudFrontReadRecipeThumbnails"
 PUBLIC_STATEMENT_SID = "PublicReadForThumbnails"
+POLICY_VERIFY_DELAYS_SECONDS = (0.0, 0.25, 0.5, 1.0, 2.0)
 
 
 class PolicyClient(Protocol):
@@ -188,17 +190,22 @@ def apply_policy_change(
     if observed_canonical == desired_canonical:
         return False
 
-    write_backup(observed_policy, backup_path)
     latest_policy = get_bucket_policy(client, bucket)
     if canonical_policy(latest_policy) != observed_canonical:
         raise RuntimeError(
-            "Bucket policy changed after planning; no write was attempted. "
-            f"Original policy is backed up at {backup_path}"
+            "Bucket policy changed after planning; no write was attempted and "
+            "no backup was written. Re-run plan against the current policy"
         )
 
+    write_backup(latest_policy, backup_path)
     client.put_bucket_policy(Bucket=bucket, Policy=desired_canonical)
-    verified_policy = get_bucket_policy(client, bucket)
-    if canonical_policy(verified_policy) != desired_canonical:
+    for delay_seconds in POLICY_VERIFY_DELAYS_SECONDS:
+        if delay_seconds:
+            time.sleep(delay_seconds)
+        verified_policy = get_bucket_policy(client, bucket)
+        if canonical_policy(verified_policy) == desired_canonical:
+            break
+    else:
         raise RuntimeError(
             "Bucket policy verification failed after write; restore from "
             f"{backup_path} before continuing"
