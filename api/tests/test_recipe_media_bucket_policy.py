@@ -192,6 +192,42 @@ def test_restore_owned_statements_rejects_conflicting_managed_statement() -> Non
         )
 
 
+def test_restore_owned_statements_rejects_current_managed_conflict() -> None:
+    conflicting = _cloudfront_statement()
+    conflicting["Resource"] = f"arn:aws:s3:::{BUCKET}/*"
+    current = {"Version": "2012-10-17", "Statement": [conflicting]}
+
+    with pytest.raises(ValueError, match="Current policy contains conflicting"):
+        restore_owned_statements(
+            current,
+            empty_policy(),
+            bucket=BUCKET,
+            account_id=ACCOUNT_ID,
+            distribution_id=DISTRIBUTION_ID,
+        )
+
+
+@pytest.mark.parametrize("duplicate_location", ["current", "backup"])
+def test_restore_owned_statements_rejects_duplicate_managed_sids(
+    duplicate_location: str,
+) -> None:
+    duplicate_policy = {
+        "Version": "2012-10-17",
+        "Statement": [_cloudfront_statement(), _cloudfront_statement()],
+    }
+    current = duplicate_policy if duplicate_location == "current" else empty_policy()
+    backup = duplicate_policy if duplicate_location == "backup" else empty_policy()
+
+    with pytest.raises(ValueError, match="duplicate AllowCloudFrontReadRecipeThumbnails"):
+        restore_owned_statements(
+            current,
+            backup,
+            bucket=BUCKET,
+            account_id=ACCOUNT_ID,
+            distribution_id=DISTRIBUTION_ID,
+        )
+
+
 def test_detach_cloudfront_is_idempotent_when_statement_is_absent() -> None:
     current = {"Version": "2012-10-17", "Statement": [_unrelated_statement()]}
 
