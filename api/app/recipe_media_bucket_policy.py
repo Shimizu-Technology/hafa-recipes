@@ -143,6 +143,41 @@ def remove_owned_statement(
     return desired
 
 
+def restore_owned_statements(
+    current: dict[str, Any],
+    backup: dict[str, Any],
+    *,
+    bucket: str,
+    account_id: str,
+    distribution_id: str,
+) -> dict[str, Any]:
+    """Restore only Håfa-owned statements while preserving current unrelated ones."""
+
+    desired = copy.deepcopy(validate_policy(current))
+    saved = validate_policy(backup)
+    expected_statements = (
+        public_statement(bucket=bucket),
+        cloudfront_statement(
+            bucket=bucket,
+            account_id=account_id,
+            distribution_id=distribution_id,
+        ),
+    )
+    for expected in expected_statements:
+        sid = expected["Sid"]
+        saved_match = _find_owned_statement(saved, sid)
+        current_match = _find_owned_statement(desired, sid)
+        if saved_match is not None and saved_match[1] != expected:
+            raise ValueError(f"Backup contains conflicting {sid} statement")
+        if current_match is not None and current_match[1] != expected:
+            raise ValueError(f"Current policy contains conflicting {sid} statement")
+        if saved_match is None and current_match is not None:
+            del desired["Statement"][current_match[0]]
+        elif saved_match is not None and current_match is None:
+            desired["Statement"].append(copy.deepcopy(expected))
+    return desired
+
+
 def get_bucket_policy(client: PolicyClient, bucket: str) -> dict[str, Any]:
     """Read and validate a bucket policy, treating a missing policy as empty."""
 
@@ -290,7 +325,16 @@ def main() -> None:
     if args.action == "restore":
         if args.backup_path is None or args.pre_restore_backup_path is None:
             raise SystemExit("restore requires --backup-path and --pre-restore-backup-path")
-        restored = validate_policy(json.loads(args.backup_path.read_text()))
+        if not args.distribution_id:
+            raise SystemExit("restore requires --distribution-id")
+        account_id = boto3.client("sts").get_caller_identity()["Account"]
+        restored = restore_owned_statements(
+            current,
+            validate_policy(json.loads(args.backup_path.read_text())),
+            bucket=args.bucket,
+            account_id=account_id,
+            distribution_id=args.distribution_id,
+        )
         changed = apply_policy_change(
             client,
             bucket=args.bucket,

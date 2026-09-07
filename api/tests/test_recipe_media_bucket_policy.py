@@ -19,6 +19,7 @@ from app.recipe_media_bucket_policy import (
     policy_sha256,
     public_statement,
     remove_owned_statement,
+    restore_owned_statements,
     write_backup,
 )
 
@@ -141,6 +142,53 @@ def test_remove_rejects_a_conflicting_owned_statement() -> None:
             current,
             sid=PUBLIC_STATEMENT_SID,
             expected=public_statement(bucket=BUCKET),
+        )
+
+
+def test_restore_owned_statements_preserves_current_unrelated_statements() -> None:
+    later_unrelated = {
+        "Sid": "AddedAfterBackup",
+        "Effect": "Deny",
+        "Principal": "*",
+        "Action": "s3:DeleteObject",
+        "Resource": f"arn:aws:s3:::{BUCKET}/*",
+    }
+    current = {
+        "Version": "2012-10-17",
+        "Statement": [_unrelated_statement(), later_unrelated, _cloudfront_statement()],
+    }
+    backup = {
+        "Version": "2012-10-17",
+        "Statement": [_unrelated_statement(), public_statement(bucket=BUCKET)],
+    }
+
+    restored = restore_owned_statements(
+        current,
+        backup,
+        bucket=BUCKET,
+        account_id=ACCOUNT_ID,
+        distribution_id=DISTRIBUTION_ID,
+    )
+
+    assert restored["Statement"] == [
+        _unrelated_statement(),
+        later_unrelated,
+        public_statement(bucket=BUCKET),
+    ]
+
+
+def test_restore_owned_statements_rejects_conflicting_managed_statement() -> None:
+    conflicting = _cloudfront_statement()
+    conflicting["Resource"] = f"arn:aws:s3:::{BUCKET}/*"
+    backup = {"Version": "2012-10-17", "Statement": [conflicting]}
+
+    with pytest.raises(ValueError, match="Backup contains conflicting"):
+        restore_owned_statements(
+            empty_policy(),
+            backup,
+            bucket=BUCKET,
+            account_id=ACCOUNT_ID,
+            distribution_id=DISTRIBUTION_ID,
         )
 
 
@@ -335,7 +383,11 @@ def test_cli_restore_requires_writer_token_before_backup_or_write(
     restore_source = tmp_path / "restore-source.json"
     restore_source.write_text(json.dumps(empty_policy()))
     pre_restore_backup = tmp_path / "pre-restore.json"
-    monkeypatch.setattr(policy_module.boto3, "client", lambda *_args, **_kwargs: client)
+    monkeypatch.setattr(
+        policy_module.boto3,
+        "client",
+        lambda service, **_kwargs: client if service == "s3" else FakeStsClient(),
+    )
     monkeypatch.setattr(
         sys,
         "argv",
@@ -344,6 +396,8 @@ def test_cli_restore_requires_writer_token_before_backup_or_write(
             "restore",
             "--bucket",
             BUCKET,
+            "--distribution-id",
+            DISTRIBUTION_ID,
             "--backup-path",
             str(restore_source),
             "--pre-restore-backup-path",

@@ -329,6 +329,7 @@ cd api
 uv run python -m app.recipe_media_bucket_policy restore \
   --bucket recipe-extractor-thumbnails \
   --region ap-southeast-2 \
+  --distribution-id "$DISTRIBUTION_ID" \
   --backup-path /ABSOLUTE/APPROVED/BACKUP-DIRECTORY/policy-before-public-close.json \
   --exclusive-writer-token CHG-YYYYMMDD-RECIPE-CDN-ROLLBACK \
   --pre-restore-backup-path /ABSOLUTE/APPROVED/BACKUP-DIRECTORY/policy-before-rollback.json
