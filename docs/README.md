@@ -57,6 +57,9 @@ Last reviewed: 2026-08-19
    - Server-enforced admin and user-safety APIs
    - Visibility, reversibility, privacy, audit, deployment, and rollback rules
 
+1. [Recipe media CDN runbook](./RECIPE-MEDIA-CDN-RUNBOOK.md)
+   - CloudFront, WAF, OAC, DNS, rollout, verification, and rollback
+
 ## Source-of-truth policy
 
 - The documents above describe the current product and active plan.

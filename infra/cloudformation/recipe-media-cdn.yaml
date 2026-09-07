@@ -1,0 +1,225 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Hafa Recipes public thumbnail delivery through CloudFront. This stack must be
+  deployed in us-east-1 because its CLOUDFRONT-scope WAF web ACL is global.
+
+Parameters:
+  ThumbnailBucketName:
+    Type: String
+    Description: Existing S3 bucket that stores recipe thumbnails.
+    AllowedPattern: '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$'
+  ThumbnailBucketRegion:
+    Type: String
+    Default: ap-southeast-2
+    Description: AWS Region containing the existing thumbnail bucket.
+    AllowedPattern: '^[a-z]{2}(?:-gov)?-[a-z]+-\d$'
+  MediaDomainName:
+    Type: String
+    Description: Required custom hostname, for example media.hafa-recipes.com.
+    AllowedPattern: '^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$'
+  AcmCertificateArn:
+    Type: String
+    Description: >-
+      Required us-east-1 ACM certificate ARN for MediaDomainName.
+    AllowedPattern: '^arn:aws:acm:us-east-1:[0-9]{12}:certificate/[0-9a-f-]{36}$'
+  ThumbnailRateLimit:
+    Type: Number
+    Default: 10000
+    MinValue: 100
+    Description: Maximum requests from one IP during a five-minute window.
+
+Resources:
+  RecipeMediaWebAcl:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub '${AWS::StackName}-web-acl'
+      Description: Allows recipe thumbnails and blocks all other bucket paths.
+      Scope: CLOUDFRONT
+      DefaultAction:
+        Block: {}
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub '${AWS::StackName}-web-acl'
+        SampledRequestsEnabled: true
+      Rules:
+        - Name: RateLimitThumbnailRequests
+          Priority: 0
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              AggregateKeyType: IP
+              EvaluationWindowSec: 300
+              Limit: !Ref ThumbnailRateLimit
+              ScopeDownStatement:
+                ByteMatchStatement:
+                  FieldToMatch:
+                    UriPath: {}
+                  PositionalConstraint: STARTS_WITH
+                  SearchString: /thumbnails/
+                  TextTransformations:
+                    - Priority: 0
+                      Type: NONE
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub '${AWS::StackName}-rate-limit'
+            SampledRequestsEnabled: true
+        - Name: AllowThumbnailPaths
+          Priority: 1
+          Action:
+            Allow: {}
+          Statement:
+            ByteMatchStatement:
+              FieldToMatch:
+                UriPath: {}
+              PositionalConstraint: STARTS_WITH
+              SearchString: /thumbnails/
+              TextTransformations:
+                - Priority: 0
+                  Type: NONE
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub '${AWS::StackName}-thumbnail-paths'
+            SampledRequestsEnabled: true
+      Tags:
+        - Key: Application
+          Value: hafa-recipes
+        - Key: Environment
+          Value: production
+        - Key: ManagedBy
+          Value: cloudformation
+
+  RecipeMediaOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Description: Signed access to Hafa Recipes public thumbnail objects.
+        Name: !Sub '${AWS::StackName}-oac'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  RecipeMediaDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases:
+          - !Ref MediaDomainName
+        Comment: Hafa Recipes content-addressed recipe thumbnails
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          Compress: true
+          # Managed-CORS-with-preflight-and-SecurityHeadersPolicy
+          ResponseHeadersPolicyId: eaab4381-ed33-4a86-88ca-d9558dc6cd63
+          TargetOriginId: RecipeThumbnailS3Origin
+          ViewerProtocolPolicy: redirect-to-https
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        Origins:
+          - DomainName: !Sub '${ThumbnailBucketName}.s3.${ThumbnailBucketRegion}.amazonaws.com'
+            Id: RecipeThumbnailS3Origin
+            OriginAccessControlId: !GetAtt RecipeMediaOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: none
+        ViewerCertificate:
+          AcmCertificateArn: !Ref AcmCertificateArn
+          MinimumProtocolVersion: TLSv1.2_2021
+          SslSupportMethod: sni-only
+        WebACLId: !GetAtt RecipeMediaWebAcl.Arn
+      Tags:
+        - Key: Application
+          Value: hafa-recipes
+        - Key: Environment
+          Value: production
+        - Key: ManagedBy
+          Value: cloudformation
+
+  RecipeMediaAccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/cloudfront/${AWS::StackName}'
+      RetentionInDays: 14
+      Tags:
+        - Key: Application
+          Value: hafa-recipes
+        - Key: Environment
+          Value: production
+        - Key: ManagedBy
+          Value: cloudformation
+
+  RecipeMediaAccessLogDeliverySource:
+    Type: AWS::Logs::DeliverySource
+    Properties:
+      Name: !Sub '${AWS::StackName}-access-logs'
+      ResourceArn: !Sub >-
+        arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${RecipeMediaDistribution}
+      LogType: ACCESS_LOGS
+
+  RecipeMediaAccessLogDestination:
+    Type: AWS::Logs::DeliveryDestination
+    Properties:
+      Name: !Sub '${AWS::StackName}-access-logs'
+      DestinationResourceArn: !GetAtt RecipeMediaAccessLogGroup.Arn
+      DeliveryDestinationType: CWL
+      OutputFormat: json
+
+  RecipeMediaAccessLogDelivery:
+    Type: AWS::Logs::Delivery
+    Properties:
+      DeliverySourceName: !Ref RecipeMediaAccessLogDeliverySource
+      DeliveryDestinationArn: !GetAtt RecipeMediaAccessLogDestination.Arn
+      RecordFields:
+        - date
+        - time
+        - x-edge-location
+        - sc-bytes
+        - cs-method
+        - cs(Host)
+        - cs-uri-stem
+        - sc-status
+        - x-edge-result-type
+        - time-taken
+        - ssl-protocol
+        - cs-protocol-version
+        - sc-content-type
+        - sc-content-len
+
+  RecipeMediaFreePricingPlan:
+    Type: AWS::PricingPlanManager::Subscription
+    Properties:
+      PlanFamily: CloudFront
+      PlanTier: FREE
+      UsageLevel: DEFAULT
+      ResourceArns:
+        - !Sub >-
+          arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${RecipeMediaDistribution}
+        - !GetAtt RecipeMediaWebAcl.Arn
+
+Outputs:
+  DistributionId:
+    Description: CloudFront distribution ID.
+    Value: !Ref RecipeMediaDistribution
+  DistributionDomainName:
+    Description: CloudFront-generated hostname.
+    Value: !GetAtt RecipeMediaDistribution.DomainName
+  MediaBaseUrl:
+    Description: Value to assign to Render RECIPE_MEDIA_BASE_URL.
+    Value: !Sub 'https://${MediaDomainName}'
+  PricingPlanArn:
+    Description: Free flat-rate pricing subscription ARN.
+    Value: !Ref RecipeMediaFreePricingPlan
+  WebAclArn:
+    Description: CloudFront-scope WAF web ACL ARN.
+    Value: !GetAtt RecipeMediaWebAcl.Arn
