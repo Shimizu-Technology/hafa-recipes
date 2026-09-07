@@ -43,6 +43,8 @@ web ACL can only be created from that Region.
 Validate and create a reviewable change set from the repository root:
 
 ```bash
+(
+set -euo pipefail
 cd api
 uv run python -m app.recipe_media_pricing_preflight
 cd ..
@@ -61,6 +63,7 @@ aws cloudformation deploy \
     MediaDomainName=media.hafa-recipes.com \
     AcmCertificateArn=arn:aws:acm:us-east-1:ACCOUNT:certificate/CERTIFICATE_ID \
   --no-execute-changeset
+)
 ```
 
 Inspect the generated change set in CloudFormation. It must create one WAF web

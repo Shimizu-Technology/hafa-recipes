@@ -156,8 +156,17 @@ def test_access_logs_are_privacy_minimized_and_expire() -> None:
 
     assert log_group["RetentionInDays"] == 14
     assert source["LogType"] == "ACCESS_LOGS"
+    assert source["ResourceArn"] == {
+        "Sub": (
+            "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:"
+            "distribution/${RecipeMediaDistribution}"
+        )
+    }
     assert destination["DeliveryDestinationType"] == "CWL"
     assert destination["OutputFormat"] == "json"
+    assert destination["DestinationResourceArn"] == {
+        "GetAtt": "RecipeMediaAccessLogGroup.Arn"
+    }
     assert delivery["DeliverySourceName"] == {"Ref": "RecipeMediaAccessLogDeliverySource"}
     assert delivery["DeliveryDestinationArn"] == {
         "GetAtt": "RecipeMediaAccessLogDestination.Arn"
