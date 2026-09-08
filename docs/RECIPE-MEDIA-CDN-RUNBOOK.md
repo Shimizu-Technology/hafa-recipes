@@ -19,10 +19,11 @@ uploads. The CDN must never be granted access to the whole bucket.
 - During an exclusive policy-writer window, the policy tool adds one
   distribution-scoped CloudFront `s3:GetObject` grant for `thumbnails/*` and
   preserves every unrelated bucket-policy statement.
-- The WAF allows only viewer paths beginning with `/thumbnails/` and blocks all
-  other paths before they reach S3.
+- The WAF globally rate-limits abusive viewer IPs. The bucket policy is the
+  hard path boundary: CloudFront can read only `thumbnails/*`, so requests for
+  private `chat-images/*` objects are denied by S3.
 - The distribution uses an Origin Access Control that signs every S3 request.
-- A per-IP rate rule blocks more than 10,000 thumbnail requests in five minutes.
+- A per-IP rate rule blocks more than 10,000 viewer requests in five minutes.
 - The Free plan uses AWS-managed cache and response-header policies. It does not
   depend on query strings, cookies, or viewer identity.
 - Privacy-minimized standard access logs go to CloudWatch Logs for 14 days.
@@ -131,7 +132,13 @@ EnforceThumbnailWafRules=true
 EnablePricingPlanSubscription=true
 ```
 
-This change set must modify `RecipeMediaWebAcl` without replacement. It may
+This change set may modify only the `Rules`, `DefaultAction`, and
+`VisibilityConfig` properties of `RecipeMediaWebAcl`, without replacement.
+`DefaultAction` must resolve to `ALLOW`; both web-ACL visibility booleans must
+resolve to `false`; and the only rule must be the IP-based
+`RateLimitThumbnailRequests` rule described below. CloudFormation may include
+the latter two properties when replacing their bootstrap conditions with the
+same resolved values. It may
 also contain the same non-replacing distribution dependency modification
 described above. Because the subscription's `ResourceArns` also references the
 WAF ARN, CloudFormation may report a non-replacing, dynamic
@@ -222,17 +229,25 @@ uv run python -m app.recipe_media_subscription_verify \
 )
 ```
 
-Verify the WAF now has default action `BLOCK` with the
-`RateLimitThumbnailRequests` and `AllowThumbnailPaths` rules in that order.
+Verify the WAF now has default action `ALLOW`, one
+`RateLimitThumbnailRequests` rule with no scope-down statement, and metrics and
+sampled requests disabled at both the web-ACL and rule levels. AWS rejected the
+earlier combined URI-filtering/observability configuration during the
+2026-09-08 production hardening update. Its `RecipeMediaWebAcl` stack event
+reported that one or more configured WAF features were not included in the
+CloudFront Pricing Plan, without identifying a narrower property. The S3 OAC
+policy, not WAF path matching, remains the authorization boundary for
+`thumbnails/*`.
 Only after the WAF and subscription checks pass may DNS, the S3 CloudFront
 grant, or Render be changed to send production traffic to the CDN.
 
 For every later stack update, retain
 `EnforceThumbnailWafRules=true` and `EnablePricingPlanSubscription=true` (or
 explicitly use both previous parameter values). Before execution, require the
-change set to contain no `Remove` action for `RecipeMediaFreePricingPlan` and no
-change that makes the WAF permissive. Removing the subscription schedules its
-cancellation and can change the distribution's billing and feature contract.
+change set to contain no `Remove` action for `RecipeMediaFreePricingPlan`, no
+change that removes the WAF rate rule, and no expansion of the S3 OAC grant
+beyond `thumbnails/*`. Removing the subscription schedules its cancellation and
+can change the distribution's billing and feature contract.
 
 Record these stack outputs in the deployment log:
 
@@ -363,7 +378,7 @@ Also require:
 - list and hero WebP objects retain
   `Cache-Control: public, max-age=31536000, immutable`;
 - unknown thumbnail keys return an error rather than unrelated bucket data; and
-- WAF sampled requests contain no private chat-image response data.
+- WAF metrics and sampled requests remain disabled for Free-plan compatibility.
 
 ## Route API thumbnail URLs through the CDN
 

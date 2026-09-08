@@ -61,20 +61,15 @@ Resources:
       Name: !Sub '${AWS::StackName}-web-acl'
       Description: Dedicated WAF for recipe thumbnail delivery.
       Scope: CLOUDFRONT
-      DefaultAction: !If
-        - ApplyThumbnailWafRules
-        - Block: {}
-        - Allow: {}
+      # The CloudFront Free plan supports IP-based rate limiting, but rejected
+      # the combined URI-filtering/observability rule set. S3 remains the hard
+      # path boundary because its OAC grant covers only thumbnails/*.
+      DefaultAction:
+        Allow: {}
       VisibilityConfig:
-        CloudWatchMetricsEnabled: !If
-          - ApplyThumbnailWafRules
-          - true
-          - false
+        CloudWatchMetricsEnabled: false
         MetricName: !Sub '${AWS::StackName}-web-acl'
-        SampledRequestsEnabled: !If
-          - ApplyThumbnailWafRules
-          - true
-          - false
+        SampledRequestsEnabled: false
       Rules: !If
         - ApplyThumbnailWafRules
         - - Name: RateLimitThumbnailRequests
@@ -86,36 +81,10 @@ Resources:
                 AggregateKeyType: IP
                 EvaluationWindowSec: 300
                 Limit: !Ref ThumbnailRateLimit
-                ScopeDownStatement:
-                  ByteMatchStatement:
-                    FieldToMatch:
-                      UriPath: {}
-                    PositionalConstraint: STARTS_WITH
-                    SearchString: /thumbnails/
-                    TextTransformations:
-                      - Priority: 0
-                        Type: NONE
             VisibilityConfig:
-              CloudWatchMetricsEnabled: true
+              CloudWatchMetricsEnabled: false
               MetricName: !Sub '${AWS::StackName}-rate-limit'
-              SampledRequestsEnabled: true
-          - Name: AllowThumbnailPaths
-            Priority: 1
-            Action:
-              Allow: {}
-            Statement:
-              ByteMatchStatement:
-                FieldToMatch:
-                  UriPath: {}
-                PositionalConstraint: STARTS_WITH
-                SearchString: /thumbnails/
-                TextTransformations:
-                  - Priority: 0
-                    Type: NONE
-            VisibilityConfig:
-              CloudWatchMetricsEnabled: true
-              MetricName: !Sub '${AWS::StackName}-thumbnail-paths'
-              SampledRequestsEnabled: true
+              SampledRequestsEnabled: false
         - !Ref AWS::NoValue
       Tags:
         - Key: Application
