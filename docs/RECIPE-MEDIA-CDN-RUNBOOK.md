@@ -169,6 +169,19 @@ export DISTRIBUTION_ID_BEFORE="$(aws cloudformation describe-stacks \
   --query 'Stacks[0].Outputs[?OutputKey==`DistributionId`].OutputValue | [0]' \
   --output text)"
 
+case "$SUBSCRIPTION_ARN_BEFORE" in
+  arn:aws:pricingplanmanager::*:subscription:sub_*) ;;
+  *) echo "required pricing subscription ARN is missing or invalid" >&2; exit 1 ;;
+esac
+case "$WEB_ACL_ARN_BEFORE" in
+  arn:aws:wafv2:us-east-1:*:global/webacl/*) ;;
+  *) echo "required WAF ARN is missing or invalid" >&2; exit 1 ;;
+esac
+case "$DISTRIBUTION_ID_BEFORE" in
+  E[A-Z0-9]*) ;;
+  *) echo "required CloudFront distribution ID is missing or invalid" >&2; exit 1 ;;
+esac
+
 aws cloudformation execute-change-set \
   --region us-east-1 \
   --stack-name hafa-recipes-media-cdn-production \

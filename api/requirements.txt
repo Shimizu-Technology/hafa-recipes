@@ -18,9 +18,9 @@ beautifulsoup4==4.14.3
     # via
     #   recipe-api (pyproject.toml)
     #   mf2py
-boto3==1.41.5
+boto3==1.43.72
     # via recipe-api (pyproject.toml)
-botocore==1.41.5
+botocore==1.43.72
     # via
     #   boto3
     #   s3transfer
@@ -184,7 +184,7 @@ requests==2.32.5
     #   mf2py
     #   pyrdfa3
     #   yt-dlp
-s3transfer==0.15.0
+s3transfer==0.19.2
     # via boto3
 sentry-sdk==2.47.0
     # via recipe-api (pyproject.toml)

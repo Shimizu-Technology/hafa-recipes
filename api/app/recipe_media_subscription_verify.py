@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import time
 from collections.abc import Callable, Collection
 from typing import Any, Protocol
@@ -46,7 +47,29 @@ TIMEOUT_MESSAGE = "pricing subscription did not become ACTIVE within 5 minutes"
 class PricingPlanClient(Protocol):
     """Subset of Pricing Plan Manager used by the verifier."""
 
-    def get_subscription(self, *, arn: str) -> dict[str, Any]: ...
+    def get_subscription(self, *, arn: str, timeout_seconds: float) -> dict[str, Any]: ...
+
+
+class BoundedBotoPricingPlanClient:
+    """Create each SDK client with network timeouts bounded by the remaining deadline."""
+
+    def __init__(self, session: boto3.Session, *, region_name: str) -> None:
+        self._session = session
+        self._region_name = region_name
+
+    def get_subscription(self, *, arn: str, timeout_seconds: float) -> dict[str, Any]:
+        connect_timeout = timeout_seconds / 3
+        read_timeout = timeout_seconds - connect_timeout
+        client = self._session.client(
+            "pricing-plan-manager",
+            region_name=self._region_name,
+            config=Config(
+                connect_timeout=connect_timeout,
+                read_timeout=read_timeout,
+                retries={"total_max_attempts": 1, "mode": "standard"},
+            ),
+        )
+        return client.get_subscription(arn=arn)
 
 
 def _is_retryable_error(exc: Exception) -> bool:
@@ -73,18 +96,22 @@ def wait_for_active_subscription(
 ) -> dict[str, Any]:
     """Wait for ACTIVE and require the exact expected resources before returning."""
 
-    if timeout_seconds <= 0:
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
-    if poll_interval_seconds <= 0:
+    if not math.isfinite(poll_interval_seconds) or poll_interval_seconds <= 0:
         raise ValueError("poll_interval_seconds must be positive")
 
     expected_resources = set(expected_resource_arns)
     deadline = monotonic() + timeout_seconds
     while True:
-        if monotonic() >= deadline:
+        started_at = monotonic()
+        if started_at >= deadline:
             raise TimeoutError(TIMEOUT_MESSAGE)
         try:
-            subscription = client.get_subscription(arn=subscription_arn)["subscription"]
+            subscription = client.get_subscription(
+                arn=subscription_arn,
+                timeout_seconds=deadline - started_at,
+            )["subscription"]
         except Exception as exc:
             if not _is_retryable_error(exc):
                 raise
@@ -125,10 +152,9 @@ def main() -> None:
     sts = boto3.client("sts", region_name="us-east-1", config=AWS_API_CONFIG)
     account_id = sts.get_caller_identity()["Account"]
     distribution_arn = f"arn:aws:cloudfront::{account_id}:distribution/{args.distribution_id}"
-    pricing = boto3.client(
-        "pricing-plan-manager",
+    pricing = BoundedBotoPricingPlanClient(
+        boto3.Session(),
         region_name="us-east-1",
-        config=AWS_API_CONFIG,
     )
     subscription = wait_for_active_subscription(
         pricing,
