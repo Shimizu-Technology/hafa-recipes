@@ -62,18 +62,38 @@ aws cloudformation deploy \
     ThumbnailBucketRegion=ap-southeast-2 \
     MediaDomainName=media.hafa-recipes.com \
     AcmCertificateArn=arn:aws:acm:us-east-1:ACCOUNT:certificate/CERTIFICATE_ID \
+    EnablePricingPlanSubscription=false \
   --no-execute-changeset
 )
 ```
 
 Inspect the generated change set in CloudFormation. It must create one WAF web
-ACL, one OAC, one distribution, one Free pricing-plan subscription, and the
-four CloudWatch Logs delivery resources. It must not create or modify an S3
-bucket or bucket policy. Execute the exact reviewed change set, then wait for
-the stack and the distribution to finish deploying.
+ACL, one OAC, one distribution, and the four CloudWatch Logs delivery
+resources. It must not create a pricing-plan subscription, S3 bucket, or bucket
+policy. Execute the exact reviewed change set, then wait for the stack and the
+distribution to finish deploying.
 The pricing preflight must report `eligible: true`; it rejects new AWS Free Tier
 accounts and accounts already at the three-CloudFront-Free-plan limit before
 CloudFormation attempts to create the subscription.
+
+AWS requires the distribution and its associated WAF web ACL to be eligible
+before creating the flat-rate subscription. Creating all three concurrently can
+race the service's eligibility propagation even when CloudFormation reports the
+distribution complete. After the base stack is `CREATE_COMPLETE`, verify the
+distribution reports `Deployed` and its `WebACLId` exactly equals the stack's
+`WebAclArn` output. Then create a second no-execute change set from the same
+template and parameters with only this override changed:
+
+```bash
+EnablePricingPlanSubscription=true
+```
+
+The second change set must add exactly one
+`AWS::PricingPlanManager::Subscription`. It must not replace or modify the
+distribution, WAF, logging, OAC, S3 bucket, or bucket policy. Execute that exact
+reviewed update, wait for `UPDATE_COMPLETE`, and verify the subscription is
+`ACTIVE` before continuing. If AWS reports either resource as ineligible, stop;
+do not remove the required WAF or switch to pay-as-you-go pricing as a shortcut.
 
 Record these stack outputs in the deployment log:
 

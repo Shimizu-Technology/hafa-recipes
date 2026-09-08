@@ -27,6 +27,20 @@ Parameters:
     Default: 10000
     MinValue: 100
     Description: Maximum requests from one IP during a five-minute window.
+  EnablePricingPlanSubscription:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'false'
+      - 'true'
+    Description: >-
+      Enable only in a second stack update after the distribution and WAF
+      association are fully deployed.
+
+Conditions:
+  CreatePricingPlanSubscription: !Equals
+    - !Ref EnablePricingPlanSubscription
+    - 'true'
 
 Resources:
   RecipeMediaWebAcl:
@@ -198,6 +212,7 @@ Resources:
 
   RecipeMediaFreePricingPlan:
     Type: AWS::PricingPlanManager::Subscription
+    Condition: CreatePricingPlanSubscription
     Properties:
       PlanFamily: CloudFront
       PlanTier: FREE
@@ -218,6 +233,7 @@ Outputs:
     Description: Value to assign to Render RECIPE_MEDIA_BASE_URL.
     Value: !Sub 'https://${MediaDomainName}'
   PricingPlanArn:
+    Condition: CreatePricingPlanSubscription
     Description: Free flat-rate pricing subscription ARN.
     Value: !Ref RecipeMediaFreePricingPlan
   WebAclArn:
