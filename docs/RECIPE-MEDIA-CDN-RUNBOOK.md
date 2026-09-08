@@ -133,12 +133,85 @@ EnablePricingPlanSubscription=true
 
 This change set must modify `RecipeMediaWebAcl` without replacement. It may
 also contain the same non-replacing distribution dependency modification
-described above, but no other distribution detail or resource change. It must
-preserve the WAF physical ID, keep the WAF associated with the distribution,
-and contain no `Remove` action for `RecipeMediaFreePricingPlan`. Execute it,
-wait for `UPDATE_COMPLETE`, and verify the WAF now has default action `BLOCK`
-with the `RateLimitThumbnailRequests` and `AllowThumbnailPaths` rules in that
-order. Only after this hardened state is verified may DNS, the S3 CloudFront
+described above. Because the subscription's `ResourceArns` also references the
+WAF ARN, CloudFormation may report a non-replacing, dynamic
+`RecipeMediaFreePricingPlan` modification caused only by
+`RecipeMediaWebAcl.Arn`. For that subscription change, require action `Modify`,
+replacement `False`, and only `ResourceArns` details with recreation `Never`,
+dynamic evaluation, resource-attribute source, and causing entity
+`RecipeMediaWebAcl.Arn`. Reject any other detail or resource change, including
+any subscription `Remove` or a `Replacement` value of `Conditional` or `True`.
+
+Capture the subscription, WAF, and distribution identifiers before execution,
+then execute and verify the exact reviewed change set in the same guarded
+shell. Do not treat stack `UPDATE_COMPLETE` as proof that the pricing service
+is ready. Poll
+`GetSubscription` for at most five minutes, fail immediately on `FAILED`, and
+perform the resource-ARN checks only after the status is `ACTIVE`:
+
+```bash
+(
+set -euo pipefail
+HARDEN_CHANGE_SET_NAME=harden-YYYYMMDD-COMMIT
+export SUBSCRIPTION_ARN_BEFORE="$(aws cloudformation describe-stacks \
+  --region us-east-1 \
+  --stack-name hafa-recipes-media-cdn-production \
+  --query 'Stacks[0].Outputs[?OutputKey==`PricingPlanArn`].OutputValue | [0]' \
+  --output text)"
+export WEB_ACL_ARN_BEFORE="$(aws cloudformation describe-stacks \
+  --region us-east-1 \
+  --stack-name hafa-recipes-media-cdn-production \
+  --query 'Stacks[0].Outputs[?OutputKey==`WebAclArn`].OutputValue | [0]' \
+  --output text)"
+export DISTRIBUTION_ID_BEFORE="$(aws cloudformation describe-stacks \
+  --region us-east-1 \
+  --stack-name hafa-recipes-media-cdn-production \
+  --query 'Stacks[0].Outputs[?OutputKey==`DistributionId`].OutputValue | [0]' \
+  --output text)"
+
+aws cloudformation execute-change-set \
+  --region us-east-1 \
+  --stack-name hafa-recipes-media-cdn-production \
+  --change-set-name "$HARDEN_CHANGE_SET_NAME"
+aws cloudformation wait stack-update-complete \
+  --region us-east-1 \
+  --stack-name hafa-recipes-media-cdn-production
+
+export SUBSCRIPTION_ARN_AFTER="$(aws cloudformation describe-stacks \
+  --region us-east-1 \
+  --stack-name hafa-recipes-media-cdn-production \
+  --query 'Stacks[0].Outputs[?OutputKey==`PricingPlanArn`].OutputValue | [0]' \
+  --output text)"
+export WEB_ACL_ARN_AFTER="$(aws cloudformation describe-stacks \
+  --region us-east-1 \
+  --stack-name hafa-recipes-media-cdn-production \
+  --query 'Stacks[0].Outputs[?OutputKey==`WebAclArn`].OutputValue | [0]' \
+  --output text)"
+export DISTRIBUTION_ID_AFTER="$(aws cloudformation describe-stacks \
+  --region us-east-1 \
+  --stack-name hafa-recipes-media-cdn-production \
+  --query 'Stacks[0].Outputs[?OutputKey==`DistributionId`].OutputValue | [0]' \
+  --output text)"
+test "$SUBSCRIPTION_ARN_BEFORE" = "$SUBSCRIPTION_ARN_AFTER"
+test "$WEB_ACL_ARN_BEFORE" = "$WEB_ACL_ARN_AFTER"
+test "$DISTRIBUTION_ID_BEFORE" = "$DISTRIBUTION_ID_AFTER"
+
+export SUBSCRIPTION_ARN="$SUBSCRIPTION_ARN_BEFORE"
+export WEB_ACL_ARN="$WEB_ACL_ARN_BEFORE"
+export DISTRIBUTION_ID="$DISTRIBUTION_ID_BEFORE"
+
+cd api
+uv run python -m app.recipe_media_subscription_verify \
+  --subscription-arn "$SUBSCRIPTION_ARN" \
+  --distribution-id "$DISTRIBUTION_ID" \
+  --web-acl-arn "$WEB_ACL_ARN" \
+  --timeout-seconds 300
+)
+```
+
+Verify the WAF now has default action `BLOCK` with the
+`RateLimitThumbnailRequests` and `AllowThumbnailPaths` rules in that order.
+Only after the WAF and subscription checks pass may DNS, the S3 CloudFront
 grant, or Render be changed to send production traffic to the CDN.
 
 For every later stack update, retain
