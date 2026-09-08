@@ -125,12 +125,21 @@ def test_waf_blocks_non_thumbnail_paths_and_rate_limits_thumbnail_requests() -> 
 
 
 def test_distribution_is_covered_by_the_free_flat_rate_plan() -> None:
-    """Associate the distribution and WAF with one zero-cost pricing plan."""
+    """Gate the complete distribution/WAF plan behind a second stack update."""
 
-    subscription = _template()["Resources"]["RecipeMediaFreePricingPlan"]
+    template = _template()
+    parameter = template["Parameters"]["EnablePricingPlanSubscription"]
+    condition = template["Conditions"]["CreatePricingPlanSubscription"]
+    subscription = template["Resources"]["RecipeMediaFreePricingPlan"]
     properties = subscription["Properties"]
 
+    assert parameter["Default"] == "false"
+    assert parameter["AllowedValues"] == ["false", "true"]
+    assert condition == {
+        "Equals": [{"Ref": "EnablePricingPlanSubscription"}, "true"]
+    }
     assert subscription["Type"] == "AWS::PricingPlanManager::Subscription"
+    assert subscription["Condition"] == "CreatePricingPlanSubscription"
     assert properties["PlanFamily"] == "CloudFront"
     assert properties["PlanTier"] == "FREE"
     assert properties["UsageLevel"] == "DEFAULT"
@@ -143,6 +152,9 @@ def test_distribution_is_covered_by_the_free_flat_rate_plan() -> None:
         },
         {"GetAtt": "RecipeMediaWebAcl.Arn"},
     ]
+    assert template["Outputs"]["PricingPlanArn"]["Condition"] == (
+        "CreatePricingPlanSubscription"
+    )
 
 
 def test_access_logs_are_privacy_minimized_and_expire() -> None:
