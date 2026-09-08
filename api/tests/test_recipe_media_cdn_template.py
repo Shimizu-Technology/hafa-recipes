@@ -91,53 +91,35 @@ def test_custom_domain_is_required_and_dotted_bucket_names_are_rejected() -> Non
     assert "." not in parameters["ThumbnailBucketName"]["AllowedPattern"]
 
 
-def test_waf_blocks_non_thumbnail_paths_and_rate_limits_thumbnail_requests() -> None:
-    """Block non-thumbnail viewer paths and bound abuse of the public path."""
+def test_waf_uses_free_plan_rate_limiting_and_leaves_path_authorization_to_s3() -> None:
+    """Bound viewer abuse without enabling Free-plan-incompatible WAF features."""
 
     template = _template()
     web_acl = template["Resources"]["RecipeMediaWebAcl"]["Properties"]
-    default_action_condition = web_acl["DefaultAction"]["If"]
     rules_condition = web_acl["Rules"]["If"]
     ordered_rules = rules_condition[1]
 
-    assert default_action_condition == [
-        "ApplyThumbnailWafRules",
-        {"Block": {}},
-        {"Allow": {}},
-    ]
+    assert web_acl["DefaultAction"] == {"Allow": {}}
     assert rules_condition[0] == "ApplyThumbnailWafRules"
     assert rules_condition[2] == {"Ref": "AWS::NoValue"}
-    assert web_acl["VisibilityConfig"]["CloudWatchMetricsEnabled"] == {
-        "If": ["ApplyThumbnailWafRules", True, False]
-    }
-    assert web_acl["VisibilityConfig"]["SampledRequestsEnabled"] == {
-        "If": ["ApplyThumbnailWafRules", True, False]
-    }
-    assert [rule["Name"] for rule in ordered_rules] == [
-        "RateLimitThumbnailRequests",
-        "AllowThumbnailPaths",
-    ]
+    assert web_acl["VisibilityConfig"]["CloudWatchMetricsEnabled"] is False
+    assert web_acl["VisibilityConfig"]["SampledRequestsEnabled"] is False
+    assert [rule["Name"] for rule in ordered_rules] == ["RateLimitThumbnailRequests"]
     rules = {rule["Name"]: rule for rule in ordered_rules}
 
     assert rules["RateLimitThumbnailRequests"]["Priority"] == 0
     assert rules["RateLimitThumbnailRequests"]["Action"] == {"Block": {}}
-    assert rules["AllowThumbnailPaths"]["Priority"] == 1
-    assert rules["AllowThumbnailPaths"]["Action"] == {"Allow": {}}
-    allow_statement = rules["AllowThumbnailPaths"]["Statement"]["ByteMatchStatement"]
-    assert allow_statement["FieldToMatch"] == {"UriPath": {}}
-    assert allow_statement["PositionalConstraint"] == "STARTS_WITH"
-    assert allow_statement["SearchString"] == "/thumbnails/"
+    assert rules["RateLimitThumbnailRequests"]["VisibilityConfig"] == {
+        "CloudWatchMetricsEnabled": False,
+        "MetricName": {"Sub": "${AWS::StackName}-rate-limit"},
+        "SampledRequestsEnabled": False,
+    }
 
     rate_statement = rules["RateLimitThumbnailRequests"]["Statement"]["RateBasedStatement"]
     assert rate_statement["AggregateKeyType"] == "IP"
     assert rate_statement["EvaluationWindowSec"] == 300
     assert rate_statement["Limit"] == {"Ref": "ThumbnailRateLimit"}
-    assert rate_statement["ScopeDownStatement"]["ByteMatchStatement"] == {
-        "FieldToMatch": {"UriPath": {}},
-        "PositionalConstraint": "STARTS_WITH",
-        "SearchString": "/thumbnails/",
-        "TextTransformations": [{"Priority": 0, "Type": "NONE"}],
-    }
+    assert "ScopeDownStatement" not in rate_statement
 
 
 def test_waf_enforcement_defaults_on_and_bootstrap_is_explicit() -> None:
