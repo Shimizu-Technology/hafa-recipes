@@ -849,17 +849,22 @@ async def _process_item(
 
 
 async def _try_acquire_backfill_lock(connection: AsyncConnection) -> int | None:
-    """Acquire the session lock and return its physical PostgreSQL backend ID."""
+    """Acquire a transaction lock and return its physical PostgreSQL backend ID.
+
+    Production uses Neon's transaction pooler. Keeping this transaction open
+    pins the dedicated connection to one PostgreSQL backend for the full run;
+    a session advisory lock followed by commit would instead leak the lock on
+    one pooled backend while later checks could execute on another.
+    """
     row = (
         await connection.execute(
             text("""
-                SELECT pg_try_advisory_lock(hashtext(:lock_name)) AS acquired,
+                SELECT pg_try_advisory_xact_lock(hashtext(:lock_name)) AS acquired,
                        pg_backend_pid() AS backend_pid
             """),
             {"lock_name": BACKFILL_LOCK_NAME},
         )
     ).one()
-    await connection.commit()
     return int(row.backend_pid) if row.acquired else None
 
 
@@ -881,11 +886,7 @@ async def _assert_backfill_lock_session(
 
 
 async def _release_backfill_lock(connection: AsyncConnection) -> None:
-    """Release the exact session-level repair lock."""
-    await connection.execute(
-        text("SELECT pg_advisory_unlock(hashtext(:lock_name))"),
-        {"lock_name": BACKFILL_LOCK_NAME},
-    )
+    """Commit the dedicated transaction, releasing its advisory lock."""
     await connection.commit()
 
 

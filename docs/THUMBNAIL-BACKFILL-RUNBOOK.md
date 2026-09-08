@@ -26,8 +26,11 @@ depends on anonymously cacheable objects.
   still match the plan. User changes win and are recorded as conflicts.
 - Interrupted runs resume from append-only outcomes. Successful items are not
   processed again; transient failures can retry up to `--max-attempts`.
-- The global lock connection is verified before every item. Per-recipe media
-  and row locks plus conditional updates remain the correctness boundary.
+- The global transaction-scoped advisory lock remains in one open transaction
+  on its dedicated connection and is verified before every item. This pins the
+  physical PostgreSQL backend even when production uses Neon's transaction
+  pooler. Per-recipe media and row locks plus conditional updates remain the
+  correctness boundary.
 - App-owned legacy objects are fetched with authenticated S3 reads. External
   sources use the redirect-aware, SSRF-protected public downloader.
 - Content-history restores preserve the current canonical thumbnail instead of
