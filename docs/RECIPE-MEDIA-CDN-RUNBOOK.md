@@ -92,9 +92,11 @@ with zero rules, sampled requests disabled, and CloudWatch metrics disabled.
 
 If the stack was originally created with WAF enforcement enabled, first update
 that unrouted stack with both enrollment parameters set to `false`. The change
-set must modify only `RecipeMediaWebAcl`; it must not replace the WAF, modify
-the distribution, or add or remove any other resource. Wait for the stack
-update and WAF association to finish propagating before continuing.
+set must modify `RecipeMediaWebAcl` without replacement. CloudFormation may
+also report a non-replacing, dynamic `RecipeMediaDistribution` modification
+caused only by the distribution's `RecipeMediaWebAcl.Arn` reference; reject any
+other distribution detail or resource change. Wait for the stack update and
+WAF association to finish propagating before continuing.
 
 The pricing preflight must report `eligible: true`; it rejects new AWS Free Tier
 accounts and accounts already at the three-CloudFront-Free-plan limit before
@@ -129,13 +131,15 @@ EnforceThumbnailWafRules=true
 EnablePricingPlanSubscription=true
 ```
 
-This change set must modify only `RecipeMediaWebAcl`. It must preserve the WAF
-physical ID, keep the WAF associated with the distribution, and contain no
-`Remove` action for `RecipeMediaFreePricingPlan`. Execute it, wait for
-`UPDATE_COMPLETE`, and verify the WAF now has default action `BLOCK` with the
-`RateLimitThumbnailRequests` and `AllowThumbnailPaths` rules in that order.
-Only after this hardened state is verified may DNS, the S3 CloudFront grant, or
-Render be changed to send production traffic to the CDN.
+This change set must modify `RecipeMediaWebAcl` without replacement. It may
+also contain the same non-replacing distribution dependency modification
+described above, but no other distribution detail or resource change. It must
+preserve the WAF physical ID, keep the WAF associated with the distribution,
+and contain no `Remove` action for `RecipeMediaFreePricingPlan`. Execute it,
+wait for `UPDATE_COMPLETE`, and verify the WAF now has default action `BLOCK`
+with the `RateLimitThumbnailRequests` and `AllowThumbnailPaths` rules in that
+order. Only after this hardened state is verified may DNS, the S3 CloudFront
+grant, or Render be changed to send production traffic to the CDN.
 
 For every later stack update, retain
 `EnforceThumbnailWafRules=true` and `EnablePricingPlanSubscription=true` (or
