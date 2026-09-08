@@ -42,6 +42,10 @@ web ACL can only be created from that Region.
 
 Validate and create a reviewable change set from the repository root:
 
+The `EnablePricingPlanSubscription=false` override below is only for the first
+creation of a fresh stack. Never use it to update a stack that already has an
+active pricing-plan subscription.
+
 ```bash
 (
 set -euo pipefail
@@ -94,6 +98,12 @@ distribution, WAF, logging, OAC, S3 bucket, or bucket policy. Execute that exact
 reviewed update, wait for `UPDATE_COMPLETE`, and verify the subscription is
 `ACTIVE` before continuing. If AWS reports either resource as ineligible, stop;
 do not remove the required WAF or switch to pay-as-you-go pricing as a shortcut.
+
+For every later stack update, retain
+`EnablePricingPlanSubscription=true` (or explicitly use the previous parameter
+value). Before execution, require the change set to contain no `Remove` action
+for `RecipeMediaFreePricingPlan`. Removing the subscription schedules its
+cancellation and can change the distribution's billing and feature contract.
 
 Record these stack outputs in the deployment log:
 
