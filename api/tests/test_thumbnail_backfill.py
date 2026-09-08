@@ -119,6 +119,7 @@ def test_apply_requires_every_expectation_lock(missing):
         "expected_destination_fingerprint": "e" * 64,
         "expected_plan_digest": "c" * 64,
         "expected_release_id": "render-commit-abc123",
+        "expected_plan_release_id": None,
         "max_attempts": 3,
     }
     values[missing] = None
@@ -171,7 +172,24 @@ def test_apply_rejects_out_of_bounds_attempt_limit():
             expected_destination_fingerprint="e" * 64,
             expected_plan_digest="d" * 64,
             expected_release_id="release-1",
+            expected_plan_release_id=None,
             max_attempts=MAX_ATTEMPTS + 1,
+        )
+
+
+@pytest.mark.parametrize("plan_release_id", ["", "   ", "release\nname"])
+def test_apply_rejects_unsafe_plan_release_id(plan_release_id):
+    with pytest.raises(ThumbnailBackfillBlocked, match="plan-release-id"):
+        _validate_apply_arguments(
+            backfill_id="legacy-images-batch-1",
+            restore_point="verified-restore-point",
+            expected_rows=1,
+            expected_source_bytes=1,
+            expected_destination_fingerprint="e" * 64,
+            expected_plan_digest="d" * 64,
+            expected_release_id="current-release",
+            expected_plan_release_id=plan_release_id,
+            max_attempts=3,
         )
 
 
@@ -222,5 +240,6 @@ def test_apply_rejects_unsafe_restore_point_labels(restore_point):
             expected_destination_fingerprint="e" * 64,
             expected_plan_digest="d" * 64,
             expected_release_id="render-commit-abc123",
+            expected_plan_release_id=None,
             max_attempts=3,
         )

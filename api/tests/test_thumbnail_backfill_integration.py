@@ -660,10 +660,24 @@ async def test_interrupted_run_resumes_without_reprocessing_successes():
                 **apply_kwargs,
             )
 
+        original_release_id = plan["release_id"]
+        storage.release_id = "reviewed-lock-fix-release"
+        with pytest.raises(ThumbnailBackfillBlocked, match="runtime release changed"):
+            await run_backfill(
+                database_engine=database_engine,
+                storage=storage,
+                **apply_kwargs,
+            )
+
+        resumed_kwargs = {
+            **apply_kwargs,
+            "expected_release_id": storage.release_id,
+            "expected_plan_release_id": original_release_id,
+        }
         resumed = await run_backfill(
             database_engine=database_engine,
             storage=storage,
-            **apply_kwargs,
+            **resumed_kwargs,
         )
         assert resumed["status"] == "completed"
         assert resumed["processed"] == {"already_terminal": 1, "succeeded": 1}
@@ -672,6 +686,19 @@ async def test_interrupted_run_resumes_without_reprocessing_successes():
             "30000000-0000-4000-8000-000000000002",
             "30000000-0000-4000-8000-000000000002",
         ]
+
+        with pytest.raises(
+            ThumbnailBackfillBlocked,
+            match="only when resuming an existing immutable run",
+        ):
+            await run_backfill(
+                database_engine=database_engine,
+                storage=storage,
+                **{
+                    **resumed_kwargs,
+                    "backfill_id": "new-cross-release-batch",
+                },
+            )
         async with database_engine.connect() as connection:
             assert await connection.scalar(
                 text("""

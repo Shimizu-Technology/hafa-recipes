@@ -380,6 +380,7 @@ def _validate_apply_arguments(
     expected_destination_fingerprint: str | None,
     expected_plan_digest: str | None,
     expected_release_id: str | None,
+    expected_plan_release_id: str | None,
     max_attempts: int,
 ) -> None:
     """Require explicit, bounded write intent and expectation locks."""
@@ -406,7 +407,13 @@ def _validate_apply_arguments(
         raise ThumbnailBackfillBlocked("Apply mode requires --expected-plan-digest")
     if not _SAFE_OPERATOR_LABEL.fullmatch((expected_release_id or "").strip()):
         raise ThumbnailBackfillBlocked(
-            "Apply mode requires --expected-release-id from the dry run"
+            "Apply mode requires --expected-release-id for the current runtime"
+        )
+    if expected_plan_release_id is not None and not _SAFE_OPERATOR_LABEL.fullmatch(
+        expected_plan_release_id.strip()
+    ):
+        raise ThumbnailBackfillBlocked(
+            "--expected-plan-release-id must identify the immutable plan release"
         )
     if max_attempts < 1 or max_attempts > MAX_ATTEMPTS:
         raise ThumbnailBackfillBlocked(
@@ -450,7 +457,7 @@ def _validate_existing_run(
     expected_source_bytes: int,
     expected_destination_fingerprint: str,
     expected_plan_digest: str,
-    expected_release_id: str,
+    expected_plan_release_id: str,
 ) -> None:
     """Require resumed commands to identify the exact immutable run."""
     expected = {
@@ -461,7 +468,7 @@ def _validate_existing_run(
         "expected_source_bytes": expected_source_bytes,
         "destination_fingerprint": expected_destination_fingerprint,
         "plan_digest": expected_plan_digest,
-        "release_id": expected_release_id.strip(),
+        "release_id": expected_plan_release_id.strip(),
         "visibility_scope": "public",
     }
     for key, value in expected.items():
@@ -900,6 +907,7 @@ async def run_backfill(
     expected_destination_fingerprint: str | None = None,
     expected_plan_digest: str | None = None,
     expected_release_id: str | None = None,
+    expected_plan_release_id: str | None = None,
     after_recipe_id: UUID | None = None,
     batch_size: int = 50,
     max_attempts: int = 3,
@@ -925,6 +933,7 @@ async def run_backfill(
         expected_destination_fingerprint=expected_destination_fingerprint,
         expected_plan_digest=expected_plan_digest,
         expected_release_id=expected_release_id,
+        expected_plan_release_id=expected_plan_release_id,
         max_attempts=max_attempts,
     )
     assert backfill_id is not None
@@ -934,6 +943,7 @@ async def run_backfill(
     assert expected_destination_fingerprint is not None
     assert expected_plan_digest is not None
     assert expected_release_id is not None
+    plan_release_id = (expected_plan_release_id or expected_release_id).strip()
     if not storage.is_enabled:
         raise ThumbnailBackfillBlocked("Apply mode requires configured thumbnail storage")
     current_contract = storage.thumbnail_backfill_contract()
@@ -963,6 +973,11 @@ async def run_backfill(
                 )
             existing_run = await _load_run(connection, backfill_id)
         if existing_run is None:
+            if plan_release_id != expected_release_id:
+                raise ThumbnailBackfillBlocked(
+                    "--expected-plan-release-id may differ from the runtime release "
+                    "only when resuming an existing immutable run"
+                )
             plan = await build_backfill_plan(
                 database_engine=database_engine,
                 storage=storage,
@@ -1000,7 +1015,7 @@ async def run_backfill(
                 expected_source_bytes=expected_source_bytes,
                 expected_destination_fingerprint=expected_destination_fingerprint,
                 expected_plan_digest=expected_plan_digest,
-                expected_release_id=expected_release_id,
+                expected_plan_release_id=plan_release_id,
             )
             if existing_run["planned_items"] == 0:
                 return {
@@ -1090,6 +1105,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected-destination-fingerprint")
     parser.add_argument("--expected-plan-digest")
     parser.add_argument("--expected-release-id")
+    parser.add_argument("--expected-plan-release-id")
     parser.add_argument("--after-recipe-id", type=UUID)
     parser.add_argument("--batch-size", type=int, default=50)
     parser.add_argument("--max-attempts", type=int, default=3)
@@ -1108,6 +1124,7 @@ async def _main() -> None:
         expected_destination_fingerprint=args.expected_destination_fingerprint,
         expected_plan_digest=args.expected_plan_digest,
         expected_release_id=args.expected_release_id,
+        expected_plan_release_id=args.expected_plan_release_id,
         after_recipe_id=args.after_recipe_id,
         batch_size=args.batch_size,
         max_attempts=args.max_attempts,

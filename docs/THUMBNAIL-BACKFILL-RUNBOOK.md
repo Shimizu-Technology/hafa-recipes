@@ -26,6 +26,12 @@ depends on anonymously cacheable objects.
   still match the plan. User changes win and are recorded as conflicts.
 - Interrupted runs resume from append-only outcomes. Successful items are not
   processed again; transient failures can retry up to `--max-attempts`.
+- A normal resume uses the same deployed release. If an operational-only fix
+  must be deployed mid-run, `--expected-release-id` must identify the current
+  runtime and `--expected-plan-release-id` must explicitly identify the older
+  immutable plan. This exception is accepted only for an existing backfill ID;
+  it cannot create a new cross-release plan, and destination/transform and plan
+  digest locks still must match.
 - The global transaction-scoped advisory lock remains in one open transaction
   on its dedicated connection and is verified before every item. This pins the
   physical PostgreSQL backend even when production uses Neon's transaction
@@ -103,6 +109,12 @@ python -m app.thumbnail_backfill \
 If the command is interrupted, rerun the exact same command and backfill ID.
 Do not create a new ID for a partially applied plan. The global advisory lock
 prevents two backfill processes from running at the same time.
+
+If a reviewed operational-only release is deployed before the run finishes,
+resume with all of the same immutable plan values, change
+`--expected-release-id` to the current runtime release, and add the original
+plan value as `--expected-plan-release-id`. Never use that override for a new
+backfill ID or when the image destination/transform contract changed.
 
 ## Reconcile
 
