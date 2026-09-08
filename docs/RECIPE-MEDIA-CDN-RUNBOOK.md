@@ -40,11 +40,21 @@ Do not use the S3 website endpoint; OAC requires the regular S3 bucket origin.
 The template must be deployed in `us-east-1`. CloudFront is global, and its WAF
 web ACL can only be created from that Region.
 
-Validate and create a reviewable change set from the repository root:
+Pricing-plan enrollment uses three reviewed stack phases. The first phase uses
+a minimal WAF enrollment shape: default allow with no rules. This state is only
+for a new, unrouted CDN and must never receive production traffic. The existing
+S3 bucket policy remains the data boundary during enrollment and still grants
+the distribution no access.
 
-The `EnablePricingPlanSubscription=false` override below is only for the first
-creation of a fresh stack. Never use it to update a stack that already has an
-active pricing-plan subscription.
+Both parameters are safety-sensitive:
+
+- `EnforceThumbnailWafRules=false` is enrollment-only. Its default is `true`,
+  and every normal stack update must retain `true`.
+- `EnablePricingPlanSubscription=false` is only for a stack that does not yet
+  have a subscription. Once the subscription is active, every later update must
+  retain `true`; changing it to `false` starts cancellation.
+
+Validate and create a reviewable change set from the repository root:
 
 ```bash
 (
@@ -66,16 +76,26 @@ aws cloudformation deploy \
     ThumbnailBucketRegion=ap-southeast-2 \
     MediaDomainName=media.hafa-recipes.com \
     AcmCertificateArn=arn:aws:acm:us-east-1:ACCOUNT:certificate/CERTIFICATE_ID \
+    EnforceThumbnailWafRules=false \
     EnablePricingPlanSubscription=false \
   --no-execute-changeset
 )
 ```
 
-Inspect the generated change set in CloudFormation. It must create one WAF web
-ACL, one OAC, one distribution, and the four CloudWatch Logs delivery
+Inspect the generated change set in CloudFormation. It must create one minimal
+WAF web ACL, one OAC, one distribution, and the four CloudWatch Logs delivery
 resources. It must not create a pricing-plan subscription, S3 bucket, or bucket
 policy. Execute the exact reviewed change set, then wait for the stack and the
-distribution to finish deploying.
+distribution to finish deploying. Verify the distribution is not routed by
+DNS or `RECIPE_MEDIA_BASE_URL`, and verify the WAF has default action `ALLOW`
+with zero rules, sampled requests disabled, and CloudWatch metrics disabled.
+
+If the stack was originally created with WAF enforcement enabled, first update
+that unrouted stack with both enrollment parameters set to `false`. The change
+set must modify only `RecipeMediaWebAcl`; it must not replace the WAF, modify
+the distribution, or add or remove any other resource. Wait for the stack
+update and WAF association to finish propagating before continuing.
+
 The pricing preflight must report `eligible: true`; it rejects new AWS Free Tier
 accounts and accounts already at the three-CloudFront-Free-plan limit before
 CloudFormation attempts to create the subscription.
@@ -86,9 +106,11 @@ race the service's eligibility propagation even when CloudFormation reports the
 distribution complete. After the base stack is `CREATE_COMPLETE`, verify the
 distribution reports `Deployed` and its `WebACLId` exactly equals the stack's
 `WebAclArn` output. Then create a second no-execute change set from the same
-template and parameters with only this override changed:
+template and parameters, retaining the minimal enrollment WAF and changing
+only this override:
 
 ```bash
+EnforceThumbnailWafRules=false
 EnablePricingPlanSubscription=true
 ```
 
@@ -99,10 +121,27 @@ reviewed update, wait for `UPDATE_COMPLETE`, and verify the subscription is
 `ACTIVE` before continuing. If AWS reports either resource as ineligible, stop;
 do not remove the required WAF or switch to pay-as-you-go pricing as a shortcut.
 
+After the subscription is active, create a third no-execute change set with
+both parameters set to `true`:
+
+```bash
+EnforceThumbnailWafRules=true
+EnablePricingPlanSubscription=true
+```
+
+This change set must modify only `RecipeMediaWebAcl`. It must preserve the WAF
+physical ID, keep the WAF associated with the distribution, and contain no
+`Remove` action for `RecipeMediaFreePricingPlan`. Execute it, wait for
+`UPDATE_COMPLETE`, and verify the WAF now has default action `BLOCK` with the
+`RateLimitThumbnailRequests` and `AllowThumbnailPaths` rules in that order.
+Only after this hardened state is verified may DNS, the S3 CloudFront grant, or
+Render be changed to send production traffic to the CDN.
+
 For every later stack update, retain
-`EnablePricingPlanSubscription=true` (or explicitly use the previous parameter
-value). Before execution, require the change set to contain no `Remove` action
-for `RecipeMediaFreePricingPlan`. Removing the subscription schedules its
+`EnforceThumbnailWafRules=true` and `EnablePricingPlanSubscription=true` (or
+explicitly use both previous parameter values). Before execution, require the
+change set to contain no `Remove` action for `RecipeMediaFreePricingPlan` and no
+change that makes the WAF permissive. Removing the subscription schedules its
 cancellation and can change the distribution's billing and feature contract.
 
 Record these stack outputs in the deployment log:
