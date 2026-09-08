@@ -1,5 +1,6 @@
 """Unit contracts for the legacy thumbnail backfill command."""
 
+from types import SimpleNamespace
 from uuid import UUID
 
 import httpx
@@ -13,10 +14,35 @@ from app.thumbnail_backfill import (
     ThumbnailBackfillBlocked,
     _build_parser,
     _failure_code,
+    _release_backfill_lock,
+    _try_acquire_backfill_lock,
     _validate_apply_arguments,
     _validate_plan_expectations,
     _validate_scope,
 )
+
+
+class _LockResult:
+    def __init__(self, *, acquired: bool, backend_pid: int) -> None:
+        self.row = SimpleNamespace(acquired=acquired, backend_pid=backend_pid)
+
+    def one(self):
+        return self.row
+
+
+class _LockConnection:
+    def __init__(self, *, acquired: bool = True, backend_pid: int = 1234) -> None:
+        self.acquired = acquired
+        self.backend_pid = backend_pid
+        self.statements: list[str] = []
+        self.commit_count = 0
+
+    async def execute(self, statement, _parameters=None):
+        self.statements.append(str(statement))
+        return _LockResult(acquired=self.acquired, backend_pid=self.backend_pid)
+
+    async def commit(self) -> None:
+        self.commit_count += 1
 
 
 def _item(recipe_id: str, *, source_bytes: int) -> PlanItem:
@@ -55,6 +81,23 @@ def test_plan_digest_is_deterministic_and_summary_never_exposes_urls():
     assert "private" not in str(summary)
 
 
+@pytest.mark.asyncio
+async def test_global_lock_keeps_transaction_open_for_transaction_pooler():
+    connection = _LockConnection()
+
+    backend_pid = await _try_acquire_backfill_lock(connection)  # type: ignore[arg-type]
+
+    assert backend_pid == 1234
+    assert "pg_try_advisory_xact_lock" in connection.statements[0]
+    assert "pg_try_advisory_lock(" not in connection.statements[0]
+    assert connection.commit_count == 0
+
+    await _release_backfill_lock(connection)  # type: ignore[arg-type]
+
+    assert connection.commit_count == 1
+    assert len(connection.statements) == 1
+
+
 @pytest.mark.parametrize(
     "missing",
     [
@@ -76,6 +119,7 @@ def test_apply_requires_every_expectation_lock(missing):
         "expected_destination_fingerprint": "e" * 64,
         "expected_plan_digest": "c" * 64,
         "expected_release_id": "render-commit-abc123",
+        "expected_plan_release_id": None,
         "max_attempts": 3,
     }
     values[missing] = None
@@ -128,7 +172,24 @@ def test_apply_rejects_out_of_bounds_attempt_limit():
             expected_destination_fingerprint="e" * 64,
             expected_plan_digest="d" * 64,
             expected_release_id="release-1",
+            expected_plan_release_id=None,
             max_attempts=MAX_ATTEMPTS + 1,
+        )
+
+
+@pytest.mark.parametrize("plan_release_id", ["", "   ", "release\nname"])
+def test_apply_rejects_unsafe_plan_release_id(plan_release_id):
+    with pytest.raises(ThumbnailBackfillBlocked, match="plan-release-id"):
+        _validate_apply_arguments(
+            backfill_id="legacy-images-batch-1",
+            restore_point="verified-restore-point",
+            expected_rows=1,
+            expected_source_bytes=1,
+            expected_destination_fingerprint="e" * 64,
+            expected_plan_digest="d" * 64,
+            expected_release_id="current-release",
+            expected_plan_release_id=plan_release_id,
+            max_attempts=3,
         )
 
 
@@ -179,5 +240,6 @@ def test_apply_rejects_unsafe_restore_point_labels(restore_point):
             expected_destination_fingerprint="e" * 64,
             expected_plan_digest="d" * 64,
             expected_release_id="render-commit-abc123",
+            expected_plan_release_id=None,
             max_attempts=3,
         )
