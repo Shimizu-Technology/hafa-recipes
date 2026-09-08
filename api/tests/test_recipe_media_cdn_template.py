@@ -94,15 +94,31 @@ def test_custom_domain_is_required_and_dotted_bucket_names_are_rejected() -> Non
 def test_waf_blocks_non_thumbnail_paths_and_rate_limits_thumbnail_requests() -> None:
     """Block non-thumbnail viewer paths and bound abuse of the public path."""
 
-    web_acl = _template()["Resources"]["RecipeMediaWebAcl"]["Properties"]
-    ordered_rules = web_acl["Rules"]
+    template = _template()
+    web_acl = template["Resources"]["RecipeMediaWebAcl"]["Properties"]
+    default_action_condition = web_acl["DefaultAction"]["If"]
+    rules_condition = web_acl["Rules"]["If"]
+    ordered_rules = rules_condition[1]
+
+    assert default_action_condition == [
+        "ApplyThumbnailWafRules",
+        {"Block": {}},
+        {"Allow": {}},
+    ]
+    assert rules_condition[0] == "ApplyThumbnailWafRules"
+    assert rules_condition[2] == {"Ref": "AWS::NoValue"}
+    assert web_acl["VisibilityConfig"]["CloudWatchMetricsEnabled"] == {
+        "If": ["ApplyThumbnailWafRules", True, False]
+    }
+    assert web_acl["VisibilityConfig"]["SampledRequestsEnabled"] == {
+        "If": ["ApplyThumbnailWafRules", True, False]
+    }
     assert [rule["Name"] for rule in ordered_rules] == [
         "RateLimitThumbnailRequests",
         "AllowThumbnailPaths",
     ]
     rules = {rule["Name"]: rule for rule in ordered_rules}
 
-    assert web_acl["DefaultAction"] == {"Block": {}}
     assert rules["RateLimitThumbnailRequests"]["Priority"] == 0
     assert rules["RateLimitThumbnailRequests"]["Action"] == {"Block": {}}
     assert rules["AllowThumbnailPaths"]["Priority"] == 1
@@ -121,6 +137,19 @@ def test_waf_blocks_non_thumbnail_paths_and_rate_limits_thumbnail_requests() -> 
         "PositionalConstraint": "STARTS_WITH",
         "SearchString": "/thumbnails/",
         "TextTransformations": [{"Priority": 0, "Type": "NONE"}],
+    }
+
+
+def test_waf_enforcement_defaults_on_and_bootstrap_is_explicit() -> None:
+    """Make the enrollment-only permissive WAF state fail safe on later updates."""
+
+    template = _template()
+    parameter = template["Parameters"]["EnforceThumbnailWafRules"]
+
+    assert parameter["Default"] == "true"
+    assert parameter["AllowedValues"] == ["false", "true"]
+    assert template["Conditions"]["ApplyThumbnailWafRules"] == {
+        "Equals": [{"Ref": "EnforceThumbnailWafRules"}, "true"]
     }
 
 

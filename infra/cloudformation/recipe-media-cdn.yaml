@@ -27,6 +27,15 @@ Parameters:
     Default: 10000
     MinValue: 100
     Description: Maximum requests from one IP during a five-minute window.
+  EnforceThumbnailWafRules:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'false'
+      - 'true'
+    Description: >-
+      Keep true for normal operation. Set false only during the initial pricing
+      plan enrollment phase, before production traffic is routed to the CDN.
   EnablePricingPlanSubscription:
     Type: String
     Default: 'false'
@@ -38,6 +47,9 @@ Parameters:
       association are fully deployed.
 
 Conditions:
+  ApplyThumbnailWafRules: !Equals
+    - !Ref EnforceThumbnailWafRules
+    - 'true'
   CreatePricingPlanSubscription: !Equals
     - !Ref EnablePricingPlanSubscription
     - 'true'
@@ -47,54 +59,64 @@ Resources:
     Type: AWS::WAFv2::WebACL
     Properties:
       Name: !Sub '${AWS::StackName}-web-acl'
-      Description: Allows recipe thumbnails and blocks all other bucket paths.
+      Description: Dedicated WAF for recipe thumbnail delivery.
       Scope: CLOUDFRONT
-      DefaultAction:
-        Block: {}
+      DefaultAction: !If
+        - ApplyThumbnailWafRules
+        - Block: {}
+        - Allow: {}
       VisibilityConfig:
-        CloudWatchMetricsEnabled: true
+        CloudWatchMetricsEnabled: !If
+          - ApplyThumbnailWafRules
+          - true
+          - false
         MetricName: !Sub '${AWS::StackName}-web-acl'
-        SampledRequestsEnabled: true
-      Rules:
-        - Name: RateLimitThumbnailRequests
-          Priority: 0
-          Action:
-            Block: {}
-          Statement:
-            RateBasedStatement:
-              AggregateKeyType: IP
-              EvaluationWindowSec: 300
-              Limit: !Ref ThumbnailRateLimit
-              ScopeDownStatement:
-                ByteMatchStatement:
-                  FieldToMatch:
-                    UriPath: {}
-                  PositionalConstraint: STARTS_WITH
-                  SearchString: /thumbnails/
-                  TextTransformations:
-                    - Priority: 0
-                      Type: NONE
-          VisibilityConfig:
-            CloudWatchMetricsEnabled: true
-            MetricName: !Sub '${AWS::StackName}-rate-limit'
-            SampledRequestsEnabled: true
-        - Name: AllowThumbnailPaths
-          Priority: 1
-          Action:
-            Allow: {}
-          Statement:
-            ByteMatchStatement:
-              FieldToMatch:
-                UriPath: {}
-              PositionalConstraint: STARTS_WITH
-              SearchString: /thumbnails/
-              TextTransformations:
-                - Priority: 0
-                  Type: NONE
-          VisibilityConfig:
-            CloudWatchMetricsEnabled: true
-            MetricName: !Sub '${AWS::StackName}-thumbnail-paths'
-            SampledRequestsEnabled: true
+        SampledRequestsEnabled: !If
+          - ApplyThumbnailWafRules
+          - true
+          - false
+      Rules: !If
+        - ApplyThumbnailWafRules
+        - - Name: RateLimitThumbnailRequests
+            Priority: 0
+            Action:
+              Block: {}
+            Statement:
+              RateBasedStatement:
+                AggregateKeyType: IP
+                EvaluationWindowSec: 300
+                Limit: !Ref ThumbnailRateLimit
+                ScopeDownStatement:
+                  ByteMatchStatement:
+                    FieldToMatch:
+                      UriPath: {}
+                    PositionalConstraint: STARTS_WITH
+                    SearchString: /thumbnails/
+                    TextTransformations:
+                      - Priority: 0
+                        Type: NONE
+            VisibilityConfig:
+              CloudWatchMetricsEnabled: true
+              MetricName: !Sub '${AWS::StackName}-rate-limit'
+              SampledRequestsEnabled: true
+          - Name: AllowThumbnailPaths
+            Priority: 1
+            Action:
+              Allow: {}
+            Statement:
+              ByteMatchStatement:
+                FieldToMatch:
+                  UriPath: {}
+                PositionalConstraint: STARTS_WITH
+                SearchString: /thumbnails/
+                TextTransformations:
+                  - Priority: 0
+                    Type: NONE
+            VisibilityConfig:
+              CloudWatchMetricsEnabled: true
+              MetricName: !Sub '${AWS::StackName}-thumbnail-paths'
+              SampledRequestsEnabled: true
+        - !Ref AWS::NoValue
       Tags:
         - Key: Application
           Value: hafa-recipes
