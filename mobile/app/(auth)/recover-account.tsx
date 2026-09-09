@@ -28,6 +28,8 @@ import { CLERK_ENVIRONMENT } from '@/lib/clerkMigration';
 
 const RESEND_COOLDOWN_SECONDS = 30;
 const SUPPORT_URL = 'mailto:shimizutechnology@gmail.com?subject=H%C3%A5fa%20Recipes%20account%20recovery';
+const NEUTRAL_CODE_SENT_MESSAGE =
+  'If a Håfa account matches this email, a six-digit code is on its way.';
 
 function completionErrorMessage(error: unknown): string {
   if (error && typeof error === 'object' && 'errors' in error && Array.isArray(error.errors)) {
@@ -71,6 +73,23 @@ export default function RecoverAccountScreen() {
     setStatusMessage(null);
   }
 
+  function enterSecureStep() {
+    setStep('secure');
+    setCode('');
+    setResendSeconds(RESEND_COOLDOWN_SECONDS);
+    setStatusMessage(NEUTRAL_CODE_SENT_MESSAGE);
+  }
+
+  function returnToEmailStep() {
+    clearMessages();
+    setStep('email');
+    setCode('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setShowPasswords(false);
+    setResendSeconds(0);
+  }
+
   async function handleSendCode() {
     if (!isLoaded || isLoading) return;
     if (!email.trim()) {
@@ -82,17 +101,11 @@ export default function RecoverAccountScreen() {
     setIsLoading(true);
     try {
       await beginExistingAccountPasswordRecovery(signIn, email);
-      setStep('secure');
-      setCode('');
-      setResendSeconds(RESEND_COOLDOWN_SECONDS);
-      setStatusMessage('If a Håfa account matches this email, a six-digit code is on its way.');
+      enterSecureStep();
     } catch (error: unknown) {
       if (isUnknownRecoveryAccountError(error)) {
         // Keep account existence private. The next screen is intentionally identical.
-        setStep('secure');
-        setCode('');
-        setResendSeconds(RESEND_COOLDOWN_SECONDS);
-        setStatusMessage('If a Håfa account matches this email, a six-digit code is on its way.');
+        enterSecureStep();
       } else {
         setErrorMessage(clerkErrorMessage(
           error,
@@ -171,13 +184,10 @@ export default function RecoverAccountScreen() {
           <TouchableOpacity
             style={[styles.backButton, { backgroundColor: colors.backgroundSecondary }]}
             onPress={() => {
-              clearMessages();
               if (step === 'secure') {
-                setStep('email');
-                setCode('');
-                setNewPassword('');
-                setConfirmPassword('');
+                returnToEmailStep();
               } else {
+                clearMessages();
                 leaveAuthScreen(router);
               }
             }}
@@ -262,10 +272,7 @@ export default function RecoverAccountScreen() {
                   </RNView>
                   <TouchableOpacity
                     style={styles.editEmailButton}
-                    onPress={() => {
-                      clearMessages();
-                      setStep('email');
-                    }}
+                    onPress={returnToEmailStep}
                     disabled={isLoading}
                     accessibilityRole="button"
                     accessibilityLabel="Change recovery email"

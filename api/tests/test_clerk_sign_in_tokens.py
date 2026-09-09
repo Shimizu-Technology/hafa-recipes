@@ -163,6 +163,50 @@ async def test_list_redirect_urls_parses_the_bounded_clerk_inventory(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_list_redirect_urls_reads_every_clerk_inventory_page(monkeypatch):
+    requested_offsets: list[int] = []
+    first_page = [
+        {"id": f"redirect_{index}", "url": f"example{index}://callback"}
+        for index in range(100)
+    ]
+
+    async def handler(incoming: httpx.Request) -> httpx.Response:
+        offset = int(incoming.url.params["offset"])
+        requested_offsets.append(offset)
+        if offset == 0:
+            return httpx.Response(200, json={
+                "data": first_page,
+                "total_count": 101,
+            })
+        assert offset == 100
+        return httpx.Response(200, json={
+            "data": [{
+                "id": "redirect_native",
+                "url": "hafarecipes://oauth-callback",
+            }],
+            "total_count": 101,
+        })
+
+    transport = httpx.MockTransport(handler)
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda *_args, **kwargs: original_client(
+            transport=transport,
+            timeout=kwargs.get("timeout"),
+        ),
+    )
+
+    result = await ClerkBackendClient(_environment()).list_redirect_urls()
+
+    assert requested_offsets == [0, 100]
+    assert len(result) == 101
+    assert "example0://callback" in result
+    assert "hafarecipes://oauth-callback" in result
+
+
+@pytest.mark.asyncio
 async def test_list_redirect_urls_fails_closed_on_an_unexpected_response(monkeypatch):
     transport = httpx.MockTransport(
         lambda _request: httpx.Response(200, json={"data": "not-a-list"})

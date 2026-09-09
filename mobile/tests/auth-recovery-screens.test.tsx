@@ -238,4 +238,55 @@ describe('authentication recovery Back controls', () => {
       await act(async () => renderer.unmount());
     }
   });
+
+  it('discards verification and password input before changing the recovery email', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => renderer.render(React.createElement(RecoverAccountScreen)));
+      const emailInput = renderer.container.queryAll(
+        (instance) => instance.type === 'Input' && instance.props.placeholder === 'you@example.com',
+      )[0];
+      await act(async () => emailInput.props.onChangeText('first@example.com'));
+      const continueButton = renderer.container.queryAll(
+        (instance) => instance.type === 'Button' && instance.props.title === 'Continue securely',
+      )[0];
+      await act(async () => continueButton.props.onPress());
+
+      const codeInput = renderer.container.queryAll(
+        (instance) => instance.type === 'Input' && instance.props.placeholder === '6-digit code',
+      )[0];
+      const passwordInput = renderer.container.queryAll(
+        (instance) => instance.type === 'Input' && instance.props.placeholder === 'At least 8 characters',
+      )[0];
+      const confirmInput = renderer.container.queryAll(
+        (instance) => instance.type === 'Input' && instance.props.placeholder === 'Enter it again',
+      )[0];
+      await act(async () => {
+        codeInput.props.onChangeText('123456');
+        passwordInput.props.onChangeText('discard-me');
+        confirmInput.props.onChangeText('discard-me');
+      });
+
+      const changeButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Change recovery email',
+      )[0];
+      await act(async () => changeButton.props.onPress());
+      await act(async () => emailInput.props.onChangeText('second@example.com'));
+      const secondContinueButton = renderer.container.queryAll(
+        (instance) => instance.type === 'Button' && instance.props.title === 'Continue securely',
+      )[0];
+      await act(async () => secondContinueButton.props.onPress());
+
+      const secureInputs = renderer.container.queryAll((instance) => instance.type === 'Input');
+      expect(secureInputs.find((instance) => instance.props.placeholder === '6-digit code')?.props.value)
+        .toBe('');
+      expect(secureInputs.find((instance) => instance.props.placeholder === 'At least 8 characters')?.props.value)
+        .toBe('');
+      expect(secureInputs.find((instance) => instance.props.placeholder === 'Enter it again')?.props.value)
+        .toBe('');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
 });
