@@ -4,12 +4,13 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('expo-web-browser', () => ({ openAuthSessionAsync: vi.fn() }));
 
 import {
+  inspectOAuthCallback,
+  MOBILE_OAUTH_CALLBACK_URL,
   signInWithAppleToken,
   signInWithBrowserProvider,
-  verifiedOAuthCallbackNonce,
 } from './socialAuthentication';
 
-const callback = 'hafarecipes://oauth-callback';
+const callback = MOBILE_OAUTH_CALLBACK_URL;
 
 function makeSignIn(status: 'complete' | 'transferable' | 'needs_first_factor') {
   const resource = {
@@ -59,13 +60,30 @@ describe('strict existing-account social sign-in', () => {
   });
 
   it('rejects malicious schemes, destinations, and missing nonces', () => {
-    expect(() => verifiedOAuthCallbackNonce(
+    expect(callback).toBe('hafarecipes://oauth-callback');
+    expect(() => inspectOAuthCallback(
       'evil://oauth-callback?rotating_token_nonce=stolen', callback,
     )).toThrow('unexpected application');
-    expect(() => verifiedOAuthCallbackNonce(
+    expect(() => inspectOAuthCallback(
       'hafarecipes://other-callback?rotating_token_nonce=stolen', callback,
     )).toThrow('unexpected application');
-    expect(() => verifiedOAuthCallbackNonce(callback, callback)).toThrow('could not be verified');
+    expect(() => inspectOAuthCallback(callback, callback)).toThrow('could not be verified');
+  });
+
+  it('classifies provider cancellation and provider errors without trusting a missing nonce', async () => {
+    expect(inspectOAuthCallback(`${callback}?error=access_denied`, callback))
+      .toEqual({ status: 'cancelled' });
+    expect(inspectOAuthCallback(`${callback}?error=oauth_failed`, callback))
+      .toEqual({ status: 'provider_error' });
+
+    const signIn = makeSignIn('complete');
+    const providerFailure = vi.fn(async () => ({
+      type: 'success' as const,
+      url: `${callback}?error=oauth_failed&error_description=private-provider-detail`,
+    }));
+    await expect(signInWithBrowserProvider(signIn, 'oauth_google', callback, providerFailure))
+      .resolves.toEqual({ status: 'incomplete' });
+    expect(signIn.reload).not.toHaveBeenCalled();
   });
 
   it('never reloads an unknown or cancelled browser sign-in', async () => {

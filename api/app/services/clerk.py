@@ -133,6 +133,40 @@ class ClerkBackendClient:
                 offset += limit
         return profiles
 
+    async def list_redirect_urls(self) -> tuple[str, ...]:
+        """Return the instance's native callback allowlist without exposing credentials."""
+        urls: set[str] = set()
+        offset = 0
+        limit = 100
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            while True:
+                response = await client.get(
+                    f"{CLERK_API_BASE_URL}/redirect_urls",
+                    headers=self._headers,
+                    params={"limit": limit, "offset": offset},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                if isinstance(payload, dict):
+                    items = payload.get("data")
+                    total_count = payload.get("total_count")
+                else:
+                    items = payload
+                    total_count = None
+                if not isinstance(items, list):
+                    raise RuntimeError("Clerk redirect allowlist returned an unexpected response")
+                for item in items:
+                    if isinstance(item, dict):
+                        url = item.get("url")
+                        if isinstance(url, str) and url.strip():
+                            urls.add(url.strip())
+                offset += len(items)
+                if not items or len(items) < limit:
+                    break
+                if isinstance(total_count, int) and offset >= total_count:
+                    break
+        return tuple(sorted(urls))
+
     async def create_user(
         self,
         *,

@@ -9,22 +9,33 @@ application user IDs throughout the transition.
 
 The bridge release automatically transfers an existing session when its one-use
 migration grant is still available. Customers who did not open the bridge
-release can select **Find my existing recipes** on the sign-in screen.
+release can select **Restore my library** on the sign-in screen.
 
-That flow starts an existing-account-only Clerk sign-in, sends a six-digit code
-to the email address already attached to the production account, and activates
-the original owner session only after the code is verified. It never creates a
-new account, transfers sign-in into sign-up, or rewrites recipe ownership.
+That flow starts Clerk's existing-account password-reset strategy, sends a
+six-digit code to the email address already attached to the production account,
+sets a durable password, and activates the original owner session only after the
+code is verified. It never creates a new account, transfers sign-in into sign-up,
+or rewrites recipe ownership. Unknown addresses receive the same on-screen
+response so the flow does not disclose whether an account exists.
 
 Customers who chose Apple Hide My Email may need the relay address listed under
 their Apple Account's Sign in with Apple settings. Apple forwards the
-verification email to the address behind that relay. Once the existing owner is
-authenticated, the production access gate requires a verified Apple or Google
-connection, or an account password, before private data is shown.
+verification email to the address behind that relay. Support both Apple's
+historical `@privaterelay.appleid.com` addresses and new `@private.icloud.com`
+addresses in readiness reporting.
 
-Keep Clerk's **Email verification code** sign-in option enabled in the
+Keep Clerk's **Password** strategy and password-reset email codes enabled in the
 production instance. Email links are not supported by this JavaScript-only
 native recovery flow.
+
+Before relying on relay recovery, open the production Clerk Apple connection,
+copy its **Email Source for Apple Private Email Relay**, and verify that exact
+source under Apple Developer's **Certificates, Identifiers & Profiles → More →
+Sign in with Apple for Email Communication**. Confirm Apple reports it as
+registered and SPF/DKIM-authenticated, then complete one controlled reset from a
+physical TestFlight device using a real relay address. A checked box in this
+runbook is not proof; retain the date, operator, non-secret source domain, and
+successful delivery result in the release record.
 
 ## Audit production before creating a release
 
@@ -37,8 +48,9 @@ python -m app.app_store_readiness audit
 ```
 
 The output includes mapped owners, durable sign-in methods, email-recoverable
-accounts, Apple private-relay accounts, invalid identity mappings, and reviewer
-status. Any invalid identity mapping blocks the release.
+accounts, Apple private-relay accounts, invalid identity mappings, the exact
+native OAuth redirect status, and reviewer status. Any invalid identity mapping
+or missing `hafarecipes://oauth-callback` allowlist entry blocks the release.
 
 After the dedicated reviewer account is configured, require it explicitly:
 
@@ -124,7 +136,7 @@ Clerk native module and separately checking whether the widget can be excluded
 or installed conditionally on earlier iOS versions. The previously released
 2.4.0 supports iOS 15.1; users on iOS 15 or 16 cannot install this update.
 
-Validate Apple sign-in, Google sign-in, email-code recovery, Apple Hide My
+Validate Apple sign-in, Google sign-in, password-reset recovery, Apple Hide My
 Email recovery, password reviewer sign-in, existing recipe ownership,
 sign-out/sign-in, grocery sharing, the home-screen widget, and account deletion
 on a physical TestFlight device before submitting the build for App Review.

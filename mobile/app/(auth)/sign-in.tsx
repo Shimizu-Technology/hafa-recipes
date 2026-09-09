@@ -8,14 +8,12 @@ import {
   Image,
   View as RNView,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
 import { useSignIn } from '@clerk/expo/legacy';
 import { useRouter, Link } from 'expo-router';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
-import * as Linking from 'expo-linking';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -24,7 +22,11 @@ import { BrandMark } from '@/components/BrandMark';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import { clerkErrorMessage, isCancelledAppleSignIn, shouldNavigateAfterSessionActivation } from '@/lib/accountAccess';
 import { CLERK_ENVIRONMENT } from '@/lib/clerkMigration';
-import { signInWithAppleToken, signInWithBrowserProvider } from '@/lib/socialAuthentication';
+import {
+  MOBILE_OAUTH_CALLBACK_URL,
+  signInWithAppleToken,
+  signInWithBrowserProvider,
+} from '@/lib/socialAuthentication';
 import { authBackAccessibilityLabel, leaveAuthScreen } from '@/lib/authNavigation';
 
 // Required for OAuth to work properly (for Apple Sign-In)
@@ -81,13 +83,9 @@ export default function SignInScreen() {
       if (clerkError) {
         switch (clerkError.code) {
           case 'form_identifier_not_found':
-            setErrorMessage('No account found with this email. Check your email or sign up.');
-            break;
           case 'form_password_incorrect':
-            setErrorMessage('Incorrect password. Please try again or reset your password.');
-            break;
           case 'strategy_for_user_invalid':
-            setErrorMessage('This account uses a different sign-in method (Apple/Google). Try those instead.');
+            setErrorMessage('That email and password did not match. Try again, use Apple or Google, or restore your library below.');
             break;
           default:
             setErrorMessage(clerkError.longMessage || clerkError.message || 'Invalid email or password.');
@@ -118,13 +116,13 @@ export default function SignInScreen() {
           });
           return signInWithAppleToken(signIn, credential.identityToken ?? '');
         })()
-        : await signInWithBrowserProvider(signIn, 'oauth_apple', Linking.createURL('oauth-callback'));
+        : await signInWithBrowserProvider(signIn, 'oauth_apple', MOBILE_OAUTH_CALLBACK_URL);
 
       if (result.status === 'complete') {
         await setActive({ session: result.sessionId });
         if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)');
       } else if (result.status === 'account_not_found') {
-        setErrorMessage('This Apple account is not connected yet. Choose “Find my existing recipes” below to restore your original library.');
+        setErrorMessage('This Apple account is not connected to an existing library. Restore your library by email below, then connect Apple from inside Håfa.');
       } else if (result.status === 'incomplete') {
         setErrorMessage('Could not finish signing in with Apple. Please try again.');
       }
@@ -148,14 +146,14 @@ export default function SignInScreen() {
       const result = await signInWithBrowserProvider(
         signIn,
         'oauth_google',
-        Linking.createURL('oauth-callback'),
+        MOBILE_OAUTH_CALLBACK_URL,
       );
 
       if (result.status === 'complete') {
         await setActive({ session: result.sessionId });
         if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)');
       } else if (result.status === 'account_not_found') {
-        setErrorMessage('This Google account is not connected yet. Choose “Find my existing recipes” below to restore your original library.');
+        setErrorMessage('This Google account is not connected to an existing library. Restore your library by email below, then connect Google from inside Håfa.');
       } else if (result.status === 'incomplete') {
         setErrorMessage('Could not finish signing in with Google. Please try again.');
       }
@@ -209,6 +207,8 @@ export default function SignInScreen() {
               onPress={handleAppleSignIn}
               disabled={isLoading}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Continue with Apple"
             >
               <Ionicons name="logo-apple" size={20} color={colors.text} />
               <Text style={[styles.oauthButtonText, { color: colors.text }]}>
@@ -221,6 +221,8 @@ export default function SignInScreen() {
               onPress={handleGoogleSignIn}
               disabled={isLoading}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Continue with Google"
             >
               <Ionicons name="logo-google" size={20} color={colors.text} />
               <Text style={[styles.oauthButtonText, { color: colors.text }]}>
@@ -238,7 +240,10 @@ export default function SignInScreen() {
 
           {/* Error Banner */}
           {errorMessage && (
-            <RNView style={[styles.errorBanner, { backgroundColor: colors.error + '15', borderColor: colors.error }]}>
+            <RNView
+              style={[styles.errorBanner, { backgroundColor: colors.error + '15', borderColor: colors.error }]}
+              accessibilityRole="alert"
+            >
               <Ionicons name="alert-circle" size={20} color={colors.error} />
               <Text style={[styles.errorText, { color: colors.error }]}>{errorMessage}</Text>
             </RNView>
@@ -260,14 +265,7 @@ export default function SignInScreen() {
             </RNView>
 
             <RNView style={styles.inputGroup}>
-              <RNView style={styles.labelRow}>
               <Text style={[styles.label, { color: colors.textSecondary }]}>Password</Text>
-                <Link href={'/(auth)/forgot-password' as any} asChild>
-                  <TouchableOpacity disabled={isLoading}>
-                    <Text style={[styles.forgotLink, { color: colors.tint }]}>Forgot password?</Text>
-                  </TouchableOpacity>
-                </Link>
-              </RNView>
               <RNView style={styles.passwordContainer}>
                 <Input
                   value={password}
@@ -283,6 +281,8 @@ export default function SignInScreen() {
                 <TouchableOpacity
                   style={styles.passwordToggle}
                   onPress={() => setShowPassword(!showPassword)}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
                 >
                   <Ionicons
                     name={showPassword ? 'eye-off-outline' : 'eye-outline'}
@@ -312,14 +312,16 @@ export default function SignInScreen() {
                 ])}
                 disabled={isLoading}
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Restore my library"
               >
                 <Ionicons name="library-outline" size={19} color={colors.tint} />
                 <RNView style={styles.recoveryCopy}>
                   <Text style={[styles.recoveryTitle, { color: colors.text }]}>
-                    Find my existing recipes
+                    Restore my library
                   </Text>
                   <Text style={[styles.recoverySubtitle, { color: colors.textSecondary }]}>
-                    Verify your account with an email code
+                    Forgot your password or changed sign-in methods?
                   </Text>
                 </RNView>
                 <Ionicons name="chevron-forward" size={17} color={colors.textMuted} />
@@ -442,16 +444,7 @@ const styles = StyleSheet.create({
   inputGroup: {
     gap: spacing.xs,
   },
-  labelRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
   label: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
-  },
-  forgotLink: {
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },
@@ -462,11 +455,14 @@ const styles = StyleSheet.create({
     paddingRight: 48,
   },
   passwordToggle: {
+    alignItems: 'center',
     position: 'absolute',
-    right: spacing.md,
+    right: spacing.xs,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
+    minHeight: 44,
+    minWidth: 44,
   },
   recoveryButton: {
     alignItems: 'center',

@@ -129,3 +129,53 @@ async def test_create_password_enabled_user_does_not_skip_clerk_password_require
     assert profile.password_enabled is True
     assert request["password"] == "a-safe-reviewer-password"
     assert "skip_password_requirement" not in request
+
+
+@pytest.mark.asyncio
+async def test_list_redirect_urls_parses_the_bounded_clerk_inventory(monkeypatch):
+    async def handler(incoming: httpx.Request) -> httpx.Response:
+        assert incoming.url.path == "/v1/redirect_urls"
+        assert incoming.url.params["limit"] == "100"
+        assert incoming.url.params["offset"] == "0"
+        return httpx.Response(200, json={
+            "data": [
+                {"id": "redirect_1", "url": "hafarecipes://oauth-callback"},
+                {"id": "redirect_2", "url": "com.example://callback"},
+                {"id": "malformed"},
+            ],
+            "total_count": 3,
+        })
+
+    transport = httpx.MockTransport(handler)
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda *_args, **kwargs: original_client(
+            transport=transport,
+            timeout=kwargs.get("timeout"),
+        ),
+    )
+
+    result = await ClerkBackendClient(_environment()).list_redirect_urls()
+
+    assert result == ("com.example://callback", "hafarecipes://oauth-callback")
+
+
+@pytest.mark.asyncio
+async def test_list_redirect_urls_fails_closed_on_an_unexpected_response(monkeypatch):
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(200, json={"data": "not-a-list"})
+    )
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda *_args, **kwargs: original_client(
+            transport=transport,
+            timeout=kwargs.get("timeout"),
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="redirect allowlist"):
+        await ClerkBackendClient(_environment()).list_redirect_urls()

@@ -3,11 +3,10 @@ import { ActivityIndicator, Alert, StyleSheet, TouchableOpacity, View as RNView 
 import { useAuth, useClerk, useUser } from '@clerk/expo';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 
 import { BrandMark } from '@/components/BrandMark';
-import { Button, Text, View, useColors } from '@/components/Themed';
+import { Button, Input, Text, View, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, radius, spacing } from '@/constants/Colors';
 import { recipeKeys } from '@/hooks/useRecipes';
 import {
@@ -37,7 +36,7 @@ import {
 import { clearGroceryWidgetSession } from '@/lib/groceryWidget';
 import { clearAllOfflineGroceryData } from '@/lib/offlineStorage';
 import { captureError } from '@/lib/sentry';
-import { verifiedOAuthCallbackNonce } from '@/lib/socialAuthentication';
+import { inspectOAuthCallback, MOBILE_OAUTH_CALLBACK_URL } from '@/lib/socialAuthentication';
 
 /** Keep production private screens and widgets behind one verified owner boundary. */
 export function AccountAccessGate({ children }: { children: React.ReactNode }) {
@@ -52,6 +51,11 @@ export function AccountAccessGate({ children }: { children: React.ReactNode }) {
     getAccountOnboardingState,
   );
   const [isLinking, setIsLinking] = useState(false);
+  const [isSecuring, setIsSecuring] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPasswords, setShowPasswords] = useState(false);
+  const [durableSessionId, setDurableSessionId] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [restoredSessionId, setRestoredSessionId] = useState<string | null>(null);
   const [verifiedOwner, setVerifiedOwner] = useState<string | null>(null);
@@ -90,7 +94,7 @@ export function AccountAccessGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (
       !signedInProduction || !sessionId || !userId || !accountAccess.isSuccess ||
-      !userLoaded || !hasDurableSignInMethod(user)
+      !userLoaded || !(durableSessionId === sessionId || hasDurableSignInMethod(user))
     ) return;
     let active = true;
     void rememberVerifiedAccountOwner(sessionId, userId)
@@ -103,7 +107,7 @@ export function AccountAccessGate({ children }: { children: React.ReactNode }) {
         });
       });
     return () => { active = false; };
-  }, [signedInProduction, sessionId, userId, accountAccess.isSuccess, userLoaded, user]);
+  }, [signedInProduction, sessionId, userId, accountAccess.isSuccess, userLoaded, user, durableSessionId]);
 
   const securelySignOut = useCallback(async () => {
     if (!sessionId) throw new Error('The current account session is unavailable');
@@ -157,12 +161,12 @@ export function AccountAccessGate({ children }: { children: React.ReactNode }) {
   }, [getToken, onboarding, sessionId, userId]);
 
   const connectProvider = useCallback(async (strategy: 'oauth_apple' | 'oauth_google') => {
-    if (!user || isLinking) return;
+    if (!user || !sessionId || isLinking || isSecuring) return;
     setLinkError(null);
     setIsLinking(true);
 
     try {
-      const redirectUrl = Linking.createURL('oauth-callback');
+      const redirectUrl = MOBILE_OAUTH_CALLBACK_URL;
       const provider = strategy.replace(/^oauth_/, '');
       const pendingAccount = user.externalAccounts.find((account) =>
         account.provider.replace(/^oauth_/, '') === provider &&
@@ -180,17 +184,53 @@ export function AccountAccessGate({ children }: { children: React.ReactNode }) {
       );
       if (browserResult.type !== 'success') return;
 
-      const nonce = verifiedOAuthCallbackNonce(browserResult.url, redirectUrl);
-      const refreshed = await user.reload({ rotatingTokenNonce: nonce });
+      const callback = inspectOAuthCallback(browserResult.url, redirectUrl);
+      if (callback.status === 'cancelled') return;
+      if (callback.status === 'provider_error') {
+        throw new Error('The provider could not finish connecting. Please try again.');
+      }
+      const refreshed = await user.reload({ rotatingTokenNonce: callback.nonce });
       if (!hasDurableSignInMethod(refreshed)) {
         throw new Error('Your sign-in method was not verified. Please try again.');
       }
+      setDurableSessionId(sessionId);
     } catch (error) {
       setLinkError(clerkErrorMessage(error, 'Could not connect this sign-in method. Please try again.'));
     } finally {
       setIsLinking(false);
     }
-  }, [isLinking, user]);
+  }, [isLinking, isSecuring, sessionId, user]);
+
+  const createPassword = useCallback(async () => {
+    if (!user || !sessionId || isSecuring || isLinking) return;
+    setLinkError(null);
+    if (newPassword.length < 8) {
+      setLinkError('Create a password with at least eight characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setLinkError('The passwords do not match.');
+      return;
+    }
+
+    setIsSecuring(true);
+    try {
+      const updated = await user.updatePassword({
+        newPassword,
+        signOutOfOtherSessions: false,
+      });
+      if (!updated.passwordEnabled) {
+        throw new Error('The password could not be verified. Please try again.');
+      }
+      setNewPassword('');
+      setConfirmPassword('');
+      setDurableSessionId(sessionId);
+    } catch (error) {
+      setLinkError(clerkErrorMessage(error, 'Could not save this password. Please try again.'));
+    } finally {
+      setIsSecuring(false);
+    }
+  }, [confirmPassword, isLinking, isSecuring, newPassword, sessionId, user]);
 
   // Guests and development builds retain their existing navigation behavior.
   if (!signedInProduction) return <>{children}</>;
@@ -214,7 +254,7 @@ export function AccountAccessGate({ children }: { children: React.ReactNode }) {
     (restoredSessionId !== sessionId && !restorationError) ||
     accountAccess.isPending || !userLoaded;
   const needsConnection = !loading && !failure && !verifiedOfflineOwner &&
-    !hasDurableSignInMethod(user);
+    durableSessionId !== sessionId && !hasDurableSignInMethod(user);
 
   if (!correctOnboardingOwner || failure || needsConnection || loading) {
     const recovery = !correctOnboardingOwner || failure?.kind === 'recovery' || failure?.kind === 'identity';
@@ -236,13 +276,91 @@ export function AccountAccessGate({ children }: { children: React.ReactNode }) {
               <Text style={styles.eyebrow}>ONE QUICK SECURITY STEP</Text>
               <Text style={styles.title}>Keep your recipes within reach</Text>
               <Text style={[styles.description, { color: colors.textSecondary }]}>
-                Your recipe library is safe. Connect Apple or Google now so signing out can never leave it behind.
+                Your recipe library is safe. Create a password so you can always return, even if Apple or Google changes.
               </Text>
-              {linkError && <Text style={[styles.error, { color: colors.error }]}>{linkError}</Text>}
-              <Button title="Connect Apple" onPress={() => void connectProvider('oauth_apple')} loading={isLinking} />
-              <Button title="Connect Google" onPress={() => void connectProvider('oauth_google')} disabled={isLinking} variant="outline" />
-              <TouchableOpacity onPress={handleSignOut} style={styles.secondaryAction}>
-                <Text style={{ color: colors.textSecondary }}>Sign out anyway</Text>
+              {linkError && (
+                <Text style={[styles.error, { color: colors.error }]} accessibilityRole="alert">
+                  {linkError}
+                </Text>
+              )}
+              <RNView style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.textSecondary }]}>New password</Text>
+                <RNView style={styles.passwordContainer}>
+                  <Input
+                    value={newPassword}
+                    onChangeText={(value) => { setNewPassword(value); setLinkError(null); }}
+                    placeholder="At least 8 characters"
+                    secureTextEntry={!showPasswords}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={!isSecuring && !isLinking}
+                    showClearButton={false}
+                    style={styles.passwordInput}
+                  />
+                  <TouchableOpacity
+                    style={styles.passwordToggle}
+                    onPress={() => setShowPasswords((visible) => !visible)}
+                    disabled={isSecuring || isLinking}
+                    accessibilityRole="button"
+                    accessibilityLabel={showPasswords ? 'Hide passwords' : 'Show passwords'}
+                  >
+                    <Ionicons
+                      name={showPasswords ? 'eye-off-outline' : 'eye-outline'}
+                      size={20}
+                      color={colors.textSecondary}
+                    />
+                  </TouchableOpacity>
+                </RNView>
+              </RNView>
+              <RNView style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.textSecondary }]}>Confirm password</Text>
+                <Input
+                  value={confirmPassword}
+                  onChangeText={(value) => { setConfirmPassword(value); setLinkError(null); }}
+                  placeholder="Enter it again"
+                  secureTextEntry={!showPasswords}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  editable={!isSecuring && !isLinking}
+                  showClearButton={false}
+                  onSubmitEditing={() => { void createPassword(); }}
+                  returnKeyType="done"
+                />
+              </RNView>
+              <Button
+                title={isSecuring ? 'Saving password…' : 'Save password and open my recipes'}
+                onPress={() => void createPassword()}
+                disabled={
+                  isLinking || isSecuring || newPassword.length < 8 || confirmPassword.length < 8
+                }
+                loading={isSecuring}
+              />
+              <RNView style={styles.providerDivider}>
+                <RNView style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+                <Text style={[styles.dividerText, { color: colors.textSecondary }]}>or connect a provider</Text>
+                <RNView style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+              </RNView>
+              <RNView style={styles.providerButtons}>
+                <Button
+                  title="Connect Apple"
+                  onPress={() => void connectProvider('oauth_apple')}
+                  disabled={isSecuring || isLinking}
+                  loading={isLinking}
+                  variant="outline"
+                />
+                <Button
+                  title="Connect Google"
+                  onPress={() => void connectProvider('oauth_google')}
+                  disabled={isSecuring || isLinking}
+                  variant="outline"
+                />
+              </RNView>
+              <TouchableOpacity
+                onPress={handleSignOut}
+                style={styles.secondaryAction}
+                accessibilityRole="button"
+              >
+                <Text style={{ color: colors.textSecondary }}>Use a different account</Text>
               </TouchableOpacity>
             </>
           ) : (
@@ -293,6 +411,24 @@ const styles = StyleSheet.create({
   title: { fontFamily: fontFamily.display, fontSize: fontSize.xxl, lineHeight: 37 },
   description: { fontSize: fontSize.md, lineHeight: 23 },
   error: { fontSize: fontSize.sm, lineHeight: 19 },
+  inputGroup: { gap: spacing.xs },
+  label: { fontFamily: fontFamily.medium, fontSize: fontSize.sm },
+  passwordContainer: { position: 'relative' },
+  passwordInput: { paddingRight: 52 },
+  passwordToggle: {
+    alignItems: 'center',
+    bottom: 0,
+    justifyContent: 'center',
+    minHeight: 44,
+    minWidth: 44,
+    position: 'absolute',
+    right: spacing.xs,
+    top: 0,
+  },
+  providerDivider: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
+  dividerLine: { flex: 1, height: 1 },
+  dividerText: { fontFamily: fontFamily.medium, fontSize: fontSize.xs },
+  providerButtons: { gap: spacing.sm },
   icon: { alignItems: 'center', alignSelf: 'flex-start', borderRadius: radius.full, height: 52, justifyContent: 'center', width: 52 },
   secondaryAction: { alignItems: 'center', paddingVertical: spacing.sm },
 });

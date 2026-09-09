@@ -343,12 +343,12 @@ development Apple credentials and the application's production Apple team.
 Users whose provider cannot be linked to an existing owner require explicit,
 verified recovery before production access is granted.
 
-The production sign-in screen now provides **Find my existing recipes** for
-customers who missed the bridge. It requests an existing-account-only Clerk
-email verification code; successful verification restores the already-mapped
-production identity, and the access gate requires a durable provider or
-password before private data is mounted. Apple Hide My Email customers must use
-their existing relay address, which forwards the code to their inbox. See
+The production sign-in screen now provides **Restore my library** for customers
+who missed the bridge. It requests an existing-account-only Clerk password-reset
+code; successful verification creates a durable password and restores the
+already-mapped production identity before private data is mounted. Apple Hide My
+Email customers must use their existing relay address. Delivery must be proven
+against Clerk's registered Apple Private Email Relay source before release. See
 `APP-STORE-RELEASE-RUNBOOK.md` for aggregate launch auditing, dedicated reviewer
 provisioning, and App Store release checks.
 
@@ -432,6 +432,8 @@ account creation.
   and compensates safely for provider-side failures.
 - Existing-account sign-in failures show recovery and retry actions rather than
   an empty recipe library or repeated unauthorized background requests.
+- The production readiness audit recognizes both Apple relay domains and fails
+  when the exact mobile OAuth callback is absent from Clerk's allowlist.
 - Old and new builds can be used concurrently on separate devices.
 - Account deletion removes local data and every configured Clerk alias.
 - Before/after ownership counts and checksums match.
