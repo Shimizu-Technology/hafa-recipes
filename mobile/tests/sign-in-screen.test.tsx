@@ -53,7 +53,6 @@ vi.mock('expo-apple-authentication', () => ({
 }));
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'nonce' }));
 vi.mock('expo-web-browser', () => ({ maybeCompleteAuthSession: vi.fn() }));
-vi.mock('expo-linking', () => ({ createURL: () => 'hafa://oauth-callback' }));
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ bottom: 0, top: 0 }),
 }));
@@ -90,6 +89,7 @@ vi.mock('@/lib/accountAccess', () => ({
 }));
 vi.mock('@/lib/clerkMigration', () => ({ CLERK_ENVIRONMENT: 'development' }));
 vi.mock('@/lib/socialAuthentication', () => ({
+  MOBILE_OAUTH_CALLBACK_URL: 'hafarecipes://oauth-callback',
   signInWithAppleToken: vi.fn(),
   signInWithBrowserProvider: vi.fn(),
 }));
@@ -121,7 +121,8 @@ describe('SignInScreen', () => {
 
       const copy = renderedText(renderer);
       expect(copy).toContain('Welcome back');
-      expect(copy).toContain('Find my existing recipes');
+      expect(copy).toContain('Restore my library');
+      expect(copy).toContain('Forgot your password or changed sign-in methods?');
     } finally {
       await act(async () => renderer.unmount());
     }

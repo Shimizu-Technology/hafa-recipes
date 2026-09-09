@@ -7,6 +7,13 @@ export type StrictSocialSignInResult =
   | { status: 'cancelled' }
   | { status: 'incomplete' };
 
+export const MOBILE_OAUTH_CALLBACK_URL = 'hafarecipes://oauth-callback';
+
+export type OAuthCallbackResult =
+  | { status: 'verified'; nonce: string }
+  | { status: 'cancelled' }
+  | { status: 'provider_error' };
+
 function classifySignIn(signIn: SignInResource): StrictSocialSignInResult {
   if (signIn.status === 'complete' && signIn.createdSessionId) {
     return { status: 'complete', sessionId: signIn.createdSessionId };
@@ -17,7 +24,7 @@ function classifySignIn(signIn: SignInResource): StrictSocialSignInResult {
   return { status: 'incomplete' };
 }
 
-export function verifiedOAuthCallbackNonce(callbackUrl: string, redirectUrl: string): string {
+export function inspectOAuthCallback(callbackUrl: string, redirectUrl: string): OAuthCallbackResult {
   const callback = new URL(callbackUrl);
   const expected = new URL(redirectUrl);
   if (
@@ -28,8 +35,14 @@ export function verifiedOAuthCallbackNonce(callbackUrl: string, redirectUrl: str
     throw new Error('The sign-in callback returned to an unexpected application');
   }
   const nonce = callback.searchParams.get('rotating_token_nonce');
-  if (!nonce) throw new Error('The sign-in callback could not be verified');
-  return nonce;
+  if (nonce) return { status: 'verified', nonce };
+
+  const providerError = callback.searchParams.get('error');
+  if (providerError === 'access_denied' || providerError === 'user_cancelled') {
+    return { status: 'cancelled' };
+  }
+  if (providerError) return { status: 'provider_error' };
+  throw new Error('The sign-in callback could not be verified');
 }
 
 /** Unlike Clerk's useSSO helper, this sign-in path never transfers into sign-up. */
@@ -55,8 +68,10 @@ export async function signInWithBrowserProvider(
   const result = await openSession(verificationUrl.toString(), redirectUrl);
   if (result.type !== 'success' || !result.url) return { status: 'cancelled' };
 
-  const nonce = verifiedOAuthCallbackNonce(result.url, redirectUrl);
+  const callback = inspectOAuthCallback(result.url, redirectUrl);
+  if (callback.status === 'cancelled') return { status: 'cancelled' };
+  if (callback.status === 'provider_error') return { status: 'incomplete' };
 
-  await signIn.reload({ rotatingTokenNonce: nonce });
+  await signIn.reload({ rotatingTokenNonce: callback.nonce });
   return classifySignIn(signIn);
 }

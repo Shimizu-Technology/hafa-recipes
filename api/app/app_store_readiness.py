@@ -21,7 +21,11 @@ from app.models.identity import AppUser, ClerkIdentity
 from app.services.clerk import ClerkBackendClient
 
 ENVIRONMENT_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{1,80}$")
-PRIVATE_RELAY_DOMAIN = "@privaterelay.appleid.com"
+PRIVATE_RELAY_DOMAINS = (
+    "@privaterelay.appleid.com",
+    "@private.icloud.com",
+)
+MOBILE_OAUTH_CALLBACK_URL = "hafarecipes://oauth-callback"
 
 
 @dataclass(frozen=True)
@@ -31,6 +35,7 @@ class AppStoreReadinessSummary:
     email_recoverable_users: int
     private_relay_recovery_users: int
     invalid_identity_users: int
+    oauth_redirect_status: str
     reviewer_status: str
 
 
@@ -68,7 +73,9 @@ async def app_store_readiness_summary(
     reviewer_email: str | None = None,
 ) -> AppStoreReadinessSummary:
     """Report only counts and reviewer readiness; never expose customer identifiers."""
-    profiles = await ClerkBackendClient(production).list_users()
+    clerk = ClerkBackendClient(production)
+    profiles = await clerk.list_users()
+    redirect_urls = await clerk.list_redirect_urls()
     profiles_by_subject = {profile.clerk_user_id: profile for profile in profiles}
     identities = (
         await db.execute(select(ClerkIdentity).where(ClerkIdentity.issuer == production.issuer))
@@ -91,7 +98,7 @@ async def app_store_readiness_summary(
             durable += 1
         else:
             recoverable += 1
-            if profile.email.endswith(PRIVATE_RELAY_DOMAIN):
+            if profile.email.lower().endswith(PRIVATE_RELAY_DOMAINS):
                 private_relay += 1
 
     reviewer_status = "not_configured"
@@ -130,6 +137,9 @@ async def app_store_readiness_summary(
         email_recoverable_users=recoverable,
         private_relay_recovery_users=private_relay,
         invalid_identity_users=invalid,
+        oauth_redirect_status=(
+            "ready" if MOBILE_OAUTH_CALLBACK_URL in redirect_urls else "missing"
+        ),
         reviewer_status=reviewer_status,
     )
 
@@ -262,6 +272,7 @@ async def _run(args: argparse.Namespace) -> int:
             print(json.dumps(asdict(summary), sort_keys=True))
             return int(
                 summary.invalid_identity_users > 0
+                or summary.oauth_redirect_status != "ready"
                 or (args.require_reviewer and summary.reviewer_status != "ready")
             )
 

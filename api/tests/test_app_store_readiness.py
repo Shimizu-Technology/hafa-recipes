@@ -70,7 +70,12 @@ def _profile(
     )
 
 
-def _install_client(monkeypatch, profiles: list[ClerkProfile]):
+def _install_client(
+    monkeypatch,
+    profiles: list[ClerkProfile],
+    *,
+    redirect_urls: tuple[str, ...] = (readiness.MOBILE_OAUTH_CALLBACK_URL,),
+):
     created: list[dict[str, object]] = []
 
     class FakeClient:
@@ -79,6 +84,9 @@ def _install_client(monkeypatch, profiles: list[ClerkProfile]):
 
         async def list_users(self):
             return list(profiles)
+
+        async def list_redirect_urls(self):
+            return redirect_urls
 
         async def create_user(self, **kwargs):
             created.append(kwargs)
@@ -102,7 +110,8 @@ async def test_release_inventory_is_aggregate_and_counts_private_relay_recovery(
     profiles = [
         _profile("user_apple", "owner_apple", "chef@example.com", providers=("apple",)),
         _profile("user_email", "owner_email", "cook@example.com"),
-        _profile("user_relay", "owner_relay", "hidden@privaterelay.appleid.com"),
+        _profile("user_relay_old", "owner_relay_old", "hidden@privaterelay.appleid.com"),
+        _profile("user_relay_new", "owner_relay_new", "hidden@private.icloud.com"),
     ]
     _install_client(monkeypatch, profiles)
 
@@ -121,13 +130,26 @@ async def test_release_inventory_is_aggregate_and_counts_private_relay_recovery(
         result = await readiness.app_store_readiness_summary(db, _environment())
 
     assert result == readiness.AppStoreReadinessSummary(
-        mapped_users=3,
+        mapped_users=4,
         durable_sign_in_users=1,
-        email_recoverable_users=2,
-        private_relay_recovery_users=1,
+        email_recoverable_users=3,
+        private_relay_recovery_users=2,
         invalid_identity_users=0,
+        oauth_redirect_status="ready",
         reviewer_status="not_configured",
     )
+
+
+@pytest.mark.asyncio
+async def test_release_inventory_reports_a_missing_native_oauth_redirect(
+    readiness_database, monkeypatch
+):
+    _install_client(monkeypatch, [], redirect_urls=("another-app://callback",))
+
+    async with readiness_database() as db:
+        result = await readiness.app_store_readiness_summary(db, _environment())
+
+    assert result.oauth_redirect_status == "missing"
 
 
 @pytest.mark.asyncio

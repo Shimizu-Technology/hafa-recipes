@@ -62,10 +62,12 @@ both steps for production. Restore `embedded` through the same preview-first
 flow. App versions installed before the update client ships still require a new
 binary.
 
-Customers who missed the bridge can use **Find my existing recipes** on the
-sign-in screen. It verifies the existing account by email code and never creates
-a replacement recipe library. Apple Hide My Email users should enter their
-existing relay address.
+Customers who missed the bridge can use **Restore my library** on the sign-in
+screen. It verifies the existing account by email code, creates a durable
+password, and never creates a replacement recipe library. Apple Hide My Email
+users should enter their existing relay address. Before a release, prove that
+Clerk's production email source is registered with Apple Private Email Relay and
+that a physical TestFlight device receives the reset code.
 
 ## API Configuration
 
