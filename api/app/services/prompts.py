@@ -90,7 +90,7 @@ SECURITY AND SOURCE RULES:
 
 CONFIDENCE RULES:
 - Set lowConfidence to true when a cooking-critical ingredient, measurement, temperature, time, or instruction is missing or ambiguous in the pasted text.
-- When lowConfidence is true, set confidenceWarning to a concise explanation of what the cook should verify.
+- When uncertainty remains beyond AI-estimated amounts, set confidenceWarning to a concise explanation of only those additional details. For estimate-only uncertainty, use exactly "AI-estimated amounts are marked.".
 - Set lowConfidence to false and confidenceWarning to null only when the text contains enough clear information to cook the recipe.
 - Estimated cost, nutrition, and tags do not trigger lowConfidence. An omitted serving count should remain null and does not, by itself, trigger lowConfidence.
 - If there is not at least one identifiable ingredient and one actionable cooking step, return empty components so the request is rejected as an incomplete recipe.
@@ -166,7 +166,7 @@ SECURITY AND SOURCE RULES:
 
 CONFIDENCE RULES:
 - Set lowConfidence to true when a cooking-critical ingredient, measurement, temperature, time, or instruction is missing or ambiguous.
-- When lowConfidence is true, set confidenceWarning to a concise explanation of exactly what the cook should verify against the original source.
+- When uncertainty remains beyond AI-estimated amounts, set confidenceWarning to a concise explanation of only those additional details to verify against the original source. For estimate-only uncertainty, use exactly "AI-estimated amounts are marked.".
 - Set lowConfidence to false and confidenceWarning to null only when the source contains enough clear information to cook the recipe.
 - Derived cost, nutrition, meal type, and tags are estimates based on extracted ingredients; they are not source facts and do not trigger lowConfidence.
 
@@ -367,8 +367,10 @@ TRANSCRIPTION TRUST RULES:
 3. Do not silently guess text that is missing, cropped, blurry, or difficult to read
 4. For an unclear canonical quantity or unit, use null rather than inventing a measurement in source fields; assess a separate quantityEstimate from the recipe context
 5. If the recipe appears to be a family recipe card, preserve any personal notes or tips
-6. Set lowConfidence to true and write a concise confidenceWarning whenever any
-   ingredient, measurement, temperature, time, or instruction is uncertain
+6. Set lowConfidence to true whenever any ingredient, measurement, temperature,
+   time, or instruction is uncertain. For estimate-only uncertainty, use exactly
+   "AI-estimated amounts are marked." as confidenceWarning; otherwise describe
+   only the additional unclear details beyond AI-estimated amounts
 7. Set lowConfidence to false and confidenceWarning to null only when the recipe
    text needed to cook the dish is clearly readable
 8. If an ingredient name itself is unreadable, do not invent one; omit that line
@@ -462,7 +464,7 @@ SECURITY AND SOURCE RULES:
 
 CONFIDENCE RULES:
 - Set lowConfidence to true whenever a cooking-critical ingredient, quantity, temperature, time, or step is missing, visually ambiguous, or only inferred.
-- When lowConfidence is true, set confidenceWarning to a concise explanation of exactly what the cook should verify against the original slideshow.
+- When uncertainty remains beyond AI-estimated amounts, set confidenceWarning to a concise explanation of only those additional details to verify against the original slideshow. For estimate-only uncertainty, use exactly "AI-estimated amounts are marked.".
 - Set lowConfidence to false and confidenceWarning to null only when the visible/caption evidence is sufficient to cook the dish.
 - Derived cost, nutrition, meal type, and tags are estimates based on supported ingredients; they are not source facts and do not trigger lowConfidence.
 
@@ -543,7 +545,7 @@ SECURITY AND SOURCE RULES:
 
 CONFIDENCE RULES:
 - Set lowConfidence to true for every missing, ambiguous, conflicting, or visually inferred cooking-critical detail.
-- confidenceWarning must concisely tell the cook what to verify against the original video.
+- confidenceWarning must describe only additional uncertainty beyond AI-estimated amounts to verify against the original video. For estimate-only uncertainty, use exactly "AI-estimated amounts are marked.".
 - Set lowConfidence to false only when the combined evidence is sufficient to cook the recipe without filling gaps.
 - Derived cost, nutrition, tags, and meal type are estimates and do not trigger lowConfidence.
 
@@ -602,8 +604,10 @@ INSTRUCTIONS:
 7. COUNT all steps carefully - don't miss any!
 8. Do not silently guess text that is cropped, blurry, missing, or difficult to read
 9. For an unclear canonical quantity or unit, use null rather than inventing a measurement in source fields; assess a separate quantityEstimate from the recipe context
-10. Set lowConfidence to true with a concise confidenceWarning whenever any
-    ingredient, measurement, temperature, time, or instruction is uncertain
+10. Set lowConfidence to true whenever any ingredient, measurement, temperature,
+    time, or instruction is uncertain. For estimate-only uncertainty, use exactly
+    "AI-estimated amounts are marked." as confidenceWarning; otherwise describe
+    only the additional unclear details beyond AI-estimated amounts
 11. If an ingredient name itself is unreadable, do not invent one; omit that line
     and identify the omission in confidenceWarning
 12. lowConfidence reports transcription uncertainty; derived cost, nutrition,

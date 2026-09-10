@@ -128,7 +128,13 @@ def normalize_recipe_estimates(
                 continue
             useful: list[str] = []
             removed = False
-            for sentence in re.split(r"(?<=[.!?;])\s+", notes.strip()):
+            for sentence in re.split(
+                r"(?<=[.!?;])\s+|,\s+(?=(?:add|bake|beat|blend|boil|chill|cook|cool|cover|"
+                r"fold|freeze|keep|knead|mix|refrigerate|rest|roast|roll|serve|simmer|stir|"
+                r"store|use|whisk)\b)",
+                notes.strip(),
+                flags=re.I,
+            ):
                 if _DIAGNOSTIC.search(sentence):
                     diagnostics.append(sentence)
                     removed = True

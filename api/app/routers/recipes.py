@@ -95,13 +95,13 @@ def normalized_recipe_extracted(recipe: Recipe) -> dict:
     if not recipe.extracted:
         return {}
 
+    extracted = dict(recipe.extracted)
+    if source_is_incomplete(extracted, extraction_method=recipe.extraction_method):
+        extracted["sourceIncomplete"] = True
     extracted = normalize_recipe_estimates(
-        recipe.extracted, clean_import_notes=recipe.extraction_method not in (None, "manual"),
+        extracted, clean_import_notes=recipe.extraction_method not in (None, "manual"),
         infer_source_incomplete=False,
     )
-
-    if source_is_incomplete(recipe.extracted, extraction_method=recipe.extraction_method):
-        extracted["sourceIncomplete"] = True
 
     # Ensure nutrition has proper structure
     nutrition = extracted.get("nutrition")

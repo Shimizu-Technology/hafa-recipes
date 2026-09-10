@@ -457,3 +457,73 @@ def test_relative_total_is_not_mistaken_for_unbounded_flexible_quantity():
     assert result["quantity"] is None and result["unit"] is None
     assert result["quantityEstimate"]["quantity"] == "1"
     assert result["notes"] == water["notes"]
+
+
+def test_legacy_incomplete_projection_removes_estimates_before_serialization():
+    from app.routers.recipes import normalized_recipe_extracted
+
+    value = recipe()
+    value["notes"] = LEGACY_DIAGNOSTIC
+    value["ingredients"] = deepcopy(value["components"][0]["ingredients"])
+    saved = SimpleNamespace(extracted=value, extraction_method="whisper")
+    projected = normalized_recipe_extracted(saved)
+    assert projected["sourceIncomplete"] is True
+    assert all("quantityEstimate" not in ingredient for ingredient in projected["ingredients"])
+    assert all(
+        "quantityEstimate" not in ingredient
+        for component in projected["components"]
+        for ingredient in component["ingredients"]
+    )
+    assert saved.extracted["ingredients"][1]["quantityEstimate"] == ESTIMATE
+    assert "sourceIncomplete" not in saved.extracted
+
+
+def test_each_extraction_confidence_section_exempts_estimate_only_warnings():
+    prompts = [
+        get_pasted_text_recipe_extraction_prompt("source"),
+        get_recipe_extraction_prompt("url", "source"),
+        get_ocr_extraction_prompt(),
+        get_multi_image_ocr_prompt(2),
+        get_tiktok_slideshow_prompt(2, "url"),
+        get_video_frame_extraction_prompt(
+            source_url="url", source_context="source", initial_recipe=None, frame_timestamps=[1.0]
+        ),
+    ]
+    for prompt in prompts:
+        # Check the route-specific rule as well as the shared policy: no later
+        # instruction may require a second warning about the estimated amount.
+        assert "For estimate-only uncertainty, use exactly" in prompt
+        assert prompt.count('"AI-estimated amounts are marked."') == 2
+        value = recipe()
+        value["lowConfidence"] = True
+        value["confidenceWarning"] = "AI-estimated amounts are marked."
+        normalized = LLMService()._post_process_recipe(value, value["sourceUrl"], "Guam")
+        assert [issue["code"] for issue in assess(normalized).evidence["assessment"]["issues"]] == [
+            "estimated_quantity"
+        ]
+    # Genuine additional uncertainty still gets its own optional source issue.
+    value = recipe()
+    value["lowConfidence"] = True
+    value["confidenceWarning"] = "The cooking time is unclear."
+    normalized = LLMService()._post_process_recipe(value, value["sourceUrl"], "Guam")
+    assert [issue["code"] for issue in assess(normalized).evidence["assessment"]["issues"]] == [
+        "estimated_quantity",
+        "source_warning",
+    ]
+
+
+def test_positive_source_references_are_useful_notes_not_diagnostics():
+    value = recipe()
+    value["notes"] = "The video contains cooking tips. The video shows how to fold the dough."
+    normalized = normalize_recipe_estimates(value, clean_import_notes=True)
+    assert normalized["notes"] == value["notes"]
+    assert not normalized.get("sourceIncomplete")
+
+
+def test_notes_cleanup_preserves_cooking_clause_after_comma():
+    value = recipe()
+    value["notes"] = "The source does not provide quantities, chill the dough overnight."
+    value["components"][0]["ingredients"][1]["notes"] = "Amount omitted; use softened butter."
+    normalized = normalize_recipe_estimates(value, clean_import_notes=True)
+    assert normalized["notes"] == "chill the dough overnight."
+    assert normalized["components"][0]["ingredients"][1]["notes"] == "use softened butter."
