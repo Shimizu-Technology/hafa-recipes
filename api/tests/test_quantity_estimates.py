@@ -211,6 +211,8 @@ def test_all_prompt_paths_offer_separate_estimates_and_require_context():
     ]
     for prompt in prompts:
         assert "quantityEstimate" in prompt and "Never replace a source measurement" in prompt
+        assert "Reconcile source-specified totals" in prompt
+        assert "Before returning JSON, check every ingredient" in prompt
         assert (
             "Set sourceIncomplete true" in prompt and "Never put extraction diagnostics" in prompt
         )
@@ -439,3 +441,19 @@ def test_ingredient_note_cleanup_preserves_tips_without_repeating_missing_amount
         cleaned = normalize_recipe_estimates(value, clean_import_notes=True)
         assert cleaned["components"][0]["ingredients"][1]["notes"] is None
         assert not cleaned.get("confidenceWarning")
+
+
+def test_relative_total_is_not_mistaken_for_unbounded_flexible_quantity():
+    value = recipe()
+    water = value["components"][0]["ingredients"][1]
+    water["notes"] = "Add enough water for a total of 2 cups of cooking liquid."
+    water["quantityEstimate"] = {
+        "quantity": "1",
+        "unit": "cup",
+        "reason": "The stated total is 2 cups, with 1 cup already supplied by the other liquid.",
+    }
+    cleaned = normalize_recipe_estimates(value, clean_import_notes=True)
+    result = cleaned["components"][0]["ingredients"][1]
+    assert result["quantity"] is None and result["unit"] is None
+    assert result["quantityEstimate"]["quantity"] == "1"
+    assert result["notes"] == water["notes"]
