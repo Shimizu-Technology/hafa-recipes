@@ -61,3 +61,42 @@ describe('optional recipe issue review', () => {
     expect(getRecipeReviewIssues(recipe).map(issue => issue.path)).toEqual(['components.0.ingredients.1.quantity']);
   });
 });
+
+
+it('accepts an AI estimate without laundering it into a source amount; corrections remove it', () => {
+  const recipe = recipeWithOneIssue();
+  const path = 'components.0.ingredients.1.quantity';
+  const estimate = { quantity: '3', unit: 'cups', reason: 'For the stated rice amount.' };
+  recipe.extracted.components[0].ingredients[1].quantityEstimate = estimate;
+  recipe.extraction_evidence = { assessment: { issues: [{ code: 'estimated_quantity', path, message: 'AI estimated this amount from the recipe context.' }] } };
+  expect(getRecipeReviewIssues(recipe)).toHaveLength(1);
+  const accepted = buildRecipeIssueEdit(recipe, {}, new Set([path]));
+  expect(accepted.verified_paths).toEqual([path]);
+  expect(accepted.components?.[0].ingredients[1]).toMatchObject({ quantity: null, quantityEstimate: estimate });
+  const corrected = buildRecipeIssueEdit(recipe, { [path]: '4' }, new Set());
+  expect(corrected.components?.[0].ingredients[1]).toMatchObject({ quantity: '4', quantityEstimate: null });
+});
+
+it('requires a source-unit decision when correcting an estimate whose unit was never stated', () => {
+  const recipe = recipeWithOneIssue();
+  const path = 'components.0.ingredients.1.quantity';
+  recipe.extracted.components[0].ingredients[1] = {
+    name: 'Salt', quantity: null, unit: null,
+    quantityEstimate: { quantity: '1', unit: 'tsp', reason: 'For this batch.' },
+  };
+  expect(() => buildRecipeIssueEdit(recipe, { [path]: '1' }, new Set())).toThrow('Confirm the unit for Salt');
+  const corrected = buildRecipeIssueEdit(recipe, { [path]: '1' }, new Set(), new Set(), { [path]: 'tbsp' });
+  expect(corrected.components?.[0].ingredients[1]).toMatchObject({ quantity: '1', unit: 'tbsp', quantityEstimate: null });
+  expect(corrected.verified_paths).toEqual([path, 'components.0.ingredients.1.unit']);
+  const unitless = buildRecipeIssueEdit(recipe, { [path]: '1' }, new Set(), new Set(), { [path]: '' });
+  expect(unitless.components?.[0].ingredients[1]).toMatchObject({ quantity: '1', unit: null, quantityEstimate: null });
+  expect(unitless.verified_paths).toEqual([path]);
+});
+
+it('does not apply orphaned unit edits or accept injected unit paths', () => {
+  const recipe = recipeWithOneIssue();
+  const path = 'components.0.ingredients.1.quantity';
+  const edit = buildRecipeIssueEdit(recipe, {}, new Set(), new Set(), { [path]: 'tsp', title: 'Injected' });
+  expect(edit.verified_paths).toEqual([]);
+  expect(edit.components?.[0].ingredients[1]).toEqual(recipe.extracted.components[0].ingredients[1]);
+});

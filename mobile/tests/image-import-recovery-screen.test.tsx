@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
+  focused: true,
   alert: vi.fn(),
   save: vi.fn(async () => ({ id: 'captured-recipe' })),
   checkDuplicate: vi.fn(),
@@ -77,10 +78,16 @@ vi.mock('react-native', async () => {
     View: host('NativeView'),
   };
 });
-vi.mock('expo-router', () => ({
-  useLocalSearchParams: () => ({}),
-  useRouter: () => ({ push: mocks.push, replace: vi.fn(), setParams: vi.fn() }),
-}));
+vi.mock('expo-router', async () => {
+  const { useEffect } = await import('react');
+  return {
+    useLocalSearchParams: () => ({}),
+    useRouter: () => ({ push: mocks.push, replace: vi.fn(), setParams: vi.fn() }),
+    useFocusEffect: (callback: () => void) => {
+      useEffect(() => { if (mocks.focused) return callback(); }, [callback, mocks.focused]);
+    },
+  };
+});
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0 }),
 }));
@@ -175,6 +182,7 @@ function touchableWithText(renderer: ReactTestRenderer, text: string) {
 
 describe('classified image recovery', () => {
   beforeEach(() => {
+    mocks.focused = true;
     mocks.save.mockReset();
     mocks.save.mockResolvedValue({ id: 'captured-recipe' });
     mocks.alert.mockClear();
@@ -197,7 +205,8 @@ describe('classified image recovery', () => {
     mocks.extraction.sourceLocation = null;
     mocks.extraction.sourceNotes = '';
     mocks.extraction.sourceUrl = '';
-    mocks.extraction.reset.mockClear();
+    mocks.extraction.reset.mockReset();
+    mocks.extraction.reset.mockResolvedValue(undefined);
     mocks.extraction.startExtraction.mockReset();
     mocks.extraction.startExtraction.mockResolvedValue({ isExisting: false });
   });
@@ -245,26 +254,85 @@ describe('classified image recovery', () => {
     ]);
   });
 
-  it('offers Open Recipe after a completed and saved link import', async () => {
+  it.each([false, true])('opens a saved link import automatically, including uncertainty=%s', async (uncertain) => {
     mocks.extraction.isComplete = true;
-    mocks.extraction.currentStep = 'complete';
-    mocks.extraction.progress = 100;
+    mocks.extraction.lowConfidence = uncertain;
     mocks.extraction.recipeId = 'completed-recipe';
-
     let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(<ExtractScreen />);
-      await new Promise((resolve) => setTimeout(resolve, 1_100));
-    });
-
-    expect(mocks.push).not.toHaveBeenCalled();
-    const reviewButton = renderer!.root.findAllByType(
-      'Button' as unknown as React.ComponentType,
-    ).find(node => node.props.children === 'Open Recipe')!;
-    await act(async () => reviewButton.props.onPress());
-
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith('/recipe/completed-recipe');
     expect(mocks.extraction.reset).toHaveBeenCalledOnce();
-    expect(mocks.push).toHaveBeenCalledWith('/recipe/completed-recipe');
+    // Another render of the completed job must not push a duplicate screen.
+    await act(async () => { renderer!.update(<ExtractScreen />); });
+    expect(mocks.push).toHaveBeenCalledOnce();
+    await act(async () => renderer!.unmount());
+  });
+
+  it('waits for Import focus when a background extraction completes', async () => {
+    mocks.focused = false;
+    mocks.extraction.isComplete = true;
+    mocks.extraction.recipeId = 'background-recipe';
+    let renderer: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.extraction.reset).not.toHaveBeenCalled();
+    mocks.focused = true;
+    await act(async () => { renderer!.update(<ExtractScreen />); });
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith('/recipe/background-recipe');
+    await act(async () => renderer!.unmount());
+  });
+
+  it('still opens the saved recipe if local recovery cleanup fails', async () => {
+    mocks.extraction.isComplete = true;
+    mocks.extraction.recipeId = 'saved-recipe';
+    mocks.extraction.reset.mockRejectedValueOnce(new Error('Storage unavailable'));
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    let renderer: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith('/recipe/saved-recipe');
+    expect(warning).toHaveBeenCalledOnce();
+    await act(async () => renderer!.unmount());
+    warning.mockRestore();
+  });
+
+  it('does not redirect a recipe re-extraction from the import screen', async () => {
+    mocks.extraction.isComplete = true;
+    mocks.extraction.jobKind = 'reextract';
+    mocks.extraction.recipeId = 're-extracted-recipe';
+    let renderer: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    expect(mocks.push).not.toHaveBeenCalled();
+    await act(async () => renderer!.unmount());
+  });
+
+  it('handles existing-recipe fast results once per attempt without a Back loop', async () => {
+    mocks.extraction.startExtraction.mockImplementation(async () => {
+      mocks.extraction.isComplete = true;
+      mocks.extraction.recipeId = 'existing-recipe';
+      return { isExisting: true, recipeId: 'existing-recipe' };
+    });
+    mocks.extraction.reset.mockImplementation(async () => {
+      mocks.extraction.isComplete = false;
+      mocks.extraction.recipeId = null;
+    });
+    let renderer: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    for (const attempt of [1, 2]) {
+      await act(async () => renderer!.root.findByProps({
+        placeholder: 'TikTok, Instagram, YouTube, or recipe website link',
+      }).props.onChangeText('https://example.com/recipe'));
+      await act(async () => renderer!.root.findAllByType('Button' as unknown as React.ComponentType)
+        .find(node => node.props.children === 'Extract Recipe')!.props.onPress());
+      await act(async () => { renderer!.update(<ExtractScreen />); });
+      expect(mocks.push).toHaveBeenCalledTimes(attempt);
+      expect(mocks.push).toHaveBeenLastCalledWith('/recipe/existing-recipe');
+      mocks.focused = false;
+      await act(async () => { renderer!.update(<ExtractScreen />); });
+      mocks.focused = true;
+      await act(async () => { renderer!.update(<ExtractScreen />); });
+      expect(mocks.push).toHaveBeenCalledTimes(attempt);
+    }
+    await act(async () => renderer!.unmount());
   });
 
   it('keeps new imports disabled until durable recovery finishes', async () => {

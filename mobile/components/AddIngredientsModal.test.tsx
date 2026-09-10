@@ -36,9 +36,7 @@ vi.mock('@/constants/Colors', () => ({
   radius: { md: 12 },
   spacing: { sm: 8, md: 16, lg: 24, xl: 32 },
 }));
-vi.mock('@/hooks/useScaledServings', () => ({
-  scaleQuantity: (quantity: string | null) => quantity,
-}));
+vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
 
 import AddIngredientsModal from './AddIngredientsModal';
 
@@ -108,4 +106,44 @@ describe('AddIngredientsModal', () => {
       await act(async () => renderer.unmount());
     }
   });
+});
+
+
+it('shows and scales AI amounts without changing source quantity in the selected ingredients', async () => {
+  const renderer = createRoot({ textComponentTypes: ['Text'] });
+  const onConfirm = vi.fn();
+  try {
+    await act(async () => {
+      renderer.render(React.createElement(AddIngredientsModal, {
+        visible: true, onClose: vi.fn(), onConfirm, recipeTitle: 'Rice', scaleFactor: 2,
+        ingredients: [{ name: 'Water', quantity: null, unit: null, quantityEstimate: { quantity: '1/2', unit: 'cup', reason: 'Based on the rice.' } }],
+      }));
+    });
+    expect(JSON.stringify(renderer.container.toJSON())).toContain('AI estimate');
+    const buttons = renderer.container.queryAll(instance => instance.type === 'TouchableOpacity');
+    await act(async () => buttons[1].props.onPress());
+    expect(onConfirm).toHaveBeenCalledWith([expect.objectContaining({
+      quantity: null, unit: null, quantityEstimate: { quantity: '1', unit: 'cup', reason: 'Based on the rice.' },
+    })]);
+  } finally { await act(async () => renderer.unmount()); }
+});
+
+
+it('shows useful ingredient notes while hiding adjacent extraction diagnostics', async () => {
+  const renderer = createRoot({ textComponentTypes: ['Text'] });
+  try {
+    await act(async () => {
+      renderer.render(React.createElement(AddIngredientsModal, {
+        visible: true, onClose: vi.fn(), onConfirm: vi.fn(), recipeTitle: 'Cookies',
+        ingredients: [
+          { name: 'Butter', quantity: '1', unit: 'cup', notes: 'Amount omitted; use softened butter.' },
+          { name: 'Flour', quantity: '2', unit: 'cups', notes: 'The video contains a tip: fold gently.' },
+        ],
+      }));
+    });
+    const rendered = JSON.stringify(renderer.container.toJSON());
+    expect(rendered).toContain('use softened butter.');
+    expect(rendered).toContain('The video contains a tip: fold gently.');
+    expect(rendered).not.toContain('Amount omitted');
+  } finally { await act(async () => renderer.unmount()); }
 });

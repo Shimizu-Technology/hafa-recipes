@@ -1,8 +1,9 @@
+import { getIngredientAmount, normalizeIngredientUnit } from './recipeTrust';
 import type { Recipe } from '@/types/recipe';
 import type { api } from '@/lib/api';
 
 export interface RecipeReviewIssue {
-  code: 'missing_quantity' | 'source_warning';
+  code: 'missing_quantity' | 'estimated_quantity' | 'source_warning';
   id?: string;
   path: string | null;
   message: string;
@@ -17,7 +18,7 @@ export function getRecipeReviewIssues(recipe: Recipe): RecipeReviewIssue[] {
       issue && typeof issue === 'object'
       && typeof issue.message === 'string'
       && ((issue.code === 'source_warning' && issue.path === null)
-        || (issue.code === 'missing_quantity' && typeof issue.path === 'string'
+        || (['missing_quantity', 'estimated_quantity'].includes(issue.code) && typeof issue.path === 'string'
           && /^components\.\d+\.ingredients\.\d+\.quantity$/.test(issue.path))),
     ));
   }
@@ -25,10 +26,10 @@ export function getRecipeReviewIssues(recipe: Recipe): RecipeReviewIssue[] {
   const issues: RecipeReviewIssue[] = fields.flatMap(field => {
     if (!field || typeof field !== 'object') return [];
     const value = field as { path?: unknown; status?: unknown; quantityStatus?: unknown };
-    return value.quantityStatus === 'not_stated' && value.status !== 'user_verified'
+    return ['not_stated', 'estimated'].includes(String(value.quantityStatus)) && value.status !== 'user_verified'
       && typeof value.path === 'string'
       && /^components\.\d+\.ingredients\.\d+\.quantity$/.test(value.path)
-      ? [{ code: 'missing_quantity' as const, path: value.path, message: 'Amount not stated in the source.' }]
+      ? [{ code: value.quantityStatus === 'estimated' ? 'estimated_quantity' as const : 'missing_quantity' as const, path: value.path, message: value.quantityStatus === 'estimated' ? 'AI estimated this amount from the recipe context.' : 'Amount not stated in the source.' }]
       : [];
   });
   if (recipe.review_state === 'needs_review' && issues.length === 0) {
@@ -49,12 +50,13 @@ export function buildRecipeIssueEdit(
   quantities: Readonly<Record<string, string>>,
   acceptedMissing: ReadonlySet<string>,
   resolvedIssues: ReadonlySet<string> = new Set(),
+  units: Readonly<Record<string, string>> = {},
 ): Parameters<typeof api.editRecipe>[1] {
   if (!Number.isInteger(recipe.content_revision) || Number(recipe.content_revision) < 1) {
     throw new Error('Reload this recipe before saving changes.');
   }
   const allowed = new Set(getRecipeReviewIssues(recipe)
-    .filter(issue => issue.code === 'missing_quantity' && getIssueIngredient(recipe, issue.path))
+    .filter(issue => ['missing_quantity', 'estimated_quantity'].includes(issue.code) && getIssueIngredient(recipe, issue.path))
     .map(issue => issue.path!));
   const verifiedPaths: string[] = [];
   const components = recipe.extracted.components.map((component, ci) => ({
@@ -64,8 +66,21 @@ export function buildRecipeIssueEdit(
       if (!allowed.has(path)) return { ...ingredient };
       const quantity = quantities[path]?.trim();
       if (quantity) {
+        const amount = getIngredientAmount(ingredient);
+        const unitWasEntered = Object.prototype.hasOwnProperty.call(units, path);
+        const sourceUnit = normalizeIngredientUnit(ingredient.unit);
+        if (amount.isEstimate && amount.unit && !sourceUnit && !unitWasEntered) {
+          throw new Error(`Confirm the unit for ${ingredient.name}, or choose No unit.`);
+        }
+        const unit = unitWasEntered ? normalizeIngredientUnit(units[path]) : sourceUnit;
         verifiedPaths.push(path);
-        return { ...ingredient, quantity };
+        if (unitWasEntered && unit) verifiedPaths.push(path.replace(/\.quantity$/, '.unit'));
+        return {
+          ...ingredient,
+          quantity,
+          unit,
+          quantityEstimate: null,
+        };
       }
       if (acceptedMissing.has(path)) verifiedPaths.push(path);
       return { ...ingredient };

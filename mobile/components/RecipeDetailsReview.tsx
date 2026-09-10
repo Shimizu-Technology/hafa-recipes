@@ -1,3 +1,4 @@
+import { getIngredientAmount, formatIngredientAmount, normalizeIngredientUnit } from '@/lib/recipeTrust';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet,
@@ -26,6 +27,7 @@ export function RecipeDetailsReview({ recipe, onClose, onOpenSource, onEdit }: {
   // Keep the content revision and field paths together even if a background refetch finishes.
   const [snapshot] = useState(recipe);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [units, setUnits] = useState<Record<string, string>>({});
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [resolvedIssues, setResolvedIssues] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
@@ -45,7 +47,7 @@ export function RecipeDetailsReview({ recipe, onClose, onOpenSource, onEdit }: {
     savingRef.current = true;
     setSaving(true);
     try {
-      const edit = buildRecipeIssueEdit(snapshot, quantities, accepted, resolvedIssues);
+      const edit = buildRecipeIssueEdit(snapshot, quantities, accepted, resolvedIssues, units);
       if (!edit.verified_paths?.length && !edit.resolved_issue_ids?.length) { onClose(); return; }
       const updated = await api.editRecipe(snapshot.id, edit);
       if (!mountedRef.current) return;
@@ -80,21 +82,53 @@ export function RecipeDetailsReview({ recipe, onClose, onOpenSource, onEdit }: {
           <Text style={[styles.intro, { color: colors.textSecondary }]}>Your recipe is already saved. Change anything you can confirm, or leave it for later.</Text>
           {issues.map((issue, index) => {
             const ingredient = getIssueIngredient(snapshot, issue.path);
+            const amount = ingredient ? getIngredientAmount(ingredient) : null;
             return (
               <View key={issue.path ?? `source-${index}`} style={[styles.issue, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
                 <Text style={[styles.issueTitle, { color: colors.text }]}>{ingredient?.name ?? 'Source details'}</Text>
-                <Text style={[styles.message, { color: colors.textSecondary }]}>{issue.message}</Text>
+                <Text style={[styles.message, { color: colors.textSecondary }]}>
+                  {amount?.isEstimate
+                    ? `${formatIngredientAmount(amount.quantity, amount.unit)} · AI estimate${amount.reason ? `\n${amount.reason}` : ''}`
+                    : issue.message}
+                </Text>
                 {ingredient && issue.path && (
                   <>
                     <TextInput
                       style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]}
                       value={quantities[issue.path] ?? ''}
                       onChangeText={value => setQuantities(current => ({ ...current, [issue.path!]: value }))}
-                      placeholder={ingredient.unit ? `Amount (${ingredient.unit})` : 'Amount, if you know it'}
+                      placeholder="Amount from the source"
                       placeholderTextColor={colors.textMuted}
                       accessibilityLabel={`Amount for ${ingredient.name}`}
                       editable={!saving}
                     />
+                    {!!quantities[issue.path]?.trim() && (
+                      <View style={styles.unitCorrection}>
+                        <Text style={[styles.message, { color: colors.textSecondary }]}>Unit from the source</Text>
+                        <View style={styles.unitRow}>
+                          <TextInput
+                            style={[styles.input, styles.unitInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]}
+                            value={units[issue.path] ?? normalizeIngredientUnit(ingredient.unit) ?? ''}
+                            onChangeText={value => setUnits(current => ({ ...current, [issue.path!]: value }))}
+                            placeholder={amount?.isEstimate && amount.unit ? `e.g. ${amount.unit}` : 'e.g. cups, tsp'}
+                            placeholderTextColor={colors.textMuted}
+                            accessibilityLabel={`Unit for ${ingredient.name}`}
+                            editable={!saving}
+                            autoCapitalize="none"
+                          />
+                          <TouchableOpacity
+                            style={styles.noUnit}
+                            disabled={saving}
+                            onPress={() => setUnits(current => ({ ...current, [issue.path!]: '' }))}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected: units[issue.path] === '' }}
+                            accessibilityLabel={`No unit for ${ingredient.name}`}
+                          >
+                            <Text style={{ color: colors.tint }}>{units[issue.path] === '' ? 'No unit selected' : 'No unit'}</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
                     <TouchableOpacity
                       style={styles.accept} disabled={saving}
                       onPress={() => setAccepted(current => {
@@ -103,10 +137,10 @@ export function RecipeDetailsReview({ recipe, onClose, onOpenSource, onEdit }: {
                         return next;
                       })}
                       accessibilityRole="checkbox" accessibilityState={{ checked: accepted.has(issue.path) }}
-                      accessibilityLabel={`Confirm the source gives no amount for ${ingredient.name}`}
+                      accessibilityLabel={amount?.isEstimate ? `Keep AI estimate for ${ingredient.name}` : `Confirm the source gives no amount for ${ingredient.name}`}
                     >
                       <Ionicons name={accepted.has(issue.path) ? 'checkbox' : 'square-outline'} size={22} color={colors.tint} />
-                      <Text style={[styles.acceptText, { color: colors.text }]}>The source doesn’t give an amount</Text>
+                      <Text style={[styles.acceptText, { color: colors.text }]}>{amount?.isEstimate ? 'Keep AI estimate' : 'The source doesn’t give an amount'}</Text>
                     </TouchableOpacity>
                   </>
                 )}
@@ -151,6 +185,10 @@ const styles = StyleSheet.create({
   issueTitle: { fontSize: 19, fontWeight: '600' },
   message: { fontSize: 15, lineHeight: 22 },
   input: { minHeight: 48, borderWidth: 1, borderRadius: 8, padding: 12, fontSize: 17 },
+  unitCorrection: { gap: 8 },
+  unitRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  unitInput: { flex: 1 },
+  noUnit: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
   accept: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44 },
   acceptText: { flex: 1, fontSize: 14, lineHeight: 20 },
   edit: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },

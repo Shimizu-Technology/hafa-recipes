@@ -42,7 +42,7 @@ def test_multi_image_ocr_prompt_applies_the_same_trust_contract():
 
 def test_ocr_prompt_version_tracks_the_trust_contract_change():
     """Prompt telemetry must distinguish the revised OCR trust contract."""
-    assert PROMPT_VERSIONS["ocr"] == "recipe-ocr-v3"
+    assert PROMPT_VERSIONS["ocr"] == "recipe-ocr-v4"
 
 
 def test_ocr_confidence_is_normalized_for_a_reliable_mobile_warning():

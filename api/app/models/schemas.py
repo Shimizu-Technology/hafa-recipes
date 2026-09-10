@@ -11,7 +11,9 @@ from datetime import datetime
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.recipe_estimates import QuantityEstimate, has_source_quantity
 
 # ============================================================
 # Nested Types (matching TypeScript interfaces)
@@ -24,6 +26,14 @@ class Ingredient(BaseModel):
     name: str
     notes: Optional[str] = None
     estimatedCost: Optional[float] = None
+    quantityEstimate: Optional[QuantityEstimate] = None
+
+    @model_validator(mode="after")
+    def preserve_source_amount(self):
+        """A supplied source amount always takes precedence over an estimate."""
+        if has_source_quantity(self.model_dump(exclude={"quantityEstimate"})):
+            self.quantityEstimate = None
+        return self
 
     @field_validator("quantity", mode="before")
     @classmethod
@@ -130,6 +140,7 @@ class RecipeExtracted(BaseModel):
     nutrition: Nutrition = Nutrition()
     derivedData: Optional[RecipeDerivedData] = None
     # Confidence/quality indicators for low-quality extractions
+    sourceIncomplete: bool = False
     lowConfidence: Optional[bool] = None
     confidenceWarning: Optional[str] = None
 

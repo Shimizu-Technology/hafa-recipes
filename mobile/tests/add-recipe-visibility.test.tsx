@@ -247,6 +247,34 @@ describe('AddRecipeScreen visibility', () => {
       'file:///recipe-card.jpg',
     );
   });
+  it('preserves an imported AI estimate separately when saving from the fallback editor', async () => {
+    const estimate = { quantity: '2', unit: 'cups', reason: 'For this batch.' };
+    mocks.params.initialData = JSON.stringify({ title: 'Rice', ingredients: [{ name: 'rice', quantity: null, unit: null, quantityEstimate: estimate }], steps: ['Cook.'] });
+    const renderer = await renderRecipe();
+    await act(async () => headerAction(renderer, 'Save private').props.onPress());
+    expect(mocks.createManualRecipe).toHaveBeenCalledWith(expect.objectContaining({ ingredients: [expect.objectContaining({ quantity: null, quantityEstimate: estimate })] }), null);
+  });
+
+  it('discards contextual estimates when the user changes the serving count in the fallback editor', async () => {
+    const estimate = { quantity: '2', unit: 'cups', reason: 'For this batch.' };
+    mocks.params.initialData = JSON.stringify({ title: 'Rice', servings: 4, ingredients: [{ name: 'rice', quantity: null, unit: null, quantityEstimate: estimate }], steps: ['Cook.'] });
+    const renderer = await renderRecipe();
+    const input = renderer.root.findAllByType('TextInput' as unknown as React.ComponentType).find(node => node.props.value === '4')!;
+    await act(async () => input.props.onChangeText('6'));
+    await act(async () => headerAction(renderer, 'Save private').props.onPress());
+    expect(mocks.createManualRecipe).toHaveBeenCalledWith(expect.objectContaining({ servings: 6, ingredients: [expect.objectContaining({ quantity: null, quantityEstimate: null })] }), null);
+  });
+
+  it('does not copy an AI unit into source fields when renaming an ingredient', async () => {
+    const estimate = { quantity: '2', unit: 'cups', reason: 'For this batch.' };
+    mocks.params.initialData = JSON.stringify({ title: 'Rice', ingredients: [{ name: 'rice', quantity: null, unit: null, quantityEstimate: estimate }], steps: ['Cook.'] });
+    const renderer = await renderRecipe();
+    const input = renderer.root.findAllByType('TextInput' as unknown as React.ComponentType).find(node => node.props.placeholder === 'Ingredient name')!;
+    await act(async () => input.props.onChangeText('brown rice'));
+    await act(async () => headerAction(renderer, 'Save private').props.onPress());
+    expect(mocks.createManualRecipe).toHaveBeenCalledWith(expect.objectContaining({ ingredients: [expect.objectContaining({ name: 'brown rice', quantity: null, unit: null, quantityEstimate: null })] }), null);
+  });
+
   it('defaults new entries to public and saves without a tags or nutrition prompt', async () => {
     mocks.params.isPublic = undefined as unknown as string;
     const renderer = await renderRecipe();

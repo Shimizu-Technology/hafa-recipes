@@ -382,4 +382,4 @@ async def test_endpoint_defaults_to_today_and_delegates_to_policy_query(monkeypa
     assert params["recipe_id_1"] == recipe_id
     assert params["user_id_1"] == "stable-app-user"
     assert params["date_1"] == _FixedDate(2026, 8, 26)
-    assert params["param_1"] == 50
+    assert session.statement._limit_clause.value == 50

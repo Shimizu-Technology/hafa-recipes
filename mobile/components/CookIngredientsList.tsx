@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet, View as RNView } from 'react-native';
 import { Text } from '@/components/Themed';
 import { brand, fontSize, fontWeight, spacing } from '@/constants/Colors';
 import { scaleQuantity } from '@/hooks/useScaledServings';
-import { formatIngredientAmount, hasStatedIngredientAmount } from '../lib/recipeTrust';
+import { formatIngredientAmount, hasStatedIngredientAmount, getIngredientAmount } from '../lib/recipeTrust';
 import type { Ingredient } from '@/types/recipe';
 
 type CookIngredientsListProps = {
@@ -25,8 +25,9 @@ export function CookIngredientsList({
   return (
     <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
       {ingredients.map((ingredient, index) => {
-        const scaledQuantity = scaleQuantity(ingredient.quantity ?? null, scaleFactor);
-        const hasAmount = hasStatedIngredientAmount(ingredient.quantity);
+        const amount = getIngredientAmount(ingredient);
+        const scaledQuantity = scaleQuantity(amount.quantity, scaleFactor);
+        const hasAmount = hasStatedIngredientAmount(amount.quantity);
         return (
           <RNView key={index} style={styles.row}>
             <Text
@@ -37,10 +38,11 @@ export function CookIngredientsList({
                 { fontSize: scaleFontSize(hasAmount ? fontSize.md : fontSize.sm) },
               ]}
             >
-              {formatIngredientAmount(ingredient.quantity, ingredient.unit, scaledQuantity)}
+              {formatIngredientAmount(amount.quantity, amount.unit, scaledQuantity)}
             </Text>
             <Text style={[styles.name, { fontSize: scaleFontSize(fontSize.md) }]}>
               {ingredient.name}
+              {amount.isEstimate && <Text style={{ color: warningColor, fontSize: scaleFontSize(fontSize.sm) }}>{'\nAI estimate'}</Text>}
             </Text>
           </RNView>
         );

@@ -3,7 +3,8 @@
 import logging
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy import and_, exists, or_, select, text
+from sqlalchemy import and_, exists, func, literal, or_, select, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import ClerkUser, get_current_user
@@ -12,6 +13,7 @@ from app.db.database import AsyncSessionLocal
 from app.models.identity import AppUser
 from app.models.moderation import UserBlock
 from app.models.recipe import Recipe
+from app.recipe_estimates import LEGACY_INCOMPLETE_SQL_PATTERN, source_is_incomplete
 
 logger = logging.getLogger(__name__)
 
@@ -127,11 +129,26 @@ async def verify_moderation_schema(session_factory=AsyncSessionLocal) -> None:
             raise RuntimeError("Database migration 022 is missing or incomplete")
 
 
+def source_incomplete_condition(extracted=Recipe.extracted, extraction_method=Recipe.extraction_method):
+    """Match the Python completeness boundary on every public SQL surface."""
+    return or_(
+        func.coalesce(extracted.op("->")("sourceIncomplete") == literal(True, type_=JSONB), False),
+        and_(
+            extraction_method.isnot(None),
+            extraction_method != "manual",
+            func.trim(func.coalesce(extracted["notes"].astext, "")).regexp_match(
+                LEGACY_INCOMPLETE_SQL_PATTERN
+            ),
+        ),
+    )
+
+
 def public_recipe_conditions(viewer_user_id: str | None = None):
     """Return the complete policy for recipes shown on public surfaces."""
     conditions = [
         Recipe.is_public.is_(True),
         Recipe.moderation_status == "active",
+        ~source_incomplete_condition(),
         or_(Recipe.review_state.is_(None), Recipe.review_state.in_(["ready", "needs_review"])),
         or_(
             Recipe.user_id.is_(None),
@@ -178,6 +195,7 @@ async def is_publicly_viewable(
         not recipe.is_public
         or recipe.moderation_status != "active"
         or recipe.review_state not in (None, "ready", "needs_review")
+        or source_is_incomplete(recipe.extracted, extraction_method=recipe.extraction_method)
     ):
         return False
     if recipe.user_id is None:

@@ -5,6 +5,7 @@
  * so when they return to a recipe, the scaling is remembered.
  */
 
+import type { QuantityEstimate } from '@/types/recipe';
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -86,47 +87,34 @@ export function useScaledServings(recipeId: string, originalServings: number) {
 export function scaleQuantity(quantity: string | null, scaleFactor: number): string | null {
   if (!quantity || scaleFactor === 1) return quantity;
   
-  // Try to parse the quantity as a number or fraction
-  const parsed = parseFloat(quantity);
-  if (!isNaN(parsed)) {
+  const unicodeFractions: Record<string, number> = {
+    '¼': 1 / 4, '½': 1 / 2, '¾': 3 / 4, '⅓': 1 / 3, '⅔': 2 / 3,
+    '⅛': 1 / 8, '⅜': 3 / 8, '⅝': 5 / 8, '⅞': 7 / 8,
+  };
+  const input = quantity.trim();
+  const fraction = input.match(/^(?:(\d+)\s+)?(\d+)\/(\d+)$/);
+  const unicode = input.match(/^(\d+)?\s*([¼½¾⅓⅔⅛⅜⅝⅞])$/);
+  const parsed = fraction && Number(fraction[3]) !== 0
+    ? Number(fraction[1] || 0) + Number(fraction[2]) / Number(fraction[3])
+    : unicode ? Number(unicode[1] || 0) + unicodeFractions[unicode[2]]
+      : /^\d+(?:\.\d+)?$/.test(input) ? Number(input) : NaN;
+  if (Number.isFinite(parsed) && Number.isFinite(scaleFactor) && scaleFactor > 0) {
     const scaled = parsed * scaleFactor;
-    // Format nicely: show fractions for small numbers, decimals for larger
-    if (scaled < 1) {
-      // Convert to common fractions
-      const fractions: Record<string, string> = {
-        '0.25': '¼', '0.33': '⅓', '0.5': '½', '0.67': '⅔', '0.75': '¾',
-      };
-      const key = scaled.toFixed(2);
-      return fractions[key] || scaled.toFixed(1);
-    }
-    return scaled % 1 === 0 ? scaled.toString() : scaled.toFixed(1);
+    const fractions: Record<string, string> = {
+      '0.13': '⅛', '0.25': '¼', '0.33': '⅓', '0.38': '⅜', '0.50': '½',
+      '0.63': '⅝', '0.67': '⅔', '0.75': '¾', '0.88': '⅞',
+    };
+    return (scaled < 1 ? fractions[scaled.toFixed(2)] : null)
+      || String(Number(scaled < 0.01 ? scaled.toPrecision(4) : scaled.toFixed(2)));
   }
-  
-  // Handle fraction strings like "1/2", "3/4"
-  const fractionMatch = quantity.match(/^(\d+)\/(\d+)$/);
-  if (fractionMatch) {
-    const numerator = parseInt(fractionMatch[1], 10);
-    const denominator = parseInt(fractionMatch[2], 10);
-    if (denominator !== 0) {
-      const scaled = (numerator / denominator) * scaleFactor;
-      if (scaled < 1) {
-        const fractions: Record<string, string> = {
-          '0.25': '¼', '0.33': '⅓', '0.5': '½', '0.67': '⅔', '0.75': '¾',
-        };
-        const key = scaled.toFixed(2);
-        return fractions[key] || scaled.toFixed(2);
-      }
-      return scaled % 1 === 0 ? scaled.toString() : scaled.toFixed(1);
-    }
-  }
-  
+
   return quantity;
 }
 
 /**
  * Scale an ingredient object with a given scale factor.
  */
-export function scaleIngredient<T extends { quantity?: string | null; estimatedCost?: number | null }>(
+export function scaleIngredient<T extends { quantity?: string | null; quantityEstimate?: QuantityEstimate | null; estimatedCost?: number | null }>(
   ingredient: T,
   scaleFactor: number
 ): T {
@@ -135,6 +123,10 @@ export function scaleIngredient<T extends { quantity?: string | null; estimatedC
   return {
     ...ingredient,
     quantity: scaleQuantity(ingredient.quantity ?? null, scaleFactor),
+    ...(ingredient.quantityEstimate ? { quantityEstimate: {
+      ...ingredient.quantityEstimate,
+      quantity: scaleQuantity(ingredient.quantityEstimate.quantity, scaleFactor)!,
+    } } : {}),
     estimatedCost: ingredient.estimatedCost 
       ? ingredient.estimatedCost * scaleFactor 
       : ingredient.estimatedCost,

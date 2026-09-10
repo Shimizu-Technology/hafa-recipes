@@ -1,4 +1,5 @@
-import type { RecipeReviewState } from '@/types/recipe';
+import { getIngredientAmount } from './recipeTrust';
+import type { Ingredient, RecipeReviewState } from '@/types/recipe';
 
 type ReviewEvidence = {
   source?: {
@@ -62,11 +63,11 @@ export function getRecipeReviewDetails(
   const heading = state === 'source_incomplete'
     ? 'Saved as a draft'
     : missingQuantityCount > 0
-      ? `${missingQuantityCount} ingredient ${missingQuantityCount === 1 ? 'amount was' : 'amounts were'} not stated`
-      : 'Some source details were unclear';
+      ? 'Some amounts need a check'
+      : 'Some details may need a check';
   const message = state === 'source_incomplete'
     ? 'Add the ingredients or instructions the source did not provide. Your draft is saved privately.'
-    : 'Your recipe is saved. You can check these details now or come back later.';
+    : 'Checking is optional.';
 
   const modalities = Array.isArray(envelope.source?.modalities)
     ? envelope.source.modalities
@@ -160,13 +161,14 @@ export function getCookDraftPresentation(
 /** Label an absent amount honestly unless the source explicitly supplied flexibility. */
 export function getMissingQuantityLabel(
   _state: RecipeReviewState | null | undefined,
-  ingredient: { name?: string | null; quantity?: string | null; unit?: string | null; notes?: string | null },
+  ingredient: Partial<Ingredient>,
 ): string | null {
   const nullish = new Set(['', 'null', 'none', 'n/a', 'not stated', 'unknown']);
   const hasStatedValue = (value?: string | null) => (
     !!value && !nullish.has(value.trim().toLowerCase())
   );
   if (hasStatedValue(ingredient.quantity)) return null;
+  if (getIngredientAmount({ ...ingredient, quantity: ingredient.quantity ?? null, unit: ingredient.unit ?? null }).isEstimate) return 'AI estimate';
   const sourceLanguage = `${ingredient.name || ''} ${ingredient.unit || ''} ${ingredient.notes || ''}`.toLowerCase();
   if (['to taste', 'as needed', 'as desired', 'for garnish', 'optional'].some(
     phrase => sourceLanguage.includes(phrase),
