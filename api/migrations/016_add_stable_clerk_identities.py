@@ -12,6 +12,9 @@ from sqlalchemy import text
 from app.config import get_settings
 from app.db.database import engine
 
+# Freeze this historical PostgreSQL pattern independently of application code.
+PRODUCTION_OWNER_PATTERN = r"^app_[a-f0-9]{32}$"
+
 OWNERS_SQL = """
     SELECT user_id FROM recipes WHERE user_id IS NOT NULL
     UNION SELECT user_id FROM saved_recipes WHERE user_id IS NOT NULL
@@ -77,14 +80,21 @@ async def run_migration() -> None:
             SELECT DISTINCT owners.user_id FROM ({OWNERS_SQL}) AS owners
             ON CONFLICT (id) DO NOTHING
         """))
+        # Production onboarding allocates app_<uuid> owner IDs, not Clerk
+        # subjects. Later deploys replay this migration after those owners exist;
+        # never invent development identities for them or require such aliases.
         await conn.execute(
             text("""
                 INSERT INTO clerk_identities (app_user_id, issuer, clerk_user_id)
                 SELECT id, :issuer, id
                 FROM app_users
+                WHERE id !~ :production_owner_pattern
                 ON CONFLICT (issuer, clerk_user_id) DO NOTHING
             """),
-            {"issuer": development.issuer},
+            {
+                "issuer": development.issuer,
+                "production_owner_pattern": PRODUCTION_OWNER_PATTERN,
+            },
         )
 
         missing = await conn.scalar(text("""
@@ -95,7 +105,11 @@ async def run_migration() -> None:
              AND identity.issuer = :issuer
              AND identity.clerk_user_id = app_user.id
             WHERE identity.id IS NULL
-        """).bindparams(issuer=development.issuer))
+              AND app_user.id !~ :production_owner_pattern
+        """).bindparams(
+            issuer=development.issuer,
+            production_owner_pattern=PRODUCTION_OWNER_PATTERN,
+        ))
         if missing:
             raise RuntimeError(
                 f"Stable identity backfill is incomplete for {missing} application users"

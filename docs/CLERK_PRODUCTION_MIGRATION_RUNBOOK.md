@@ -48,6 +48,14 @@ to one application-owned identity.
 
 ## Production prerequisites
 
+Migration 016 runs again on later deployments. Its legacy development-subject
+backfill excludes production-created `app_<32 lowercase hex characters>` owner
+IDs from both insertion and completeness checks. Existing aliases and ownership
+remain unchanged. This prevents new production-only accounts, including the App
+Review account, from receiving invented development aliases on the next deploy.
+Previously generated aliases require a separate audited repair; this change does
+not remove or modify any existing identity.
+
 - Confirm Render service `srv-d4l28evgi27c73es0ag0` points to the production
   Neon project `plain-butterfly-09099877`, branch
   `br-misty-voice-a1ymon2c`.
