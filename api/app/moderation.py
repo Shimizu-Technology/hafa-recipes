@@ -136,7 +136,7 @@ def source_incomplete_condition(extracted=Recipe.extracted, extraction_method=Re
         and_(
             extraction_method.isnot(None),
             extraction_method != "manual",
-            func.btrim(func.coalesce(extracted["notes"].astext, "")).op("~")(
+            func.trim(func.coalesce(extracted["notes"].astext, "")).regexp_match(
                 LEGACY_INCOMPLETE_SQL_PATTERN
             ),
         ),

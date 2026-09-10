@@ -10,6 +10,17 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 _NULLISH = {"", "null", "none", "n/a", "not stated", "unknown"}
 ESTIMATE_ONLY_WARNING = "AI-estimated amounts are marked."
+_VULGAR_FRACTIONS = {
+    "¼": "1/4",
+    "½": "1/2",
+    "¾": "3/4",
+    "⅓": "1/3",
+    "⅔": "2/3",
+    "⅛": "1/8",
+    "⅜": "3/8",
+    "⅝": "5/8",
+    "⅞": "7/8",
+}
 _FLEXIBLE = ("to taste", "as needed", "as desired", "for garnish", "optional")
 _DIAGNOSTIC = re.compile(
     r"\b(?:(?:the )?(?:source|description|caption|transcript|video|image)|extraction|extracted from)\b"
@@ -27,12 +38,12 @@ _INCOMPLETE = re.compile(
 # Narrow compatibility rule for diagnostic notes emitted by older extractors.
 # Avoid classifying ordinary recipe tips or human-authored recipes by keywords.
 LEGACY_INCOMPLETE_PATTERN = (
-    r"^(?:the )?(?:description|caption|transcript|source)\b.{0,250}\b"
+    r"^(?:the )?(?:description|caption|transcript|source)\s+(?:.{0,250}\s)?"
     r"(?:does not provide a (?:full|complete) ingredient list|"
     r"does not (?:include|contain) (?:the )?(?:ingredients|cooking instructions)|"
-    r"provides only a (?:dish )?description)\b"
+    r"provides only a (?:dish )?description)(?:\W|$)"
 )
-LEGACY_INCOMPLETE_SQL_PATTERN = "(?is)" + LEGACY_INCOMPLETE_PATTERN.replace(r"\b", r"\y")
+LEGACY_INCOMPLETE_SQL_PATTERN = "(?is)" + LEGACY_INCOMPLETE_PATTERN
 
 
 def source_is_incomplete(extracted: dict | None, *, extraction_method: str | None = None) -> bool:
@@ -61,6 +72,12 @@ class QuantityEstimate(BaseModel):
     @classmethod
     def positive_amount(cls, value: str) -> str:
         """Accept a single positive number or fraction, not arbitrary prose."""
+        value = value.replace("⁄", "/")
+        for glyph, fraction in _VULGAR_FRACTIONS.items():
+            if value.endswith(glyph):
+                prefix = value[:-1].strip()
+                value = f"{prefix} {fraction}" if prefix else fraction
+                break
         if not re.fullmatch(r"(?:\d+(?:\.\d+)?|\d+/\d+|\d+ \d+/\d+)", value):
             raise ValueError("Estimate must be a positive number or fraction")
         try:
@@ -98,7 +115,12 @@ def normalize_recipe_estimates(
     result = deepcopy(extracted)
     diagnostics: list[str] = []
     if clean_import_notes:
-        for record in [result, *(result.get("components") or [])]:
+        components = [item for item in result.get("components") or [] if isinstance(item, dict)]
+        note_records = [result, *components, *(result.get("ingredients") or [])]
+        note_records.extend(
+            item for component in components for item in component.get("ingredients") or []
+        )
+        for record in note_records:
             if not isinstance(record, dict):
                 continue
             notes = record.get("notes")
@@ -106,9 +128,19 @@ def normalize_recipe_estimates(
                 continue
             useful: list[str] = []
             removed = False
-            for sentence in re.split(r"(?<=[.!?])\s+", notes.strip()):
+            for sentence in re.split(r"(?<=[.!?;])\s+", notes.strip()):
                 if _DIAGNOSTIC.search(sentence):
                     diagnostics.append(sentence)
+                    removed = True
+                elif re.fullmatch(
+                    r"(?:the )?(?:amount|quantity|measurement)(?: (?:is|was))? "
+                    r"(?:omitted|not (?:stated|provided|specified))"
+                    r"(?: (?:in|by|from) (?:the )?(?:source|recipe|video|caption|text))?[.!?;]?",
+                    sentence,
+                    re.I,
+                ):
+                    # Missing amounts already have located review issues; this
+                    # sentence is not a separate cooking tip or source warning.
                     removed = True
                 elif not sentence or re.fullmatch(
                     r"(?:no (?:additional |specific )?notes(?: (?:provided|available))?|n/a|none)[.!]?",

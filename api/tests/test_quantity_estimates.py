@@ -377,3 +377,65 @@ async def test_postgres_and_python_completeness_policy_match(extracted, method):
         assert actual is source_is_incomplete(extracted, extraction_method=method)
     finally:
         await engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("provided", "normalized"), [("½", "1/2"), ("1½", "1 1/2"), ("1⁄2", "1/2")]
+)
+def test_common_fraction_typography_does_not_drop_a_valid_estimate(provided, normalized):
+    value = recipe()
+    value["components"][0]["ingredients"][1]["quantityEstimate"]["quantity"] = provided
+    cleaned = normalize_recipe_estimates(value)
+    ingredient = cleaned["components"][0]["ingredients"][1]
+    assert ingredient["quantityEstimate"]["quantity"] == normalized
+    assert ingredient["quantity"] is None
+
+
+@pytest.mark.parametrize(
+    ("extracted", "method", "expected"),
+    [
+        ({"notes": LEGACY_DIAGNOSTIC}, "whisper", True),
+        ({"notes": LEGACY_DIAGNOSTIC}, "manual", False),
+        ({"sourceIncomplete": True}, "whisper", True),
+        ({"sourceIncomplete": "true"}, "whisper", False),
+        ({"notes": "Add the water gradually."}, "whisper", False),
+    ],
+)
+def test_sqlite_completeness_policy_preserves_test_query_semantics(extracted, method, expected):
+    from sqlalchemy import String, create_engine, literal, select
+    from sqlalchemy.dialects.postgresql import JSONB
+
+    from app.moderation import source_incomplete_condition
+
+    engine = create_engine("sqlite://")
+    try:
+        with engine.connect() as connection:
+            actual = connection.scalar(
+                select(
+                    source_incomplete_condition(
+                        literal(extracted, type_=JSONB), literal(method, type_=String)
+                    )
+                )
+            )
+        assert actual is expected
+    finally:
+        engine.dispose()
+
+
+def test_ingredient_note_cleanup_preserves_tips_without_repeating_missing_amount():
+    value = recipe()
+    value["components"][0]["ingredients"][1]["notes"] = "Amount omitted; add the water gradually."
+    cleaned = normalize_recipe_estimates(value, clean_import_notes=True)
+    ingredient = cleaned["components"][0]["ingredients"][1]
+    assert ingredient["notes"] == "add the water gradually."
+    assert ingredient["quantityEstimate"] == ESTIMATE
+    assert cleaned["ingredients"][1]["notes"] == ingredient["notes"]
+    for diagnostic in [
+        "Amount omitted.",
+        "Amount not stated.",
+        "Quantity not provided in the source.",
+    ]:
+        value["components"][0]["ingredients"][1]["notes"] = diagnostic
+        cleaned = normalize_recipe_estimates(value, clean_import_notes=True)
+        assert cleaned["components"][0]["ingredients"][1]["notes"] is None
+        assert not cleaned.get("confidenceWarning")
