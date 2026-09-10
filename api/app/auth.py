@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import ClerkEnvironment, get_settings
+from app.contributor_attribution import resolve_contributor_name
 from app.db import get_db
 from app.deletion_cleanup import hash_auth_identity
 from app.models.deletion import DeletedAuthIdentity
@@ -45,6 +46,7 @@ class ClerkUser(BaseModel):
     last_name: str | None = None
     image_url: str | None = None
     role: str | None = None
+    attribution_name: str | None = None
 
     @property
     def is_admin(self) -> bool:
@@ -56,6 +58,10 @@ class ClerkUser(BaseModel):
             return f"{self.first_name} {self.last_name}"
         if self.first_name:
             return self.first_name
+        if self.last_name:
+            return self.last_name
+        if self.attribution_name:
+            return self.attribution_name
         if self.email:
             return self.email.split("@")[0]
         return "A chef"
@@ -321,7 +327,7 @@ async def get_current_user(
     if not isinstance(public_metadata, dict):
         public_metadata = {}
 
-    return ClerkUser(
+    user = ClerkUser(
         id=identity.app_user_id,
         clerk_user_id=token.subject,
         clerk_issuer=token.issuer,
@@ -332,6 +338,15 @@ async def get_current_user(
         image_url=_claim(token.claims, "image_url"),
         role=_claim(public_metadata, "role"),
     )
+
+    if not user.first_name and not user.last_name:
+        environment = settings.clerk_environment_for_issuer(token.issuer)
+        if environment is not None:
+            user.attribution_name = await resolve_contributor_name(
+                db, environment=environment, clerk_user_id=token.subject,
+                app_user_id=identity.app_user_id,
+            )
+    return user
 
 
 async def get_optional_user(
