@@ -1,3 +1,4 @@
+import { getIngredientAmount, normalizeIngredientUnit } from './recipeTrust';
 import type { Recipe } from '@/types/recipe';
 import type { api } from '@/lib/api';
 
@@ -49,6 +50,7 @@ export function buildRecipeIssueEdit(
   quantities: Readonly<Record<string, string>>,
   acceptedMissing: ReadonlySet<string>,
   resolvedIssues: ReadonlySet<string> = new Set(),
+  units: Readonly<Record<string, string>> = {},
 ): Parameters<typeof api.editRecipe>[1] {
   if (!Number.isInteger(recipe.content_revision) || Number(recipe.content_revision) < 1) {
     throw new Error('Reload this recipe before saving changes.');
@@ -64,8 +66,21 @@ export function buildRecipeIssueEdit(
       if (!allowed.has(path)) return { ...ingredient };
       const quantity = quantities[path]?.trim();
       if (quantity) {
+        const amount = getIngredientAmount(ingredient);
+        const unitWasEntered = Object.prototype.hasOwnProperty.call(units, path);
+        const sourceUnit = normalizeIngredientUnit(ingredient.unit);
+        if (amount.isEstimate && amount.unit && !sourceUnit && !unitWasEntered) {
+          throw new Error(`Confirm the unit for ${ingredient.name}, or choose No unit.`);
+        }
+        const unit = unitWasEntered ? normalizeIngredientUnit(units[path]) : sourceUnit;
         verifiedPaths.push(path);
-        return { ...ingredient, quantity, quantityEstimate: null };
+        if (unitWasEntered && unit) verifiedPaths.push(path.replace(/\.quantity$/, '.unit'));
+        return {
+          ...ingredient,
+          quantity,
+          unit,
+          quantityEstimate: null,
+        };
       }
       if (acceptedMissing.has(path)) verifiedPaths.push(path);
       return { ...ingredient };

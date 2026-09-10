@@ -140,3 +140,30 @@ it('shows the suggested amount and reason, and keeps estimate provenance when ac
   expect(edit.components[0].ingredients[1]).toMatchObject({ quantity: null, quantityEstimate: estimate });
   await act(async () => tree.unmount());
 });
+
+it.each(['tbsp', ''])('requires explicit source unit %j before replacing an AI amount', async (unit) => {
+  const estimated = structuredClone(recipe);
+  const path = 'components.0.ingredients.1.quantity';
+  estimated.extracted.components[0].ingredients[1] = {
+    name: 'Salt', quantity: null, unit: null,
+    quantityEstimate: { quantity: '1', unit: 'tsp', reason: 'For this batch.' },
+  };
+  const tree = await render(estimated);
+  await act(async () => host(tree, 'TextInput', props => props.accessibilityLabel === 'Amount for Salt')[0].props.onChangeText('1'));
+  const unitInput = host(tree, 'TextInput', props => props.accessibilityLabel === 'Unit for Salt')[0];
+  expect(unitInput.props.value).toBe('');
+  expect(unitInput.props.placeholder).toBe('e.g. tsp');
+  await act(async () => host(tree, 'Button', props => props.title === 'Save changes')[0].props.onPress());
+  expect(mocks.editRecipe).not.toHaveBeenCalled();
+  expect(mocks.alert).toHaveBeenCalledWith('Couldn’t save changes', 'Confirm the unit for Salt, or choose No unit.');
+  if (unit) {
+    await act(async () => unitInput.props.onChangeText(unit));
+  } else {
+    await act(async () => host(tree, 'TouchableOpacity', props => props.accessibilityLabel === 'No unit for Salt')[0].props.onPress());
+  }
+  await act(async () => host(tree, 'Button', props => props.title === 'Save changes')[0].props.onPress());
+  const edit = mocks.editRecipe.mock.calls[0][1];
+  expect(edit.components[0].ingredients[1]).toMatchObject({ quantity: '1', unit: unit || null, quantityEstimate: null });
+  expect(edit.verified_paths).toEqual(unit ? [path, 'components.0.ingredients.1.unit'] : [path]);
+  await act(async () => tree.unmount());
+});

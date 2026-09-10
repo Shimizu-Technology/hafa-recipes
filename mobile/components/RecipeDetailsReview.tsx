@@ -1,4 +1,4 @@
-import { getIngredientAmount, formatIngredientAmount } from '@/lib/recipeTrust';
+import { getIngredientAmount, formatIngredientAmount, normalizeIngredientUnit } from '@/lib/recipeTrust';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet,
@@ -27,6 +27,7 @@ export function RecipeDetailsReview({ recipe, onClose, onOpenSource, onEdit }: {
   // Keep the content revision and field paths together even if a background refetch finishes.
   const [snapshot] = useState(recipe);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [units, setUnits] = useState<Record<string, string>>({});
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [resolvedIssues, setResolvedIssues] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
@@ -46,7 +47,7 @@ export function RecipeDetailsReview({ recipe, onClose, onOpenSource, onEdit }: {
     savingRef.current = true;
     setSaving(true);
     try {
-      const edit = buildRecipeIssueEdit(snapshot, quantities, accepted, resolvedIssues);
+      const edit = buildRecipeIssueEdit(snapshot, quantities, accepted, resolvedIssues, units);
       if (!edit.verified_paths?.length && !edit.resolved_issue_ids?.length) { onClose(); return; }
       const updated = await api.editRecipe(snapshot.id, edit);
       if (!mountedRef.current) return;
@@ -96,11 +97,38 @@ export function RecipeDetailsReview({ recipe, onClose, onOpenSource, onEdit }: {
                       style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]}
                       value={quantities[issue.path] ?? ''}
                       onChangeText={value => setQuantities(current => ({ ...current, [issue.path!]: value }))}
-                      placeholder={ingredient.unit ? `Source amount (${ingredient.unit})` : 'Source amount, if you know it'}
+                      placeholder="Amount from the source"
                       placeholderTextColor={colors.textMuted}
                       accessibilityLabel={`Amount for ${ingredient.name}`}
                       editable={!saving}
                     />
+                    {!!quantities[issue.path]?.trim() && (
+                      <View style={styles.unitCorrection}>
+                        <Text style={[styles.message, { color: colors.textSecondary }]}>Unit from the source</Text>
+                        <View style={styles.unitRow}>
+                          <TextInput
+                            style={[styles.input, styles.unitInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]}
+                            value={units[issue.path] ?? normalizeIngredientUnit(ingredient.unit) ?? ''}
+                            onChangeText={value => setUnits(current => ({ ...current, [issue.path!]: value }))}
+                            placeholder={amount?.isEstimate && amount.unit ? `e.g. ${amount.unit}` : 'e.g. cups, tsp'}
+                            placeholderTextColor={colors.textMuted}
+                            accessibilityLabel={`Unit for ${ingredient.name}`}
+                            editable={!saving}
+                            autoCapitalize="none"
+                          />
+                          <TouchableOpacity
+                            style={styles.noUnit}
+                            disabled={saving}
+                            onPress={() => setUnits(current => ({ ...current, [issue.path!]: '' }))}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected: units[issue.path] === '' }}
+                            accessibilityLabel={`No unit for ${ingredient.name}`}
+                          >
+                            <Text style={{ color: colors.tint }}>{units[issue.path] === '' ? 'No unit selected' : 'No unit'}</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
                     <TouchableOpacity
                       style={styles.accept} disabled={saving}
                       onPress={() => setAccepted(current => {
@@ -157,6 +185,10 @@ const styles = StyleSheet.create({
   issueTitle: { fontSize: 19, fontWeight: '600' },
   message: { fontSize: 15, lineHeight: 22 },
   input: { minHeight: 48, borderWidth: 1, borderRadius: 8, padding: 12, fontSize: 17 },
+  unitCorrection: { gap: 8 },
+  unitRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  unitInput: { flex: 1 },
+  noUnit: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
   accept: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44 },
   acceptText: { flex: 1, fontSize: 14, lineHeight: 20 },
   edit: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
