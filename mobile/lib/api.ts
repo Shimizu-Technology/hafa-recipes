@@ -2,6 +2,7 @@
  * API client for the Recipe Extractor FastAPI backend.
  */
 
+import type { QuantityEstimate } from '@/types/recipe';
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { captureError, captureMessage, addBreadcrumb } from './sentry';
 import { API_BASE_URL } from './apiConfig';
@@ -461,6 +462,7 @@ class ApiClient {
         quantity?: string | null;
         unit?: string | null;
         notes?: string | null;
+        quantityEstimate?: QuantityEstimate | null;
       }>;
       steps: string[];
       notes?: string | null;
@@ -1204,6 +1206,7 @@ class ApiClient {
           unit?: string | null;
           notes?: string | null;
           estimatedCost?: number | null;
+          quantityEstimate?: QuantityEstimate | null;
         }>;
         steps: string[];
         notes?: string | null;
@@ -1214,6 +1217,7 @@ class ApiClient {
         unit?: string | null;
         notes?: string | null;
         estimatedCost?: number | null;
+        quantityEstimate?: QuantityEstimate | null;
       }>;
       steps: string[];
       notes?: string | null;

@@ -1,3 +1,4 @@
+import { getIngredientAmount, formatIngredientAmount } from '@/lib/recipeTrust';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet,
@@ -80,17 +81,22 @@ export function RecipeDetailsReview({ recipe, onClose, onOpenSource, onEdit }: {
           <Text style={[styles.intro, { color: colors.textSecondary }]}>Your recipe is already saved. Change anything you can confirm, or leave it for later.</Text>
           {issues.map((issue, index) => {
             const ingredient = getIssueIngredient(snapshot, issue.path);
+            const amount = ingredient ? getIngredientAmount(ingredient) : null;
             return (
               <View key={issue.path ?? `source-${index}`} style={[styles.issue, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
                 <Text style={[styles.issueTitle, { color: colors.text }]}>{ingredient?.name ?? 'Source details'}</Text>
-                <Text style={[styles.message, { color: colors.textSecondary }]}>{issue.message}</Text>
+                <Text style={[styles.message, { color: colors.textSecondary }]}>
+                  {amount?.isEstimate
+                    ? `${formatIngredientAmount(amount.quantity, amount.unit)} · AI estimate${amount.reason ? `\n${amount.reason}` : ''}`
+                    : issue.message}
+                </Text>
                 {ingredient && issue.path && (
                   <>
                     <TextInput
                       style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]}
                       value={quantities[issue.path] ?? ''}
                       onChangeText={value => setQuantities(current => ({ ...current, [issue.path!]: value }))}
-                      placeholder={ingredient.unit ? `Amount (${ingredient.unit})` : 'Amount, if you know it'}
+                      placeholder={ingredient.unit ? `Source amount (${ingredient.unit})` : 'Source amount, if you know it'}
                       placeholderTextColor={colors.textMuted}
                       accessibilityLabel={`Amount for ${ingredient.name}`}
                       editable={!saving}
@@ -103,10 +109,10 @@ export function RecipeDetailsReview({ recipe, onClose, onOpenSource, onEdit }: {
                         return next;
                       })}
                       accessibilityRole="checkbox" accessibilityState={{ checked: accepted.has(issue.path) }}
-                      accessibilityLabel={`Confirm the source gives no amount for ${ingredient.name}`}
+                      accessibilityLabel={amount?.isEstimate ? `Keep AI estimate for ${ingredient.name}` : `Confirm the source gives no amount for ${ingredient.name}`}
                     >
                       <Ionicons name={accepted.has(issue.path) ? 'checkbox' : 'square-outline'} size={22} color={colors.tint} />
-                      <Text style={[styles.acceptText, { color: colors.text }]}>The source doesn’t give an amount</Text>
+                      <Text style={[styles.acceptText, { color: colors.text }]}>{amount?.isEstimate ? 'Keep AI estimate' : 'The source doesn’t give an amount'}</Text>
                     </TouchableOpacity>
                   </>
                 )}

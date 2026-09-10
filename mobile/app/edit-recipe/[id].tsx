@@ -5,6 +5,7 @@
  * For extracted recipes, saves the original on first edit.
  */
 
+import type { QuantityEstimate } from '@/types/recipe';
 import { useState, useEffect } from 'react';
 import {
   StyleSheet,
@@ -46,6 +47,7 @@ interface IngredientInput {
   unit: string;
   notes: string;
   estimatedCost?: number | null;
+  quantityEstimate?: QuantityEstimate | null;
   reviewedFields: IngredientFieldReview;
 }
 
@@ -227,6 +229,7 @@ export default function EditRecipeScreen() {
           quantity: ingredient.quantity == null ? '' : String(ingredient.quantity),
           unit: ingredient.unit || '',
           notes: ingredient.notes || '',
+          quantityEstimate: ingredient.quantityEstimate,
           estimatedCost: ingredient.estimatedCost ?? null,
           reviewedFields: {
             name: isRecipePathVerified(evidence, `${evidencePrefix}.name`),
@@ -275,6 +278,7 @@ export default function EditRecipeScreen() {
         quantity: ing.quantity.trim() || null,
         unit: ing.unit.trim() || null,
         notes: ing.notes.trim() || null,
+        quantityEstimate: ing.quantity.trim() ? null : ing.quantityEstimate,
       }));
 
     const validSteps = steps
@@ -292,6 +296,7 @@ export default function EditRecipeScreen() {
             quantity: ingredient.quantity.trim() || null,
             unit: ingredient.unit.trim() || null,
             notes: ingredient.notes.trim() || null,
+            quantityEstimate: ingredient.quantity.trim() ? null : ingredient.quantityEstimate,
             estimatedCost: ingredient.estimatedCost ?? null,
           })),
         steps: steps
@@ -601,6 +606,7 @@ export default function EditRecipeScreen() {
       return {
         ...ingredient,
         [field]: value,
+        quantityEstimate: null,
         reviewedFields: { ...ingredient.reviewedFields, [field]: true },
       };
     }));
@@ -988,6 +994,11 @@ export default function EditRecipeScreen() {
                     </RNView>
                   </RNView>
                   
+                  {!ingredient.quantity.trim() && ingredient.quantityEstimate && (
+                    <Text style={{ color: colors.textMuted, fontSize: fontSize.sm }}>
+                      {`AI estimate: ${ingredient.quantityEstimate.quantity}${ingredient.quantityEstimate.unit ? ` ${ingredient.quantityEstimate.unit}` : ''}. Enter an amount above only if you can confirm it.`}
+                    </Text>
+                  )}
                   {/* Notes */}
                   <TextInput
                     style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}

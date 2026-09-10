@@ -2,12 +2,20 @@
  * Recipe types matching the FastAPI backend schemas.
  */
 
+export interface QuantityEstimate {
+  quantity: string;
+  unit: string | null;
+  reason: string;
+}
+
 export interface Ingredient {
   quantity: string | null;
   unit: string | null;
   name: string;
   notes?: string | null;
   estimatedCost?: number | null;
+  /** A suggested amount, never a quantity claimed to be in the source. */
+  quantityEstimate?: QuantityEstimate | null;
 }
 
 export interface RecipeComponent {
@@ -78,6 +86,7 @@ export interface RecipeExtracted {
   nutrition: Nutrition;
   derivedData?: RecipeDerivedData;
   // Confidence info (set when extraction quality is uncertain)
+  sourceIncomplete?: boolean;
   lowConfidence?: boolean;
   confidenceWarning?: string | null;
 }

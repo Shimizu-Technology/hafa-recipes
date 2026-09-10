@@ -1,3 +1,4 @@
+import { ingredientToGroceryItem } from '@/lib/recipeTrust';
 /** Durable, account-scoped grocery synchronization hooks. */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -226,10 +227,7 @@ export function useAddFromRecipe() {
   }>((snapshot, { recipeId, recipeTitle, ingredients }) =>
     ingredients.map((ingredient) =>
       createAddMutation(snapshot.list.id, {
-        name: ingredient.name,
-        quantity: ingredient.quantity,
-        unit: ingredient.unit,
-        notes: ingredient.notes,
+        ...ingredientToGroceryItem(ingredient),
         recipe_id: recipeId,
         recipe_title: recipeTitle,
       }),

@@ -16,8 +16,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text, View, useColors } from './Themed';
 import { Ingredient } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
-import { scaleQuantity } from '@/hooks/useScaledServings';
+import { scaleQuantity, scaleIngredient } from '@/hooks/useScaledServings';
 import {
+  getIngredientAmount,
   hasStatedIngredientAmount,
   MISSING_AMOUNT_LABEL,
   normalizeIngredientUnit,
@@ -92,7 +93,7 @@ export default function AddIngredientsModal({
     const selectedIngredients = ingredients
       .filter((_, index) => selected.has(index))
       .map((ing) => ({
-        ...ing,
+        ...scaleIngredient(ing, scaleFactor),
         // Scale quantity for grocery list
         quantity: hasStatedIngredientAmount(ing.quantity)
           ? scaleQuantity(ing.quantity!, scaleFactor)
@@ -161,8 +162,9 @@ export default function AddIngredientsModal({
         >
           {ingredients.map((ingredient, index) => {
             const isSelected = selected.has(index);
-            const hasAmount = hasStatedIngredientAmount(ingredient.quantity);
-            const normalizedUnit = normalizeIngredientUnit(ingredient.unit);
+            const amount = getIngredientAmount(ingredient);
+            const hasAmount = hasStatedIngredientAmount(amount.quantity);
+            const normalizedUnit = amount.unit;
             return (
               <TouchableOpacity
                 key={index}
@@ -185,15 +187,15 @@ export default function AddIngredientsModal({
                   <Text style={[styles.ingredientName, { color: colors.text }]}>
                     {hasAmount && (
                       <Text style={isScaled ? { color: colors.tint, fontWeight: fontWeight.semibold } : {}}>
-                        {scaleQuantity(ingredient.quantity!, scaleFactor)}{' '}
+                        {scaleQuantity(amount.quantity!, scaleFactor)}{' '}
                       </Text>
                     )}
                     {hasAmount && normalizedUnit && `${normalizedUnit} `}
                     {ingredient.name}
                   </Text>
-                  {!hasAmount && (
+                  {(amount.isEstimate || !hasAmount) && (
                     <Text style={[styles.missingAmount, { color: colors.warning }]}>
-                      {MISSING_AMOUNT_LABEL}
+                      {amount.isEstimate ? 'AI estimate' : MISSING_AMOUNT_LABEL}
                     </Text>
                   )}
                   {ingredient.notes && ingredient.notes !== 'null' && (

@@ -1,3 +1,4 @@
+import { getIngredientAmount, getCookingNotes } from '@/lib/recipeTrust';
 import { useState, useMemo } from 'react';
 import {
   StyleSheet,
@@ -464,11 +465,12 @@ export default function RecipeDetailScreen() {
         text += `\n${component.name}:\n`;
       }
       component.ingredients.forEach(ing => {
-        const qty = ing.quantity && ing.quantity !== 'null' ? ing.quantity : '';
-        const unit = ing.unit && ing.unit !== 'null' ? ing.unit : '';
+        const amount = getIngredientAmount(ing);
+        const qty = amount.quantity || '';
+        const unit = amount.unit || '';
         const qtyUnit = qty ? `${qty}${unit ? ' ' + unit : ''} ` : '';
         const notes = ing.notes && ing.notes !== 'null' ? ` (${ing.notes})` : '';
-        text += `• ${qtyUnit}${ing.name}${notes}\n`;
+        text += `• ${qtyUnit}${ing.name}${amount.isEstimate ? ' (AI estimate)' : ''}${notes}\n`;
       });
     });
     
@@ -653,6 +655,8 @@ export default function RecipeDetailScreen() {
   }
 
   const { extracted } = recipe;
+  const cookingNotes = getCookingNotes(extracted.notes);
+  const estimateCount = extracted.components.flatMap(component => component.ingredients).filter(ing => getIngredientAmount(ing).isEstimate).length;
   const instructionCount = countUsableInstructions(extracted.components);
   const reviewLabel = getRecipeReviewLabel(recipe.review_state);
   const reviewDetails = isOwner
@@ -861,7 +865,22 @@ export default function RecipeDetailScreen() {
                 </Text>
               </RNView>
             ) : null /* Source method is not an accuracy guarantee. */}
-            {reviewDetails && (
+            {reviewDetails && recipe.review_state !== 'source_incomplete' && (
+              <TouchableOpacity
+                style={[styles.reviewNotice, { borderColor: colors.border }]}
+                onPress={() => setShowDetailsReview(true)}
+                accessibilityRole="button"
+                accessibilityLabel={`${estimateCount ? 'Includes AI estimated amounts.' : 'Some details may need a check.'} Check details, optional`}
+              >
+                <Ionicons name="information-circle-outline" size={18} color={colors.textMuted} />
+                <Text style={[styles.reviewNoticeText, { color: colors.textSecondary }]}>
+                  {estimateCount ? 'Includes AI estimated amounts' : 'Some details may need a check'}
+                </Text>
+                <Text style={[styles.reviewNoticeAction, { color: colors.tint }]}>Optional check</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.tint} />
+              </TouchableOpacity>
+            )}
+            {reviewDetails && recipe.review_state === 'source_incomplete' && (
               <RNView
                 style={[
                   styles.reviewCard,
@@ -908,14 +927,14 @@ export default function RecipeDetailScreen() {
             )}
 
             {/* Recipe Notes (from creator/extraction) */}
-            {extracted.notes && extracted.notes !== 'null' && (
+            {cookingNotes && (
               <RNView style={[styles.notesSection, { backgroundColor: colors.backgroundSecondary }]}>
                 <RNView style={styles.notesTitleRow}>
                   <Ionicons name="document-text-outline" size={18} color={colors.tint} />
                   <Text style={[styles.notesTitle, { color: colors.text }]}>Recipe Notes</Text>
                 </RNView>
                 <Text style={[styles.notesText, { color: colors.textSecondary }]}>
-                  {extracted.notes}
+                  {cookingNotes}
                 </Text>
               </RNView>
             )}
@@ -1052,9 +1071,9 @@ export default function RecipeDetailScreen() {
                       ) : null}
                       {component.ingredients.map((ing, ingIndex) => {
                         // Build the quantity/unit string safely (with scaling)
-                        const originalQty = ing.quantity && ing.quantity !== 'null' ? ing.quantity : '';
-                        const scaledQty = scaleQuantity(originalQty, scaleFactor);
-                        const unit = ing.unit && ing.unit !== 'null' ? ing.unit : '';
+                        const amount = getIngredientAmount(ing);
+                        const scaledQty = scaleQuantity(amount.quantity, scaleFactor);
+                        const unit = amount.unit || '';
                         const qtyUnit = scaledQty ? `${scaledQty}${unit ? ` ${unit}` : ''} ` : '';
                         const notes = ing.notes && ing.notes !== 'null' ? ing.notes : '';
                         const missingQuantityLabel = getMissingQuantityLabel(recipe.review_state, ing);
@@ -1077,9 +1096,17 @@ export default function RecipeDetailScreen() {
                                   {notes ? <Text style={[styles.ingredientNotes, { color: colors.textMuted }]}>{` (${notes})`}</Text> : null}
                                 </Text>
                                 {missingQuantityLabel ? (
-                                  <Text style={[styles.ingredientUncertainty, { color: colors.warning }]}>
-                                    {missingQuantityLabel}
-                                  </Text>
+                                  <TouchableOpacity
+                                    disabled={!amount.isEstimate || !amount.reason}
+                                    onPress={() => Alert.alert('AI estimate', amount.reason || 'Suggested from the recipe context; not stated by the source.')}
+                                    accessibilityRole={amount.isEstimate && amount.reason ? 'button' : 'text'}
+                                    accessibilityLabel={amount.isEstimate ? `AI estimate for ${ing.name}. ${amount.reason || ''}` : missingQuantityLabel}
+                                    style={amount.isEstimate ? styles.estimateAction : undefined}
+                                  >
+                                    <Text style={[styles.ingredientUncertainty, { color: amount.isEstimate ? colors.textMuted : colors.warning }]}>
+                                      {missingQuantityLabel}{amount.isEstimate && amount.reason ? ' · Why?' : ''}
+                                    </Text>
+                                  </TouchableOpacity>
                                 ) : null}
                               </RNView>
                               {cost ? <Text style={[styles.ingredientCost, { color: colors.textMuted }]}>{cost}</Text> : null}
@@ -1143,8 +1170,9 @@ export default function RecipeDetailScreen() {
                             </Text>
                           )}
                           {component.ingredients.map((ing, ingIndex) => {
-                            const scaledQty = scaleQuantity(ing.quantity ?? null, scaleFactor);
-                            const unit = ing.unit && ing.unit !== 'null' ? ing.unit : '';
+                            const amount = getIngredientAmount(ing);
+                            const scaledQty = scaleQuantity(amount.quantity, scaleFactor);
+                            const unit = amount.unit || '';
                             const missingQuantityLabel = getMissingQuantityLabel(recipe.review_state, ing);
                             return (
                               <RNView key={ingIndex} style={styles.ingredientsRefItem}>
@@ -1429,9 +1457,9 @@ export default function RecipeDetailScreen() {
                           .filter(ing => typeof ing.estimatedCost === 'number')
                           .map((ing, ingIndex) => {
                             const scaledCost = (ing.estimatedCost || 0) * scaleFactor;
-                            const originalQty = ing.quantity && ing.quantity !== 'null' ? ing.quantity : '';
-                            const scaledQty = scaleQuantity(originalQty, scaleFactor);
-                            const unit = ing.unit && ing.unit !== 'null' ? ing.unit : '';
+                            const amount = getIngredientAmount(ing);
+                            const scaledQty = scaleQuantity(amount.quantity, scaleFactor);
+                            const unit = amount.unit || '';
                             
                             return (
                               <RNView 
@@ -1444,7 +1472,7 @@ export default function RecipeDetailScreen() {
                                   </Text>
                                   {scaledQty && (
                                     <Text style={[styles.costItemQty, { color: colors.textMuted }]}>
-                                      {scaledQty}{unit ? ` ${unit}` : ''}
+                                      {scaledQty}{unit ? ` ${unit}` : ''}{amount.isEstimate ? ' · AI estimate' : ''}
                                     </Text>
                                   )}
                                 </RNView>
@@ -1864,6 +1892,10 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },
+  reviewNotice: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48, paddingVertical: spacing.sm, borderTopWidth: 1, borderBottomWidth: 1, marginBottom: spacing.lg },
+  reviewNoticeText: { flex: 1, fontSize: fontSize.sm, lineHeight: 20 },
+  reviewNoticeAction: { fontSize: fontSize.sm, fontWeight: fontWeight.medium },
+  estimateAction: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
   reviewCard: {
     borderWidth: 1,
     borderRadius: radius.lg,

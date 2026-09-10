@@ -123,3 +123,20 @@ describe('optional saved recipe review', () => {
     await act(async () => tree.unmount());
   });
 });
+
+
+it('shows the suggested amount and reason, and keeps estimate provenance when accepted', async () => {
+  const estimated = structuredClone(recipe);
+  const estimate = { quantity: '3', unit: 'cups', reason: 'For the stated rice amount.' };
+  estimated.extracted.components[0].ingredients[1].quantityEstimate = estimate;
+  estimated.extraction_evidence = { assessment: { issues: [{ code: 'estimated_quantity', path: 'components.0.ingredients.1.quantity', message: 'AI estimated this amount.' }] } };
+  const tree = await render(estimated);
+  expect(JSON.stringify(tree.toJSON())).toContain('3 cups · AI estimate');
+  expect(JSON.stringify(tree.toJSON())).toContain(estimate.reason);
+  expect(host(tree, 'TextInput')[0].props.value).toBe('');
+  await act(async () => host(tree, 'TouchableOpacity', props => props.accessibilityLabel === 'Keep AI estimate for Water')[0].props.onPress());
+  await act(async () => host(tree, 'Button', props => props.title === 'Save changes')[0].props.onPress());
+  const edit = mocks.editRecipe.mock.calls[0][1];
+  expect(edit.components[0].ingredients[1]).toMatchObject({ quantity: null, quantityEstimate: estimate });
+  await act(async () => tree.unmount());
+});

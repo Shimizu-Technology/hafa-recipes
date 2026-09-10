@@ -93,8 +93,8 @@ describe('recipe review presentation', () => {
       assessment: { missingQuantityCount: 2 },
     })).toEqual({
       actionLabel: 'Check details',
-      heading: '2 ingredient amounts were not stated',
-      message: 'Your recipe is saved. You can check these details now or come back later.',
+      heading: 'Some amounts need a check',
+      message: 'Checking is optional.',
       missingQuantityCount: 2,
       sourceSummary: 'Checked spoken audio and video frames at 0:00, 0:15, 1:05, 1:30, +1 more.',
     });
@@ -108,7 +108,7 @@ describe('recipe review presentation', () => {
       },
     })).toMatchObject({
       actionLabel: 'Check details',
-      heading: 'Some source details were unclear',
+      heading: 'Some details may need a check',
       missingQuantityCount: 0,
     });
   });

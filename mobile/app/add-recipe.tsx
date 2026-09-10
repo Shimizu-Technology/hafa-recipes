@@ -4,6 +4,7 @@
  * Allows users to manually create a recipe with optional image upload.
  */
 
+import type { QuantityEstimate } from '@/types/recipe';
 import { useState, useEffect } from 'react';
 import {
   StyleSheet,
@@ -40,6 +41,7 @@ interface IngredientInput {
   quantity: string;
   unit: string;
   notes: string;
+  quantityEstimate?: QuantityEstimate | null;
 }
 
 interface StepInput {
@@ -99,6 +101,7 @@ export default function AddRecipeScreen() {
   // Form state
   const [title, setTitle] = useState('');
   const [servings, setServings] = useState('');
+  const [estimateContextChanged, setEstimateContextChanged] = useState(false);
   const [prepTime, setPrepTime] = useState('');
   const [cookTime, setCookTime] = useState('');
   const [totalTime, setTotalTime] = useState('');
@@ -121,6 +124,7 @@ export default function AddRecipeScreen() {
     if (initialData) {
       try {
         const data = JSON.parse(initialData);
+        setEstimateContextChanged(false);
         
         // Basic fields
         if (data.title) setTitle(data.title);
@@ -145,6 +149,7 @@ export default function AddRecipeScreen() {
                 quantity: ing.quantity || '',
                 unit: ing.unit || '',
                 notes: ing.notes || '',
+              quantityEstimate: ing.quantityEstimate,
               });
             });
           });
@@ -156,6 +161,7 @@ export default function AddRecipeScreen() {
               quantity: ing.quantity || '',
               unit: ing.unit || '',
               notes: ing.notes || '',
+              quantityEstimate: ing.quantityEstimate,
             });
           });
         }
@@ -214,6 +220,7 @@ export default function AddRecipeScreen() {
           quantity: ing.quantity.trim() || null,
           unit: ing.unit.trim() || null,
           notes: ing.notes.trim() || null,
+          quantityEstimate: estimateContextChanged || ing.quantity.trim() ? null : ing.quantityEstimate,
         }));
 
       const validSteps = steps
@@ -313,6 +320,7 @@ export default function AddRecipeScreen() {
   };
 
   const addIngredient = () => {
+    setEstimateContextChanged(true);
     setIngredients([
       ...ingredients,
       { id: Date.now().toString(), name: '', quantity: '', unit: '', notes: '' },
@@ -320,28 +328,33 @@ export default function AddRecipeScreen() {
   };
 
   const removeIngredient = (id: string) => {
+    setEstimateContextChanged(true);
     if (ingredients.length > 1) {
       setIngredients(ingredients.filter(ing => ing.id !== id));
     }
   };
 
   const updateIngredient = (id: string, field: keyof IngredientInput, value: string) => {
+    if (field !== 'notes') setEstimateContextChanged(true);
     setIngredients(ingredients.map(ing =>
       ing.id === id ? { ...ing, [field]: value } : ing
     ));
   };
 
   const addStep = () => {
+    setEstimateContextChanged(true);
     setSteps([...steps, { id: Date.now().toString(), text: '' }]);
   };
 
   const removeStep = (id: string) => {
+    setEstimateContextChanged(true);
     if (steps.length > 1) {
       setSteps(steps.filter(step => step.id !== id));
     }
   };
 
   const updateStep = (id: string, text: string) => {
+    setEstimateContextChanged(true);
     setSteps(steps.map(step =>
       step.id === id ? { ...step, text } : step
     ));
@@ -516,7 +529,7 @@ export default function AddRecipeScreen() {
                   placeholder="4"
                   placeholderTextColor={colors.textMuted}
                   value={servings}
-                  onChangeText={setServings}
+                  onChangeText={value => { setEstimateContextChanged(true); setServings(value); }}
                   keyboardType="number-pad"
                 />
               </RNView>
