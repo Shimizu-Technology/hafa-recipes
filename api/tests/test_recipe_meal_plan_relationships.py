@@ -6,10 +6,12 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import (
+    JSON,
     Boolean,
     Column,
     Date,
     DateTime,
+    Integer,
     MetaData,
     String,
     Table,
@@ -20,6 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Session
 
 from app.models.meal_plan import MealPlanEntry
+from app.models.recipe import Recipe
 from app.routers.meal_plans import (
     _has_stated_quantity,
     _recipe_plan_entries_statement,
@@ -47,6 +50,11 @@ def _schema():
         Column("is_public", Boolean, nullable=False),
         Column("moderation_status", String(16), nullable=False),
         Column("review_state", String(24)),
+        Column("source_type", String(32)),
+        Column("extraction_method", String(32)),
+        Column("extracted", JSON),
+        Column("extraction_evidence", JSON),
+        Column("content_revision", Integer),
     )
     user_blocks = Table(
         "user_blocks",
@@ -172,7 +180,7 @@ def test_relationship_query_executes_ownership_date_policy_order_and_limit():
     assert [entry.id for entry, _review_state in rows] == [
         row["id"] for row in expected_rows
     ]
-    assert {review_state for _entry, review_state in rows} == {"needs_review"}
+    assert {recipe.review_state for _entry, recipe in rows} == {"needs_review"}
     assert len(rows) == 12
 
 
@@ -187,7 +195,7 @@ def test_meal_plan_response_exposes_current_recipe_readiness():
         created_at=datetime(2026, 8, 26, 8),
     )
 
-    response = meal_plan_entry_response(entry, "source_incomplete")
+    response = meal_plan_entry_response(entry, Recipe(review_state="source_incomplete"))
 
     assert response.recipe_review_state == "source_incomplete"
     assert response.recipe_title == "Chicken kelaguen"
@@ -320,7 +328,7 @@ def _planned_entry(planned_date: date) -> MealPlanEntry:
 @pytest.mark.asyncio
 async def test_week_plan_includes_current_recipe_readiness():
     planned_date = date(2026, 8, 27)
-    session = _RecordingSession([(_planned_entry(planned_date), "needs_review")])
+    session = _RecordingSession([(_planned_entry(planned_date), Recipe(review_state="needs_review"))])
 
     result = await get_week_plan(
         week_of=planned_date,
@@ -336,7 +344,7 @@ async def test_week_plan_includes_current_recipe_readiness():
 @pytest.mark.asyncio
 async def test_day_plan_includes_current_recipe_readiness():
     planned_date = date(2026, 8, 27)
-    session = _RecordingSession([(_planned_entry(planned_date), "source_incomplete")])
+    session = _RecordingSession([(_planned_entry(planned_date), Recipe(review_state="source_incomplete"))])
 
     result = await get_day_plan(
         target_date=planned_date,

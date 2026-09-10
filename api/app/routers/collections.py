@@ -15,6 +15,7 @@ from app.auth import ClerkUser, get_current_user
 from app.db.database import get_db
 from app.models.recipe import Collection, CollectionRecipe, Recipe
 from app.moderation import accessible_recipe_conditions, is_publicly_viewable
+from app.recipe_review import review_response_fields
 from app.services.storage import storage_service
 
 router = APIRouter(prefix="/api/collections", tags=["collections"])
@@ -333,7 +334,7 @@ async def get_collection_recipes(
             tags=recipe.extracted.get("tags", []),
             total_time=(recipe.extracted.get("times") or {}).get("total"),
             servings=recipe.extracted.get("servings"),
-            review_state=recipe.review_state,
+            review_state=review_response_fields(recipe, include_evidence=False)["review_state"],
             added_at=added_at
         )
         for recipe, added_at in recipes

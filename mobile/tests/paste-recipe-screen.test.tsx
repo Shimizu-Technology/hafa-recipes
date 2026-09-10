@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   setParams: vi.fn(),
 }));
 
+vi.mock('expo-crypto', () => ({ randomUUID: () => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }));
+
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
   const host = (name: string) => (props: Record<string, unknown>) =>
@@ -175,6 +177,7 @@ describe('PasteRecipeScreen', () => {
     );
     expect(mocks.save).toHaveBeenCalledWith({
       extracted: { title: 'Red Rice', components: [] },
+      capture_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       source_type: 'text',
       is_public: false,
     });
@@ -265,6 +268,7 @@ describe('PasteRecipeScreen', () => {
       params: {
         recipe: JSON.stringify({ title: 'Red Rice', components: [] }),
         location: 'Guam', isPublic: 'false', sourceType: 'text', saveFailed: 'true',
+        captureId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', saveErrorKind: 'retry', saveErrorMessage: 'Offline',
       },
     });
   });

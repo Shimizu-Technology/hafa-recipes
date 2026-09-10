@@ -1440,6 +1440,7 @@ export function useSaveCapturedRecipe() {
       extracted: any;
       source_type: CaptureSourceType;
       is_public?: boolean;
+      capture_id?: string;
     }) => api.saveCapturedRecipe(params),
     onSuccess: (data) => {
       invalidateCreatedRecipeQueries(queryClient, data.id);

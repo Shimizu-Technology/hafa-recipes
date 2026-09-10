@@ -17,11 +17,16 @@ const mocks = vi.hoisted(() => ({
   params: {
     recipe: '',
     saveFailed: undefined as string | undefined,
+    captureId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    saveErrorKind: undefined as string | undefined,
+    saveErrorMessage: undefined as string | undefined,
     location: 'Guam',
     isPublic: 'false',
     sourceType: 'photo' as 'photo' | 'text',
   },
 }));
+
+vi.mock('expo-crypto', () => ({ randomUUID: () => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }));
 
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
@@ -159,6 +164,8 @@ describe('OCRReviewScreen confidence notice', () => {
     mocks.save.mockClear();
     mocks.params.isPublic = 'false';
     mocks.params.saveFailed = undefined;
+    mocks.params.saveErrorKind = undefined;
+    mocks.params.saveErrorMessage = undefined;
     mocks.params.sourceType = 'photo';
   });
 
@@ -201,6 +208,8 @@ describe('OCRReviewScreen visibility', () => {
     mocks.save.mockClear();
     mocks.params.isPublic = 'false';
     mocks.params.saveFailed = undefined;
+    mocks.params.saveErrorKind = undefined;
+    mocks.params.saveErrorMessage = undefined;
     mocks.params.sourceType = 'text';
   });
 
@@ -273,6 +282,51 @@ describe('OCRReviewScreen visibility', () => {
     expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ is_public: false, source_type: 'text' }));
     expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
     expect(mocks.alert).not.toHaveBeenCalled();
+  });
+
+  it('keeps one capture ID across retries and blocks edits while the first outcome is unknown', async () => {
+    mocks.params.saveFailed = 'true';
+    mocks.save.mockRejectedValueOnce(new Error('Still offline'));
+    const renderer = await renderRecipe({});
+    const retry = () => renderer.root.findAllByType('Button' as unknown as React.ComponentType)
+      .find(node => node.props.children === 'Retry Save')!;
+    const publicOption = renderer.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType)
+      .find(node => node.props.accessibilityLabel === 'Public in Discover')!;
+    expect(publicOption.props.accessibilityState.disabled).toBe(true);
+    await act(async () => publicOption.props.onPress());
+    await act(async () => retry().props.onPress());
+    await act(async () => retry().props.onPress());
+    expect(mocks.save).toHaveBeenCalledTimes(2);
+    expect(mocks.save.mock.calls[0][0]).toEqual(mocks.save.mock.calls[1][0]);
+    expect(mocks.save.mock.calls[1][0]).toMatchObject({
+      capture_id: mocks.params.captureId, is_public: false,
+    });
+    expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
+  });
+
+  it('shows the validation cause and offers Edit instead of retrying a rejected payload', async () => {
+    mocks.params.saveFailed = 'true';
+    mocks.params.saveErrorKind = 'invalid';
+    mocks.params.saveErrorMessage = 'Invalid extracted recipe draft';
+    const renderer = await renderRecipe({});
+    expect(renderer.root.findAllByType('ThemedText' as unknown as React.ComponentType)
+      .some(node => node.props.children === 'Invalid extracted recipe draft')).toBe(true);
+    expect(renderer.root.findAllByType('Button' as unknown as React.ComponentType)).toHaveLength(0);
+    const edit = renderer.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType)
+      .find(node => node.findAllByType('ThemedText' as unknown as React.ComponentType)
+        .some(label => label.props.children === 'Edit'))!;
+    await act(async () => edit.props.onPress());
+    expect(mocks.save).not.toHaveBeenCalled();
+    expect(mocks.replace).toHaveBeenCalledWith(expect.objectContaining({ pathname: '/add-recipe' }));
+  });
+
+  it('explains an expired session instead of silently presenting a generic retry', async () => {
+    mocks.save.mockRejectedValueOnce({ response: { status: 401 } });
+    const renderer = await renderRecipe({});
+    const submit = renderer.root.findAllByType('Button' as unknown as React.ComponentType)[0];
+    await act(async () => submit.props.onPress());
+    expect(mocks.alert).toHaveBeenCalledWith('Save failed', 'Sign in again before retrying this save.');
+    expect(mocks.replace).not.toHaveBeenCalled();
   });
 
 });

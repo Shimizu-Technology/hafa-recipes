@@ -186,6 +186,8 @@ async def test_recipe_version_snapshots_refresh_after_waiting_for_lock():
                     id UUID PRIMARY KEY,
                     source_url TEXT NOT NULL,
                     canonical_source_key VARCHAR(96),
+                    capture_id UUID,
+                    capture_request_hash VARCHAR(64),
                     source_type VARCHAR(32) NOT NULL,
                     raw_text TEXT,
                     extracted JSONB NOT NULL,

@@ -15,16 +15,18 @@ The normal cooking action remains available for advisory recipes. Public viewers
 - `source_incomplete`: insufficient ingredients or instructions. Always private and editable.
 - Evidence version 2 remains compatible with released clients. `assessment.issues` lists actual issues, including exact paths for missing amounts and stable IDs for source warnings.
 - `verified_paths` records only fields actually corrected or confirmed. Source-warning confirmation uses `resolved_issue_ids`; it does not verify unrelated fields. Both are bound to `review_content_revision`, so stale edits cannot clear newer issues.
+- Owner, public, library, collection, planner, and import responses use the same advisory assessment. Reads do not change the persisted structural category, ownership, visibility, or content revision. Evidence remains owner-only.
 - Generated missing-amount warnings are deduplicated against field issues. Unrelated source warnings survive ordinary edits. Fresh extraction receives a fresh assessment.
 
-Image and pasted-text captures save immediately after extraction. If saving fails, the extracted payload remains available on a Retry Save screen without repeating extraction. This recovery uses navigation state; terminating the app can discard it. The existing capture-save endpoint has no idempotency key, so a timeout after a successful server commit followed by retry can duplicate a capture. URL imports continue using durable, idempotent jobs.
+Image and pasted-text captures save immediately after extraction. If saving fails, the extracted payload remains available on a Retry Save screen without repeating extraction. This recovery uses navigation state; terminating the app can discard it. Each new capture carries a stable `capture_id`. The API enforces owner-scoped uniqueness and returns the original recipe on an identical retry, including after a committed save loses its response. Reusing that ID with changed content or visibility returns a conflict. The recovery screen preserves the original request until saving is reconciled; rejected payloads show the API reason and offer editing instead of an endless retry. URL imports continue using durable, idempotent jobs.
 
 ## Release order
 
-1. Establish and verify a production database restore point. Set `MIGRATION_029_RESTORE_POINT` to its reference when applying migration 029.
+1. Establish and verify a production database restore point. Set `MIGRATION_029_RESTORE_POINT` and `MIGRATION_030_RESTORE_POINT` to its reference before applying migrations 029 and 030.
 2. Apply migration 029 before deploying the API. It changes only `ck_recipes_review_public` to allow public advisory recipes; it does not rewrite content, visibility, evidence, or ownership. The migration is transactional and repeatable. Do not restore the old constraint after public advisory records exist without a separate reviewed rollback plan.
-3. Deploy the API and confirm public/private imports, public access, moderation exclusions, and old-client warnings against controlled fixtures.
-4. Release the matching mobile build. Older mobile versions retain their old checklist UI until upgraded; backend compatibility does not change a shipped interface.
+3. Apply migration 030. It adds nullable capture IDs and request fingerprints, an owner-scoped unique constraint, and a consistency check. Existing captures remain unchanged; older clients may continue omitting the ID.
+4. Deploy the API and confirm public/private imports, public access, moderation exclusions, and old-client warnings against controlled fixtures.
+5. Release the matching mobile build. Older mobile versions retain their old checklist UI until upgraded; backend compatibility does not change a shipped interface.
 
 The release requires the API migration and deployment before the matching mobile build. App Store Connect upload is for owner review; physical-device provider checks precede any later App Review submission.
 
@@ -50,7 +52,7 @@ Named synthetic pasted-text cases replaced only the model response. Authenticati
 
 Runtime testing found and fixed Unicode fraction amounts incorrectly flagged as missing, a keyboard-obscured review button, unsupported Clerk additional verification, and a concurrent first-login ownership-insert race. Signed-in users now reach the import form beneath a short heading.
 
-The complete `./scripts/check.sh` passed: **599 API tests**, **508 mobile tests**, **13 admin tests**, and **21/21 Expo Doctor checks**, plus lint, types, builds, and configured dependency audits. API tests used a separate isolated database; ten thumbnail-backfill tests require their separate destructive-test opt-in and were skipped. Two existing datetime deprecation warnings remain.
+The complete `./scripts/check.sh` passed: **617 API tests**, **521 mobile tests**, **13 admin tests**, and **21/21 Expo Doctor checks**, plus lint, types, builds, and configured dependency audits. API tests used a separate isolated database; ten thumbnail-backfill tests require their separate destructive-test opt-in and were skipped. Two existing datetime deprecation warnings remain.
 
 The production readiness audit passed with no invalid identity mappings. Native redirect and reviewer-account configuration were ready. This audit does not prove physical-device sign-in or email delivery.
 

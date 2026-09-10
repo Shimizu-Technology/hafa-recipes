@@ -669,9 +669,10 @@ def review_response_fields(recipe, *, include_evidence: bool) -> dict:
     assessment = evidence.get("assessment") or {}
     state = getattr(recipe, "review_state", None)
     extracted = getattr(recipe, "extracted", None)
-    if include_evidence and evidence and isinstance(extracted, dict):
-        # Upgrade old owner-facing review bookkeeping on read. This changes no
-        # stored recipe, visibility, revision, or human verification claims.
+    if state is not None and evidence and isinstance(extracted, dict):
+        # Project the same advisory assessment for every consumer. Evidence
+        # exposure is independent from readiness, and this changes no stored
+        # recipe, visibility, revision, or human verification claims.
         projected = assess_recipe_review(
             extracted,
             source_type=getattr(recipe, "source_type", None) or (evidence.get("source") or {}).get("type", "unknown"),
@@ -682,9 +683,14 @@ def review_response_fields(recipe, *, include_evidence: bool) -> dict:
             verified_paths=[],
             source_evidence=evidence_source_provenance(evidence),
         )
-        evidence = projected.evidence
-        assessment = evidence["assessment"]
-        state = projected.state
+        # Structural readiness controls publication in the database. A read
+        # must not cross that boundary independently of a persisted save, which
+        # applies structure and visibility together. Only advisory transitions
+        # between ready and needs_review may differ from the stored state.
+        if (state == "source_incomplete") == (projected.state == "source_incomplete"):
+            evidence = projected.evidence
+            assessment = evidence["assessment"]
+            state = projected.state
     if state == "source_incomplete":
         summary = "Source incomplete — save it now and add the missing details when you can."
     elif state == "needs_review":

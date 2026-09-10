@@ -837,11 +837,13 @@ class ApiClient {
     extracted: any;
     source_type: CaptureSourceType;
     is_public?: boolean;
+    capture_id?: string;
   }): Promise<Recipe> {
     const { data } = await this.client.post('/api/recipes/from-capture', {
       extracted: params.extracted,
       source_type: params.source_type,
       is_public: params.is_public ?? false,
+      ...(params.capture_id ? { capture_id: params.capture_id } : {}),
     });
     return data;
   }

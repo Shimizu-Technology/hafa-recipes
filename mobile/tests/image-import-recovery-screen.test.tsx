@@ -57,6 +57,8 @@ const mocks = vi.hoisted(() => ({
   requestPublishing: vi.fn(),
 }));
 
+vi.mock('expo-crypto', () => ({ randomUUID: () => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }));
+
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
   const host = (name: string) => (props: Record<string, unknown>) =>
@@ -333,7 +335,7 @@ describe('classified image recovery', () => {
     if (!isPublic) await act(async () => options.find(node => node.props.accessibilityLabel === 'Private')!.props.onPress());
     await act(async () => renderer!.root.findAllByType('Button' as unknown as React.ComponentType)
       .find(node => node.props.children === 'Import Recipe from 2 Images')!.props.onPress());
-    expect(mocks.save).toHaveBeenCalledWith({ extracted: recipe, source_type: 'photo', is_public: isPublic });
+    expect(mocks.save).toHaveBeenCalledWith({ extracted: recipe, source_type: 'photo', is_public: isPublic, capture_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
     expect(mocks.requestPublishing).toHaveBeenCalledTimes(isPublic ? 1 : 0);
     expect(mocks.push).toHaveBeenCalledWith('/recipe/captured-recipe');
   });
@@ -352,6 +354,7 @@ describe('classified image recovery', () => {
     expect(mocks.extractMultiple).toHaveBeenCalledTimes(1);
     expect(mocks.push).toHaveBeenCalledWith({ pathname: '/ocr-review', params: {
       recipe: JSON.stringify(recipe), sourceType: 'photo', isPublic: 'true', location: 'Guam', saveFailed: 'true',
+      captureId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', saveErrorKind: 'retry', saveErrorMessage: 'Offline',
     } });
   });
 

@@ -36,6 +36,8 @@ class Recipe(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     source_url = Column(Text, nullable=False)
     canonical_source_key = Column(String(96), nullable=True, index=True)
+    capture_id = Column(UUID(as_uuid=True), nullable=True)
+    capture_request_hash = Column(String(64), nullable=True)
     source_type = Column(String(32), nullable=False)  # video|website|manual|photo|text
     raw_text = Column(Text, nullable=True)
     extracted = Column(JSONB, nullable=False)
@@ -86,6 +88,13 @@ class Recipe(Base):
     )
 
     __table_args__ = (
+        UniqueConstraint("user_id", "capture_id", name="uq_recipes_owner_capture"),
+        CheckConstraint(
+            "(capture_id IS NULL AND capture_request_hash IS NULL) OR "
+            "(capture_id IS NOT NULL AND user_id IS NOT NULL "
+            "AND capture_request_hash IS NOT NULL AND length(capture_request_hash) = 64)",
+            name="ck_recipes_capture_identity",
+        ),
         CheckConstraint(
             "review_state IS NULL OR review_state IN "
             "('source_incomplete', 'needs_review', 'ready')",
