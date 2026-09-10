@@ -19,6 +19,7 @@ import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { scaleQuantity, scaleIngredient } from '@/hooks/useScaledServings';
 import {
   getIngredientAmount,
+  getCookingNotes,
   hasStatedIngredientAmount,
   MISSING_AMOUNT_LABEL,
   normalizeIngredientUnit,
@@ -165,6 +166,7 @@ export default function AddIngredientsModal({
             const amount = getIngredientAmount(ingredient);
             const hasAmount = hasStatedIngredientAmount(amount.quantity);
             const normalizedUnit = amount.unit;
+            const cookingNotes = getCookingNotes(ingredient.notes);
             return (
               <TouchableOpacity
                 key={index}
@@ -198,9 +200,9 @@ export default function AddIngredientsModal({
                       {amount.isEstimate ? 'AI estimate' : MISSING_AMOUNT_LABEL}
                     </Text>
                   )}
-                  {ingredient.notes && ingredient.notes !== 'null' && (
+                  {cookingNotes && (
                     <Text style={[styles.ingredientNotes, { color: colors.textMuted }]}>
-                      {ingredient.notes}
+                      {cookingNotes}
                     </Text>
                   )}
                 </RNView>

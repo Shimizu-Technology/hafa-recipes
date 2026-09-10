@@ -81,3 +81,50 @@ describe('cooking notes', () => {
     expect(getCookingNotes('null')).toBeNull();
   });
 });
+
+
+describe('legacy amount sentinels', () => {
+  it.each(['none', 'n/a', 'not stated', 'unknown'].flatMap(value => [value, value.toUpperCase(), `  ${value}  `]))(
+    'treats %j as unstated rather than a usable ingredient amount', value => {
+      expect(hasStatedIngredientAmount(value)).toBe(false);
+      expect(formatIngredientAmount(value, 'cups')).toBe(MISSING_AMOUNT_LABEL);
+    },
+  );
+});
+
+describe('source flexibility overrides stale estimates', () => {
+  it.each(['name', 'unit', 'notes'] as const)('keeps qualitative source language from %s', field => {
+    for (const phrase of ['to taste', 'AS NEEDED', ' as desired ', 'for garnish', 'optional']) {
+      const source = { [field]: phrase, quantityEstimate: { quantity: '1', unit: 'tsp', reason: 'An old estimate.' } };
+      const amount = getIngredientAmount(source);
+      expect(amount).toMatchObject({ quantity: phrase.trim().toLowerCase(), unit: null, isEstimate: false, reason: null });
+      expect(formatIngredientAmount(amount.quantity, amount.unit)).toBe(phrase.trim().toLowerCase());
+      expect(source).not.toHaveProperty('quantity');
+    }
+  });
+  it('keeps a constrained total eligible for an arithmetic estimate', () => {
+    expect(getIngredientAmount({ name: 'Water', notes: 'Add enough water for a total of 2 cups of cooking liquid.', quantityEstimate: { quantity: '1', unit: 'cup', reason: '2 cups total minus 1 cup broth.' } })).toMatchObject({ quantity: '1', unit: 'cup', isEstimate: true });
+  });
+  it('continues to use an estimate when optional source fields are absent', () => {
+    expect(getIngredientAmount({ quantityEstimate: { quantity: '1', unit: 'tsp', reason: 'For this batch.' } })).toMatchObject({ quantity: '1', unit: 'tsp', isEstimate: true });
+  });
+});
+
+describe('diagnostic notes retain cooking guidance', () => {
+  it.each([
+    'The video contains a tip: chill the dough overnight.',
+    'The caption provides cooking tips: use softened butter.',
+    'The source only uses a little water to bring the dough together.',
+    'Fold gently, then chill; bake until golden.',
+  ])('preserves the useful note %j', note => {
+    expect(getCookingNotes(note)).toBe(note);
+  });
+  it.each([
+    ['Amount omitted; use softened butter.', 'use softened butter.'],
+    ['The source does not state quantities, chill the dough overnight.', 'chill the dough overnight.'],
+    ['Chill the dough overnight, amount omitted.', 'Chill the dough overnight'],
+    ['Chill the dough overnight; the source does not state quantities.', 'Chill the dough overnight'],
+  ])('keeps cooking clauses in %j', (note, expected) => {
+    expect(getCookingNotes(note)).toBe(expected);
+  });
+});

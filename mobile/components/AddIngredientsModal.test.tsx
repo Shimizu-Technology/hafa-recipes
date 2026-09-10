@@ -127,3 +127,23 @@ it('shows and scales AI amounts without changing source quantity in the selected
     })]);
   } finally { await act(async () => renderer.unmount()); }
 });
+
+
+it('shows useful ingredient notes while hiding adjacent extraction diagnostics', async () => {
+  const renderer = createRoot({ textComponentTypes: ['Text'] });
+  try {
+    await act(async () => {
+      renderer.render(React.createElement(AddIngredientsModal, {
+        visible: true, onClose: vi.fn(), onConfirm: vi.fn(), recipeTitle: 'Cookies',
+        ingredients: [
+          { name: 'Butter', quantity: '1', unit: 'cup', notes: 'Amount omitted; use softened butter.' },
+          { name: 'Flour', quantity: '2', unit: 'cups', notes: 'The video contains a tip: fold gently.' },
+        ],
+      }));
+    });
+    const rendered = JSON.stringify(renderer.container.toJSON());
+    expect(rendered).toContain('use softened butter.');
+    expect(rendered).toContain('The video contains a tip: fold gently.');
+    expect(rendered).not.toContain('Amount omitted');
+  } finally { await act(async () => renderer.unmount()); }
+});

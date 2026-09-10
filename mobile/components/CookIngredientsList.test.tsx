@@ -36,6 +36,7 @@ describe('CookIngredientsList', () => {
             { name: 'Rice', quantity: '2', unit: 'cups' },
             { name: 'Salt', quantity: null, unit: 'tsp' },
             { name: 'Pepper', quantity: ' NULL ', unit: 'tbsp' },
+            { name: 'Seasoning', quantity: null, unit: 'to taste', quantityEstimate: { quantity: '9', unit: 'tsp', reason: 'Stale suggestion.' } },
             { name: 'Milk', quantity: null, unit: null, quantityEstimate: { quantity: '2', unit: 'cups', reason: 'For this batch.' } },
           ],
           scaleFactor: 2,
@@ -51,6 +52,8 @@ describe('CookIngredientsList', () => {
         .join(' ');
       expect(rendered.match(/4 cups/g)).toHaveLength(2);
       expect(rendered).toContain('AI estimate');
+      expect(rendered).toContain('to taste');
+      expect(rendered).not.toContain('9');
       expect(rendered.match(/Amount not stated/g)).toHaveLength(2);
       expect(rendered).not.toContain('tsp');
       expect(rendered).not.toContain('tbsp');
