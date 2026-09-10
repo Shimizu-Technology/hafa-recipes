@@ -160,7 +160,7 @@ export default function ExtractionProgress({
   // Determine title based on state
   const isComplete = currentStep === 'complete';
   const title = isComplete 
-    ? (lowConfidence ? 'Recipe Extracted - Please Review' : 'Recipe Extracted!')
+    ? 'Recipe saved'
     : 'Extracting Recipe';
 
   return (

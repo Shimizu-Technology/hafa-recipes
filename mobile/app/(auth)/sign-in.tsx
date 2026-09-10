@@ -1,9 +1,10 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  TextInput,
   TouchableOpacity,
   Image,
   View as RNView,
@@ -28,6 +29,7 @@ import {
   signInWithBrowserProvider,
 } from '@/lib/socialAuthentication';
 import { authBackAccessibilityLabel, leaveAuthScreen } from '@/lib/authNavigation';
+import { supportedCodeFactors, secondFactorLabel, type CodeFactor } from '@/lib/signInVerification';
 
 // Required for OAuth to work properly (for Apple Sign-In)
 WebBrowser.maybeCompleteAuthSession();
@@ -48,12 +50,78 @@ export default function SignInScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [verification, setVerification] = useState<{
+    factors: CodeFactor[];
+    selected: CodeFactor;
+    prepared: boolean;
+  } | null>(null);
+  const [verificationCode, setVerificationCode] = useState('');
+  const busyRef = useRef(false);
+
+  const prepareVerification = async (factor: CodeFactor, factors: CodeFactor[]) => {
+    if (!signIn) return;
+    setVerification({ factors, selected: factor, prepared: false });
+    setVerificationCode('');
+    if (factor.strategy === 'email_code') {
+      await signIn.prepareSecondFactor({ strategy: 'email_code', emailAddressId: factor.emailAddressId });
+    } else if (factor.strategy === 'phone_code') {
+      await signIn.prepareSecondFactor({ strategy: 'phone_code', phoneNumberId: factor.phoneNumberId });
+    }
+    setVerification({ factors, selected: factor, prepared: true });
+  };
+
+  const handleVerificationMethod = async (factor: CodeFactor) => {
+    if (!verification || busyRef.current) return;
+    busyRef.current = true;
+    setIsLoading(true);
+    setErrorMessage(null);
+    try {
+      await prepareVerification(factor, verification.factors);
+    } catch (error) {
+      setErrorMessage(clerkErrorMessage(error, 'Could not send the code. Please try again.'));
+    } finally {
+      busyRef.current = false;
+      setIsLoading(false);
+    }
+  };
+
+  const handleVerify = async () => {
+    if (!signIn || !setActive || !verification?.prepared || !verificationCode.trim() || busyRef.current) return;
+    busyRef.current = true;
+    setIsLoading(true);
+    setErrorMessage(null);
+    try {
+      const result = await signIn.attemptSecondFactor({
+        strategy: verification.selected.strategy,
+        code: verificationCode.trim(),
+      });
+      if (result.status === 'complete' && result.createdSessionId) {
+        await setActive({ session: result.createdSessionId });
+        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)');
+      } else {
+        setErrorMessage('Verification is not complete. Please try again.');
+      }
+    } catch (error) {
+      setErrorMessage(clerkErrorMessage(error, 'Could not verify the code. Please try again.'));
+    } finally {
+      busyRef.current = false;
+      setIsLoading(false);
+    }
+  };
+
+  const leaveVerification = () => {
+    if (busyRef.current) return;
+    setVerification(null);
+    setVerificationCode('');
+    setErrorMessage(null);
+  };
+
   // Clear error when user starts typing
   const clearError = () => setErrorMessage(null);
 
   // Email/password sign in
   const handleEmailSignIn = async () => {
-    if (!isLoaded) return;
+    if (!isLoaded || busyRef.current) return;
     setErrorMessage(null);
 
     if (!email.trim() || !password.trim()) {
@@ -61,6 +129,7 @@ export default function SignInScreen() {
       return;
     }
 
+    busyRef.current = true;
     setIsLoading(true);
     try {
       const result = await signIn.create({
@@ -71,9 +140,18 @@ export default function SignInScreen() {
       if (result.status === 'complete') {
         await setActive({ session: result.createdSessionId });
         if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)');
-      } else if (result.status === 'needs_second_factor') {
-        // 2FA is enabled on this account - not currently supported in app
-        setErrorMessage('This account has two-factor authentication enabled. Please disable 2FA in your account settings or use Apple/Google sign-in.');
+      } else if (['needs_second_factor', 'needs_client_trust'].includes(result.status ?? '')) {
+        const factors = supportedCodeFactors(result.supportedSecondFactors);
+        if (factors.length) {
+          setPassword('');
+          try {
+            await prepareVerification(factors[0], factors);
+          } catch (error) {
+            setErrorMessage(clerkErrorMessage(error, 'Could not send the code. Please try again.'));
+          }
+        } else {
+          setErrorMessage('This sign-in needs a verification method that is not available here. Try another sign-in method or restore your library below.');
+        }
       } else {
         setErrorMessage('Could not complete sign in. Please try again.');
       }
@@ -94,6 +172,7 @@ export default function SignInScreen() {
         setErrorMessage('Could not sign in. Please check your connection and try again.');
       }
     } finally {
+      busyRef.current = false;
       setIsLoading(false);
     }
   };
@@ -181,10 +260,11 @@ export default function SignInScreen() {
           {/* Back Button */}
           <TouchableOpacity
             style={[styles.backButton, { backgroundColor: colors.backgroundSecondary }]}
-            onPress={() => leaveAuthScreen(router)}
+            onPress={() => verification ? leaveVerification() : leaveAuthScreen(router)}
+            disabled={isLoading}
             activeOpacity={0.7}
             accessibilityRole="button"
-            accessibilityLabel={authBackAccessibilityLabel(router)}
+            accessibilityLabel={verification ? 'Back to sign in' : authBackAccessibilityLabel(router)}
           >
             <Ionicons name="chevron-back" size={24} color={colors.text} />
             <Text style={[styles.backButtonText, { color: colors.text }]}>Back</Text>
@@ -194,12 +274,13 @@ export default function SignInScreen() {
           <RNView style={styles.header}>
             <BrandMark size={86} style={{ backgroundColor: colors.backgroundSecondary }} />
             <Text style={[styles.eyebrow, { color: colors.tint }]}>Håfa Recipes</Text>
-            <Text style={[styles.title, { color: colors.text }]}>Welcome back</Text>
+            <Text style={[styles.title, { color: colors.text }]}>{verification ? 'Verify your sign-in' : 'Welcome back'}</Text>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-              Sign in to save, plan, shop, and cook from your recipe library.
+              {verification ? 'One more check to keep your recipe library secure.' : 'Sign in to save, plan, shop, and cook from your recipe library.'}
             </Text>
           </RNView>
 
+          {!verification && <>
           {/* OAuth Buttons */}
           <RNView style={styles.oauthContainer}>
             <TouchableOpacity
@@ -238,6 +319,8 @@ export default function SignInScreen() {
             <RNView style={[styles.dividerLine, { backgroundColor: colors.border }]} />
           </RNView>
 
+          </>}
+
           {/* Error Banner */}
           {errorMessage && (
             <RNView
@@ -249,6 +332,59 @@ export default function SignInScreen() {
             </RNView>
           )}
 
+          {verification ? (
+            <RNView style={styles.form}>
+              <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+                {verification.selected.strategy === 'email_code'
+                  ? `${verification.prepared ? 'Enter the code sent to' : 'Send a code to'} ${verification.selected.safeIdentifier}.`
+                  : verification.selected.strategy === 'phone_code'
+                    ? `${verification.prepared ? 'Enter the code sent to' : 'Send a code to'} ${verification.selected.safeIdentifier}.`
+                    : verification.selected.strategy === 'totp'
+                      ? 'Enter the code from your authenticator app.'
+                      : 'Enter one of your unused backup codes.'}
+              </Text>
+              <TextInput
+                style={{ backgroundColor: colors.backgroundElevated, borderRadius: radius.lg,
+                  padding: spacing.md, fontSize: fontSize.md, color: colors.text,
+                  fontFamily: fontFamily.medium, borderWidth: 1, borderColor: colors.border }}
+                placeholderTextColor={colors.textMuted}
+                accessibilityLabel="Verification code"
+                value={verificationCode}
+                onChangeText={(text) => { setVerificationCode(text); clearError(); }}
+                placeholder={verification.selected.strategy === 'backup_code' ? 'Backup code' : 'Verification code'}
+                keyboardType={verification.selected.strategy === 'backup_code' ? 'default' : 'number-pad'}
+                autoCapitalize="none"
+                autoCorrect={false}
+                textContentType="oneTimeCode"
+                autoComplete="one-time-code"
+                editable={!isLoading && verification.prepared}
+              />
+              <Button
+                title="Verify and sign in"
+                onPress={handleVerify}
+                disabled={isLoading || !verification.prepared || !verificationCode.trim()}
+                loading={isLoading}
+                size="lg"
+              />
+              {(verification.selected.strategy === 'email_code' || verification.selected.strategy === 'phone_code') && (
+                <Button
+                  title={verification.prepared ? 'Send a new code' : 'Send code'}
+                  onPress={() => handleVerificationMethod(verification.selected)}
+                  disabled={isLoading}
+                  variant="outline"
+                />
+              )}
+              {verification.factors.filter((factor) => factor !== verification.selected).map((factor, index) => (
+                <Button
+                  key={`${factor.strategy}-${index}`}
+                  title={secondFactorLabel(factor)}
+                  onPress={() => handleVerificationMethod(factor)}
+                  disabled={isLoading}
+                  variant="outline"
+                />
+              ))}
+            </RNView>
+          ) : <>
           {/* Email Form */}
           <RNView style={styles.form}>
             <RNView style={styles.inputGroup}>
@@ -340,6 +476,7 @@ export default function SignInScreen() {
               </TouchableOpacity>
             </Link>
           </RNView>
+          </>}
         </ScrollView>
       </KeyboardAvoidingView>
     </View>

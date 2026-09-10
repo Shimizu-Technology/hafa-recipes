@@ -81,9 +81,9 @@ describe('ImportActivityCard', () => {
     expect(importAgeLabel('2026-09-07T00:00:00Z', Date.parse('2026-09-07T02:00:00Z'))).toBe('2h ago');
   });
 
-  it('makes uncertain completions a review task and failures retryable', () => {
+  it('opens saved recipes with advisory warnings and keeps failures retryable', () => {
     expect(importJobPresentation(job({ review_state: 'needs_review' }))).toMatchObject({
-      action: 'open', actionLabel: 'Review', label: 'Ready for review',
+      action: 'open', actionLabel: 'Open recipe', label: 'Saved · Some details uncertain',
     });
     expect(importJobPresentation(job({ status: 'failed', recipe_id: null }))).toMatchObject({
       action: 'restore', actionLabel: 'View options', label: 'Needs attention',
@@ -91,7 +91,7 @@ describe('ImportActivityCard', () => {
     expect(importJobPresentation(job({
       status: 'failed', recipe_id: 'saved-draft', review_state: 'source_incomplete',
     }))).toMatchObject({
-      action: 'open', actionLabel: 'Review', label: 'Draft needs details',
+      action: 'open', actionLabel: 'Open recipe', label: 'Draft saved',
     });
   });
 
@@ -112,7 +112,7 @@ describe('ImportActivityCard', () => {
     );
 
     await fireEvent.press(screen.getByLabelText('View progress YouTube import'));
-    await fireEvent.press(screen.getByLabelText('Open YouTube import'));
+    await fireEvent.press(screen.getByLabelText('Open recipe YouTube import'));
     await fireEvent.press(screen.getByLabelText('View options YouTube import'));
 
     expect(onRestore).toHaveBeenCalledWith(active);

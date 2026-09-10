@@ -61,10 +61,10 @@ export function importJobPresentation(job: JobStatus): ImportPresentation {
     const isSourceDraft = job.review_state === 'source_incomplete';
     return {
       action: 'open',
-      actionLabel: needsReview ? 'Review' : 'Open',
+      actionLabel: 'Open recipe',
       colorKind: needsReview ? 'warning' : 'success',
       icon: needsReview ? 'search-outline' : 'checkmark-circle-outline',
-      label: isSourceDraft ? 'Draft needs details' : needsReview ? 'Ready for review' : 'Ready',
+      label: isSourceDraft ? 'Draft saved' : needsReview ? 'Saved · Some details uncertain' : 'Saved',
     };
   }
   if (job.status === 'failed' || job.status === 'expired') {

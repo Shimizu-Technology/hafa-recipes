@@ -56,6 +56,7 @@ from app.recipe_review import (
     require_recipe_publishable,
     review_response_fields,
     reviewable_recipe_paths,
+    validate_resolved_issue_ids,
 )
 from app.services.extraction_confidence import normalize_extraction_confidence
 from app.services.storage import storage_service
@@ -411,6 +412,7 @@ class RecipeEdit(BaseModel):
     nutrition_model: Optional[str] = None
     review_content_revision: Optional[int] = Field(default=None, ge=1)
     verified_paths: Optional[List[str]] = Field(default=None, max_length=500)
+    resolved_issue_ids: Optional[List[str]] = Field(default=None, max_length=10)
 
     @model_validator(mode="after")
     def validate_edit_contract(self) -> "RecipeEdit":
@@ -419,6 +421,11 @@ class RecipeEdit(BaseModel):
             raise ValueError(
                 "review_content_revision and verified_paths must be supplied together"
             )
+        if self.resolved_issue_ids is not None and self.review_content_revision is None:
+            raise ValueError("resolved_issue_ids requires review_content_revision and verified_paths")
+        for issue_id in self.resolved_issue_ids or []:
+            if not re.fullmatch(r"source-warning:[0-9a-f]{24}", issue_id):
+                raise ValueError(f"invalid recipe review issue ID: {issue_id}")
         for path in self.verified_paths or []:
             if len(path) > 160 or not re.fullmatch(
                 r"(?:title|servings|times\.(?:prep|cook|total)|"
@@ -457,6 +464,12 @@ def _review_paths_for_edit(edit: RecipeEdit, recipe: Recipe) -> set[str] | None:
                 "message": "This recipe changed after review started. Reload it before saving.",
                 "content_revision": current_revision,
             },
+        )
+    if edit.resolved_issue_ids:
+        validate_resolved_issue_ids(
+            edit.resolved_issue_ids,
+            extracted=recipe.extracted or {},
+            evidence=recipe.extraction_evidence,
         )
     return set(edit.verified_paths)
 
@@ -892,7 +905,7 @@ async def _save_captured_recipe(
         is_public=capture_data.is_public,
         total_minutes=compute_total_minutes(extracted),  # Compute for SQL filtering
     )
-    apply_recipe_review(new_recipe, extracted, user_reviewed=True)
+    apply_recipe_review(new_recipe, extracted)
     if new_recipe.is_public:
         require_recipe_publishable(new_recipe)
         await require_current_publishing_disclosure(db, user.id)
@@ -2145,6 +2158,7 @@ async def edit_recipe(
         increment_revision=True,
         previous_extracted=old_extracted if verified_paths is not None else None,
         verified_paths=verified_paths,
+        resolved_issue_ids=edit.resolved_issue_ids,
     )
     correction_event = build_recipe_correction_event(
         recipe=recipe,
@@ -2269,6 +2283,7 @@ async def edit_recipe_with_image(
         increment_revision=True,
         previous_extracted=old_extracted if verified_paths is not None else None,
         verified_paths=verified_paths,
+        resolved_issue_ids=edit.resolved_issue_ids,
     )
     correction_event = build_recipe_correction_event(
         recipe=recipe,

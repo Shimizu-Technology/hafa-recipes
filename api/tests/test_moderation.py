@@ -64,8 +64,8 @@ def test_public_recipe_policy_contains_moderation_owner_and_block_boundaries():
     assert "recipes.is_public IS true" in statement
     assert "recipes.moderation_status" in statement
     assert "recipes.review_state IS NULL" in statement
-    assert "recipes.review_state = " in statement
-    assert "ready" in compiler.params.values()
+    assert "recipes.review_state IN " in statement
+    assert ["ready", "needs_review"] in compiler.params.values()
     assert "app_users.moderation_status" in statement
     assert "user_blocks.blocker_user_id" in statement
     assert "user_blocks.blocked_user_id" in statement
@@ -87,10 +87,10 @@ async def test_loaded_recipe_policy_rejects_hidden_contributor_and_user_block():
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("review_state", "expected"),
-    [(None, True), ("ready", True), ("needs_review", False), ("source_incomplete", False)],
+    [(None, True), ("ready", True), ("needs_review", True), ("source_incomplete", False)],
 )
 async def test_loaded_public_policy_enforces_recipe_review_state(review_state, expected):
-    """Only legacy and ready recipes are visible to a non-owner."""
+    """Public advisory recipes are visible; incomplete sources stay protected."""
 
     recipe = _recipe(review_state=review_state)
     db = SimpleNamespace(scalar=AsyncSequence(["active", None]))

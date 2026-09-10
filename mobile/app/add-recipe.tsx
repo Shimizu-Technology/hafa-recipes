@@ -104,7 +104,7 @@ export default function AddRecipeScreen() {
   const [totalTime, setTotalTime] = useState('');
   const [notes, setNotes] = useState('');
   const [tags, setTags] = useState('');
-  const [isPublic, setIsPublic] = useState(false);
+  const [isPublic, setIsPublic] = useState(isPublicParam === undefined ? !initialImageUri : isPublicParam !== 'false');
   const recoveredImageUri = initialImageUri?.trim() || null;
   const [imageUri, setImageUri] = useState<string | null>(recoveredImageUri);
   
@@ -132,7 +132,7 @@ export default function AddRecipeScreen() {
         if (data.tags?.length) setTags(data.tags.join(', '));
         
         // Preserve the visibility choice made on the OCR review screen.
-        setIsPublic(isPublicParam === 'true');
+        setIsPublic(isPublicParam !== 'false');
         
         // Ingredients - flatten from components
         const allIngredients: IngredientInput[] = [];
@@ -258,17 +258,7 @@ export default function AddRecipeScreen() {
     onSuccess: (recipe) => {
       invalidateCreatedRecipeQueries(queryClient, recipe.id);
       
-      const wasPublished = recipe.is_public === true;
-      Alert.alert(
-        wasPublished ? 'Published to Discover' : 'Saved privately',
-        wasPublished
-          ? 'Anyone can now find and open this recipe in Discover.'
-          : 'Only you can open this recipe. You can publish it later from the recipe page.',
-        [
-        { text: 'View Recipe', onPress: () => router.replace(`/recipe/${recipe.id}`) },
-        { text: 'OK', onPress: () => router.back() },
-        ],
-      );
+      router.replace(`/recipe/${recipe.id}`);
     },
     onError: (error: Error) => {
       Alert.alert('Error', error.message || 'Failed to create recipe');
@@ -373,7 +363,7 @@ export default function AddRecipeScreen() {
       || !steps.some(step => step.text.trim()));
 
   const submitRecipe = async () => {
-    if (isPublic && !(await requestPublishing(publishPreview()))) {
+    if (isPublic && !isRecoveredIncompleteDraft && !(await requestPublishing(publishPreview()))) {
       setIsPublic(false);
       return;
     }
@@ -386,37 +376,7 @@ export default function AddRecipeScreen() {
       return;
     }
     
-    // Check if user has ingredients but no AI help yet
-    const validIngredients = ingredients.filter(i => i.name.trim());
-    const hasIngredients = validIngredients.length > 0;
-    const missingTags = !tags.trim();
-    const missingNutrition = !estimatedNutrition;
-    
-    // Prompt user if they have ingredients but haven't used AI features
-    if (hasIngredients && (missingTags || missingNutrition)) {
-      const missingItems = [];
-      if (missingTags) missingItems.push('tags');
-      if (missingNutrition) missingItems.push('nutrition');
-      
-      Alert.alert(
-        'Add AI-Powered Info?',
-        `Would you like AI to suggest ${missingItems.join(' and ')} for your recipe? This helps with search and discovery.`,
-        [
-          { text: 'Skip', style: 'cancel', onPress: () => void submitRecipe() },
-          { 
-            text: 'Add AI Info', 
-            onPress: async () => {
-              // Run AI suggestions
-              if (missingTags) await handleSuggestTags();
-              if (missingNutrition) await handleEstimateNutrition();
-              // Don't auto-save - let user review the suggestions
-            }
-          },
-        ]
-      );
-      return;
-    }
-    
+
     void submitRecipe();
   };
 

@@ -173,17 +173,6 @@ function headerAction(renderer: ReactTestRenderer, label: string) {
       .some((text) => text.props.children === label))!;
 }
 
-/** Choose Skip in the optional AI enrichment prompt to continue the save. */
-async function skipOptionalAiPrompt() {
-  const prompt = mocks.alert.mock.calls.find(([title]) => title === 'Add AI-Powered Info?');
-  const skip = prompt?.[2].find((action: { text: string }) => action.text === 'Skip');
-  await act(async () => {
-    skip?.onPress();
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-}
-
 describe('AddRecipeScreen visibility', () => {
   beforeEach(() => {
     mocks.params.initialData = JSON.stringify({
@@ -208,7 +197,6 @@ describe('AddRecipeScreen visibility', () => {
 
     await act(async () => visibilityOption(renderer, 'Public in Discover').props.onPress());
     await act(async () => headerAction(renderer, 'Publish').props.onPress());
-    await skipOptionalAiPrompt();
 
     expect(mocks.requestPublishing).toHaveBeenCalledTimes(2);
     expect(mocks.createManualRecipe).toHaveBeenCalledWith(
@@ -224,7 +212,6 @@ describe('AddRecipeScreen visibility', () => {
     await act(async () => visibilityOption(renderer, 'Public in Discover').props.onPress());
     expect(visibilityOption(renderer, 'Private').props.accessibilityState.checked).toBe(true);
     await act(async () => headerAction(renderer, 'Save private').props.onPress());
-    await skipOptionalAiPrompt();
 
     expect(mocks.requestPublishing).toHaveBeenCalledTimes(1);
     expect(mocks.createManualRecipe).toHaveBeenCalledWith(
@@ -260,4 +247,14 @@ describe('AddRecipeScreen visibility', () => {
       'file:///recipe-card.jpg',
     );
   });
+  it('defaults new entries to public and saves without a tags or nutrition prompt', async () => {
+    mocks.params.isPublic = undefined as unknown as string;
+    const renderer = await renderRecipe();
+    expect(visibilityOption(renderer, 'Public in Discover').props.accessibilityState.checked).toBe(true);
+    await act(async () => headerAction(renderer, 'Publish').props.onPress());
+    expect(mocks.createManualRecipe).toHaveBeenCalledWith(expect.objectContaining({ is_public: true }), null);
+    expect(mocks.alert).not.toHaveBeenCalled();
+    expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
+  });
+
 });

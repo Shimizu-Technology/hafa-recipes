@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   })),
   params: {
     recipe: '',
+    saveFailed: undefined as string | undefined,
     location: 'Guam',
     isPublic: 'false',
     sourceType: 'photo' as 'photo' | 'text',
@@ -157,6 +158,7 @@ describe('OCRReviewScreen confidence notice', () => {
     mocks.requestPublishing.mockResolvedValue(true);
     mocks.save.mockClear();
     mocks.params.isPublic = 'false';
+    mocks.params.saveFailed = undefined;
     mocks.params.sourceType = 'photo';
   });
 
@@ -198,10 +200,11 @@ describe('OCRReviewScreen visibility', () => {
     mocks.requestPublishing.mockResolvedValue(true);
     mocks.save.mockClear();
     mocks.params.isPublic = 'false';
+    mocks.params.saveFailed = undefined;
     mocks.params.sourceType = 'text';
   });
 
-  it('saves the default choice privately and says exactly where it was saved', async () => {
+  it('preserves the explicit private choice and opens the saved recipe', async () => {
     const renderer = await renderRecipe({ lowConfidence: false });
     const submit = renderer.root.findAllByType('Button' as unknown as React.ComponentType)
       .find((node) => node.props.children === 'Save Private Recipe');
@@ -213,11 +216,8 @@ describe('OCRReviewScreen visibility', () => {
       source_type: 'text',
       is_public: false,
     }));
-    expect(mocks.alert).toHaveBeenCalledWith(
-      'Saved privately',
-      'Only you can open this recipe. You can publish it later from the recipe page.',
-      expect.any(Array),
-    );
+    expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
+    expect(mocks.alert).not.toHaveBeenCalled();
   });
 
   it('requires publishing confirmation and sends an explicit public save', async () => {
@@ -235,11 +235,8 @@ describe('OCRReviewScreen visibility', () => {
 
     expect(mocks.requestPublishing).toHaveBeenCalledTimes(2);
     expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ is_public: true }));
-    expect(mocks.alert).toHaveBeenCalledWith(
-      'Published to Discover',
-      'Anyone can now find and open this recipe in Discover.',
-      expect.any(Array),
-    );
+    expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
+    expect(mocks.alert).not.toHaveBeenCalled();
   });
 
   it('keeps the recipe private when publishing confirmation is declined', async () => {
@@ -267,4 +264,15 @@ describe('OCRReviewScreen visibility', () => {
     expect(renderer.root.findAllByType('Button' as unknown as React.ComponentType)
       .some((node) => node.props.children === 'Publish Recipe')).toBe(true);
   });
+  it('retries a failed save without a tags or nutrition prompt', async () => {
+    mocks.params.saveFailed = 'true';
+    const renderer = await renderRecipe({ tags: [], nutrition: null, components: [{ ingredients: [{ name: 'rice' }], steps: ['Cook rice.'] }] });
+    const submit = renderer.root.findAllByType('Button' as unknown as React.ComponentType)
+      .find(node => node.props.children === 'Retry Save')!;
+    await act(async () => submit.props.onPress());
+    expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ is_public: false, source_type: 'text' }));
+    expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
+    expect(mocks.alert).not.toHaveBeenCalled();
+  });
+
 });

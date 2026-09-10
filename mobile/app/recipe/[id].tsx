@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { Text, View, Card, Chip, Divider, useColors } from '@/components/Themed';
+import { RecipeDetailsReview } from '@/components/RecipeDetailsReview';
 import AddIngredientsModal from '@/components/AddIngredientsModal';
 import RecipeChatModal from '@/components/RecipeChatModal';
 import AddToCollectionModal from '@/components/AddToCollectionModal';
@@ -138,6 +139,7 @@ export default function RecipeDetailScreen() {
   const extraction = useAsyncExtraction();
   const [imageError, setImageError] = useState(false);
   const [showIngredientPicker, setShowIngredientPicker] = useState(false);
+  const [showDetailsReview, setShowDetailsReview] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
   const [showCollectionModal, setShowCollectionModal] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
@@ -753,7 +755,7 @@ export default function RecipeDetailScreen() {
             styles.scrollContent,
             {
               paddingBottom: insets.bottom + spacing.xl
-                + (reviewDetails && cookPresentation.canCook ? 170 : 100),
+                + 100,
             },
           ]}
           keyboardShouldPersistTaps="handled"
@@ -846,26 +848,19 @@ export default function RecipeDetailScreen() {
             </RNView>
 
             {/* Quality Badge - show warning if low confidence, otherwise show quality */}
-            {reviewLabel ? (
+            {reviewLabel && !reviewDetails ? (
               <RNView style={[styles.qualityBadge, { backgroundColor: '#fef3c7' }]}>
                 <Text style={[styles.qualityText, { color: '#92400e' }]}>
                   {reviewLabel}
                 </Text>
               </RNView>
-            ) : extracted.lowConfidence ? (
+            ) : !recipe.review_state && extracted.lowConfidence && !reviewDetails ? (
               <RNView style={[styles.qualityBadge, { backgroundColor: '#fef3c7' }]}>
                 <Text style={[styles.qualityText, { color: '#92400e' }]}>
-                  Needs review · Some details may be inaccurate
+                  Some details are uncertain
                 </Text>
               </RNView>
-            ) : recipe.has_audio_transcript && (
-              <RNView style={[styles.qualityBadge, { backgroundColor: colors.success + '15' }]}>
-                <Text style={[styles.qualityText, { color: colors.success }]}>
-                  High quality · Audio transcribed
-                </Text>
-              </RNView>
-            )}
-
+            ) : null /* Source method is not an accuracy guarantee. */}
             {reviewDetails && (
               <RNView
                 style={[
@@ -890,27 +885,16 @@ export default function RecipeDetailScreen() {
                     </Text>
                   </RNView>
                 </RNView>
-                {reviewDetails.sourceSummary && (
-                  <RNView style={styles.reviewSourceRow}>
-                    <Ionicons name="shield-checkmark-outline" size={17} color={colors.textMuted} />
-                    <Text style={[styles.reviewSourceText, { color: colors.textMuted }]}>
-                      {reviewDetails.sourceSummary}
-                    </Text>
-                  </RNView>
-                )}
-                {hasExternalSource && (
-                  <TouchableOpacity
-                    style={[styles.reviewSourceButton, { borderColor: colors.border }]}
-                    onPress={handleOpenSource}
-                    accessibilityRole="link"
-                    accessibilityLabel="Open original source while reviewing"
-                  >
-                    <Ionicons name="open-outline" size={17} color={colors.tint} />
-                    <Text style={[styles.reviewSourceButtonText, { color: colors.tint }]}>
-                      Open original
-                    </Text>
-                  </TouchableOpacity>
-                )}
+                <TouchableOpacity
+                  style={[styles.reviewSourceButton, { borderColor: colors.border }]}
+                  onPress={() => recipe.review_state === 'source_incomplete'
+                    ? router.push(`/edit-recipe/${id}`)
+                    : setShowDetailsReview(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel={reviewDetails.actionLabel}
+                >
+                  <Text style={[styles.reviewSourceButtonText, { color: colors.tint }]}>{reviewDetails.actionLabel}</Text>
+                </TouchableOpacity>
               </RNView>
             )}
 
@@ -1506,7 +1490,7 @@ export default function RecipeDetailScreen() {
           )}
         </ScrollView>
         
-        {/* Review is primary until cooking-critical details are verified. */}
+        {/* Cooking stays primary; review is optional beside the advisory. */}
         <RNView style={[
           styles.floatingButtonContainer,
           { 
@@ -1515,39 +1499,7 @@ export default function RecipeDetailScreen() {
             paddingBottom: insets.bottom + spacing.sm,
           }
         ]}>
-          {reviewDetails ? (
-            <>
-              <TouchableOpacity
-                style={[styles.floatingCookButton, { backgroundColor: colors.tint }]}
-                onPress={() => router.push(`/edit-recipe/${id}`)}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel={reviewDetails.actionLabel}
-                accessibilityHint="Edit and verify this recipe against the original source"
-              >
-                <Ionicons name="create-outline" size={22} color="#FFFFFF" />
-                <Text style={styles.floatingCookButtonText}>{reviewDetails.actionLabel}</Text>
-              </TouchableOpacity>
-              {cookPresentation.canCook && (
-                <TouchableOpacity
-                  style={[
-                    styles.floatingDraftButton,
-                    { backgroundColor: colors.background, borderColor: colors.border },
-                  ]}
-                  onPress={handleCook}
-                  activeOpacity={0.8}
-                  accessibilityRole="button"
-                  accessibilityLabel="Cook with draft"
-                  accessibilityHint="Review a warning before opening Cook Mode"
-                >
-                  <Ionicons name="restaurant-outline" size={20} color={colors.textSecondary} />
-                  <Text style={[styles.floatingDraftButtonText, { color: colors.text }]}>
-                    Cook with draft
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </>
-          ) : canShowRecipePrimaryAction(isOwner, cookPresentation.canCook) ? (
+          {canShowRecipePrimaryAction(isOwner, cookPresentation.canCook) ? (
             <TouchableOpacity
               style={[styles.floatingCookButton, { backgroundColor: colors.tint }]}
               onPress={handleCook}
@@ -1565,6 +1517,15 @@ export default function RecipeDetailScreen() {
           ) : null}
         </RNView>
       </KeyboardAvoidingView>
+
+      {showDetailsReview && isOwner && (
+        <RecipeDetailsReview
+          recipe={recipe}
+          onClose={() => setShowDetailsReview(false)}
+          onOpenSource={hasExternalSource ? handleOpenSource : undefined}
+          onEdit={() => { setShowDetailsReview(false); router.push(`/edit-recipe/${id}`); }}
+        />
+      )}
 
       {/* Add Ingredients Modal */}
       {recipe && (

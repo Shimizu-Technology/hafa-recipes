@@ -148,7 +148,7 @@ async def test_job_inbox_is_owner_scoped_ordered_filterable_and_review_aware():
             assert link_imports[0].requested_is_public is True
             assert link_imports[1].review_state == "needs_review"
             assert link_imports[1].review_summary == (
-                "Needs review — compare the draft with the original before cooking."
+                "Some details may need a quick check before cooking."
             )
             assert link_imports[1].created_at == completed.created_at
 

@@ -45,7 +45,7 @@ function formatTimestamp(value: number): string {
 /** Build owner-facing review copy from privacy-bounded extraction evidence. */
 export function getRecipeReviewDetails(
   state: RecipeReviewState | null | undefined,
-  uncertaintyCount: number | null | undefined,
+  _uncertaintyCount: number | null | undefined,
   evidence: Record<string, unknown> | null | undefined,
 ): RecipeReviewDetails | null {
   if (state !== 'source_incomplete' && state !== 'needs_review') return null;
@@ -58,27 +58,15 @@ export function getRecipeReviewDetails(
   const missingQuantityCount = typeof rawMissing === 'number' && rawMissing > 0
     ? Math.floor(rawMissing)
     : 0;
-  const issueCount = typeof uncertaintyCount === 'number' && uncertaintyCount > 0
-    ? Math.floor(uncertaintyCount)
-    : 0;
-
-  const actionLabel = state === 'source_incomplete'
-    ? 'Add missing details'
-    : missingQuantityCount > 0
-      ? `Review ${missingQuantityCount} ${missingQuantityCount === 1 ? 'amount' : 'amounts'}`
-      : issueCount > 0
-        ? `Review ${issueCount} ${issueCount === 1 ? 'detail' : 'details'}`
-        : 'Review recipe';
+  const actionLabel = state === 'source_incomplete' ? 'Add missing details' : 'Check details';
   const heading = state === 'source_incomplete'
-    ? 'Finish this saved draft'
+    ? 'Saved as a draft'
     : missingQuantityCount > 0
       ? `${missingQuantityCount} ingredient ${missingQuantityCount === 1 ? 'amount was' : 'amounts were'} not stated`
-      : 'Compare this draft with the original';
+      : 'Some source details were unclear';
   const message = state === 'source_incomplete'
-    ? 'Keep what was recovered, then add the ingredients or instructions the source did not provide.'
-    : missingQuantityCount > 0
-      ? 'Missing amounts stay blank instead of being guessed. Add them only if you can verify them from the source.'
-      : 'The imported details have not been verified by a person yet.';
+    ? 'Add the ingredients or instructions the source did not provide. Your draft is saved privately.'
+    : 'Your recipe is saved. You can check these details now or come back later.';
 
   const modalities = Array.isArray(envelope.source?.modalities)
     ? envelope.source.modalities
@@ -114,8 +102,8 @@ export function getRecipeReviewDetails(
 /** Present the persisted recipe-review state in concise cooking language. */
 export function getRecipeReviewLabel(state?: RecipeReviewState | null): string | null {
   if (state === 'source_incomplete') return 'Source incomplete · Add what the source did not show';
-  if (state === 'needs_review') return 'Needs review · Compare this draft with the original';
-  if (state === 'ready') return 'Ready to cook';
+  if (state === 'needs_review') return 'Some details are uncertain';
+  if (state === 'ready') return null;
   return null;
 }
 
@@ -153,11 +141,11 @@ export function getCookDraftPresentation(
       alertMessage: 'This saved source does not have cooking instructions yet. Add them while viewing the original.',
     };
   }
-  if (state === 'source_incomplete' || state === 'needs_review') {
+  if (state === 'source_incomplete') {
     return {
       canCook: true,
       buttonLabel: 'Cook with draft',
-      alertTitle: state === 'source_incomplete' ? 'Cook with an incomplete draft?' : 'Cook with an unverified draft?',
+      alertTitle: 'Cook with an incomplete draft?',
       alertMessage: 'Some cooking-critical details may be missing or inaccurate. Compare this draft with the original source as you cook.',
     };
   }
@@ -183,7 +171,7 @@ export function getMissingQuantityLabel(
   if (['to taste', 'as needed', 'as desired', 'for garnish', 'optional'].some(
     phrase => sourceLanguage.includes(phrase),
   )) return null;
-  return 'Not stated — verify original';
+  return 'Amount not stated';
 }
 
 /** Trust the API's stable-identity ownership verdict, not a Clerk subject. */

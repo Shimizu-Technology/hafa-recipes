@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,7 +18,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Chip, Text, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
-import { useLocations } from '@/hooks/useRecipes';
+import { RecipeVisibilitySelector } from '@/components/RecipeVisibilitySelector';
+import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
+import { saveCaptureOrRecover } from '@/lib/captureSave';
+import { useLocations, useSaveCapturedRecipe } from '@/hooks/useRecipes';
 import { api } from '@/lib/api';
 import {
   MAX_PASTED_RECIPE_CHARS,
@@ -37,8 +40,12 @@ export default function PasteRecipeScreen() {
     captureToken?: string;
   }>();
   const { data: locationsData } = useLocations();
+  const saveCapturedRecipe = useSaveCapturedRecipe();
+  const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
 
+  const importInFlight = useRef(false);
   const [recipeText, setRecipeText] = useState('');
+  const [isPublic, setIsPublic] = useState(params.isPublic !== 'false');
   const [selectedLocation, setSelectedLocation] = useState(params.location || 'Guam');
   const [isExtracting, setIsExtracting] = useState(false);
 
@@ -54,7 +61,7 @@ export default function PasteRecipeScreen() {
   const normalizedRecipeText = normalizePastedRecipeText(recipeText);
   const characterCount = normalizedRecipeText.length;
   const isOverLimit = characterCount > MAX_PASTED_RECIPE_CHARS;
-  const canExtract = canExtractPastedRecipe(recipeText) && !isExtracting;
+  const canExtract = canExtractPastedRecipe(recipeText) && !isExtracting && !isCheckingDisclosure;
 
   const locations = locationsData?.locations?.length
     ? locationsData.locations.slice().sort((a, b) => {
@@ -78,7 +85,13 @@ export default function PasteRecipeScreen() {
   };
 
   const handleExtract = async () => {
-    if (!canExtract) return;
+    if (!canExtract || importInFlight.current) return;
+    importInFlight.current = true;
+    if (isPublic && !(await requestPublishing())) {
+      importInFlight.current = false;
+      setIsPublic(false);
+      return;
+    }
 
     Keyboard.dismiss();
     setIsExtracting(true);
@@ -95,21 +108,19 @@ export default function PasteRecipeScreen() {
         return;
       }
 
-      router.push({
-        pathname: '/ocr-review',
-        params: {
-          recipe: JSON.stringify(result.recipe),
-          location: selectedLocation,
-          isPublic: params.isPublic === 'true' ? 'true' : 'false',
-          sourceType: 'text',
-        },
-      });
+      const destination = await saveCaptureOrRecover({
+        extracted: result.recipe,
+        source_type: 'text',
+        is_public: isPublic,
+      }, selectedLocation, saveCapturedRecipe.mutateAsync);
+      router.replace(destination);
     } catch (error: any) {
       const message = error?.response?.status === 413
         ? 'That text is too large. Shorten it to the recipe itself and try again.'
         : error?.response?.data?.detail || error?.message || 'Please try again.';
       Alert.alert('Import Failed', message);
     } finally {
+      importInFlight.current = false;
       setIsExtracting(false);
     }
   };
@@ -132,7 +143,7 @@ export default function PasteRecipeScreen() {
             </RNView>
             <RNView style={styles.introCopy}>
               <Text style={[styles.introTitle, { color: colors.text }]}>Paste the whole recipe</Text>
-              <Text style={[styles.introBody, { color: colors.textSecondary }]}>Copy a caption, DM, note, or recipe post. AI will organize it into ingredients and steps for you to review.</Text>
+              <Text style={[styles.introBody, { color: colors.textSecondary }]}>Copy a caption, DM, note, or recipe post. AI will organize the ingredients and steps, then save your recipe.</Text>
             </RNView>
           </RNView>
 
@@ -171,13 +182,13 @@ export default function PasteRecipeScreen() {
             accessibilityLabel="Pasted recipe text"
           />
           <RNView style={styles.inputMeta}>
-            <Text style={[styles.inputHint, { color: colors.textMuted }]}>Include both ingredients and instructions for the best draft.</Text>
+            <Text style={[styles.inputHint, { color: colors.textMuted }]}>Include both ingredients and instructions for the best result.</Text>
             <Text style={[styles.characterCount, { color: isOverLimit ? colors.error : colors.textMuted }]}>{characterCount.toLocaleString()} / {MAX_PASTED_RECIPE_CHARS.toLocaleString()}</Text>
           </RNView>
 
           <RNView style={[styles.privacyNotice, { backgroundColor: colors.accentSoft, borderColor: colors.accent + '55' }]}>
             <Ionicons name="shield-checkmark-outline" size={20} color={colors.accent} />
-            <Text style={[styles.privacyText, { color: colors.textSecondary }]}>The text is sent to our AI provider to create your draft. Håfa Recipes does not save the original pasted text.</Text>
+            <Text style={[styles.privacyText, { color: colors.textSecondary }]}>The text is sent to our AI provider to import your recipe. Håfa Recipes does not save the original pasted text.</Text>
           </RNView>
 
           <RNView style={styles.section}>
@@ -195,11 +206,17 @@ export default function PasteRecipeScreen() {
           </RNView>
 
           {isOverLimit && (
-            <Text style={[styles.limitError, { color: colors.error }]}>Shorten the pasted text before creating a draft.</Text>
+            <Text style={[styles.limitError, { color: colors.error }]}>Shorten the pasted text before importing.</Text>
           )}
 
+          <RecipeVisibilitySelector
+            value={isPublic ? 'public' : 'private'}
+            onChange={(value) => setIsPublic(value === 'public')}
+            disabled={isExtracting || isCheckingDisclosure}
+          />
+
           <Button
-            title={isExtracting ? 'Creating Draft...' : 'Create Recipe Draft'}
+            title={isExtracting ? 'Importing Recipe...' : 'Import Recipe'}
             onPress={handleExtract}
             disabled={!canExtract}
             loading={isExtracting}
@@ -207,7 +224,7 @@ export default function PasteRecipeScreen() {
           />
           <RNView style={styles.reviewPromise}>
             {isExtracting ? <ActivityIndicator size="small" color={colors.tint} /> : <Ionicons name="eye-outline" size={16} color={colors.textMuted} />}
-            <Text style={[styles.reviewPromiseText, { color: colors.textMuted }]}>You will review every ingredient, step, and who can see the recipe before it is saved.</Text>
+            <Text style={[styles.reviewPromiseText, { color: colors.textMuted }]}>Your recipe saves automatically. Any uncertain details will be highlighted.</Text>
           </RNView>
         </ScrollView>
       </KeyboardAvoidingView>

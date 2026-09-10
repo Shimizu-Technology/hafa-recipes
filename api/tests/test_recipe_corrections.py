@@ -129,6 +129,7 @@ def test_review_verification_can_record_zero_content_changes():
 
     recipe = _recipe()
     before = _recipe_data(quantity="2")
+    before.update(lowConfidence=True, confidenceWarning="The cooking time was unclear.")
     apply_recipe_review(recipe, before)
     before_state = recipe.review_state
     before_evidence = dict(recipe.extraction_evidence)
@@ -152,8 +153,8 @@ def test_review_verification_can_record_zero_content_changes():
     assert event.changed_field_count == 0
 
 
-def test_partial_review_verification_records_progress_without_state_change():
-    """Checking one field is useful aggregate feedback even before readiness."""
+def test_verifying_the_only_uncertain_amount_resolves_review():
+    """Checking the one uncertain field resolves review without certifying the rest."""
 
     recipe = _recipe()
     before = _recipe_data(quantity=None)
@@ -176,7 +177,7 @@ def test_partial_review_verification_records_progress_without_state_change():
         before_evidence=before_evidence,
     )
 
-    assert recipe.review_state == "needs_review"
+    assert recipe.review_state == "ready"
     assert event is not None
     assert event.event_kind == "review_verification"
     assert event.changed_field_count == 0

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Literal
@@ -244,6 +246,117 @@ def _source_provenance(source_evidence: dict | None) -> dict:
     return provenance
 
 
+_GENERATED_REVIEW_MESSAGES = {
+    "The imported details have not been fully verified by a person yet.",
+    "Needs review — compare the draft with the original before cooking.",
+    "Some details may need a quick check before cooking.",
+    "Source incomplete — save it now and add the missing details when you can.",
+    "No ingredients were found in the source.",
+    "No cooking instructions were found in the source.",
+}
+
+
+_RECOMPUTED_QUANTITY_WARNING = re.compile(
+    r"\d+ ingredient (?:amount was|amounts were|quantity is|quantities are) not stated\.?"
+)
+_RECOMPUTED_STRUCTURE_WARNINGS = {
+    "no ingredients could be identified",
+    "no cooking steps could be identified",
+}
+_EXTRACTOR_WARNING_PREFIX = "This recipe may need review: "
+
+
+def _without_recomputed_warning(message: str) -> str | None:
+    """Remove only known aggregate facts which this assessment recomputes.
+
+    The extractor joins its warning clauses with a fixed delimiter. Keep any
+    remaining source/model clauses, including little-content or vague-amount
+    warnings, instead of dismissing an entire mixed warning about the source.
+    """
+
+    def is_recomputed(clause: str) -> bool:
+        return bool(_RECOMPUTED_QUANTITY_WARNING.fullmatch(clause)) or (
+            clause.rstrip(".") in _RECOMPUTED_STRUCTURE_WARNINGS
+        )
+
+    if message in _GENERATED_REVIEW_MESSAGES or is_recomputed(message):
+        return None
+    if not message.startswith(_EXTRACTOR_WARNING_PREFIX):
+        return message
+    clauses = message.removeprefix(_EXTRACTOR_WARNING_PREFIX).split(", and ")
+    remaining = [clause for clause in clauses if not is_recomputed(clause)]
+    if not remaining:
+        return None
+    if len(remaining) == len(clauses):
+        return message
+    return _EXTRACTOR_WARNING_PREFIX + ", and ".join(remaining).rstrip(".") + "."
+
+
+def _source_warnings(extracted: dict, previous_evidence: dict | None) -> list[str]:
+    """Keep model warnings separate from generated old-client warning summaries.
+
+    Matching prior evidence is supplied for edits/restores only. A fresh
+    extraction gets fresh warnings, never those belonging to the saved version.
+    Older evidence retained raw warnings in reasons; filter its generated
+    bookkeeping rather than feeding a generic lowConfidence flag back in.
+    """
+
+    assessment = (previous_evidence or {}).get("assessment") or {}
+    if isinstance(assessment.get("issues"), list):
+        candidates = [
+            issue.get("message")
+            for issue in assessment["issues"]
+            if isinstance(issue, dict) and issue.get("code") == "source_warning"
+        ]
+    elif previous_evidence:
+        candidates = list(assessment.get("reasons") or [])
+    elif extracted.get("lowConfidence") is True:
+        candidates = [extracted.get("confidenceWarning") or "Check the original source for unclear cooking details."]
+    else:
+        candidates = []
+    warnings = []
+    for candidate in candidates:
+        if not isinstance(candidate, str) or not candidate.strip():
+            continue
+        message = _without_recomputed_warning(candidate.strip())
+        if message:
+            warnings.append(message[:500])
+    return list(dict.fromkeys(warnings))[:10]
+
+
+def source_warning_issue(message: str) -> dict:
+    """Give an unresolved normalized warning a stable, content-based identity."""
+
+    digest = hashlib.sha256(message.encode("utf-8")).hexdigest()[:24]
+    return {"id": f"source-warning:{digest}", "code": "source_warning", "path": None, "message": message}
+
+
+def validate_resolved_issue_ids(
+    resolved_issue_ids: Collection[str] | None,
+    *,
+    extracted: dict,
+    evidence: dict | None,
+) -> set[str]:
+    """Reject acknowledgments for warnings absent from this recipe snapshot."""
+
+    requested = set(resolved_issue_ids or [])
+    current = {
+        source_warning_issue(warning)["id"]
+        for warning in _source_warnings(extracted, evidence)
+    }
+    unknown = sorted(requested - current)
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "INVALID_RECIPE_REVIEW_ISSUE",
+                "message": "One or more review details are not part of this recipe revision.",
+                "issue_ids": unknown[:10],
+            },
+        )
+    return requested
+
+
 def assess_recipe_review(
     extracted: dict,
     *,
@@ -255,6 +368,7 @@ def assess_recipe_review(
     previous_extracted: dict | None = None,
     previous_evidence: dict | None = None,
     verified_paths: Collection[str] | None = None,
+    resolved_issue_ids: Collection[str] | None = None,
 ) -> ReviewAssessment:
     """Assess cooking readiness without pretending that absence is evidence.
 
@@ -354,45 +468,62 @@ def assess_recipe_review(
         reasons.append("No cooking instructions were found in the source.")
 
     source_incomplete = ingredient_count == 0 or step_count == 0
-    is_exact_website_recipe = source_type == "website" and extraction_method in {
-        "json-ld",
-        "schema.org",
-        "website-jsonld",
-    }
     fully_verified_by_person = (
         bool(field_evidence) and unverified_field_count == 0
     ) or is_direct_human_entry
-    model_reported_uncertainty = extracted.get("lowConfidence") is True
+    source_warnings = _source_warnings(
+        extracted,
+        previous_evidence if previous_extracted is not None else None,
+    )
+    if resolved_issue_ids and previous_extracted is None:
+        raise HTTPException(status_code=422, detail={
+            "code": "MISSING_PREVIOUS_RECIPE_REVISION",
+            "message": "Previous recipe content is required to resolve review details.",
+        })
+    resolved = validate_resolved_issue_ids(
+        resolved_issue_ids,
+        extracted=previous_extracted or extracted,
+        evidence=previous_evidence if previous_extracted is not None else None,
+    )
+    source_warnings = [
+        warning for warning in source_warnings
+        if source_warning_issue(warning)["id"] not in resolved
+    ]
+    # Whole-recipe verification remains supported for released clients. Exact
+    # field confirmations cannot resolve an unrelated, unlocated source warning.
+    if user_reviewed or is_direct_human_entry:
+        source_warnings = []
+    issues = [
+        {
+            "code": "missing_quantity",
+            "path": field["path"],
+            "message": "Amount wasn't stated in the source.",
+        }
+        for field in field_evidence
+        if field.get("quantityStatus") == "not_stated"
+        and field.get("status") != "user_verified"
+    ]
+    issues.extend(
+        source_warning_issue(warning) for warning in source_warnings
+    )
+    uncertainty_count = len(reasons) + len(issues)
+    if unresolved_missing_quantity_count:
+        reasons.append(
+            f"{unresolved_missing_quantity_count} ingredient "
+            f"{'quantity is' if unresolved_missing_quantity_count == 1 else 'quantities are'} not stated."
+        )
+    reasons.extend(source_warnings)
 
     if source_incomplete:
         state: ReviewState = "source_incomplete"
         summary = "Source incomplete — save it now and add the missing details when you can."
-    elif (
-        fully_verified_by_person
-        or (
-            is_exact_website_recipe
-            and missing_quantity_count == 0
-            and not model_reported_uncertainty
-        )
-    ):
+    elif issues:
+        state = "needs_review"
+        summary = "Some details may need a quick check before cooking."
+    else:
         state = "ready"
         summary = "Ready to cook."
-    else:
-        state = "needs_review"
-        reasons.append("The imported details have not been fully verified by a person yet.")
-        if unresolved_missing_quantity_count:
-            reasons.append(
-                f"{unresolved_missing_quantity_count} ingredient "
-                f"{'quantity is' if unresolved_missing_quantity_count == 1 else 'quantities are'} not stated."
-            )
-        if model_reported_uncertainty and extracted.get("confidenceWarning"):
-            reasons.append(str(extracted["confidenceWarning"]).strip())
-        summary = "Needs review — compare the draft with the original before cooking."
 
-    uncertainty_count = _count_uncertainties(
-        reasons,
-        unresolved_missing_quantity_count,
-    )
     source = {
         "type": source_type,
         "method": extraction_method,
@@ -410,8 +541,9 @@ def assess_recipe_review(
             "verifiedFieldCount": verified_field_count,
             "unverifiedFieldCount": unverified_field_count,
             "uncertaintyCount": uncertainty_count,
-            "userReviewed": fully_verified_by_person,
+            "userReviewed": fully_verified_by_person and not source_warnings,
             "reasons": reasons,
+            "issues": issues,
         },
         "fields": field_evidence,
     }
@@ -430,8 +562,8 @@ def evidence_was_user_reviewed(evidence: dict | None) -> bool:
     if not isinstance(evidence, dict):
         return False
     assessment = evidence.get("assessment")
-    if isinstance(assessment, dict) and assessment.get("userReviewed") is True:
-        return True
+    if isinstance(assessment, dict) and isinstance(assessment.get("userReviewed"), bool):
+        return assessment["userReviewed"]
     fields = evidence.get("fields")
     return bool(fields) and all(
         isinstance(field, dict) and field.get("status") == "user_verified"
@@ -473,6 +605,7 @@ def apply_recipe_review(
     previous_extracted: dict | None = None,
     previous_evidence: dict | None | object = _PREVIOUS_EVIDENCE_UNSET,
     verified_paths: Collection[str] | None = None,
+    resolved_issue_ids: Collection[str] | None = None,
 ) -> ReviewAssessment:
     """Persist a new deterministic assessment and old-client warning fields."""
 
@@ -497,6 +630,7 @@ def apply_recipe_review(
         previous_extracted=previous_extracted,
         previous_evidence=previous_evidence,
         verified_paths=verified_paths,
+        resolved_issue_ids=resolved_issue_ids,
     )
     updated = dict(extracted)
     if assessment.state == "ready":
@@ -509,20 +643,20 @@ def apply_recipe_review(
     recipe.review_state = assessment.state
     recipe.extraction_evidence = assessment.evidence
     recipe.content_revision = revision
-    if assessment.state != "ready":
+    if assessment.state == "source_incomplete":
         recipe.is_public = False
     return assessment
 
 
 def require_recipe_publishable(recipe) -> None:
-    """Allow historical records, but prevent new unreviewed drafts from publishing."""
+    """Allow usable recipes with advisory warnings; keep incomplete drafts private."""
 
-    if getattr(recipe, "review_state", None) in {"source_incomplete", "needs_review"}:
+    if getattr(recipe, "review_state", None) == "source_incomplete":
         raise HTTPException(
             status_code=409,
             detail={
                 "code": "RECIPE_REVIEW_REQUIRED",
-                "message": "Review and complete this recipe before sharing it to Discover.",
+                "message": "Add ingredients and cooking instructions before sharing this recipe to Discover.",
                 "review_state": recipe.review_state,
             },
         )
@@ -534,10 +668,27 @@ def review_response_fields(recipe, *, include_evidence: bool) -> dict:
     evidence = getattr(recipe, "extraction_evidence", None) or {}
     assessment = evidence.get("assessment") or {}
     state = getattr(recipe, "review_state", None)
+    extracted = getattr(recipe, "extracted", None)
+    if include_evidence and evidence and isinstance(extracted, dict):
+        # Upgrade old owner-facing review bookkeeping on read. This changes no
+        # stored recipe, visibility, revision, or human verification claims.
+        projected = assess_recipe_review(
+            extracted,
+            source_type=getattr(recipe, "source_type", None) or (evidence.get("source") or {}).get("type", "unknown"),
+            extraction_method=getattr(recipe, "extraction_method", None) or evidence_source_method(evidence),
+            content_revision=int(getattr(recipe, "content_revision", None) or 1),
+            previous_extracted=extracted,
+            previous_evidence=evidence,
+            verified_paths=[],
+            source_evidence=evidence_source_provenance(evidence),
+        )
+        evidence = projected.evidence
+        assessment = evidence["assessment"]
+        state = projected.state
     if state == "source_incomplete":
         summary = "Source incomplete — save it now and add the missing details when you can."
     elif state == "needs_review":
-        summary = "Needs review — compare the draft with the original before cooking."
+        summary = "Some details may need a quick check before cooking."
     elif state == "ready":
         summary = "Ready to cook."
     else:

@@ -4,6 +4,12 @@ Created: 2026-08-30
 Product context: [PRODUCT-AND-SYSTEM.md](./PRODUCT-AND-SYSTEM.md)  
 Roadmap: [IMPROVEMENT-ROADMAP.md](./IMPROVEMENT-ROADMAP.md)
 
+## September 10 product update
+
+The current behavior is defined in [Convenient imports and optional review](./CONVENIENT-IMPORTS.md). Usable imports save automatically at the visibility selected before capture. Actual uncertainties are advisory and have one optional Check details entry point. They do not require whole-recipe certification or prevent publishing. Truly incomplete sources remain private drafts. Missing facts remain honest and unrelated warnings survive edits.
+
+The investigation and implementation program below record the earlier August policy. Mandatory review, private-by-default new captures, and ready-only publishing statements below are historical and superseded by the September decision. Do not reintroduce those gates.
+
 ## Decision
 
 Håfa Recipes will treat an imported recipe as a reviewable draft until its

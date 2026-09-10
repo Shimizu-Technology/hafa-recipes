@@ -14,7 +14,7 @@ describe('recipe trust presentation', () => {
       label: 'Needs details',
       accessibilityLabel: 'Recipe needs source details',
     });
-    expect(getRecipeTrustPresentation('needs_review')?.label).toBe('Needs review');
+    expect(getRecipeTrustPresentation('needs_review')?.label).toBe('Some details uncertain');
     expect(getRecipeTrustPresentation('ready')).toBeNull();
     expect(getRecipeTrustPresentation(null)).toBeNull();
   });

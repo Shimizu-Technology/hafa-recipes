@@ -1227,6 +1227,7 @@ class ApiClient {
       nutrition_model?: string | null;
       review_content_revision?: number;
       verified_paths?: string[];
+      resolved_issue_ids?: string[];
     },
     imageUri?: string | null
   ): Promise<Recipe> {

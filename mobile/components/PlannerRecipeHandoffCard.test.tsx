@@ -147,12 +147,12 @@ describe('PlannerRecipeHandoffCard', () => {
         }));
       });
 
-      expect(textNodes(renderer).some((text) => text.props.children === 'Needs review')).toBe(true);
+      expect(textNodes(renderer).some((text) => text.props.children === 'Some details uncertain')).toBe(true);
       expect(textNodes(renderer).some(
-        (text) => text.props.children === 'You can plan this now. Review it before cooking.',
+        (text) => text.props.children === 'You can plan this now. Uncertain details stay marked.',
       )).toBe(true);
       expect(renderer.container.queryAll(
-        (instance) => instance.props.accessibilityLabel === 'Recipe needs review',
+        (instance) => instance.props.accessibilityLabel === 'Some recipe details are uncertain',
       )).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());

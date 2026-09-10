@@ -12,7 +12,7 @@ describe('production App Store copy', () => {
     expect(importScreenSource).not.toMatch(/\bbeta\b/i);
     expect(importScreenSource).toContain('>AI-ASSISTED<');
     expect(importScreenSource).toContain(
-      'AI-assisted extraction. Check the ingredients and directions before saving.',
+      'Extracted and saved automatically. Any uncertain details will be highlighted.',
     );
   });
 });

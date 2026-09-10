@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   TouchableOpacity,
@@ -22,13 +22,15 @@ import { View, Text, Input, Button, Chip, useColors } from '@/components/Themed'
 import ExtractionProgress from '@/components/ExtractionProgress';
 import { SignInBanner } from '@/components/SignInBanner';
 import { guestPromptBottomPadding, useGuestPromptHeight } from '../../lib/guestPromptLayout';
-import { useExtractionJobs, useLocations, useCheckDuplicate } from '@/hooks/useRecipes';
+import { useExtractionJobs, useLocations, useCheckDuplicate, useSaveCapturedRecipe } from '@/hooks/useRecipes';
 import { useAsyncExtraction } from '@/contexts/ExtractionContext';
 import { ImportActivityCard } from '@/components/ImportActivityCard';
 import { BrandMark } from '@/components/BrandMark';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import { api, type RecipeImageUpload } from '@/lib/api';
 import { consumePendingShareCapture } from '@/lib/shareCapture';
+import { RecipeVisibilitySelector } from '@/components/RecipeVisibilitySelector';
+import { saveCaptureOrRecover } from '@/lib/captureSave';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import {
   getImageImportFailurePresentation,
@@ -54,8 +56,9 @@ export default function ExtractScreen() {
   const [url, setUrl] = useState('');
   const [notes, setNotes] = useState('');
   const [selectedLocation, setSelectedLocation] = useState('Guam');
-  const [isPublic, setIsPublic] = useState(false);
+  const [isPublic, setIsPublic] = useState(true);
   const [isChecking, setIsChecking] = useState(false);
+  const imageImportInFlight = useRef(false);
   const [isOcrExtracting, setIsOcrExtracting] = useState(false);
   const [ocrProgress, setOcrProgress] = useState('');
   const [extractingAsWebsite, setExtractingAsWebsite] = useState(false); // Track extraction type to prevent flicker
@@ -67,16 +70,8 @@ export default function ExtractScreen() {
   const extraction = useAsyncExtraction();
   const recentImports = useExtractionJobs('extract', Boolean(isSignedIn));
   const checkDuplicate = useCheckDuplicate();
+  const saveCapturedRecipe = useSaveCapturedRecipe();
   const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
-
-  const handlePublicToggle = async () => {
-    if (!isSignedIn) return;
-    if (isPublic) {
-      setIsPublic(false);
-      return;
-    }
-    if (await requestPublishing()) setIsPublic(true);
-  };
 
   // Handle shared URL from iOS Share Extension
   useEffect(() => {
@@ -177,7 +172,13 @@ export default function ExtractScreen() {
   };
 
   const extractFromImages = async () => {
-    if (selectedImages.length === 0) return;
+    if (selectedImages.length === 0 || imageImportInFlight.current || isCheckingDisclosure) return;
+    imageImportInFlight.current = true;
+    if (isPublic && !(await requestPublishing())) {
+      imageImportInFlight.current = false;
+      setIsPublic(false);
+      return;
+    }
 
     setIsOcrExtracting(true);
     setShowImageGallery(false);
@@ -194,18 +195,14 @@ export default function ExtractScreen() {
         : await api.extractRecipeFromMultipleImages(selectedImages, selectedLocation);
 
       if (result.success && result.recipe) {
-        setOcrProgress('Recipe extracted!');
-        setSelectedImages([]); // Clear images after success
-
-        // Navigate to review screen with the extracted recipe
-        router.push({
-          pathname: '/ocr-review',
-          params: {
-            recipe: JSON.stringify(result.recipe),
-            location: selectedLocation,
-            isPublic: isPublic ? 'true' : 'false',
-          },
-        });
+        setOcrProgress('Saving recipe...');
+        const destination = await saveCaptureOrRecover({
+          extracted: result.recipe,
+          source_type: 'photo',
+          is_public: isPublic,
+        }, selectedLocation, saveCapturedRecipe.mutateAsync);
+        setSelectedImages([]);
+        router.push(destination);
       } else {
         const failure = getImageImportFailurePresentation(result);
         Alert.alert(failure.title, failure.message, failure.offersManualEntry
@@ -233,6 +230,7 @@ export default function ExtractScreen() {
       );
       setShowImageGallery(true); // Show gallery again to retry
     } finally {
+      imageImportInFlight.current = false;
       setIsOcrExtracting(false);
       setOcrProgress('');
     }
@@ -242,7 +240,7 @@ export default function ExtractScreen() {
     await extraction.reset();
     setUrl('');
     setNotes('');
-    setIsPublic(false);
+    setIsPublic(true);
     setExtractingAsWebsite(false);
   };
 
@@ -281,7 +279,7 @@ export default function ExtractScreen() {
         router.push(`/recipe/${result.recipeId}`);
         setUrl('');
         setNotes('');
-        setIsPublic(false);  // New extractions are private by default
+        setIsPublic(true);  // New imports start public; explicit private choices stay on their job.
       }
       // Otherwise, polling has started and progress UI will show
     } catch (error: any) {
@@ -550,11 +548,18 @@ export default function ExtractScreen() {
               : `${selectedImages.length} images will be combined in this order. Source images are not attached to the saved recipe.`}
           </Text>
 
+          <RecipeVisibilitySelector
+            value={isPublic ? 'public' : 'private'}
+            onChange={(value) => setIsPublic(value === 'public')}
+            disabled={!isSignedIn || isLoading || isCheckingDisclosure}
+          />
+
           {/* Extract Button */}
           <RNView style={[styles.galleryBottomBar, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
             <Button
-              title={`Extract Recipe from ${selectedImages.length} ${selectedImages.length === 1 ? 'Image' : 'Images'}`}
+              title={`Import Recipe from ${selectedImages.length} ${selectedImages.length === 1 ? 'Image' : 'Images'}`}
               onPress={extractFromImages}
+              disabled={!isSignedIn || isLoading || isCheckingDisclosure}
               size="lg"
             />
           </RNView>
@@ -594,7 +599,7 @@ export default function ExtractScreen() {
             <>
               <RNView style={styles.buttonRow}>
                 <Button
-                  title={extraction.jobKind === 'reextract' ? 'Review Updated Recipe' : 'Review Recipe'}
+                  title="Open Recipe"
                   onPress={handleReviewCompletedRecipe}
                   size="lg"
                 />
@@ -644,7 +649,7 @@ export default function ExtractScreen() {
 
           <Text style={[styles.backgroundHint, { color: colors.textMuted }]}>
             {extraction.isComplete
-              ? 'Your recipe is saved. Review the details before you cook or share it.'
+              ? 'Your recipe is saved. Any uncertain details are highlighted on the recipe.'
               : extraction.isFailed
               ? 'Your recipe URL and options are still here, ready when you are.'
               : 'You can leave this screen — extraction continues in the background'}
@@ -674,8 +679,12 @@ export default function ExtractScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Hero Section */}
-          <LinearGradient
+          {isSignedIn ? (
+            <RNView style={styles.importHeading}>
+              <Text style={[styles.importTitle, { color: colors.text }]}>Import a recipe</Text>
+              <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>Paste a recipe link. We’ll save it for you.</Text>
+            </RNView>
+          ) : <LinearGradient
             colors={[colors.backgroundElevated, colors.backgroundSecondary]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
@@ -714,7 +723,7 @@ export default function ExtractScreen() {
                 <Text maxFontSizeMultiplier={1.4} style={[styles.sourcePillText, { color: colors.textSecondary }]}>Recipe text</Text>
               </RNView>
             </RNView>
-          </LinearGradient>
+          </LinearGradient>}
 
           {/* URL Input - Primary Action */}
           <RNView style={styles.section}>
@@ -753,7 +762,7 @@ export default function ExtractScreen() {
             <RNView style={[styles.aiNote, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
               <Ionicons name="sparkles-outline" size={16} color={colors.accent} />
               <Text style={[styles.aiNoteText, { color: colors.textSecondary }]}>
-                AI-assisted extraction. Check the ingredients and directions before saving.
+                Extracted and saved automatically. Any uncertain details will be highlighted.
               </Text>
             </RNView>
           </RNView>
@@ -787,44 +796,11 @@ export default function ExtractScreen() {
             </ScrollView>
           </RNView>
 
-          {/* Share Toggle */}
-          <TouchableOpacity
-            style={[
-              styles.shareToggle,
-              {
-                backgroundColor: isPublic ? colors.tint + '15' : colors.backgroundSecondary,
-                borderColor: isPublic ? colors.tint : colors.border,
-              }
-            ]}
-            onPress={handlePublicToggle}
-            activeOpacity={0.7}
+          <RecipeVisibilitySelector
+            value={isPublic ? 'public' : 'private'}
+            onChange={(value) => setIsPublic(value === 'public')}
             disabled={!isSignedIn || isLoading || isCheckingDisclosure}
-            accessibilityRole="switch"
-            accessibilityLabel="Share recipe to the public library"
-            accessibilityHint="Off keeps this recipe visible only to you"
-            accessibilityState={{ checked: isPublic, disabled: !isSignedIn || isLoading || isCheckingDisclosure }}
-          >
-            <RNView style={styles.shareToggleContent}>
-              <Ionicons
-                name={isPublic ? 'globe' : 'lock-closed'}
-                size={20}
-                color={isPublic ? colors.tint : colors.textMuted}
-              />
-              <RNView style={styles.shareToggleText}>
-                <Text style={[styles.shareToggleTitle, { color: colors.text }]}>
-                  {isPublic ? 'Share to Library' : 'Keep Private'}
-                </Text>
-                <Text style={[styles.shareToggleSubtitle, { color: colors.textMuted }]}>
-                  {isPublic ? 'Others can discover this recipe' : 'Only visible to you'}
-                </Text>
-              </RNView>
-            </RNView>
-            <Ionicons
-              name={isPublic ? 'checkmark-circle' : 'ellipse-outline'}
-              size={26}
-              color={isPublic ? colors.tint : colors.textMuted}
-            />
-          </TouchableOpacity>
+          />
 
           {/* Extract Button */}
           <RNView style={styles.section}>
@@ -837,7 +813,7 @@ export default function ExtractScreen() {
                     ? 'Checking...'
                     : 'Extract Recipe'}
               onPress={handleExtract}
-              disabled={!isSignedIn || isPreparingImports || isLoading || !url.trim()}
+              disabled={!isSignedIn || isPreparingImports || isLoading || isCheckingDisclosure || !url.trim()}
               loading={isChecking}
               size="lg"
             />
@@ -875,7 +851,7 @@ export default function ExtractScreen() {
             </RNView>
             <RNView style={styles.scanTextContainer}>
               <Text style={[styles.scanTitle, { color: colors.text }]}>Paste Recipe Text</Text>
-              <Text style={[styles.scanSubtitle, { color: colors.textMuted }]}>Turn a caption, message, or copied recipe into a draft</Text>
+              <Text style={[styles.scanSubtitle, { color: colors.textMuted }]}>Save a caption, message, or copied recipe</Text>
             </RNView>
             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
           </TouchableOpacity>
@@ -904,7 +880,7 @@ export default function ExtractScreen() {
           {/* Add Manually Button */}
           <TouchableOpacity
             style={[styles.scanButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
-            onPress={() => router.push('/add-recipe')}
+            onPress={() => router.push({ pathname: '/add-recipe', params: { isPublic: isPublic ? 'true' : 'false' } })}
             disabled={!isSignedIn || isLoading}
             activeOpacity={0.7}
           >
@@ -955,6 +931,15 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     marginBottom: spacing.lg,
     overflow: 'hidden',
+  },
+  importHeading: {
+    gap: spacing.xs,
+    marginBottom: spacing.lg,
+  },
+  importTitle: {
+    fontFamily: fontFamily.display,
+    fontSize: fontSize.xxl,
+    lineHeight: 34,
   },
   heroTopRow: {
     flexDirection: 'row',

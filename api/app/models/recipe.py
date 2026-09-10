@@ -96,7 +96,7 @@ class Recipe(Base):
             name="ck_recipes_content_revision",
         ),
         CheckConstraint(
-            "review_state IS NULL OR review_state = 'ready' OR is_public = FALSE",
+            "review_state IS NULL OR review_state != 'source_incomplete' OR is_public = FALSE",
             name="ck_recipes_review_public",
         ),
     )

@@ -398,6 +398,8 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
             partially_verified_original = {
                 **reviewed_original_extracted,
                 "title": "Partially reviewed original",
+                "lowConfidence": True,
+                "confidenceWarning": "The original cooking temperature is unclear.",
             }
             apply_recipe_review(
                 reviewed_original_recipe,
@@ -443,7 +445,7 @@ async def test_failed_source_draft_is_private_empty_idempotent_and_owner_scoped(
                 owner,
             )
             assert restored_partial.review_state == "needs_review"
-            assert restored_partial.is_public is False
+            assert restored_partial.is_public is True
             assert restored_partial.extraction_evidence is not None
             restored_fields = {
                 field["path"]: field["status"]

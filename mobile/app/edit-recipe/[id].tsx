@@ -16,7 +16,6 @@ import {
   KeyboardAvoidingView,
   Keyboard,
   Platform,
-  Linking,
   View as RNView,
   ActivityIndicator,
 } from 'react-native';
@@ -36,7 +35,6 @@ import {
   type IngredientFieldReview,
 } from '@/lib/recipeFieldReview';
 import { formatPublishDisclosure, getPublishDisclosure } from '@/lib/recipePublishing';
-import { canOpenRecipeOriginal } from '@/lib/recipeReviewPresentation';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
@@ -372,7 +370,7 @@ export default function EditRecipeScreen() {
     mutationFn: ({ data, imageUri }: EditSnapshot) => {
       return api.editRecipe(id!, data, imageUri);
     },
-    onSuccess: (_updatedRecipe, snapshot) => {
+    onSuccess: (updatedRecipe) => {
       // Invalidate recipe queries to refresh
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
       queryClient.invalidateQueries({ queryKey: ['recipe', id] });
@@ -381,9 +379,9 @@ export default function EditRecipeScreen() {
       queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'list', id] });
       queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'count', id] });
       
-      const message = snapshot.reviewProgress?.remaining
-        ? 'Your review progress was saved. The recipe will stay private until every detail is checked.'
-        : 'Recipe updated successfully.';
+      const message = updatedRecipe.review_state === 'source_incomplete'
+        ? 'Saved as a private draft. Add the missing ingredients or instructions whenever you’re ready.'
+        : 'Recipe updated.';
       Alert.alert('Saved', message, [
         { text: 'OK', onPress: () => router.back() },
       ]);
@@ -431,27 +429,6 @@ export default function EditRecipeScreen() {
       return;
     }
 
-    if (snapshot.data.is_public && snapshot.reviewProgress?.remaining) {
-      Alert.alert(
-        'Finish checking before sharing',
-        `${snapshot.reviewProgress.remaining} ${snapshot.reviewProgress.remaining === 1 ? 'detail still needs' : 'details still need'} your review. You can save your progress privately and share when everything is checked.`,
-        [
-          { text: 'Keep reviewing', style: 'cancel' },
-          {
-            text: 'Save privately',
-            onPress: () => {
-              setIsPublic(false);
-              editMutation.mutate({
-                ...snapshot,
-                data: { ...snapshot.data, is_public: false },
-              });
-            },
-          },
-        ],
-      );
-      return;
-    }
-
     if (snapshot.data.is_public) {
       if (!snapshot.publishingPreview || !(await requestPublishing(snapshot.publishingPreview))) {
         if (!recipe?.is_public) setIsPublic(false);
@@ -464,37 +441,6 @@ export default function EditRecipeScreen() {
   const handleSubmit = () => {
     if (!title.trim()) {
       Alert.alert('Missing Title', 'Please enter a recipe title.');
-      return;
-    }
-    
-    // Check if user has ingredients but no AI help yet
-    const validIngredients = ingredients.filter(i => i.name.trim());
-    const hasIngredients = validIngredients.length > 0;
-    const missingTags = !tags.trim();
-    const missingNutrition = !estimatedNutrition;
-    
-    // Prompt user if they have ingredients but haven't used AI features
-    if (hasIngredients && (missingTags || missingNutrition)) {
-      const missingItems = [];
-      if (missingTags) missingItems.push('tags');
-      if (missingNutrition) missingItems.push('nutrition');
-      
-      Alert.alert(
-        'Add AI-Powered Info?',
-        `Would you like AI to suggest ${missingItems.join(' and ')} for your recipe? This helps with search and discovery.`,
-        [
-          { text: 'Skip', style: 'cancel', onPress: () => void submitEdit() },
-          { 
-            text: 'Add AI Info', 
-            onPress: async () => {
-              // Run AI suggestions
-              if (missingTags) await handleSuggestTags();
-              if (missingNutrition) await handleEstimateNutrition();
-              // Don't auto-save - let user review the suggestions
-            }
-          },
-        ]
-      );
       return;
     }
     
@@ -662,19 +608,6 @@ export default function EditRecipeScreen() {
     setNutritionRecalculated(false);
   };
 
-  const confirmIngredient = (id: string) => {
-    setIngredients(current => current.map(ingredient => ingredient.id === id
-      ? {
-        ...ingredient,
-        reviewedFields: {
-          name: true,
-          quantity: true,
-          unit: ingredient.unit.trim() ? true : ingredient.reviewedFields.unit,
-        },
-      }
-      : ingredient));
-  };
-
   const removeIngredient = (id: string) => {
     setIngredients(ingredients.filter(ing => ing.id !== id));
     setEstimateInputsChanged(true);
@@ -691,12 +624,6 @@ export default function EditRecipeScreen() {
     setSteps(steps.map(step =>
       step.id === id ? { ...step, text, reviewed: true } : step
     ));
-  };
-
-  const confirmStep = (id: string) => {
-    setSteps(current => current.map(step => step.id === id
-      ? { ...step, reviewed: true }
-      : step));
   };
 
   const removeStep = (id: string) => {
@@ -749,25 +676,6 @@ export default function EditRecipeScreen() {
   const componentName = (componentId: string) =>
     recipeComponents.find(component => component.id === componentId)?.name || 'Main';
 
-  const fieldReviewEnabled = usesRecipeFieldReview(recipe?.extraction_evidence);
-  const fieldReviewProgress = fieldReviewEnabled
-    ? getRecipeFieldReviewProgress({
-      title,
-      servings,
-      prepTime,
-      cookTime,
-      totalTime,
-      reviewedScalarPaths,
-      components: recipeComponents,
-      ingredients,
-      steps,
-    })
-    : null;
-  const showReviewWorkflow = Boolean(
-    fieldReviewProgress
-      && (recipe?.review_state !== 'ready' || fieldReviewProgress.remaining > 0),
-  );
-
   const markScalarReviewed = (path: string) => {
     setReviewedScalarPaths(current => new Set(current).add(path));
   };
@@ -781,45 +689,6 @@ export default function EditRecipeScreen() {
     markScalarReviewed(path);
   };
 
-  const renderReviewAction = (
-    reviewed: boolean,
-    onPress: () => void,
-    label = 'Looks right',
-  ) => (
-    <TouchableOpacity
-      style={[
-        styles.reviewAction,
-        {
-          backgroundColor: reviewed ? colors.tint + '18' : colors.background,
-          borderColor: reviewed ? colors.tint : colors.border,
-        },
-      ]}
-      onPress={onPress}
-      disabled={reviewed}
-      accessibilityRole="button"
-      accessibilityState={{ disabled: reviewed }}
-      accessibilityLabel={reviewed ? `${label}, checked` : label}
-    >
-      <Ionicons
-        name={reviewed ? 'checkmark-circle' : 'ellipse-outline'}
-        size={17}
-        color={reviewed ? colors.tint : colors.textMuted}
-      />
-      <Text style={[styles.reviewActionText, { color: reviewed ? colors.tint : colors.textSecondary }]}>
-        {reviewed ? 'Checked' : label}
-      </Text>
-    </TouchableOpacity>
-  );
-
-  const handleOpenOriginal = async () => {
-    if (!canOpenRecipeOriginal(recipe?.source_url)) return;
-    try {
-      await Linking.openURL(recipe!.source_url);
-    } catch {
-      Alert.alert('Couldn’t open source', 'Try again when you have a connection.');
-    }
-  };
-
   const handlePublicToggle = async () => {
     if (isPublic) {
       Alert.alert(
@@ -831,14 +700,6 @@ export default function EditRecipeScreen() {
           { text: 'Keep shared', style: 'cancel' },
           { text: 'Make private', style: 'destructive', onPress: () => setIsPublic(false) },
         ],
-      );
-      return;
-    }
-
-    if (fieldReviewProgress?.remaining) {
-      Alert.alert(
-        'Finish checking first',
-        `${fieldReviewProgress.remaining} ${fieldReviewProgress.remaining === 1 ? 'detail still needs' : 'details still need'} your review before this recipe can be shared.`,
       );
       return;
     }
@@ -862,7 +723,7 @@ export default function EditRecipeScreen() {
     <>
       <Stack.Screen
         options={{
-          headerTitle: showReviewWorkflow ? 'Review Recipe' : 'Edit Recipe',
+          headerTitle: 'Edit Recipe',
           headerRight: () => (
             <TouchableOpacity
               onPress={handleSubmit}
@@ -873,7 +734,7 @@ export default function EditRecipeScreen() {
                 <ActivityIndicator size="small" color={colors.tint} />
               ) : (
                 <Text style={[styles.saveButtonText, { color: colors.tint }]}>
-                  {fieldReviewProgress?.remaining ? 'Save progress' : 'Save'}
+                  Save
                 </Text>
               )}
             </TouchableOpacity>
@@ -895,51 +756,6 @@ export default function EditRecipeScreen() {
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           >
-            {showReviewWorkflow && fieldReviewProgress && (
-              <RNView style={[styles.reviewCard, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
-                <RNView style={styles.reviewCardHeader}>
-                  <RNView style={styles.reviewCardCopy}>
-                    <Text style={[styles.reviewCardTitle, { color: colors.text }]}>
-                      {fieldReviewProgress.remaining === 0 ? 'Ready to save' : 'Check the imported details'}
-                    </Text>
-                    <Text style={[styles.reviewCardCount, { color: colors.tint }]}>
-                      {fieldReviewProgress.verified} of {fieldReviewProgress.total} checked
-                    </Text>
-                  </RNView>
-                  {canOpenRecipeOriginal(recipe?.source_url) && (
-                    <TouchableOpacity
-                      style={[styles.originalButton, { borderColor: colors.tint }]}
-                      onPress={() => void handleOpenOriginal()}
-                      accessibilityRole="link"
-                      accessibilityLabel="Open original recipe source"
-                    >
-                      <Ionicons name="open-outline" size={16} color={colors.tint} />
-                      <Text style={[styles.originalButtonText, { color: colors.tint }]}>Original</Text>
-                    </TouchableOpacity>
-                  )}
-                </RNView>
-                {fieldReviewProgress.total > 0 && (
-                  <RNView style={[styles.reviewProgressTrack, { backgroundColor: colors.borderLight }]}>
-                    <RNView
-                      style={[
-                        styles.reviewProgressFill,
-                        {
-                          backgroundColor: colors.tint,
-                          flex: fieldReviewProgress.verified,
-                        },
-                      ]}
-                    />
-                    <RNView style={{ flex: fieldReviewProgress.remaining }} />
-                  </RNView>
-                )}
-                <Text style={[styles.reviewCardBody, { color: colors.textSecondary }]}>
-                  {fieldReviewProgress.remaining === 0
-                    ? 'Everything shown has been checked. Save to finish the review.'
-                    : 'Fix anything that’s wrong. If it’s correct, tap Looks right. You can save and finish later.'}
-                </Text>
-              </RNView>
-            )}
-
             {/* Image Section */}
             <TouchableOpacity
               style={[styles.imageSection, { backgroundColor: colors.backgroundSecondary }]}
@@ -975,11 +791,6 @@ export default function EditRecipeScreen() {
                 placeholderTextColor={colors.textMuted}
                 accessibilityLabel="Recipe title"
               />
-              {showReviewWorkflow && title.trim() && renderReviewAction(
-                reviewedScalarPaths.has('title'),
-                () => markScalarReviewed('title'),
-                'Title looks right',
-              )}
             </RNView>
 
             {/* Meta Info Row */}
@@ -999,11 +810,6 @@ export default function EditRecipeScreen() {
                   keyboardType="numeric"
                   accessibilityLabel="Recipe servings"
                 />
-                {showReviewWorkflow && servings.trim() && renderReviewAction(
-                  reviewedScalarPaths.has('servings'),
-                  () => markScalarReviewed('servings'),
-                  'Servings look right',
-                )}
               </RNView>
               <RNView style={styles.metaItem}>
                 <Text style={[styles.label, { color: colors.text }]}>Total Time</Text>
@@ -1015,11 +821,6 @@ export default function EditRecipeScreen() {
                   placeholderTextColor={colors.textMuted}
                   accessibilityLabel="Total time"
                 />
-                {showReviewWorkflow && totalTime.trim() && renderReviewAction(
-                  reviewedScalarPaths.has('times.total'),
-                  () => markScalarReviewed('times.total'),
-                  'Total time looks right',
-                )}
               </RNView>
             </RNView>
 
@@ -1035,11 +836,6 @@ export default function EditRecipeScreen() {
                   placeholderTextColor={colors.textMuted}
                   accessibilityLabel="Prep time"
                 />
-                {showReviewWorkflow && prepTime.trim() && renderReviewAction(
-                  reviewedScalarPaths.has('times.prep'),
-                  () => markScalarReviewed('times.prep'),
-                  'Prep time looks right',
-                )}
               </RNView>
               <RNView style={styles.metaItem}>
                 <Text style={[styles.label, { color: colors.text }]}>Cook Time</Text>
@@ -1051,11 +847,6 @@ export default function EditRecipeScreen() {
                   placeholderTextColor={colors.textMuted}
                   accessibilityLabel="Cook time"
                 />
-                {showReviewWorkflow && cookTime.trim() && renderReviewAction(
-                  reviewedScalarPaths.has('times.cook'),
-                  () => markScalarReviewed('times.cook'),
-                  'Cook time looks right',
-                )}
               </RNView>
             </RNView>
 
@@ -1206,20 +997,7 @@ export default function EditRecipeScreen() {
                     placeholderTextColor={colors.textMuted}
                     accessibilityLabel={`Ingredient ${index + 1} notes`}
                   />
-                  {showReviewWorkflow && ingredient.name.trim() && (
-                    <RNView style={styles.ingredientReviewRow}>
-                      {!ingredient.quantity.trim() && (
-                        <Text style={[styles.missingAmountText, { color: colors.warning }]}>No amount stated</Text>
-                      )}
-                      {renderReviewAction(
-                        ingredient.reviewedFields.name
-                          && ingredient.reviewedFields.quantity
-                          && (!ingredient.unit.trim() || ingredient.reviewedFields.unit),
-                        () => confirmIngredient(ingredient.id),
-                        'Ingredient looks right',
-                      )}
-                    </RNView>
-                  )}
+
                 </RNView>
               ))}
               
@@ -1276,15 +1054,7 @@ export default function EditRecipeScreen() {
                       </TouchableOpacity>
                     )}
                   </RNView>
-                  {showReviewWorkflow && step.text.trim() && (
-                    <RNView style={styles.stepReviewRow}>
-                      {renderReviewAction(
-                        step.reviewed,
-                        () => confirmStep(step.id),
-                        `Instruction ${index + 1} looks right`,
-                      )}
-                    </RNView>
-                  )}
+
                 </RNView>
               ))}
               

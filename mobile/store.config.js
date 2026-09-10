@@ -42,7 +42,7 @@ AI can make mistakes. Review extracted ingredients, directions, allergens, tempe
 
 Made in Guam by Shimizu Technology.`;
 const RELEASE_NOTES =
-  'Recipes now feel faster and easier to use. Images load more reliably while you browse, filters keep results in place, and supported source videos open in a cleaner, focused player. Imports are easier to review, fix, and resume when something needs attention. If you changed sign-in methods or lost access, the new Restore my library flow helps you return to your existing recipes without creating a second library.';
+  'Recipes save automatically after importing. Choose Public in Discover or Private before you start. If an ingredient amount or source detail is unclear, one optional Check details view lets you fix just that detail and keep cooking. Incomplete recipes stay in your private library until you add the missing information. Password sign-in now lets you finish additional verification when Clerk requests it.';
 
 function requiredEnvironmentValue(environment, name) {
   const value = String(environment[name] ?? '').trim();

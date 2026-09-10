@@ -105,7 +105,7 @@ export function PlannerRecipeHandoffCard({
             <RecipeTrustBadge reviewState={reviewState} />
             <Text style={[styles.instructions, { color: colors.textMuted }]}>
               {reviewState && reviewState !== 'ready'
-                ? 'You can plan this now. Review it before cooking.'
+                ? 'You can plan this now. Uncertain details stay marked.'
                 : 'Choose a day, then tap a meal slot.'}
             </Text>
           </RNView>

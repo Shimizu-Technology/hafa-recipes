@@ -4,7 +4,7 @@
  * Shows a recipe extracted from images or pasted text before it is saved.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   ScrollView,
@@ -25,7 +25,7 @@ import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { useSaveCapturedRecipe } from '@/hooks/useRecipes';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { formatPublishDisclosure } from '@/lib/recipePublishing';
-import { getOcrPublishDisclosure, hasOcrNutrition } from '@/lib/ocrReview';
+import { getOcrPublishDisclosure } from '@/lib/ocrReview';
 
 export default function OCRReviewScreen() {
   const router = useRouter();
@@ -36,17 +36,20 @@ export default function OCRReviewScreen() {
     location,
     isPublic: isPublicParam,
     sourceType: sourceTypeParam,
+    saveFailed,
   } = useLocalSearchParams<{
     recipe: string;
     location: string;
     isPublic?: string;
     sourceType?: 'photo' | 'text';
+    saveFailed?: string;
   }>();
   const sourceType = sourceTypeParam === 'text' ? 'text' : 'photo';
   const isTextCapture = sourceType === 'text';
 
+  const saveInFlight = useRef(false);
   const [recipe, setRecipe] = useState<any>(null);
-  const [isPublic, setIsPublic] = useState(false);
+  const [isPublic, setIsPublic] = useState(isPublicParam !== 'false');
   const [isSaving, setIsSaving] = useState(false);
   
   const saveCapturedRecipe = useSaveCapturedRecipe();
@@ -69,7 +72,7 @@ export default function OCRReviewScreen() {
       try {
         const parsed = JSON.parse(recipeParam);
         setRecipe(parsed);
-        setIsPublic(isPublicParam === 'true');
+        setIsPublic(isPublicParam !== 'false');
       } catch {
         // User-facing alert is sufficient
         Alert.alert('Error', 'Failed to load recipe data');
@@ -79,11 +82,13 @@ export default function OCRReviewScreen() {
   }, [isPublicParam, recipeParam, router.back]);
 
   const doSave = async () => {
-    if (!recipe) return;
+    if (!recipe || saveInFlight.current || isCheckingDisclosure) return;
+    saveInFlight.current = true;
 
     if (isPublic) {
       const allowed = await requestPublishing(publishPreview());
       if (!allowed) {
+        saveInFlight.current = false;
         setIsPublic(false);
         return;
       }
@@ -97,23 +102,8 @@ export default function OCRReviewScreen() {
         is_public: isPublic,
       });
 
-      if (result?.id) {
-        const wasPublished = result.is_public === true;
-        Alert.alert(
-          wasPublished ? 'Published to Discover' : 'Saved privately',
-          wasPublished
-            ? 'Anyone can now find and open this recipe in Discover.'
-            : 'Only you can open this recipe. You can publish it later from the recipe page.',
-          [
-            {
-              text: 'View Recipe',
-              onPress: () => {
-                router.replace(`/recipe/${result.id}`);
-              },
-            },
-          ]
-        );
-      }
+      if (!result?.id) throw new Error('Save did not finish. Please retry.');
+      router.replace(`/recipe/${result.id}`);
     } catch (error: any) {
       // User-facing alert is sufficient
       Alert.alert(
@@ -121,38 +111,11 @@ export default function OCRReviewScreen() {
         error.message || 'Failed to save recipe. Please try again.'
       );
     } finally {
+      saveInFlight.current = false;
       setIsSaving(false);
     }
   };
   
-  const handleSave = () => {
-    if (!recipe) return;
-    
-    // Check if the capture missed important AI-enhanced data
-    const hasIngredients = recipe.components?.some((c: any) => c.ingredients?.length > 0);
-    const hasTags = recipe.tags && recipe.tags.length > 0;
-    const hasNutrition = hasOcrNutrition(recipe);
-    
-    // If missing tags or nutrition, suggest editing to add AI info
-    if (hasIngredients && (!hasTags || !hasNutrition)) {
-      const missingItems = [];
-      if (!hasTags) missingItems.push('tags');
-      if (!hasNutrition) missingItems.push('nutrition');
-      
-      Alert.alert(
-        'Add More Info?',
-        `The import didn't include ${missingItems.join(' or ')}. Would you like to edit and use AI to add this info?`,
-        [
-          { text: 'Save Anyway', style: 'cancel', onPress: doSave },
-          { text: 'Edit Recipe', onPress: handleEdit },
-        ]
-      );
-      return;
-    }
-    
-    doSave();
-  };
-
   const handleEdit = () => {
     // Replace review with add-recipe screen, preserving the capture origin.
     // Using replace so user doesn't come back to this screen after saving
@@ -171,7 +134,7 @@ export default function OCRReviewScreen() {
       <RNView style={[styles.container, { backgroundColor: colors.background }]}>
         <Stack.Screen
           options={{
-            title: 'Review Recipe',
+            title: 'Save Recipe',
             headerBackTitle: 'Back',
           }}
         />
@@ -202,7 +165,7 @@ export default function OCRReviewScreen() {
     <RNView style={[styles.container, { backgroundColor: colors.background }]}>
       <Stack.Screen
         options={{
-          title: 'Review Recipe',
+          title: 'Save Recipe',
           headerBackTitle: 'Cancel',
         }}
       />
@@ -215,16 +178,18 @@ export default function OCRReviewScreen() {
         <RNView style={[styles.successBanner, { backgroundColor: colors.warning + '18' }]}>
           <Ionicons name="alert-circle-outline" size={24} color={colors.warning} />
           <Text style={[styles.successText, { color: colors.text }]}>
-            AI draft ready — review before saving
+            {saveFailed === 'true' ? 'Recipe extracted. Save did not finish.' : 'Your recipe is ready to save'}
           </Text>
         </RNView>
 
         <RNView style={[styles.reviewNotice, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
           <Ionicons name="eye-outline" size={20} color={colors.tint} />
           <RNView style={styles.reviewNoticeText}>
-            <Text style={[styles.reviewNoticeTitle, { color: colors.text }]}>Check the cooking details</Text>
+            <Text style={[styles.reviewNoticeTitle, { color: colors.text }]}>{saveFailed === 'true' ? 'Retry saving' : 'Ready when you are'}</Text>
             <Text style={[styles.reviewNoticeBody, { color: colors.textMuted }]}>
-              {isTextCapture
+              {saveFailed === 'true'
+                ? 'Your extracted recipe is still here. Retry saving without importing it again.'
+                : isTextCapture
                 ? 'AI can misunderstand copied formatting or missing context. Håfa Recipes does not store the original pasted text with your saved recipe.'
                 : 'AI can misread amounts, temperatures, or step order. Source screenshots are uploaded for extraction but are not attached to the saved recipe.'}
             </Text>
@@ -345,7 +310,7 @@ export default function OCRReviewScreen() {
           <TouchableOpacity
             style={[styles.editButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
             onPress={handleEdit}
-            disabled={isSaving}
+            disabled={isSaving || isCheckingDisclosure}
           >
             <Ionicons name="create-outline" size={20} color={colors.text} />
             <Text style={[styles.editButtonText, { color: colors.text }]}>Edit</Text>
@@ -354,9 +319,9 @@ export default function OCRReviewScreen() {
           {/* Save Button */}
           <RNView style={styles.saveButtonContainer}>
             <Button
-              title={isSaving ? 'Saving...' : isPublic ? 'Publish Recipe' : 'Save Private Recipe'}
-              onPress={handleSave}
-              disabled={isSaving}
+              title={isSaving ? 'Saving...' : saveFailed === 'true' ? 'Retry Save' : isPublic ? 'Publish Recipe' : 'Save Private Recipe'}
+              onPress={doSave}
+              disabled={isSaving || isCheckingDisclosure}
               loading={isSaving}
               size="lg"
             />
