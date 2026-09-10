@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   StyleSheet,
   TouchableOpacity,
@@ -11,7 +11,7 @@ import {
   ActivityIndicator,
   Image,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/expo';
@@ -72,6 +72,26 @@ export default function ExtractScreen() {
   const checkDuplicate = useCheckDuplicate();
   const saveCapturedRecipe = useSaveCapturedRecipe();
   const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
+  const openedCompletion = useRef<string | null>(null);
+
+  // Finish the import in the recipe itself. A background job must not pull
+  // someone out of another screen; open it when Import next receives focus.
+  useFocusEffect(useCallback(() => {
+    if (!extraction.isComplete || !extraction.recipeId || extraction.jobKind !== 'extract') return;
+    const completion = extraction.jobId || extraction.recipeId;
+    if (openedCompletion.current === completion) return;
+    openedCompletion.current = completion;
+    router.push(`/recipe/${extraction.recipeId}`);
+    setUrl('');
+    setNotes('');
+    setIsPublic(true);
+    setExtractingAsWebsite(false);
+    // Navigation should still succeed if clearing the local recovery record
+    // fails. The in-memory completion guard prevents a second navigation.
+    void extraction.reset().catch(() => {
+      console.warn('Unable to clear the completed import recovery record.');
+    });
+  }, [extraction.isComplete, extraction.recipeId, extraction.jobId, extraction.jobKind, extraction.reset, router]));
 
   // Handle shared URL from iOS Share Extension
   useEffect(() => {
