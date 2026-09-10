@@ -64,12 +64,14 @@ async def test_rerun_preserves_production_only_and_existing_mapped_owners(
     production_owner = f"app_{uuid4().hex}"
     existing_mapped_owner = f"app_{uuid4().hex}"
     unlinked_production_owner = f"app_{uuid4().hex}"
+    legacy_near_match = f"legacy_app_{uuid4().hex}_suffix"
     production_alias_id, mapped_alias_id = uuid4(), uuid4()
     recipe_id = uuid4()
     async with engine.begin() as connection:
         await connection.execute(AppUser.__table__.insert(), [
             {"id": production_owner}, {"id": existing_mapped_owner},
             {"id": unlinked_production_owner}, {"id": "new_legacy_owner"},
+            {"id": legacy_near_match},
         ])
         aliases = [
             {"id": production_alias_id, "app_user_id": production_owner,
@@ -101,9 +103,10 @@ async def test_rerun_preserves_production_only_and_existing_mapped_owners(
             ClerkIdentity.clerk_user_id,
         ))).all()
         assert set(before_aliases).issubset(set(after_aliases))
-        assert len(after_aliases) == len(before_aliases) + 1
+        assert len(after_aliases) == len(before_aliases) + 2
         expected_development = {
             ("legacy_owner", "legacy_owner"), ("new_legacy_owner", "new_legacy_owner"),
+            (legacy_near_match, legacy_near_match),
         }
         if has_existing_development_alias:
             expected_development.add((existing_mapped_owner, "user_existing_real_subject"))
@@ -117,4 +120,5 @@ async def test_rerun_preserves_production_only_and_existing_mapped_owners(
         assert set((await connection.execute(select(AppUser.id))).scalars()) == {
             "legacy_owner", "new_legacy_owner", production_owner,
             existing_mapped_owner, unlinked_production_owner,
+            legacy_near_match,
         }

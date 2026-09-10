@@ -9,9 +9,11 @@ import asyncio
 
 from sqlalchemy import text
 
-from app.clerk_transition import PRODUCTION_APP_USER_PATTERN
 from app.config import get_settings
 from app.db.database import engine
+
+# Freeze this historical PostgreSQL pattern independently of application code.
+PRODUCTION_OWNER_PATTERN = r"^app_[a-f0-9]{32}$"
 
 OWNERS_SQL = """
     SELECT user_id FROM recipes WHERE user_id IS NOT NULL
@@ -91,7 +93,7 @@ async def run_migration() -> None:
             """),
             {
                 "issuer": development.issuer,
-                "production_owner_pattern": PRODUCTION_APP_USER_PATTERN.pattern,
+                "production_owner_pattern": PRODUCTION_OWNER_PATTERN,
             },
         )
 
@@ -106,7 +108,7 @@ async def run_migration() -> None:
               AND app_user.id !~ :production_owner_pattern
         """).bindparams(
             issuer=development.issuer,
-            production_owner_pattern=PRODUCTION_APP_USER_PATTERN.pattern,
+            production_owner_pattern=PRODUCTION_OWNER_PATTERN,
         ))
         if missing:
             raise RuntimeError(
