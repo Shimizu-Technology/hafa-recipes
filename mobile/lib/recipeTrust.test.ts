@@ -71,6 +71,10 @@ describe('cooking notes', () => {
   it('hides the legacy diagnostic shown in the user screenshot', () => {
     expect(getCookingNotes('The description identifies the dish and broad preparation concept but does not provide a full ingredient list, measurements, temperatures, timings, or detailed instructions.')).toBeNull();
   });
+  it('omits amount diagnostics but retains ingredient preparation tips', () => {
+    expect(getCookingNotes('Amount omitted. Finely mince the garlic.')).toBe('Finely mince the garlic.');
+    expect(getCookingNotes('Quantity not stated.')).toBeNull();
+  });
   it('keeps real cooking tips, including tips next to an extraction diagnostic', () => {
     expect(getCookingNotes('Chill the dough overnight. The source does not provide measurements. Freeze the filling before shaping.')).toBe('Chill the dough overnight. Freeze the filling before shaping.');
     expect(getCookingNotes('The video shows a softer dough. Add flour only if it sticks.')).toBe('The video shows a softer dough. Add flour only if it sticks.');

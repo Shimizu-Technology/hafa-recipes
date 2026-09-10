@@ -469,7 +469,8 @@ export default function RecipeDetailScreen() {
         const qty = amount.quantity || '';
         const unit = amount.unit || '';
         const qtyUnit = qty ? `${qty}${unit ? ' ' + unit : ''} ` : '';
-        const notes = ing.notes && ing.notes !== 'null' ? ` (${ing.notes})` : '';
+        const usefulNotes = getCookingNotes(ing.notes);
+        const notes = usefulNotes ? ` (${usefulNotes})` : '';
         text += `• ${qtyUnit}${ing.name}${amount.isEstimate ? ' (AI estimate)' : ''}${notes}\n`;
       });
     });
@@ -1075,7 +1076,7 @@ export default function RecipeDetailScreen() {
                         const scaledQty = scaleQuantity(amount.quantity, scaleFactor);
                         const unit = amount.unit || '';
                         const qtyUnit = scaledQty ? `${scaledQty}${unit ? ` ${unit}` : ''} ` : '';
-                        const notes = ing.notes && ing.notes !== 'null' ? ing.notes : '';
+                        const notes = getCookingNotes(ing.notes) || '';
                         const missingQuantityLabel = getMissingQuantityLabel(recipe.review_state, ing);
                         const cost = typeof ing.estimatedCost === 'number' 
                           ? `$${(ing.estimatedCost * scaleFactor).toFixed(2)}` 

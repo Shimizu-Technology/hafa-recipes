@@ -71,7 +71,7 @@ export function getIngredientAmount(ingredient: Pick<Ingredient, 'quantity' | 'u
 /** Grocery items use the displayed amount, with provenance retained in visible notes. */
 export function ingredientToGroceryItem(ingredient: Ingredient) {
   const amount = getIngredientAmount(ingredient);
-  const notes = ingredient.notes && ingredient.notes.toLowerCase() !== 'null' ? ingredient.notes.trim() : '';
+  const notes = getCookingNotes(ingredient.notes) || '';
   const estimateNote = amount.isEstimate
     ? `AI estimate${amount.reason ? `: ${amount.reason}` : ''}` : '';
   return {
@@ -88,5 +88,6 @@ export function getCookingNotes(notes: string | null | undefined): string | null
   // Filter diagnostic sentences, while retaining real tips from a mixed notes field.
   const sentences = notes.trim().replace(/([.!?])\s+/g, '$1\n').split(/\n+/);
   const diagnostics = /\b(?:the (?:description|caption|source|transcript|video) (?:identifies|does not|doesn't|did not|lacks|only|provides|contains)|(?:no|missing|insufficient|incomplete) (?:full |complete |exact |detailed )?(?:ingredient list|recipe details|measurements|instructions)|(?:could not|couldn't|unable to) extract|extraction (?:quality|confidence|failed)|low confidence)\b/i;
-  return sentences.filter(sentence => !diagnostics.test(sentence)).join(' ').trim() || null;
+  const missingAmount = /^(?:the )?(?:amount|quantity) (?:was )?(?:omitted|not (?:stated|provided|specified))\.?$/i;
+  return sentences.filter(sentence => !diagnostics.test(sentence) && !missingAmount.test(sentence.trim())).join(' ').trim() || null;
 }
