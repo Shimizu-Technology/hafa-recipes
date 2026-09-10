@@ -46,6 +46,12 @@ from app.recipe_derived_data import (
     invalidate_changed_inputs,
     mark_fresh,
 )
+from app.recipe_estimates import (
+    QuantityEstimate,
+    normalize_recipe_estimates,
+    preserve_unchanged_estimates,
+    source_is_incomplete,
+)
 from app.recipe_review import (
     apply_recipe_review,
     assess_recipe_review,
@@ -89,7 +95,13 @@ def normalized_recipe_extracted(recipe: Recipe) -> dict:
     if not recipe.extracted:
         return {}
 
-    extracted = deepcopy(recipe.extracted)
+    extracted = normalize_recipe_estimates(
+        recipe.extracted, clean_import_notes=recipe.extraction_method not in (None, "manual"),
+        infer_source_incomplete=False,
+    )
+
+    if source_is_incomplete(recipe.extracted, extraction_method=recipe.extraction_method):
+        extracted["sourceIncomplete"] = True
 
     # Ensure nutrition has proper structure
     nutrition = extracted.get("nutrition")
@@ -377,6 +389,7 @@ class ManualIngredient(BaseModel):
     unit: Optional[str] = None
     notes: Optional[str] = None
     estimatedCost: Optional[float] = None
+    quantityEstimate: Optional[QuantityEstimate] = None
 
 
 class ManualComponent(BaseModel):
@@ -495,8 +508,10 @@ def _serialize_edit_components(edit: RecipeEdit) -> list[dict]:
     """Serialize canonical components while accepting the previous flat client."""
     def serialize_ingredient(ingredient: ManualIngredient) -> dict:
         value = ingredient.model_dump()
-        if value["estimatedCost"] is None:
-            value.pop("estimatedCost")
+        if "quantityEstimate" not in ingredient.model_fields_set:
+            value.pop("quantityEstimate", None)
+        if value.get("estimatedCost") is None:
+            value.pop("estimatedCost", None)
         return value
 
     if edit.components is not None:
@@ -527,6 +542,7 @@ def _build_edited_extracted(
     edit: RecipeEdit,
     *,
     thumbnail_url: str | None = None,
+    extraction_method: str | None = None,
 ) -> dict:
     """Build an edited recipe without flattening component associations."""
     components = _serialize_edit_components(edit)
@@ -568,6 +584,10 @@ def _build_edited_extracted(
             "total": {} if edit.nutrition_recalculated else old_nutrition.get("total") or {},
         },
     }
+    estimate_basis = dict(old_extracted)
+    if source_is_incomplete(old_extracted, extraction_method=extraction_method):
+        estimate_basis["sourceIncomplete"] = True
+    new_extracted = preserve_unchanged_estimates(estimate_basis, new_extracted)
     return invalidate_changed_inputs(
         old_extracted,
         new_extracted,
@@ -603,7 +623,9 @@ def recipe_to_list_item(
         servings=extracted.get("servings"),
         total_time=times.get("total"),
         created_at=recipe.created_at,
-        is_public=recipe.is_public,
+        is_public=recipe.is_public and not source_is_incomplete(
+            extracted, extraction_method=recipe.extraction_method
+        ),
         user_id=visible_recipe_user_id(recipe.user_id, viewer_user_id),
         contributor_id=public_contributor_id(recipe.user_id),
         is_owner=is_owner,
@@ -668,6 +690,7 @@ def recipe_to_detail_response(
             # or user-provided context. It is an owner/debug field, not part of
             # the public recipe contract.
             "raw_text": response.raw_text if is_owner else None,
+            "is_public": recipe.is_public and not source_is_incomplete(recipe.extracted, extraction_method=recipe.extraction_method),
             "user_id": visible_recipe_user_id(recipe.user_id, viewer_user_id),
             "contributor_id": public_contributor_id(recipe.user_id),
             "is_owner": is_owner,
@@ -741,6 +764,7 @@ async def create_manual_recipe(
             "quantity": ing.quantity,
             "unit": ing.unit,
             "notes": ing.notes,
+            **({"quantityEstimate": ing.quantityEstimate.model_dump()} if ing.quantityEstimate else {}),
         }
         for ing in recipe_input.ingredients
     ]
@@ -922,7 +946,7 @@ async def _save_captured_recipe(
     # Capture payloads come from a client-controlled review draft. Re-serialize
     # through the stored-recipe schema so unknown fields (including attempts to
     # smuggle the original capture text into JSONB) cannot be persisted.
-    capture_draft = dict(capture_data.extracted)
+    capture_draft = normalize_recipe_estimates(capture_data.extracted, clean_import_notes=True)
     capture_draft["sourceUrl"] = source_url
     low_confidence, _ = normalize_extraction_confidence(capture_draft)
     try:
@@ -1977,6 +2001,8 @@ async def update_recipe(
     before_review_state = recipe.review_state
     before_evidence = dict(recipe.extraction_evidence or {})
     extracted = dict(old_extracted)
+    if source_is_incomplete(old_extracted, extraction_method=recipe.extraction_method):
+        extracted["sourceIncomplete"] = True
 
     if update.title is not None:
         extracted["title"] = update.title
@@ -1987,6 +2013,8 @@ async def update_recipe(
     if update.tags is not None:
         extracted["tags"] = update.tags
 
+    if old_extracted.get("servings") != extracted.get("servings"):
+        extracted = preserve_unchanged_estimates(old_extracted, extracted)
     updated_extracted = invalidate_changed_inputs(old_extracted, extracted)
     recipe.is_public = target_is_public
     if recipe.review_state is None:
@@ -2191,7 +2219,7 @@ async def edit_recipe(
     old_extracted = dict(recipe.extracted or {})
     before_review_state = recipe.review_state
     before_evidence = dict(recipe.extraction_evidence or {})
-    new_extracted = _build_edited_extracted(old_extracted, edit)
+    new_extracted = _build_edited_extracted(old_extracted, edit, extraction_method=recipe.extraction_method)
 
     # Create a version snapshot BEFORE applying changes (with change comparison)
     await create_recipe_version(
@@ -2316,6 +2344,7 @@ async def edit_recipe_with_image(
         old_extracted,
         edit,
         thumbnail_url=thumbnail_url,
+        extraction_method=recipe.extraction_method,
     )
 
     # Create a version snapshot BEFORE applying changes (with change comparison)

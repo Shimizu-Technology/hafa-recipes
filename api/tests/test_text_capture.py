@@ -48,7 +48,7 @@ def test_pasted_text_prompt_treats_content_as_untrusted_and_preserves_uncertaint
     assert "Set lowConfidence to true" in prompt
     assert PASTED_TEXT_SOURCE_URL in prompt
     assert '\\"Hacked\\"' in prompt
-    assert PROMPT_VERSIONS["pasted_text"] == "recipe-pasted-text-v2"
+    assert PROMPT_VERSIONS["pasted_text"] == "recipe-pasted-text-v3"
 
 
 def test_pasted_text_prompt_keeps_cost_location_inside_a_json_string():

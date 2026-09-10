@@ -10,6 +10,7 @@ import httpx
 
 from app.ai_governance import PROMPT_VERSIONS, RECIPE_SCHEMA_VERSION, AIInvocationTracker
 from app.config import get_settings
+from app.recipe_estimates import normalize_recipe_estimates
 from app.services.extraction_confidence import normalize_extraction_confidence
 from app.services.prompts import (
     IMAGE_CLASSIFICATION_RESPONSE_FORMAT,
@@ -1469,6 +1470,7 @@ class LLMService:
         location: str
     ) -> dict:
         """Post-process recipe data to ensure consistency."""
+        recipe = normalize_recipe_estimates(recipe, clean_import_notes=True)
         # Ensure required fields
         recipe["sourceUrl"] = source_url
         recipe["costLocation"] = location

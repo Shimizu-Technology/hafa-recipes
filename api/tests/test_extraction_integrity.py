@@ -99,9 +99,9 @@ def test_recipe_structured_output_contract_is_strict_and_versioned():
     assert RECIPE_RESPONSE_FORMAT["type"] == "json_schema"
     assert RECIPE_RESPONSE_FORMAT["json_schema"]["strict"] is True
     _assert_every_object_is_strict(RECIPE_RESPONSE_FORMAT["json_schema"]["schema"])
-    assert RECIPE_SCHEMA_VERSION == "recipe-components-v2-strict"
-    assert PROMPT_VERSIONS["recipe_extraction"] == "recipe-extraction-v2"
-    assert PROMPT_VERSIONS["tiktok_slideshow"] == "recipe-tiktok-slideshow-v1"
+    assert RECIPE_SCHEMA_VERSION == "recipe-components-v3-estimates"
+    assert PROMPT_VERSIONS["recipe_extraction"] == "recipe-extraction-v3"
+    assert PROMPT_VERSIONS["tiktok_slideshow"] == "recipe-tiktok-slideshow-v2"
 
 
 def test_video_prompt_encodes_untrusted_source_and_forbids_invented_amounts():

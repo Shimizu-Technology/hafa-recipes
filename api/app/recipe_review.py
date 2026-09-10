@@ -10,6 +10,12 @@ from typing import Literal
 
 from fastapi import HTTPException
 
+from app.recipe_estimates import (
+    normalize_recipe_estimates,
+    source_is_incomplete,
+    valid_quantity_estimate,
+)
+
 ReviewState = Literal["source_incomplete", "needs_review", "ready"]
 
 EVIDENCE_VERSION = 2
@@ -137,10 +143,11 @@ def _review_fields(extracted: dict) -> tuple[list[dict], dict[str, object]]:
 
             has_quantity = _has_stated_source_value(ingredient.get("quantity"))
             flexible = _has_explicit_flexible_quantity(ingredient)
-            quantity_status = "supported" if has_quantity or flexible else "not_stated"
+            estimate = valid_quantity_estimate(ingredient)
+            quantity_status = "supported" if has_quantity or flexible else ("estimated" if estimate else "not_stated")
             add_field(
                 f"{prefix}.quantity",
-                ingredient.get("quantity"),
+                {"sourceQuantity": ingredient.get("quantity"), "estimate": estimate} if estimate else ingredient.get("quantity"),
                 status=quantity_status,
                 quantity_status=quantity_status,
             )
@@ -467,7 +474,9 @@ def assess_recipe_review(
     if step_count == 0:
         reasons.append("No cooking instructions were found in the source.")
 
-    source_incomplete = ingredient_count == 0 or step_count == 0
+    source_incomplete = ingredient_count == 0 or step_count == 0 or source_is_incomplete(extracted, extraction_method=extraction_method)
+    if source_is_incomplete(extracted, extraction_method=extraction_method):
+        reasons.append("The source is missing essential ingredients or cooking instructions.")
     fully_verified_by_person = (
         bool(field_evidence) and unverified_field_count == 0
     ) or is_direct_human_entry
@@ -495,12 +504,12 @@ def assess_recipe_review(
         source_warnings = []
     issues = [
         {
-            "code": "missing_quantity",
+            "code": "estimated_quantity" if field.get("quantityStatus") == "estimated" else "missing_quantity",
             "path": field["path"],
-            "message": "Amount wasn't stated in the source.",
+            "message": "AI estimated this amount from the recipe context." if field.get("quantityStatus") == "estimated" else "Amount wasn't stated in the source.",
         }
         for field in field_evidence
-        if field.get("quantityStatus") == "not_stated"
+        if field.get("quantityStatus") in {"not_stated", "estimated"}
         and field.get("status") != "user_verified"
     ]
     issues.extend(
@@ -537,6 +546,7 @@ def assess_recipe_review(
             "ingredientCount": ingredient_count,
             "stepCount": step_count,
             "missingQuantityCount": missing_quantity_count,
+            "estimatedQuantityCount": sum(field.get("quantityStatus") == "estimated" for field in field_evidence),
             "unresolvedMissingQuantityCount": unresolved_missing_quantity_count,
             "verifiedFieldCount": verified_field_count,
             "unverifiedFieldCount": unverified_field_count,
@@ -609,6 +619,9 @@ def apply_recipe_review(
 ) -> ReviewAssessment:
     """Persist a new deterministic assessment and old-client warning fields."""
 
+    if source_is_incomplete(extracted, extraction_method=recipe.extraction_method):
+        extracted = {**extracted, "sourceIncomplete": True}
+    extracted = normalize_recipe_estimates(extracted)
     revision = int(getattr(recipe, "content_revision", None) or 1)
     if previous_evidence is _PREVIOUS_EVIDENCE_UNSET:
         previous_evidence = getattr(recipe, "extraction_evidence", None)
@@ -651,13 +664,15 @@ def apply_recipe_review(
 def require_recipe_publishable(recipe) -> None:
     """Allow usable recipes with advisory warnings; keep incomplete drafts private."""
 
-    if getattr(recipe, "review_state", None) == "source_incomplete":
+    if getattr(recipe, "review_state", None) == "source_incomplete" or source_is_incomplete(
+        getattr(recipe, "extracted", None), extraction_method=getattr(recipe, "extraction_method", None)
+    ):
         raise HTTPException(
             status_code=409,
             detail={
                 "code": "RECIPE_REVIEW_REQUIRED",
                 "message": "Add ingredients and cooking instructions before sharing this recipe to Discover.",
-                "review_state": recipe.review_state,
+                "review_state": "source_incomplete",
             },
         )
 
@@ -669,6 +684,8 @@ def review_response_fields(recipe, *, include_evidence: bool) -> dict:
     assessment = evidence.get("assessment") or {}
     state = getattr(recipe, "review_state", None)
     extracted = getattr(recipe, "extracted", None)
+    if source_is_incomplete(extracted, extraction_method=getattr(recipe, "extraction_method", None)):
+        state = "source_incomplete"
     if state is not None and evidence and isinstance(extracted, dict):
         # Project the same advisory assessment for every consumer. Evidence
         # exposure is independent from readiness, and this changes no stored

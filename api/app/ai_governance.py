@@ -21,11 +21,11 @@ from app.public_identity import public_contributor_id
 logger = logging.getLogger("hafa.ai")
 
 PROMPT_VERSIONS = {
-    "recipe_extraction": "recipe-extraction-v2",
-    "pasted_text": "recipe-pasted-text-v2",
-    "ocr": "recipe-ocr-v3",
-    "tiktok_slideshow": "recipe-tiktok-slideshow-v1",
-    "video_frames": "recipe-video-frames-v1",
+    "recipe_extraction": "recipe-extraction-v3",
+    "pasted_text": "recipe-pasted-text-v3",
+    "ocr": "recipe-ocr-v4",
+    "tiktok_slideshow": "recipe-tiktok-slideshow-v2",
+    "video_frames": "recipe-video-frames-v2",
     "image_classification": "recipe-image-classification-v1",
     "recipe_chat": "recipe-chat-safety-v3",
     "cooking_chat": "cooking-chat-safety-v3",
@@ -35,7 +35,7 @@ PROMPT_VERSIONS = {
     "transcription": "audio-transcription-v1",
     "tts": "cook-mode-tts-v1",
 }
-RECIPE_SCHEMA_VERSION = "recipe-components-v2-strict"
+RECIPE_SCHEMA_VERSION = "recipe-components-v3-estimates"
 
 
 @dataclass(frozen=True)

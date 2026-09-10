@@ -1336,7 +1336,7 @@ async def save_failed_extraction_as_draft(
         "ingredients": [],
         "steps": [],
         "equipment": [],
-        "notes": "The source could not be extracted. Add the recipe details while viewing the original.",
+        "notes": None,
         "tags": [],
         "media": {"thumbnail": None},
         "mealTypes": [],
