@@ -354,7 +354,7 @@ function GridRecipeCard({
         {recipe.total_time && (
           <RNView style={[styles.gridTimeBadge, { backgroundColor: 'rgba(0,0,0,0.7)' }]}>
             <Ionicons name="time-outline" size={10} color="#FFFFFF" />
-            <Text style={styles.gridTimeText}>{recipe.total_time}</Text>
+            <Text style={styles.gridTimeText} numberOfLines={1}>{recipe.total_time}</Text>
           </RNView>
         )}
 
@@ -1061,7 +1061,7 @@ export default function DiscoverScreen() {
                     {contributor.display_name}
                   </Text>
                   <Text style={[styles.usernameSuggestionCount, { color: colors.textMuted }]}>
-                    {contributor.recipe_count} recipes
+                    {contributor.recipe_count} {contributor.recipe_count === 1 ? 'recipe' : 'recipes'}
                   </Text>
                 </RNView>
               </TouchableOpacity>
@@ -1212,7 +1212,7 @@ export default function DiscoverScreen() {
                           { color: isSelected ? 'rgba(255,255,255,0.8)' : colors.textMuted }
                         ]}
                       >
-                        {contributor.recipe_count} recipes
+                        {contributor.recipe_count} {contributor.recipe_count === 1 ? 'recipe' : 'recipes'}
                       </Text>
                     </RNView>
                   </TouchableOpacity>
@@ -1568,7 +1568,8 @@ const styles = StyleSheet.create({
   },
   gridTimeBadge: {
     position: 'absolute',
-    bottom: spacing.xs,
+    top: spacing.xs,
+    maxWidth: '75%',
     left: spacing.xs,
     borderRadius: radius.sm,
     paddingHorizontal: spacing.xs,
@@ -1586,6 +1587,7 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
   },
   gridTimeText: {
+    flexShrink: 1,
     color: '#FFFFFF',
     fontSize: fontSize.xs,
     fontFamily: fontFamily.medium,
