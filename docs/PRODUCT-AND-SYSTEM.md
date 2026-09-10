@@ -12,7 +12,8 @@ Håfa Recipes solves a fragmented-recipe problem. People discover recipes in Tik
 The product turns that scattered inspiration into a usable cooking workflow:
 
 ```text
-Capture -> Extract -> Review -> Organize -> Plan -> Shop -> Cook -> Improve
+Capture -> Extract and save -> Organize -> Plan -> Shop -> Cook
+                      \-> Check uncertain details (optional)
 ```
 
 The app should be judged by whether a user can move through that workflow reliably, not by the number of AI features it contains.
@@ -61,7 +62,7 @@ Success means:
 
 - OCR supports multiple pages;
 - manual corrections preserve recipe sections;
-- scanned and manual recipes are private by default;
+- visibility is clearly selected before capture, including scans and manual entry;
 - the user understands any later publishing action.
 
 ### Discover user
@@ -105,7 +106,7 @@ The brand should emphasize:
 ## Product principles
 
 1. **Trust before novelty.** A clearly uncertain measurement is better than a confident wrong one.
-2. **Private until intentionally published.** Family recipes and personal notes should not become public by accident.
+2. **Visible sharing choices.** New captures default to Public with a clear Private option before import and the existing publishing disclosure. Existing private recipes stay private; personal notes and extraction evidence remain private.
 3. **One canonical recipe structure.** Editing, scaling, grocery creation, nutrition, and Cook Mode must use the same data model.
 4. **The share sheet is the front door.** Capturing from another app should be the fastest path into Håfa Recipes.
 5. **AI is replaceable infrastructure.** Model names belong in configuration and provenance, not the brand promise.
@@ -197,7 +198,7 @@ Raw transcripts, AI prompts, private extraction notes, provider errors, Clerk ID
 
 ## Target navigation direction
 
-The active six-tab navigation gives every capability equal weight and becomes crowded on phones. The target direction is:
+The current app has five tabs: Discover, Library, Import, Plan, and Shop. An earlier navigation proposal considered:
 
 - Home
 - Recipes
@@ -206,7 +207,7 @@ The active six-tab navigation gives every capability equal weight and becomes cr
 
 Capture/extraction should remain the prominent primary action and share-sheet destination. Discover belongs within Recipes, while Settings belongs behind the user profile.
 
-This navigation change is a product-design task, not part of the immediate production-safety release.
+That broader navigation proposal remains deferred. The current priority is [convenient imports with optional review](./CONVENIENT-IMPORTS.md).
 
 ## Success measures
 
@@ -216,7 +217,7 @@ The product needs a privacy-conscious analytics baseline before feature prioriti
 
 - sign-up to first import started;
 - first import success rate;
-- time from import start to reviewed recipe;
+- time from import start to saved recipe;
 - percentage of new users who save or cook a recipe.
 
 ### Reliability and AI quality

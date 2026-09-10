@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
 
+const clerkMocks = vi.hoisted(() => ({ create: vi.fn(), prepareSecondFactor: vi.fn(), attemptSecondFactor: vi.fn(), setActive: vi.fn(), navigate: vi.fn(() => true) }));
+
 const routerMocks = vi.hoisted(() => ({
   back: vi.fn(),
   canGoBack: vi.fn(),
@@ -24,6 +26,7 @@ vi.mock('react-native', () => ({
   KeyboardAvoidingView: host('KeyboardAvoidingView'),
   Platform: { OS: 'ios' },
   ScrollView: host('ScrollView'),
+  TextInput: host('TextInput'),
   StyleSheet: {
     create: <T,>(styles: T) => styles,
     flatten: (styles: unknown[]) => Object.assign({}, ...styles),
@@ -34,8 +37,8 @@ vi.mock('react-native', () => ({
 vi.mock('@clerk/expo/legacy', () => ({
   useSignIn: () => ({
     isLoaded: true,
-    setActive: vi.fn(),
-    signIn: { create: vi.fn() },
+    setActive: clerkMocks.setActive,
+    signIn: clerkMocks,
   }),
 }));
 vi.mock('expo-router', () => ({
@@ -83,9 +86,9 @@ vi.mock('@/constants/Colors', () => ({
   spacing: { xs: 4, sm: 8, md: 16, lg: 24, xl: 32, xxl: 48 },
 }));
 vi.mock('@/lib/accountAccess', () => ({
-  clerkErrorMessage: () => 'Could not sign in.',
+  clerkErrorMessage: (_error: unknown, fallback: string) => fallback,
   isCancelledAppleSignIn: () => false,
-  shouldNavigateAfterSessionActivation: () => true,
+  shouldNavigateAfterSessionActivation: clerkMocks.navigate,
 }));
 vi.mock('@/lib/clerkMigration', () => ({ CLERK_ENVIRONMENT: 'development' }));
 vi.mock('@/lib/socialAuthentication', () => ({
@@ -105,6 +108,8 @@ function renderedText(renderer: ReturnType<typeof createRoot>): string {
 
 describe('SignInScreen', () => {
   beforeEach(() => {
+    Object.values(clerkMocks).forEach((mock) => mock.mockReset());
+    clerkMocks.navigate.mockReturnValue(true);
     routerMocks.back.mockReset();
     routerMocks.canGoBack.mockReset();
     routerMocks.canGoBack.mockReturnValue(false);
@@ -168,4 +173,109 @@ describe('SignInScreen', () => {
       await act(async () => renderer.unmount());
     }
   });
+  async function renderPasswordSignIn(result: unknown) {
+    clerkMocks.create.mockResolvedValue(result);
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    await act(async () => renderer.render(React.createElement(SignInScreen)));
+    const inputs = renderer.container.queryAll((node) => node.type === 'Input');
+    await act(async () => {
+      inputs[0].props.onChangeText('existing@example.test');
+      inputs[1].props.onChangeText('correct-password');
+    });
+    await press(renderer, 'Sign In');
+    return renderer;
+  }
+
+  async function press(renderer: ReturnType<typeof createRoot>, title: string) {
+    const button = renderer.container.queryAll((node) => node.type === 'Button' && node.props.title === title)[0];
+    await act(async () => button.props.onPress());
+  }
+
+  async function enterCode(renderer: ReturnType<typeof createRoot>, code: string) {
+    const input = renderer.container.queryAll((node) => node.type === 'TextInput')[0];
+    await act(async () => input.props.onChangeText(code));
+  }
+
+  const emailFactor = { strategy: 'email_code', emailAddressId: 'email_existing', safeIdentifier: 'e***@example.test' };
+
+  it.each(['needs_second_factor', 'needs_client_trust'])('completes %s email verification on the same sign-in', async (status) => {
+    const renderer = await renderPasswordSignIn({ status, supportedSecondFactors: [emailFactor] });
+    try {
+      expect(renderedText(renderer)).toContain('Verify your sign-in');
+      expect(renderedText(renderer)).not.toContain('disable 2FA');
+      expect(clerkMocks.prepareSecondFactor).toHaveBeenCalledWith({ strategy: 'email_code', emailAddressId: 'email_existing' });
+      expect(clerkMocks.setActive).not.toHaveBeenCalled();
+      clerkMocks.attemptSecondFactor.mockResolvedValue({ status: 'complete', createdSessionId: 'session_existing' });
+      await enterCode(renderer, ' 123456 ');
+      await press(renderer, 'Verify and sign in');
+      expect(clerkMocks.create).toHaveBeenCalledOnce();
+      expect(clerkMocks.attemptSecondFactor).toHaveBeenCalledWith({ strategy: 'email_code', code: '123456' });
+      expect(clerkMocks.setActive).toHaveBeenCalledWith({ session: 'session_existing' });
+      expect(routerMocks.replace).toHaveBeenCalledWith('/(tabs)');
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('keeps failed codes on the challenge and supports resend without another password attempt', async () => {
+    const renderer = await renderPasswordSignIn({ status: 'needs_second_factor', supportedSecondFactors: [emailFactor] });
+    try {
+      clerkMocks.attemptSecondFactor.mockRejectedValue(new Error('invalid code'));
+      await enterCode(renderer, '000000');
+      await press(renderer, 'Verify and sign in');
+      expect(renderedText(renderer)).toContain('Could not verify the code');
+      expect(clerkMocks.setActive).not.toHaveBeenCalled();
+      await press(renderer, 'Send a new code');
+      expect(clerkMocks.prepareSecondFactor).toHaveBeenCalledTimes(2);
+      expect(clerkMocks.create).toHaveBeenCalledOnce();
+      expect(renderer.container.queryAll((node) => node.type === 'TextInput')[0].props.value).toBe('');
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('lets a failed initial delivery be retried', async () => {
+    clerkMocks.prepareSecondFactor.mockRejectedValueOnce(new Error('offline'));
+    const renderer = await renderPasswordSignIn({ status: 'needs_second_factor', supportedSecondFactors: [emailFactor] });
+    try {
+      expect(renderedText(renderer)).toContain('Could not send the code');
+      expect(renderer.container.queryAll((node) => node.type === 'TextInput')[0].props.editable).toBe(false);
+      await press(renderer, 'Send code');
+      expect(renderer.container.queryAll((node) => node.type === 'TextInput')[0].props.editable).toBe(true);
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('supports authenticator and offered backup codes without sending a message', async () => {
+    const renderer = await renderPasswordSignIn({ status: 'needs_second_factor', supportedSecondFactors: [{ strategy: 'totp' }, { strategy: 'backup_code' }] });
+    try {
+      expect(renderedText(renderer)).toContain('authenticator app');
+      expect(clerkMocks.prepareSecondFactor).not.toHaveBeenCalled();
+      await press(renderer, 'Use a backup code');
+      await enterCode(renderer, 'backup-code');
+      clerkMocks.attemptSecondFactor.mockResolvedValue({ status: 'complete', createdSessionId: 'session_existing' });
+      clerkMocks.navigate.mockReturnValue(false);
+      await press(renderer, 'Verify and sign in');
+      expect(clerkMocks.attemptSecondFactor).toHaveBeenCalledWith({ strategy: 'backup_code', code: 'backup-code' });
+      expect(clerkMocks.setActive).toHaveBeenCalledWith({ session: 'session_existing' });
+      expect(routerMocks.replace).not.toHaveBeenCalled();
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('prepares SMS only for the phone offered by Clerk and does not activate incomplete verification', async () => {
+    const renderer = await renderPasswordSignIn({ status: 'needs_client_trust', supportedSecondFactors: [{ strategy: 'phone_code', phoneNumberId: 'phone_existing', safeIdentifier: '***1234' }] });
+    try {
+      expect(clerkMocks.prepareSecondFactor).toHaveBeenCalledWith({ strategy: 'phone_code', phoneNumberId: 'phone_existing' });
+      clerkMocks.attemptSecondFactor.mockResolvedValue({ status: 'needs_second_factor' });
+      await enterCode(renderer, '123456');
+      await press(renderer, 'Verify and sign in');
+      expect(clerkMocks.setActive).not.toHaveBeenCalled();
+      expect(renderedText(renderer)).toContain('Verification is not complete');
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('does not bypass an unsupported challenge', async () => {
+    const renderer = await renderPasswordSignIn({ status: 'needs_second_factor', supportedSecondFactors: [{ strategy: 'email_link' }] });
+    try {
+      expect(renderedText(renderer)).toContain('verification method that is not available here');
+      expect(clerkMocks.setActive).not.toHaveBeenCalled();
+      expect(clerkMocks.prepareSecondFactor).not.toHaveBeenCalled();
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
 });

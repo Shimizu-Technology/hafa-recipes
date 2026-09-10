@@ -194,10 +194,8 @@ async def _attach_identity(
 ) -> ClerkIdentity | None:
     """Attach exactly one subject per user/issuer, handling concurrent auth."""
     app_user = await db.get(AppUser, app_user_id)
-    if app_user is None:
-        if not allow_create_user:
-            return None
-        db.add(AppUser(id=app_user_id))
+    if app_user is None and not allow_create_user:
+        return None
 
     result = await db.execute(
         select(ClerkIdentity).where(
@@ -209,15 +207,19 @@ async def _attach_identity(
     if existing_for_issuer is not None:
         return existing_for_issuer if existing_for_issuer.clerk_user_id == clerk_user_id else None
 
-    db.add(
-        ClerkIdentity(
-            app_user_id=app_user_id,
-            issuer=issuer,
-            clerk_user_id=clerk_user_id,
-            last_authenticated_at=datetime.now(timezone.utc),
-        )
-    )
     try:
+        # Stage both inserts only after the reads. Otherwise the identity query
+        # can autoflush a new owner outside the concurrent-conflict handler.
+        if app_user is None:
+            db.add(AppUser(id=app_user_id))
+        db.add(
+            ClerkIdentity(
+                app_user_id=app_user_id,
+                issuer=issuer,
+                clerk_user_id=clerk_user_id,
+                last_authenticated_at=datetime.now(timezone.utc),
+            )
+        )
         await db.commit()
     except IntegrityError:
         await db.rollback()

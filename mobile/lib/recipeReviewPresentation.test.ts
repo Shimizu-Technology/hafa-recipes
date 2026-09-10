@@ -51,23 +51,30 @@ describe('recipe review presentation', () => {
     expect(getCookDraftPresentation(null, 1).buttonLabel).toBe('Start Cooking');
   });
 
+  it('does not interrupt cooking for an advisory uncertainty', () => {
+    expect(getCookDraftPresentation('needs_review', 3)).toMatchObject({
+      canCook: true, buttonLabel: 'Start Cooking', alertTitle: null, alertMessage: null,
+    });
+    expect(getRecipeReviewDetails('ready', 0, null)).toBeNull();
+  });
+
   it('labels a genuinely missing imported amount without inventing to taste', () => {
     expect(getMissingQuantityLabel('needs_review', { name: 'soy sauce' })).toBe(
-      'Not stated — verify original',
+      'Amount not stated',
     );
     expect(getMissingQuantityLabel('needs_review', { name: 'salt to taste' })).toBeNull();
     expect(getMissingQuantityLabel('needs_review', { name: 'soy sauce', quantity: 'null' })).toBe(
-      'Not stated — verify original',
+      'Amount not stated',
     );
     expect(getMissingQuantityLabel('needs_review', { name: 'soy sauce', unit: 'tablespoon' })).toBe(
-      'Not stated — verify original',
+      'Amount not stated',
     );
     expect(getMissingQuantityLabel('needs_review', { name: 'salt', unit: 'to taste' })).toBeNull();
     expect(getMissingQuantityLabel('ready', { name: 'water' })).toBe(
-      'Not stated — verify original',
+      'Amount not stated',
     );
     expect(getMissingQuantityLabel(null, { name: 'achiote water' })).toBe(
-      'Not stated — verify original',
+      'Amount not stated',
     );
   });
 
@@ -85,9 +92,9 @@ describe('recipe review presentation', () => {
       },
       assessment: { missingQuantityCount: 2 },
     })).toEqual({
-      actionLabel: 'Review 2 amounts',
+      actionLabel: 'Check details',
       heading: '2 ingredient amounts were not stated',
-      message: 'Missing amounts stay blank instead of being guessed. Add them only if you can verify them from the source.',
+      message: 'Your recipe is saved. You can check these details now or come back later.',
       missingQuantityCount: 2,
       sourceSummary: 'Checked spoken audio and video frames at 0:00, 0:15, 1:05, 1:30, +1 more.',
     });
@@ -100,8 +107,8 @@ describe('recipe review presentation', () => {
         unresolvedMissingQuantityCount: 0,
       },
     })).toMatchObject({
-      actionLabel: 'Review 1 detail',
-      heading: 'Compare this draft with the original',
+      actionLabel: 'Check details',
+      heading: 'Some source details were unclear',
       missingQuantityCount: 0,
     });
   });
@@ -109,7 +116,7 @@ describe('recipe review presentation', () => {
   it('makes an incomplete source an add-details task without invented evidence', () => {
     expect(getRecipeReviewDetails('source_incomplete', 1, null)).toMatchObject({
       actionLabel: 'Add missing details',
-      heading: 'Finish this saved draft',
+      heading: 'Saved as a draft',
       sourceSummary: null,
     });
     expect(getRecipeReviewDetails('ready', 0, null)).toBeNull();

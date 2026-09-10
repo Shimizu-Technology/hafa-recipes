@@ -132,7 +132,7 @@ def public_recipe_conditions(viewer_user_id: str | None = None):
     conditions = [
         Recipe.is_public.is_(True),
         Recipe.moderation_status == "active",
-        or_(Recipe.review_state.is_(None), Recipe.review_state == "ready"),
+        or_(Recipe.review_state.is_(None), Recipe.review_state.in_(["ready", "needs_review"])),
         or_(
             Recipe.user_id.is_(None),
             ~exists(
@@ -177,7 +177,7 @@ async def is_publicly_viewable(
     if (
         not recipe.is_public
         or recipe.moderation_status != "active"
-        or recipe.review_state not in (None, "ready")
+        or recipe.review_state not in (None, "ready", "needs_review")
     ):
         return False
     if recipe.user_id is None:

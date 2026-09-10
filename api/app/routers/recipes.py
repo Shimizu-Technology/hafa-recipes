@@ -1,5 +1,6 @@
 """Recipe API endpoints - CRUD operations with user authentication."""
 
+import hashlib
 import json
 import re
 from copy import deepcopy
@@ -56,6 +57,7 @@ from app.recipe_review import (
     require_recipe_publishable,
     review_response_fields,
     reviewable_recipe_paths,
+    validate_resolved_issue_ids,
 )
 from app.services.extraction_confidence import normalize_extraction_confidence
 from app.services.storage import storage_service
@@ -411,6 +413,7 @@ class RecipeEdit(BaseModel):
     nutrition_model: Optional[str] = None
     review_content_revision: Optional[int] = Field(default=None, ge=1)
     verified_paths: Optional[List[str]] = Field(default=None, max_length=500)
+    resolved_issue_ids: Optional[List[str]] = Field(default=None, max_length=10)
 
     @model_validator(mode="after")
     def validate_edit_contract(self) -> "RecipeEdit":
@@ -419,6 +422,11 @@ class RecipeEdit(BaseModel):
             raise ValueError(
                 "review_content_revision and verified_paths must be supplied together"
             )
+        if self.resolved_issue_ids is not None and self.review_content_revision is None:
+            raise ValueError("resolved_issue_ids requires review_content_revision and verified_paths")
+        for issue_id in self.resolved_issue_ids or []:
+            if not re.fullmatch(r"source-warning:[0-9a-f]{24}", issue_id):
+                raise ValueError(f"invalid recipe review issue ID: {issue_id}")
         for path in self.verified_paths or []:
             if len(path) > 160 or not re.fullmatch(
                 r"(?:title|servings|times\.(?:prep|cook|total)|"
@@ -457,6 +465,12 @@ def _review_paths_for_edit(edit: RecipeEdit, recipe: Recipe) -> set[str] | None:
                 "message": "This recipe changed after review started. Reload it before saving.",
                 "content_revision": current_revision,
             },
+        )
+    if edit.resolved_issue_ids:
+        validate_resolved_issue_ids(
+            edit.resolved_issue_ids,
+            extracted=recipe.extracted or {},
+            evidence=recipe.extraction_evidence,
         )
     return set(edit.verified_paths)
 
@@ -842,6 +856,7 @@ class CaptureRecipeCreate(BaseModel):
     extracted: dict
     is_public: bool = False
     source_type: Literal["photo", "text"] = "photo"
+    capture_id: UUID | None = None
 
 
 class OCRRecipeCreate(BaseModel):
@@ -851,12 +866,53 @@ class OCRRecipeCreate(BaseModel):
     is_public: bool = False
 
 
+async def _replay_captured_recipe(
+    db: AsyncSession,
+    *,
+    owner_id: str,
+    capture_id: UUID,
+    request_hash: str,
+) -> RecipeResponse | None:
+    """Replay only the owner's identical capture; never overwrite a reused key."""
+    recipe = await db.scalar(select(Recipe).where(
+        Recipe.user_id == owner_id,
+        Recipe.capture_id == capture_id,
+    ))
+    if recipe is None:
+        return None
+    if recipe.capture_request_hash != request_hash:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This capture was already saved with different content. Open the saved recipe to edit it.",
+        )
+    return recipe_to_detail_response(recipe, owner_id)
+
+
 async def _save_captured_recipe(
     capture_data: CaptureRecipeCreate,
     db: AsyncSession,
     user: ClerkUser,
 ) -> RecipeResponse:
-    """Save a recipe draft extracted from a photo or pasted text."""
+    """Save a capture once when its caller supplies an owner-scoped retry ID."""
+    request_hash = None
+    if capture_data.capture_id is not None:
+        try:
+            request_json = json.dumps(
+                capture_data.model_dump(mode="json", exclude={"capture_id"}),
+                sort_keys=True, separators=(",", ":"), allow_nan=False,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Invalid extracted recipe draft",
+            ) from exc
+        request_hash = hashlib.sha256(request_json.encode()).hexdigest()
+        replay = await _replay_captured_recipe(
+            db, owner_id=user.id, capture_id=capture_data.capture_id,
+            request_hash=request_hash,
+        )
+        if replay is not None:
+            return replay
     source_metadata = {
         "photo": ("photo-upload", "ocr"),
         "text": ("manual://pasted-text", "text-ai"),
@@ -888,17 +944,30 @@ async def _save_captured_recipe(
         extraction_quality="low" if low_confidence else "good",
         has_audio_transcript=False,
         user_id=user.id,
+        capture_id=capture_data.capture_id,
+        capture_request_hash=request_hash,
         extractor_display_name=user.display_name,  # Store display name for attribution
         is_public=capture_data.is_public,
         total_minutes=compute_total_minutes(extracted),  # Compute for SQL filtering
     )
-    apply_recipe_review(new_recipe, extracted, user_reviewed=True)
+    apply_recipe_review(new_recipe, extracted)
     if new_recipe.is_public:
         require_recipe_publishable(new_recipe)
         await require_current_publishing_disclosure(db, user.id)
 
     db.add(new_recipe)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        if capture_data.capture_id is not None and request_hash is not None:
+            replay = await _replay_captured_recipe(
+                db, owner_id=user.id, capture_id=capture_data.capture_id,
+                request_hash=request_hash,
+            )
+            if replay is not None:
+                return replay
+        raise
     await db.refresh(new_recipe)
 
     print(f"✅ Captured {capture_data.source_type} recipe saved (ID: {new_recipe.id})")
@@ -2145,6 +2214,7 @@ async def edit_recipe(
         increment_revision=True,
         previous_extracted=old_extracted if verified_paths is not None else None,
         verified_paths=verified_paths,
+        resolved_issue_ids=edit.resolved_issue_ids,
     )
     correction_event = build_recipe_correction_event(
         recipe=recipe,
@@ -2269,6 +2339,7 @@ async def edit_recipe_with_image(
         increment_revision=True,
         previous_extracted=old_extracted if verified_paths is not None else None,
         verified_paths=verified_paths,
+        resolved_issue_ids=edit.resolved_issue_ids,
     )
     correction_event = build_recipe_correction_event(
         recipe=recipe,

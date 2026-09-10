@@ -818,7 +818,13 @@ class WebsiteService:
         ing_str = re.sub(r'\s*\(\$[\d.]+\)\s*$', '', ing_str)
         
         # Try to extract quantity and unit
-        quantity_pattern = r'^([\d\s\.\-\/]+(?:\s*to\s*[\d\.\-\/]+)?)\s*'
+        fractions = {'¼': '1/4', '½': '1/2', '¾': '3/4', '⅐': '1/7',
+                     '⅑': '1/9', '⅒': '1/10', '⅓': '1/3', '⅔': '2/3',
+                     '⅕': '1/5', '⅖': '2/5', '⅗': '3/5', '⅘': '4/5',
+                     '⅙': '1/6', '⅚': '5/6', '⅛': '1/8', '⅜': '3/8',
+                     '⅝': '5/8', '⅞': '7/8'}
+        quantity_chars = r'\d\s\.\-\/' + ''.join(fractions)
+        quantity_pattern = rf'^([{quantity_chars}]+(?:\s*to\s*[{quantity_chars}]+)?)\s*'
         unit_pattern = r'(cup|cups|tablespoon|tablespoons|tbsp|teaspoon|teaspoons|tsp|pound|pounds|lb|lbs|ounce|ounces|oz|gram|grams|g|kg|ml|liter|liters|l|piece|pieces|clove|cloves|can|cans|package|packages|bunch|bunches|pinch|dash|handful|stick|sticks)s?\s+'
         
         quantity = ""
@@ -829,6 +835,10 @@ class WebsiteService:
         qty_match = re.match(quantity_pattern, ing_str, re.IGNORECASE)
         if qty_match:
             quantity = qty_match.group(1).strip()
+            # Preserve explicit source amounts. Without this, “¼ cup” becomes
+            # an ingredient name and incorrectly asks the user to supply it.
+            quantity = re.sub(r'(?<=\d)(?=[' + ''.join(fractions) + r'])', ' ', quantity)
+            quantity = ''.join(fractions.get(char, char) for char in quantity)
             remaining = ing_str[qty_match.end():].strip()
             
             # Extract unit

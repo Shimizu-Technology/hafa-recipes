@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   alert: vi.fn(),
+  save: vi.fn(async () => ({ id: 'captured-recipe' })),
   checkDuplicate: vi.fn(),
   extraction: {
     canRetryStart: false,
@@ -55,6 +56,8 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   requestPublishing: vi.fn(),
 }));
+
+vi.mock('expo-crypto', () => ({ randomUUID: () => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }));
 
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
@@ -131,6 +134,7 @@ vi.mock('../../lib/guestPromptLayout', () => ({
   useGuestPromptHeight: () => 0,
 }));
 vi.mock('@/hooks/useRecipes', () => ({
+  useSaveCapturedRecipe: () => ({ mutateAsync: mocks.save }),
   useCheckDuplicate: () => ({ mutateAsync: mocks.checkDuplicate }),
   useExtractionJobs: () => ({ data: [] }),
   useLocations: () => ({ data: { locations: [
@@ -171,6 +175,8 @@ function touchableWithText(renderer: ReactTestRenderer, text: string) {
 
 describe('classified image recovery', () => {
   beforeEach(() => {
+    mocks.save.mockReset();
+    mocks.save.mockResolvedValue({ id: 'captured-recipe' });
     mocks.alert.mockClear();
     mocks.checkDuplicate.mockReset();
     mocks.checkDuplicate.mockResolvedValue({ exists: false });
@@ -213,7 +219,7 @@ describe('classified image recovery', () => {
 
     const extractButton = renderer!.root.findAllByType(
       'Button' as unknown as React.ComponentType,
-    ).find(node => node.props.children === 'Extract Recipe from 2 Images')!;
+    ).find(node => node.props.children === 'Import Recipe from 2 Images')!;
     await act(async () => {
       await extractButton.props.onPress();
     });
@@ -239,7 +245,7 @@ describe('classified image recovery', () => {
     ]);
   });
 
-  it('waits for an explicit review action after a completed link import', async () => {
+  it('offers Open Recipe after a completed and saved link import', async () => {
     mocks.extraction.isComplete = true;
     mocks.extraction.currentStep = 'complete';
     mocks.extraction.progress = 100;
@@ -254,7 +260,7 @@ describe('classified image recovery', () => {
     expect(mocks.push).not.toHaveBeenCalled();
     const reviewButton = renderer!.root.findAllByType(
       'Button' as unknown as React.ComponentType,
-    ).find(node => node.props.children === 'Review Recipe')!;
+    ).find(node => node.props.children === 'Open Recipe')!;
     await act(async () => reviewButton.props.onPress());
 
     expect(mocks.extraction.reset).toHaveBeenCalledOnce();
@@ -302,7 +308,7 @@ describe('classified image recovery', () => {
     expect(linkInput.props.value).toBe('https://example.com/recipe');
     expect(renderer!.root.findByProps({ label: 'Hawaii' }).props.selected).toBe(true);
     expect(renderer!.root.findByProps({
-      accessibilityLabel: 'Share recipe to the public library',
+      accessibilityLabel: 'Public in Discover',
     }).props.accessibilityState.checked).toBe(true);
 
     const extractButton = renderer!.root.findAllByType(
@@ -316,4 +322,40 @@ describe('classified image recovery', () => {
       is_public: true,
     });
   });
+  it.each([true, false])('automatically saves images with public=%s', async (isPublic) => {
+    const recipe = { title: 'Red Rice', components: [{ ingredients: [{ name: 'rice' }], steps: ['Cook rice.'] }], lowConfidence: true };
+    mocks.extractMultiple.mockResolvedValueOnce({ success: true, recipe } as any);
+    let renderer: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    await act(async () => touchableWithText(renderer!, 'Import Screenshots or Photos')!.props.onPress());
+    const choose = mocks.alert.mock.calls.at(-1)?.[2].find((action: { text: string }) => action.text === 'Choose Screenshots or Photos');
+    await act(async () => choose.onPress());
+    const options = renderer!.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType);
+    expect(options.find(node => node.props.accessibilityLabel === 'Public in Discover')!.props.accessibilityState.checked).toBe(true);
+    if (!isPublic) await act(async () => options.find(node => node.props.accessibilityLabel === 'Private')!.props.onPress());
+    await act(async () => renderer!.root.findAllByType('Button' as unknown as React.ComponentType)
+      .find(node => node.props.children === 'Import Recipe from 2 Images')!.props.onPress());
+    expect(mocks.save).toHaveBeenCalledWith({ extracted: recipe, source_type: 'photo', is_public: isPublic, capture_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+    expect(mocks.requestPublishing).toHaveBeenCalledTimes(isPublic ? 1 : 0);
+    expect(mocks.push).toHaveBeenCalledWith('/recipe/captured-recipe');
+  });
+
+  it('keeps extracted images recoverable after a failed automatic save', async () => {
+    const recipe = { title: 'Red Rice', components: [] };
+    mocks.extractMultiple.mockResolvedValueOnce({ success: true, recipe } as any);
+    mocks.save.mockRejectedValueOnce(new Error('Offline'));
+    let renderer: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    await act(async () => touchableWithText(renderer!, 'Import Screenshots or Photos')!.props.onPress());
+    const choose = mocks.alert.mock.calls.at(-1)?.[2].find((action: { text: string }) => action.text === 'Choose Screenshots or Photos');
+    await act(async () => choose.onPress());
+    await act(async () => renderer!.root.findAllByType('Button' as unknown as React.ComponentType)
+      .find(node => node.props.children === 'Import Recipe from 2 Images')!.props.onPress());
+    expect(mocks.extractMultiple).toHaveBeenCalledTimes(1);
+    expect(mocks.push).toHaveBeenCalledWith({ pathname: '/ocr-review', params: {
+      recipe: JSON.stringify(recipe), sourceType: 'photo', isPublic: 'true', location: 'Guam', saveFailed: 'true',
+      captureId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', saveErrorKind: 'retry', saveErrorMessage: 'Offline',
+    } });
+  });
+
 });

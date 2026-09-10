@@ -10,6 +10,7 @@ from app.recipe_review import (
     evidence_was_user_reviewed,
     require_recipe_publishable,
     review_response_fields,
+    source_warning_issue,
 )
 from app.routers.recipes import (
     ManualComponent,
@@ -45,8 +46,8 @@ def _field(evidence: dict, path: str) -> dict:
     return matches[0]
 
 
-def test_imported_recipe_requires_review_even_when_it_looks_complete():
-    """Model-derived imports remain unverified until a person reviews them."""
+def test_complete_import_is_ready_without_claiming_human_verification():
+    """A usable import with no actual uncertainty needs no certification."""
 
     assessment = assess_recipe_review(
         _recipe_data(),
@@ -55,7 +56,9 @@ def test_imported_recipe_requires_review_even_when_it_looks_complete():
         content_revision=1,
     )
 
-    assert assessment.state == "needs_review"
+    assert assessment.state == "ready"
+    assert assessment.evidence["assessment"]["issues"] == []
+    assert assessment.evidence["assessment"]["userReviewed"] is False
     assert assessment.evidence["contentRevision"] == 1
     assert "raw_text" not in assessment.evidence
 
@@ -99,7 +102,7 @@ def test_missing_quantity_is_not_rewritten_as_to_taste():
     )
     assert field["quantityStatus"] == "not_stated"
     assert assessment.evidence["assessment"]["missingQuantityCount"] == 1
-    assert assessment.uncertainty_count == 2
+    assert assessment.uncertainty_count == 1
 
 
 def test_numeric_zero_is_preserved_as_a_stated_quantity():
@@ -135,8 +138,8 @@ def test_each_missing_quantity_is_counted_once():
     )
 
     assert assessment.evidence["assessment"]["missingQuantityCount"] == 2
-    assert assessment.evidence["assessment"]["uncertaintyCount"] == 3
-    assert assessment.uncertainty_count == 3
+    assert assessment.evidence["assessment"]["uncertaintyCount"] == 2
+    assert assessment.uncertainty_count == 2
 
 
 def test_serialized_null_values_are_not_treated_as_recipe_evidence():
@@ -263,7 +266,7 @@ def test_field_review_verifies_only_changed_paths_and_keeps_other_warnings():
     assert reviewed.evidence["assessment"]["unresolvedMissingQuantityCount"] == 1
 
 
-def test_unchanged_field_review_does_not_make_an_import_ready():
+def test_unchanged_save_does_not_claim_human_verification():
     """Opening and saving the editor is not evidence of human verification."""
 
     extracted = _recipe_data()
@@ -284,7 +287,7 @@ def test_unchanged_field_review_does_not_make_an_import_ready():
         verified_paths=set(),
     )
 
-    assert reviewed.state == "needs_review"
+    assert reviewed.state == "ready"
     assert reviewed.evidence["assessment"]["verifiedFieldCount"] == 0
     assert reviewed.evidence["assessment"]["userReviewed"] is False
 
@@ -299,7 +302,7 @@ def test_explicitly_accepted_missing_quantity_stays_honest_and_can_be_ready():
         extraction_method="whisper",
         content_revision=1,
     )
-    every_path = {field["path"] for field in initial.evidence["fields"]}
+    quantity_path = {"components.0.ingredients.0.quantity"}
 
     reviewed = assess_recipe_review(
         extracted,
@@ -308,7 +311,7 @@ def test_explicitly_accepted_missing_quantity_stays_honest_and_can_be_ready():
         content_revision=2,
         previous_extracted=extracted,
         previous_evidence=initial.evidence,
-        verified_paths=every_path,
+        verified_paths=quantity_path,
     )
 
     quantity = _field(
@@ -399,7 +402,7 @@ def test_field_review_carries_prior_work_without_blessing_untouched_fields():
         verified_paths={"components.0.steps.0"},
     )
 
-    assert reassessed.state == "needs_review"
+    assert reassessed.state == "ready"
     assert _field(reassessed.evidence, "title")["status"] == "user_verified"
     assert _field(
         reassessed.evidence,
@@ -553,8 +556,8 @@ def test_review_response_contract_matches_evidence_schema_and_privacy_boundary()
 
     assert owner_fields == {
         "review_state": "needs_review",
-        "review_summary": "Needs review — compare the draft with the original before cooking.",
-        "uncertainty_count": 2,
+        "review_summary": "Some details may need a quick check before cooking.",
+        "uncertainty_count": 1,
         "extraction_evidence": assessment.evidence,
         "content_revision": 3,
     }
@@ -712,3 +715,355 @@ def test_explicit_none_clears_provenance_while_omission_preserves_it():
         {"timestampSeconds": 3.5}
     ]
     assert "frames" not in cleared.extraction_evidence["source"]
+
+
+@pytest.mark.parametrize("is_public", [True, False])
+def test_advisory_save_respects_requested_visibility_without_blanket_review(is_public):
+    recipe = SimpleNamespace(
+        source_type="tiktok", extraction_method="whisper", is_public=is_public,
+        content_revision=1,
+    )
+    assessment = apply_recipe_review(recipe, _recipe_data(quantity=None))
+    assert assessment.state == "needs_review"
+    assert recipe.is_public is is_public
+    require_recipe_publishable(recipe)
+    assert assessment.evidence["assessment"]["issues"] == [{
+        "code": "missing_quantity",
+        "path": "components.0.ingredients.0.quantity",
+        "message": "Amount wasn't stated in the source.",
+    }]
+
+
+def test_correcting_only_missing_amount_clears_generated_warning_without_republishing():
+    recipe = SimpleNamespace(
+        source_type="tiktok", extraction_method="whisper", is_public=False,
+        content_revision=1,
+    )
+    apply_recipe_review(recipe, _recipe_data(quantity=None))
+    before = recipe.extracted
+    # Metadata/full-edit serialization can carry the generic compatibility flag.
+    edited = {**before, "components": _recipe_data()["components"]}
+    apply_recipe_review(
+        recipe, edited, increment_revision=True, previous_extracted=before,
+        verified_paths={"components.0.ingredients.0.quantity"},
+    )
+    assert recipe.review_state == "ready"
+    assert recipe.is_public is False
+    assert recipe.extracted["lowConfidence"] is False
+    assert recipe.extraction_evidence["assessment"]["issues"] == []
+    assert recipe.extraction_evidence["assessment"]["userReviewed"] is False
+
+
+def test_exact_correction_preserves_unrelated_source_warning_through_edits_and_restore():
+    warning = "The oven temperature is unclear in the private family note."
+    recipe = SimpleNamespace(
+        source_type="photo", extraction_method="ocr", is_public=True, content_revision=1,
+    )
+    apply_recipe_review(recipe, {
+        **_recipe_data(quantity=None), "lowConfidence": True, "confidenceWarning": warning,
+    })
+    original_evidence = recipe.extraction_evidence
+    before = recipe.extracted
+    # Full editors rebuild content without the old model's flags.
+    apply_recipe_review(
+        recipe, _recipe_data(), increment_revision=True, previous_extracted=before,
+        verified_paths={"components.0.ingredients.0.quantity"},
+    )
+    assert recipe.review_state == "needs_review"
+    assert recipe.extraction_evidence["assessment"]["issues"] == [source_warning_issue(warning)]
+    assert warning not in recipe.extracted["confidenceWarning"]
+    assert warning not in str(review_response_fields(recipe, include_evidence=False))
+    edited = recipe.extracted
+    apply_recipe_review(
+        recipe, {**edited, "title": "New title"}, increment_revision=True,
+        previous_extracted=edited, verified_paths={"title"},
+    )
+    assert recipe.extraction_evidence["assessment"]["issues"][0]["message"] == warning
+    # Restoring a snapshot must use its warnings and field statuses.
+    apply_recipe_review(
+        recipe, before, increment_revision=True, previous_extracted=before,
+        previous_evidence=original_evidence, verified_paths=set(),
+    )
+    assert len(recipe.extraction_evidence["assessment"]["issues"]) == 2
+    assert recipe.is_public is True
+    # A new extraction is a fresh source assessment, not an edit of old evidence.
+    apply_recipe_review(recipe, _recipe_data(), increment_revision=True)
+    assert recipe.review_state == "ready"
+    assert recipe.extraction_evidence["assessment"]["issues"] == []
+
+
+@pytest.mark.parametrize("real_warning", [None, "The cooking temperature was unclear."])
+def test_legacy_evidence_recovers_real_warning_without_requiring_every_field(real_warning):
+    recipe = SimpleNamespace(
+        source_type="youtube", extraction_method="whisper", is_public=False,
+        content_revision=3,
+        extraction_evidence={
+            "version": 2,
+            "assessment": {"reasons": [
+                "The imported details have not been fully verified by a person yet.",
+                "1 ingredient quantity is not stated.",
+                *([real_warning] if real_warning else []),
+            ]},
+            "fields": [],
+        },
+    )
+    before = {
+        **_recipe_data(quantity=None),
+        "lowConfidence": True,
+        "confidenceWarning": "Needs review — compare the draft with the original before cooking.",
+    }
+    apply_recipe_review(
+        recipe, _recipe_data(), previous_extracted=before,
+        verified_paths={"components.0.ingredients.0.quantity"},
+    )
+    assert recipe.review_state == ("needs_review" if real_warning else "ready")
+    assert recipe.is_public is False
+    assert len(recipe.extraction_evidence["assessment"]["issues"]) == bool(real_warning)
+
+
+def test_even_all_exact_field_confirmations_do_not_dismiss_unlocated_source_warning():
+    recipe = SimpleNamespace(
+        source_type="youtube", extraction_method="whisper", is_public=True, content_revision=1,
+    )
+    apply_recipe_review(recipe, {
+        **_recipe_data(), "lowConfidence": True, "confidenceWarning": "Oven temperature is unclear.",
+    })
+    before = recipe.extracted
+    paths = {field["path"] for field in recipe.extraction_evidence["fields"]}
+    apply_recipe_review(recipe, before, previous_extracted=before, verified_paths=paths)
+    assert recipe.review_state == "needs_review"
+    assert evidence_was_user_reviewed(recipe.extraction_evidence) is False
+    assert all(field["status"] == "user_verified" for field in recipe.extraction_evidence["fields"])
+    restored_evidence = recipe.extraction_evidence
+    apply_recipe_review(
+        recipe, recipe.extracted, previous_extracted=recipe.extracted,
+        previous_evidence=restored_evidence, verified_paths=paths,
+        user_reviewed=evidence_was_user_reviewed(restored_evidence),
+    )
+    assert recipe.review_state == "needs_review"
+    assert recipe.extraction_evidence["assessment"]["issues"][0]["code"] == "source_warning"
+
+
+@pytest.mark.parametrize("short_source", [False, True])
+def test_extractor_quantity_warning_is_not_duplicated_or_carried_after_correction(short_source):
+    from app.services.extractor import _check_extraction_confidence
+
+    data = _recipe_data(quantity=None)
+    # A normal-sized ingredient list avoids triggering a separate few-ingredients warning.
+    data["components"][0]["ingredients"].extend([
+        {"name": "water", "quantity": "2", "unit": "cups"},
+        {"name": "salt", "quantity": "1", "unit": "teaspoon"},
+    ])
+    low_confidence, warning = _check_extraction_confidence(
+        data,
+        raw_text="Cook rice." if short_source else "Cook rice with water and salt. " * 12,
+        extraction_quality="good", has_audio_transcript=True,
+    )
+    assert low_confidence is True
+    assert "1 ingredient amount was not stated" in warning
+    data.update(lowConfidence=low_confidence, confidenceWarning=warning)
+    recipe = SimpleNamespace(
+        source_type="youtube", extraction_method="whisper", is_public=True,
+        content_revision=1,
+    )
+    apply_recipe_review(recipe, data)
+    issues = recipe.extraction_evidence["assessment"]["issues"]
+    assert len(issues) == (2 if short_source else 1)
+    assert issues[0]["code"] == "missing_quantity"
+    before = recipe.extracted
+    fixed = {**before, "components": [{**before["components"][0], "ingredients": [
+        {**before["components"][0]["ingredients"][0], "quantity": "1"},
+        *before["components"][0]["ingredients"][1:],
+    ]}]}
+    apply_recipe_review(
+        recipe, fixed, previous_extracted=before,
+        verified_paths={"components.0.ingredients.0.quantity"},
+    )
+    assert recipe.review_state == ("needs_review" if short_source else "ready")
+    remaining = recipe.extraction_evidence["assessment"]["issues"]
+    assert len(remaining) == int(short_source)
+    if short_source:
+        assert remaining[0]["code"] == "source_warning"
+        assert "very little content was found" in remaining[0]["message"]
+        assert "ingredient amount" not in remaining[0]["message"]
+    assert recipe.is_public is True
+
+
+@pytest.mark.parametrize("evidence_version", ["legacy", "issues"])
+def test_restored_aggregate_warnings_recompute_missing_structure_and_quantity(evidence_version):
+    warning = (
+        "This recipe may need review: 1 ingredient amount was not stated, "
+        "and no cooking steps could be identified."
+    )
+    previous_evidence = {
+        "version": 2,
+        "assessment": {"reasons": [warning]},
+        "fields": [],
+    }
+    if evidence_version == "issues":
+        previous_evidence["assessment"]["issues"] = [{
+            "code": "source_warning", "path": None, "message": warning,
+        }]
+    before = _recipe_data(quantity=None, steps=[])
+    recipe = SimpleNamespace(
+        source_type="youtube", extraction_method="whisper", is_public=False,
+        content_revision=2,
+    )
+    apply_recipe_review(
+        recipe, before, previous_extracted=before, previous_evidence=previous_evidence,
+        verified_paths=set(),
+    )
+    assert recipe.review_state == "source_incomplete"
+    assert recipe.extraction_evidence["assessment"]["issues"] == [{
+        "code": "missing_quantity", "path": "components.0.ingredients.0.quantity",
+        "message": "Amount wasn't stated in the source.",
+    }]
+    assert recipe.extraction_evidence["assessment"]["uncertaintyCount"] == 2
+    restored = recipe.extracted
+    apply_recipe_review(
+        recipe, _recipe_data(), previous_extracted=restored,
+        verified_paths={"components.0.ingredients.0.quantity", "components.0.steps.0"},
+    )
+    assert recipe.review_state == "ready"
+    assert recipe.extraction_evidence["assessment"]["issues"] == []
+    assert recipe.is_public is False
+
+
+def test_raw_warning_with_quantity_words_and_other_detail_is_preserved():
+    warning = "2 ingredient quantities are uncertain; the oven temperature was not stated."
+    assessment = assess_recipe_review(
+        {**_recipe_data(), "lowConfidence": True, "confidenceWarning": warning},
+        source_type="photo", extraction_method="ocr", content_revision=1,
+    )
+    assert assessment.evidence["assessment"]["issues"] == [source_warning_issue(warning)]
+
+
+def test_explicit_warning_resolution_is_targeted_and_does_not_verify_fields():
+    first = "The cooking temperature is unclear."
+    second = "The source cuts off before the final resting time."
+    recipe = SimpleNamespace(
+        source_type="youtube", extraction_method="whisper", is_public=False,
+        content_revision=1,
+    )
+    before = _recipe_data()
+    apply_recipe_review(
+        recipe, before, previous_extracted=before,
+        previous_evidence={"version": 2, "assessment": {"reasons": [first, second]}, "fields": []},
+        verified_paths=[],
+    )
+    issue_ids = [issue["id"] for issue in recipe.extraction_evidence["assessment"]["issues"]]
+    before = recipe.extracted
+    apply_recipe_review(
+        recipe, before, previous_extracted=before, verified_paths=[],
+        resolved_issue_ids=[issue_ids[0]], increment_revision=True,
+    )
+    assert recipe.review_state == "needs_review"
+    assert recipe.extraction_evidence["assessment"]["issues"] == [source_warning_issue(second)]
+    assert recipe.extraction_evidence["assessment"]["verifiedFieldCount"] == 0
+    assert recipe.extraction_evidence["assessment"]["userReviewed"] is False
+    before = recipe.extracted
+    apply_recipe_review(
+        recipe, before, previous_extracted=before, verified_paths=[],
+        resolved_issue_ids=[issue_ids[1]], increment_revision=True,
+    )
+    assert recipe.review_state == "ready"
+    assert recipe.is_public is False
+    before = recipe.extracted
+    apply_recipe_review(recipe, before, previous_extracted=before, verified_paths=[])
+    assert recipe.review_state == "ready"
+    # New source assessment reports fresh uncertainty regardless of prior resolution.
+    apply_recipe_review(recipe, {**_recipe_data(), "lowConfidence": True, "confidenceWarning": first})
+    assert recipe.extraction_evidence["assessment"]["issues"] == [source_warning_issue(first)]
+
+
+def test_resolution_requires_revision_pair_and_exact_current_issue_id():
+    known_id = source_warning_issue("Known warning.")["id"]
+    with pytest.raises(ValueError):
+        RecipeEdit(title="Rice", resolved_issue_ids=[known_id])
+    with pytest.raises(ValueError):
+        RecipeEdit(title="Rice", resolved_issue_ids=[], verified_paths=[])
+    with pytest.raises(ValueError):
+        RecipeEdit(title="Rice", resolved_issue_ids=["unbounded arbitrary value"],
+                   review_content_revision=1, verified_paths=[])
+    with pytest.raises(ValueError):
+        RecipeEdit(title="Rice", resolved_issue_ids=[known_id] * 11,
+                   review_content_revision=1, verified_paths=[])
+    edit = RecipeEdit(title="Rice", resolved_issue_ids=[known_id], review_content_revision=1, verified_paths=[])
+    recipe = SimpleNamespace(content_revision=2, extracted=_recipe_data(), extraction_evidence={})
+    with pytest.raises(HTTPException) as stale:
+        _review_paths_for_edit(edit, recipe)
+    assert stale.value.status_code == 409
+    recipe.content_revision = 1
+    with pytest.raises(HTTPException) as unknown:
+        _review_paths_for_edit(edit, recipe)
+    assert unknown.value.status_code == 422
+    assert unknown.value.detail["code"] == "INVALID_RECIPE_REVIEW_ISSUE"
+
+
+@pytest.mark.parametrize("has_issues", [False, True])
+def test_old_owner_evidence_projects_resolvable_ids_without_mutating_stored_evidence(has_issues):
+    warning = "The source omitted an oven temperature."
+    evidence = {"version": 2, "fields": [], "assessment": {"reasons": [warning]}}
+    if has_issues:
+        evidence["assessment"]["issues"] = [{"code": "source_warning", "path": None, "message": warning}]
+    recipe = SimpleNamespace(
+        source_type="youtube", extraction_method="whisper", is_public=False,
+        content_revision=7, review_state="needs_review", extracted=_recipe_data(),
+        extraction_evidence=evidence,
+    )
+    projected = review_response_fields(recipe, include_evidence=True)["extraction_evidence"]
+    issue = projected["assessment"]["issues"][0]
+    assert issue == source_warning_issue(warning)
+    assert "id" not in str(evidence)
+    assert review_response_fields(recipe, include_evidence=False)["extraction_evidence"] is None
+    edit = RecipeEdit(
+        title="Rice", resolved_issue_ids=[issue["id"]], review_content_revision=7, verified_paths=[],
+    )
+    assert _review_paths_for_edit(edit, recipe) == set()
+    before = recipe.extracted
+    apply_recipe_review(
+        recipe, before, previous_extracted=before, verified_paths=[],
+        resolved_issue_ids=edit.resolved_issue_ids,
+    )
+    assert recipe.review_state == "ready"
+    assert recipe.extraction_evidence["assessment"]["verifiedFieldCount"] == 0
+
+
+def test_owner_projection_removes_legacy_blanket_review_without_republishing_or_writing():
+    before = _recipe_data()
+    evidence = {
+        "version": 2, "fields": [],
+        "assessment": {"reasons": ["The imported details have not been fully verified by a person yet."],
+                       "uncertaintyCount": 1},
+    }
+    recipe = SimpleNamespace(
+        source_type="youtube", extraction_method="whisper", extracted=before,
+        extraction_evidence=evidence, review_state="needs_review", content_revision=4,
+        is_public=False,
+    )
+    result = review_response_fields(recipe, include_evidence=True)
+    assert result["review_state"] == "ready"
+    assert result["uncertainty_count"] == 0
+    assert result["extraction_evidence"]["assessment"]["issues"] == []
+    assert result["extraction_evidence"]["assessment"]["userReviewed"] is False
+    assert result["content_revision"] == 4
+    assert recipe.review_state == "needs_review"
+    assert recipe.extraction_evidence is evidence
+    assert recipe.is_public is False
+
+
+def test_owner_projection_preserves_actual_missing_amount_and_prior_exact_verification():
+    before = _recipe_data(quantity=None)
+    initial = assess_recipe_review(before, source_type="youtube", extraction_method="whisper", content_revision=1)
+    recipe = SimpleNamespace(
+        source_type="youtube", extraction_method="whisper", extracted=before,
+        extraction_evidence=initial.evidence, review_state="needs_review", content_revision=1,
+    )
+    result = review_response_fields(recipe, include_evidence=True)
+    assert result["review_state"] == "needs_review"
+    assert result["uncertainty_count"] == 1
+    apply_recipe_review(recipe, before, previous_extracted=before, verified_paths=["components.0.ingredients.0.quantity"])
+    result = review_response_fields(recipe, include_evidence=True)
+    assert result["review_state"] == "ready"
+    assert result["uncertainty_count"] == 0
+    assert result["extraction_evidence"]["assessment"]["verifiedFieldCount"] == 1

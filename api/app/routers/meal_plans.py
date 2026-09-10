@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from app.auth import ClerkUser, get_current_user
 from app.db import get_db
@@ -15,6 +16,7 @@ from app.models.grocery import GroceryItem
 from app.models.meal_plan import MealPlanEntry
 from app.models.recipe import Recipe
 from app.moderation import accessible_recipe_conditions, is_publicly_viewable
+from app.recipe_review import review_response_fields
 from app.routers.grocery import get_or_create_user_list
 
 router = APIRouter(prefix="/api/meal-plans", tags=["meal-plans"])
@@ -83,11 +85,6 @@ class AddToGroceryRequest(BaseModel):
     end_date: date
 
 
-RecipeReviewState = Optional[
-    Literal["source_incomplete", "needs_review", "ready"]
-]
-
-
 # ============================================================
 # Helper Functions
 # ============================================================
@@ -134,29 +131,29 @@ async def get_accessible_recipe(
 
 def meal_plan_entry_response(
     entry: MealPlanEntry,
-    recipe_review_state: RecipeReviewState,
+    recipe: Recipe,
 ) -> MealPlanEntryResponse:
     """Attach current recipe readiness without persisting a stale snapshot."""
     return MealPlanEntryResponse.model_validate(entry).model_copy(
-        update={"recipe_review_state": recipe_review_state}
+        update={"recipe_review_state": review_response_fields(recipe, include_evidence=False)["review_state"]}
     )
 
 
 def organize_by_day(
-    entries: List[tuple[MealPlanEntry, RecipeReviewState]],
+    entries: List[tuple[MealPlanEntry, Recipe]],
     week_start: date,
     week_end: date,
 ) -> List[DayMeals]:
     """Organize entries into days with meal slots."""
     # Create a dict for quick lookup
     entries_by_date = {}
-    for entry, recipe_review_state in entries:
+    for entry, recipe in entries:
         if entry.date not in entries_by_date:
             entries_by_date[entry.date] = {"breakfast": [], "lunch": [], "dinner": [], "snack": []}
         meal_type = entry.meal_type.lower()
         if meal_type in entries_by_date[entry.date]:
             entries_by_date[entry.date][meal_type].append(
-                meal_plan_entry_response(entry, recipe_review_state)
+                meal_plan_entry_response(entry, recipe)
             )
     
     # Build the response for each day of the week
@@ -189,7 +186,11 @@ def _recipe_plan_entries_statement(
 ):
     """Build the bounded, policy-scoped recipe relationship query."""
     return (
-        select(MealPlanEntry, Recipe.review_state)
+        select(MealPlanEntry, Recipe)
+        .options(load_only(
+            Recipe.review_state, Recipe.extracted, Recipe.extraction_evidence,
+            Recipe.source_type, Recipe.extraction_method, Recipe.content_revision,
+        ))
         .join(Recipe, Recipe.id == MealPlanEntry.recipe_id)
         .where(
             MealPlanEntry.user_id == user_id,
@@ -222,7 +223,11 @@ async def get_week_plan(
     
     # Fetch all entries for this week
     result = await db.execute(
-        select(MealPlanEntry, Recipe.review_state)
+        select(MealPlanEntry, Recipe)
+        .options(load_only(
+            Recipe.review_state, Recipe.extracted, Recipe.extraction_evidence,
+            Recipe.source_type, Recipe.extraction_method, Recipe.content_revision,
+        ))
         .join(Recipe, Recipe.id == MealPlanEntry.recipe_id)
         .where(
             MealPlanEntry.user_id == user.id,
@@ -254,7 +259,11 @@ async def get_day_plan(
     target = target_date or date.today()
     
     result = await db.execute(
-        select(MealPlanEntry, Recipe.review_state)
+        select(MealPlanEntry, Recipe)
+        .options(load_only(
+            Recipe.review_state, Recipe.extracted, Recipe.extraction_evidence,
+            Recipe.source_type, Recipe.extraction_method, Recipe.content_revision,
+        ))
         .join(Recipe, Recipe.id == MealPlanEntry.recipe_id)
         .where(
             MealPlanEntry.user_id == user.id,
@@ -267,11 +276,11 @@ async def get_day_plan(
     
     # Organize into meal slots
     meals = {"breakfast": [], "lunch": [], "dinner": [], "snack": []}
-    for entry, recipe_review_state in entries:
+    for entry, recipe in entries:
         meal_type = entry.meal_type.lower()
         if meal_type in meals:
             meals[meal_type].append(
-                meal_plan_entry_response(entry, recipe_review_state)
+                meal_plan_entry_response(entry, recipe)
             )
     
     return DayMeals(
@@ -300,8 +309,8 @@ async def get_recipe_plan_entries(
         _recipe_plan_entries_statement(recipe_id, user.id, first_date, limit)
     )
     return [
-        meal_plan_entry_response(entry, recipe_review_state)
-        for entry, recipe_review_state in result.all()
+        meal_plan_entry_response(entry, recipe)
+        for entry, recipe in result.all()
     ]
 
 
@@ -341,7 +350,7 @@ async def add_meal(
     await db.commit()
     await db.refresh(new_entry)
     
-    return meal_plan_entry_response(new_entry, recipe.review_state)
+    return meal_plan_entry_response(new_entry, recipe)
 
 
 @router.put("/{entry_id}", response_model=MealPlanEntryResponse)
@@ -384,7 +393,7 @@ async def update_meal(
     await db.commit()
     await db.refresh(entry)
     
-    return meal_plan_entry_response(entry, recipe.review_state)
+    return meal_plan_entry_response(entry, recipe)
 
 
 @router.delete("/{entry_id}")

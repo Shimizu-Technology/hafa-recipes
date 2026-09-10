@@ -63,11 +63,6 @@ def _reextraction_review_failure(
             "SOURCE_INCOMPLETE",
             "The source did not contain enough recipe detail to replace your saved recipe.",
         )
-    if review.state == "needs_review":
-        return (
-            "REVIEW_REQUIRED",
-            "The new extraction needs review, so your saved recipe was left unchanged.",
-        )
     return None
 
 
@@ -1100,7 +1095,7 @@ async def run_extraction_job(
                 # Update job as completed (only NOW, after everything is done)
                 # Set completion message based on confidence
                 if review.state != "ready":
-                    completion_msg = "Recipe extracted - please review for accuracy"
+                    completion_msg = "Recipe saved. Some details may need a quick check."
                 else:
                     completion_msg = "Recipe extracted successfully!"
                 
@@ -1889,7 +1884,7 @@ async def run_re_extraction_job(
                 flag_modified(recipe, 'extracted')
                 
                 if review.state != "ready":
-                    completion_msg = "Recipe re-extracted - please review for accuracy"
+                    completion_msg = "Recipe updated. Some details may need a quick check."
                 else:
                     completion_msg = "Recipe re-extracted successfully!"
 

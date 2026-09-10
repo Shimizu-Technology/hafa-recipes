@@ -181,6 +181,8 @@ class Settings(BaseSettings):
     app_release_id: str = "local-development"
     migration_027_restore_point: str | None = None
     migration_028_restore_point: str | None = None
+    migration_029_restore_point: str | None = None
+    migration_030_restore_point: str | None = None
     cors_origins: str = ""
     enable_sentry_debug: bool = False
     

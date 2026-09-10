@@ -18,8 +18,8 @@ export function getRecipeTrustPresentation(
 
   if (reviewState === 'needs_review') {
     return {
-      label: 'Needs review',
-      accessibilityLabel: 'Recipe needs review',
+      label: 'Some details uncertain',
+      accessibilityLabel: 'Some recipe details are uncertain',
     };
   }
 
