@@ -287,21 +287,15 @@ export default function ExtractScreen() {
                            !trimmedUrl.includes('instagram.com');
       setExtractingAsWebsite(isWebsiteUrl);
 
-      const result = await extraction.startExtraction({
+      openedCompletion.current = null;
+      await extraction.startExtraction({
         url: url.trim(),
         location: selectedLocation,
         notes: notes.trim(),
         is_public: isPublic,
       });
 
-      // If recipe already existed (shouldn't happen after duplicate check, but just in case)
-      if (result.isExisting && result.recipeId) {
-        router.push(`/recipe/${result.recipeId}`);
-        setUrl('');
-        setNotes('');
-        setIsPublic(true);  // New imports start public; explicit private choices stay on their job.
-      }
-      // Otherwise, polling has started and progress UI will show
+      // Both existing results and newly completed jobs use the focus handler.
     } catch (error: any) {
       Alert.alert(
         'Extraction Failed',

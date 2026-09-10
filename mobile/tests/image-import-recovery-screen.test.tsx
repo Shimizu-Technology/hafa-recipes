@@ -305,6 +305,36 @@ describe('classified image recovery', () => {
     await act(async () => renderer!.unmount());
   });
 
+  it('handles existing-recipe fast results once per attempt without a Back loop', async () => {
+    mocks.extraction.startExtraction.mockImplementation(async () => {
+      mocks.extraction.isComplete = true;
+      mocks.extraction.recipeId = 'existing-recipe';
+      return { isExisting: true, recipeId: 'existing-recipe' };
+    });
+    mocks.extraction.reset.mockImplementation(async () => {
+      mocks.extraction.isComplete = false;
+      mocks.extraction.recipeId = null;
+    });
+    let renderer: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    for (const attempt of [1, 2]) {
+      await act(async () => renderer!.root.findByProps({
+        placeholder: 'TikTok, Instagram, YouTube, or recipe website link',
+      }).props.onChangeText('https://example.com/recipe'));
+      await act(async () => renderer!.root.findAllByType('Button' as unknown as React.ComponentType)
+        .find(node => node.props.children === 'Extract Recipe')!.props.onPress());
+      await act(async () => { renderer!.update(<ExtractScreen />); });
+      expect(mocks.push).toHaveBeenCalledTimes(attempt);
+      expect(mocks.push).toHaveBeenLastCalledWith('/recipe/existing-recipe');
+      mocks.focused = false;
+      await act(async () => { renderer!.update(<ExtractScreen />); });
+      mocks.focused = true;
+      await act(async () => { renderer!.update(<ExtractScreen />); });
+      expect(mocks.push).toHaveBeenCalledTimes(attempt);
+    }
+    await act(async () => renderer!.unmount());
+  });
+
   it('keeps new imports disabled until durable recovery finishes', async () => {
     mocks.extraction.isPreparing = true;
 
