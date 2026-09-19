@@ -65,6 +65,23 @@ export default function ExtractScreen() {
   const [selectedImages, setSelectedImages] = useState<RecipeImageUpload[]>([]); // Multi-image support
   const [showImageGallery, setShowImageGallery] = useState(false);
   const [pendingShares, setPendingShares] = useState(0);
+  const [isOpeningNextShare, setIsOpeningNextShare] = useState(false);
+  const openingNextShare = useRef(false);
+  const openNextTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || !ShareIntentModule) return;
+    const subscription = ShareIntentModule.addListener('onQueueChange', ({ pendingCount }) => {
+      setPendingShares(pendingCount);
+      openingNextShare.current = false;
+      setIsOpeningNextShare(false);
+      if (openNextTimeout.current) clearTimeout(openNextTimeout.current);
+    });
+    return () => {
+      subscription.remove();
+      if (openNextTimeout.current) clearTimeout(openNextTimeout.current);
+    };
+  }, []);
 
   useFocusEffect(useCallback(() => {
     if (Platform.OS !== 'ios') return;
@@ -718,9 +735,22 @@ export default function ExtractScreen() {
               </RNView>
               {!url && !isLoading && (
                 <TouchableOpacity
+                  disabled={isOpeningNextShare}
                   onPress={() => {
-                    void ShareIntentModule?.getShareIntent('');
-                    setPendingShares((count) => Math.max(0, count - 1));
+                    if (!ShareIntentModule || openingNextShare.current) return;
+                    openingNextShare.current = true;
+                    setIsOpeningNextShare(true);
+                    // A native queue-change event releases the lock only after
+                    // the share handler acknowledges the captured item.
+                    openNextTimeout.current = setTimeout(() => {
+                      openingNextShare.current = false;
+                      setIsOpeningNextShare(false);
+                    }, 5_000);
+                    void Promise.resolve(ShareIntentModule.getShareIntent('')).catch(() => {
+                      openingNextShare.current = false;
+                      setIsOpeningNextShare(false);
+                      if (openNextTimeout.current) clearTimeout(openNextTimeout.current);
+                    });
                   }}
                   accessibilityRole="button"
                   accessibilityLabel="Open next shared recipe"

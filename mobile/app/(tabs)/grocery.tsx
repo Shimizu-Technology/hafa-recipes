@@ -233,13 +233,14 @@ export default function GroceryScreen() {
     isRefetching,
   } = useGroceryList(showChecked, isAuthenticated);
   const { data: countData } = useGroceryCount(isAuthenticated);
+  const isSharedList = listInfo?.is_shared === true;
 
   // Shared lists may change elsewhere. Quietly revalidate only after the
   // cached snapshot has aged; tab switches should never trigger pull UI.
   const lastBackgroundRefresh = useRef(0);
   useFocusEffect(
     useCallback(() => {
-      if (isAuthenticated && Date.now() - lastBackgroundRefresh.current > 30_000) {
+      if (isAuthenticated && isSharedList && Date.now() - lastBackgroundRefresh.current > 30_000) {
         lastBackgroundRefresh.current = Date.now();
         void refetch();
       }
@@ -250,7 +251,7 @@ export default function GroceryScreen() {
         }, 150);
         return () => clearTimeout(focusTimer);
       }
-    }, [focusAdd, isAuthenticated, refetch, router])
+    }, [focusAdd, isAuthenticated, isSharedList, refetch, router])
   );
   const toggleMutation = useToggleGroceryItem();
   const deleteMutation = useDeleteGroceryItem();

@@ -7,6 +7,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   focused: true,
+  pendingShareCount: 0,
+  queueChanged: null as null | ((event: { pendingCount: number }) => void),
+  getShareIntent: vi.fn(),
   alert: vi.fn(),
   save: vi.fn(async () => ({ id: 'captured-recipe' })),
   checkDuplicate: vi.fn(),
@@ -61,8 +64,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }));
 vi.mock('expo-share-intent', () => ({
   ShareIntentModule: {
-    getPendingShareCount: vi.fn(async () => 0),
-    getShareIntent: vi.fn(),
+    addListener: vi.fn((_name: string, callback: (event: { pendingCount: number }) => void) => {
+      mocks.queueChanged = callback;
+      return { remove: vi.fn() };
+    }),
+    getPendingShareCount: vi.fn(async () => mocks.pendingShareCount),
+    getShareIntent: mocks.getShareIntent,
   },
 }));
 
@@ -189,6 +196,9 @@ function touchableWithText(renderer: ReactTestRenderer, text: string) {
 describe('classified image recovery', () => {
   beforeEach(() => {
     mocks.focused = true;
+    mocks.pendingShareCount = 0;
+    mocks.queueChanged = null;
+    mocks.getShareIntent.mockReset();
     mocks.save.mockReset();
     mocks.save.mockResolvedValue({ id: 'captured-recipe' });
     mocks.alert.mockClear();
@@ -215,6 +225,37 @@ describe('classified image recovery', () => {
     mocks.extraction.reset.mockResolvedValue(undefined);
     mocks.extraction.startExtraction.mockReset();
     mocks.extraction.startExtraction.mockResolvedValue({ isExisting: false });
+  });
+
+  it('locks Open next until native acknowledgement updates the queue count', async () => {
+    vi.useFakeTimers();
+    mocks.pendingShareCount = 2;
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(<ExtractScreen />); });
+      await act(async () => { vi.advanceTimersByTime(400); });
+      const openNext = touchableWithText(renderer, 'Open next')!;
+
+      await act(async () => {
+        openNext.props.onPress();
+        openNext.props.onPress();
+      });
+      expect(mocks.getShareIntent).toHaveBeenCalledExactlyOnceWith('');
+      expect(touchableWithText(renderer, 'Open next')!.props.disabled).toBe(true);
+      const waitingCopy = () => renderer.root.findAllByType(
+        'ThemedText' as unknown as React.ComponentType,
+      ).map(node => Array.isArray(node.props.children)
+        ? node.props.children.join('')
+        : node.props.children);
+      expect(waitingCopy()).toContain('2 more shared recipes waiting');
+
+      await act(async () => { mocks.queueChanged?.({ pendingCount: 1 }); });
+      expect(waitingCopy()).toContain('1 more shared recipe waiting');
+      expect(touchableWithText(renderer, 'Open next')!.props.disabled).toBe(false);
+    } finally {
+      await act(async () => renderer?.unmount());
+      vi.useRealTimers();
+    }
   });
 
   it('opens a private photo draft while retaining every selected source image', async () => {

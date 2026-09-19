@@ -15,6 +15,7 @@ describe('floating chat layout', () => {
     }
 
     expect(isFloatingChatPath('/')).toBe(false);
+    expect(isFloatingChatPath('/(tabs)')).toBe(false);
     expect(isFloatingChatPath('/recipe/recipe-1')).toBe(false);
     expect(isFloatingChatPath('/cook-mode/recipe-1')).toBe(false);
     expect(isFloatingChatPath('/settings')).toBe(false);

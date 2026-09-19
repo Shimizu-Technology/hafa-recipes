@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => {
   const replace = vi.fn();
   return {
     alert: vi.fn(),
+    getShareIntent: vi.fn(),
     hasShareIntent: true,
     intent: { files: null, type: 'text', webUrl: null, text: 'shared content' },
     isSignedIn: true,
@@ -27,7 +28,7 @@ vi.mock('@clerk/expo', () => ({
 }));
 vi.mock('expo-router', () => ({ useRouter: () => mocks.router }));
 vi.mock('expo-share-intent', () => ({
-  ShareIntentModule: { getShareIntent: vi.fn() },
+  ShareIntentModule: { getShareIntent: mocks.getShareIntent },
   useShareIntentContext: () => ({
     hasShareIntent: mocks.hasShareIntent,
     shareIntent: mocks.intent,
@@ -59,6 +60,7 @@ describe('native share intent handler', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mocks.alert.mockClear();
+    mocks.getShareIntent.mockReset();
     mocks.hasShareIntent = true;
     mocks.isSignedIn = true;
     mocks.replace.mockClear();
@@ -126,5 +128,39 @@ describe('native share intent handler', () => {
     expect(mocks.replace).toHaveBeenCalledWith('/(auth)/sign-in');
     expect(mocks.resetShareIntent).toHaveBeenCalledWith(false);
     expect(mocks.stage).not.toHaveBeenCalled();
+  });
+
+  it('resumes a retained share once after sign-in', async () => {
+    mocks.isSignedIn = false;
+    mocks.resolve.mockImplementation((_intent, signedIn: boolean) => signedIn
+      ? { kind: 'text', text: 'retained recipe' }
+      : { kind: 'sign-in-required' });
+    let renderer!: ReturnType<typeof create>;
+    await act(async () => { renderer = create(React.createElement(ShareIntentHarness)); });
+
+    try {
+      await act(async () => { vi.advanceTimersByTime(300); });
+      expect(mocks.resetShareIntent).toHaveBeenCalledWith(false);
+      expect(mocks.replace).toHaveBeenCalledWith('/(auth)/sign-in');
+
+      mocks.isSignedIn = true;
+      await act(async () => renderer.update(React.createElement(ShareIntentHarness)));
+      expect(mocks.getShareIntent).toHaveBeenCalledWith('');
+
+      mocks.hasShareIntent = true;
+      await act(async () => renderer.update(React.createElement(ShareIntentHarness)));
+      await act(async () => { vi.advanceTimersByTime(300); });
+
+      expect(mocks.stage).toHaveBeenCalledOnce();
+      expect(mocks.stage).toHaveBeenCalledWith({ kind: 'text', text: 'retained recipe' });
+      expect(mocks.replace).toHaveBeenCalledWith({
+        pathname: '/paste-recipe',
+        params: { captureToken: 'share-token' },
+      });
+      expect(mocks.resetShareIntent).toHaveBeenLastCalledWith(true);
+      expect(mocks.resolve).toHaveBeenCalledTimes(2);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
   });
 });
