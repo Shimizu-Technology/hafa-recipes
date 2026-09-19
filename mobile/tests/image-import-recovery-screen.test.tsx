@@ -248,6 +248,8 @@ describe('classified image recovery', () => {
         ? node.props.children.join('')
         : node.props.children);
       expect(waitingCopy()).toContain('2 more shared recipes waiting');
+      await act(async () => { vi.advanceTimersByTime(6_000); });
+      expect(touchableWithText(renderer, 'Open next')!.props.disabled).toBe(true);
 
       await act(async () => { mocks.queueChanged?.({ pendingCount: 1 }); });
       expect(waitingCopy()).toContain('1 more shared recipe waiting');

@@ -67,7 +67,6 @@ export default function ExtractScreen() {
   const [pendingShares, setPendingShares] = useState(0);
   const [isOpeningNextShare, setIsOpeningNextShare] = useState(false);
   const openingNextShare = useRef(false);
-  const openNextTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (Platform.OS !== 'ios' || !ShareIntentModule) return;
@@ -75,12 +74,8 @@ export default function ExtractScreen() {
       setPendingShares(pendingCount);
       openingNextShare.current = false;
       setIsOpeningNextShare(false);
-      if (openNextTimeout.current) clearTimeout(openNextTimeout.current);
     });
-    return () => {
-      subscription.remove();
-      if (openNextTimeout.current) clearTimeout(openNextTimeout.current);
-    };
+    return () => subscription.remove();
   }, []);
 
   useFocusEffect(useCallback(() => {
@@ -742,14 +737,9 @@ export default function ExtractScreen() {
                     setIsOpeningNextShare(true);
                     // A native queue-change event releases the lock only after
                     // the share handler acknowledges the captured item.
-                    openNextTimeout.current = setTimeout(() => {
-                      openingNextShare.current = false;
-                      setIsOpeningNextShare(false);
-                    }, 5_000);
                     void Promise.resolve(ShareIntentModule.getShareIntent('')).catch(() => {
                       openingNextShare.current = false;
                       setIsOpeningNextShare(false);
-                      if (openNextTimeout.current) clearTimeout(openNextTimeout.current);
                     });
                   }}
                   accessibilityRole="button"
