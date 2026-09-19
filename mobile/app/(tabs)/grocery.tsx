@@ -23,6 +23,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/expo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 
 import { View, Text, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
@@ -232,15 +233,16 @@ export default function GroceryScreen() {
     isRefetching,
   } = useGroceryList(showChecked, isAuthenticated);
   const { data: countData } = useGroceryCount(isAuthenticated);
+  const isSharedList = listInfo?.is_shared === true;
 
-  // Refetch when tab gains focus to ensure we always have fresh data
-  // This is critical for shared lists where others may have made changes
+  // Shared lists may change elsewhere. Quietly revalidate only after the
+  // cached snapshot has aged; tab switches should never trigger pull UI.
+  const lastBackgroundRefresh = useRef(0);
   useFocusEffect(
     useCallback(() => {
-      if (isAuthenticated) {
-        // Force refetch to get the latest data from server
-        // This ensures we don't show stale cache data
-        refetch();
+      if (isAuthenticated && isSharedList && Date.now() - lastBackgroundRefresh.current > 30_000) {
+        lastBackgroundRefresh.current = Date.now();
+        void refetch();
       }
       if (isAuthenticated && focusAdd === '1') {
         const focusTimer = setTimeout(() => {
@@ -249,7 +251,7 @@ export default function GroceryScreen() {
         }, 150);
         return () => clearTimeout(focusTimer);
       }
-    }, [focusAdd, isAuthenticated, refetch, router])
+    }, [focusAdd, isAuthenticated, isSharedList, refetch, router])
   );
   const toggleMutation = useToggleGroceryItem();
   const deleteMutation = useDeleteGroceryItem();
@@ -343,9 +345,7 @@ export default function GroceryScreen() {
     });
   };
 
-  const handleRefresh = useCallback(() => {
-    refetch();
-  }, [refetch]);
+  const { isPullRefreshing, onPullRefresh } = usePullToRefresh(refetch);
   
   const handleToggle = (item: GroceryItem) => {
     haptics.light();
@@ -915,8 +915,8 @@ export default function GroceryScreen() {
         onTouchStart={() => Keyboard.dismiss()}
         refreshControl={isAuthenticated ? (
           <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={handleRefresh}
+            refreshing={isPullRefreshing}
+            onRefresh={onPullRefresh}
             tintColor={colors.tint}
           />
         ) : undefined}

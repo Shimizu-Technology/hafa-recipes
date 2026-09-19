@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   alert: vi.fn(),
   share: vi.fn(),
   refetch: vi.fn(),
+  focusCallback: vi.fn() as () => void,
   routerPush: vi.fn(),
   routerSetParams: vi.fn(),
 }));
@@ -74,7 +75,7 @@ vi.mock('react-native', () => ({
 }));
 
 vi.mock('expo-router', () => ({
-  useFocusEffect: vi.fn(),
+  useFocusEffect: (callback: () => void) => { mocks.focusCallback = callback; },
   useLocalSearchParams: () => ({}),
   useRouter: () => ({ push: mocks.routerPush, setParams: mocks.routerSetParams }),
 }));
@@ -241,8 +242,25 @@ describe('GroceryScreen shopping views', () => {
     mocks.groceryState.isRefetchError = false;
     mocks.groceryState.isRefetching = false;
     mocks.refetch.mockReset();
+    mocks.focusCallback = vi.fn();
     mocks.alert.mockReset();
     mocks.share.mockReset();
+  });
+
+  it('revalidates an aged shared list but leaves a personal list alone on focus', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(React.createElement(GroceryScreen)));
+      await act(async () => mocks.focusCallback());
+      expect(mocks.refetch).not.toHaveBeenCalled();
+
+      mocks.listInfoState.is_shared = true;
+      await act(async () => renderer.render(React.createElement(GroceryScreen)));
+      await act(async () => mocks.focusCallback());
+      expect(mocks.refetch).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
   });
 
   it('shows an intentional guest preview without starting private grocery queries', async () => {

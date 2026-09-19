@@ -3,9 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { floatingChatBottom, isFloatingChatPath } from './floatingChatLayout';
 
 describe('floating chat layout', () => {
-  it('covers every primary tab route, including the renamed planner route', () => {
+  it('keeps cooking help on browsing tabs without covering the import form', () => {
     for (const pathname of [
-      '/',
       '/discover',
       '/history',
       '/planner',
@@ -15,6 +14,8 @@ describe('floating chat layout', () => {
       expect(isFloatingChatPath(pathname)).toBe(true);
     }
 
+    expect(isFloatingChatPath('/')).toBe(false);
+    expect(isFloatingChatPath('/(tabs)')).toBe(false);
     expect(isFloatingChatPath('/recipe/recipe-1')).toBe(false);
     expect(isFloatingChatPath('/cook-mode/recipe-1')).toBe(false);
     expect(isFloatingChatPath('/settings')).toBe(false);

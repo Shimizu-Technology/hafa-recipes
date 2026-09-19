@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/expo';
 import * as ImagePicker from 'expo-image-picker';
-import { LinearGradient } from 'expo-linear-gradient';
+import { ShareIntentModule } from 'expo-share-intent';
 
 import { View, Text, Input, Button, Chip, useColors } from '@/components/Themed';
 import ExtractionProgress from '@/components/ExtractionProgress';
@@ -25,7 +25,6 @@ import { guestPromptBottomPadding, useGuestPromptHeight } from '../../lib/guestP
 import { useExtractionJobs, useLocations, useCheckDuplicate, useSaveCapturedRecipe } from '@/hooks/useRecipes';
 import { useAsyncExtraction } from '@/contexts/ExtractionContext';
 import { ImportActivityCard } from '@/components/ImportActivityCard';
-import { BrandMark } from '@/components/BrandMark';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import { api, type RecipeImageUpload } from '@/lib/api';
 import { consumePendingShareCapture } from '@/lib/shareCapture';
@@ -65,6 +64,29 @@ export default function ExtractScreen() {
   const [isSavingSourceDraft, setIsSavingSourceDraft] = useState(false);
   const [selectedImages, setSelectedImages] = useState<RecipeImageUpload[]>([]); // Multi-image support
   const [showImageGallery, setShowImageGallery] = useState(false);
+  const [pendingShares, setPendingShares] = useState(0);
+  const [isOpeningNextShare, setIsOpeningNextShare] = useState(false);
+  const openingNextShare = useRef(false);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || !ShareIntentModule) return;
+    const subscription = ShareIntentModule.addListener('onQueueChange', ({ pendingCount }) => {
+      setPendingShares(pendingCount);
+      openingNextShare.current = false;
+      setIsOpeningNextShare(false);
+    });
+    return () => subscription.remove();
+  }, []);
+
+  useFocusEffect(useCallback(() => {
+    if (Platform.OS !== 'ios') return;
+    // The incoming share is acknowledged as this screen opens. Check after
+    // that acknowledgement so the count reflects only later captures.
+    const timer = setTimeout(() => {
+      void ShareIntentModule?.getPendingShareCount().then(setPendingShares);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, []));
 
   const { data: locationsData } = useLocations();
   const extraction = useAsyncExtraction();
@@ -693,51 +715,41 @@ export default function ExtractScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {isSignedIn ? (
-            <RNView style={styles.importHeading}>
-              <Text style={[styles.importTitle, { color: colors.text }]}>Import a recipe</Text>
-              <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>Paste a recipe link. We’ll save it for you.</Text>
+          <RNView style={styles.importHeading}>
+            <Text style={[styles.importTitle, { color: colors.text }]}>Import a recipe</Text>
+            <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>Paste a TikTok, Instagram, YouTube, or recipe website link.</Text>
+          </RNView>
+
+          {pendingShares > 0 && (
+            <RNView style={[styles.pendingShareNotice, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
+              <RNView style={styles.pendingShareCopy}>
+                <Ionicons name="albums-outline" size={20} color={colors.tint} />
+                <Text style={[styles.pendingShareText, { color: colors.text }]}>
+                  {pendingShares} more shared {pendingShares === 1 ? 'recipe' : 'recipes'} waiting
+                </Text>
+              </RNView>
+              {!url && !isLoading && (
+                <TouchableOpacity
+                  disabled={isOpeningNextShare}
+                  onPress={() => {
+                    if (!ShareIntentModule || openingNextShare.current) return;
+                    openingNextShare.current = true;
+                    setIsOpeningNextShare(true);
+                    // A native queue-change event releases the lock only after
+                    // the share handler acknowledges the captured item.
+                    void Promise.resolve(ShareIntentModule.getShareIntent('')).catch(() => {
+                      openingNextShare.current = false;
+                      setIsOpeningNextShare(false);
+                    });
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open next shared recipe"
+                >
+                  <Text style={{ color: colors.tint, fontFamily: fontFamily.semibold }}>Open next</Text>
+                </TouchableOpacity>
+              )}
             </RNView>
-          ) : <LinearGradient
-            colors={[colors.backgroundElevated, colors.backgroundSecondary]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={[styles.heroCard, { borderColor: colors.border }]}
-          >
-            <RNView style={styles.heroTopRow}>
-              <BrandMark size={70} />
-              <RNView style={[styles.aiBadge, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
-                <Text maxFontSizeMultiplier={1.4} style={[styles.aiBadgeText, { color: colors.accent }]}>AI-ASSISTED</Text>
-              </RNView>
-            </RNView>
-            <Text maxFontSizeMultiplier={1.4} style={[styles.heroEyebrow, { color: colors.tint }]}>AI recipe extraction</Text>
-            <Text maxFontSizeMultiplier={1.4} style={[styles.heroTitle, { color: colors.text }]}>Turn recipe links and text into something you can cook.</Text>
-            <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
-              Import a social video or website, paste a caption or DM, scan screenshots, or add a family recipe. Håfa Recipes organizes the ingredients, steps, costs, and cook mode for you.
-            </Text>
-            <RNView style={styles.sourcePills}>
-              <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
-                <Ionicons name="logo-tiktok" size={14} color={colors.tint} />
-                <Text maxFontSizeMultiplier={1.4} style={[styles.sourcePillText, { color: colors.textSecondary }]}>TikTok</Text>
-              </RNView>
-              <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
-                <Ionicons name="logo-youtube" size={14} color={colors.tint} />
-                <Text maxFontSizeMultiplier={1.4} style={[styles.sourcePillText, { color: colors.textSecondary }]}>YouTube</Text>
-              </RNView>
-              <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
-                <Ionicons name="logo-instagram" size={14} color={colors.tint} />
-                <Text maxFontSizeMultiplier={1.4} style={[styles.sourcePillText, { color: colors.textSecondary }]}>Instagram</Text>
-              </RNView>
-              <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
-                <Ionicons name="globe-outline" size={14} color={colors.accent} />
-                <Text maxFontSizeMultiplier={1.4} style={[styles.sourcePillText, { color: colors.textSecondary }]}>Websites</Text>
-              </RNView>
-              <RNView style={[styles.sourcePill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
-                <Ionicons name="document-text-outline" size={14} color={colors.accent} />
-                <Text maxFontSizeMultiplier={1.4} style={[styles.sourcePillText, { color: colors.textSecondary }]}>Recipe text</Text>
-              </RNView>
-            </RNView>
-          </LinearGradient>}
+          )}
 
           {/* URL Input - Primary Action */}
           <RNView style={styles.section}>
@@ -928,6 +940,23 @@ export default function ExtractScreen() {
 }
 
 const styles = StyleSheet.create({
+  pendingShareNotice: {
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  pendingShareCopy: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  pendingShareText: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.medium,
+  },
   container: {
     flex: 1,
     overflow: 'hidden',
@@ -939,13 +968,6 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingBottom: spacing.xxl,
   },
-  heroCard: {
-    borderWidth: 1,
-    borderRadius: radius.xxl,
-    padding: spacing.lg,
-    marginBottom: spacing.lg,
-    overflow: 'hidden',
-  },
   importHeading: {
     gap: spacing.xs,
     marginBottom: spacing.lg,
@@ -955,58 +977,9 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xxl,
     lineHeight: 34,
   },
-  heroTopRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
-  },
-  heroEyebrow: {
-    fontSize: fontSize.xs,
-    fontFamily: fontFamily.semibold,
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-    marginBottom: spacing.sm,
-  },
-  heroTitle: {
-    fontSize: fontSize.xxxl,
-    fontFamily: fontFamily.display,
-    lineHeight: 42,
-    marginBottom: spacing.sm,
-  },
-  aiBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: radius.full,
-    borderWidth: 1,
-  },
-  aiBadgeText: {
-    fontSize: fontSize.xs,
-    fontFamily: fontFamily.bold,
-    letterSpacing: 0.8,
-  },
   heroSubtitle: {
     fontSize: fontSize.md,
     lineHeight: 23,
-  },
-  sourcePills: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  sourcePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderWidth: 1,
-    borderRadius: radius.full,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-  },
-  sourcePillText: {
-    fontSize: fontSize.xs,
-    fontFamily: fontFamily.semibold,
   },
   section: {
     marginBottom: spacing.lg,

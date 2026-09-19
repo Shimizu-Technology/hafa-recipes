@@ -5,12 +5,10 @@ const TAB_BAR_HEIGHT = 85;
 /** Return whether the cooking assistant belongs on the current primary route. */
 export function isFloatingChatPath(pathname: string): boolean {
   const tabRoutes = [
-    '/',
     '/discover',
     '/history',
     '/planner',
     '/grocery',
-    '/(tabs)',
     '/(tabs)/discover',
     '/(tabs)/history',
     '/(tabs)/planner',

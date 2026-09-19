@@ -17,7 +17,6 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/expo';
 
@@ -52,6 +51,7 @@ import {
   resolveDiscoverResults,
 } from '@/lib/discoverResults';
 import { newlyExposedThumbnailUrls } from '@/lib/recipeImagePrefetch';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_PADDING = spacing.lg; // 24px on each side
@@ -314,7 +314,7 @@ function RecipeCard({
   );
 }
 
-// Grid recipe card - square image with title overlay
+// Keep recipe names on a solid surface so busy video thumbnails stay readable.
 function GridRecipeCard({
   recipe,
   onPress,
@@ -341,7 +341,6 @@ function GridRecipeCard({
       style={[styles.gridCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
       onPress={onPress}
     >
-      {/* Full card is the image with overlay */}
       <RNView style={styles.gridThumbnailContainer}>
         <RecipeThumbnail
           uri={recipe.thumbnail_url}
@@ -375,38 +374,31 @@ function GridRecipeCard({
           </RNView>
         )}
 
-        {/* Subtle gradient overlay at bottom for text readability */}
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.7)']}
-          style={styles.gridOverlay}
-        />
-
-        {/* Title and author overlaid on image */}
-        <RNView style={styles.gridCardContent}>
-          <Text style={styles.gridCardTitle} numberOfLines={2}>
-            {recipe.title}
-          </Text>
-          {recipe.extractor_display_name && (
-            canFilterByUser && onUserPress ? (
-              <TouchableOpacity
-                onPress={(e) => {
-                  e.stopPropagation?.();
-                  haptics.light();
-                  onUserPress(contributorId!, recipe.extractor_display_name!);
-                }}
-                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-              >
-                <Text style={[styles.gridCardAuthor, { textDecorationLine: 'underline' }]} numberOfLines={1}>
-                  by {recipe.extractor_display_name}
-                </Text>
-              </TouchableOpacity>
-            ) : (
-              <Text style={styles.gridCardAuthor} numberOfLines={1}>
+      </RNView>
+      <RNView style={styles.gridCardContent}>
+        <Text style={[styles.gridCardTitle, { color: colors.text }]} numberOfLines={2}>
+          {recipe.title}
+        </Text>
+        {recipe.extractor_display_name && (
+          canFilterByUser && onUserPress ? (
+            <TouchableOpacity
+              onPress={(e) => {
+                e.stopPropagation?.();
+                haptics.light();
+                onUserPress(contributorId!, recipe.extractor_display_name!);
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+            >
+              <Text style={[styles.gridCardAuthor, { color: colors.textSecondary }]} numberOfLines={1}>
                 by {recipe.extractor_display_name}
               </Text>
-            )
-          )}
-        </RNView>
+            </TouchableOpacity>
+          ) : (
+            <Text style={[styles.gridCardAuthor, { color: colors.textSecondary }]} numberOfLines={1}>
+              by {recipe.extractor_display_name}
+            </Text>
+          )
+        )}
       </RNView>
     </ScalePressable>
   );
@@ -422,6 +414,7 @@ export default function DiscoverScreen() {
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showAllContributors, setShowAllContributors] = useState(false);
+  const [showContributors, setShowContributors] = useState(false);
   const [isRandomLoading, setIsRandomLoading] = useState(false);
   const [showSurpriseModal, setShowSurpriseModal] = useState(false);
   const prefetchedThumbnailUrls = useRef(new Set<string>());
@@ -449,8 +442,6 @@ export default function DiscoverScreen() {
   const [sortOrder, setSortOrder] = useState<DiscoverSort>('recent');
   const [mealTypeFilter, setMealTypeFilter] = useState<MealTypeFilter>('all');
   const lastPopulatedBaseSort = useRef<DiscoverSort>(sortOrder);
-  const hasFocusedDiscover = useRef(false);
-  const focusRefresh = useRef({ hasServerFilters: false, refetch: () => {}, refetchSearch: () => {} });
 
   // Pass source filter to server-side queries
   const sourceTypeParam = sourceFilter === 'all' ? undefined : sourceFilter;
@@ -499,7 +490,6 @@ export default function DiscoverScreen() {
     total: recipesTotal,
     isLoading,
     refetch,
-    isRefetching,
     fetchNextPage,
     hasNextPage: hasMoreRecipes,
     isFetchingNextPage,
@@ -627,39 +617,15 @@ export default function DiscoverScreen() {
   const hasMore = hasMoreLocal || hasMoreServer;
   const isFetchingMore = isFetchingNextPage || isFetchingNextSearchResults;
 
-  const handleRefresh = useCallback(() => {
+  const refreshDiscover = useCallback(async () => {
     setDisplayCount(ITEMS_PER_PAGE);
     if (hasServerFilters) {
-      refetchSearch();
+      await refetchSearch();
     } else {
-      refetch();
+      await refetch();
     }
   }, [hasServerFilters, refetch, refetchSearch]);
-
-  focusRefresh.current = {
-    hasServerFilters,
-    refetch: () => { void refetch(); },
-    refetchSearch: () => { void refetchSearch(); },
-  };
-
-  // The active query already fetches when it mounts or its filters change.
-  // Only refetch here after a real tab re-entry; otherwise useFocusEffect also
-  // runs for dependency changes and duplicates every Discover request.
-  useFocusEffect(
-    useCallback(() => {
-      if (!hasFocusedDiscover.current) {
-        hasFocusedDiscover.current = true;
-        return;
-      }
-
-      const current = focusRefresh.current;
-      if (current.hasServerFilters) {
-        current.refetchSearch();
-      } else {
-        current.refetch();
-      }
-    }, [])
-  );
+  const { isPullRefreshing, onPullRefresh } = usePullToRefresh(refreshDiscover);
 
   const handleLoadMore = () => {
     if (hasMoreLocal) {
@@ -751,18 +717,6 @@ export default function DiscoverScreen() {
         <Text style={[styles.headerTitle, { color: colors.text }]}>
           Discover
         </Text>
-        {countData && (
-          <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
-            <Text style={styles.countText}>
-              {hasServerFilters
-                ? searchTotal  // Just show the filtered count, not "X of Y"
-                : countData.count}
-            </Text>
-          </RNView>
-        )}
-        {isRefetching && (
-          <ActivityIndicator size="small" color={colors.tint} style={{ marginLeft: spacing.sm }} />
-        )}
       </RNView>
 
       {/* View toggle button */}
@@ -781,7 +735,7 @@ export default function DiscoverScreen() {
         />
       </TouchableOpacity>
     </RNView>
-  ), [colors.text, colors.tint, countData, isRefetching, hasServerFilters, searchTotal, isGrid, toggleViewMode]);
+  ), [colors.text, colors.tint, isGrid, toggleViewMode]);
 
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
@@ -812,7 +766,7 @@ export default function DiscoverScreen() {
       </Text>
       <TouchableOpacity
         style={[styles.retryButton, { backgroundColor: colors.tint }]}
-        onPress={handleRefresh}
+        onPress={refreshDiscover}
         activeOpacity={0.8}
       >
         <Ionicons name="refresh" size={17} color="#FFFFFF" />
@@ -964,11 +918,15 @@ export default function DiscoverScreen() {
         </Pressable>
       </Modal>
 
-      {/* Fixed header with search - outside FlatList to prevent focus loss */}
+      {/* Search remains mounted while results update, preserving keyboard focus. */}
       <RNView style={styles.header}>
         <ListHeaderTitle />
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          Browse recipes shared by the community
+          {countData
+            ? `${hasServerFilters ? searchTotal : countData.count} community ${
+              (hasServerFilters ? searchTotal : countData.count) === 1 ? 'recipe' : 'recipes'
+            }`
+            : 'Recipes shared by the community'}
         </Text>
 
         {/* Search + Filter row */}
@@ -1149,29 +1107,26 @@ export default function DiscoverScreen() {
           </RNView>
         )}
 
-        {/* Top Contributors - hide when searching to reduce clutter */}
+        {/* Keep the community filter available without pushing recipes below the fold. */}
         {!hasTextSearch && topContributors && topContributors.length > 0 && (
           <RNView style={styles.contributorsSection}>
-            <RNView style={styles.contributorsHeader}>
-              <Text style={[styles.contributorsSectionTitle, { color: colors.textMuted }]}>
-                Top Contributors
-              </Text>
-              <TouchableOpacity
-                onPress={() => {
-                  haptics.light();
-                  setShowAllContributors(true);
-                }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Text style={[styles.seeAllText, { color: colors.tint }]}>See All</Text>
-              </TouchableOpacity>
-            </RNView>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.contributorsScroll}
-              keyboardShouldPersistTaps="handled"
+            <TouchableOpacity
+              style={styles.contributorsHeader}
+              onPress={() => setShowContributors((shown) => !shown)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: showContributors }}
+              accessibilityLabel="Top contributors"
             >
+              <Text style={[styles.contributorsSectionTitle, { color: colors.textSecondary }]}>Top contributors</Text>
+              <Ionicons name={showContributors ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textSecondary} />
+            </TouchableOpacity>
+            {showContributors && <>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.contributorsScroll}
+                keyboardShouldPersistTaps="handled"
+              >
               {topContributors.map((contributor: { user_id: string; contributor_id?: string; display_name: string; recipe_count: number }) => {
                 const contributorId = getContributorId(contributor)!;
                 const isSelected = selectedExtractor?.id === contributorId;
@@ -1223,7 +1178,11 @@ export default function DiscoverScreen() {
                   </TouchableOpacity>
                 );
               })}
-            </ScrollView>
+              </ScrollView>
+              <TouchableOpacity onPress={() => setShowAllContributors(true)}>
+                <Text style={[styles.seeAllText, { color: colors.tint }]}>See all contributors</Text>
+              </TouchableOpacity>
+            </>}
           </RNView>
         )}
       </RNView>
@@ -1255,8 +1214,8 @@ export default function DiscoverScreen() {
           onScrollBeginDrag={Keyboard.dismiss}
           refreshControl={
             <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={handleRefresh}
+              refreshing={isPullRefreshing}
+              onRefresh={onPullRefresh}
               tintColor={colors.tint}
             />
           }
@@ -1522,17 +1481,6 @@ const styles = StyleSheet.create({
   contributorCount: {
     fontSize: 10,
   },
-  countBadge: {
-    marginLeft: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-  },
-  countText: {
-    color: '#FFFFFF',
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.semibold,
-  },
   card: {
     flexDirection: 'row',
     borderRadius: radius.lg,
@@ -1557,15 +1505,8 @@ const styles = StyleSheet.create({
   },
   gridThumbnailContainer: {
     width: '100%',
-    aspectRatio: 0.85, // Taller cards for overlay text
+    aspectRatio: 1,
     position: 'relative',
-  },
-  gridOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: '45%', // Shorter, more subtle
   },
   gridThumbnail: {
     width: '100%',
@@ -1598,29 +1539,17 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.medium,
   },
   gridCardContent: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     padding: spacing.sm,
-    paddingTop: spacing.lg,
+    minHeight: 72,
   },
   gridCardTitle: {
     fontSize: fontSize.sm,
     fontFamily: fontFamily.semibold,
     lineHeight: 18,
-    color: '#FFFFFF',
-    textShadowColor: 'rgba(0, 0, 0, 0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
   },
   gridCardAuthor: {
     fontSize: fontSize.xs,
     marginTop: 4,
-    color: 'rgba(255, 255, 255, 0.85)',
-    textShadowColor: 'rgba(0, 0, 0, 0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
   },
   viewToggleButton: {
     width: 36,
