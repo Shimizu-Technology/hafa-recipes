@@ -4,6 +4,16 @@ All notable changes to Recipe Extractor.
 
 ## [Unreleased]
 
+## [2.6.2] - September 2026
+
+### Improved
+
+- Keep tab changes steady without unexpected refreshes or scroll jumps; refresh
+  remains available when requested.
+- Let iOS shares finish cleanly and return control to the source app, while
+  keeping shared recipes ready to import in Håfa.
+- Simplify Discover and Import so recipes and primary actions are easier to find.
+
 ## [2.6.1] - August 2026
 
 ### Improved
