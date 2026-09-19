@@ -21,12 +21,13 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock('react-native', () => ({ Alert: { alert: mocks.alert } }));
+vi.mock('react-native', () => ({ Alert: { alert: mocks.alert }, Platform: { OS: 'ios' } }));
 vi.mock('@clerk/expo', () => ({
   useAuth: () => ({ isLoaded: true, isSignedIn: mocks.isSignedIn }),
 }));
 vi.mock('expo-router', () => ({ useRouter: () => mocks.router }));
 vi.mock('expo-share-intent', () => ({
+  ShareIntentModule: { getShareIntent: vi.fn() },
   useShareIntentContext: () => ({
     hasShareIntent: mocks.hasShareIntent,
     shareIntent: mocks.intent,
@@ -120,9 +121,10 @@ describe('native share intent handler', () => {
     expect(mocks.resolve).toHaveBeenCalledWith(mocks.intent, false);
     expect(mocks.alert).toHaveBeenCalledWith(
       'Sign In to Import',
-      'Sign in to Håfa Recipes, then share the recipe again.',
+      'Sign in to Håfa Recipes to finish importing. Your share will stay ready.',
     );
-    expect(mocks.replace).toHaveBeenCalledWith('/(tabs)/discover');
+    expect(mocks.replace).toHaveBeenCalledWith('/(auth)/sign-in');
+    expect(mocks.resetShareIntent).toHaveBeenCalledWith(false);
     expect(mocks.stage).not.toHaveBeenCalled();
   });
 });

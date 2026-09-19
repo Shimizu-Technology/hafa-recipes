@@ -19,9 +19,9 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/expo';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 
 import { View, Text, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
@@ -358,21 +358,14 @@ export default function PlannerScreen() {
 
   // Fetch week data
   const weekOfStr = formatDateForApi(currentWeekStart);
-  const { data: weekPlan, isLoading, refetch, isRefetching } = useMealPlanWeek(weekOfStr);
+  const { data: weekPlan, isLoading, refetch } = useMealPlanWeek(weekOfStr);
+  const { isPullRefreshing, onPullRefresh } = usePullToRefresh(refetch);
 
   // Mutations
   const addMeal = useAddMeal();
   const deleteMeal = useDeleteMeal();
   const addToGrocery = useAddPlanToGrocery();
 
-  // Refetch when tab gains focus (handles cache cleared on user change)
-  useFocusEffect(
-    useCallback(() => {
-      if (isSignedIn) {
-        refetch();
-      }
-    }, [isSignedIn, refetch])
-  );
 
   // Get week dates for the day strip
   const weekDates = useMemo(() => {
@@ -699,8 +692,8 @@ export default function PlannerScreen() {
         contentContainerStyle={styles.contentContainer}
         refreshControl={
           <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
+            refreshing={isPullRefreshing}
+            onRefresh={onPullRefresh}
             tintColor={colors.tint}
           />
         }

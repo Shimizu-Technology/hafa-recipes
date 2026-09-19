@@ -15,7 +15,6 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Input, Chip, Button, useColors } from '@/components/Themed';
@@ -49,6 +48,7 @@ const GRID_PADDING = spacing.lg; // 24px on each side
 const GRID_GAP = spacing.sm; // Gap between cards
 const GRID_CARD_WIDTH = (SCREEN_WIDTH - (GRID_PADDING * 2) - GRID_GAP) / 2;
 import { useAuth } from '@clerk/expo';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useViewPreference } from '@/hooks/useViewPreference';
 
 const ITEMS_PER_PAGE = 20;
@@ -340,7 +340,6 @@ export default function HistoryScreen() {
     isLoading: isLoadingRecipes,
     isError: isRecipesError,
     refetch: refetchRecipes,
-    isRefetching: isRefetchingRecipes,
     fetchNextPage: fetchNextRecipes,
     hasNextPage: hasMoreRecipes,
     isFetchingNextPage: isFetchingNextRecipes,
@@ -373,31 +372,22 @@ export default function HistoryScreen() {
     isLoading: isLoadingSaved,
     isError: isSavedRecipesError,
     refetch: refetchSaved,
-    isRefetching: isRefetchingSaved,
     fetchNextPage: fetchNextSaved,
     hasNextPage: hasMoreSaved,
   } = useSavedRecipes(isAuthenticated);
 
   const isLoading = (showOwnRecipes && isLoadingRecipes) || (showSavedRecipes && isLoadingSaved);
-  const isRefetching = (showOwnRecipes && isRefetchingRecipes) || (showSavedRecipes && isRefetchingSaved);
   const hasPrimaryLoadError = hasActiveFilters
     ? isSearchError
     : (showOwnRecipes && isRecipesError) || (showSavedRecipes && isSavedRecipesError);
 
-  const handleRefreshAll = useCallback(() => {
-    if (hasActiveFilters) refetchSearch();
-    if (showOwnRecipes) refetchRecipes();
-    if (showSavedRecipes) refetchSaved();
+  const handleRefreshAll = useCallback(async () => {
+    await Promise.all([
+      hasActiveFilters ? refetchSearch() : Promise.resolve(),
+      showOwnRecipes ? refetchRecipes() : Promise.resolve(),
+      showSavedRecipes ? refetchSaved() : Promise.resolve(),
+    ]);
   }, [hasActiveFilters, refetchRecipes, refetchSaved, refetchSearch, showOwnRecipes, showSavedRecipes]);
-
-  // Refetch when tab gains focus (handles cache cleared on user change)
-  useFocusEffect(
-    useCallback(() => {
-      if (isAuthenticated) {
-        refetchRecipes();
-      }
-    }, [isAuthenticated, refetchRecipes])
-  );
 
   // Handle filter apply
   const handleApplyFilters = useCallback((filters: FilterState) => {
@@ -486,10 +476,11 @@ export default function HistoryScreen() {
   }, [ownershipFilter, hasMoreSaved, hasMoreRecipes, hasMoreSearchResults, hasActiveFilters]);
   const hasMore = hasMoreLocal || hasMoreServer;
 
-  const handleRefresh = useCallback(() => {
+  const refreshLibrary = useCallback(async () => {
     setDisplayCount(ITEMS_PER_PAGE);
-    handleRefreshAll();
+    await handleRefreshAll();
   }, [handleRefreshAll]);
+  const { isPullRefreshing, onPullRefresh } = usePullToRefresh(refreshLibrary);
 
   const handleLoadMore = () => {
     if (hasMoreLocal) {
@@ -728,9 +719,6 @@ export default function HistoryScreen() {
                 </Text>
               </RNView>
             )}
-            {isRefetching && (
-              <ActivityIndicator size="small" color={colors.tint} style={{ marginLeft: spacing.sm }} />
-            )}
           </RNView>
 
           {/* Overflow menu */}
@@ -759,7 +747,7 @@ export default function HistoryScreen() {
         </TouchableOpacity>
       </RNView>
     );
-  }, [colors, totalCount, isRefetching, router, hasActiveFilters, combinedRecipes, isSelectionMode, selectedRecipeIds.size, displayRecipes?.length, exitSelectionMode, selectAllRecipes, clearSelection, handleShowHeaderMenu]);
+  }, [colors, totalCount, router, hasActiveFilters, combinedRecipes, isSelectionMode, selectedRecipeIds.size, displayRecipes?.length, exitSelectionMode, selectAllRecipes, clearSelection, handleShowHeaderMenu]);
 
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
@@ -1037,8 +1025,8 @@ export default function HistoryScreen() {
           onScrollBeginDrag={Keyboard.dismiss}
           refreshControl={
             <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={handleRefresh}
+              refreshing={isPullRefreshing}
+              onRefresh={onPullRefresh}
               tintColor={colors.tint}
             />
           }

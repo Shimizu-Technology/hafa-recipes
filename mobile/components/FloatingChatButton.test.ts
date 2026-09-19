@@ -128,7 +128,7 @@ describe('FloatingChatButton', () => {
     }
   });
 
-  it('uses a labeled, accessible cooking-assistant entry point', async () => {
+  it('keeps the compact cooking-assistant entry point accessible', async () => {
     mocks.isSignedIn = true;
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
@@ -138,8 +138,9 @@ describe('FloatingChatButton', () => {
         (instance) => instance.props.accessibilityLabel === 'Ask Håfa cooking assistant',
       )[0];
       expect(button.props.accessibilityRole).toBe('button');
+      expect(button.props.accessibilityHint).toBe('Opens cooking help');
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'Text' && instance.props.children === 'Ask Håfa',
+        (instance) => instance.type === 'Ionicons' && instance.props.name === 'sparkles',
       )).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());

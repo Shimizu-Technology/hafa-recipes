@@ -59,6 +59,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }));
+vi.mock('expo-share-intent', () => ({
+  ShareIntentModule: {
+    getPendingShareCount: vi.fn(async () => 0),
+    getShareIntent: vi.fn(),
+  },
+}));
 
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');

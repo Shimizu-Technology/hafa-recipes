@@ -18,10 +18,10 @@ import Animated, {
   useSharedValue,
 } from 'react-native-reanimated';
 
-import { Text, useColors } from '@/components/Themed';
+import { useColors } from '@/components/Themed';
 import RecipeChatModal from '@/components/RecipeChatModal';
 import { haptics } from '@/utils/haptics';
-import { brand, fontFamily, fontSize, radius, spacing } from '@/constants/Colors';
+import { brand, radius, spacing } from '@/constants/Colors';
 import { floatingChatBottom, isFloatingChatPath } from '@/lib/floatingChatLayout';
 import { useGuestPromptHeight } from '../lib/guestPromptLayout';
 
@@ -108,10 +108,7 @@ export default function FloatingChatButton() {
                 end={{ x: 1, y: 1 }}
                 style={styles.fabGradient}
               >
-                <RNView style={styles.fabContent}>
-                  <Ionicons name="sparkles" size={18} color="#FFFFFF" />
-                  <Text style={styles.fabLabel}>Ask Håfa</Text>
-                </RNView>
+                <Ionicons name="sparkles" size={22} color="#FFFFFF" />
               </LinearGradient>
             </TouchableOpacity>
           </RNView>
@@ -145,21 +142,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   fabGradient: {
-    minHeight: 52,
+    width: 52,
+    height: 52,
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.md,
-  },
-  fabContent: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.sm,
-    justifyContent: 'center',
-  },
-  fabLabel: {
-    color: '#FFFFFF',
-    fontFamily: fontFamily.semibold,
-    fontSize: fontSize.sm,
   },
 });

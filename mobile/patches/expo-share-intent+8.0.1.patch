@@ -1,0 +1,163 @@
+diff --git a/node_modules/expo-share-intent/build/ExpoShareIntentModule.d.ts b/node_modules/expo-share-intent/build/ExpoShareIntentModule.d.ts
+index c1179ac..df0a90d 100644
+--- a/node_modules/expo-share-intent/build/ExpoShareIntentModule.d.ts
++++ b/node_modules/expo-share-intent/build/ExpoShareIntentModule.d.ts
+@@ -7,6 +7,7 @@ type ExpoShareIntentModuleEvents = {
+ };
+ declare class ExpoShareIntentModuleType extends NativeModule<ExpoShareIntentModuleEvents> {
+     getShareIntent(url: string): string;
++    getPendingShareCount(): Promise<number>;
+     clearShareIntent(key: string): Promise<void>;
+     hasShareIntent(key: string): boolean;
+ }
+diff --git a/node_modules/expo-share-intent/build/useShareIntent.js b/node_modules/expo-share-intent/build/useShareIntent.js
+index 1ab12c4..e9c58ad 100644
+--- a/node_modules/expo-share-intent/build/useShareIntent.js
++++ b/node_modules/expo-share-intent/build/useShareIntent.js
+@@ -30,6 +30,7 @@ export default function useShareIntent(options = SHAREINTENT_OPTIONS_DEFAULT) {
+         if (isValueAvailable(shareIntent)) {
+             setSharedIntent(SHAREINTENT_DEFAULTVALUE);
+             options.onResetShareIntent?.();
++            // Leave later captures queued until the user asks to import them.
+         }
+     };
+     /**
+@@ -45,8 +46,7 @@ export default function useShareIntent(options = SHAREINTENT_OPTIONS_DEFAULT) {
+             ExpoShareIntentModule?.getShareIntent("");
+         }
+         else if (Platform.OS === "ios") {
+-            options.debug &&
+-                console.debug("useShareIntent[refresh] not a valid refresh url");
++            ExpoShareIntentModule?.getShareIntent("");
+         }
+     };
+     useEffect(() => {
+@@ -54,7 +54,9 @@ export default function useShareIntent(options = SHAREINTENT_OPTIONS_DEFAULT) {
+             return;
+         options.debug &&
+             console.debug("useShareIntent[mount]", getScheme(options), options);
+-        refreshShareIntent();
++        // Native events need their onChange subscriber installed first.
++        const refreshTimer = setTimeout(refreshShareIntent, 0);
++        return () => clearTimeout(refreshTimer);
+     }, [url, options.disabled]);
+     /**
+      * Handle application state (active, background, inactive)
+diff --git a/node_modules/expo-share-intent/ios/ExpoShareIntentModule.swift b/node_modules/expo-share-intent/ios/ExpoShareIntentModule.swift
+index e52b6d0..c3a23cc 100644
+--- a/node_modules/expo-share-intent/ios/ExpoShareIntentModule.swift
++++ b/node_modules/expo-share-intent/ios/ExpoShareIntentModule.swift
+@@ -9,6 +9,7 @@ import Foundation
+ import Photos
+ 
+ public class ExpoShareIntentModule: Module {
++    private let pendingQueueKey = "hafarecipesShareKey.pending"
+     // Each module class must implement the definition function. The definition consists of components
+     // that describes the module's functionality and behavior.
+     // See https://docs.expo.dev/modules/module-api for more details about available components.
+@@ -23,7 +24,11 @@ public class ExpoShareIntentModule: Module {
+         // Defines a JavaScript function that always returns a Promise and whose native code
+         // is by default dispatched on the different thread than the JavaScript runtime runs on.
+         AsyncFunction("getShareIntent") { (url: String) in
+-            let fileUrl = URL(string: url)
++            let appGroup = self.getAppGroupIdentifier()
++            let defaults = appGroup.flatMap { UserDefaults(suiteName: $0) }
++            let pendingUrl = defaults?.stringArray(forKey: self.pendingQueueKey)?.first
++            if url.isEmpty && pendingUrl == nil { return }
++            let fileUrl = URL(string: url.isEmpty ? (pendingUrl ?? "") : url)
+             let json = handleUrl(url: fileUrl)
+             if json != "error" && json != "empty" {
+                 self.sendEvent(
+@@ -37,10 +42,26 @@ public class ExpoShareIntentModule: Module {
+         Function("clearShareIntent") { (sharedKey: String) in
+             let appGroupIdentifier = self.getAppGroupIdentifier()
+             let userDefaults = UserDefaults(suiteName: appGroupIdentifier)
+-            userDefaults?.set(nil, forKey: sharedKey)
++            let pendingKey = "\(sharedKey).pending"
++            var pending = userDefaults?.stringArray(forKey: pendingKey) ?? []
++            if !pending.isEmpty {
++                let completed = pending.removeFirst()
++                if let captureKey = URL(string: completed)?.host?.components(separatedBy: "=").last {
++                    userDefaults?.removeObject(forKey: captureKey)
++                }
++                userDefaults?.set(pending, forKey: pendingKey)
++            } else {
++                userDefaults?.removeObject(forKey: sharedKey)
++            }
+             userDefaults?.synchronize()
+         }
+ 
++        AsyncFunction("getPendingShareCount") { () -> Int in
++            let appGroupIdentifier = self.getAppGroupIdentifier()
++            let userDefaults = UserDefaults(suiteName: appGroupIdentifier)
++            return userDefaults?.stringArray(forKey: self.pendingQueueKey)?.count ?? 0
++        }
++
+         Function("hasShareIntent") { (key: String) in
+             // for Android only
+             return false
+diff --git a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
+index f1f4b72..ab712e2 100644
+--- a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
++++ b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
+@@ -490,24 +490,43 @@ class ShareViewController: UIViewController {
+   }
+ 
+   private func redirectToHostApp(type: RedirectType) {
+-    let nonce = UUID().uuidString
+-    let url = URL(string: "\(shareProtocol)://dataUrl=\(sharedKey)?nonce=\(nonce)#\(type)")!
+-    var responder = self as UIResponder?
+-
+-    while responder != nil {
+-      if let application = responder as? UIApplication {
+-        if application.canOpenURL(url) {
+-          application.open(url)
+-        } else {
+-          NSLog("redirectToHostApp canOpenURL KO: \(shareProtocol)")
+-          self.dismissWithError(
+-            message: "Application not found, invalid url scheme \(shareProtocol)")
+-          return
+-        }
+-      }
+-      responder = responder!.next
++    // A Share extension cannot reliably open its containing app. Opening via
++    // UIApplication's responder chain leaves some hosts dimmed after return.
++    // Move this capture to a unique app-group key and let the app drain it.
++    guard let defaults = UserDefaults(suiteName: hostAppGroupIdentifier),
++      let captured = defaults.object(forKey: sharedKey)
++    else {
++      dismissWithError(message: "Could not save shared recipe")
++      return
++    }
++
++    let captureKey = "\(sharedKey).\(UUID().uuidString)"
++    let pendingKey = "\(sharedKey).pending"
++    let url = "\(shareProtocol)://dataUrl=\(captureKey)#\(type)"
++    defaults.set(captured, forKey: captureKey)
++    defaults.removeObject(forKey: sharedKey)
++    var pending = defaults.stringArray(forKey: pendingKey) ?? []
++    pending.append(url)
++    defaults.set(pending, forKey: pendingKey)
++    defaults.synchronize()
++
++    let confirmation = UILabel()
++    confirmation.translatesAutoresizingMaskIntoConstraints = false
++    confirmation.text = "Saved to Håfa\nOpen Håfa to finish importing"
++    confirmation.numberOfLines = 2
++    confirmation.textAlignment = .center
++    confirmation.textColor = .label
++    confirmation.font = .preferredFont(forTextStyle: .headline)
++    view.backgroundColor = .systemBackground
++    view.addSubview(confirmation)
++    NSLayoutConstraint.activate([
++      confirmation.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
++      confirmation.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
++      confirmation.centerYAnchor.constraint(equalTo: view.centerYAnchor),
++    ])
++    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
++      self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+     }
+-    extensionContext!.completeRequest(returningItems: [], completionHandler: nil)
+   }
+ 
+   enum RedirectType {

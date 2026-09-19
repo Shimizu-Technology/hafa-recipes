@@ -6,10 +6,10 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import { useAuth } from '@clerk/expo';
 import { useRouter } from 'expo-router';
-import { useShareIntentContext } from 'expo-share-intent';
+import { ShareIntentModule, useShareIntentContext } from 'expo-share-intent';
 import { resolveShareIntent, stagePendingShareCapture } from '@/lib/shareCapture';
 
 /**
@@ -23,9 +23,20 @@ export function useHandleShareIntent() {
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
   const [isProcessing, setIsProcessing] = useState(false);
   const processingRef = useRef(false);
+  const awaitingSignInRef = useRef(false);
+  const previousSignInRef = useRef(isSignedIn);
 
   useEffect(() => {
-    if (isLoaded && hasShareIntent && shareIntent && !processingRef.current) {
+    if (previousSignInRef.current === false && isSignedIn === true) {
+      awaitingSignInRef.current = false;
+      if (Platform.OS === 'ios') void ShareIntentModule?.getShareIntent('');
+    }
+    previousSignInRef.current = isSignedIn;
+  }, [isSignedIn]);
+
+  useEffect(() => {
+    if (isLoaded && hasShareIntent && shareIntent && !processingRef.current &&
+        (isSignedIn || !awaitingSignInRef.current)) {
       processingRef.current = true;
       setIsProcessing(true);
 
@@ -43,16 +54,17 @@ export function useHandleShareIntent() {
           const captureToken = stagePendingShareCapture({ kind: 'images', images: action.images });
           router.replace({ pathname: '/', params: { captureToken } });
         } else if (action.kind === 'sign-in-required') {
+          awaitingSignInRef.current = true;
           Alert.alert(
             'Sign In to Import',
-            'Sign in to Håfa Recipes, then share the recipe again.',
+            'Sign in to Håfa Recipes to finish importing. Your share will stay ready.',
           );
-          router.replace('/(tabs)/discover');
+          router.replace('/(auth)/sign-in');
         } else {
           Alert.alert('Could Not Import Share', action.message);
         }
 
-        resetShareIntent();
+        resetShareIntent(action.kind !== 'sign-in-required');
         processingRef.current = false;
         setIsProcessing(false);
       }, 300);

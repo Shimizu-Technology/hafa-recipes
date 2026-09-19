@@ -96,7 +96,7 @@ function RootLayout() {
 
   return (
     <ThemeProvider>
-      <ShareIntentProvider>
+      <ShareIntentProvider options={{ resetOnBackground: false }}>
         <ClerkProvider 
           publishableKey={CLERK_PUBLISHABLE_KEY} 
           tokenCache={tokenCache}
