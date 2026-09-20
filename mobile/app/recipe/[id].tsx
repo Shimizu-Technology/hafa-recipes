@@ -96,6 +96,8 @@ function SimilarRecipeCard({
   onPress: () => void;
   colors: ReturnType<typeof useColors>;
 }) {
+  const metaLabel = item.total_time || getRecipeSourcePresentation(item.source_type).label;
+
   return (
     <TouchableOpacity
       style={[styles.similarCard, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
@@ -114,11 +116,9 @@ function SimilarRecipeCard({
         >
           {item.title}
         </Text>
-        {item.total_time && (
-          <Text style={[styles.similarCardMeta, { color: colors.textMuted }]}>
-            {item.total_time}
-          </Text>
-        )}
+        <Text style={[styles.similarCardMeta, { color: colors.textMuted }]} numberOfLines={1}>
+          {metaLabel}
+        </Text>
       </RNView>
     </TouchableOpacity>
   );
@@ -2467,14 +2467,17 @@ const styles = StyleSheet.create({
   },
   similarCardContent: {
     padding: spacing.sm,
+    minHeight: 76,
+    justifyContent: 'space-between',
   },
   similarCardTitle: {
+    minHeight: 36,
     fontSize: fontSize.sm,
     fontWeight: fontWeight.semibold,
     lineHeight: fontSize.sm * 1.3,
   },
   similarCardMeta: {
     fontSize: fontSize.xs,
-    marginTop: spacing.xs,
+    lineHeight: 16,
   },
 });

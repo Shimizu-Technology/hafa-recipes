@@ -9,7 +9,6 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
   ScrollView,
-  Dimensions,
   Alert,
   Modal,
   Pressable,
@@ -53,10 +52,6 @@ import {
 import { newlyExposedThumbnailUrls } from '@/lib/recipeImagePrefetch';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const GRID_PADDING = spacing.lg; // 24px on each side
-const GRID_GAP = spacing.sm; // Gap between cards
-const GRID_CARD_WIDTH = (SCREEN_WIDTH - (GRID_PADDING * 2) - GRID_GAP) / 2;
 import { useViewPreference } from '@/hooks/useViewPreference';
 import { SkeletonRecipeList } from '@/components/Skeleton';
 import { AnimatedListItem, ScalePressable } from '@/components/Animated';
@@ -67,6 +62,10 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
+import {
+  RecipeGridCardFrame,
+  RECIPE_GRID_GAP,
+} from '@/components/RecipeGridCardFrame';
 import { Image as ExpoImage } from 'expo-image';
 
 const ITEMS_PER_PAGE = 20;
@@ -337,70 +336,61 @@ function GridRecipeCard({
   const showSaveButton = !!currentUserId && !isOwner;
 
   return (
-    <ScalePressable
-      style={[styles.gridCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+    <RecipeGridCardFrame
+      title={recipe.title}
+      thumbnailUrl={recipe.thumbnail_url}
       onPress={onPress}
-    >
-      <RNView style={styles.gridThumbnailContainer}>
-        <RecipeThumbnail
-          uri={recipe.thumbnail_url}
-          style={styles.gridThumbnail}
-          accessibilityLabel={`${recipe.title} photo`}
-          placeholderIconSize={40}
-          priority={imagePriority}
-        />
-
-        {/* Cook time badge - top left */}
-        {recipe.total_time && (
-          <RNView style={[
-            styles.gridTimeBadge,
-            showSaveButton && { maxWidth: GRID_CARD_WIDTH - 56 },
-            { backgroundColor: 'rgba(0,0,0,0.7)' },
-          ]}>
-            <Ionicons name="time-outline" size={10} color="#FFFFFF" />
-            <Text style={styles.gridTimeText} numberOfLines={1}>{recipe.total_time}</Text>
-          </RNView>
-        )}
-
-        {/* Save button - top right */}
-        {showSaveButton && (
-          <RNView style={styles.gridSaveButtonContainer}>
-            <SaveButton
-              recipeId={recipe.id}
-              initialIsSaved={recipe.is_saved}
-              colors={colors}
-              isOwner={isOwner}
-            />
-          </RNView>
-        )}
-
-      </RNView>
-      <RNView style={styles.gridCardContent}>
-        <Text style={[styles.gridCardTitle, { color: colors.text }]} numberOfLines={2}>
-          {recipe.title}
-        </Text>
-        {recipe.extractor_display_name && (
-          canFilterByUser && onUserPress ? (
-            <TouchableOpacity
-              onPress={(e) => {
-                e.stopPropagation?.();
-                haptics.light();
-                onUserPress(contributorId!, recipe.extractor_display_name!);
-              }}
-              hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-            >
-              <Text style={[styles.gridCardAuthor, { color: colors.textSecondary }]} numberOfLines={1}>
-                by {recipe.extractor_display_name}
-              </Text>
-            </TouchableOpacity>
-          ) : (
+      colors={colors}
+      imagePriority={imagePriority}
+      imageAdornment={(
+        <>
+          {recipe.total_time && (
+            <RNView style={[
+              styles.gridTimeBadge,
+              { maxWidth: showSaveButton ? '65%' : '85%' },
+              { backgroundColor: 'rgba(0,0,0,0.7)' },
+            ]}>
+              <Ionicons name="time-outline" size={10} color="#FFFFFF" />
+              <Text style={styles.gridTimeText} numberOfLines={1}>{recipe.total_time}</Text>
+            </RNView>
+          )}
+          {showSaveButton && (
+            <RNView style={styles.gridSaveButtonContainer}>
+              <SaveButton
+                recipeId={recipe.id}
+                initialIsSaved={recipe.is_saved}
+                colors={colors}
+                isOwner={isOwner}
+              />
+            </RNView>
+          )}
+        </>
+      )}
+      footer={recipe.extractor_display_name ? (
+        canFilterByUser && onUserPress ? (
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation?.();
+              haptics.light();
+              onUserPress(contributorId!, recipe.extractor_display_name!);
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+          >
             <Text style={[styles.gridCardAuthor, { color: colors.textSecondary }]} numberOfLines={1}>
               by {recipe.extractor_display_name}
             </Text>
-          )
-        )}
-      </RNView>
-    </ScalePressable>
+          </TouchableOpacity>
+        ) : (
+          <Text style={[styles.gridCardAuthor, { color: colors.textSecondary }]} numberOfLines={1}>
+            by {recipe.extractor_display_name}
+          </Text>
+        )
+      ) : (
+        <Text style={[styles.gridCardAuthor, { color: colors.textSecondary }]} numberOfLines={1}>
+          {getRecipeSourcePresentation(recipe.source_type).label}
+        </Text>
+      )}
+    />
   );
 }
 
@@ -1493,24 +1483,7 @@ const styles = StyleSheet.create({
   // Grid view styles
   gridRow: {
     justifyContent: 'space-between',
-    gap: GRID_GAP,
-  },
-  gridCard: {
-    width: GRID_CARD_WIDTH,
-    borderRadius: radius.md,
-    marginBottom: spacing.sm,
-    overflow: 'hidden',
-    borderWidth: 1,
-    ...shadows.card,
-  },
-  gridThumbnailContainer: {
-    width: '100%',
-    aspectRatio: 1,
-    position: 'relative',
-  },
-  gridThumbnail: {
-    width: '100%',
-    height: '100%',
+    gap: RECIPE_GRID_GAP,
   },
   gridTimeBadge: {
     position: 'absolute',
@@ -1528,9 +1501,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: spacing.xs,
     right: spacing.xs,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: radius.full,
-    padding: spacing.xs,
   },
   gridTimeText: {
     flexShrink: 1,
@@ -1538,18 +1508,9 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     fontFamily: fontFamily.medium,
   },
-  gridCardContent: {
-    padding: spacing.sm,
-    minHeight: 72,
-  },
-  gridCardTitle: {
-    fontSize: fontSize.sm,
-    fontFamily: fontFamily.semibold,
-    lineHeight: 18,
-  },
   gridCardAuthor: {
     fontSize: fontSize.xs,
-    marginTop: 4,
+    lineHeight: 16,
   },
   viewToggleButton: {
     width: 36,

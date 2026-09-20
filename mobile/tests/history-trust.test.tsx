@@ -18,6 +18,7 @@ vi.mock('react-native', () => ({
   RefreshControl: 'RefreshControl',
   ScrollView: 'ScrollView',
   StyleSheet: { create: (styles: unknown) => styles },
+  useWindowDimensions: () => ({ width: 390, fontScale: 1 }),
   TouchableOpacity: 'TouchableOpacity',
   TouchableWithoutFeedback: 'TouchableWithoutFeedback',
   View: 'View',
