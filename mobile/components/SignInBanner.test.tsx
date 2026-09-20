@@ -38,10 +38,6 @@ vi.mock('@/constants/Colors', () => ({
 }));
 
 import { SignInBanner } from './SignInBanner';
-import {
-  getGuestPromptHeight,
-  guestPromptBottomPadding,
-} from '../lib/guestPromptLayout';
 
 describe('SignInBanner', () => {
   beforeEach(() => {
@@ -72,8 +68,8 @@ describe('SignInBanner', () => {
       const banner = renderer.container.queryAll(
         (instance) => instance.props.accessibilityRole === 'summary',
       )[0];
-      await act(async () => banner.props.onLayout({ nativeEvent: { layout: { height: 140 } } }));
-      expect(getGuestPromptHeight()).toBe(140);
+      expect(banner.props.style).toContainEqual(expect.objectContaining({ marginBottom: 8 }));
+      expect(banner.props.style).not.toContainEqual(expect.objectContaining({ position: 'absolute' }));
 
       await act(async () => createAccount.props.onPress());
       await act(async () => signIn.props.onPress());
@@ -84,7 +80,6 @@ describe('SignInBanner', () => {
       await act(async () => renderer.unmount());
     }
 
-    expect(getGuestPromptHeight()).toBe(0);
   });
 
   it('moves the sign-in action below the copy at accessibility text sizes', async () => {
@@ -107,8 +102,4 @@ describe('SignInBanner', () => {
     }
   });
 
-  it('reserves the full measured prompt height below guest content', () => {
-    expect(guestPromptBottomPadding(112, false, 196)).toBe(308);
-    expect(guestPromptBottomPadding(112, true, 196)).toBe(112);
-  });
 });

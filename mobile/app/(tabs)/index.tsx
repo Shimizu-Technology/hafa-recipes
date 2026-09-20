@@ -21,7 +21,6 @@ import { ShareIntentModule } from 'expo-share-intent';
 import { View, Text, Input, Button, Chip, useColors } from '@/components/Themed';
 import ExtractionProgress from '@/components/ExtractionProgress';
 import { SignInBanner } from '@/components/SignInBanner';
-import { guestPromptBottomPadding, useGuestPromptHeight } from '../../lib/guestPromptLayout';
 import { useExtractionJobs, useLocations, useCheckDuplicate, useSaveCapturedRecipe } from '@/hooks/useRecipes';
 import { useAsyncExtraction } from '@/contexts/ExtractionContext';
 import { ImportActivityCard } from '@/components/ImportActivityCard';
@@ -41,7 +40,6 @@ export default function ExtractScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { isSignedIn } = useAuth();
-  const guestPromptHeight = useGuestPromptHeight();
   const { sharedUrl, captureToken } = useLocalSearchParams<{
     sharedUrl?: string;
     captureToken?: string;
@@ -705,11 +703,7 @@ export default function ExtractScreen() {
           contentContainerStyle={[
             styles.scrollContent,
             {
-              paddingBottom: guestPromptBottomPadding(
-                Math.max(insets.bottom, 80) + spacing.xl,
-                Boolean(isSignedIn),
-                guestPromptHeight,
-              ),
+              paddingBottom: Math.max(insets.bottom, 80) + spacing.xl,
             }
           ]}
           keyboardShouldPersistTaps="handled"
@@ -931,10 +925,9 @@ export default function ExtractScreen() {
             </Text>
           </RNView>
         </ScrollView>
-      </KeyboardAvoidingView>
 
-      {/* Sign In Banner for guests */}
-      {!isSignedIn && <SignInBanner message="Sign in to extract recipes" />}
+        {!isSignedIn && <SignInBanner message="Sign in to extract recipes" />}
+      </KeyboardAvoidingView>
     </RNView>
   );
 }

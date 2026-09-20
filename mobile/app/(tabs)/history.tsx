@@ -18,7 +18,6 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Input, Chip, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
-import { guestPromptBottomPadding, useGuestPromptHeight } from '../../lib/guestPromptLayout';
 import FilterBottomSheet, { FilterState, SourceFilter, TimeFilter, OwnershipFilter } from '@/components/FilterBottomSheet';
 import CreateCollectionModal from '@/components/CreateCollectionModal';
 import BulkAddToCollectionModal from '@/components/BulkAddToCollectionModal';
@@ -278,7 +277,6 @@ export default function HistoryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { userId, isSignedIn } = useAuth();
-  const guestPromptHeight = useGuestPromptHeight();
   const [searchQuery, setSearchQuery] = useState('');
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
   const [showFilterModal, setShowFilterModal] = useState(false);
@@ -1002,11 +1000,7 @@ export default function HistoryScreen() {
           contentContainerStyle={[
             styles.listContent,
             {
-              paddingBottom: guestPromptBottomPadding(
-                insets.bottom + spacing.xl + 80,
-                Boolean(isSignedIn),
-                guestPromptHeight,
-              ),
+              paddingBottom: insets.bottom + spacing.xl + 80,
             },
           ]}
           showsVerticalScrollIndicator={false}
