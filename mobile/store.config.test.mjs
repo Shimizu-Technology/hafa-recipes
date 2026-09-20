@@ -23,7 +23,7 @@ const listing = {
 };
 
 describe('App Store release metadata', () => {
-  it('publishes the reviewed listing and releases automatically with phased updates', () => {
+  it('publishes the reviewed listing and releases automatically to all users', () => {
     const config = buildStoreConfig({ environment, listing });
     const info = config.apple.info['en-US'];
 
