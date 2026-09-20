@@ -2,7 +2,7 @@
   "expo": {
     "name": "Håfa Recipes",
     "slug": "recipe-extractor",
-    "version": "2.6.3",
+    "version": "2.6.4",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "hafarecipes",
@@ -17,7 +17,7 @@
       "supportsTablet": true,
       "usesAppleSignIn": true,
       "bundleIdentifier": "com.shimizutechnology.recipeextractor",
-      "buildNumber": "32",
+      "buildNumber": "80",
       "privacyManifests": {
         "NSPrivacyTracking": false,
         "NSPrivacyCollectedDataTypes": [],

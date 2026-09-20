@@ -4,6 +4,14 @@ All notable changes to Recipe Extractor.
 
 ## [Unreleased]
 
+## [2.6.4] - September 2026
+
+### Improved
+
+- Replace the ambiguous header sparkle with a labeled Ask Håfa chat action
+  above the tab bar. It has its own layout space so it cannot cover recipes,
+  and moves out of the way while typing.
+
 ## [2.6.3] - September 2026
 
 ### Improved
