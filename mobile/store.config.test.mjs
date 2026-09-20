@@ -23,12 +23,12 @@ const listing = {
 };
 
 describe('App Store release metadata', () => {
-  it('publishes the reviewed listing and requires a controlled phased release', () => {
+  it('publishes the reviewed listing and releases automatically to all users', () => {
     const config = buildStoreConfig({ environment, listing });
     const info = config.apple.info['en-US'];
 
     expect(config.apple.version).toBe('2.6.2');
-    expect(config.apple.release).toEqual({ automaticRelease: false, phasedRelease: true });
+    expect(config.apple.release).toEqual({ automaticRelease: true, phasedRelease: false });
     expect(info.subtitle).toBe(APP_SUBTITLE);
     expect(info.description).toBe(APP_DESCRIPTION);
     expect(info.description).not.toMatch(/\bbeta\b/i);
@@ -36,9 +36,12 @@ describe('App Store release metadata', () => {
     expect(info.privacyPolicyUrl).toBe('https://hafa-recipes.com/privacy');
     expect(info.supportUrl).toBe('https://hafa-recipes.com/support');
     expect(info.releaseNotes).toBe(RELEASE_NOTES);
+    expect(info.releaseNotes).toContain('Switching tabs now keeps your place');
+    expect(info.releaseNotes).toContain('Sharing a recipe from another app closes cleanly');
     expect(config.apple.review.demoRequired).toBe(true);
     expect(config.apple.review.demoUsername).toBe(environment.APP_REVIEW_EMAIL);
     expect(config.apple.review.notes).toContain('does not provide persistent background audio');
+    expect(config.apple.review.notes).toContain('The extension intentionally does not auto-open the app');
     expect(config.apple.advisory).toBeUndefined();
   });
 

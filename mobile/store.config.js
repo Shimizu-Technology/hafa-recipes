@@ -42,7 +42,7 @@ AI can make mistakes. Review extracted ingredients, directions, allergens, tempe
 
 Made in Guam by Shimizu Technology.`;
 const RELEASE_NOTES =
-  'Recipes save automatically after importing. Choose Public in Discover or Private before you start. If an ingredient amount or source detail is unclear, one optional Check details view lets you fix just that detail and keep cooking. Incomplete recipes stay in your private library until you add the missing information. Password sign-in now lets you finish additional verification when Clerk requests it.';
+  'Switching tabs now keeps your place without an unexpected refresh. Sharing a recipe from another app closes cleanly and saves it for you to finish importing in Håfa. Discover and Import are simpler, with recipes and the main actions easier to find.';
 
 function requiredEnvironmentValue(environment, name) {
   const value = String(environment[name] ?? '').trim();
@@ -110,8 +110,8 @@ function buildStoreConfig({ environment, listing }) {
       version: app.version,
       copyright: `${new Date().getFullYear()} Shimizu Technology`,
       release: {
-        automaticRelease: false,
-        phasedRelease: true,
+        automaticRelease: true,
+        phasedRelease: false,
       },
       info: {
         'en-US': {
@@ -133,7 +133,7 @@ function buildStoreConfig({ environment, listing }) {
         demoUsername: reviewerEmail,
         demoPassword: reviewerPassword,
         demoRequired: true,
-        notes: 'Use the provided email and password on the Sign In screen. The Discover tab and public recipe details are available without an account. Grocery lists, meal planning, recipe creation, Ask Håfa, and the interactive home-screen widget require the review account. The app does not provide persistent background audio. Audio is limited to foreground source-video playback, cook-mode narration, and timer sounds; timer completion while the app is backgrounded uses a local notification.',
+        notes: 'Use the provided email and password on the Sign In screen. The Discover tab and public recipe details are available without an account. Grocery lists, meal planning, recipe creation, Ask Håfa, and the interactive home-screen widget require the review account. To test sharing, share a recipe link from Safari to Håfa Recipes. The share extension confirms capture and closes back to Safari; open Håfa Recipes and go to Import to finish the queued recipe. The extension intentionally does not auto-open the app. The app does not provide persistent background audio. Audio is limited to foreground source-video playback, cook-mode narration, and timer sounds; timer completion while the app is backgrounded uses a local notification.',
       },
     },
   };
