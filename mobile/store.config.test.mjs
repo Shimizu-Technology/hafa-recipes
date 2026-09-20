@@ -27,7 +27,7 @@ describe('App Store release metadata', () => {
     const config = buildStoreConfig({ environment, listing });
     const info = config.apple.info['en-US'];
 
-    expect(config.apple.version).toBe('2.6.3');
+    expect(config.apple.version).toBe('2.6.4');
     expect(config.apple.release).toEqual({ automaticRelease: true, phasedRelease: false });
     expect(info.subtitle).toBe(APP_SUBTITLE);
     expect(info.description).toBe(APP_DESCRIPTION);
@@ -36,8 +36,8 @@ describe('App Store release metadata', () => {
     expect(info.privacyPolicyUrl).toBe('https://hafa-recipes.com/privacy');
     expect(info.supportUrl).toBe('https://hafa-recipes.com/support');
     expect(info.releaseNotes).toBe(RELEASE_NOTES);
-    expect(info.releaseNotes).toContain('Recipe cards in Discover and Library');
-    expect(info.releaseNotes).toContain('sign-in prompts no longer cover recipes');
+    expect(info.releaseNotes).toContain('clear chat button above the tab bar');
+    expect(info.releaseNotes).toContain('without covering recipes');
     expect(config.apple.review.demoRequired).toBe(true);
     expect(config.apple.review.demoUsername).toBe(environment.APP_REVIEW_EMAIL);
     expect(config.apple.review.notes).toContain('does not provide persistent background audio');

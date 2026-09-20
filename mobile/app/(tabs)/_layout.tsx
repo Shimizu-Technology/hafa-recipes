@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react';
-import { StyleSheet, View as RNView } from 'react-native';
 import { Tabs } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQueryClient } from '@tanstack/react-query';
@@ -8,7 +7,7 @@ import { useAuth } from '@clerk/expo';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { AccountHeaderButton, ImportTabIcon, TabHeaderBrand } from '@/components/TabChrome';
-import { AssistantHeaderButton } from '@/components/AssistantHeaderButton';
+import { AssistantTabBar } from '@/components/AssistantTabBar';
 import { prefetchTabData } from '@/lib/tabPrefetch';
 
 /** Configure the five primary cooking workflows and their shared app chrome. */
@@ -28,6 +27,7 @@ export default function TabLayout() {
 
   return (
     <Tabs
+      tabBar={(props) => <AssistantTabBar {...props} isSignedIn={Boolean(isSignedIn)} />}
       screenOptions={{
         tabBarActiveTintColor: colors.tint,
         tabBarInactiveTintColor: colors.tabIconDefault,
@@ -35,7 +35,7 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: colors.backgroundElevated,
           borderTopColor: colors.border,
-          borderTopWidth: 1,
+          borderTopWidth: isSignedIn ? 0 : 1,
           paddingTop: 6,
         },
         tabBarLabelStyle: {
@@ -54,12 +54,7 @@ export default function TabLayout() {
           borderBottomColor: colors.border,
         },
         headerTitle: () => <TabHeaderBrand />,
-        headerRight: () => (
-          <RNView style={styles.headerActions}>
-            {isSignedIn && <AssistantHeaderButton />}
-            <AccountHeaderButton />
-          </RNView>
-        ),
+        headerRight: () => <AccountHeaderButton />,
         headerRightContainerStyle: { paddingRight: 16 },
       }}>
       <Tabs.Screen
@@ -125,11 +120,3 @@ export default function TabLayout() {
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-});

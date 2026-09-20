@@ -15,8 +15,8 @@ vi.mock('react-native', () => ({
 vi.mock('expo-router', async () => {
   const ReactModule = await import('react');
   const Tabs = Object.assign(
-    ({ children, screenOptions }: { children: React.ReactNode; screenOptions: unknown }) =>
-      ReactModule.createElement('Tabs', { screenOptions }, children),
+    ({ children, screenOptions, tabBar }: { children: React.ReactNode; screenOptions: unknown; tabBar: unknown }) =>
+      ReactModule.createElement('Tabs', { screenOptions, tabBar }, children),
     { Screen: ({ name }: { name: string }) => ReactModule.createElement('TabScreen', { name }) },
   );
   return { Tabs };
@@ -37,12 +37,12 @@ vi.mock('@/components/TabChrome', () => ({
   ImportTabIcon: 'ImportTabIcon',
   TabHeaderBrand: 'TabHeaderBrand',
 }));
-vi.mock('@/components/AssistantHeaderButton', () => ({ AssistantHeaderButton: 'AssistantHeaderButton' }));
+vi.mock('@/components/AssistantTabBar', () => ({ AssistantTabBar: 'AssistantTabBar' }));
 vi.mock('@/lib/tabPrefetch', () => ({ prefetchTabData: vi.fn() }));
 
 import TabLayout from '@/app/(tabs)/_layout';
 
-describe('main tab header assistant', () => {
+describe('main tab assistant dock', () => {
   it.each([
     { isSignedIn: false, expectedAssistantCount: 0 },
     { isSignedIn: true, expectedAssistantCount: 1 },
@@ -53,11 +53,11 @@ describe('main tab header assistant', () => {
     try {
       await act(async () => renderer.render(<TabLayout />));
       const tabs = renderer.container.queryAll((instance) => instance.type === 'Tabs')[0];
-      await act(async () => renderer.render(tabs.props.screenOptions.headerRight()));
+      await act(async () => renderer.render(tabs.props.tabBar({})));
 
-      expect(renderer.container.queryAll(
-        (instance) => instance.type === 'AssistantHeaderButton',
-      )).toHaveLength(expectedAssistantCount);
+      expect(renderer.container.queryAll((instance) => instance.type === 'AssistantTabBar')[0]
+        .props.isSignedIn).toBe(Boolean(expectedAssistantCount));
+      await act(async () => renderer.render(tabs.props.screenOptions.headerRight()));
       expect(renderer.container.queryAll(
         (instance) => instance.type === 'AccountHeaderButton',
       )).toHaveLength(1);
