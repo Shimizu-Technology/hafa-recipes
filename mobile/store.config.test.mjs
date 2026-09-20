@@ -5,6 +5,7 @@ const require = createRequire(import.meta.url);
 const {
   APP_DESCRIPTION,
   APP_STORE_ID,
+  APP_KEYWORDS,
   APP_SUBTITLE,
   PROMO_TEXT,
   RELEASE_NOTES,
@@ -30,6 +31,8 @@ describe('App Store release metadata', () => {
     expect(config.apple.version).toBe('2.6.4');
     expect(config.apple.release).toEqual({ automaticRelease: true, phasedRelease: false });
     expect(info.subtitle).toBe(APP_SUBTITLE);
+    expect(info.keywords).toEqual(APP_KEYWORDS);
+    expect(info.keywords.join(',').length).toBeLessThanOrEqual(100);
     expect(info.description).toBe(APP_DESCRIPTION);
     expect(info.description).not.toMatch(/\bbeta\b/i);
     expect(info.promoText).toBe(PROMO_TEXT);
