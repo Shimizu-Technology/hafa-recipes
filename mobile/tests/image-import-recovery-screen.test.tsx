@@ -149,10 +149,6 @@ vi.mock('@/constants/Colors', () => ({
   radius: { sm: 8, md: 14, lg: 20, xl: 28, xxl: 36, full: 9999 },
   spacing: { xs: 4, sm: 8, md: 16, lg: 24, xl: 32, xxl: 48 },
 }));
-vi.mock('../../lib/guestPromptLayout', () => ({
-  guestPromptBottomPadding: () => 0,
-  useGuestPromptHeight: () => 0,
-}));
 vi.mock('@/hooks/useRecipes', () => ({
   useSaveCapturedRecipe: () => ({ mutateAsync: mocks.save }),
   useCheckDuplicate: () => ({ mutateAsync: mocks.checkDuplicate }),

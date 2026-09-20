@@ -1,42 +1,28 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   useWindowDimensions,
-  type LayoutChangeEvent,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors } from '@/components/Themed';
 import { shadows, spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
-import {
-  clearGuestPromptHeight,
-  setGuestPromptHeight,
-} from '../lib/guestPromptLayout';
 
 interface SignInBannerProps {
   message?: string;
 }
 
-/** Show compact sign-in and account-creation actions above a primary tab bar. */
+/** Show guest account actions in the screen's layout, without covering content. */
 export function SignInBanner({ message = 'Sign in to use this feature' }: SignInBannerProps) {
   const colors = useColors();
   const router = useRouter();
   const { fontScale } = useWindowDimensions();
   const usesLargeTextLayout = fontScale >= 1.5;
-  const promptId = useRef(Symbol('guest-prompt')).current;
-
-  useEffect(() => () => clearGuestPromptHeight(promptId), [promptId]);
-
-  const handleLayout = (event: LayoutChangeEvent) => {
-    setGuestPromptHeight(promptId, event.nativeEvent.layout.height);
-  };
-
   return (
     <View
-      onLayout={handleLayout}
       style={[
         styles.container,
         usesLargeTextLayout && styles.containerLargeText,
@@ -83,10 +69,9 @@ export function SignInBanner({ message = 'Sign in to use this feature' }: SignIn
 
 const styles = StyleSheet.create({
   container: {
-    position: 'absolute',
-    bottom: 0,
-    left: spacing.md,
-    right: spacing.md,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,

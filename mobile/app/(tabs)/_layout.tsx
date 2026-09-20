@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { StyleSheet, View as RNView } from 'react-native';
 import { Tabs } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQueryClient } from '@tanstack/react-query';
@@ -7,6 +8,7 @@ import { useAuth } from '@clerk/expo';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { AccountHeaderButton, ImportTabIcon, TabHeaderBrand } from '@/components/TabChrome';
+import { AssistantHeaderButton } from '@/components/AssistantHeaderButton';
 import { prefetchTabData } from '@/lib/tabPrefetch';
 
 /** Configure the five primary cooking workflows and their shared app chrome. */
@@ -52,7 +54,12 @@ export default function TabLayout() {
           borderBottomColor: colors.border,
         },
         headerTitle: () => <TabHeaderBrand />,
-        headerRight: () => <AccountHeaderButton />,
+        headerRight: () => (
+          <RNView style={styles.headerActions}>
+            {isSignedIn && <AssistantHeaderButton />}
+            <AccountHeaderButton />
+          </RNView>
+        ),
         headerRightContainerStyle: { paddingRight: 16 },
       }}>
       <Tabs.Screen
@@ -118,3 +125,11 @@ export default function TabLayout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+});

@@ -27,7 +27,6 @@ import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 
 import { View, Text, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
-import { guestPromptBottomPadding, useGuestPromptHeight } from '../../lib/guestPromptLayout';
 import EditGroceryItemModal from '@/components/EditGroceryItemModal';
 import GroceryListSettingsModal from '@/components/GroceryListSettingsModal';
 import { GrocerySectionHeader } from '@/components/GrocerySectionHeader';
@@ -186,7 +185,6 @@ export default function GroceryScreen() {
   const { isLoaded, isSignedIn } = useAuth();
   const isAuthenticated = isLoaded && isSignedIn === true;
   const isGuest = isLoaded && isSignedIn === false;
-  const guestPromptHeight = useGuestPromptHeight();
   const { scaleFontSize } = useTextSize();
   const router = useRouter();
   const { focusAdd, editItem } = useLocalSearchParams<{
@@ -901,11 +899,7 @@ export default function GroceryScreen() {
         contentContainerStyle={[
           styles.listContent,
           {
-            paddingBottom: guestPromptBottomPadding(
-              Math.max(insets.bottom, 80) + spacing.xl,
-              !isGuest,
-              guestPromptHeight,
-            ),
+            paddingBottom: Math.max(insets.bottom, 80) + spacing.xl,
           },
         ]}
         showsVerticalScrollIndicator={false}

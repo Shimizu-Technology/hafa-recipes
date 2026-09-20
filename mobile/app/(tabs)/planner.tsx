@@ -25,7 +25,6 @@ import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 
 import { View, Text, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
-import { guestPromptBottomPadding, useGuestPromptHeight } from '../../lib/guestPromptLayout';
 import { AnimatedListItem, ScalePressable } from '@/components/Animated';
 import RecipePickerModal from '@/components/RecipePickerModal';
 import { PlannerRecipeHandoffCard } from '@/components/PlannerRecipeHandoffCard';
@@ -306,7 +305,6 @@ export default function PlannerScreen() {
   const insets = useSafeAreaInsets();
   const colors = useColors();
   const { isSignedIn, isLoaded } = useAuth();
-  const guestPromptHeight = useGuestPromptHeight();
 
   // Current week and selected day
   const [currentWeekStart, setCurrentWeekStart] = useState(() => getWeekStart(new Date()));
@@ -547,11 +545,7 @@ export default function PlannerScreen() {
           contentContainerStyle={[
             styles.signedOutContent,
             {
-              paddingBottom: guestPromptBottomPadding(
-                Math.max(insets.bottom, spacing.md) + spacing.xl,
-                false,
-                guestPromptHeight,
-              ),
+              paddingBottom: Math.max(insets.bottom, spacing.md) + spacing.xl,
             },
           ]}
           showsVerticalScrollIndicator={false}

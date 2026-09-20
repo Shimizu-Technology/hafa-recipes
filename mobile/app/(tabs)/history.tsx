@@ -9,7 +9,6 @@ import {
   ScrollView,
   Keyboard,
   TouchableWithoutFeedback,
-  Dimensions,
   Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -19,7 +18,6 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Input, Chip, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
-import { guestPromptBottomPadding, useGuestPromptHeight } from '../../lib/guestPromptLayout';
 import FilterBottomSheet, { FilterState, SourceFilter, TimeFilter, OwnershipFilter } from '@/components/FilterBottomSheet';
 import CreateCollectionModal from '@/components/CreateCollectionModal';
 import BulkAddToCollectionModal from '@/components/BulkAddToCollectionModal';
@@ -42,11 +40,11 @@ import { haptics } from '@/utils/haptics';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { RecipeTrustBadge } from '@/components/RecipeTrustBadge';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
+import {
+  RecipeGridCardFrame,
+  RECIPE_GRID_GAP,
+} from '@/components/RecipeGridCardFrame';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const GRID_PADDING = spacing.lg; // 24px on each side
-const GRID_GAP = spacing.sm; // Gap between cards
-const GRID_CARD_WIDTH = (SCREEN_WIDTH - (GRID_PADDING * 2) - GRID_GAP) / 2;
 import { useAuth } from '@clerk/expo';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useViewPreference } from '@/hooks/useViewPreference';
@@ -153,8 +151,7 @@ export function RecipeCard({
   );
 }
 
-// Grid recipe card - square image with title overlay
-/** Render a library recipe as an image-led grid card. */
+/** Render a library recipe with the same grid structure used in Discover. */
 export function GridRecipeCard({
   recipe,
   onPress,
@@ -166,52 +163,43 @@ export function GridRecipeCard({
   colors: ReturnType<typeof useColors>;
   isSavedRecipe?: boolean;
 }) {
+  const { icon: sourceIcon, label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
+
   return (
-    <ScalePressable
-      style={[styles.gridCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+    <RecipeGridCardFrame
+      title={recipe.title}
+      thumbnailUrl={recipe.thumbnail_url}
       onPress={onPress}
-    >
-      {/* Full card is the image with overlay */}
-      <RNView style={styles.gridThumbnailContainer}>
-        <RecipeThumbnail
-          uri={recipe.thumbnail_url}
-          style={styles.gridThumbnail}
-          accessibilityLabel={`${recipe.title} photo`}
-          placeholderIconSize={40}
-        />
-        {/* Saved badge */}
-        {isSavedRecipe && (
-          <RNView style={[styles.gridSavedBadge, { backgroundColor: colors.error }]}>
-            <Ionicons name="heart" size={12} color="#FFFFFF" />
-          </RNView>
-        )}
-        {recipe.review_state && recipe.review_state !== 'ready' && (
-          <RNView style={styles.gridTrustBadge}>
-            <RecipeTrustBadge reviewState={recipe.review_state} inverted />
-          </RNView>
-        )}
-        {/* Cook time badge */}
-        {recipe.total_time && (
-          <RNView style={[styles.gridTimeBadge, { backgroundColor: 'rgba(0,0,0,0.7)' }]}>
-            <Ionicons name="time-outline" size={10} color="#FFFFFF" />
-            <Text style={styles.gridTimeText}>{recipe.total_time}</Text>
-          </RNView>
-        )}
-
-        {/* Subtle gradient overlay at bottom for text readability */}
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.7)']}
-          style={styles.gridOverlay}
-        />
-
-        {/* Title overlaid on image */}
-        <RNView style={styles.gridCardContent}>
-          <Text style={styles.gridCardTitle} numberOfLines={2}>
-            {recipe.title}
+      colors={colors}
+      imageAdornment={(
+        <>
+          {isSavedRecipe && (
+            <RNView style={[styles.gridSavedBadge, { backgroundColor: colors.error }]}>
+              <Ionicons name="heart" size={12} color="#FFFFFF" />
+            </RNView>
+          )}
+          {recipe.review_state && recipe.review_state !== 'ready' && (
+            <RNView style={styles.gridTrustBadge}>
+              <RecipeTrustBadge reviewState={recipe.review_state} inverted />
+            </RNView>
+          )}
+          {recipe.total_time && (
+            <RNView style={[styles.gridTimeBadge, { backgroundColor: 'rgba(0,0,0,0.7)' }]}>
+              <Ionicons name="time-outline" size={10} color="#FFFFFF" />
+              <Text style={styles.gridTimeText} numberOfLines={1}>{recipe.total_time}</Text>
+            </RNView>
+          )}
+        </>
+      )}
+      footer={(
+        <RNView style={styles.gridSourceRow}>
+          <Ionicons name={sourceIcon as any} size={13} color={colors.textSecondary} />
+          <Text style={[styles.gridSourceText, { color: colors.textSecondary }]} numberOfLines={1}>
+            {sourceLabel}
           </Text>
         </RNView>
-      </RNView>
-    </ScalePressable>
+      )}
+    />
   );
 }
 
@@ -289,7 +277,6 @@ export default function HistoryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { userId, isSignedIn } = useAuth();
-  const guestPromptHeight = useGuestPromptHeight();
   const [searchQuery, setSearchQuery] = useState('');
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
   const [showFilterModal, setShowFilterModal] = useState(false);
@@ -1013,11 +1000,7 @@ export default function HistoryScreen() {
           contentContainerStyle={[
             styles.listContent,
             {
-              paddingBottom: guestPromptBottomPadding(
-                insets.bottom + spacing.xl + 80,
-                Boolean(isSignedIn),
-                guestPromptHeight,
-              ),
+              paddingBottom: insets.bottom + spacing.xl + 80,
             },
           ]}
           showsVerticalScrollIndicator={false}
@@ -1228,31 +1211,7 @@ const styles = StyleSheet.create({
   // Grid view styles
   gridRow: {
     justifyContent: 'space-between',
-    gap: GRID_GAP,
-  },
-  gridCard: {
-    width: GRID_CARD_WIDTH,
-    borderRadius: radius.md,
-    marginBottom: spacing.sm,
-    overflow: 'hidden',
-    borderWidth: 1,
-    ...shadows.card,
-  },
-  gridThumbnailContainer: {
-    width: '100%',
-    aspectRatio: 0.85, // Taller cards for overlay text
-    position: 'relative',
-  },
-  gridOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: '40%', // Shorter, more subtle (no author line)
-  },
-  gridThumbnail: {
-    width: '100%',
-    height: '100%',
+    gap: RECIPE_GRID_GAP,
   },
   gridSavedBadge: {
     position: 'absolute',
@@ -1270,6 +1229,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: spacing.xs,
     left: spacing.xs,
+    maxWidth: '85%',
     borderRadius: radius.sm,
     paddingHorizontal: spacing.xs,
     paddingVertical: 2,
@@ -1278,26 +1238,20 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   gridTimeText: {
+    flexShrink: 1,
     color: '#FFFFFF',
     fontSize: fontSize.xs,
     fontFamily: fontFamily.medium,
   },
-  gridCardContent: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: spacing.sm,
-    paddingTop: spacing.md,
+  gridSourceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
-  gridCardTitle: {
-    fontSize: fontSize.sm,
-    fontFamily: fontFamily.semibold,
-    lineHeight: 18,
-    color: '#FFFFFF',
-    textShadowColor: 'rgba(0, 0, 0, 0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
+  gridSourceText: {
+    flexShrink: 1,
+    fontSize: fontSize.xs,
+    lineHeight: 16,
   },
   // Header action buttons
   headerActions: {

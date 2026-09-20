@@ -34,7 +34,6 @@ import { AppLoadingSkeleton } from '@/components/Skeleton';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { EnvironmentBanner } from '@/components/EnvironmentBanner';
 import { FloatingTimerOverlay } from '@/components/FloatingTimerOverlay';
-import FloatingChatButton from '@/components/FloatingChatButton';
 import { AuthProtection } from '@/components/AuthProtection';
 import { ClerkMigrationBridge } from '@/components/ClerkMigrationBridge';
 import { AccountAccessGate } from '@/components/AccountAccessGate';
@@ -293,8 +292,6 @@ function RootLayoutNav() {
                   <OfflineBanner />
                   {/* Floating timer when leaving cook mode with active timers */}
                   <FloatingTimerOverlay />
-                  {/* Floating chat button for cooking assistant */}
-                  <FloatingChatButton />
                   <Stack
                     screenOptions={{
                       headerStyle: { backgroundColor: colors.background },

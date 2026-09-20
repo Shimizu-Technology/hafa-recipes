@@ -253,9 +253,11 @@ export function SkeletonSimilarRecipeCard() {
       
       {/* Content skeleton */}
       <View style={styles.similarCardContent}>
-        <Skeleton width="90%" height={14} style={{ marginBottom: 4 }} />
-        <Skeleton width="60%" height={14} />
-        <Skeleton width={50} height={12} style={{ marginTop: spacing.xs }} />
+        <View>
+          <Skeleton width="90%" height={14} style={{ marginBottom: 4 }} />
+          <Skeleton width="60%" height={14} />
+        </View>
+        <Skeleton width={50} height={12} />
       </View>
     </View>
   );
@@ -348,6 +350,8 @@ const styles = StyleSheet.create({
   },
   similarCardContent: {
     padding: spacing.sm,
+    minHeight: 76,
+    justifyContent: 'space-between',
   },
   similarList: {
     flexDirection: 'row',
@@ -356,4 +360,3 @@ const styles = StyleSheet.create({
 });
 
 export default Skeleton;
-
