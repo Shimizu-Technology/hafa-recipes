@@ -4,6 +4,16 @@ All notable changes to Recipe Extractor.
 
 ## [Unreleased]
 
+## [2.6.3] - September 2026
+
+### Improved
+
+- Align recipe images, titles, and contributor labels across Discover and Library
+  cards so rows remain consistent as recipes and images change.
+- Move Ask Håfa into the tab header for signed-in users and keep the sign-in
+  prompt in the page flow, leaving recipe cards and controls unobscured.
+- Give related recipe cards consistent text and spacing.
+
 ## [2.6.2] - September 2026
 
 ### Improved
