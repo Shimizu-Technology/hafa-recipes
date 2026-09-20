@@ -4,6 +4,14 @@ All notable changes to Recipe Extractor.
 
 ## [Unreleased]
 
+## [2.6.4 (81)] - September 2026
+
+### Improved
+
+- Make Ask Håfa a compact floating message button instead of reserving a
+  full-width row above the tabs. Keep it accessible and move it out of the way
+  while typing.
+
 ## [2.6.4] - September 2026
 
 ### Improved

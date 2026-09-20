@@ -36,8 +36,8 @@ describe('App Store release metadata', () => {
     expect(info.privacyPolicyUrl).toBe('https://hafa-recipes.com/privacy');
     expect(info.supportUrl).toBe('https://hafa-recipes.com/support');
     expect(info.releaseNotes).toBe(RELEASE_NOTES);
-    expect(info.releaseNotes).toContain('clear chat button above the tab bar');
-    expect(info.releaseNotes).toContain('without covering recipes');
+    expect(info.releaseNotes).toContain('compact floating message button above the tabs');
+    expect(info.releaseNotes).toContain('instead of a full-width row');
     expect(config.apple.review.demoRequired).toBe(true);
     expect(config.apple.review.demoUsername).toBe(environment.APP_REVIEW_EMAIL);
     expect(config.apple.review.notes).toContain('does not provide persistent background audio');

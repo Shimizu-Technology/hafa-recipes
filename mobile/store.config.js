@@ -42,7 +42,7 @@ AI can make mistakes. Review extracted ingredients, directions, allergens, tempe
 
 Made in Guam by Shimizu Technology.`;
 const RELEASE_NOTES =
-  'Ask Håfa now has a clear chat button above the tab bar, so cooking help is easier to find without covering recipes. The button moves out of the way when the keyboard opens.';
+  'Ask Håfa now uses a compact floating message button above the tabs instead of a full-width row. It opens cooking chat with one tap and hides while the keyboard is open.';
 
 function requiredEnvironmentValue(environment, name) {
   const value = String(environment[name] ?? '').trim();
