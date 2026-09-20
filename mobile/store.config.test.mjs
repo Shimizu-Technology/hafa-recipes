@@ -28,7 +28,7 @@ describe('App Store release metadata', () => {
     const info = config.apple.info['en-US'];
 
     expect(config.apple.version).toBe('2.6.2');
-    expect(config.apple.release).toEqual({ automaticRelease: true, phasedRelease: true });
+    expect(config.apple.release).toEqual({ automaticRelease: true, phasedRelease: false });
     expect(info.subtitle).toBe(APP_SUBTITLE);
     expect(info.description).toBe(APP_DESCRIPTION);
     expect(info.description).not.toMatch(/\bbeta\b/i);

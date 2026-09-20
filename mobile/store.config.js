@@ -111,7 +111,7 @@ function buildStoreConfig({ environment, listing }) {
       copyright: `${new Date().getFullYear()} Shimizu Technology`,
       release: {
         automaticRelease: true,
-        phasedRelease: true,
+        phasedRelease: false,
       },
       info: {
         'en-US': {
