@@ -94,3 +94,48 @@ async def test_public_transport_revalidates_redirect_destinations(monkeypatch):
 
     assert exc_info.value.status_code == 400
     assert requested_hosts == ["93.184.216.34"]
+
+
+@pytest.mark.asyncio
+async def test_public_transport_keeps_validated_ips_out_of_response_urls(monkeypatch):
+    resolved_hosts = []
+    requested_hosts = []
+
+    async def fake_resolve(url):
+        host = httpx.URL(url).host
+        resolved_hosts.append(host)
+        addresses = {
+            "short.example": "93.184.216.34",
+            "www.tiktok.com": "23.61.202.36",
+        }
+        return host, 443, addresses[host]
+
+    def public_server(request):
+        requested_hosts.append(request.url.host)
+        if request.url.host == "93.184.216.34":
+            return httpx.Response(
+                301,
+                headers={
+                    "Location": "https://www.tiktok.com/@cook/video/7681673609730952461?_r=1"
+                },
+            )
+        return httpx.Response(200)
+
+    monkeypatch.setattr(security, "resolve_public_http_url", fake_resolve)
+
+    transport = PublicHTTPTransport()
+    transport._transport = httpx.MockTransport(public_server)
+
+    async with httpx.AsyncClient(
+        transport=transport,
+        follow_redirects=True,
+    ) as client:
+        response = await client.head("https://short.example/t/abc")
+
+    assert response.status_code == 200
+    assert str(response.url) == (
+        "https://www.tiktok.com/@cook/video/7681673609730952461?_r=1"
+    )
+    assert str(response.history[0].url) == "https://short.example/t/abc"
+    assert resolved_hosts == ["short.example", "www.tiktok.com"]
+    assert requested_hosts == ["93.184.216.34", "23.61.202.36"]
