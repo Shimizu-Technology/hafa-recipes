@@ -394,7 +394,12 @@ API commit is live. The replacement must have a verified Apple or Google
 connection. If explicit sign-up already created a new stable application owner,
 that owner must have exactly one production identity and no recipes, grocery
 records, collections, notes, meal plans, jobs, grants, audits, or other owned
-data. The command stops on any reference instead of deleting or moving it.
+data. The only exception is the default grocery list and unused widget
+credential created automatically within five minutes of account creation. The
+command retires that bootstrap only when the list still has its default name,
+revision zero, one member, no items, no invites, no mutation receipts, and no
+used credentials. Every other reference stops recovery instead of deleting or
+moving it.
 
 Replace each uppercase placeholder with the exact account identifier confirmed
 during the incident investigation. The first command is a dry-run and must

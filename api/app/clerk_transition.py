@@ -5,7 +5,7 @@ import asyncio
 import json
 import re
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import httpx
@@ -18,6 +18,14 @@ from app.config import ClerkEnvironment, get_settings
 from app.db.database import AsyncSessionLocal, Base
 from app.identity_lock import lock_clerk_subject
 from app.models.deletion import DeletionCleanupJob
+from app.models.grocery import (
+    GroceryItem,
+    GroceryList,
+    GroceryListInvite,
+    GroceryListMember,
+    GroceryMutationReceipt,
+    GroceryWidgetCredential,
+)
 from app.models.identity import AppUser, ClerkIdentity, ClerkMigrationGrant
 from app.models.moderation import AdminAuditEvent
 from app.services.clerk import ClerkBackendClient, ClerkProfile
@@ -27,6 +35,7 @@ CLERK_USER_PATTERN = re.compile(r"^user_[A-Za-z0-9_-]{1,59}$")
 RECOVERY_ORPHAN_PATTERN = re.compile(r"^orphan_[a-f0-9]{32}$")
 RECOVERY_AUDIT_ACTION = "identity.rebound"
 RECOVERY_PROVIDERS = frozenset({"apple", "google"})
+RECOVERY_BOOTSTRAP_WINDOW = timedelta(minutes=5)
 
 
 @dataclass(frozen=True)
@@ -43,6 +52,13 @@ class BridgeAdoptionSummary:
     active_users: int
     covered_users: int
     coverage_percent: float | None
+
+
+@dataclass(frozen=True)
+class EmptyGroceryBootstrap:
+    grocery_list: GroceryList
+    membership: GroceryListMember
+    credentials: tuple[GroceryWidgetCredential, ...]
 
 
 async def bridge_adoption_summary(
@@ -577,6 +593,7 @@ async def rebind_production_identity(
         ).with_for_update()
     )
     replacement_owner: AppUser | None = None
+    replacement_bootstrap: EmptyGroceryBootstrap | None = None
     if target_identity is None:
         if new_profile.external_id is not None and (
             RECOVERY_ORPHAN_PATTERN.fullmatch(new_profile.external_id) is None
@@ -618,18 +635,29 @@ async def rebind_production_identity(
                 to_clerk_user_id,
                 "replacement application owner is not an isolated production account",
             )
-        if await _app_user_reference_counts(
+        reference_counts = await _app_user_reference_counts(
             db,
             replacement_owner.id,
             excluded_tables={ClerkIdentity.__tablename__},
-        ):
-            await db.rollback()
-            return TransitionResult(
-                app_user_id,
-                "conflict",
-                to_clerk_user_id,
-                "replacement application owner contains data",
+        )
+        if reference_counts:
+            replacement_bootstrap = await _empty_grocery_bootstrap(
+                db,
+                replacement_owner,
             )
+            expected_references = {f"{GroceryListMember.__tablename__}.user_id": 1}
+            if replacement_bootstrap is not None and replacement_bootstrap.credentials:
+                expected_references[
+                    f"{GroceryWidgetCredential.__tablename__}.app_user_id"
+                ] = len(replacement_bootstrap.credentials)
+            if replacement_bootstrap is None or reference_counts != expected_references:
+                await db.rollback()
+                return TransitionResult(
+                    app_user_id,
+                    "conflict",
+                    to_clerk_user_id,
+                    "replacement application owner contains data",
+                )
     if not apply:
         await db.rollback()
         return TransitionResult(app_user_id, "would_rebind", to_clerk_user_id)
@@ -651,6 +679,13 @@ async def rebind_production_identity(
 
         retired_app_user_id = replacement_owner.id if replacement_owner is not None else None
         if replacement_owner is not None and target_identity is not None:
+            if replacement_bootstrap is not None:
+                for credential in replacement_bootstrap.credentials:
+                    await db.delete(credential)
+                await db.delete(replacement_bootstrap.membership)
+                await db.flush()
+                await db.delete(replacement_bootstrap.grocery_list)
+                await db.flush()
             await db.delete(target_identity)
             await db.flush()
             await db.delete(replacement_owner)
@@ -663,6 +698,8 @@ async def rebind_production_identity(
         }
         if retired_app_user_id is not None:
             after_summary["retired_app_user_id"] = retired_app_user_id
+        if replacement_bootstrap is not None:
+            after_summary["retired_empty_grocery_bootstrap"] = True
         db.add(
             AdminAuditEvent(
                 actor_user_id=actor_user_id,
@@ -796,6 +833,72 @@ def _has_verified_recovery_provider(profile: ClerkProfile) -> bool:
     return profile.email_verified and bool(
         RECOVERY_PROVIDERS.intersection(profile.verified_providers)
     )
+
+
+async def _empty_grocery_bootstrap(
+    db: AsyncSession,
+    owner: AppUser,
+) -> EmptyGroceryBootstrap | None:
+    """Lock and recognize only pristine grocery rows created during onboarding."""
+    membership = await db.scalar(
+        select(GroceryListMember)
+        .where(GroceryListMember.user_id == owner.id)
+        .with_for_update()
+    )
+    if membership is None:
+        return None
+    grocery_list = await db.scalar(
+        select(GroceryList)
+        .where(GroceryList.id == membership.list_id)
+        .with_for_update()
+    )
+    members = list(
+        (
+            await db.execute(
+                select(GroceryListMember)
+                .where(GroceryListMember.list_id == membership.list_id)
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    credentials = tuple(
+        (
+            await db.execute(
+                select(GroceryWidgetCredential)
+                .where(GroceryWidgetCredential.list_id == membership.list_id)
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    if (
+        grocery_list is None
+        or owner.created_at is None
+        or grocery_list.created_at is None
+        or grocery_list.updated_at is None
+        or membership.joined_at is None
+        or grocery_list.name != "Grocery List"
+        or grocery_list.revision != 0
+        or grocery_list.updated_at != grocery_list.created_at
+        or abs(grocery_list.created_at - owner.created_at) > RECOVERY_BOOTSTRAP_WINDOW
+        or membership.joined_at != grocery_list.created_at
+        or len(members) != 1
+        or members[0].user_id != owner.id
+        or any(
+            credential.app_user_id != owner.id
+            or credential.last_used_at is not None
+            or credential.revoked_at is not None
+            or credential.issued_at is None
+            or abs(credential.issued_at - owner.created_at) > RECOVERY_BOOTSTRAP_WINDOW
+            for credential in credentials
+        )
+    ):
+        return None
+    for model in (GroceryItem, GroceryListInvite, GroceryMutationReceipt):
+        if await db.scalar(
+            select(func.count()).select_from(model).where(model.list_id == grocery_list.id)
+        ):
+            return None
+    return EmptyGroceryBootstrap(grocery_list, membership, credentials)
 
 
 async def _app_user_reference_counts(
