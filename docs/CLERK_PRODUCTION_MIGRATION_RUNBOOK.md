@@ -360,7 +360,7 @@ against Clerk's registered Apple Private Email Relay source before release. See
 `APP-STORE-RELEASE-RUNBOOK.md` for aggregate launch auditing, dedicated reviewer
 provisioning, and App Store release checks.
 
-## Apple private-relay incident — 2026-08-25
+## Social-provider recovery
 
 A production-key TestFlight installation redeemed its one-use migration ticket
 and initially displayed its existing account correctly. After the person signed
@@ -390,15 +390,21 @@ unsafe. Recovery requires an owner-approved, audited operator action or another
 independent proof of the existing account owner's identity.
 
 Run approved recovery from a production Render one-off job after the reviewed
-API commit is live. Replace each uppercase placeholder with the exact account
-identifier confirmed during the incident investigation. The first command is a
-dry-run and must report exactly one `would_rebind` result:
+API commit is live. The replacement must have a verified Apple or Google
+connection. If explicit sign-up already created a new stable application owner,
+that owner must have exactly one production identity and no recipes, grocery
+records, collections, notes, meal plans, jobs, grants, audits, or other owned
+data. The command stops on any reference instead of deleting or moving it.
+
+Replace each uppercase placeholder with the exact account identifier confirmed
+during the incident investigation. The first command is a dry-run and must
+report exactly one `would_rebind` result:
 
 ```bash
 python -m app.clerk_transition rebind-production \
   --app-user-id STABLE_APP_USER_ID \
   --from-clerk-user-id CURRENT_PRODUCTION_CLERK_USER_ID \
-  --to-clerk-user-id VERIFIED_APPLE_CLERK_USER_ID \
+  --to-clerk-user-id VERIFIED_SOCIAL_CLERK_USER_ID \
   --actor-user-id APPROVED_OPERATOR_APP_USER_ID \
   --reason 'Owner-approved Apple account recovery' \
   --summary-only
@@ -406,11 +412,12 @@ python -m app.clerk_transition rebind-production \
 
 Only after confirming the exact dry-run plan, repeat the same command with
 `--apply`. Verify a subsequent dry-run reports `unchanged`, the original
-development alias still works, application ownership counts are unchanged, and
-the Apple-linked production account can load the same data. Recovery locks the
+development alias still works, protected ownership counts are unchanged, and
+the social-linked production account can load the same data. Recovery locks the
 exact Clerk subject across both onboarding and repair, verifies provider state
-after every remote write, compensates for uncertain provider responses, and
-records the retired shell for eventual account deletion.
+after every remote write, compensates for uncertain provider responses, retires
+only a proven-empty replacement application owner, and records both retired
+identities in the audit event.
 
 Do not promote a production-key build to App Review until every physical-device
 acceptance gate passes, including Apple upgrade, sign-out, re-login, and new

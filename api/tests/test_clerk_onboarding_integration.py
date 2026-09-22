@@ -442,6 +442,31 @@ async def _seed_recovery_owner(sessions):
         await db.commit()
 
 
+async def _seed_empty_replacement_owner(sessions, *, with_recipe=False):
+    replacement_owner_id = "app_" + "a" * 32
+    async with sessions() as db:
+        db.add(AppUser(id=replacement_owner_id))
+        await db.flush()
+        db.add(
+            ClerkIdentity(
+                app_user_id=replacement_owner_id,
+                issuer=PRODUCTION_ISSUER,
+                clerk_user_id="user_new_apple",
+            )
+        )
+        if with_recipe:
+            db.add(
+                Recipe(
+                    source_url="manual://replacement-owner-recipe",
+                    source_type="manual",
+                    extracted={"title": "Must not be deleted"},
+                    user_id=replacement_owner_id,
+                )
+            )
+        await db.commit()
+    return replacement_owner_id
+
+
 async def _recover(db, *, apply=False):
     production = next(item for item in _settings().clerk_environments if item.is_production)
     return await transition.rebind_production_identity(
@@ -498,7 +523,123 @@ async def test_recovery_is_dry_run_first_audited_idempotent_and_preserves_recipe
 
 
 @pytest.mark.asyncio
-async def test_recovery_refuses_unverified_apple_or_existing_sign_in_method(
+async def test_recovery_accepts_a_verified_google_replacement(
+    onboarding_database, monkeypatch
+):
+    state = _install_recovery_client(monkeypatch)
+    state["profiles"]["user_new_apple"] = replace(
+        state["profiles"]["user_new_apple"],
+        email="owner@example.com",
+        verified_providers=("google",),
+    )
+    await _seed_recovery_owner(onboarding_database)
+
+    async with onboarding_database() as db:
+        dry_run = await _recover(db)
+    assert dry_run.status == "would_rebind"
+
+    async with onboarding_database() as db:
+        applied = await _recover(db, apply=True)
+    assert applied.status == "rebound"
+    assert state["profiles"]["user_new_apple"].external_id == "user_original_owner"
+
+
+@pytest.mark.asyncio
+async def test_recovery_retires_an_empty_onboarded_replacement_owner(
+    onboarding_database, monkeypatch
+):
+    state = _install_recovery_client(monkeypatch)
+    replacement_owner_id = await _seed_empty_replacement_owner(onboarding_database)
+    state["profiles"]["user_new_apple"] = replace(
+        state["profiles"]["user_new_apple"],
+        email="owner@example.com",
+        external_id=replacement_owner_id,
+        verified_providers=("google",),
+    )
+    await _seed_recovery_owner(onboarding_database)
+
+    async with onboarding_database() as db:
+        dry_run = await _recover(db)
+    assert dry_run.status == "would_rebind"
+
+    async with onboarding_database() as db:
+        applied = await _recover(db, apply=True)
+        owners = set((await db.execute(select(AppUser.id))).scalars())
+        production_identity = await db.scalar(
+            select(ClerkIdentity).where(ClerkIdentity.issuer == PRODUCTION_ISSUER)
+        )
+        audit = (await db.execute(select(AdminAuditEvent))).scalar_one()
+        recipe = (await db.execute(select(Recipe))).scalar_one()
+
+    assert applied.status == "rebound"
+    assert owners == {"user_original_owner"}
+    assert production_identity.app_user_id == "user_original_owner"
+    assert production_identity.clerk_user_id == "user_new_apple"
+    assert recipe.user_id == "user_original_owner"
+    assert audit.after_summary["retired_app_user_id"] == replacement_owner_id
+    assert state["profiles"]["user_new_apple"].external_id == "user_original_owner"
+
+
+@pytest.mark.asyncio
+async def test_recovery_refuses_to_retire_a_replacement_owner_with_data(
+    onboarding_database, monkeypatch
+):
+    state = _install_recovery_client(monkeypatch)
+    replacement_owner_id = await _seed_empty_replacement_owner(
+        onboarding_database,
+        with_recipe=True,
+    )
+    state["profiles"]["user_new_apple"] = replace(
+        state["profiles"]["user_new_apple"],
+        external_id=replacement_owner_id,
+        verified_providers=("google",),
+    )
+    await _seed_recovery_owner(onboarding_database)
+
+    async with onboarding_database() as db:
+        rejected = await _recover(db, apply=True)
+        assert await db.scalar(select(func.count()).select_from(AppUser)) == 2
+        assert await db.scalar(select(func.count()).select_from(Recipe)) == 2
+
+    assert rejected.status == "conflict"
+    assert rejected.detail == "replacement application owner contains data"
+    assert state["updates"] == []
+
+
+@pytest.mark.asyncio
+async def test_recovery_restores_an_onboarded_owner_after_database_failure(
+    onboarding_database, monkeypatch
+):
+    state = _install_recovery_client(monkeypatch)
+    replacement_owner_id = await _seed_empty_replacement_owner(onboarding_database)
+    state["profiles"]["user_new_apple"] = replace(
+        state["profiles"]["user_new_apple"],
+        external_id=replacement_owner_id,
+        verified_providers=("google",),
+    )
+    await _seed_recovery_owner(onboarding_database)
+
+    async with onboarding_database() as db:
+        async def reject_commit():
+            raise IntegrityError("UPDATE", {}, RuntimeError("interrupted database commit"))
+
+        monkeypatch.setattr(db, "commit", reject_commit)
+        result = await _recover(db, apply=True)
+
+    assert result.status == "failed"
+    assert state["profiles"]["user_old_shell"].external_id == "user_original_owner"
+    assert state["profiles"]["user_new_apple"].external_id == replacement_owner_id
+    async with onboarding_database() as db:
+        owners = set((await db.execute(select(AppUser.id))).scalars())
+        identities = (await db.execute(select(ClerkIdentity))).scalars().all()
+    assert replacement_owner_id in owners
+    assert (replacement_owner_id, "user_new_apple") in {
+        (identity.app_user_id, identity.clerk_user_id) for identity in identities
+    }
+
+
+@pytest.mark.asyncio
+async def test_recovery_refuses_unverified_provider_or_existing_sign_in_method(
     onboarding_database, monkeypatch
 ):
     state = _install_recovery_client(monkeypatch)
@@ -508,8 +649,8 @@ async def test_recovery_refuses_unverified_apple_or_existing_sign_in_method(
     )
 
     async with onboarding_database() as db:
-        no_apple = await _recover(db, apply=True)
-    assert no_apple.status == "conflict"
+        no_provider = await _recover(db, apply=True)
+    assert no_provider.status == "conflict"
     assert state["updates"] == []
 
     state["profiles"] = _recovery_profiles()
