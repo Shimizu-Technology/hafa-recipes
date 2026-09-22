@@ -4,6 +4,7 @@ import asyncio
 import os
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -20,6 +21,11 @@ from app.config import Settings
 from app.db.database import Base
 from app.deletion_cleanup import hash_auth_identity
 from app.models.deletion import DeletedAuthIdentity, DeletionCleanupJob
+from app.models.grocery import (
+    GroceryList,
+    GroceryListMember,
+    GroceryWidgetCredential,
+)
 from app.models.identity import AppUser, ClerkIdentity, ClerkMigrationGrant
 from app.models.moderation import AdminAuditEvent
 from app.models.recipe import Recipe
@@ -447,6 +453,8 @@ async def _seed_empty_replacement_owner(
     *,
     with_recipe=False,
     with_cleanup_job=False,
+    with_grocery_bootstrap=False,
+    used_widget_credential=False,
 ):
     replacement_owner_id = "app_" + "a" * 32
     async with sessions() as db:
@@ -473,6 +481,30 @@ async def _seed_empty_replacement_owner(
                 DeletionCleanupJob(
                     kind="account",
                     app_user_id=replacement_owner_id,
+                )
+            )
+        if with_grocery_bootstrap:
+            grocery_list = GroceryList(name="Grocery List")
+            db.add(grocery_list)
+            await db.flush()
+            db.add(
+                GroceryListMember(
+                    list_id=grocery_list.id,
+                    user_id=replacement_owner_id,
+                    display_name="Replacement",
+                )
+            )
+            now = datetime.now(timezone.utc)
+            db.add(
+                GroceryWidgetCredential(
+                    id=uuid4(),
+                    app_user_id=replacement_owner_id,
+                    list_id=grocery_list.id,
+                    installation_hash="a" * 64,
+                    token_hash="b" * 64,
+                    issued_at=now,
+                    expires_at=now + timedelta(days=90),
+                    last_used_at=now if used_widget_credential else None,
                 )
             )
         await db.commit()
@@ -638,6 +670,65 @@ async def test_recovery_refuses_to_retire_an_owner_with_a_cleanup_job(
         rejected = await _recover(db, apply=True)
         assert await db.scalar(select(func.count()).select_from(AppUser)) == 2
         assert await db.scalar(select(func.count()).select_from(DeletionCleanupJob)) == 1
+
+    assert rejected.status == "conflict"
+    assert rejected.detail == "replacement application owner contains data"
+    assert state["updates"] == []
+
+
+@pytest.mark.asyncio
+async def test_recovery_retires_only_a_pristine_grocery_bootstrap(
+    onboarding_database, monkeypatch
+):
+    state = _install_recovery_client(monkeypatch)
+    replacement_owner_id = await _seed_empty_replacement_owner(
+        onboarding_database,
+        with_grocery_bootstrap=True,
+    )
+    state["profiles"]["user_new_apple"] = replace(
+        state["profiles"]["user_new_apple"],
+        external_id=replacement_owner_id,
+        verified_providers=("google",),
+    )
+    await _seed_recovery_owner(onboarding_database)
+
+    async with onboarding_database() as db:
+        dry_run = await _recover(db)
+    assert dry_run.status == "would_rebind"
+
+    async with onboarding_database() as db:
+        applied = await _recover(db, apply=True)
+        assert await db.scalar(select(func.count()).select_from(GroceryList)) == 0
+        assert await db.scalar(select(func.count()).select_from(GroceryListMember)) == 0
+        assert await db.scalar(select(func.count()).select_from(GroceryWidgetCredential)) == 0
+        audit = (await db.execute(select(AdminAuditEvent))).scalar_one()
+
+    assert applied.status == "rebound"
+    assert audit.after_summary["retired_empty_grocery_bootstrap"] is True
+
+
+@pytest.mark.asyncio
+async def test_recovery_preserves_a_grocery_bootstrap_after_widget_use(
+    onboarding_database, monkeypatch
+):
+    state = _install_recovery_client(monkeypatch)
+    replacement_owner_id = await _seed_empty_replacement_owner(
+        onboarding_database,
+        with_grocery_bootstrap=True,
+        used_widget_credential=True,
+    )
+    state["profiles"]["user_new_apple"] = replace(
+        state["profiles"]["user_new_apple"],
+        external_id=replacement_owner_id,
+        verified_providers=("google",),
+    )
+    await _seed_recovery_owner(onboarding_database)
+
+    async with onboarding_database() as db:
+        rejected = await _recover(db, apply=True)
+        assert await db.scalar(select(func.count()).select_from(AppUser)) == 2
+        assert await db.scalar(select(func.count()).select_from(GroceryList)) == 1
+        assert await db.scalar(select(func.count()).select_from(GroceryWidgetCredential)) == 1
 
     assert rejected.status == "conflict"
     assert rejected.detail == "replacement application owner contains data"
