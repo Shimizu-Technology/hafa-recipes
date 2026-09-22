@@ -1190,7 +1190,7 @@ export default function DiscoverScreen() {
           contentContainerStyle={[
             styles.listContent,
             {
-              paddingBottom: insets.bottom + spacing.xl,
+              paddingBottom: Math.max(insets.bottom + spacing.xl, 80),
             },
           ]}
           showsVerticalScrollIndicator={false}

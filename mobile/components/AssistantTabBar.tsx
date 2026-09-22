@@ -7,13 +7,13 @@ import {
   type BottomTabBarProps,
 } from 'expo-router/build/react-navigation/bottom-tabs';
 
-import { AssistantDockButton } from '@/components/AssistantDockButton';
+import { AssistantFloatingButton } from '@/components/AssistantFloatingButton';
 import RecipeChatModal from '@/components/RecipeChatModal';
 import { useColors } from '@/components/Themed';
 
 type Props = BottomTabBarProps & { isSignedIn: boolean };
 
-/** Keep the chat action in layout above the tabs, never over scrolling content. */
+/** Float the chat action above the tabs without adding a permanent dock row. */
 export function AssistantTabBar({ isSignedIn, ...tabBarProps }: Props) {
   const colors = useColors();
   const [keyboardVisible, setKeyboardVisible] = useState(() => Keyboard.isVisible());
@@ -37,16 +37,16 @@ export function AssistantTabBar({ isSignedIn, ...tabBarProps }: Props) {
   }, [isSignedIn]);
 
   return (
-    <View style={{ backgroundColor: colors.backgroundElevated }}>
+    <View style={{ backgroundColor: colors.backgroundElevated, overflow: 'visible' }}>
+      <BottomTabBar {...tabBarProps} />
       {isSignedIn && !keyboardVisible && (
-        <View style={[styles.dock, { borderTopColor: colors.border }]}>
-          <AssistantDockButton onPress={() => {
+        <View style={styles.floatingAction}>
+          <AssistantFloatingButton onPress={() => {
             setHasOpenedChat(true);
             setShowChat(true);
           }} />
         </View>
       )}
-      <BottomTabBar {...tabBarProps} />
       {isSignedIn && hasOpenedChat && (
         <RecipeChatModal isVisible={showChat} onClose={() => setShowChat(false)} />
       )}
@@ -55,12 +55,11 @@ export function AssistantTabBar({ isSignedIn, ...tabBarProps }: Props) {
 }
 
 const styles = StyleSheet.create({
-  dock: {
-    minHeight: 60,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    alignItems: 'flex-end',
-    justifyContent: 'center',
+  floatingAction: {
+    position: 'absolute',
+    bottom: '100%',
+    right: 16,
+    marginBottom: 12,
+    zIndex: 1,
   },
 });
