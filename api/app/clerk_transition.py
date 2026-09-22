@@ -17,6 +17,7 @@ from app import models as _models  # noqa: F401 - register every owner-referenci
 from app.config import ClerkEnvironment, get_settings
 from app.db.database import AsyncSessionLocal, Base
 from app.identity_lock import lock_clerk_subject
+from app.models.deletion import DeletionCleanupJob
 from app.models.identity import AppUser, ClerkIdentity, ClerkMigrationGrant
 from app.models.moderation import AdminAuditEvent
 from app.services.clerk import ClerkBackendClient, ClerkProfile
@@ -825,6 +826,19 @@ async def _app_user_reference_counts(
             )
             if count:
                 counts[f"{table.name}.{column.name}"] = count
+
+    # Cleanup jobs intentionally outlive AppUser deletion, so this owner reference
+    # has no foreign key and must be guarded explicitly.
+    cleanup_job_count = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(DeletionCleanupJob)
+            .where(DeletionCleanupJob.app_user_id == app_user_id)
+        )
+        or 0
+    )
+    if cleanup_job_count:
+        counts[f"{DeletionCleanupJob.__tablename__}.app_user_id"] = cleanup_job_count
     return counts
 
 

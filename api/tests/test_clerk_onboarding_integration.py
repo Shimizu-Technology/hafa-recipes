@@ -442,7 +442,12 @@ async def _seed_recovery_owner(sessions):
         await db.commit()
 
 
-async def _seed_empty_replacement_owner(sessions, *, with_recipe=False):
+async def _seed_empty_replacement_owner(
+    sessions,
+    *,
+    with_recipe=False,
+    with_cleanup_job=False,
+):
     replacement_owner_id = "app_" + "a" * 32
     async with sessions() as db:
         db.add(AppUser(id=replacement_owner_id))
@@ -461,6 +466,13 @@ async def _seed_empty_replacement_owner(sessions, *, with_recipe=False):
                     source_type="manual",
                     extracted={"title": "Must not be deleted"},
                     user_id=replacement_owner_id,
+                )
+            )
+        if with_cleanup_job:
+            db.add(
+                DeletionCleanupJob(
+                    kind="account",
+                    app_user_id=replacement_owner_id,
                 )
             )
         await db.commit()
@@ -600,6 +612,32 @@ async def test_recovery_refuses_to_retire_a_replacement_owner_with_data(
         rejected = await _recover(db, apply=True)
         assert await db.scalar(select(func.count()).select_from(AppUser)) == 2
         assert await db.scalar(select(func.count()).select_from(Recipe)) == 2
+
+    assert rejected.status == "conflict"
+    assert rejected.detail == "replacement application owner contains data"
+    assert state["updates"] == []
+
+
+@pytest.mark.asyncio
+async def test_recovery_refuses_to_retire_an_owner_with_a_cleanup_job(
+    onboarding_database, monkeypatch
+):
+    state = _install_recovery_client(monkeypatch)
+    replacement_owner_id = await _seed_empty_replacement_owner(
+        onboarding_database,
+        with_cleanup_job=True,
+    )
+    state["profiles"]["user_new_apple"] = replace(
+        state["profiles"]["user_new_apple"],
+        external_id=replacement_owner_id,
+        verified_providers=("google",),
+    )
+    await _seed_recovery_owner(onboarding_database)
+
+    async with onboarding_database() as db:
+        rejected = await _recover(db, apply=True)
+        assert await db.scalar(select(func.count()).select_from(AppUser)) == 2
+        assert await db.scalar(select(func.count()).select_from(DeletionCleanupJob)) == 1
 
     assert rejected.status == "conflict"
     assert rejected.detail == "replacement application owner contains data"

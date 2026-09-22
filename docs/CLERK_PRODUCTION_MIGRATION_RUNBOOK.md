@@ -406,7 +406,7 @@ python -m app.clerk_transition rebind-production \
   --from-clerk-user-id CURRENT_PRODUCTION_CLERK_USER_ID \
   --to-clerk-user-id VERIFIED_SOCIAL_CLERK_USER_ID \
   --actor-user-id APPROVED_OPERATOR_APP_USER_ID \
-  --reason 'Owner-approved Apple account recovery' \
+  --reason 'Owner-approved social-provider account recovery' \
   --summary-only
 ```
 
