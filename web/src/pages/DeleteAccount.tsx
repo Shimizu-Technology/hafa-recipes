@@ -12,7 +12,8 @@ export default function DeleteAccount() {
         <p>
           Open Settings, choose Delete Account, and follow the confirmations.
           This deletes your account and its associated recipes, collections,
-          grocery lists, meal plans, and chat history.
+          grocery lists, and meal plans. The app also clears chat history saved
+          on this device.
         </p>
 
         <h2>Without the app</h2>

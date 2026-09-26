@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { CHAT_MESSAGE_MAX_CHARS } from './chatComposer';
-import { chatDraftStorageKey } from './chatStorage';
+import { accountChatStoragePrefix, chatDraftStorageKey } from './chatStorage';
 
 const operationTails = new Map<string, Promise<void>>();
 
@@ -39,6 +39,19 @@ export async function writeChatDraft(conversationKey: string, text: string): Pro
     if (text.trim()) await AsyncStorage.setItem(key, text.slice(0, CHAT_MESSAGE_MAX_CHARS));
     else await AsyncStorage.removeItem(key);
   });
+}
+
+/** Remove this account's locally stored conversations after server deletion. */
+export async function clearAccountChatStorage(appUserId: string): Promise<void> {
+  const prefix = accountChatStoragePrefix(appUserId);
+  await Promise.all(
+    [...operationTails.entries()]
+      .filter(([conversationKey]) => conversationKey.startsWith(prefix))
+      .map(([, tail]) => tail),
+  );
+  const keys = await AsyncStorage.getAllKeys();
+  const accountKeys = keys.filter((key) => key.startsWith(prefix));
+  if (accountKeys.length > 0) await AsyncStorage.multiRemove(accountKeys);
 }
 
 export function resetChatDraftsForTests(): void {

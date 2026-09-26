@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => {
     getItem: vi.fn(async (key: string) => values.get(key) ?? null),
     setItem: vi.fn(async (key: string, value: string) => { values.set(key, value); }),
     removeItem: vi.fn(async (key: string) => { values.delete(key); }),
+    getAllKeys: vi.fn(async () => [...values.keys()]),
+    multiRemove: vi.fn(async (keys: string[]) => { keys.forEach((key) => values.delete(key)); }),
   };
 });
 
@@ -15,11 +17,13 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     getItem: mocks.getItem,
     setItem: mocks.setItem,
     removeItem: mocks.removeItem,
+    getAllKeys: mocks.getAllKeys,
+    multiRemove: mocks.multiRemove,
   },
 }));
 
-import { readChatDraft, resetChatDraftsForTests, writeChatDraft } from './chatDrafts';
-import { chatDraftStorageKey } from './chatStorage';
+import { clearAccountChatStorage, readChatDraft, resetChatDraftsForTests, writeChatDraft } from './chatDrafts';
+import { chatDraftStorageKey, chatStorageKey, pendingChatImageCleanupKey } from './chatStorage';
 
 describe('chat drafts', () => {
   const conversationKey = 'hafa.chat.v2.user.recipe.one';
@@ -30,6 +34,8 @@ describe('chat drafts', () => {
     mocks.getItem.mockClear();
     mocks.setItem.mockClear();
     mocks.removeItem.mockClear();
+    mocks.getAllKeys.mockClear();
+    mocks.multiRemove.mockClear();
     resetChatDraftsForTests();
   });
 
@@ -54,5 +60,31 @@ describe('chat drafts', () => {
     await Promise.all([saving, clearing]);
 
     expect(mocks.values.has(draftKey)).toBe(false);
+  });
+
+  it('clears only the deleted account after an in-flight draft save', async () => {
+    const ownConversation = chatStorageKey('stable-user', 'one');
+    const otherConversation = chatStorageKey('stable-user-other', 'one');
+    mocks.values.set(ownConversation, '[{"content":"private"}]');
+    mocks.values.set(pendingChatImageCleanupKey(ownConversation), '[]');
+    mocks.values.set(otherConversation, '[{"content":"keep"}]');
+
+    let finishSave!: () => void;
+    mocks.setItem.mockImplementationOnce(async (key: string, value: string) => {
+      await new Promise<void>((resolve) => { finishSave = resolve; });
+      mocks.values.set(key, value);
+    });
+    const saving = writeChatDraft(ownConversation, 'unsent text');
+    await vi.waitFor(() => expect(finishSave).toBeTypeOf('function'));
+    const clearing = clearAccountChatStorage('stable-user');
+    finishSave();
+    await Promise.all([saving, clearing]);
+
+    expect([...mocks.values.keys()]).toEqual([otherConversation]);
+    expect(mocks.multiRemove).toHaveBeenCalledWith(expect.arrayContaining([
+      ownConversation,
+      chatDraftStorageKey(ownConversation),
+      pendingChatImageCleanupKey(ownConversation),
+    ]));
   });
 });

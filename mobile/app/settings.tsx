@@ -15,6 +15,7 @@ import { API_BASE_URL } from '@/lib/api';
 import { captureMessage, captureError } from '@/lib/sentry';
 import { useTheme, ThemePreference } from '@/contexts/ThemeContext';
 import { clearAllOfflineGroceryData } from '@/lib/offlineStorage';
+import { clearAccountChatStorage } from '@/lib/chatDrafts';
 import { CLERK_ENVIRONMENT, markMigrationSignedOut } from '@/lib/clerkMigration';
 import { clearGroceryWidgetSession } from '@/lib/groceryWidget';
 import { hasDurableSignInMethod } from '@/lib/accountAccess';
@@ -195,7 +196,17 @@ export default function SettingsScreen() {
                   onPress: async () => {
                     setIsDeleting(true);
                     try {
+                      const { id: appUserId } = await api.getCurrentUserIdentity();
                       await api.deleteAccount();
+                      let chatCleanupFailed = false;
+                      try {
+                        await clearAccountChatStorage(appUserId);
+                      } catch (error) {
+                        chatCleanupFailed = true;
+                        captureError(error instanceof Error ? error : new Error(String(error)), {
+                          tags: { operation: 'clearChatOnAccountDelete' },
+                        });
+                      }
                       if (sessionId) {
                         await markMigrationSignedOut(sessionId).catch(() => undefined);
                       }
@@ -218,6 +229,12 @@ export default function SettingsScreen() {
                       await clearAllOfflineGroceryData();
 
                       await signOut();
+                      if (chatCleanupFailed) {
+                        Alert.alert(
+                          'Account Deleted',
+                          'Chat history saved on this device could not be removed. Uninstall Håfa Recipes to clear it.',
+                        );
+                      }
                     } catch (error: any) {
                       // User-facing alert is sufficient - Sentry will capture if critical
                       Alert.alert('Error', 'Failed to delete account. Please try again.');
