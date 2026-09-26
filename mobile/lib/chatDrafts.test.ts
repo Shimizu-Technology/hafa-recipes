@@ -23,6 +23,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 import { clearAccountChatStorage, readChatDraft, resetChatDraftsForTests, writeChatDraft, writeChatHistory } from './chatDrafts';
+import { enqueueChatImageCleanup, resetChatImageCleanupForTests } from './chatImageCleanup';
 import { chatDraftStorageKey, chatStorageKey, pendingChatImageCleanupKey } from './chatStorage';
 
 describe('chat drafts', () => {
@@ -37,6 +38,7 @@ describe('chat drafts', () => {
     mocks.getAllKeys.mockClear();
     mocks.multiRemove.mockClear();
     resetChatDraftsForTests();
+    resetChatImageCleanupForTests();
   });
 
   it('stores, reads, and removes a conversation draft', async () => {
@@ -99,5 +101,28 @@ describe('chat drafts', () => {
     expect(await readChatDraft(conversation)).toBe('');
     expect(mocks.values.has(conversation)).toBe(false);
     expect(mocks.values.has(chatDraftStorageKey(conversation))).toBe(false);
+  });
+
+  it('drains image-cleanup writes and blocks image URLs after deletion', async () => {
+    const conversation = chatStorageKey('stable-user', 'one');
+    const cleanupKey = pendingChatImageCleanupKey(conversation);
+    let finishWrite!: () => void;
+    mocks.setItem.mockImplementationOnce(async (key: string, value: string) => {
+      await new Promise<void>((resolve) => { finishWrite = resolve; });
+      mocks.values.set(key, value);
+    });
+
+    const first = enqueueChatImageCleanup(conversation, {
+      id: 'before', imageUrls: ['https://example.com/chat-photo.jpg'],
+    });
+    await vi.waitFor(() => expect(finishWrite).toBeTypeOf('function'));
+    const clearing = clearAccountChatStorage('stable-user');
+    finishWrite();
+    await Promise.all([first, clearing]);
+    await enqueueChatImageCleanup(conversation, {
+      id: 'after', imageUrls: ['https://example.com/late-photo.jpg'],
+    });
+
+    expect(mocks.values.has(cleanupKey)).toBe(false);
   });
 });

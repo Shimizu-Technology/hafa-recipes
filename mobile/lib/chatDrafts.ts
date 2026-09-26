@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { CHAT_MESSAGE_MAX_CHARS } from './chatComposer';
+import { blockAccountChatImageCleanup } from './chatImageCleanup';
 import { accountChatStoragePrefix, chatDraftStorageKey } from './chatStorage';
 
 const operationTails = new Map<string, Promise<void>>();
@@ -65,6 +66,7 @@ export async function writeChatHistory(conversationKey: string, serialized: stri
 export async function clearAccountChatStorage(appUserId: string): Promise<void> {
   const prefix = accountChatStoragePrefix(appUserId);
   deletedAccountPrefixes.add(prefix);
+  await blockAccountChatImageCleanup(appUserId);
   await Promise.all(
     [...operationTails.entries()]
       .filter(([conversationKey]) => conversationKey.startsWith(prefix))

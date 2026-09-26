@@ -195,6 +195,8 @@ export default function SettingsScreen() {
                   style: 'destructive',
                   onPress: async () => {
                     setIsDeleting(true);
+                    let accountDeleted = false;
+                    let chatCleanupFailed = false;
                     try {
                       let appUserId = queryClient.getQueryData<{ id: string }>(
                         ['currentUserIdentity', user?.id],
@@ -209,7 +211,8 @@ export default function SettingsScreen() {
                         }
                       }
                       await api.deleteAccount();
-                      let chatCleanupFailed = !appUserId;
+                      accountDeleted = true;
+                      chatCleanupFailed = !appUserId;
                       if (appUserId) {
                         try {
                           await clearAccountChatStorage(appUserId);
@@ -249,8 +252,16 @@ export default function SettingsScreen() {
                         );
                       }
                     } catch (error: any) {
-                      // User-facing alert is sufficient - Sentry will capture if critical
-                      Alert.alert('Error', 'Failed to delete account. Please try again.');
+                      if (accountDeleted) {
+                        Alert.alert(
+                          'Account Deleted',
+                          chatCleanupFailed
+                            ? 'Your account was deleted, but this device could not finish signing out or remove saved chat history. Uninstall Håfa Recipes to clear the local data.'
+                            : 'Your account was deleted, but this device could not finish signing out. Close and reopen Håfa Recipes, or reinstall it if the session remains.',
+                        );
+                      } else {
+                        Alert.alert('Error', 'Failed to delete account. Please try again.');
+                      }
                     } finally {
                       setIsDeleting(false);
                     }

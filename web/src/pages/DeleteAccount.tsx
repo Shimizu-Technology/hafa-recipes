@@ -11,9 +11,10 @@ export default function DeleteAccount() {
         <h2>In the app</h2>
         <p>
           Open Settings, choose Delete Account, and follow the confirmations.
-          This deletes your account and its associated recipes, collections,
-          grocery lists, and meal plans. The app also clears chat history saved
-          on this device.
+          This deletes your account and its associated recipes and collections,
+          your grocery-list items and membership, and your meal-plan entries.
+          The app also attempts to clear chat history saved on this device. If
+          that fails, uninstall Håfa Recipes to remove the local data.
         </p>
 
         <h2>Without the app</h2>
