@@ -196,16 +196,29 @@ export default function SettingsScreen() {
                   onPress: async () => {
                     setIsDeleting(true);
                     try {
-                      const { id: appUserId } = await api.getCurrentUserIdentity();
+                      let appUserId = queryClient.getQueryData<{ id: string }>(
+                        ['currentUserIdentity', user?.id],
+                      )?.id;
+                      if (!appUserId) {
+                        try {
+                          appUserId = (await api.getCurrentUserIdentity()).id;
+                        } catch (error) {
+                          captureError(error instanceof Error ? error : new Error(String(error)), {
+                            tags: { operation: 'identifyChatOnAccountDelete' },
+                          });
+                        }
+                      }
                       await api.deleteAccount();
-                      let chatCleanupFailed = false;
-                      try {
-                        await clearAccountChatStorage(appUserId);
-                      } catch (error) {
-                        chatCleanupFailed = true;
-                        captureError(error instanceof Error ? error : new Error(String(error)), {
-                          tags: { operation: 'clearChatOnAccountDelete' },
-                        });
+                      let chatCleanupFailed = !appUserId;
+                      if (appUserId) {
+                        try {
+                          await clearAccountChatStorage(appUserId);
+                        } catch (error) {
+                          chatCleanupFailed = true;
+                          captureError(error instanceof Error ? error : new Error(String(error)), {
+                            tags: { operation: 'clearChatOnAccountDelete' },
+                          });
+                        }
                       }
                       if (sessionId) {
                         await markMigrationSignedOut(sessionId).catch(() => undefined);

@@ -22,7 +22,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
   },
 }));
 
-import { clearAccountChatStorage, readChatDraft, resetChatDraftsForTests, writeChatDraft } from './chatDrafts';
+import { clearAccountChatStorage, readChatDraft, resetChatDraftsForTests, writeChatDraft, writeChatHistory } from './chatDrafts';
 import { chatDraftStorageKey, chatStorageKey, pendingChatImageCleanupKey } from './chatStorage';
 
 describe('chat drafts', () => {
@@ -86,5 +86,18 @@ describe('chat drafts', () => {
       chatDraftStorageKey(ownConversation),
       pendingChatImageCleanupKey(ownConversation),
     ]));
+  });
+
+  it('prevents a modal from restoring drafts or history after account deletion', async () => {
+    const conversation = chatStorageKey('stable-user', 'one');
+    await writeChatHistory(conversation, '[{"content":"before"}]');
+    await clearAccountChatStorage('stable-user');
+
+    await writeChatDraft(conversation, 'late unsent text');
+    await writeChatHistory(conversation, '[{"content":"late"}]');
+
+    expect(await readChatDraft(conversation)).toBe('');
+    expect(mocks.values.has(conversation)).toBe(false);
+    expect(mocks.values.has(chatDraftStorageKey(conversation))).toBe(false);
   });
 });
