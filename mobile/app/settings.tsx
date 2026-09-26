@@ -15,6 +15,7 @@ import { API_BASE_URL } from '@/lib/api';
 import { captureMessage, captureError } from '@/lib/sentry';
 import { useTheme, ThemePreference } from '@/contexts/ThemeContext';
 import { clearAllOfflineGroceryData } from '@/lib/offlineStorage';
+import { clearAccountChatStorage } from '@/lib/chatDrafts';
 import { CLERK_ENVIRONMENT, markMigrationSignedOut } from '@/lib/clerkMigration';
 import { clearGroceryWidgetSession } from '@/lib/groceryWidget';
 import { hasDurableSignInMethod } from '@/lib/accountAccess';
@@ -194,8 +195,34 @@ export default function SettingsScreen() {
                   style: 'destructive',
                   onPress: async () => {
                     setIsDeleting(true);
+                    let accountDeleted = false;
+                    let chatCleanupFailed = false;
                     try {
+                      let appUserId = queryClient.getQueryData<{ id: string }>(
+                        ['currentUserIdentity', user?.id],
+                      )?.id;
+                      if (!appUserId) {
+                        try {
+                          appUserId = (await api.getCurrentUserIdentity()).id;
+                        } catch (error) {
+                          captureError(error instanceof Error ? error : new Error(String(error)), {
+                            tags: { operation: 'identifyChatOnAccountDelete' },
+                          });
+                        }
+                      }
                       await api.deleteAccount();
+                      accountDeleted = true;
+                      chatCleanupFailed = !appUserId;
+                      if (appUserId) {
+                        try {
+                          await clearAccountChatStorage(appUserId);
+                        } catch (error) {
+                          chatCleanupFailed = true;
+                          captureError(error instanceof Error ? error : new Error(String(error)), {
+                            tags: { operation: 'clearChatOnAccountDelete' },
+                          });
+                        }
+                      }
                       if (sessionId) {
                         await markMigrationSignedOut(sessionId).catch(() => undefined);
                       }
@@ -218,9 +245,23 @@ export default function SettingsScreen() {
                       await clearAllOfflineGroceryData();
 
                       await signOut();
+                      if (chatCleanupFailed) {
+                        Alert.alert(
+                          'Account Deleted',
+                          'Chat history saved on this device could not be removed. Uninstall Håfa Recipes to clear it.',
+                        );
+                      }
                     } catch (error: any) {
-                      // User-facing alert is sufficient - Sentry will capture if critical
-                      Alert.alert('Error', 'Failed to delete account. Please try again.');
+                      if (accountDeleted) {
+                        Alert.alert(
+                          'Account Deleted',
+                          chatCleanupFailed
+                            ? 'Your account was deleted, but this device could not finish signing out or remove saved chat history. Uninstall Håfa Recipes to clear the local data.'
+                            : 'Your account was deleted, but this device could not finish signing out. Close and reopen Håfa Recipes, or reinstall it if the session remains.',
+                        );
+                      } else {
+                        Alert.alert('Error', 'Failed to delete account. Please try again.');
+                      }
                     } finally {
                       setIsDeleting(false);
                     }

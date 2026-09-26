@@ -68,7 +68,7 @@ import {
   normalizeChatImageAttachment,
   normalizeChatPaste,
 } from '../lib/chatComposer';
-import { readChatDraft, writeChatDraft } from '../lib/chatDrafts';
+import { readChatDraft, writeChatDraft, writeChatHistory } from '../lib/chatDrafts';
 import {
   chatStorageKey,
   legacyChatStorageKey,
@@ -464,7 +464,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     conversationKey: string,
   ) => {
     try {
-      await AsyncStorage.setItem(
+      await writeChatHistory(
         conversationKey,
         JSON.stringify(messagesForStorage(newMessages)),
       );
@@ -533,7 +533,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                 await activateChatImageCleanup(conversationKey, cleanupJobId);
               } catch {
                 try {
-                  await AsyncStorage.setItem(conversationKey, JSON.stringify(historySnapshot));
+                  await writeChatHistory(conversationKey, JSON.stringify(historySnapshot));
                   await removeChatImageCleanup(conversationKey, cleanupJobId).catch(() => undefined);
                   Alert.alert(
                     'Could Not Clear Chat',

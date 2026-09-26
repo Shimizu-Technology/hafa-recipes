@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { pendingChatImageCleanupKey } from './chatStorage';
+import { accountChatStoragePrefix, pendingChatImageCleanupKey } from './chatStorage';
 
 export interface ChatImageCleanupJob {
   id: string;
@@ -12,6 +12,11 @@ type DeleteImages = (imageUrls: string[]) => Promise<unknown>;
 
 const mutationTails = new Map<string, Promise<void>>();
 const activeProcessors = new Map<string, Promise<void>>();
+const deletedAccountPrefixes = new Set<string>();
+
+function belongsToDeletedAccount(cleanupKey: string): boolean {
+  return [...deletedAccountPrefixes].some((prefix) => cleanupKey.startsWith(prefix));
+}
 
 function validJob(value: unknown): value is ChatImageCleanupJob {
   return Boolean(
@@ -42,11 +47,23 @@ async function readQueue(cleanupKey: string): Promise<ChatImageCleanupJob[]> {
 }
 
 async function writeQueue(cleanupKey: string, jobs: ChatImageCleanupJob[]): Promise<void> {
+  if (belongsToDeletedAccount(cleanupKey)) return;
   if (jobs.length === 0) {
     await AsyncStorage.removeItem(cleanupKey);
   } else {
     await AsyncStorage.setItem(cleanupKey, JSON.stringify(jobs));
   }
+}
+
+/** Drain existing queue mutations and prevent later writes for a deleted account. */
+export async function blockAccountChatImageCleanup(appUserId: string): Promise<void> {
+  const prefix = accountChatStoragePrefix(appUserId);
+  deletedAccountPrefixes.add(prefix);
+  await Promise.all(
+    [...mutationTails.entries()]
+      .filter(([cleanupKey]) => cleanupKey.startsWith(prefix))
+      .map(([, tail]) => tail),
+  );
 }
 
 /** Serialize read-modify-write operations for one conversation cleanup queue. */
@@ -177,4 +194,5 @@ export function processChatImageCleanup(
 export function resetChatImageCleanupForTests(): void {
   mutationTails.clear();
   activeProcessors.clear();
+  deletedAccountPrefixes.clear();
 }
