@@ -51,7 +51,7 @@ export default function Support() {
 
         <h3>How do I delete my account?</h3>
         <p>
-          You can delete your account at any time through the app's Settings page. This will permanently remove all your personal data, recipes, and grocery lists from our servers.
+          You can delete your account through the app's Settings page. If you no longer have the app, <a href="/delete-account">request account deletion here</a>.
         </p>
 
         <h3>Is there an Android version?</h3>
@@ -80,4 +80,3 @@ export default function Support() {
     </div>
   );
 }
-
