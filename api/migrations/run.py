@@ -21,8 +21,9 @@ ACTIVE_MIGRATIONS = (
     "migrations.028_add_thumbnail_backfill_audit",
     "migrations.029_allow_advisory_recipe_publishing",
     "migrations.030_add_capture_save_idempotency",
+    "migrations.031_add_household_pantry",
 )
-LATEST_MIGRATION = 30
+LATEST_MIGRATION = 31
 
 
 async def run_migrations() -> None:

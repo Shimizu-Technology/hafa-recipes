@@ -24,8 +24,8 @@ export function getIngredientMatchPresentation(result: IngredientMatchResult) {
   const missingCount = result.missing_ingredients.length;
   if (missingCount === 0) {
     return {
-      label: 'Ready to cook',
-      detail: 'You have every listed ingredient',
+      label: 'All ingredients on hand',
+      detail: 'Check amounts in the recipe',
       tone: 'success' as const,
     };
   }
@@ -106,17 +106,21 @@ export function IngredientMatchCard({
               style={[styles.progressFill, { backgroundColor: toneColor, width: `${progress}%` }]}
             />
           </RNView>
+          <RNView style={styles.openRow}>
+            <Text style={[styles.openLabel, { color: colors.tint }]}>View recipe</Text>
+            <Ionicons name="arrow-forward" size={16} color={colors.tint} />
+          </RNView>
         </RNView>
       </TouchableOpacity>
 
       <RNView style={[styles.ingredients, { borderTopColor: colors.border }]}>
-        <Text style={[styles.ingredientLine, { color: colors.textSecondary }]} numberOfLines={2}>
-          <Text style={[styles.ingredientLabel, { color: colors.success }]}>Have </Text>
+        {result.matched_ingredients.length > 0 && <Text style={[styles.ingredientLine, { color: colors.textSecondary }]}>
+          <Text style={[styles.ingredientLabel, { color: colors.success }]}>Have  </Text>
           {result.matched_ingredients.join(', ')}
-        </Text>
+        </Text>}
         {missingCount > 0 && (
-          <Text style={[styles.ingredientLine, { color: colors.textSecondary }]} numberOfLines={2}>
-            <Text style={[styles.ingredientLabel, { color: colors.warning }]}>Need </Text>
+          <Text style={[styles.ingredientLine, { color: colors.textSecondary }]}>
+            <Text style={[styles.ingredientLabel, { color: colors.warning }]}>Need  </Text>
             {result.missing_ingredients.join(', ')}
           </Text>
         )}
@@ -172,18 +176,16 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   recipeButton: {
-    flexDirection: 'row',
-    padding: spacing.md,
-    gap: spacing.md,
+    flexDirection: 'column',
   },
   thumbnail: {
-    width: 88,
-    height: 88,
-    borderRadius: radius.md,
+    width: '100%',
+    height: 168,
   },
   content: {
     flex: 1,
     minWidth: 0,
+    padding: spacing.md,
   },
   titleRow: {
     flexDirection: 'row',
@@ -193,12 +195,15 @@ const styles = StyleSheet.create({
   title: {
     flex: 1,
     fontFamily: fontFamily.semibold,
-    fontSize: fontSize.md,
-    lineHeight: 21,
+    fontSize: fontSize.lg,
+    lineHeight: 25,
   },
   statusRow: {
     marginTop: spacing.sm,
-    gap: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
   },
   statusBadge: {
     alignSelf: 'flex-start',
@@ -226,6 +231,13 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: radius.full,
   },
+  openRow: {
+    marginTop: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  openLabel: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold },
   ingredients: {
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: spacing.md,

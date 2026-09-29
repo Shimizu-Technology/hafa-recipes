@@ -3,6 +3,7 @@
  */
 
 import type { QuantityEstimate } from '@/types/recipe';
+import type { PantryMutationRequest, PantrySnapshot, PantryTransferLine } from '@/types/pantry';
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { captureError, captureMessage, addBreadcrumb } from './sentry';
 import { API_BASE_URL } from './apiConfig';
@@ -858,6 +859,34 @@ class ApiClient {
   // ============================================================
   // Grocery List
   // ============================================================
+
+  async getPantrySnapshot(scope: 'active' | 'personal' = 'active', requestGuard?: RequestGuard): Promise<PantrySnapshot> {
+    const { data } = await this.client.get('/api/pantry/snapshot', { params: { scope }, requestGuard } as GuardedRequestConfig);
+    return data;
+  }
+
+  async syncPantryMutation(mutation: PantryMutationRequest, requestGuard?: RequestGuard): Promise<PantrySnapshot> {
+    const { data } = await this.client.post('/api/pantry/sync', mutation, { requestGuard } as GuardedRequestConfig);
+    return data.snapshot;
+  }
+
+  async transferGroceriesToPantry(input: {
+    mutation_id: string;
+    space_id: string;
+    list_id: string;
+    items: PantryTransferLine[];
+  }, requestGuard?: RequestGuard): Promise<PantrySnapshot> {
+    const { data } = await this.client.post('/api/pantry/from-groceries', input, { requestGuard } as GuardedRequestConfig);
+    return data.snapshot;
+  }
+
+  async copyPersonalPantryToHousehold(input: {
+    mutation_id: string;
+    space_id: string;
+  }, requestGuard?: RequestGuard): Promise<PantrySnapshot> {
+    const { data } = await this.client.post('/api/pantry/copy-personal', input, { requestGuard } as GuardedRequestConfig);
+    return data.snapshot;
+  }
 
   async getGroceryList(includeChecked = true): Promise<GroceryItem[]> {
     const { data } = await this.client.get('/api/grocery/', {

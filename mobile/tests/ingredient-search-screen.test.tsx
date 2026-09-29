@@ -63,7 +63,7 @@ vi.mock('react-native', () => ({
 vi.mock('expo-router', () => {
   const Stack = () => null;
   Stack.Screen = () => null;
-  return { Stack, useRouter: () => ({ push: mocks.routerPush }) };
+  return { Stack, useRouter: () => ({ push: mocks.routerPush }), useFocusEffect: vi.fn() };
 });
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: host('Ionicons') }));
@@ -97,6 +97,15 @@ vi.mock('@/hooks/useGrocery', () => ({
     mutate: mocks.addFromRecipeMutate,
   }),
 }));
+vi.mock('@/hooks/usePantry', () => ({
+  usePantrySnapshot: () => ({
+    data: { scope: 'personal', items: [] },
+    isFetched: true,
+    isLoading: false,
+    isError: false,
+    refetch: mocks.refetch,
+  }),
+}));
 vi.mock('@/constants/Colors', () => ({
   fontSize: { xs: 10, sm: 12, md: 14, lg: 18 },
   fontWeight: { medium: '500', semibold: '600' },
@@ -109,6 +118,7 @@ vi.mock('@/utils/haptics', () => ({
 vi.mock('@/lib/routes', () => ({
   appRoutes: {
     grocery: '/(tabs)/grocery',
+    pantry: '/pantry',
     recipe: (id: string) => ({ pathname: '/recipe/[id]', params: { id } }),
   },
 }));
@@ -164,6 +174,10 @@ describe('IngredientSearchScreen', () => {
         true,
         true,
       );
+      const changeButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Add or change search ingredients',
+      )[0];
+      await act(async () => changeButton.props.onPress());
       expect(renderer.container.queryAll(
         (instance) => instance.type === 'TextInput',
       )[0].props.value).toBe('');
@@ -204,6 +218,11 @@ describe('IngredientSearchScreen', () => {
         (instance) => instance.type === 'TouchableOpacity',
       ).find((button) => button.props.accessibilityLabel === 'Find recipes with these ingredients');
       await act(async () => searchButton!.props.onPress());
+
+      const changeButton = renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Add or change search ingredients',
+      )[0];
+      await act(async () => changeButton.props.onPress());
 
       expect(textNodes(renderer, 'Saved').length).toBeGreaterThan(0);
       expect(mocks.useSearchByIngredients).toHaveBeenLastCalledWith(

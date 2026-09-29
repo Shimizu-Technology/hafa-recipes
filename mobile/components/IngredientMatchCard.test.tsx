@@ -79,7 +79,7 @@ describe('getIngredientMatchPresentation', () => {
       missing_ingredients: [],
       match_count: 3,
       match_percentage: 100,
-    })).label).toBe('Ready to cook');
+    })).label).toBe('All ingredients on hand');
     expect(getIngredientMatchPresentation(result()).detail).toBe('1 ingredient missing');
     expect(getIngredientMatchPresentation(result({
       missing_ingredients: ['one', 'two', 'three'],
@@ -163,7 +163,7 @@ describe('IngredientMatchCard', () => {
       });
 
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'Text' && instance.props.children === 'Ready to cook',
+        (instance) => instance.type === 'Text' && instance.props.children === 'All ingredients on hand',
       )).toHaveLength(1);
       expect(renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel?.startsWith('Add '),

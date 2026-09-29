@@ -4,6 +4,21 @@ All notable changes to Recipe Extractor.
 
 ## [Unreleased]
 
+## [2.6.5] - September 2026
+
+### Added
+
+- Keep a personal pantry with optional amounts, storage places, and dates.
+- Share a household pantry with the same people as a shared grocery list. Copy
+  personal items into it only when you choose to.
+- Add checked grocery items to the active pantry and search recipes using
+  usable pantry ingredients.
+
+### Improved
+
+- Show larger recipe matches with full ingredient lists and clear grocery actions.
+- Make ingredient entry compact while browsing matches.
+
 ## [2.6.4] - September 2026
 
 ### Improved

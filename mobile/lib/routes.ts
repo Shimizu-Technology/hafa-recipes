@@ -6,6 +6,8 @@ export const appRoutes = {
   }),
   discover: '/(tabs)/discover' as const,
   grocery: '/(tabs)/grocery' as const,
+  pantry: '/pantry' as const,
+  ingredientSearch: '/ingredient-search' as const,
   planner: '/(tabs)/planner' as const,
   plannerDate: (date: string) => ({
     pathname: '/(tabs)/planner' as const,

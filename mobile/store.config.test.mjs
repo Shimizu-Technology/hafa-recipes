@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
+const appVersion = require('./app.json').expo.version;
 const {
   APP_DESCRIPTION,
   APP_STORE_ID,
@@ -27,7 +28,7 @@ describe('App Store release metadata', () => {
     const config = buildStoreConfig({ environment, listing });
     const info = config.apple.info['en-US'];
 
-    expect(config.apple.version).toBe('2.6.4');
+    expect(config.apple.version).toBe(appVersion);
     expect(config.apple.release).toEqual({ automaticRelease: true, phasedRelease: false });
     expect(info.subtitle).toBe(APP_SUBTITLE);
     expect(info.description).toBe(APP_DESCRIPTION);
