@@ -37,6 +37,19 @@ async def run_migration() -> None:
         statements = [
             "ALTER TABLE grocery_lists ADD COLUMN IF NOT EXISTS household_enabled BOOLEAN NOT NULL DEFAULT FALSE",
             "ALTER TABLE grocery_list_members ADD COLUMN IF NOT EXISTS role VARCHAR(16) NOT NULL DEFAULT 'manager'",
+            """WITH ranked_members AS (
+                SELECT list_id, user_id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY list_id ORDER BY joined_at, user_id
+                       ) AS position
+                FROM grocery_list_members
+            )
+            UPDATE grocery_list_members AS member
+            SET role = 'member'
+            FROM ranked_members AS ranked
+            WHERE member.list_id = ranked.list_id
+              AND member.user_id = ranked.user_id
+              AND ranked.position > 1""",
             "ALTER TABLE grocery_list_invites ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ",
             """UPDATE grocery_lists AS lists SET household_enabled = TRUE
             WHERE EXISTS (

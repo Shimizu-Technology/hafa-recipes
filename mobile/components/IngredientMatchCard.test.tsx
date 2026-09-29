@@ -121,6 +121,24 @@ describe('IngredientMatchCard', () => {
       expect(renderer.container.queryAll(
         (instance) => instance.type === 'ExpoImage',
       )).toHaveLength(1);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Text' && instance.props.children === 'View recipe',
+      )).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('does not show a Have row when no ingredients match', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(React.createElement(IngredientMatchCard, {
+        result: result({ matched_ingredients: [], missing_ingredients: ['green onions'], match_count: 0, match_percentage: 0 }),
+        onOpen: vi.fn(),
+      })));
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Text' && instance.props.children === 'Have  ',
+      )).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());
     }

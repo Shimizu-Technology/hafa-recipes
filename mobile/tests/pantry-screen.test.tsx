@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   items: [] as Array<Record<string, unknown>>,
   personalItems: [] as Array<Record<string, unknown>>,
   copiedIds: [] as string[],
+  revision: 4,
 }));
 
 const host = vi.hoisted(() => (name: string) => (props: Record<string, unknown>) => React.createElement(name, props, props.children as React.ReactNode));
@@ -51,7 +52,7 @@ vi.mock('@/lib/routes', () => ({ appRoutes: { ingredientSearch: '/ingredient-sea
 vi.mock('@/hooks/usePantry', () => ({
   usePantrySnapshot: (scope: 'active' | 'personal') => ({
     data: scope === 'active'
-      ? { scope: mocks.scope, items: mocks.items, copied_personal_item_ids: mocks.copiedIds }
+      ? { scope: mocks.scope, space_id: 'space-1', revision: mocks.revision, items: mocks.items, copied_personal_item_ids: mocks.copiedIds }
       : { scope: 'personal', items: mocks.personalItems },
     isLoading: false,
     isError: false,
@@ -74,11 +75,36 @@ describe('PantryScreen', () => {
     mocks.items = [];
     mocks.personalItems = [];
     mocks.copiedIds = [];
+    mocks.revision = 4;
     mocks.alert.mockReset();
     mocks.push.mockReset();
     mocks.write.mockReset();
     mocks.write.mockResolvedValue(undefined);
     mocks.copy.mockReset();
+  });
+
+  it('edits only changed fields against the revision shown when editing began', async () => {
+    mocks.items = [{
+      id: 'rice-1', name: 'Rice', quantity: '2', unit: 'cups', location: null,
+      date_kind: null, date_value: null, notes: null,
+    }];
+    const renderer = createRoot();
+    try {
+      await act(async () => renderer.render(React.createElement(PantryScreen)));
+      await act(async () => findAction(renderer, 'Edit Rice').props.onPress());
+      mocks.revision = 5;
+      const name = renderer.container.queryAll((node) => node.props.accessibilityLabel === 'Item name')[0];
+      await act(async () => name.props.onChangeText('Brown rice'));
+      const save = renderer.container.queryAll((node) => node.type === 'TouchableOpacity' &&
+        node.props.children?.props?.children === 'Save item')[0];
+      await act(async () => save.props.onPress());
+      expect(mocks.write).toHaveBeenCalledWith({
+        operation: 'update', item_id: 'rice-1', changes: { name: 'Brown rice' },
+        space_id: 'space-1', base_revision: 4,
+      });
+    } finally {
+      await act(async () => renderer.unmount());
+    }
   });
 
   it('bulk adds pasted names and opens recipe search', async () => {

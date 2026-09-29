@@ -35,6 +35,7 @@ export default function PantryScreen() {
   const copy = useCopyPersonalPantry();
   const [quickInput, setQuickInput] = useState('');
   const [editing, setEditing] = useState<PantryItem | 'new' | null>(null);
+  const [editContext, setEditContext] = useState<{ space_id: string; base_revision: number } | null>(null);
   const [form, setForm] = useState<PantryItemFields>(emptyFields());
   const [dateText, setDateText] = useState('');
   const [search, setSearch] = useState('');
@@ -50,6 +51,10 @@ export default function PantryScreen() {
   const expiring = (active.data?.items ?? []).filter((item) => pantryDateStatus(item, today) !== 'ok').length;
 
   const openEditor = (item?: PantryItem) => {
+    setEditContext(item && active.data ? {
+      space_id: active.data.space_id,
+      base_revision: active.data.revision,
+    } : null);
     setEditing(item ?? 'new');
     setForm(item ? {
       name: item.name, quantity: item.quantity, unit: item.unit,
@@ -88,7 +93,16 @@ export default function PantryScreen() {
     const item = { ...form, name, date_kind: date ? form.date_kind : null, date_value: isoDate };
     try {
       if (editing === 'new') await write.mutateAsync({ operation: 'add', item });
-      else if (editing) await write.mutateAsync({ operation: 'update', item_id: editing.id, changes: item });
+      else if (editing && editContext) {
+        const changes = Object.fromEntries(
+          (Object.keys(item) as Array<keyof PantryItemFields>)
+            .filter((field) => item[field] !== editing[field])
+            .map((field) => [field, item[field]]),
+        ) as Partial<PantryItemFields>;
+        if (Object.keys(changes).length) {
+          await write.mutateAsync({ operation: 'update', item_id: editing.id, changes, ...editContext });
+        }
+      }
       setEditing(null);
     } catch {
       Alert.alert('Couldn’t save', 'The pantry may have changed. Refresh it and try again.');
@@ -98,7 +112,11 @@ export default function PantryScreen() {
   const remove = (item: PantryItem) => Alert.alert('Remove from pantry?', item.name, [
     { text: 'Cancel', style: 'cancel' },
     { text: 'Remove', style: 'destructive', onPress: () => {
-      write.mutate({ operation: 'delete', item_id: item.id }, {
+      if (!active.data) return;
+      write.mutate({
+        operation: 'delete', item_id: item.id,
+        space_id: active.data.space_id, base_revision: active.data.revision,
+      }, {
         onError: () => Alert.alert('Couldn’t remove', 'Refresh your pantry and try again.'),
       });
     } },

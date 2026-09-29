@@ -38,24 +38,27 @@ export function usePantryWrite(scope: 'active' | 'personal' = 'active') {
   return useMutation({
     mutationFn: (input:
       | { operation: 'add'; item: PantryItemFields }
-      | { operation: 'update'; item_id: string; changes: Partial<PantryItemFields> }
-      | { operation: 'delete'; item_id: string },
+      | { operation: 'update'; item_id: string; changes: Partial<PantryItemFields>; space_id: string; base_revision: number }
+      | { operation: 'delete'; item_id: string; space_id: string; base_revision: number },
     ) => serializePantryWrite(async () => {
       const lease = getGroceryStorageLease();
       const guard = () => assertGroceryStorageLease(lease);
       const snapshot = await api.getPantrySnapshot(scope, guard);
       guard();
+      if (input.operation !== 'add' && snapshot.space_id !== input.space_id) {
+        throw new Error('Pantry scope changed; refresh before editing.');
+      }
       const mutationId = randomUUID();
       const itemId = input.operation === 'add' ? randomUUID() : input.item_id;
       const request = {
         mutation_id: mutationId,
-        space_id: snapshot.space_id,
+        space_id: input.operation === 'add' ? snapshot.space_id : input.space_id,
         scope,
         operation: input.operation,
         item_id: itemId,
         ...(input.operation === 'add' ? { item: input.item } : {}),
         ...(input.operation === 'update' ? { changes: input.changes } : {}),
-        ...(input.operation !== 'add' ? { base_revision: snapshot.revision } : {}),
+        ...(input.operation !== 'add' ? { base_revision: input.base_revision } : {}),
       };
       const next = await api.syncPantryMutation(request, guard);
       guard();

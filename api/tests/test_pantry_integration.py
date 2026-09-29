@@ -372,7 +372,7 @@ async def test_migration_backfills_existing_households_and_creates_copy_constrai
         await connection.execute(
             text("INSERT INTO schema_migrations (version, name) VALUES (30, 'capture idempotency')")
         )
-        await connection.execute(text("INSERT INTO app_users (id) VALUES ('alice'), ('bob')"))
+        await connection.execute(text("INSERT INTO app_users (id) VALUES ('alice'), ('bob'), ('charlie')"))
         await connection.execute(
             text(
                 "INSERT INTO grocery_lists (id, name) VALUES ('10000000-0000-4000-8000-000000000001', 'First'), ('10000000-0000-4000-8000-000000000002', 'Second')"
@@ -381,6 +381,11 @@ async def test_migration_backfills_existing_households_and_creates_copy_constrai
         await connection.execute(
             text(
                 "INSERT INTO grocery_list_members (list_id, user_id) VALUES ('10000000-0000-4000-8000-000000000001', 'alice'), ('10000000-0000-4000-8000-000000000002', 'bob')"
+            )
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO grocery_list_members (list_id, user_id, joined_at) VALUES ('10000000-0000-4000-8000-000000000001', 'charlie', NOW() + INTERVAL '1 minute')"
             )
         )
         await connection.execute(
@@ -404,8 +409,14 @@ async def test_migration_backfills_existing_households_and_creates_copy_constrai
                 "SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'pantry_items' AND column_name = 'source_personal_item_id'"
             )
         )
+        roles = (
+            await connection.execute(
+                text("SELECT user_id, role FROM grocery_list_members ORDER BY user_id")
+            )
+        ).all()
     assert rows == [
         ("10000000-0000-4000-8000-000000000001", True),
         ("10000000-0000-4000-8000-000000000002", False),
     ]
     assert source_column == 1
+    assert roles == [('alice', 'manager'), ('bob', 'manager'), ('charlie', 'member')]
