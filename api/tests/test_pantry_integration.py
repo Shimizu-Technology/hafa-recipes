@@ -18,7 +18,7 @@ from app.models import grocery, identity, pantry, recipe  # noqa: F401
 from app.models.grocery import GroceryItem, GroceryList, GroceryListInvite, GroceryListMember
 from app.models.identity import AppUser
 from app.models.pantry import PantryItem, PantrySpace
-from app.routers.grocery import create_invite, join_list, leave_list
+from app.routers.grocery import create_invite, join_list, leave_list, revoke_invite
 from app.routers.pantry import (
     PantryCopyRequest,
     PantryItemChanges,
@@ -293,6 +293,23 @@ async def test_manager_departure_promotes_surviving_member(pantry_database):
     async with pantry_database() as db:
         new_invite = await create_invite(db, _user("bob"))
     assert new_invite.invite_code
+
+
+@pytest.mark.asyncio
+async def test_join_refreshes_cached_invite_after_revocation(pantry_database):
+    await _seed_user(pantry_database, "alice")
+    await _seed_user(pantry_database, "bob")
+    async with pantry_database() as db:
+        invite = await create_invite(db, _user("alice"))
+    async with pantry_database() as joining_db:
+        await joining_db.scalar(
+            select(GroceryListInvite).where(GroceryListInvite.invite_code == invite.invite_code)
+        )
+        async with pantry_database() as revoking_db:
+            await revoke_invite(invite.invite_code, revoking_db, _user("alice"))
+        with pytest.raises(HTTPException) as revoked:
+            await join_list(invite.invite_code, joining_db, _user("bob"))
+    assert revoked.value.status_code == 404
 
 
 @pytest.mark.asyncio

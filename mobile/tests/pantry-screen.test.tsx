@@ -107,6 +107,29 @@ describe('PantryScreen', () => {
     }
   });
 
+  it('sends date type and date together when only the date changes', async () => {
+    mocks.items = [{
+      id: 'milk-1', name: 'Milk', quantity: null, unit: null, location: null,
+      date_kind: 'use_by', date_value: '2026-10-01', notes: null,
+    }];
+    const renderer = createRoot();
+    try {
+      await act(async () => renderer.render(React.createElement(PantryScreen)));
+      await act(async () => findAction(renderer, 'Edit Milk').props.onPress());
+      const date = renderer.container.queryAll((node) => node.props.accessibilityLabel === 'Pantry item date')[0];
+      await act(async () => date.props.onChangeText('10/03/2026'));
+      const save = renderer.container.queryAll((node) => node.type === 'TouchableOpacity' &&
+        node.props.children?.props?.children === 'Save item')[0];
+      await act(async () => save.props.onPress());
+      expect(mocks.write).toHaveBeenCalledWith({
+        operation: 'update', item_id: 'milk-1', space_id: 'space-1', base_revision: 4,
+        changes: { date_kind: 'use_by', date_value: '2026-10-03' },
+      });
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
   it('bulk adds pasted names and opens recipe search', async () => {
     const renderer = createRoot();
     try {

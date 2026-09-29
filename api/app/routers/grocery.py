@@ -33,7 +33,7 @@ router = APIRouter(prefix="/api/grocery", tags=["grocery"])
 # ============================================================
 
 
-def generate_invite_code(length: int = 12) -> str:
+def generate_invite_code(length: int = 10) -> str:
     """Generate a random invite code like 'ABC12345'."""
     chars = string.ascii_uppercase + string.digits
     return "".join(secrets.choice(chars) for _ in range(length))
@@ -543,7 +543,10 @@ async def join_list(
         raise HTTPException(status_code=404, detail="Invite not found or expired")
     invite = (
         await db.execute(
-            select(GroceryListInvite).where(GroceryListInvite.id == invite.id).with_for_update()
+            select(GroceryListInvite)
+            .where(GroceryListInvite.id == invite.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if (

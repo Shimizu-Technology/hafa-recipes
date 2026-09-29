@@ -99,6 +99,10 @@ export default function PantryScreen() {
             .filter((field) => item[field] !== editing[field])
             .map((field) => [field, item[field]]),
         ) as Partial<PantryItemFields>;
+        if ('date_kind' in changes || 'date_value' in changes) {
+          changes.date_kind = item.date_kind;
+          changes.date_value = item.date_value;
+        }
         if (Object.keys(changes).length) {
           await write.mutateAsync({ operation: 'update', item_id: editing.id, changes, ...editContext });
         }

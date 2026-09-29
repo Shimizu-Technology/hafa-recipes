@@ -403,7 +403,7 @@ export default function GroceryScreen() {
         { text: 'Cancel', style: 'cancel' },
         { text: 'Add to pantry', onPress: () => transferToPantry.mutate(readyForPantry.map((item) => ({
           grocery_item_id: item.id,
-          quantity: item.quantity && /^\d+(\.\d{1,3})?$/.test(item.quantity.trim()) ? item.quantity.trim() : null,
+          quantity: item.quantity && /^\d{1,9}(\.\d{1,3})?$/.test(item.quantity.trim()) ? item.quantity.trim() : null,
           unit: item.unit,
           location: null,
           date_kind: null,
