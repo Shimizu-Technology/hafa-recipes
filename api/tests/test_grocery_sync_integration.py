@@ -3,6 +3,7 @@
 import asyncio
 import importlib
 import os
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import httpx
@@ -103,6 +104,7 @@ async def _seed_invite(sessions, grocery_list: GroceryList, creator_id: str, cod
                 list_id=grocery_list.id,
                 invite_code=code,
                 created_by=creator_id,
+                expires_at=datetime.now(timezone.utc) + timedelta(days=7),
             )
         )
         await db.commit()

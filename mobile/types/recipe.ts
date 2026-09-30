@@ -258,12 +258,14 @@ export interface GroceryListMember {
   display_name: string | null;
   joined_at: string;
   is_you: boolean;
+  role?: 'manager' | 'member';
 }
 
 export interface GroceryListInfo {
   id: string;
   name: string;
   is_shared: boolean;
+  household_enabled?: boolean;
   members: GroceryListMember[];
   revision: number;
   created_at: string;

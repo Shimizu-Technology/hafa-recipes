@@ -303,6 +303,7 @@ function RootLayoutNav() {
                   >
                     <Stack.Screen name="(auth)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                    <Stack.Screen name="pantry" options={{ headerTitle: 'My Pantry' }} />
                     <Stack.Screen
                       name="settings"
                       options={{ headerTitle: 'Account & Settings' }}

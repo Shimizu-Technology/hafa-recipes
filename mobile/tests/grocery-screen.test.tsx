@@ -162,9 +162,15 @@ vi.mock('@/lib/grocerySections', () => ({
 vi.mock('@/lib/routes', () => ({
   appRoutes: {
     discover: '/(tabs)/discover',
+    pantry: '/pantry',
     planner: '/(tabs)/planner',
     recipe: (id: string) => `/recipe/${id}`,
   },
+}));
+
+vi.mock('@/hooks/usePantry', () => ({
+  usePantrySnapshot: () => ({ data: { scope: 'personal', transferred_grocery_item_ids: [] } }),
+  useTransferGroceriesToPantry: mutation,
 }));
 
 function mutation() {

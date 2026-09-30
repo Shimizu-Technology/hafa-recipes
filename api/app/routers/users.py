@@ -28,12 +28,14 @@ from app.models.recipe import (
     SavedRecipe,
 )
 from app.publishing import PUBLISHING_DISCLOSURE_VERSION
+from app.routers.grocery import _ensure_household_manager
 from app.services.storage import storage_service
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 settings = get_settings()
 RECOVERED_CLERK_SUBJECT_PATTERN = re.compile(r"^user_[A-Za-z0-9_-]{1,59}$")
 RETIRED_EXTERNAL_ID_PATTERN = re.compile(r"^retired_[a-f0-9]{32}$")
+
 
 class PublishingDisclosureStatus(BaseModel):
     current_version: int
@@ -90,9 +92,7 @@ async def accept_publishing_disclosure(
             detail="Publishing disclosure version is no longer current",
         )
 
-    result = await db.execute(
-        select(AppUser).where(AppUser.id == user.id).with_for_update()
-    )
+    result = await db.execute(select(AppUser).where(AppUser.id == user.id).with_for_update())
     app_user = result.scalar_one_or_none()
     if app_user is None:
         await db.rollback()
@@ -166,8 +166,7 @@ async def delete_account(
             .order_by(AdminAuditEvent.created_at.desc())
         )
         trusted_subjects = {
-            (identity["issuer"], identity["clerk_user_id"])
-            for identity in clerk_identities
+            (identity["issuer"], identity["clerk_user_id"]) for identity in clerk_identities
         }
         for recovery in recovery_result.scalars():
             before = recovery.before_summary
@@ -206,6 +205,13 @@ async def delete_account(
             select(GroceryListMember.list_id).where(GroceryListMember.user_id == user_id)
         )
         list_ids = [row[0] for row in list_result.all()]
+        if list_ids:
+            await db.execute(
+                select(GroceryList.id)
+                .where(GroceryList.id.in_(list_ids))
+                .order_by(GroceryList.id)
+                .with_for_update()
+            )
 
         storage_prefixes = [
             prefix
@@ -239,18 +245,14 @@ async def delete_account(
 
         if collection_ids:
             await db.execute(
-                delete(CollectionRecipe).where(
-                    CollectionRecipe.collection_id.in_(collection_ids)
-                )
+                delete(CollectionRecipe).where(CollectionRecipe.collection_id.in_(collection_ids))
             )
 
         if recipe_ids:
             await db.execute(
                 delete(CollectionRecipe).where(CollectionRecipe.recipe_id.in_(recipe_ids))
             )
-            await db.execute(
-                delete(RecipeVersion).where(RecipeVersion.recipe_id.in_(recipe_ids))
-            )
+            await db.execute(delete(RecipeVersion).where(RecipeVersion.recipe_id.in_(recipe_ids)))
             await db.execute(delete(RecipeNote).where(RecipeNote.recipe_id.in_(recipe_ids)))
             await db.execute(delete(SavedRecipe).where(SavedRecipe.recipe_id.in_(recipe_ids)))
             await db.execute(
@@ -261,9 +263,7 @@ async def delete_account(
                     )
                 )
             )
-            await db.execute(
-                delete(MealPlanEntry).where(MealPlanEntry.recipe_id.in_(recipe_ids))
-            )
+            await db.execute(delete(MealPlanEntry).where(MealPlanEntry.recipe_id.in_(recipe_ids)))
 
         # Remove or anonymize every remaining user reference before AppUser.
         await db.execute(delete(SavedRecipe).where(SavedRecipe.user_id == user_id))
@@ -281,10 +281,10 @@ async def delete_account(
             )
         )
         await db.execute(delete(GroceryListMember).where(GroceryListMember.user_id == user_id))
+        for list_id in list_ids:
+            await _ensure_household_manager(db, list_id)
         await db.execute(
-            update(RecipeVersion)
-            .where(RecipeVersion.created_by == user_id)
-            .values(created_by=None)
+            update(RecipeVersion).where(RecipeVersion.created_by == user_id).values(created_by=None)
         )
         await db.execute(delete(Recipe).where(Recipe.user_id == user_id))
 
@@ -296,13 +296,9 @@ async def delete_account(
             empty_list_ids = [list_id for list_id in list_ids if list_id not in non_empty_list_ids]
             if empty_list_ids:
                 await db.execute(
-                    delete(GroceryListInvite).where(
-                        GroceryListInvite.list_id.in_(empty_list_ids)
-                    )
+                    delete(GroceryListInvite).where(GroceryListInvite.list_id.in_(empty_list_ids))
                 )
-                await db.execute(
-                    delete(GroceryItem).where(GroceryItem.list_id.in_(empty_list_ids))
-                )
+                await db.execute(delete(GroceryItem).where(GroceryItem.list_id.in_(empty_list_ids)))
                 await db.execute(delete(GroceryList).where(GroceryList.id.in_(empty_list_ids)))
 
         await db.execute(delete(ClerkIdentity).where(ClerkIdentity.app_user_id == user_id))
