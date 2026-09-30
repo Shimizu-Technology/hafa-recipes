@@ -9,6 +9,7 @@ from .grocery import router as grocery_router
 from .grocery_widget import router as grocery_widget_router
 from .health import router as health_router
 from .meal_plans import router as meal_plans_router
+from .pantry import router as pantry_router
 from .recipes import router as recipes_router
 from .tts import router as tts_router
 from .users import router as users_router
@@ -25,6 +26,7 @@ __all__ = [
     "grocery_widget_router",
     "health_router",
     "meal_plans_router",
+    "pantry_router",
     "recipes_router",
     "tts_router",
     "users_router",

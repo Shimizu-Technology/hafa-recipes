@@ -22,6 +22,7 @@ export default function Footer() {
             <div className="footer-links">
               <Link to="/">Home</Link>
               <Link to="/privacy">Privacy Policy</Link>
+              <Link to="/delete-account">Delete account</Link>
               <Link to="/support">Support</Link>
             </div>
           </div>
@@ -47,4 +48,3 @@ export default function Footer() {
     </footer>
   );
 }
-

@@ -11,11 +11,18 @@ from .grocery import (
 from .identity import AppUser, ClerkIdentity
 from .meal_plan import MealPlanEntry
 from .moderation import AdminAuditEvent, ContentReport, UserBlock
+from .pantry import (
+    PantryCopyReceipt,
+    PantryItem,
+    PantryMutationReceipt,
+    PantrySpace,
+    PantryTransferReceipt,
+)
 from .recipe import ExtractionJob, Recipe, RecipeCorrectionEvent
 
 __all__ = [
-    "Recipe", 
-    "ExtractionJob", 
+    "Recipe",
+    "ExtractionJob",
     "RecipeCorrectionEvent",
     "MealPlanEntry",
     "GroceryItem",
@@ -32,4 +39,9 @@ __all__ = [
     "AdminAuditEvent",
     "ContentReport",
     "UserBlock",
+    "PantrySpace",
+    "PantryItem",
+    "PantryMutationReceipt",
+    "PantryTransferReceipt",
+    "PantryCopyReceipt",
 ]

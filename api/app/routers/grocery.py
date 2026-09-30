@@ -2,7 +2,7 @@
 
 import secrets
 import string
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Optional
 from uuid import UUID
@@ -32,15 +32,16 @@ router = APIRouter(prefix="/api/grocery", tags=["grocery"])
 # Helper Functions
 # ============================================================
 
-def generate_invite_code(length: int = 8) -> str:
+
+def generate_invite_code(length: int = 10) -> str:
     """Generate a random invite code like 'ABC12345'."""
     chars = string.ascii_uppercase + string.digits
-    return ''.join(secrets.choice(chars) for _ in range(length))
+    return "".join(secrets.choice(chars) for _ in range(length))
 
 
 async def get_user_list(db: AsyncSession, user_id: str) -> Optional[GroceryList]:
     """Get the user's current grocery list (the one they're a member of).
-    
+
     If user is somehow a member of multiple lists (data inconsistency),
     returns the most recently joined one.
     """
@@ -58,9 +59,91 @@ async def get_user_list(db: AsyncSession, user_id: str) -> Optional[GroceryList]
 async def _lock_membership_owner(db: AsyncSession, user_id: str) -> None:
     """Serialize list resolution with every transition for this stable account."""
 
-    await db.scalar(
-        select(AppUser.id).where(AppUser.id == user_id).with_for_update()
+    await db.scalar(select(AppUser.id).where(AppUser.id == user_id).with_for_update())
+
+
+async def _ensure_household_manager(db: AsyncSession, list_id: UUID) -> None:
+    """A surviving household must always retain someone who can manage invites."""
+    members = (
+        (
+            await db.execute(
+                select(GroceryListMember)
+                .where(GroceryListMember.list_id == list_id)
+                .order_by(GroceryListMember.joined_at, GroceryListMember.user_id)
+            )
+        )
+        .scalars()
+        .all()
     )
+    if members and not any(member.role == "manager" for member in members):
+        members[0].role = "manager"
+
+
+async def _preserve_last_member_pantry(db: AsyncSession, list_id: UUID, user_id: str) -> None:
+    """Return a departing sole member's household lots to their private pantry."""
+    from app.models.pantry import PantryItem, PantrySpace
+
+    household_space = (
+        await db.execute(
+            select(PantrySpace).where(PantrySpace.grocery_list_id == list_id).with_for_update()
+        )
+    ).scalar_one_or_none()
+    if household_space is None:
+        return
+    household_items = (
+        (await db.execute(select(PantryItem).where(PantryItem.space_id == household_space.id)))
+        .scalars()
+        .all()
+    )
+    if not household_items:
+        return
+    personal_space = (
+        await db.execute(
+            select(PantrySpace).where(PantrySpace.owner_user_id == user_id).with_for_update()
+        )
+    ).scalar_one_or_none()
+    if personal_space is None:
+        personal_space = PantrySpace(kind="personal", owner_user_id=user_id)
+        db.add(personal_space)
+        await db.flush()
+    personal_items = (
+        (await db.execute(select(PantryItem).where(PantryItem.space_id == personal_space.id)))
+        .scalars()
+        .all()
+    )
+    by_id = {item.id: item for item in personal_items}
+    added = False
+    for item in household_items:
+        original = by_id.get(item.source_personal_item_id)
+        if original is not None and all(
+            getattr(original, field) == getattr(item, field)
+            for field in (
+                "name",
+                "quantity",
+                "unit",
+                "location",
+                "date_kind",
+                "date_value",
+                "notes",
+            )
+        ):
+            continue
+        db.add(
+            PantryItem(
+                space_id=personal_space.id,
+                name=item.name,
+                quantity=item.quantity,
+                unit=item.unit,
+                location=item.location,
+                date_kind=item.date_kind,
+                date_value=item.date_value,
+                notes=item.notes,
+                created_by_user_id=user_id,
+            )
+        )
+        added = True
+    if added:
+        personal_space.revision += 1
 
 
 async def get_or_create_user_list(db: AsyncSession, user: ClerkUser) -> GroceryList:
@@ -69,18 +152,19 @@ async def get_or_create_user_list(db: AsyncSession, user: ClerkUser) -> GroceryL
     # Keep it through list resolution so callers cannot retain stale access.
     await _lock_membership_owner(db, user.id)
     grocery_list = await get_user_list(db, user.id)
-    
+
     if not grocery_list:
         # Create a new list for this user
         grocery_list = GroceryList(name="Grocery List")
         db.add(grocery_list)
         await db.flush()  # Get the ID
-        
+
         # Add user as member
         member = GroceryListMember(
             list_id=grocery_list.id,
             user_id=user.id,
-            display_name=user.display_name
+            display_name=user.display_name,
+            role="manager",
         )
         db.add(member)
         await db.commit()
@@ -91,7 +175,7 @@ async def get_or_create_user_list(db: AsyncSession, user: ClerkUser) -> GroceryL
         grocery_list = await get_user_list(db, user.id)
         if grocery_list is None:
             raise RuntimeError("Grocery list membership disappeared during creation")
-    
+
     return grocery_list
 
 
@@ -99,9 +183,13 @@ async def get_or_create_user_list(db: AsyncSession, user: ClerkUser) -> GroceryL
 # Pydantic Schemas
 # ============================================================
 
+
 class GroceryItemCreate(BaseModel):
     """Request to add a grocery item."""
-    name: str = Field(..., min_length=1, max_length=255, description="Item name (max 255 characters)")
+
+    name: str = Field(
+        ..., min_length=1, max_length=255, description="Item name (max 255 characters)"
+    )
     quantity: Optional[str] = Field(None, max_length=50)
     unit: Optional[str] = Field(None, max_length=50)
     notes: Optional[str] = Field(None, max_length=255)
@@ -111,6 +199,7 @@ class GroceryItemCreate(BaseModel):
 
 class GroceryItemUpdate(BaseModel):
     """Request to update a grocery item."""
+
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     quantity: Optional[str] = Field(None, max_length=50)
     unit: Optional[str] = Field(None, max_length=50)
@@ -120,6 +209,7 @@ class GroceryItemUpdate(BaseModel):
 
 class GroceryItemResponse(BaseModel):
     """Grocery item response."""
+
     id: UUID
     name: str
     quantity: Optional[str] = None
@@ -131,12 +221,13 @@ class GroceryItemResponse(BaseModel):
     added_by_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class AddFromRecipeRequest(BaseModel):
     """Request to add ingredients from a recipe."""
+
     recipe_id: UUID
     recipe_title: str = Field(..., max_length=255)
     ingredients: list[GroceryItemCreate]
@@ -144,43 +235,51 @@ class AddFromRecipeRequest(BaseModel):
 
 class GroceryListMemberResponse(BaseModel):
     """Member of a grocery list."""
+
     user_id: str
     display_name: Optional[str] = None
     joined_at: datetime
     is_you: bool = False
-    
+    role: str = "manager"
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class GroceryListResponse(BaseModel):
     """Grocery list info with members."""
+
     id: UUID
     name: str
     is_shared: bool
+    household_enabled: bool = False
     members: list[GroceryListMemberResponse]
     revision: int
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class GroceryListInviteResponse(BaseModel):
     """Invite response with code and deep link."""
+
     invite_code: str
     deep_link: str
     list_name: str
     created_by_name: Optional[str] = None
+    expires_at: Optional[datetime] = None
 
 
 class InvitePreviewResponse(BaseModel):
     """Preview of an invite (for join screen)."""
+
     list_name: str
     member_count: int
     members: list[str]  # Display names of current members
     created_by_name: Optional[str] = None
     is_valid: bool = True
     already_member: bool = False
+    expires_at: Optional[datetime] = None
 
 
 class GroceryMutationOperation(str, Enum):
@@ -216,10 +315,7 @@ class GroceryMutationRequest(BaseModel):
                 and bool(self.changes.model_fields_set)
                 and "checked" not in self.changes.model_fields_set
                 and self.checked is None
-                and not (
-                    "name" in self.changes.model_fields_set
-                    and self.changes.name is None
-                )
+                and not ("name" in self.changes.model_fields_set and self.changes.name is None)
             )
         elif self.operation is GroceryMutationOperation.SET_CHECKED:
             valid = self.item is None and self.changes is None and self.checked is not None
@@ -255,31 +351,33 @@ class GroceryMutationResponse(BaseModel):
 # List Management Endpoints
 # ============================================================
 
+
 @router.get("/list", response_model=GroceryListResponse)
 async def get_list_info(
-    db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db), user: ClerkUser = Depends(get_current_user)
 ):
     """Get info about the user's grocery list, including members."""
     grocery_list = await get_or_create_user_list(db, user)
     grocery_list = await _lock_grocery_list(db, grocery_list.id)
-    
+
     # Get members with display names
     members_result = await db.execute(
         select(GroceryListMember).where(GroceryListMember.list_id == grocery_list.id)
     )
     members = members_result.scalars().all()
-    
+
     return GroceryListResponse(
         id=grocery_list.id,
         name=grocery_list.name,
         is_shared=len(members) > 1,
+        household_enabled=grocery_list.household_enabled,
         members=[
             GroceryListMemberResponse(
                 user_id=m.user_id,
                 display_name=m.display_name,
                 joined_at=m.joined_at,
-                is_you=m.user_id == user.id
+                is_you=m.user_id == user.id,
+                role=m.role,
             )
             for m in members
         ],
@@ -291,37 +389,42 @@ async def get_list_info(
 
 @router.post("/list/invite", response_model=GroceryListInviteResponse)
 async def create_invite(
-    db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db), user: ClerkUser = Depends(get_current_user)
 ):
     """Generate an invite link to share the grocery list."""
     grocery_list = await get_or_create_user_list(db, user)
-    
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)
+    member = await db.get(GroceryListMember, {"list_id": grocery_list.id, "user_id": user.id})
+    if member is None or member.role != "manager":
+        raise HTTPException(status_code=403, detail="Only household managers can invite members")
+
     # Generate unique invite code
     invite_code = generate_invite_code()
-    
+
     # Create invite
     invite = GroceryListInvite(
         list_id=grocery_list.id,
         invite_code=invite_code,
-        created_by=user.id
+        created_by=user.id,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
     )
     db.add(invite)
+    grocery_list.household_enabled = True
+    grocery_list.revision += 1
     await db.commit()
-    
+
     return GroceryListInviteResponse(
         invite_code=invite_code,
         deep_link=f"hafarecipes://grocery/join/{invite_code}",
         list_name=grocery_list.name,
-        created_by_name=user.display_name
+        created_by_name=user.display_name,
+        expires_at=invite.expires_at,
     )
 
 
 @router.get("/list/invite/{code}", response_model=InvitePreviewResponse)
 async def get_invite_preview(
-    code: str,
-    db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
+    code: str, db: AsyncSession = Depends(get_db), user: ClerkUser = Depends(get_current_user)
 ):
     """Get preview of an invite (for join confirmation screen)."""
     # Find the invite
@@ -331,65 +434,104 @@ async def get_invite_preview(
         .options(selectinload(GroceryListInvite.grocery_list))
     )
     invite = result.scalar_one_or_none()
-    
-    if not invite:
-        return InvitePreviewResponse(
-            list_name="",
-            member_count=0,
-            members=[],
-            is_valid=False
-        )
-    
+
+    if (
+        not invite
+        or invite.revoked_at
+        or invite.accepted_at
+        or not invite.expires_at
+        or invite.expires_at <= datetime.now(timezone.utc)
+    ):
+        return InvitePreviewResponse(list_name="", member_count=0, members=[], is_valid=False)
+
     # Get members
     members_result = await db.execute(
         select(GroceryListMember).where(GroceryListMember.list_id == invite.list_id)
     )
     members = members_result.scalars().all()
-    
+
     # Check if user is already a member
     already_member = any(m.user_id == user.id for m in members)
-    
+
     # Get creator's name
     creator = next((m for m in members if m.user_id == invite.created_by), None)
-    
+
     return InvitePreviewResponse(
         list_name=invite.grocery_list.name,
         member_count=len(members),
         members=[m.display_name or "A chef" for m in members],
         created_by_name=creator.display_name if creator else None,
         is_valid=True,
-        already_member=already_member
+        already_member=already_member,
+        expires_at=invite.expires_at,
     )
+
+
+@router.delete("/list/invite/{code}")
+async def revoke_invite(
+    code: str,
+    db: AsyncSession = Depends(get_db),
+    user: ClerkUser = Depends(get_current_user),
+):
+    """Allow a household manager to revoke one unused invitation."""
+    grocery_list = await get_or_create_user_list(db, user)
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)
+    member = await db.get(
+        GroceryListMember,
+        {"list_id": grocery_list.id, "user_id": user.id},
+    )
+    if member is None or member.role != "manager":
+        raise HTTPException(status_code=403, detail="Only household managers can revoke invites")
+    invite = (
+        await db.execute(
+            select(GroceryListInvite)
+            .where(
+                GroceryListInvite.list_id == grocery_list.id,
+                GroceryListInvite.invite_code == code.upper(),
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if invite is None:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    if invite.revoked_at is None:
+        invite.revoked_at = datetime.now(timezone.utc)
+        grocery_list.revision += 1
+        await db.commit()
+    return {"message": "Invitation revoked"}
 
 
 @router.post("/list/join/{code}")
 async def join_list(
-    code: str,
-    db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
+    code: str, db: AsyncSession = Depends(get_db), user: ClerkUser = Depends(get_current_user)
 ):
     """Accept an invite and join a shared grocery list."""
     await _lock_membership_owner(db, user.id)
-    # Find the invite
+    # Resolve the target first, then lock lists before the invite. Revocation
+    # uses this same lock order.
     result = await db.execute(
-        select(GroceryListInvite)
-        .where(GroceryListInvite.invite_code == code.upper())
+        select(GroceryListInvite).where(GroceryListInvite.invite_code == code.upper())
     )
     invite = result.scalar_one_or_none()
-    
-    if not invite:
+
+    if (
+        not invite
+        or invite.revoked_at
+        or invite.accepted_at
+        or not invite.expires_at
+        or invite.expires_at <= datetime.now(timezone.utc)
+    ):
         raise HTTPException(status_code=404, detail="Invite not found or expired")
-    
+
     # Check if user is already a member
     existing_member = await db.execute(
         select(GroceryListMember).where(
-            GroceryListMember.list_id == invite.list_id,
-            GroceryListMember.user_id == user.id
+            GroceryListMember.list_id == invite.list_id, GroceryListMember.user_id == user.id
         )
     )
     if existing_member.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="You're already a member of this list")
-    
+
     # Archive user's current personal items (if they have any)
     current_list = await get_user_list(db, user.id)
     list_ids = {invite.list_id}
@@ -399,111 +541,134 @@ async def join_list(
     target_list = locked_lists.get(invite.list_id)
     if target_list is None:
         raise HTTPException(status_code=404, detail="Invite not found or expired")
+    invite = (
+        await db.execute(
+            select(GroceryListInvite)
+            .where(GroceryListInvite.id == invite.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if (
+        invite is None
+        or invite.revoked_at
+        or invite.accepted_at
+        or not invite.expires_at
+        or invite.expires_at <= datetime.now(timezone.utc)
+    ):
+        raise HTTPException(status_code=404, detail="Invite not found or expired")
     if current_list:
         current_list = locked_lists[current_list.id]
-        # Archive their personal items
-        await db.execute(
-            update(GroceryItem)
-            .where(
-                GroceryItem.list_id == current_list.id,
-                GroceryItem.user_id == user.id
+        remaining_before = await db.scalar(
+            select(func.count(GroceryListMember.user_id)).where(
+                GroceryListMember.list_id == current_list.id
             )
-            .values(archived=True)
         )
-        
+        if remaining_before == 1:
+            await _preserve_last_member_pantry(db, current_list.id, user.id)
+            # Keep solo shopping items detached from a list that will be deleted.
+            await db.execute(
+                update(GroceryItem)
+                .where(GroceryItem.list_id == current_list.id, GroceryItem.user_id == user.id)
+                .values(archived=True, list_id=None)
+            )
+        # Items contributed to an existing household stay with that household.
+
         # Remove them from their current list
         await db.execute(
             delete(GroceryListMember).where(
-                GroceryListMember.list_id == current_list.id,
-                GroceryListMember.user_id == user.id
+                GroceryListMember.list_id == current_list.id, GroceryListMember.user_id == user.id
             )
         )
-        
+
         # If the old list is now empty, delete it
         remaining_members = await db.execute(
-            select(func.count(GroceryListMember.user_id))
-            .where(GroceryListMember.list_id == current_list.id)
+            select(func.count(GroceryListMember.user_id)).where(
+                GroceryListMember.list_id == current_list.id
+            )
         )
         if remaining_members.scalar() == 0:
             await db.execute(delete(GroceryList).where(GroceryList.id == current_list.id))
         else:
             current_list.revision += 1
-    
+            await _ensure_household_manager(db, current_list.id)
+
     # Add user to the new list
     new_member = GroceryListMember(
         list_id=invite.list_id,
         user_id=user.id,
-        display_name=user.display_name
+        display_name=user.display_name,
+        role="member",
     )
     db.add(new_member)
-    
+
     # Mark invite as accepted
     invite.accepted_by = user.id
     invite.accepted_at = datetime.now(timezone.utc)
     target_list.revision += 1
-    
+
     await db.commit()
-    
+
     return {"message": "Successfully joined the grocery list!"}
 
 
 @router.delete("/list/leave")
 async def leave_list(
-    db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db), user: ClerkUser = Depends(get_current_user)
 ):
     """Leave a shared grocery list. Your archived personal items will be restored."""
     await _lock_membership_owner(db, user.id)
     current_list = await get_user_list(db, user.id)
-    
+
     if not current_list:
         raise HTTPException(status_code=404, detail="You're not in a grocery list")
     current_list = await _lock_grocery_list(db, current_list.id)
-    
+
     # Get member count
     members_result = await db.execute(
-        select(func.count(GroceryListMember.user_id))
-        .where(GroceryListMember.list_id == current_list.id)
+        select(func.count(GroceryListMember.user_id)).where(
+            GroceryListMember.list_id == current_list.id
+        )
     )
     member_count = members_result.scalar()
-    
+
     if member_count <= 1:
-        raise HTTPException(status_code=400, detail="You can't leave a list when you're the only member")
-    
+        raise HTTPException(
+            status_code=400, detail="You can't leave a list when you're the only member"
+        )
+
     # Remove user from the list
     await db.execute(
         delete(GroceryListMember).where(
-            GroceryListMember.list_id == current_list.id,
-            GroceryListMember.user_id == user.id
+            GroceryListMember.list_id == current_list.id, GroceryListMember.user_id == user.id
         )
     )
-    
+
     # Create a new personal list for the user
     new_list = GroceryList(name="Grocery List")
     db.add(new_list)
     await db.flush()
-    
+
     # Add user as member
     new_member = GroceryListMember(
         list_id=new_list.id,
         user_id=user.id,
-        display_name=user.display_name
+        display_name=user.display_name,
+        role="manager",
     )
     db.add(new_member)
-    
+
     # Restore their archived items to the new list
     await db.execute(
         update(GroceryItem)
-        .where(
-            GroceryItem.user_id == user.id,
-            GroceryItem.archived.is_(True)
-        )
+        .where(GroceryItem.user_id == user.id, GroceryItem.archived.is_(True))
         .values(archived=False, list_id=new_list.id)
     )
     current_list.revision += 1
-    
+    await _ensure_household_manager(db, current_list.id)
+
     await db.commit()
-    
+
     return {"message": "Left the shared list. Your personal items have been restored."}
 
 
@@ -511,62 +676,68 @@ async def leave_list(
 async def remove_member(
     member_user_id: str,
     db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
+    user: ClerkUser = Depends(get_current_user),
 ):
     """Remove a member from the shared grocery list."""
     await _lock_membership_owner(db, member_user_id)
     current_list = await get_user_list(db, user.id)
-    
+
     if not current_list:
         raise HTTPException(status_code=404, detail="You're not in a grocery list")
     current_list = await _lock_grocery_list(db, current_list.id)
-    
+
     # Check if target user is a member
     target_member = await db.execute(
         select(GroceryListMember).where(
             GroceryListMember.list_id == current_list.id,
-            GroceryListMember.user_id == member_user_id
+            GroceryListMember.user_id == member_user_id,
         )
     )
     if not target_member.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="User is not a member of this list")
-    
+
     if member_user_id == user.id:
         raise HTTPException(status_code=400, detail="Use the leave endpoint to remove yourself")
-    
+    actor_member = await db.get(GroceryListMember, {"list_id": current_list.id, "user_id": user.id})
+    target_member = await db.get(
+        GroceryListMember, {"list_id": current_list.id, "user_id": member_user_id}
+    )
+    if actor_member is None or actor_member.role != "manager":
+        raise HTTPException(status_code=403, detail="Only household managers can remove members")
+    if target_member is None or target_member.role == "manager":
+        raise HTTPException(status_code=403, detail="Household managers cannot be removed")
+
     # Remove the member
     await db.execute(
         delete(GroceryListMember).where(
             GroceryListMember.list_id == current_list.id,
-            GroceryListMember.user_id == member_user_id
+            GroceryListMember.user_id == member_user_id,
         )
     )
-    
+
     # Create a new personal list for the removed user and restore their items
     new_list = GroceryList(name="Grocery List")
     db.add(new_list)
     await db.flush()
-    
+
     new_member = GroceryListMember(
         list_id=new_list.id,
         user_id=member_user_id,
-        display_name=None  # We don't have their display name here
+        display_name=None,  # We don't have their display name here
+        role="manager",
     )
     db.add(new_member)
-    
+
     # Restore their archived items
     await db.execute(
         update(GroceryItem)
-        .where(
-            GroceryItem.user_id == member_user_id,
-            GroceryItem.archived.is_(True)
-        )
+        .where(GroceryItem.user_id == member_user_id, GroceryItem.archived.is_(True))
         .values(archived=False, list_id=new_list.id)
     )
     current_list.revision += 1
-    
+
     await db.commit()
-    
+
     return {"message": "Member removed from the list"}
 
 
@@ -583,22 +754,30 @@ async def _build_grocery_snapshot(
     """Read one authoritative list snapshot inside the caller's transaction."""
 
     members = (
-        await db.execute(
-            select(GroceryListMember)
-            .where(GroceryListMember.list_id == grocery_list.id)
-            .order_by(GroceryListMember.joined_at, GroceryListMember.user_id)
-        )
-    ).scalars().all()
-    items = (
-        await db.execute(
-            select(GroceryItem)
-            .where(
-                GroceryItem.list_id == grocery_list.id,
-                GroceryItem.archived.is_(False),
+        (
+            await db.execute(
+                select(GroceryListMember)
+                .where(GroceryListMember.list_id == grocery_list.id)
+                .order_by(GroceryListMember.joined_at, GroceryListMember.user_id)
             )
-            .order_by(GroceryItem.checked, GroceryItem.created_at.desc(), GroceryItem.id)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
+    items = (
+        (
+            await db.execute(
+                select(GroceryItem)
+                .where(
+                    GroceryItem.list_id == grocery_list.id,
+                    GroceryItem.archived.is_(False),
+                )
+                .order_by(GroceryItem.checked, GroceryItem.created_at.desc(), GroceryItem.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     unchecked = sum(not item.checked for item in items)
 
     return GrocerySnapshotResponse(
@@ -607,12 +786,14 @@ async def _build_grocery_snapshot(
             id=grocery_list.id,
             name=grocery_list.name,
             is_shared=len(members) > 1,
+            household_enabled=grocery_list.household_enabled,
             members=[
                 GroceryListMemberResponse(
                     user_id=member.user_id,
                     display_name=member.display_name,
                     joined_at=member.joined_at,
                     is_you=member.user_id == user.id,
+                    role=member.role,
                 )
                 for member in members
             ],
@@ -670,14 +851,18 @@ async def _lock_grocery_lists(
     """Lock multiple lists in UUID order to prevent reciprocal-join deadlocks."""
 
     lists = (
-        await db.execute(
-            select(GroceryList)
-            .where(GroceryList.id.in_(list_ids))
-            .order_by(GroceryList.id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
+        (
+            await db.execute(
+                select(GroceryList)
+                .where(GroceryList.id.in_(list_ids))
+                .order_by(GroceryList.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return {grocery_list.id: grocery_list for grocery_list in lists}
 
 
@@ -794,78 +979,71 @@ async def sync_grocery_mutation(
 async def get_grocery_items(
     include_checked: bool = Query(default=True, description="Include checked items"),
     db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
+    user: ClerkUser = Depends(get_current_user),
 ):
     """
     Get the user's grocery list items.
-    
+
     Returns items from the user's current list (personal or shared).
     Ordered by: unchecked first, then by creation date.
     """
     grocery_list = await get_or_create_user_list(db, user)
-    
+
     query = select(GroceryItem).where(
-        GroceryItem.list_id == grocery_list.id,
-        GroceryItem.archived.is_(False)
+        GroceryItem.list_id == grocery_list.id, GroceryItem.archived.is_(False)
     )
-    
+
     if not include_checked:
         query = query.where(GroceryItem.checked.is_(False))
-    
+
     # Order: unchecked first, then by created_at desc
     query = query.order_by(GroceryItem.checked, GroceryItem.created_at.desc())
-    
+
     result = await db.execute(query)
     items = result.scalars().all()
-    
+
     return items
 
 
 @router.get("/count")
 async def get_grocery_count(
-    db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db), user: ClerkUser = Depends(get_current_user)
 ):
     """Get count of grocery items (total and unchecked)."""
     grocery_list = await get_or_create_user_list(db, user)
     grocery_list = await _lock_grocery_list(db, grocery_list.id)
-    
+
     # Total count
     total_result = await db.execute(
         select(func.count(GroceryItem.id)).where(
-            GroceryItem.list_id == grocery_list.id,
-            GroceryItem.archived.is_(False)
+            GroceryItem.list_id == grocery_list.id, GroceryItem.archived.is_(False)
         )
     )
     total = total_result.scalar()
-    
+
     # Unchecked count
     unchecked_result = await db.execute(
         select(func.count(GroceryItem.id)).where(
             GroceryItem.list_id == grocery_list.id,
             GroceryItem.archived.is_(False),
-            GroceryItem.checked.is_(False)
+            GroceryItem.checked.is_(False),
         )
     )
     unchecked = unchecked_result.scalar()
-    
-    return {
-        "total": total,
-        "unchecked": unchecked,
-        "checked": total - unchecked
-    }
+
+    return {"total": total, "unchecked": unchecked, "checked": total - unchecked}
 
 
 @router.post("/", response_model=GroceryItemResponse)
 async def add_grocery_item(
     item: GroceryItemCreate,
     db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
+    user: ClerkUser = Depends(get_current_user),
 ):
     """Add a single item to the grocery list."""
     grocery_list = await get_or_create_user_list(db, user)
     grocery_list = await _lock_grocery_list(db, grocery_list.id)
-    
+
     new_item = GroceryItem(
         user_id=user.id,
         list_id=grocery_list.id,
@@ -878,12 +1056,12 @@ async def add_grocery_item(
         added_by_name=user.display_name,
         checked=False,
     )
-    
+
     db.add(new_item)
     grocery_list.revision += 1
     await db.commit()
     await db.refresh(new_item)
-    
+
     return new_item
 
 
@@ -891,17 +1069,17 @@ async def add_grocery_item(
 async def add_from_recipe(
     request: AddFromRecipeRequest,
     db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
+    user: ClerkUser = Depends(get_current_user),
 ):
     """
     Add all ingredients from a recipe to the grocery list.
-    
+
     This is a batch operation that adds multiple items at once.
     """
     grocery_list = await get_or_create_user_list(db, user)
     grocery_list = await _lock_grocery_list(db, grocery_list.id)
     new_items = []
-    
+
     for ingredient in request.ingredients:
         new_item = GroceryItem(
             user_id=user.id,
@@ -917,14 +1095,14 @@ async def add_from_recipe(
         )
         db.add(new_item)
         new_items.append(new_item)
-    
+
     grocery_list.revision += 1
     await db.commit()
-    
+
     # Refresh all items to get their IDs
     for item in new_items:
         await db.refresh(item)
-    
+
     return new_items
 
 
@@ -933,24 +1111,24 @@ async def update_grocery_item(
     item_id: UUID,
     item_update: GroceryItemUpdate,
     db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
+    user: ClerkUser = Depends(get_current_user),
 ):
     """Update a grocery item. Any member of the shared list can update items."""
     grocery_list = await get_or_create_user_list(db, user)
     grocery_list = await _lock_grocery_list(db, grocery_list.id)
-    
+
     result = await db.execute(
         select(GroceryItem).where(
             GroceryItem.id == item_id,
             GroceryItem.list_id == grocery_list.id,
-            GroceryItem.archived.is_(False)
+            GroceryItem.archived.is_(False),
         )
     )
     item = result.scalar_one_or_none()
-    
+
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    
+
     # Update fields
     if item_update.name is not None:
         item.name = item_update.name
@@ -962,147 +1140,136 @@ async def update_grocery_item(
         item.notes = item_update.notes
     if item_update.checked is not None:
         item.checked = item_update.checked
-    
+
     grocery_list.revision += 1
     await db.commit()
     await db.refresh(item)
-    
+
     return item
 
 
 @router.put("/{item_id}/toggle", response_model=GroceryItemResponse)
 async def toggle_grocery_item(
-    item_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
+    item_id: UUID, db: AsyncSession = Depends(get_db), user: ClerkUser = Depends(get_current_user)
 ):
     """Toggle the checked status of a grocery item. Any member can toggle."""
     grocery_list = await get_or_create_user_list(db, user)
     grocery_list = await _lock_grocery_list(db, grocery_list.id)
-    
+
     result = await db.execute(
         select(GroceryItem).where(
             GroceryItem.id == item_id,
             GroceryItem.list_id == grocery_list.id,
-            GroceryItem.archived.is_(False)
+            GroceryItem.archived.is_(False),
         )
     )
     item = result.scalar_one_or_none()
-    
+
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    
+
     item.checked = not item.checked
     grocery_list.revision += 1
     await db.commit()
     await db.refresh(item)
-    
+
     return item
 
 
 @router.delete("/{item_id}")
 async def delete_grocery_item(
-    item_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
+    item_id: UUID, db: AsyncSession = Depends(get_db), user: ClerkUser = Depends(get_current_user)
 ):
     """Delete a single grocery item. Any member can delete items."""
     grocery_list = await get_or_create_user_list(db, user)
     grocery_list = await _lock_grocery_list(db, grocery_list.id)
-    
+
     result = await db.execute(
         select(GroceryItem).where(
             GroceryItem.id == item_id,
             GroceryItem.list_id == grocery_list.id,
-            GroceryItem.archived.is_(False)
+            GroceryItem.archived.is_(False),
         )
     )
     item = result.scalar_one_or_none()
-    
+
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    
+
     await db.delete(item)
     grocery_list.revision += 1
     await db.commit()
-    
+
     return {"message": "Item deleted", "id": str(item_id)}
 
 
 @router.delete("/clear/checked")
 async def clear_checked_items(
-    db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db), user: ClerkUser = Depends(get_current_user)
 ):
     """Delete all checked items from the grocery list."""
     grocery_list = await get_or_create_user_list(db, user)
     grocery_list = await _lock_grocery_list(db, grocery_list.id)
-    
+
     result = await db.execute(
-        delete(GroceryItem).where(
+        delete(GroceryItem)
+        .where(
             GroceryItem.list_id == grocery_list.id,
             GroceryItem.archived.is_(False),
-            GroceryItem.checked.is_(True)
-        ).returning(GroceryItem.id)
+            GroceryItem.checked.is_(True),
+        )
+        .returning(GroceryItem.id)
     )
     deleted_ids = result.scalars().all()
     grocery_list.revision += 1
     await db.commit()
-    
-    return {
-        "message": f"Cleared {len(deleted_ids)} checked items",
-        "count": len(deleted_ids)
-    }
+
+    return {"message": f"Cleared {len(deleted_ids)} checked items", "count": len(deleted_ids)}
 
 
 @router.delete("/clear/all")
 async def clear_all_items(
-    db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db), user: ClerkUser = Depends(get_current_user)
 ):
     """Delete all items from the grocery list."""
     grocery_list = await get_or_create_user_list(db, user)
     grocery_list = await _lock_grocery_list(db, grocery_list.id)
-    
+
     result = await db.execute(
-        delete(GroceryItem).where(
-            GroceryItem.list_id == grocery_list.id,
-            GroceryItem.archived.is_(False)
-        ).returning(GroceryItem.id)
+        delete(GroceryItem)
+        .where(GroceryItem.list_id == grocery_list.id, GroceryItem.archived.is_(False))
+        .returning(GroceryItem.id)
     )
     deleted_ids = result.scalars().all()
     grocery_list.revision += 1
     await db.commit()
-    
-    return {
-        "message": f"Cleared {len(deleted_ids)} items",
-        "count": len(deleted_ids)
-    }
+
+    return {"message": f"Cleared {len(deleted_ids)} items", "count": len(deleted_ids)}
 
 
 @router.delete("/clear/recipe/{recipe_id}")
 async def clear_recipe_items(
-    recipe_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
+    recipe_id: UUID, db: AsyncSession = Depends(get_db), user: ClerkUser = Depends(get_current_user)
 ):
     """Delete all items from a specific recipe in the grocery list."""
     grocery_list = await get_or_create_user_list(db, user)
     grocery_list = await _lock_grocery_list(db, grocery_list.id)
-    
+
     result = await db.execute(
-        delete(GroceryItem).where(
+        delete(GroceryItem)
+        .where(
             GroceryItem.list_id == grocery_list.id,
             GroceryItem.archived.is_(False),
-            GroceryItem.recipe_id == recipe_id
-        ).returning(GroceryItem.id)
+            GroceryItem.recipe_id == recipe_id,
+        )
+        .returning(GroceryItem.id)
     )
     deleted_ids = result.scalars().all()
     grocery_list.revision += 1
     await db.commit()
-    
+
     return {
         "message": f"Cleared {len(deleted_ids)} items from recipe",
         "count": len(deleted_ids),
-        "recipe_id": str(recipe_id)
+        "recipe_id": str(recipe_id),
     }

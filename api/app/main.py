@@ -27,6 +27,7 @@ from app.routers import (
     grocery_widget_router,
     health_router,
     meal_plans_router,
+    pantry_router,
     recipes_router,
     tts_router,
     users_router,
@@ -92,6 +93,7 @@ app.include_router(admin_router)
 app.include_router(recipes_router)
 app.include_router(extract_router)
 app.include_router(grocery_router)
+app.include_router(pantry_router)
 app.include_router(grocery_widget_router)
 app.include_router(chat_router)
 app.include_router(clerk_transition_router)

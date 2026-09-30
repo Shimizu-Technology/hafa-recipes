@@ -5,7 +5,7 @@ import asyncio
 import json
 import re
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import httpx
@@ -13,9 +13,19 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import models as _models  # noqa: F401 - register every owner-referencing table
 from app.config import ClerkEnvironment, get_settings
-from app.db.database import AsyncSessionLocal
+from app.db.database import AsyncSessionLocal, Base
 from app.identity_lock import lock_clerk_subject
+from app.models.deletion import DeletionCleanupJob
+from app.models.grocery import (
+    GroceryItem,
+    GroceryList,
+    GroceryListInvite,
+    GroceryListMember,
+    GroceryMutationReceipt,
+    GroceryWidgetCredential,
+)
 from app.models.identity import AppUser, ClerkIdentity, ClerkMigrationGrant
 from app.models.moderation import AdminAuditEvent
 from app.services.clerk import ClerkBackendClient, ClerkProfile
@@ -24,6 +34,8 @@ PRODUCTION_APP_USER_PATTERN = re.compile(r"^app_[a-f0-9]{32}$")
 CLERK_USER_PATTERN = re.compile(r"^user_[A-Za-z0-9_-]{1,59}$")
 RECOVERY_ORPHAN_PATTERN = re.compile(r"^orphan_[a-f0-9]{32}$")
 RECOVERY_AUDIT_ACTION = "identity.rebound"
+RECOVERY_PROVIDERS = frozenset({"apple", "google"})
+RECOVERY_BOOTSTRAP_WINDOW = timedelta(minutes=5)
 
 
 @dataclass(frozen=True)
@@ -40,6 +52,13 @@ class BridgeAdoptionSummary:
     active_users: int
     covered_users: int
     coverage_percent: float | None
+
+
+@dataclass(frozen=True)
+class EmptyGroceryBootstrap:
+    grocery_list: GroceryList
+    membership: GroceryListMember
+    credentials: tuple[GroceryWidgetCredential, ...]
 
 
 async def bridge_adoption_summary(
@@ -475,7 +494,7 @@ async def rebind_production_identity(
     reason: str,
     apply: bool = False,
 ) -> TransitionResult:
-    """Move one verified Apple login to an explicitly confirmed stable owner."""
+    """Move one verified social login to an explicitly confirmed stable owner."""
     if not production.is_production or not production.secret_key:
         raise ValueError("A configured production Clerk environment is required")
     if not app_user_id or len(app_user_id) > 64 or not actor_user_id or len(actor_user_id) > 64:
@@ -535,13 +554,13 @@ async def rebind_production_identity(
     ):
         await db.rollback()
         return TransitionResult(app_user_id, "failed", detail="production users could not be verified")
-    if not new_profile.email_verified or "apple" not in new_profile.verified_providers:
+    if not _has_verified_recovery_provider(new_profile):
         await db.rollback()
         return TransitionResult(
             app_user_id,
             "conflict",
             to_clerk_user_id,
-            "replacement account has no verified Apple connection",
+            "replacement account has no approved verified social connection",
         )
 
     if identity.clerk_user_id == to_clerk_user_id:
@@ -567,30 +586,78 @@ async def rebind_production_identity(
             from_clerk_user_id,
             "original account is not an empty, trusted migration shell",
         )
-    if new_profile.external_id is not None and (
-        RECOVERY_ORPHAN_PATTERN.fullmatch(new_profile.external_id) is None
-    ):
-        await db.rollback()
-        return TransitionResult(
-            app_user_id,
-            "conflict",
-            to_clerk_user_id,
-            "replacement account already has an external identity",
-        )
     target_identity = await db.scalar(
         select(ClerkIdentity).where(
             ClerkIdentity.issuer == production.issuer,
             ClerkIdentity.clerk_user_id == to_clerk_user_id,
-        )
+        ).with_for_update()
     )
-    if target_identity is not None:
-        await db.rollback()
-        return TransitionResult(
-            app_user_id,
-            "conflict",
-            to_clerk_user_id,
-            "replacement account belongs to another application user",
+    replacement_owner: AppUser | None = None
+    replacement_bootstrap: EmptyGroceryBootstrap | None = None
+    if target_identity is None:
+        if new_profile.external_id is not None and (
+            RECOVERY_ORPHAN_PATTERN.fullmatch(new_profile.external_id) is None
+        ):
+            await db.rollback()
+            return TransitionResult(
+                app_user_id,
+                "conflict",
+                to_clerk_user_id,
+                "replacement account already has an external identity",
+            )
+    else:
+        replacement_owner = await db.scalar(
+            select(AppUser)
+            .where(AppUser.id == target_identity.app_user_id)
+            .with_for_update()
         )
+        target_identities = list(
+            (
+                await db.execute(
+                    select(ClerkIdentity)
+                    .where(ClerkIdentity.app_user_id == target_identity.app_user_id)
+                    .with_for_update()
+                )
+            ).scalars()
+        )
+        if (
+            replacement_owner is None
+            or replacement_owner.id == app_user_id
+            or PRODUCTION_APP_USER_PATTERN.fullmatch(replacement_owner.id) is None
+            or new_profile.external_id != replacement_owner.id
+            or len(target_identities) != 1
+            or target_identities[0].id != target_identity.id
+        ):
+            await db.rollback()
+            return TransitionResult(
+                app_user_id,
+                "conflict",
+                to_clerk_user_id,
+                "replacement application owner is not an isolated production account",
+            )
+        reference_counts = await _app_user_reference_counts(
+            db,
+            replacement_owner.id,
+            excluded_tables={ClerkIdentity.__tablename__},
+        )
+        if reference_counts:
+            replacement_bootstrap = await _empty_grocery_bootstrap(
+                db,
+                replacement_owner,
+            )
+            expected_references = {f"{GroceryListMember.__tablename__}.user_id": 1}
+            if replacement_bootstrap is not None and replacement_bootstrap.credentials:
+                expected_references[
+                    f"{GroceryWidgetCredential.__tablename__}.app_user_id"
+                ] = len(replacement_bootstrap.credentials)
+            if replacement_bootstrap is None or reference_counts != expected_references:
+                await db.rollback()
+                return TransitionResult(
+                    app_user_id,
+                    "conflict",
+                    to_clerk_user_id,
+                    "replacement application owner contains data",
+                )
     if not apply:
         await db.rollback()
         return TransitionResult(app_user_id, "would_rebind", to_clerk_user_id)
@@ -607,13 +674,32 @@ async def rebind_production_identity(
             to_clerk_user_id,
             app_user_id,
         )
-        if (
-            not replacement_profile.email_verified
-            or "apple" not in replacement_profile.verified_providers
-        ):
+        if not _has_verified_recovery_provider(replacement_profile):
             raise RuntimeError("replacement external ID could not be verified")
 
+        retired_app_user_id = replacement_owner.id if replacement_owner is not None else None
+        if replacement_owner is not None and target_identity is not None:
+            if replacement_bootstrap is not None:
+                for credential in replacement_bootstrap.credentials:
+                    await db.delete(credential)
+                await db.delete(replacement_bootstrap.membership)
+                await db.flush()
+                await db.delete(replacement_bootstrap.grocery_list)
+                await db.flush()
+            await db.delete(target_identity)
+            await db.flush()
+            await db.delete(replacement_owner)
+            await db.flush()
         identity.clerk_user_id = to_clerk_user_id
+        after_summary = {
+            "issuer": production.issuer,
+            "clerk_user_id": to_clerk_user_id,
+            "retired_external_id": retired_external_id,
+        }
+        if retired_app_user_id is not None:
+            after_summary["retired_app_user_id"] = retired_app_user_id
+        if replacement_bootstrap is not None:
+            after_summary["retired_empty_grocery_bootstrap"] = True
         db.add(
             AdminAuditEvent(
                 actor_user_id=actor_user_id,
@@ -625,11 +711,7 @@ async def rebind_production_identity(
                     "issuer": production.issuer,
                     "clerk_user_id": from_clerk_user_id,
                 },
-                after_summary={
-                    "issuer": production.issuer,
-                    "clerk_user_id": to_clerk_user_id,
-                    "retired_external_id": retired_external_id,
-                },
+                after_summary=after_summary,
             )
         )
         await db.commit()
@@ -680,8 +762,7 @@ async def rebind_production_identity(
                     or committed_old.external_id != retired_external_id
                     or committed_new is None
                     or committed_new.external_id != app_user_id
-                    or not committed_new.email_verified
-                    or "apple" not in committed_new.verified_providers
+                    or not _has_verified_recovery_provider(committed_new)
                 ):
                     raise RuntimeError("committed recovery outcome is inconsistent")
                 await db.rollback()
@@ -702,7 +783,7 @@ async def rebind_production_identity(
                 await _set_verified_recovery_external_id(
                     client,
                     to_clerk_user_id,
-                    f"orphan_{uuid4().hex}",
+                    new_profile.external_id or f"orphan_{uuid4().hex}",
                 )
             elif observed_new.external_id != new_profile.external_id:
                 raise RuntimeError("replacement external ID changed unexpectedly")
@@ -726,6 +807,10 @@ async def rebind_production_identity(
                 or restored_old.external_id != app_user_id
                 or restored_new is None
                 or restored_new.external_id == app_user_id
+                or (
+                    replacement_owner is not None
+                    and restored_new.external_id != new_profile.external_id
+                )
             ):
                 raise RuntimeError("stable owner restoration could not be confirmed")
             await db.rollback()
@@ -742,6 +827,122 @@ async def rebind_production_identity(
         )
 
     return TransitionResult(app_user_id, "rebound", to_clerk_user_id)
+
+
+def _has_verified_recovery_provider(profile: ClerkProfile) -> bool:
+    return profile.email_verified and bool(
+        RECOVERY_PROVIDERS.intersection(profile.verified_providers)
+    )
+
+
+async def _empty_grocery_bootstrap(
+    db: AsyncSession,
+    owner: AppUser,
+) -> EmptyGroceryBootstrap | None:
+    """Lock and recognize only pristine grocery rows created during onboarding."""
+    membership = await db.scalar(
+        select(GroceryListMember)
+        .where(GroceryListMember.user_id == owner.id)
+        .with_for_update()
+    )
+    if membership is None:
+        return None
+    grocery_list = await db.scalar(
+        select(GroceryList)
+        .where(GroceryList.id == membership.list_id)
+        .with_for_update()
+    )
+    members = list(
+        (
+            await db.execute(
+                select(GroceryListMember)
+                .where(GroceryListMember.list_id == membership.list_id)
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    credentials = tuple(
+        (
+            await db.execute(
+                select(GroceryWidgetCredential)
+                .where(GroceryWidgetCredential.list_id == membership.list_id)
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    if (
+        grocery_list is None
+        or owner.created_at is None
+        or grocery_list.created_at is None
+        or grocery_list.updated_at is None
+        or membership.joined_at is None
+        or grocery_list.name != "Grocery List"
+        or grocery_list.revision != 0
+        or grocery_list.updated_at != grocery_list.created_at
+        or abs(grocery_list.created_at - owner.created_at) > RECOVERY_BOOTSTRAP_WINDOW
+        or membership.joined_at != grocery_list.created_at
+        or len(members) != 1
+        or members[0].user_id != owner.id
+        or any(
+            credential.app_user_id != owner.id
+            or credential.last_used_at is not None
+            or credential.revoked_at is not None
+            or credential.issued_at is None
+            or abs(credential.issued_at - owner.created_at) > RECOVERY_BOOTSTRAP_WINDOW
+            for credential in credentials
+        )
+    ):
+        return None
+    for model in (GroceryItem, GroceryListInvite, GroceryMutationReceipt):
+        if await db.scalar(
+            select(func.count()).select_from(model).where(model.list_id == grocery_list.id)
+        ):
+            return None
+    return EmptyGroceryBootstrap(grocery_list, membership, credentials)
+
+
+async def _app_user_reference_counts(
+    db: AsyncSession,
+    app_user_id: str,
+    *,
+    excluded_tables: set[str] | None = None,
+) -> dict[str, int]:
+    """Count every modeled foreign-key reference before retiring an empty owner."""
+    excluded = excluded_tables or set()
+    counts: dict[str, int] = {}
+    for table in Base.metadata.sorted_tables:
+        if table.name in excluded:
+            continue
+        for column in table.columns:
+            references_app_user = any(
+                foreign_key.column.table.name == AppUser.__tablename__
+                and foreign_key.column.name == AppUser.id.name
+                for foreign_key in column.foreign_keys
+            )
+            if not references_app_user:
+                continue
+            count = int(
+                await db.scalar(
+                    select(func.count()).select_from(table).where(column == app_user_id)
+                )
+                or 0
+            )
+            if count:
+                counts[f"{table.name}.{column.name}"] = count
+
+    # Cleanup jobs intentionally outlive AppUser deletion, so this owner reference
+    # has no foreign key and must be guarded explicitly.
+    cleanup_job_count = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(DeletionCleanupJob)
+            .where(DeletionCleanupJob.app_user_id == app_user_id)
+        )
+        or 0
+    )
+    if cleanup_job_count:
+        counts[f"{DeletionCleanupJob.__tablename__}.app_user_id"] = cleanup_job_count
+    return counts
 
 
 async def _set_verified_recovery_external_id(
@@ -884,7 +1085,7 @@ def main() -> None:
     )
     parser.add_argument("--app-user-id", help="Exact existing stable application owner")
     parser.add_argument("--from-clerk-user-id", help="Exact currently attached production subject")
-    parser.add_argument("--to-clerk-user-id", help="Exact verified Apple production subject")
+    parser.add_argument("--to-clerk-user-id", help="Exact verified social production subject")
     parser.add_argument("--actor-user-id", help="Stable application owner of the recovery operator")
     parser.add_argument("--reason", help="Required privacy-bounded operator audit reason")
     args = parser.parse_args()

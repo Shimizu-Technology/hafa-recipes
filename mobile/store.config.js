@@ -46,7 +46,7 @@ AI can make mistakes. Review extracted ingredients, directions, allergens, tempe
 
 Made in Guam by Shimizu Technology.`;
 const RELEASE_NOTES =
-  'Sharing recipes from Instagram, TikTok, and other apps now returns you to where you were without leaving a dimmed screen. Switching tabs is steadier, and recipe cards line up across Discover and Library. Sign-in prompts stay clear of recipes. Ask Håfa now opens from a compact floating message button above the tabs that hides while you type.';
+  'Keep a personal pantry or share one with the same household as your grocery list. Add checked groceries to your pantry, track amounts and dates, and find recipes using what is still usable. What Can I Make now has roomier recipe results and clearer missing ingredients. Ask Håfa opens from a compact floating message button above the tabs that hides while you type.';
 
 function requiredEnvironmentValue(environment, name) {
   const value = String(environment[name] ?? '').trim();

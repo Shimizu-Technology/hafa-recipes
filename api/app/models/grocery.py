@@ -27,6 +27,8 @@ class GroceryList(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False, default="Grocery List")
+    # A household remains a household when temporarily only one member remains.
+    household_enabled = Column(Boolean, nullable=False, default=False, server_default="false")
     # Monotonic change token used by mobile clients and WidgetKit snapshots.
     # Every mutation through the durable sync contract increments this value
     # while holding a row lock on the list.
@@ -54,6 +56,7 @@ class GroceryListMember(Base):
         index=True,
     )
     display_name = Column(String(255), nullable=True)
+    role = Column(String(16), nullable=False, default="manager", server_default="manager")
     joined_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
@@ -61,6 +64,7 @@ class GroceryListMember(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", name="uq_grocery_list_members_user_id"),
+        CheckConstraint("role IN ('manager', 'member')", name="ck_grocery_list_member_role"),
     )
 
 
@@ -84,6 +88,8 @@ class GroceryListInvite(Base):
         nullable=True,
     )
     accepted_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
     
     # Relationships
     grocery_list = relationship("GroceryList", back_populates="invites")

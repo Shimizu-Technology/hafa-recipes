@@ -136,12 +136,26 @@ class PublicHTTPTransport(httpx.AsyncBaseTransport):
         scheme = original_url.scheme.lower()
         hostname, port, ip_text = await resolve_public_http_url(str(original_url))
 
-        request.url = original_url.copy_with(host=ip_text)
-        request.headers["Host"] = _host_header(hostname, port, scheme)
+        headers = request.headers.copy()
+        headers["Host"] = _host_header(hostname, port, scheme)
+        extensions = dict(request.extensions)
         if scheme == "https":
-            request.extensions["sni_hostname"] = hostname
+            extensions["sni_hostname"] = hostname
 
-        return await self._transport.handle_async_request(request)
+        # Never mutate the client-visible request. HTTPX uses its URL when it
+        # records response.url and resolves redirects. Leaking the pinned IP
+        # there turns a safe socket detail into the canonical application URL
+        # and also breaks TLS on follow-up requests because certificates are
+        # issued for the original hostname, not the CDN IP.
+        network_request = httpx.Request(
+            method=request.method,
+            url=original_url.copy_with(host=ip_text),
+            headers=headers,
+            stream=request.stream,
+            extensions=extensions,
+        )
+
+        return await self._transport.handle_async_request(network_request)
 
     async def aclose(self) -> None:
         await self._transport.aclose()

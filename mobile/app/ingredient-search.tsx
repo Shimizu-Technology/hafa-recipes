@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   StyleSheet,
   TouchableOpacity,
@@ -12,7 +12,7 @@ import {
   Keyboard,
   ScrollView,
 } from 'react-native';
-import { useRouter, Stack } from 'expo-router';
+import { useRouter, Stack, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/expo';
@@ -28,6 +28,8 @@ import {
 import { IngredientMatchCard } from '@/components/IngredientMatchCard';
 import { useAddFromRecipe } from '@/hooks/useGrocery';
 import { appRoutes } from '@/lib/routes';
+import { usePantrySnapshot } from '@/hooks/usePantry';
+import { pantrySearchNames } from '@/lib/pantry';
 import type { IngredientMatchResult } from '@/types/recipe';
 
 const PANTRY_STARTERS = ['chicken', 'rice', 'eggs', 'tomatoes'];
@@ -41,18 +43,32 @@ export default function IngredientSearchScreen() {
 
   const [inputText, setInputText] = useState('');
   const [searchIngredients, setSearchIngredients] = useState<string[]>([]);
+  const [useSavedPantry, setUseSavedPantry] = useState(true);
+  const [showEditor, setShowEditor] = useState(false);
   const [includeSaved, setIncludeSaved] = useState(true);
   const [includePublic, setIncludePublic] = useState(true);
   const [pendingGroceryRecipeId, setPendingGroceryRecipeId] = useState<string | null>(null);
   const [addedGroceryRecipeIds, setAddedGroceryRecipeIds] = useState<Set<string>>(new Set());
   const addFromRecipeMutation = useAddFromRecipe();
+  const pantry = usePantrySnapshot('active', Boolean(isSignedIn));
+  useFocusEffect(useCallback(() => { if (isSignedIn) void pantry.refetch(); }, [isSignedIn, pantry.refetch]));
+  const today = new Date();
+  const todayString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const pantryNames = useMemo(() => pantrySearchNames(pantry.data?.items ?? [], todayString), [pantry.data?.items, todayString]);
+  const queryIngredients = useMemo(() => [...new Set([
+    ...searchIngredients,
+    ...(useSavedPantry && isSignedIn ? pantryNames : []),
+  ])].slice(0, MAX_SEARCH_INGREDIENTS), [searchIngredients, useSavedPantry, isSignedIn, pantryNames]);
+  useEffect(() => {
+    if ((!isSignedIn || (pantry.isFetched && pantryNames.length === 0)) && searchIngredients.length === 0) setShowEditor(true);
+  }, [isSignedIn, pantry.isFetched, pantryNames.length, searchIngredients.length]);
 
   // Search query
   const { data, isLoading, isFetching, isError, refetch } = useSearchByIngredients(
-    searchIngredients,
+    queryIngredients,
     Boolean(isSignedIn) && includeSaved,
     includePublic,
-    searchIngredients.length > 0
+    queryIngredients.length > 0
   );
   
   const handleSearch = useCallback(() => {
@@ -72,6 +88,7 @@ export default function IngredientSearchScreen() {
       haptics.light();
       setSearchIngredients(ingredients);
       setInputText('');
+      setShowEditor(false);
       Keyboard.dismiss();
     }
   }, [inputText, searchIngredients]);
@@ -160,7 +177,7 @@ export default function IngredientSearchScreen() {
       );
     }
 
-    if (searchIngredients.length === 0) {
+    if (queryIngredients.length === 0) {
       return (
         <View style={styles.emptyContainer}>
           <Ionicons name="nutrition-outline" size={64} color={colors.textMuted} />
@@ -188,7 +205,7 @@ export default function IngredientSearchScreen() {
         </Text>
       </View>
     );
-  }, [isLoading, isFetching, searchIngredients.length, colors]);
+  }, [isLoading, isFetching, queryIngredients.length, colors]);
 
   return (
     <>
@@ -205,6 +222,30 @@ export default function IngredientSearchScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={100}
       >
+        {isSignedIn && <RNView style={[styles.pantrySource, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+          <RNView style={styles.pantrySourceText}>
+            <Ionicons name="basket-outline" size={20} color={colors.tint} />
+            <RNView style={{ flex: 1 }}>
+              <Text style={[styles.pantrySourceTitle, { color: colors.text }]}>My Pantry</Text>
+              <Text style={{ color: colors.textSecondary, fontSize: fontSize.sm }}>
+                {pantry.isLoading ? 'Loading what you have…' : `${pantryNames.length} usable item${pantryNames.length === 1 ? '' : 's'} · ${pantry.data?.scope === 'household' ? 'household' : 'personal'}`}
+              </Text>
+            </RNView>
+            <TouchableOpacity onPress={() => router.push(appRoutes.pantry)} style={styles.sourceAction} accessibilityLabel="Manage pantry"><Text style={{ color: colors.tint, fontWeight: fontWeight.semibold }}>Manage</Text></TouchableOpacity>
+          </RNView>
+          {pantryNames.length > 0 && <TouchableOpacity onPress={() => { if (useSavedPantry && !searchIngredients.length) setShowEditor(true); setUseSavedPantry(!useSavedPantry); }} style={styles.usePantryRow} accessibilityRole="checkbox" accessibilityLabel="Use pantry ingredients in recipe search" accessibilityState={{ checked: useSavedPantry }}>
+            <Ionicons name={useSavedPantry ? 'checkbox' : 'square-outline'} size={21} color={colors.tint} />
+            <Text style={{ color: colors.text }}>Search with pantry items</Text>
+          </TouchableOpacity>}
+          {pantry.isError && <Text style={{ color: colors.warning }}>Pantry couldn’t load. You can still search manually.</Text>}
+          {pantryNames.length > MAX_SEARCH_INGREDIENTS && <Text style={{ color: colors.warning }}>Search uses the first {MAX_SEARCH_INGREDIENTS} items. Narrow your pantry list for different matches.</Text>}
+        </RNView>}
+        {!showEditor && <TouchableOpacity onPress={() => setShowEditor(true)} style={[styles.compactEditor, { borderColor: colors.cardBorder, backgroundColor: colors.card }]} accessibilityRole="button" accessibilityLabel="Add or change search ingredients">
+          <Ionicons name="add-circle-outline" size={21} color={colors.tint} />
+          <Text style={{ color: colors.text, flex: 1, fontWeight: fontWeight.semibold }}>{searchIngredients.length ? `${searchIngredients.length} extra ingredient${searchIngredients.length === 1 ? '' : 's'} added` : 'Add extra ingredients'}</Text>
+          <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+        </TouchableOpacity>}
+        {showEditor && <>
         <View style={[styles.searchCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
           <RNView style={styles.searchHeading}>
             <RNView style={[styles.searchIcon, { backgroundColor: colors.tint + '16' }]}>
@@ -214,6 +255,7 @@ export default function IngredientSearchScreen() {
               <Text style={[styles.searchTitle, { color: colors.text }]}>Cook with what you have</Text>
               <Text style={[styles.searchHint, { color: colors.textMuted }]}>Paste a list or add ingredients a few at a time.</Text>
             </RNView>
+            <TouchableOpacity onPress={() => setShowEditor(false)} style={styles.sourceAction} accessibilityLabel="Collapse ingredient editor"><Ionicons name="chevron-up" size={20} color={colors.textMuted} /></TouchableOpacity>
           </RNView>
 
           <RNView style={[styles.inputContainer, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
@@ -278,7 +320,7 @@ export default function IngredientSearchScreen() {
         </View>
         
         {/* Active ingredient chips */}
-        {searchIngredients.length > 0 && (
+        {queryIngredients.length > 0 && (
           <View style={styles.chipsContainer}>
             <RNView style={styles.chipsScrollRow}>
               <ScrollView
@@ -381,6 +423,7 @@ export default function IngredientSearchScreen() {
             )}
           </View>
         )}
+        </>}
         
         {/* Results count */}
         {!isError && data && data.results.length > 0 && (
@@ -389,10 +432,11 @@ export default function IngredientSearchScreen() {
               Best matches
             </Text>
             <Text style={[styles.resultsSummary, { color: colors.textMuted }]}>
-              {data.total} recipe{data.total !== 1 ? 's' : ''} using what you have
+              {data.total} recipe{data.total !== 1 ? 's' : ''} found
             </Text>
           </View>
         )}
+        {queryIngredients.length > 0 && <Text style={[styles.matchNote, { color: colors.textMuted }]}>Matches compare ingredient names. Check the recipe for amounts before cooking.</Text>}
         
         {/* Results list */}
         {isError ? (
@@ -429,6 +473,32 @@ export default function IngredientSearchScreen() {
 }
 
 const styles = StyleSheet.create({
+  pantrySource: {
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    gap: spacing.xs,
+  },
+  pantrySourceText: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  pantrySourceTitle: { fontSize: fontSize.md, fontWeight: fontWeight.semibold },
+  sourceAction: { minWidth: 52, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  usePantryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
+  compactEditor: {
+    borderWidth: 1,
+    borderRadius: radius.md,
+    minHeight: 48,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  matchNote: { fontSize: fontSize.xs, lineHeight: 17, paddingHorizontal: spacing.md, paddingBottom: spacing.xs },
   container: {
     flex: 1,
   },

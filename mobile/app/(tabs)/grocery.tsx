@@ -24,6 +24,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/expo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { usePantrySnapshot, useTransferGroceriesToPantry } from '@/hooks/usePantry';
 
 import { View, Text, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
@@ -231,6 +232,11 @@ export default function GroceryScreen() {
     isRefetching,
   } = useGroceryList(showChecked, isAuthenticated);
   const { data: countData } = useGroceryCount(isAuthenticated);
+  const { data: allGroceryItems } = useGroceryList(true, isAuthenticated);
+  const pantry = usePantrySnapshot('active', isAuthenticated);
+  const transferToPantry = useTransferGroceriesToPantry();
+  const transferredIds = new Set(pantry.data?.transferred_grocery_item_ids ?? []);
+  const readyForPantry = (allGroceryItems ?? []).filter((item) => item.checked && !transferredIds.has(item.id));
   const isSharedList = listInfo?.is_shared === true;
 
   // Shared lists may change elsewhere. Quietly revalidate only after the
@@ -385,6 +391,31 @@ export default function GroceryScreen() {
             }),
         },
       ]
+    );
+  };
+
+  const handleAddCheckedToPantry = () => {
+    if (!readyForPantry.length || transferToPantry.isPending) return;
+    Alert.alert(
+      'Add checked items to pantry?',
+      `${readyForPantry.length} item${readyForPantry.length === 1 ? '' : 's'} will be saved in your ${pantry.data?.scope === 'household' ? 'household' : 'personal'} pantry. Your grocery list will stay as it is. You can add dates and edit amounts in Pantry.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Add to pantry', onPress: () => transferToPantry.mutate(readyForPantry.map((item) => ({
+          grocery_item_id: item.id,
+          quantity: item.quantity && /^\d{1,9}(\.\d{1,3})?$/.test(item.quantity.trim()) ? item.quantity.trim() : null,
+          unit: item.unit,
+          location: null,
+          date_kind: null,
+          date_value: null,
+        })), {
+          onSuccess: () => Alert.alert('Added to pantry', 'Your checked groceries are ready to track and use in recipe search.', [
+            { text: 'Keep shopping', style: 'cancel' },
+            { text: 'Open pantry', onPress: () => router.push(appRoutes.pantry) },
+          ]),
+          onError: () => Alert.alert('Couldn’t add to pantry', 'Refresh your grocery list and pantry, then try again. Items already added will stay in your pantry.'),
+        }) },
+      ],
     );
   };
 
@@ -792,6 +823,29 @@ export default function GroceryScreen() {
         {/* Editing controls appear only when there is an authenticated list. */}
         {isAuthenticated && (
           <>
+        <TouchableOpacity
+          onPress={() => router.push(appRoutes.pantry)}
+          style={[styles.pantryLink, { backgroundColor: colors.tint + '14' }]}
+          accessibilityRole="button"
+          accessibilityLabel="Open my pantry"
+        >
+          <Ionicons name="basket-outline" size={19} color={colors.tint} />
+          <Text style={{ color: colors.tint, fontWeight: fontWeight.semibold, flex: 1 }}>My Pantry</Text>
+          <Ionicons name="chevron-forward" size={17} color={colors.tint} />
+        </TouchableOpacity>
+        {readyForPantry.length > 0 && <TouchableOpacity
+          onPress={handleAddCheckedToPantry}
+          disabled={transferToPantry.isPending}
+          style={[styles.pantryLink, { backgroundColor: colors.success + '14' }]}
+          accessibilityRole="button"
+          accessibilityLabel={`Add ${readyForPantry.length} checked items to pantry`}
+        >
+          <Ionicons name="checkmark-circle-outline" size={19} color={colors.success} />
+          <Text style={{ color: colors.success, fontWeight: fontWeight.semibold, flex: 1 }}>
+            {transferToPantry.isPending ? 'Adding to pantry…' : `Add ${readyForPantry.length} checked to pantry`}
+          </Text>
+          <Ionicons name="chevron-forward" size={17} color={colors.success} />
+        </TouchableOpacity>}
         <RNView style={[styles.addItemRow, { borderColor: colors.border }]}>
           <TextInput
             ref={addItemInputRef}
@@ -938,6 +992,15 @@ export default function GroceryScreen() {
 }
 
 const styles = StyleSheet.create({
+  pantryLink: {
+    minHeight: 44,
+    borderRadius: radius.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.sm,
+  },
   container: {
     flex: 1,
     overflow: 'hidden',

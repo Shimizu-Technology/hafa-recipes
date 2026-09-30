@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
+const appVersion = require('./app.json').expo.version;
 const {
   APP_DESCRIPTION,
   APP_STORE_ID,
@@ -28,7 +29,7 @@ describe('App Store release metadata', () => {
     const config = buildStoreConfig({ environment, listing });
     const info = config.apple.info['en-US'];
 
-    expect(config.apple.version).toBe('2.6.4');
+    expect(config.apple.version).toBe(appVersion);
     expect(config.apple.release).toEqual({ automaticRelease: true, phasedRelease: false });
     expect(info.subtitle).toBe(APP_SUBTITLE);
     expect(info.keywords).toEqual(APP_KEYWORDS);
@@ -39,8 +40,8 @@ describe('App Store release metadata', () => {
     expect(info.privacyPolicyUrl).toBe('https://hafa-recipes.com/privacy');
     expect(info.supportUrl).toBe('https://hafa-recipes.com/support');
     expect(info.releaseNotes).toBe(RELEASE_NOTES);
-    expect(info.releaseNotes).toContain('Sharing recipes from Instagram, TikTok');
-    expect(info.releaseNotes).toContain('recipe cards line up across Discover and Library');
+    expect(info.releaseNotes).toContain('personal pantry or share one');
+    expect(info.releaseNotes).toContain('What Can I Make');
     expect(info.releaseNotes).toContain('compact floating message button above the tabs');
     expect(config.apple.review.demoRequired).toBe(true);
     expect(config.apple.review.demoUsername).toBe(environment.APP_REVIEW_EMAIL);

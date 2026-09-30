@@ -64,7 +64,7 @@ export default function GroceryListSettingsModal({
       
       // Keep it simple - make the code prominent and easy to copy
       await Share.share({
-        message: `Join my grocery list on Håfa Recipes!\n\nYour invite code:\n\n${invite.invite_code}\n\nOpen the app → Grocery → Settings → "Join a List" → Enter the code above`,
+        message: `Join my household groceries and pantry on Håfa Recipes!\n\nYour invite code:\n\n${invite.invite_code}\n\nOpen the app → Grocery → Settings → "Join a List" → Enter the code above`,
       });
     } catch (error) {
       console.error('Error creating invite:', error);
@@ -88,7 +88,7 @@ export default function GroceryListSettingsModal({
   const handleLeaveList = () => {
     Alert.alert(
       'Leave Shared List?',
-      'Your personal grocery items will be restored. You can always rejoin with a new invite.',
+      'Your personal grocery items and private pantry will be available again. Items in the household pantry stay with the household.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -99,7 +99,7 @@ export default function GroceryListSettingsModal({
               haptics.warning();
               await leaveListMutation.mutateAsync();
               onClose();
-              Alert.alert('Success', 'You have left the shared list. Your personal items have been restored.');
+              Alert.alert('You left the household', 'Your personal groceries and pantry are available again.');
             } catch (error) {
               console.error('Error leaving list:', error);
               Alert.alert('Error', 'Failed to leave the list. Please try again.');
@@ -145,7 +145,7 @@ export default function GroceryListSettingsModal({
       await joinMutation.mutateAsync(code);
       setJoinCode('');
       onClose();
-      Alert.alert('Success!', 'You have joined the shared grocery list.');
+      Alert.alert('Household joined', 'The shared grocery list and pantry are now available. Your private pantry stays yours.');
     } catch (error: any) {
       console.error('Error joining list:', error);
       const message = error?.response?.data?.detail || 'Failed to join. Please check the code and try again.';
@@ -156,6 +156,7 @@ export default function GroceryListSettingsModal({
 
   const isShared = listInfo?.is_shared ?? false;
   const members = listInfo?.members ?? [];
+  const canManage = members.find((member) => member.is_you)?.role !== 'member';
 
   const handleClose = () => {
     Keyboard.dismiss();
@@ -204,13 +205,13 @@ export default function GroceryListSettingsModal({
                 {/* Share Section */}
                 <RNView style={styles.section}>
                   <Text style={[styles.sectionTitle, { color: colors.text }]}>
-                    Share List
+                    Share Household
                   </Text>
                   <Text style={[styles.sectionDescription, { color: colors.textMuted }]}>
-                    Invite someone to shop together. They can add items and check them off too!
+                    One invite shares the grocery list and household pantry. Members can shop and keep track of food together. Your personal pantry stays private until you copy items over.
                   </Text>
 
-                  <RNView style={styles.buttonRow}>
+                  {canManage ? <RNView style={styles.buttonRow}>
                     <TouchableOpacity
                       style={[styles.shareButton, { backgroundColor: colors.tint }]}
                       onPress={handleShareList}
@@ -240,7 +241,7 @@ export default function GroceryListSettingsModal({
                         {copiedCode ? 'Copied!' : 'Copy Code'}
                       </Text>
                     </TouchableOpacity>
-                  </RNView>
+                  </RNView> : <Text style={{ color: colors.textMuted }}>A household manager can invite new members.</Text>}
                 </RNView>
 
                 {/* Join a List Section */}
@@ -249,7 +250,7 @@ export default function GroceryListSettingsModal({
                     Join a List
                   </Text>
                   <Text style={[styles.sectionDescription, { color: colors.textMuted }]}>
-                    Have an invite code? Enter it below to join someone's grocery list.
+                    Have an invite code? Join that household’s groceries and pantry. Your private pantry remains yours.
                   </Text>
 
                   <RNView style={styles.joinRow}>
@@ -268,7 +269,7 @@ export default function GroceryListSettingsModal({
                       onChangeText={setJoinCode}
                       autoCapitalize="characters"
                       autoCorrect={false}
-                      maxLength={10}
+                      maxLength={12}
                     />
                     <TouchableOpacity
                       style={[
@@ -312,7 +313,7 @@ export default function GroceryListSettingsModal({
                           Joined {new Date(member.joined_at).toLocaleDateString()}
                         </Text>
                       </RNView>
-                      {!member.is_you && (
+                      {canManage && !member.is_you && member.role !== 'manager' && (
                         <TouchableOpacity
                           onPress={() => handleRemoveMember(member.user_id, member.display_name)}
                           style={styles.removeButton}
@@ -339,13 +340,13 @@ export default function GroceryListSettingsModal({
                         <>
                           <Ionicons name="exit-outline" size={20} color={colors.error} />
                           <Text style={[styles.leaveButtonText, { color: colors.error }]}>
-                            Leave Shared List
+                            Leave Household
                           </Text>
                         </>
                       )}
                     </TouchableOpacity>
                     <Text style={[styles.leaveHint, { color: colors.textMuted }]}>
-                      Your personal items will be restored when you leave.
+                      Household pantry items stay with the household. Your private pantry remains yours.
                     </Text>
                   </RNView>
                 )}

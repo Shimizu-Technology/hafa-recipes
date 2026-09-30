@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api } from '@/lib/api';
+import { pantryKeys } from './usePantry';
 import {
   addToSyncQueue,
   assertGroceryStorageLease,
@@ -414,10 +415,15 @@ export function usePendingGrocerySync() {
 }
 
 export function useCreateGroceryInvite() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => {
       const lease = getGroceryStorageLease();
       return api.createGroceryInvite(() => assertGroceryStorageLease(lease));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: groceryKeys.snapshot() });
+      queryClient.invalidateQueries({ queryKey: pantryKeys.all });
     },
   });
 }
@@ -449,6 +455,7 @@ function useMembershipMutation<T>(
     },
     onSuccess: async () => {
       queryClient.removeQueries({ queryKey: groceryKeys.all });
+      queryClient.removeQueries({ queryKey: pantryKeys.all });
       await queryClient.invalidateQueries({ queryKey: groceryKeys.snapshot() });
       requestGroceryWidgetRefresh();
     },

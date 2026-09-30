@@ -4,13 +4,18 @@ const STORAGE_PREFIX = 'hafa.chat.v2';
 export const LEGACY_COOKING_CHAT_KEY = 'cooking_assistant_chat';
 export const LEGACY_RECIPE_CHAT_PREFIX = 'recipe_chat_';
 
+/** Match only this application's account-scoped chat keys, including drafts. */
+export function accountChatStoragePrefix(appUserId: string): string {
+  if (!appUserId.trim()) throw new Error('A stable application user is required');
+  return `${STORAGE_PREFIX}.${encodeURIComponent(appUserId)}.`;
+}
+
 /** Build a conversation key from the durable backend identity, never a Clerk subject. */
 export function chatStorageKey(appUserId: string, recipeId?: string): string {
-  if (!appUserId.trim()) throw new Error('A stable application user is required');
-  const owner = encodeURIComponent(appUserId);
+  const ownerPrefix = accountChatStoragePrefix(appUserId);
   return recipeId
-    ? `${STORAGE_PREFIX}.${owner}.recipe.${encodeURIComponent(recipeId)}`
-    : `${STORAGE_PREFIX}.${owner}.cooking`;
+    ? `${ownerPrefix}recipe.${encodeURIComponent(recipeId)}`
+    : `${ownerPrefix}cooking`;
 }
 
 /** Identify the corresponding pre-account-scoping key so it can be discarded. */
