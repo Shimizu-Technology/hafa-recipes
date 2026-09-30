@@ -5,7 +5,7 @@ const APP_STORE_ID = '6755892896';
 const MAX_LISTING_BYTES = 1_000_000;
 const APP_SUBTITLE = 'AI Recipe Import & Planner';
 const APP_KEYWORDS = [
-  'cooking', 'meal planner', 'grocery list', 'recipes', 'AI',
+  'cooking', 'meal planner', 'grocery list', 'recipes', 'AI cooking',
   'video', 'import', 'Guam', 'food', 'meal prep',
 ];
 const PROMO_TEXT =
