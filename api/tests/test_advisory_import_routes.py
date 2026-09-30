@@ -127,6 +127,11 @@ async def test_video_import_sync_and_job_save_advisory_recipes(monkeypatch, back
 async def test_video_thumbnail_refreshes_stale_platform_url(monkeypatch):
     first = "https://ipv6-only.example.test/temporary.jpg"
     refreshed = "https://ipv4.example.test/refreshed.jpg"
+    monkeypatch.setattr(
+        type(extract.storage_service),
+        "is_enabled",
+        property(lambda _service: True),
+    )
     upload = AsyncMock(side_effect=[None, "https://media.example.test/hero.webp"])
     monkeypatch.setattr(extract.storage_service, "upload_thumbnail_from_url", upload)
     monkeypatch.setattr(
@@ -152,6 +157,11 @@ async def test_video_thumbnail_refreshes_stale_platform_url(monkeypatch):
 @pytest.mark.asyncio
 async def test_video_thumbnail_falls_back_to_a_source_frame(monkeypatch):
     candidate = "https://ipv6-only.example.test/temporary.jpg"
+    monkeypatch.setattr(
+        type(extract.storage_service),
+        "is_enabled",
+        property(lambda _service: True),
+    )
     monkeypatch.setattr(
         extract.storage_service,
         "upload_thumbnail_from_url",
@@ -180,6 +190,29 @@ async def test_video_thumbnail_falls_back_to_a_source_frame(monkeypatch):
 
     assert result == "https://media.example.test/frame.webp"
     upload_bytes.assert_awaited_once_with(b"jpeg", "recipe-id", "image/jpeg")
+
+
+@pytest.mark.asyncio
+async def test_video_thumbnail_skips_recovery_without_storage(monkeypatch):
+    monkeypatch.setattr(
+        type(extract.storage_service),
+        "is_enabled",
+        property(lambda _service: False),
+    )
+    metadata = AsyncMock()
+    frame = AsyncMock()
+    monkeypatch.setattr(extract.video_service, "get_video_metadata_ytdlp", metadata)
+    monkeypatch.setattr(extract.video_service, "extract_thumbnail_frame", frame)
+
+    result = await extract._upload_video_thumbnail(
+        source_url="https://www.instagram.com/reel/example/",
+        candidate_url="https://instagram.example.test/temporary.jpg",
+        recipe_id="recipe-id",
+    )
+
+    assert result is None
+    metadata.assert_not_awaited()
+    frame.assert_not_awaited()
 
 
 @pytest.mark.asyncio

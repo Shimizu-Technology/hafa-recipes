@@ -133,6 +133,10 @@ async def _upload_video_thumbnail(
 ) -> str | None:
     """Persist a video image, refreshing stale metadata before using a frame."""
 
+    if not storage_service.is_enabled:
+        print("⚠️ S3 not configured, skipping thumbnail recovery")
+        return None
+
     if candidate_url:
         uploaded = await storage_service.upload_thumbnail_from_url(
             candidate_url,
