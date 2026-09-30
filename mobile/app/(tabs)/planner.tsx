@@ -983,7 +983,7 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: spacing.lg,
-    paddingBottom: spacing.xl * 2,
+    paddingBottom: 80,
   },
   dayTitle: {
     fontSize: fontSize.xl,

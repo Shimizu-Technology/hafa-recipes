@@ -35,7 +35,7 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: colors.backgroundElevated,
           borderTopColor: colors.border,
-          borderTopWidth: isSignedIn ? 0 : 1,
+          borderTopWidth: 1,
           paddingTop: 6,
         },
         tabBarLabelStyle: {

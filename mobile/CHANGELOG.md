@@ -18,6 +18,9 @@ All notable changes to Recipe Extractor.
 
 - Show larger recipe matches with full ingredient lists and clear grocery actions.
 - Make ingredient entry compact while browsing matches.
+- Make Ask Håfa a compact floating message button instead of reserving a
+  full-width row above the tabs. Keep it accessible and move it out of the way
+  while typing.
 
 ## [2.6.4] - September 2026
 

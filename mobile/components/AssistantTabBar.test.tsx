@@ -22,16 +22,16 @@ vi.mock('react-native', () => ({
   },
 }));
 vi.mock('expo-router/build/react-navigation/bottom-tabs', () => ({ BottomTabBar: 'BottomTabBar' }));
-vi.mock('@/components/AssistantDockButton', () => ({ AssistantDockButton: 'AssistantDockButton' }));
+vi.mock('@/components/AssistantFloatingButton', () => ({ AssistantFloatingButton: 'AssistantFloatingButton' }));
 vi.mock('@/components/RecipeChatModal', () => ({ default: 'RecipeChatModal' }));
 vi.mock('@/components/Themed', () => ({
-  useColors: () => ({ backgroundElevated: '#202820', border: '#2D352F' }),
+  useColors: () => ({ backgroundElevated: '#202820' }),
 }));
 
 import { AssistantTabBar } from './AssistantTabBar';
 
 describe('AssistantTabBar', () => {
-  it('reserves layout space for signed-in chat and keeps the native tab bar', async () => {
+  it('floats signed-in chat outside the tab-bar layout and keeps the native tab bar', async () => {
     const renderer = createRoot();
     try {
       await act(async () => renderer.render(
@@ -39,23 +39,24 @@ describe('AssistantTabBar', () => {
           descriptors={{} as never} insets={{} as never} />,
       ));
       expect(renderer.container.queryAll((instance) => instance.type === 'BottomTabBar')).toHaveLength(1);
-      const dock = renderer.container.queryAll((instance) => instance.type === 'AssistantDockButton')[0].parent;
-      expect(dock?.props.style[0]).toMatchObject({ minHeight: 60 });
-      expect(dock?.props.style[0]).not.toHaveProperty('position');
+      const action = renderer.container.queryAll((instance) => instance.type === 'AssistantFloatingButton')[0].parent;
+      expect(action?.props.style).toMatchObject({ position: 'absolute', bottom: '100%', right: 16 });
+      const tabBarContainer = renderer.container.queryAll((instance) => instance.type === 'View')[0];
+      expect(tabBarContainer.children[0]).toHaveProperty('type', 'BottomTabBar');
 
       await act(async () => renderer.container.queryAll(
-        (instance) => instance.type === 'AssistantDockButton',
+        (instance) => instance.type === 'AssistantFloatingButton',
       )[0].props.onPress());
       expect(renderer.container.queryAll((instance) => instance.type === 'RecipeChatModal')[0]
         .props.isVisible).toBe(true);
 
       await act(async () => keyboard.listeners.get('keyboardDidShow')?.());
-      expect(renderer.container.queryAll((instance) => instance.type === 'AssistantDockButton')).toHaveLength(0);
+      expect(renderer.container.queryAll((instance) => instance.type === 'AssistantFloatingButton')).toHaveLength(0);
       expect(renderer.container.queryAll((instance) => instance.type === 'RecipeChatModal')[0]
         .props.isVisible).toBe(true);
 
       await act(async () => keyboard.listeners.get('keyboardDidHide')?.());
-      expect(renderer.container.queryAll((instance) => instance.type === 'AssistantDockButton')).toHaveLength(1);
+      expect(renderer.container.queryAll((instance) => instance.type === 'AssistantFloatingButton')).toHaveLength(1);
       await act(async () => renderer.container.queryAll(
         (instance) => instance.type === 'RecipeChatModal',
       )[0].props.onClose());
@@ -79,7 +80,7 @@ describe('AssistantTabBar', () => {
         <AssistantTabBar isSignedIn={false} state={{} as never} navigation={{} as never}
           descriptors={{} as never} insets={{} as never} />,
       ));
-      expect(renderer.container.queryAll((instance) => instance.type === 'AssistantDockButton')).toHaveLength(0);
+      expect(renderer.container.queryAll((instance) => instance.type === 'AssistantFloatingButton')).toHaveLength(0);
       expect(renderer.container.queryAll((instance) => instance.type === 'BottomTabBar')).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());

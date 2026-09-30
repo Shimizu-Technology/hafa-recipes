@@ -6,6 +6,7 @@ const appVersion = require('./app.json').expo.version;
 const {
   APP_DESCRIPTION,
   APP_STORE_ID,
+  APP_KEYWORDS,
   APP_SUBTITLE,
   PROMO_TEXT,
   RELEASE_NOTES,
@@ -31,14 +32,18 @@ describe('App Store release metadata', () => {
     expect(config.apple.version).toBe(appVersion);
     expect(config.apple.release).toEqual({ automaticRelease: true, phasedRelease: false });
     expect(info.subtitle).toBe(APP_SUBTITLE);
+    expect(info.keywords).toEqual(APP_KEYWORDS);
+    expect(info.keywords.every((keyword) => keyword.length > 2)).toBe(true);
+    expect(info.keywords.join(',').length).toBeLessThanOrEqual(100);
     expect(info.description).toBe(APP_DESCRIPTION);
     expect(info.description).not.toMatch(/\bbeta\b/i);
     expect(info.promoText).toBe(PROMO_TEXT);
     expect(info.privacyPolicyUrl).toBe('https://hafa-recipes.com/privacy');
     expect(info.supportUrl).toBe('https://hafa-recipes.com/support');
     expect(info.releaseNotes).toBe(RELEASE_NOTES);
-    expect(info.releaseNotes).toContain('clear chat button above the tab bar');
-    expect(info.releaseNotes).toContain('without covering recipes');
+    expect(info.releaseNotes).toContain('personal pantry or share one');
+    expect(info.releaseNotes).toContain('What Can I Make');
+    expect(info.releaseNotes).toContain('compact floating message button above the tabs');
     expect(config.apple.review.demoRequired).toBe(true);
     expect(config.apple.review.demoUsername).toBe(environment.APP_REVIEW_EMAIL);
     expect(config.apple.review.notes).toContain('does not provide persistent background audio');

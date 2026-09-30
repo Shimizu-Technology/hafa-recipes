@@ -4,6 +4,10 @@ const app = require('./app.json').expo;
 const APP_STORE_ID = '6755892896';
 const MAX_LISTING_BYTES = 1_000_000;
 const APP_SUBTITLE = 'AI Recipe Import & Planner';
+const APP_KEYWORDS = [
+  'cooking', 'meal planner', 'grocery list', 'recipes', 'AI cooking',
+  'video', 'import', 'Guam', 'food', 'meal prep',
+];
 const PROMO_TEXT =
   'Turn cooking videos, links, pasted text, and screenshots into organized recipes—then plan meals, shop, and cook in one place.';
 const APP_DESCRIPTION = `Save the recipes you find online and turn them into something you can actually cook.
@@ -42,7 +46,7 @@ AI can make mistakes. Review extracted ingredients, directions, allergens, tempe
 
 Made in Guam by Shimizu Technology.`;
 const RELEASE_NOTES =
-  'Ask Håfa now has a clear chat button above the tab bar, so cooking help is easier to find without covering recipes. The button moves out of the way when the keyboard opens.';
+  'Keep a personal pantry or share one with the same household as your grocery list. Add checked groceries to your pantry, track amounts and dates, and find recipes using what is still usable. What Can I Make now has roomier recipe results and clearer missing ingredients. Ask Håfa opens from a compact floating message button above the tabs that hides while you type.';
 
 function requiredEnvironmentValue(environment, name) {
   const value = String(environment[name] ?? '').trim();
@@ -117,6 +121,7 @@ function buildStoreConfig({ environment, listing }) {
         'en-US': {
           title: app.name,
           subtitle: APP_SUBTITLE,
+          keywords: APP_KEYWORDS,
           description: APP_DESCRIPTION,
           releaseNotes: RELEASE_NOTES,
           promoText: PROMO_TEXT,
@@ -146,6 +151,7 @@ async function loadStoreConfig() {
 
 loadStoreConfig._testing = {
   APP_STORE_ID,
+  APP_KEYWORDS,
   APP_DESCRIPTION,
   APP_SUBTITLE,
   PROMO_TEXT,

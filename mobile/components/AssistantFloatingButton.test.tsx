@@ -12,34 +12,32 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('@/components/Themed', () => ({
-  Text: 'Text',
-  useColors: () => ({ tint: '#155C52' }),
+  useColors: () => ({ tint: '#155C52', backgroundElevated: '#202820', shadowColor: '#0B3E38' }),
 }));
 vi.mock('@/constants/Colors', () => ({
-  fontFamily: { semibold: 'DMSans_600SemiBold' },
   radius: { full: 9999 },
 }));
 vi.mock('@/utils/haptics', () => ({ haptics: { medium: vi.fn() } }));
 
-import { AssistantDockButton } from './AssistantDockButton';
+import { AssistantFloatingButton } from './AssistantFloatingButton';
 
-describe('AssistantDockButton', () => {
-  it('labels the chat action visibly and activates it', async () => {
+describe('AssistantFloatingButton', () => {
+  it('keeps an accessible chat label and a compact, tappable icon', async () => {
     const renderer = createRoot();
     const onPress = vi.fn();
 
     try {
-      await act(async () => renderer.render(<AssistantDockButton onPress={onPress} />));
+      await act(async () => renderer.render(<AssistantFloatingButton onPress={onPress} />));
       const button = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Ask Håfa',
       )[0];
       expect(button.props.accessibilityRole).toBe('button');
-      expect(button.props.style[0].minHeight).toBe(44);
+      expect(button.props.style[0].width).toBe(54);
+      expect(button.props.style[0].height).toBe(54);
       expect(button.props.style[0]).not.toHaveProperty('position');
       expect(renderer.container.queryAll((instance) => instance.type === 'Ionicons')[0].props.name)
-        .toBe('chatbubble-ellipses-outline');
-      expect(renderer.container.queryAll((instance) => instance.type === 'Text')[0].props.children)
-        .toBe('Ask Håfa');
+        .toBe('chatbubble-ellipses');
+      expect(renderer.container.queryAll((instance) => instance.type === 'Text')).toHaveLength(0);
       await act(async () => button.props.onPress());
       expect(onPress).toHaveBeenCalledOnce();
     } finally {
