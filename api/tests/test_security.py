@@ -64,6 +64,23 @@ async def test_resolve_public_http_url_returns_validated_public_ip(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_resolve_public_http_url_prefers_ipv4_for_dual_stack_hosts(monkeypatch):
+    def fake_getaddrinfo(hostname, port):
+        return [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2001:4860:4860::8888", port)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port)),
+        ]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+
+    assert await resolve_public_http_url("https://example.com/recipe") == (
+        "example.com",
+        443,
+        "93.184.216.34",
+    )
+
+
+@pytest.mark.asyncio
 async def test_public_transport_revalidates_redirect_destinations(monkeypatch):
     requested_hosts = []
 

@@ -106,6 +106,10 @@ async def resolve_public_http_url(url: str) -> tuple[str, int, str]:
             detail="Unable to resolve this URL",
         )
 
+    # Render's outbound network is IPv4-only in production. Prefer a validated
+    # IPv4 address when a CDN publishes both families, while retaining IPv6 as
+    # the fallback for IPv6-only environments.
+    public_ips.sort(key=lambda value: ipaddress.ip_address(value).version)
     return hostname, port, public_ips[0]
 
 
