@@ -1078,7 +1078,10 @@ class VideoService:
             command = [
                 "yt-dlp",
                 "--format",
-                "bestvideo[height<=720]/best[height<=720]",
+                (
+                    "bestvideo[height<=720]/bestvideo[width<=720]/"
+                    "best[height<=720]/best[width<=720]/worstvideo/worst"
+                ),
                 "--output",
                 output_template,
                 "--no-playlist",

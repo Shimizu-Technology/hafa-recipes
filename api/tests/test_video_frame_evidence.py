@@ -118,9 +118,10 @@ async def test_frame_download_rejects_oversize_file(monkeypatch, tmp_path):
 
     (tmp_path / "source.mp4").write_bytes(b"oversize")
     monkeypatch.setattr("app.services.video.settings.video_frame_max_bytes", 4)
+    create_process = AsyncMock(return_value=_CompletedMediaProcess())
     monkeypatch.setattr(
         "app.services.video.asyncio.create_subprocess_exec",
-        AsyncMock(return_value=_CompletedMediaProcess()),
+        create_process,
     )
 
     with pytest.raises(RuntimeError, match="size limit"):
@@ -128,6 +129,12 @@ async def test_frame_download_rejects_oversize_file(monkeypatch, tmp_path):
             "https://www.youtube.com/watch?v=bounded",
             str(tmp_path),
         )
+
+    command = create_process.await_args.args
+    format_selector = command[command.index("--format") + 1]
+    assert "bestvideo[height<=720]" in format_selector
+    assert "bestvideo[width<=720]" in format_selector
+    assert format_selector.endswith("worstvideo/worst")
 
 
 @pytest.mark.asyncio
