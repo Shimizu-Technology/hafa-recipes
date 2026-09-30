@@ -104,6 +104,70 @@ async def _commit_external_recipe(
         ) from None
 
 
+def _without_external_thumbnail(extracted: dict | None) -> dict:
+    """Copy extracted recipe data without retaining a short-lived source URL."""
+
+    copied = dict(extracted or {})
+    media = copied.get("media")
+    if isinstance(media, dict):
+        copied["media"] = dict(media)
+        copied["media"].pop("thumbnail", None)
+    return copied
+
+
+def _with_thumbnail(extracted: dict | None, thumbnail_url: str) -> dict:
+    """Return copied recipe data with its durable thumbnail URL synchronized."""
+
+    copied = dict(extracted or {})
+    media = copied.get("media")
+    copied["media"] = dict(media) if isinstance(media, dict) else {}
+    copied["media"]["thumbnail"] = thumbnail_url
+    return copied
+
+
+async def _upload_video_thumbnail(
+    *,
+    source_url: str,
+    candidate_url: str | None,
+    recipe_id: str,
+) -> str | None:
+    """Persist a video image, refreshing stale metadata before using a frame."""
+
+    if not storage_service.is_enabled:
+        print("⚠️ S3 not configured, skipping thumbnail recovery")
+        return None
+
+    if candidate_url:
+        uploaded = await storage_service.upload_thumbnail_from_url(
+            candidate_url,
+            recipe_id,
+        )
+        if uploaded:
+            return uploaded
+
+    refreshed = await video_service.get_video_metadata_ytdlp(source_url)
+    refreshed_url = refreshed.thumbnail
+    if refreshed_url and refreshed_url != candidate_url:
+        print("🔄 Retrying thumbnail with refreshed video metadata")
+        uploaded = await storage_service.upload_thumbnail_from_url(
+            refreshed_url,
+            recipe_id,
+        )
+        if uploaded:
+            return uploaded
+
+    print("🎞️ Recovering thumbnail from a video frame")
+    frame = await video_service.extract_thumbnail_frame(source_url)
+    if not frame.success or not frame.image_data:
+        print(f"⚠️ Thumbnail frame recovery unavailable: {frame.error_code}")
+        return None
+    return await storage_service.upload_thumbnail_from_bytes(
+        frame.image_data,
+        recipe_id,
+        frame.content_type,
+    )
+
+
 def _validate_idempotent_job(
     job: ExtractionJob,
     *,
@@ -598,13 +662,15 @@ async def extract_recipe(
             detail=error_detail
         )
     
-    extracted_recipe = mark_fresh(
-        extraction_result.recipe,
-        "nutrition",
-        "cost",
-        "tags",
-        "times",
-        source="ai_extraction",
+    extracted_recipe = _without_external_thumbnail(
+        mark_fresh(
+            extraction_result.recipe,
+            "nutrition",
+            "cost",
+            "tags",
+            "times",
+            source="ai_extraction",
+        )
     )
     # Save to database with user_id and display name
     new_recipe = Recipe(
@@ -613,7 +679,7 @@ async def extract_recipe(
         source_type=platform,
         raw_text=extraction_result.raw_text,
         extracted=extracted_recipe,
-        thumbnail_url=extraction_result.thumbnail_url,
+        thumbnail_url=None,
         extraction_method=extraction_result.extraction_method,
         extraction_quality=extraction_result.extraction_quality,
         has_audio_transcript=extraction_result.has_audio_transcript,
@@ -639,20 +705,18 @@ async def extract_recipe(
             is_existing=True,
         )
     
-    # Upload thumbnail to S3 for permanent storage
-    if extraction_result.thumbnail_url:
-        s3_url = await storage_service.upload_thumbnail_from_url(
-            extraction_result.thumbnail_url,
-            str(new_recipe.id)
-        )
-        if s3_url:
-            # Update recipe with S3 URL
-            new_recipe.thumbnail_url = s3_url
-            # Also update the media field in extracted JSON
-            if new_recipe.extracted and "media" in new_recipe.extracted:
-                new_recipe.extracted["media"]["thumbnail"] = s3_url
-            await db.commit()
-            await db.refresh(new_recipe)
+    # Only app-owned URLs are durable enough to save as recipe images.
+    s3_url = await _upload_video_thumbnail(
+        source_url=url,
+        candidate_url=extraction_result.thumbnail_url,
+        recipe_id=str(new_recipe.id),
+    )
+    if s3_url:
+        new_recipe.thumbnail_url = s3_url
+        new_recipe.extracted = _with_thumbnail(new_recipe.extracted, s3_url)
+        flag_modified(new_recipe, "extracted")
+        await db.commit()
+        await db.refresh(new_recipe)
     
     return ExtractResponse(
         id=new_recipe.id,
@@ -980,6 +1044,8 @@ async def run_extraction_job(
                     "times",
                     source="ai_extraction",
                 )
+                if platform != "website":
+                    extracted_data = _without_external_thumbnail(extracted_data)
                 
                 # Keep a copy of extracted_data before any DB operations
                 # This protects against session state issues
@@ -993,7 +1059,7 @@ async def run_extraction_job(
                     source_type=platform,
                     raw_text=result.raw_text,
                     extracted=extracted_data,
-                    thumbnail_url=result.thumbnail_url,
+                    thumbnail_url=(result.thumbnail_url if platform == "website" else None),
                     extraction_method=result.extraction_method,
                     extraction_quality=result.extraction_quality,
                     has_audio_transcript=result.has_audio_transcript,
@@ -1070,26 +1136,31 @@ async def run_extraction_job(
                     # durable recipe link and complete without duplicating it.
                     return
                 
-                # Upload thumbnail to S3 for permanent storage
-                if result.thumbnail_url:
+                # Upload thumbnail to S3 for permanent storage. Video platform
+                # URLs are never retained because their CDN signatures expire.
+                if result.thumbnail_url or platform != "website":
                     await update_progress(ExtractionProgress(
                         step="saving",
                         progress=85,
                         message="Saving thumbnail..."
                     ))
-                    s3_url = await storage_service.upload_thumbnail_from_url(
-                        result.thumbnail_url,
-                        str(new_recipe.id)
-                    )
+                    if platform == "website":
+                        s3_url = await storage_service.upload_thumbnail_from_url(
+                            result.thumbnail_url,
+                            str(new_recipe.id),
+                        )
+                    else:
+                        s3_url = await _upload_video_thumbnail(
+                            source_url=url,
+                            candidate_url=result.thumbnail_url,
+                            recipe_id=str(new_recipe.id),
+                        )
                     if s3_url:
                         # Update recipe with S3 URL using saved_extracted to preserve lowConfidence
                         new_recipe.thumbnail_url = s3_url
-                        if saved_extracted and "media" in saved_extracted:
-                            # Update thumbnail in our preserved copy
-                            saved_extracted["media"] = dict(saved_extracted.get("media", {}))
-                            saved_extracted["media"]["thumbnail"] = s3_url
-                            new_recipe.extracted = saved_extracted
-                            flag_modified(new_recipe, 'extracted')
+                        saved_extracted = _with_thumbnail(saved_extracted, s3_url)
+                        new_recipe.extracted = saved_extracted
+                        flag_modified(new_recipe, 'extracted')
                         await db.commit()
                 
                 # Update job as completed (only NOW, after everything is done)

@@ -219,6 +219,17 @@ class VideoFrameExtractionResult:
 
 
 @dataclass
+class VideoThumbnailResult:
+    """One bounded still image recovered from a source video."""
+
+    success: bool
+    image_data: bytes | None = None
+    content_type: str = "image/jpeg"
+    error: Optional[str] = None
+    error_code: Optional[str] = None
+
+
+@dataclass
 class CredentialFile:
     """A credential path with explicit ownership and cleanup semantics."""
     path: str
@@ -1001,6 +1012,53 @@ class VideoService:
                 success=False,
                 error=_redact_sensitive_values(str(error)),
                 error_code="VIDEO_FRAME_EXTRACTION_FAILED",
+            )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    async def extract_thumbnail_frame(self, url: str) -> VideoThumbnailResult:
+        """Recover one representative JPEG when a platform thumbnail is unreachable."""
+
+        temp_dir = tempfile.mkdtemp(prefix="recipe-thumbnail-")
+        try:
+            async with self._media_slot():
+                video_path, duration = await self._download_video_for_frames(url, temp_dir)
+                output_path = os.path.join(temp_dir, "thumbnail.jpg")
+                final_timestamp = max(0.0, duration - 0.25)
+                timestamp = min(final_timestamp, max(0.5, final_timestamp * 0.15))
+                if not await self._write_frame(video_path, output_path, timestamp):
+                    return VideoThumbnailResult(
+                        success=False,
+                        error="No thumbnail frame could be generated",
+                        error_code="NO_THUMBNAIL_FRAME",
+                    )
+                image_data = Path(output_path).read_bytes()
+                if len(image_data) > 10 * 1024 * 1024:
+                    return VideoThumbnailResult(
+                        success=False,
+                        error="Thumbnail frame exceeds the size limit",
+                        error_code="THUMBNAIL_TOO_LARGE",
+                    )
+                return VideoThumbnailResult(success=True, image_data=image_data)
+        except MediaCapacityExceeded:
+            return VideoThumbnailResult(
+                success=False,
+                error="Media process capacity unavailable",
+                error_code="MEDIA_BUSY",
+            )
+        except asyncio.CancelledError:
+            raise
+        except asyncio.TimeoutError:
+            return VideoThumbnailResult(
+                success=False,
+                error="Thumbnail frame extraction timed out",
+                error_code="TIMEOUT",
+            )
+        except Exception as error:
+            return VideoThumbnailResult(
+                success=False,
+                error=_redact_sensitive_values(str(error)),
+                error_code="THUMBNAIL_FRAME_EXTRACTION_FAILED",
             )
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)

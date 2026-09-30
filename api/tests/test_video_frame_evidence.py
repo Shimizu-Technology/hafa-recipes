@@ -305,6 +305,35 @@ async def test_frame_media_is_cleaned_after_success(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_thumbnail_frame_is_bounded_and_cleaned(monkeypatch, tmp_path):
+    owned_dir = tmp_path / "owned-thumbnail"
+    owned_dir.mkdir()
+    video_path = owned_dir / "source.mp4"
+    video_path.write_bytes(b"video")
+    service = VideoService()
+    monkeypatch.setattr("app.services.video.tempfile.mkdtemp", lambda **_: str(owned_dir))
+    monkeypatch.setattr(
+        service,
+        "_download_video_for_frames",
+        AsyncMock(return_value=(str(video_path), 20.0)),
+    )
+
+    async def write_frame(_video_path, output_path, timestamp):
+        assert timestamp == pytest.approx(2.9625)
+        Path(output_path).write_bytes(b"jpeg")
+        return True
+
+    monkeypatch.setattr(service, "_write_frame", AsyncMock(side_effect=write_frame))
+
+    result = await service.extract_thumbnail_frame("https://example.test/video")
+
+    assert result.success is True
+    assert result.image_data == b"jpeg"
+    assert result.content_type == "image/jpeg"
+    assert not owned_dir.exists()
+
+
+@pytest.mark.asyncio
 async def test_frame_media_is_cleaned_on_failure_and_cancellation(monkeypatch, tmp_path):
     """Failure and worker cancellation must use the same cleanup boundary."""
 
