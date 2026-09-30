@@ -130,6 +130,29 @@ describe('PantryScreen', () => {
     }
   });
 
+  it('allows editing a transferred lot at the database decimal limit', async () => {
+    mocks.items = [{
+      id: 'rice-1', name: 'Rice', quantity: '999999999.999', unit: 'g', location: null,
+      date_kind: null, date_value: null, notes: null,
+    }];
+    const renderer = createRoot();
+    try {
+      await act(async () => renderer.render(React.createElement(PantryScreen)));
+      await act(async () => findAction(renderer, 'Edit Rice').props.onPress());
+      const name = renderer.container.queryAll((node) => node.props.accessibilityLabel === 'Item name')[0];
+      await act(async () => name.props.onChangeText('Brown rice'));
+      const save = renderer.container.queryAll((node) => node.type === 'TouchableOpacity' &&
+        node.props.children?.props?.children === 'Save item')[0];
+      await act(async () => save.props.onPress());
+      expect(mocks.write).toHaveBeenCalledWith(expect.objectContaining({
+        operation: 'update', changes: { name: 'Brown rice' },
+      }));
+      expect(mocks.alert).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
   it('bulk adds pasted names and opens recipe search', async () => {
     const renderer = createRoot();
     try {

@@ -302,11 +302,12 @@ async def test_join_refreshes_cached_invite_after_revocation(pantry_database):
     async with pantry_database() as db:
         invite = await create_invite(db, _user("alice"))
     async with pantry_database() as joining_db:
-        await joining_db.scalar(
+        cached_invite = await joining_db.scalar(
             select(GroceryListInvite).where(GroceryListInvite.invite_code == invite.invite_code)
         )
         async with pantry_database() as revoking_db:
             await revoke_invite(invite.invite_code, revoking_db, _user("alice"))
+        assert cached_invite.revoked_at is None
         with pytest.raises(HTTPException) as revoked:
             await join_list(invite.invite_code, joining_db, _user("bob"))
     assert revoked.value.status_code == 404

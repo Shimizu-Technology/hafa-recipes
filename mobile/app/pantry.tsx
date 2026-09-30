@@ -83,7 +83,7 @@ export default function PantryScreen() {
     const name = form.name.trim();
     const date = dateText.trim();
     if (!name) return Alert.alert('Name needed', 'Enter an item name.');
-    if (form.quantity !== null && (!/^\d+(\.\d{1,3})?$/.test(form.quantity) || Number(form.quantity) > 999999999)) {
+    if (form.quantity !== null && (!/^\d+(\.\d{1,3})?$/.test(form.quantity) || Number(form.quantity) > 999999999.999)) {
       return Alert.alert('Check amount', 'Enter a positive number with up to three decimal places.');
     }
     const isoDate = date ? pantryDateFromEntry(date) : null;
