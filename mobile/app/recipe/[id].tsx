@@ -1,6 +1,6 @@
 import { getIngredientAmount, getCookingNotes } from '@/lib/recipeTrust';
 import { NutritionPanel } from '@/components/NutritionPanel';
-import { api } from '@/lib/api';
+import { useNutritionRefresh } from '@/hooks/useNutritionRefresh';
 import { useState, useMemo } from 'react';
 import {
   StyleSheet,
@@ -134,8 +134,6 @@ export default function RecipeDetailScreen() {
   const insets = useSafeAreaInsets();
   const { scaleFontSize } = useTextSize();
   const [activeTab, setActiveTab] = useState<TabType>('ingredients');
-  const [isRefreshingNutrition, setIsRefreshingNutrition] = useState(false);
-  const [nutritionError, setNutritionError] = useState<string | null>(null);
   
   const { data: recipe, isLoading, error, refetch } = useRecipe(id);
   const deleteMutation = useDeleteRecipe();
@@ -153,6 +151,7 @@ export default function RecipeDetailScreen() {
   const [androidMenuActions, setAndroidMenuActions] = useState<RecipeMenuAction[] | null>(null);
   const [showIngredientsRef, setShowIngredientsRef] = useState(false); // Collapsed by default
   const { userId } = useAuth();
+  const { isRefreshingNutrition, nutritionError, refreshNutrition } = useNutritionRefresh(recipe?.id, recipe?.content_revision, userId, refetch);
   const { user } = useUser();
   const reportMutation = useCreateSafetyReport();
   const appealMutation = useCreateSafetyAppeal();
@@ -260,17 +259,6 @@ export default function RecipeDetailScreen() {
     (component) => component.ingredients
   ) || [];
 
-  const refreshNutrition = async () => {
-    if (!recipe || isRefreshingNutrition) return;
-    setIsRefreshingNutrition(true);
-    setNutritionError(null);
-    try {
-      await api.refreshRecipeNutrition(recipe.id, recipe.content_revision ?? undefined);
-      await refetch();
-    } catch (error: any) {
-      setNutritionError(error?.response?.data?.detail || 'Nutrition could not be estimated. Check the ingredient amounts and try again.');
-    } finally { setIsRefreshingNutrition(false); }
-  };
   const costStatus = recipe?.extracted.derivedData?.cost?.status;
 
   const handleAddToGrocery = () => {
