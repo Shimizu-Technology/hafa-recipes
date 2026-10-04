@@ -1,4 +1,5 @@
-vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: mocks.ownerId, entries: [] }) }));
+vi.mock('@/lib/importInbox', () => ({ importInbox: { patch: mocks.patchInbox } }));
+vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: mocks.ownerId, entries: mocks.entries.filter((entry) => entry.state !== 'accepted') }) }));
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   ownerId: 'owner-a',
+  entries: [] as any[], patchInbox: vi.fn(),
   alert: vi.fn(),
   back: vi.fn(),
   replace: vi.fn(),
@@ -158,7 +160,8 @@ function confidenceWarnings(renderer: ReactTestRenderer) {
 
 describe('OCRReviewScreen confidence notice', () => {
   beforeEach(() => {
-    mocks.ownerId = 'owner-a';
+    mocks.ownerId = 'owner-a'; mocks.entries = []; mocks.patchInbox.mockReset();
+    mocks.patchInbox.mockImplementation(async (id: string, patch: Record<string, unknown>) => { mocks.entries = mocks.entries.map((entry) => entry.id === id ? { ...entry, ...patch } : entry); });
     mocks.alert.mockClear();
     mocks.back.mockClear();
     mocks.replace.mockClear();
@@ -204,7 +207,8 @@ describe('OCRReviewScreen confidence notice', () => {
 
 describe('OCRReviewScreen visibility', () => {
   beforeEach(() => {
-    mocks.ownerId = 'owner-a';
+    mocks.ownerId = 'owner-a'; mocks.entries = []; mocks.patchInbox.mockReset();
+    mocks.patchInbox.mockImplementation(async (id: string, patch: Record<string, unknown>) => { mocks.entries = mocks.entries.map((entry) => entry.id === id ? { ...entry, ...patch } : entry); });
     mocks.alert.mockClear();
     mocks.back.mockClear();
     mocks.replace.mockClear();
@@ -288,6 +292,42 @@ describe('OCRReviewScreen visibility', () => {
     expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ is_public: false, source_type: 'text' }));
     expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
     expect(mocks.alert).not.toHaveBeenCalled();
+  });
+
+  it('retires the matching recovered inbox capture before navigating after a successful save', async () => {
+    mocks.entries = [{ id: mocks.params.captureId, ownerId: 'owner-a', state: 'waiting' }];
+    const renderer = await renderRecipe({});
+    await act(async () => renderer.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Save Private Recipe')!.props.onPress());
+    expect(mocks.patchInbox).toHaveBeenCalledExactlyOnceWith(mocks.params.captureId, { state: 'accepted', recipeId: 'recipe-1', error: undefined });
+    expect(mocks.entries[0]).toMatchObject({ ownerId: 'owner-a', state: 'accepted', recipeId: 'recipe-1' });
+    expect(mocks.patchInbox.mock.invocationCallOrder[0]).toBeLessThan(mocks.replace.mock.invocationCallOrder[0]);
+    await act(async () => renderer.unmount());
+  });
+
+  it('does not retire a similarly identified capture owned by another account', async () => {
+    mocks.entries = [{ id: mocks.params.captureId, ownerId: 'owner-b', state: 'waiting' }];
+    const renderer = await renderRecipe({});
+    await act(async () => renderer.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Save Private Recipe')!.props.onPress());
+    expect(mocks.patchInbox).not.toHaveBeenCalled(); expect(mocks.entries[0].state).toBe('waiting');
+    await act(async () => renderer.unmount());
+  });
+
+  it('does not navigate a recovered save after the account changes during its inbox write', async () => {
+    mocks.entries = [{ id: mocks.params.captureId, ownerId: 'owner-a', state: 'waiting' }];
+    let finish!: () => void;
+    mocks.patchInbox.mockImplementationOnce(async (_id: string, patch: Record<string, unknown>) => {
+      await new Promise<void>((resolve) => { finish = resolve; });
+      mocks.entries[0] = { ...mocks.entries[0], ...patch };
+    });
+    const renderer = await renderRecipe({});
+    let submit!: Promise<void>;
+    await act(async () => { submit = renderer.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Save Private Recipe')!.props.onPress(); });
+    mocks.ownerId = 'owner-b';
+    await act(async () => renderer.update(<OCRReviewScreen />));
+    await act(async () => { finish(); await submit; });
+    expect(mocks.entries[0]).toMatchObject({ ownerId: 'owner-a', state: 'accepted', recipeId: 'recipe-1' });
+    expect(mocks.replace).not.toHaveBeenCalled();
+    await act(async () => renderer.unmount());
   });
 
   it('does not navigate A save results into B after an account switch', async () => {

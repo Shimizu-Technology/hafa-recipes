@@ -42,7 +42,7 @@ export default function ExtractScreen() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, isLoaded: isAuthLoaded } = useAuth();
   const { sharedUrl, captureToken, inboxCaptureId } = useLocalSearchParams<{
     sharedUrl?: string;
     captureToken?: string;
@@ -114,18 +114,37 @@ export default function ExtractScreen() {
   const saveCapturedRecipe = useSaveCapturedRecipe();
   const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
 
-  // Completion belongs to its job. It never changes the current draft or navigation.
-  // Shared links enter the durable queue rather than replacing that draft.
+  // A legacy route parameter is one receipt. Keep its identity and original
+  // owner choice across effect reruns, storage retries and auth transitions.
+  const legacySharedCapture = useRef<{ url: string; id: string; entry?: ImportInboxEntry; inFlight: boolean; persisted: boolean } | null>(null);
+  if (!sharedUrl) legacySharedCapture.current = null;
+  else if (legacySharedCapture.current?.url !== sharedUrl) {
+    legacySharedCapture.current = { url: sharedUrl, id: Crypto.randomUUID(), inFlight: false, persisted: false };
+  }
+  const [legacyShareRetryVersion, setLegacyShareRetryVersion] = useState(0);
   useEffect(() => {
-    if (!sharedUrl || !inbox.ownerId) return;
-    void importInbox.add({
-      id: Crypto.randomUUID(), ownerId: inbox.ownerId,
-      capture: { kind: 'url', url: sharedUrl }, createdAt: Date.now(), state: 'ready',
-      request: { url: sharedUrl, location: 'Guam', notes: '', is_public: false },
-    }).then(() => router.setParams({ sharedUrl: undefined })).catch((error: Error) => {
-      Alert.alert('Could Not Save Import', error.message);
-    });
-  }, [router, sharedUrl, inbox.ownerId]);
+    const receipt = legacySharedCapture.current;
+    if (!receipt || receipt.inFlight || receipt.persisted) return;
+    if (!receipt.entry) {
+      // A share received signed out or before identity verification needs an
+      // explicit claim. A later account must never automatically acquire it.
+      const ownerId = isAuthLoaded && isSignedIn ? inbox.ownerId : null;
+      receipt.entry = {
+        id: receipt.id, ownerId, capture: { kind: 'url', url: receipt.url }, createdAt: Date.now(),
+        state: ownerId ? 'ready' : 'waiting',
+        request: { url: receipt.url, location: 'Guam', notes: '', is_public: false },
+      };
+    }
+    receipt.inFlight = true;
+    void importInbox.add(receipt.entry).then(() => {
+      receipt.persisted = true;
+      if (captureOwner.current.mounted && legacySharedCapture.current === receipt) router.setParams({ sharedUrl: undefined });
+    }).catch((error: Error) => {
+      if (captureOwner.current.mounted && legacySharedCapture.current === receipt) Alert.alert('Could Not Save Import', error.message, [{ text: 'Retry', onPress: () => {
+        if (captureOwner.current.mounted && legacySharedCapture.current === receipt) setLegacyShareRetryVersion((version) => version + 1);
+      } }, { text: 'Later', style: 'cancel' }]);
+    }).finally(() => { receipt.inFlight = false; });
+  }, [router, sharedUrl, inbox.ownerId, isAuthLoaded, isSignedIn, legacyShareRetryVersion]);
 
   const openCapturedEntry = async (entry: ImportInboxEntry) => {
     if (!inbox.ownerId) { router.push('/(auth)/sign-in'); return; }

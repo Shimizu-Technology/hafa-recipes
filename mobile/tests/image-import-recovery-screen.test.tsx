@@ -7,9 +7,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   focused: true,
-  ownerId: 'owner-a',
+  ownerId: 'owner-a' as string | null,
+  signedIn: true, authLoaded: true,
+  params: { sharedUrl: undefined as string | undefined },
+  setParams: vi.fn(),
   inboxEntries: [] as any[],
-  addInbox: vi.fn(async () => undefined),
+  addInbox: vi.fn(async (_entry: any) => undefined),
   claimInbox: vi.fn(async () => undefined),
   pendingShareCount: 0,
   queueChanged: null as null | ((event: { pendingCount: number }) => void),
@@ -98,8 +101,8 @@ vi.mock('react-native', async () => {
 vi.mock('expo-router', async () => {
   const { useEffect } = await import('react');
   return {
-    useLocalSearchParams: () => ({}),
-    useRouter: () => ({ push: mocks.push, replace: vi.fn(), setParams: vi.fn() }),
+    useLocalSearchParams: () => mocks.params,
+    useRouter: () => ({ push: mocks.push, replace: vi.fn(), setParams: mocks.setParams }),
     useFocusEffect: (callback: () => void) => {
       useEffect(() => { if (mocks.focused) return callback(); }, [callback, mocks.focused]);
     },
@@ -108,7 +111,7 @@ vi.mock('expo-router', async () => {
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0 }),
 }));
-vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isSignedIn: true }) }));
+vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isSignedIn: mocks.signedIn, isLoaded: mocks.authLoaded }) }));
 vi.mock('expo-image-picker', () => ({
   launchCameraAsync: vi.fn(),
   launchImageLibraryAsync: mocks.launchLibrary,
@@ -197,7 +200,9 @@ function touchableWithText(renderer: ReactTestRenderer, text: string) {
 
 describe('classified image recovery', () => {
   beforeEach(() => {
-    mocks.focused = true; mocks.ownerId = 'owner-a';
+    mocks.focused = true; mocks.ownerId = 'owner-a'; mocks.signedIn = true; mocks.authLoaded = true;
+    mocks.params.sharedUrl = undefined; mocks.setParams.mockClear();
+    mocks.addInbox.mockReset(); mocks.addInbox.mockResolvedValue(undefined); mocks.claimInbox.mockClear();
     mocks.pendingShareCount = 0;
     mocks.queueChanged = null;
     mocks.getShareIntent.mockReset();
@@ -227,6 +232,50 @@ describe('classified image recovery', () => {
     mocks.extraction.reset.mockResolvedValue(undefined);
     mocks.extraction.startExtraction.mockReset();
     mocks.extraction.startExtraction.mockResolvedValue({ isExisting: false });
+  });
+
+  it('persists one legacy URL receipt while a delayed write spans an account transition', async () => {
+    mocks.params.sharedUrl = 'https://example.com/shared';
+    let finish!: () => void;
+    mocks.addInbox.mockImplementationOnce(() => new Promise<undefined>((resolve) => { finish = () => resolve(undefined); }));
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    mocks.ownerId = 'owner-b';
+    await act(async () => renderer.update(<ExtractScreen />));
+    expect(mocks.addInbox).toHaveBeenCalledOnce();
+    await act(async () => finish());
+    await act(async () => renderer.update(<ExtractScreen />));
+    expect(mocks.addInbox).toHaveBeenCalledOnce();
+    expect(mocks.addInbox.mock.calls[0][0]).toMatchObject({ ownerId: 'owner-a', state: 'ready', capture: { url: 'https://example.com/shared' } });
+    expect(mocks.setParams).toHaveBeenCalledWith({ sharedUrl: undefined });
+    await act(async () => renderer.unmount());
+  });
+
+  it.each(['signed-out', 'identity-pending'] as const)('stores %s legacy shares unassigned until an explicit claim', async (state) => {
+    mocks.params.sharedUrl = 'https://example.com/shared'; mocks.ownerId = null;
+    mocks.signedIn = state !== 'signed-out';
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    expect(mocks.addInbox.mock.calls[0][0]).toMatchObject({ ownerId: null, state: 'waiting' });
+    mocks.signedIn = true; mocks.ownerId = 'owner-b';
+    await act(async () => renderer.update(<ExtractScreen />));
+    expect(mocks.addInbox).toHaveBeenCalledOnce(); expect(mocks.claimInbox).not.toHaveBeenCalled();
+    await act(async () => renderer.unmount());
+  });
+
+  it('retries the same failed receipt ID and owner instead of assigning the new account', async () => {
+    mocks.params.sharedUrl = 'https://example.com/shared';
+    mocks.addInbox.mockRejectedValueOnce(new Error('Disk unavailable'));
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    const original = mocks.addInbox.mock.calls[0][0];
+    const retry = mocks.alert.mock.calls.find(([title]) => title === 'Could Not Save Import')?.[2].find((action: { text: string }) => action.text === 'Retry');
+    await act(async () => retry.onPress());
+    expect(mocks.addInbox.mock.calls[1][0]).toEqual(original);
+    mocks.ownerId = 'owner-b';
+    await act(async () => renderer.update(<ExtractScreen />));
+    expect(mocks.addInbox).toHaveBeenCalledTimes(2);
+    await act(async () => renderer.unmount());
   });
 
   it('locks Open next until native acknowledgement updates the queue count', async () => {

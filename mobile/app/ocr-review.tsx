@@ -1,3 +1,4 @@
+import { importInbox } from '@/lib/importInbox';
 import { useImportInbox } from '@/hooks/useImportInbox';
 /**
  * Capture Review Screen
@@ -144,6 +145,11 @@ export default function OCRReviewScreen() {
 
       guardOwner();
       if (!result?.id) throw new Error('Save did not finish. Please retry.');
+      const matchingCapture = inbox.entries.find((entry) => entry.id === captureId && entry.ownerId === boundOwner.current);
+      if (matchingCapture) {
+        await importInbox.patch(captureId, { state: 'accepted', recipeId: result.id, error: undefined });
+        guardOwner();
+      }
       router.replace(`/recipe/${result.id}`);
     } catch (error: unknown) {
       if (error instanceof CaptureAccountChangedError) return;
