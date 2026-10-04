@@ -369,6 +369,22 @@ describe('classified image recovery', () => {
     await act(async () => renderer!.unmount());
   });
 
+  it.each(['duplicate', 'storage'] as const)('retains B while intake A awaits %s', async (boundary) => {
+    let finish!: () => void;
+    if (boundary === 'duplicate') mocks.checkDuplicate.mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve({ exists: false }); }));
+    else mocks.addInbox.mockImplementationOnce(() => new Promise<undefined>((resolve) => { finish = () => resolve(undefined); }));
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    const input = () => renderer.root.findByProps({ placeholder: 'TikTok, Instagram, YouTube, or recipe website link' });
+    await act(async () => input().props.onChangeText('https://example.com/a'));
+    let submit!: Promise<void>;
+    await act(async () => { submit = renderer.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Extract Recipe')!.props.onPress(); });
+    await act(async () => input().props.onChangeText('https://example.com/b'));
+    await act(async () => { finish(); await submit; });
+    expect(mocks.addInbox).toHaveBeenCalledWith(expect.objectContaining({ capture: { kind: 'url', url: 'https://example.com/a' } }));
+    expect(input().props.value).toBe('https://example.com/b');
+    await act(async () => renderer.unmount());
+  });
   it('keeps new imports disabled until durable recovery finishes', async () => {
     mocks.extraction.isPreparing = true;
 

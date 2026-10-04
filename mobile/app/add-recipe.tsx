@@ -7,7 +7,7 @@ import type { NutritionEstimateValues } from '@/lib/api';
  * Allows users to manually create a recipe with optional image upload.
  */
 
-import type { QuantityEstimate } from '@/types/recipe';
+import type { QuantityEstimate, Nutrition } from '@/types/recipe';
 import { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
@@ -142,6 +142,7 @@ export default function AddRecipeScreen() {
         if (data.notes) setNotes(data.notes);
         if (data.tags?.length) setTags(data.tags.join(', '));
         if (data.nutrition) {
+          setSourceNutrition(data.nutrition);
           setEstimatedNutrition(Object.fromEntries(Object.entries(data.nutrition.perServing || {}).filter(([, value]) => typeof value === 'number')));
           setEstimatedNutritionTotal(Object.fromEntries(Object.entries(data.nutrition.total || {}).filter(([, value]) => typeof value === 'number')));
           setNutritionBasis(data.nutrition.servingBasis || 'recipe_servings');
@@ -216,6 +217,7 @@ export default function AddRecipeScreen() {
   // AI feature states
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const [isEstimatingNutrition, setIsEstimatingNutrition] = useState(false);
+  const [sourceNutrition, setSourceNutrition] = useState<Nutrition | null>(null);
   const [estimatedNutrition, setEstimatedNutrition] = useState<NutritionEstimateValues | null>(null);
   const [estimatedNutritionTotal, setEstimatedNutritionTotal] = useState<NutritionEstimateValues | null>(null);
   const [nutritionBasis, setNutritionBasis] = useState<'source' | 'recipe_servings' | 'whole_recipe'>('recipe_servings');
@@ -469,6 +471,7 @@ export default function AddRecipeScreen() {
         return;
       }
       setNutritionFingerprint(currentNutritionFingerprint);
+      setSourceNutrition(null);
       setEstimatedNutrition(response.nutrition);
       setEstimatedNutritionTotal(response.total ?? null);
       setNutritionBasis(response.servingBasis ?? (servingsNum ? 'recipe_servings' : 'whole_recipe'));
@@ -788,6 +791,7 @@ export default function AddRecipeScreen() {
               
               {nutritionMatchesInputs && (estimatedNutrition || estimatedNutritionTotal) ? (
                 <NutritionPanel nutrition={{
+                  ...sourceNutrition,
                   perServing: normalizeNutritionValues(estimatedNutrition),
                   total: normalizeNutritionValues(estimatedNutritionTotal),
                   servingBasis: nutritionBasis, assumptions: nutritionAssumptions,

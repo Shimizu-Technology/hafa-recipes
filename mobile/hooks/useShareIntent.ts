@@ -33,16 +33,24 @@ export function useHandleShareIntent() {
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
   const [isProcessing, setIsProcessing] = useState(false);
   const processingRef = useRef(false);
+  const mountedRef = useRef(false);
+  const currentPayloadRef = useRef(shareIntent);
+  currentPayloadRef.current = shareIntent;
+  const processedPayloads = useRef(new WeakSet<object>());
+  const [workerVersion, setWorkerVersion] = useState(0);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
   const payloadIds = useRef(new WeakMap<object, string>());
   useImportInboxProcessor();
   useShareSession();
 
   useEffect(() => {
     if (!isLoaded || !hasShareIntent || !shareIntent || processingRef.current ||
-        (isSignedIn && !ownerId)) return;
+        (isSignedIn && !ownerId) || processedPayloads.current.has(shareIntent)) return;
     processingRef.current = true;
     setIsProcessing(true);
-    let mounted = true;
     let shouldDrain = false;
     void (async () => {
       try {
@@ -86,21 +94,27 @@ export function useHandleShareIntent() {
           throw new Error('Your import is saved. We could not confirm the share handoff; reopen Håfa to reconnect.');
         }
         // Clear only the JS payload. Native data was acknowledged by exact ID.
-        resetShareIntent(Platform.OS !== 'ios');
-        if (!mounted) return;
-        router.replace({ pathname: '/', params: { inboxCaptureId: id } });
+        processedPayloads.current.add(shareIntent);
         shouldDrain = Platform.OS === 'ios';
+        // A new onChange can arrive while A is persisting/acknowledging. Do
+        // not clear B's payload or navigate for A after B has taken its place.
+        if (currentPayloadRef.current === shareIntent) {
+          resetShareIntent(Platform.OS !== 'ios');
+          if (mountedRef.current) router.replace({ pathname: '/', params: { inboxCaptureId: id } });
+        }
       } catch (error) {
-        if (mounted) Alert.alert('Shared Recipe Saved for Later', error instanceof Error
+        if (mountedRef.current) Alert.alert('Shared Recipe Saved for Later', error instanceof Error
           ? error.message : 'Please reopen Håfa to finish importing.');
       } finally {
         processingRef.current = false;
-        if (mounted) setIsProcessing(false);
-        if (shouldDrain) setTimeout(() => { void ShareIntentModule?.getShareIntent(''); }, 0);
+        if (mountedRef.current) {
+          setIsProcessing(false);
+          if (shouldDrain || currentPayloadRef.current !== shareIntent) setWorkerVersion((version) => version + 1);
+          if (shouldDrain) setTimeout(() => { void ShareIntentModule?.getShareIntent(''); }, 0);
+        }
       }
     })();
-    return () => { mounted = false; };
-  }, [hasShareIntent, isLoaded, isSignedIn, ownerId, router, resetShareIntent, shareIntent, queryClient]);
+  }, [hasShareIntent, isLoaded, isSignedIn, ownerId, router, resetShareIntent, shareIntent, queryClient, workerVersion]);
   return { hasShareIntent, isProcessing };
 }
 

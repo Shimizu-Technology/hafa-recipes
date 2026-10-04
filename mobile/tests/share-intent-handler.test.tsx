@@ -32,6 +32,7 @@ let renderer: ReactTestRenderer;
 async function render() { await act(async () => { renderer = create(<Harness />); }); }
 beforeEach(() => {
   vi.useFakeTimers(); vi.clearAllMocks(); mocks.signedIn = true; mocks.hasIntent = true;
+  mocks.payload = { webUrl: 'https://example.com/recipe', files: null, text: null, type: 'weburl' };
   mocks.action = { kind: 'url', url: 'https://example.com/recipe' };
   mocks.metadata.mockResolvedValue(JSON.stringify({ captureKey: 'key-a', captureId: 'capture-a', accountScopeId: 'scope-a' }));
   mocks.scopeOwner.mockResolvedValue('durable-owner'); mocks.add.mockResolvedValue(undefined); mocks.ack.mockResolvedValue(true);
@@ -45,6 +46,22 @@ describe('durable share intake', () => {
     expect(mocks.add.mock.invocationCallOrder[0]).toBeLessThan(mocks.ack.mock.invocationCallOrder[0]);
     expect(mocks.reset).toHaveBeenCalledWith(false);
     expect(mocks.replace).toHaveBeenCalledWith({ pathname: '/', params: { inboxCaptureId: 'capture-a' } });
+  });
+  it('processes B arriving while A persists without reopening or clearing B for A', async () => {
+    let finishA!: () => void;
+    mocks.add.mockImplementationOnce(() => new Promise<void>((resolve) => { finishA = resolve; }));
+    await render();
+    mocks.payload = { webUrl: 'https://example.com/b', files: null, text: null, type: 'weburl' };
+    mocks.action = { kind: 'url', url: 'https://example.com/b' };
+    mocks.metadata.mockResolvedValue(JSON.stringify({ captureKey: 'key-b', captureId: 'capture-b', accountScopeId: 'scope-a' }));
+    await act(async () => renderer.update(<Harness />));
+    await act(async () => finishA());
+    expect(mocks.add.mock.calls.map(([entry]) => entry.id)).toEqual(['capture-a', 'capture-b']);
+    expect(mocks.ack.mock.calls.map(([key]) => key)).toEqual(['key-a', 'key-b']);
+    expect(mocks.reset).toHaveBeenCalledOnce();
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith({ pathname: '/', params: { inboxCaptureId: 'capture-b' } });
+    await act(async () => { vi.runOnlyPendingTimers(); });
+    expect(mocks.getShareIntent).toHaveBeenCalled();
   });
   it('retains native content when the durable write fails', async () => {
     mocks.add.mockRejectedValueOnce(new Error('Disk full'));

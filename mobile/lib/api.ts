@@ -446,7 +446,7 @@ class ApiClient {
     return data;
   }
 
-  async startReExtraction(recipeId: string, location: string = "Guam", idempotencyKey?: string): Promise<{
+  async startReExtraction(recipeId: string, location: string = "Guam", idempotencyKey?: string, requestGuard?: RequestGuard): Promise<{
     job_id: string | null;
     status: string;
     message: string;
@@ -456,7 +456,7 @@ class ApiClient {
     const { data } = await this.client.post(
       `/api/re-extract/${recipeId}/async`,
       { location },
-      idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined,
+      { requestGuard, ...(idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : {}) } as GuardedRequestConfig,
     );
     return data;
   }

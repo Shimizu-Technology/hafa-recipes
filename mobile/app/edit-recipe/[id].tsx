@@ -1142,6 +1142,7 @@ export default function EditRecipeScreen() {
               
               {(estimatedNutrition || estimatedNutritionTotal) ? (
                 <NutritionPanel nutrition={{
+                  ...(!nutritionRecalculated ? recipe?.extracted.nutrition : {}),
                   perServing: normalizeNutritionValues(estimatedNutrition),
                   total: normalizeNutritionValues(estimatedNutritionTotal),
                   servingBasis: nutritionBasis, assumptions: nutritionAssumptions,

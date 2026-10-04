@@ -61,6 +61,8 @@ export default function ExtractScreen() {
   const inbox = useImportInbox();
   const [selectedLocation, setSelectedLocation] = useState('Guam');
   const [isPublic, setIsPublic] = useState(true);
+  const currentDraft = useRef({ url, notes, isPublic, selectedLocation, ownerId: inbox.ownerId });
+  currentDraft.current = { url, notes, isPublic, selectedLocation, ownerId: inbox.ownerId };
   const [isChecking, setIsChecking] = useState(false);
   const imageImportInFlight = useRef(false);
   const [isOcrExtracting, setIsOcrExtracting] = useState(false);
@@ -309,8 +311,10 @@ export default function ExtractScreen() {
 
   // Proceed with extraction (called after duplicate check or when user chooses "Extract Anyway")
   const proceedWithExtraction = async () => {
+    const draft = { url, notes, isPublic, selectedLocation, ownerId: inbox.ownerId };
+    if (currentDraft.current.ownerId !== draft.ownerId) return;
     if (isPublic && !(await requestPublishing())) {
-      setIsPublic(false);
+      if (JSON.stringify(currentDraft.current) === JSON.stringify(draft)) setIsPublic(false);
       return;
     }
 
@@ -324,14 +328,17 @@ export default function ExtractScreen() {
       setExtractingAsWebsite(isWebsiteUrl);
 
       if (!inbox.ownerId) throw new Error('Please wait while we verify your recipe library.');
-      const importUrl = url.trim();
+      if (currentDraft.current.ownerId !== draft.ownerId) throw new Error('Your account changed. Please try importing again.');
+      const importUrl = draft.url.trim();
       await importInbox.add({
         id: Crypto.randomUUID(), ownerId: inbox.ownerId,
         capture: { kind: 'url', url: importUrl }, createdAt: Date.now(), state: 'ready',
         request: { url: importUrl, location: selectedLocation, notes: notes.trim(), is_public: isPublic },
       });
-      setUrl('');
-      setNotes('');
+      if (JSON.stringify(currentDraft.current) === JSON.stringify(draft)) {
+        setUrl('');
+        setNotes('');
+      }
 
     } catch (error: any) {
       Alert.alert(
