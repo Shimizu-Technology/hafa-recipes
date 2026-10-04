@@ -13,6 +13,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from app.config import get_settings
 from app.nutrition_backfill import NutritionBackfillBlocked, run_backfill
 from app.services.nutrition import NUTRITION_VERSION
 from tests.database_safety import require_disposable_test_database
@@ -74,6 +75,8 @@ async def seed(engine, *, number=1, incomplete=False):
 
 async def fake_calculator(extracted, **kwargs):
     assert kwargs["preserve_source"] is True
+    assert kwargs["pinned_model"] == get_settings().enrichment_model
+    assert kwargs["allow_canary"] is False
     return {
         **extracted,
         "nutrition": {
@@ -84,6 +87,7 @@ async def fake_calculator(extracted, **kwargs):
             "nutrition": {
                 "status": "current",
                 "source": "ai_estimate",
+                "model": kwargs["pinned_model"],
                 "dataVersion": NUTRITION_VERSION,
             }
         },
@@ -291,5 +295,33 @@ async def test_migration_requires_restore_point_then_is_idempotent(database, mon
     async with database.connect() as connection:
         assert (
             await connection.scalar(text("SELECT COUNT(*) FROM schema_migrations WHERE version=33"))
+            == 1
+        )
+
+
+async def test_mismatched_calculation_model_is_audited_and_cannot_write(database):
+    recipe_id, before = await seed(database)
+    plan = await run_backfill(engine=database, release_id="test-release")
+
+    async def wrong_model(extracted, **kwargs):
+        result = await fake_calculator(extracted, **kwargs)
+        result["derivedData"]["nutrition"]["model"] = "unapproved-canary"
+        return result
+
+    result = await run_backfill(engine=database, calculator=wrong_model, **apply_args(plan))
+    assert result["status"] == "blocked_model"
+    async with database.connect() as connection:
+        assert (
+            await connection.scalar(
+                text("SELECT extracted FROM recipes WHERE id=:id"), {"id": recipe_id}
+            )
+            == before
+        )
+        assert (
+            await connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM nutrition_backfill_events WHERE outcome='failed' AND failure_code='model_changed'"
+                )
+            )
             == 1
         )

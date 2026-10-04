@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Annotated, Any
@@ -162,10 +163,18 @@ def _stamp(
 
 
 async def calculate_totals(
-    extracted: dict, *, user_id: str | None = None
+    extracted: dict,
+    *,
+    user_id: str | None = None,
+    pinned_model: str | None = None,
+    allow_canary: bool = True,
 ) -> tuple[dict, list[str], str]:
     """Estimate the entire dish from bounded source/estimated ingredient amounts."""
     settings = get_settings()
+    if pinned_model is not None and (allow_canary or pinned_model != settings.enrichment_model):
+        raise NutritionUnavailable(
+            "model_changed", "The nutrition model no longer matches the approved repair plan."
+        )
     ingredients = ingredients_for_nutrition(extracted)
     if not ingredients:
         raise NutritionUnavailable(
@@ -249,10 +258,18 @@ UNTRUSTED_INGREDIENTS_JSON:
             ):
                 async with AIInvocationTracker(
                     capability="enrichment",
-                    primary_model=settings.enrichment_model,
+                    primary_model=pinned_model or settings.enrichment_model,
+                    allow_canary=allow_canary,
+                    rollout_variant="pinned_repair" if pinned_model else None,
                     prompt_version=NUTRITION_VERSION,
                     schema_version=NUTRITION_VERSION,
                 ) as invocation:
+                    if pinned_model and invocation.model != pinned_model:
+                        invocation.fail("model_changed")
+                        raise NutritionUnavailable(
+                            "model_changed",
+                            "The nutrition model no longer matches the approved repair plan.",
+                        )
                     client = AsyncOpenAI(api_key=settings.openai_api_key, timeout=45, max_retries=0)
                     async with client:
                         response = await client.chat.completions.create(
@@ -305,11 +322,25 @@ async def enrich_nutrition(
     source: str = "ai_extraction",
     preserve_source: bool = False,
     raise_on_failure: bool = False,
+    pinned_model: str | None = None,
+    allow_canary: bool = True,
 ) -> dict:
     """Provide valid nutrition or a recoverable explanation; never lose an import."""
     result = deepcopy(extracted)
     nutrition = result.get("nutrition") if isinstance(result.get("nutrition"), dict) else {}
-    source_per = _rounded(nutrition.get("perServing") or {})
+    source_size = nutrition.get("sourceServingSize")
+    same_source_portion = not source_size or bool(
+        re.fullmatch(r"1(?:\.0)?\s+servings?(?:\s*\([^)]*\))?", str(source_size).strip(), re.I)
+    )
+    separate_source_portion = preserve_source and not same_source_portion
+    source_per = _rounded(
+        (
+            nutrition.get("sourcePerServing")
+            if separate_source_portion and nutrition.get("sourcePerServing") is not None
+            else nutrition.get("perServing")
+        )
+        or {}
+    )
     source_total = _rounded(nutrition.get("total") or {})
     servings = _servings(result)
     assumptions = list(nutrition.get("assumptions") or [])
@@ -328,6 +359,31 @@ async def enrich_nutrition(
         and (preserve_source or not has_unstated_amounts or bool(assumptions))
     )
     if not force and can_reuse:
+        if separate_source_portion and not complete_values(source_total):
+            # A publisher's "1 cookie" portion cannot be multiplied by a count
+            # of recipe servings. Retain it honestly with unknown dish totals.
+            result["nutrition"] = {
+                **nutrition,
+                "perServing": source_per,
+                "sourcePerServing": source_per,
+                "total": source_total,
+                "servingBasis": "source",
+                "servingsUsed": None,
+                "assumptions": assumptions,
+            }
+            return _stamp(result, source="source")
+        if separate_source_portion and complete_values(source_total):
+            source_recipe_per = _rounded(source_total, 1 / servings) if servings else {}
+            result["nutrition"] = {
+                **nutrition,
+                "perServing": source_recipe_per,
+                "sourcePerServing": source_per,
+                "total": source_total,
+                "servingBasis": "recipe_servings" if servings else "whole_recipe",
+                "servingsUsed": servings,
+                "assumptions": assumptions,
+            }
+            return _stamp(result, source="source")
         if complete_values(source_per) and (servings or preserve_source):
             if servings and not complete_values(source_total):
                 source_total = _rounded(source_per, servings)
@@ -350,21 +406,32 @@ async def enrich_nutrition(
             else source,
         )
     try:
-        totals, assumptions, model = await calculate_totals(result, user_id=user_id)
+        totals, assumptions, model = await calculate_totals(
+            result, user_id=user_id, pinned_model=pinned_model, allow_canary=allow_canary
+        )
         total = _rounded(totals)
         per = _rounded(total, 1 / servings) if servings else {}
         if preserve_source:
-            total.update(source_total)
-            per.update(source_per)
+            # Once a publisher portion has been separated from calculated dish
+            # totals, those prior estimates must not override a new calculation.
+            prior_source = (result.get("derivedData") or {}).get("nutrition", {}).get("source")
+            preserved_total = (
+                {}
+                if separate_source_portion and prior_source == "source_and_ai_estimate"
+                else source_total
+            )
+            total.update(preserved_total)
+            if not separate_source_portion:
+                per.update(source_per)
             if servings:
-                for key, value in source_per.items():
+                for key, value in source_per.items() if not separate_source_portion else []:
                     total[key] = round(value * servings, 2)
-                for key, value in source_total.items():
-                    if key not in source_per:
+                for key, value in preserved_total.items():
+                    if separate_source_portion or key not in source_per:
                         per[key] = round(value / servings, 2)
         basis = (
             "source"
-            if preserve_source and source_per
+            if preserve_source and source_per and not separate_source_portion
             else ("recipe_servings" if servings else "whole_recipe")
         )
         result["nutrition"] = {
@@ -373,6 +440,7 @@ async def enrich_nutrition(
                 if preserve_source and nutrition.get("sourceServingSize")
                 else {}
             ),
+            **({"sourcePerServing": source_per} if separate_source_portion else {}),
             "perServing": per,
             "total": total,
             "servingBasis": basis,
@@ -392,12 +460,17 @@ async def enrich_nutrition(
         # Retain supplied values (including partial values) without a freshness claim.
         result["nutrition"] = {
             **nutrition,
-            "perServing": source_per,
+            **({"sourcePerServing": source_per} if separate_source_portion else {}),
+            "perServing": source_per
+            if not separate_source_portion or complete_values(source_per)
+            else {},
             "total": source_total,
             "servingBasis": "source"
             if preserve_source and source_per
             else ("recipe_servings" if servings else "whole_recipe"),
-            "servingsUsed": servings,
+            "servingsUsed": None
+            if separate_source_portion and complete_values(source_per)
+            else servings,
             "assumptions": assumptions,
         }
         return _stamp(result, source=source, reason=exc.reason, error_code=exc.code)

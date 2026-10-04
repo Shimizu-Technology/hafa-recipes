@@ -607,6 +607,17 @@ def _build_edited_extracted(
             "assumptions": edit.nutrition_assumptions if edit.nutrition_recalculated else old_nutrition.get("assumptions") or [],
         },
     }
+    # Keep the publisher portion attached to unchanged nutrition, including
+    # edits from older clients that do not send these optional provenance fields.
+    unchanged_nutrition = (
+        {key: value for key, value in new_extracted["nutrition"]["perServing"].items() if value is not None}
+        == {key: value for key, value in old_per_serving.items() if value is not None}
+        and new_extracted["nutrition"]["total"] == (old_nutrition.get("total") or {})
+    )
+    if not edit.nutrition_recalculated and unchanged_nutrition:
+        for key in ("sourceServingSize", "sourcePerServing"):
+            if key in old_nutrition:
+                new_extracted["nutrition"][key] = deepcopy(old_nutrition[key])
     if edit.nutrition_total and not edit.nutrition and edit.nutrition_recalculated:
         new_extracted["nutrition"]["perServing"] = {}
     estimate_basis = dict(old_extracted)

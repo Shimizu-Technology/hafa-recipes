@@ -1,6 +1,6 @@
 # Nutrition coverage and existing-recipe repair
 
-Recipe import now runs shared nutrition enrichment before saving. Website nutrition is preserved; otherwise nutrition is estimated from the ingredient amounts. Amount assumptions are disclosed. An unstated serving count stays unstated: the app shows whole-recipe totals instead of inventing a serving count. Provider errors leave the recipe saved and offer a retry.
+Recipe import now runs shared nutrition enrichment before saving. Website nutrition is preserved; otherwise nutrition is estimated from the ingredient amounts. A publisher portion such as “1 cookie” stays separate from recipe servings; it is not multiplied or mixed into estimates for a different portion. Amount assumptions are disclosed. An unstated serving count stays unstated: the app shows whole-recipe totals instead of inventing a serving count. Provider errors leave the recipe saved and offer a retry.
 
 Owners can retry or recalculate with `POST /api/recipes/{recipe_id}/nutrition`, optionally supplying `expected_content_revision`. This updates nutrition only, snapshots the previous content in version history, and rejects concurrent changes. Unsaved edits use `POST /api/recipes/ai/estimate-nutrition`; a null serving count returns whole-recipe totals. Both use the same calculation and validation service.
 
@@ -43,7 +43,7 @@ python -m app.nutrition_backfill \
 
 The provider-call budget applies to one invocation, including retries. The command records an attempt before provider work, so interrupted attempts count toward the default limit of three per recipe. It updates each recipe and records success in one transaction. A session-level advisory lock prevents overlapping repair runs.
 
-The immutable plan binds the database, release, model, calculation version, cursor, page size and each recipe's original content and ownership. Each write rechecks the recipe under a row lock. Concurrent owner edits or nutrition recalculations cause `blocked_conflict`; no result overwrites the changed recipe, and processing stops.
+The immutable plan binds the database, release, model, calculation version, cursor, page size and each recipe's original content and ownership. Repair calls pin that exact model and disable canary routing; a changed model stops the run as `blocked_model` before any mismatched result can be written. Each write rechecks the recipe under a row lock. Concurrent owner edits or nutrition recalculations cause `blocked_conflict`; no result overwrites the changed recipe, and processing stops.
 
 ## Resume and continue
 

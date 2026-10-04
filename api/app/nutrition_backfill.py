@@ -344,12 +344,28 @@ async def run_backfill(
                 updated = await calculator(
                     snapshot,
                     user_id=owner_id,
+                    pinned_model=plan["model"],
+                    allow_canary=False,
                     preserve_source=(
                         (snapshot.get("derivedData") or {}).get("nutrition") or {}
                     ).get("status")
                     != "stale",
                 )
                 metadata = updated["derivedData"]["nutrition"]
+                if metadata.get("errorCode") == "model_changed" or (
+                    metadata["status"] == "current" and metadata.get("model") != plan["model"]
+                ):
+                    async with engine.begin() as connection:
+                        await _event(
+                            connection,
+                            backfill_id,
+                            recipe_id,
+                            attempt,
+                            "failed",
+                            failure_code="model_changed",
+                        )
+                    status = "blocked_model"
+                    break
                 if metadata["status"] != "current" or not has_complete_nutrition(updated):
                     async with engine.begin() as connection:
                         await _event(

@@ -484,3 +484,168 @@ def test_unusable_existing_draft_has_specific_unavailable_reason():
     )
     assert extracted["derivedData"]["nutrition"]["status"] == "unavailable"
     assert extracted["derivedData"]["nutrition"]["errorCode"] == "incomplete_recipe"
+
+
+async def test_publisher_cookie_portion_is_not_multiplied_by_recipe_servings(fake_calculator):
+    original = WebsiteService._convert_jsonld_to_recipe(
+        {
+            "name": "Cookies",
+            "recipeIngredient": ["1 cup flour"],
+            "recipeInstructions": ["Bake"],
+            "recipeYield": ["24 cookies", "8 servings"],
+            "nutrition": {
+                "servingSize": "1 cookie",
+                "calories": "100 kcal",
+                "proteinContent": "1 g",
+                "carbohydrateContent": "15 g",
+                "fatContent": "4 g",
+            },
+        },
+        "https://example.com/cookies",
+        "Guam",
+        "",
+        None,
+    )
+    result = await service.enrich_nutrition(original, preserve_source=True)
+    assert result["servings"] == 8
+    assert result["nutrition"]["perServing"]["calories"] == 100
+    assert result["nutrition"]["sourcePerServing"]["calories"] == 100
+    assert result["nutrition"]["total"] == {}
+    assert result["nutrition"]["servingBasis"] == "source"
+    assert result["nutrition"]["servingsUsed"] is None
+    assert fake_calculator == []
+
+
+async def test_partial_publisher_portion_stays_separate_from_recipe_estimate(fake_calculator):
+    original = recipe(8)
+    original["nutrition"] = {
+        "perServing": {"calories": 100, "protein": 1},
+        "total": {},
+        "sourceServingSize": "1 cookie",
+    }
+    result = await service.enrich_nutrition(original, preserve_source=True)
+    assert result["nutrition"]["total"] == TOTAL
+    assert result["nutrition"]["perServing"]["protein"] == 5.06
+    assert result["nutrition"]["sourcePerServing"] == {"calories": 100, "protein": 1}
+    assert result["nutrition"]["sourceServingSize"] == "1 cookie"
+    assert result["nutrition"]["servingBasis"] == "recipe_servings"
+    assert result["nutrition"]["servingsUsed"] == 8
+    assert len(fake_calculator) == 1
+    assert RecipeExtracted.model_validate(result).nutrition.sourcePerServing.protein == 1
+
+
+def test_title_only_edit_preserves_publisher_portion():
+    original = recipe(8)
+    original["components"][0]["ingredients"][0]["notes"] = None
+    original["nutrition"] = {
+        "perServing": {"calories": 100, "protein": 1, "carbs": 15, "fat": 4},
+        "total": {},
+        "sourceServingSize": "1 cookie",
+        "servingBasis": "source",
+        "sourcePerServing": {"calories": 100, "protein": 1, "carbs": 15, "fat": 4},
+        "servingsUsed": None,
+    }
+    original = mark_fresh(original, "nutrition", source="source")
+    edit = RecipeEdit(
+        title="Renamed cookies",
+        servings=8,
+        ingredients=original["components"][0]["ingredients"],
+        steps=original["components"][0]["steps"],
+        nutrition=original["nutrition"]["perServing"],
+    )
+    result = _build_edited_extracted(original, edit)
+    assert result["nutrition"]["sourceServingSize"] == "1 cookie"
+    assert result["nutrition"]["sourcePerServing"] == original["nutrition"]["sourcePerServing"]
+    assert result["nutrition"]["servingsUsed"] is None
+    assert result["derivedData"]["nutrition"]["status"] == "current"
+
+
+async def test_normal_estimate_canary_is_allowed_but_repair_pins_approved_model(monkeypatch):
+    import json
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    from app import ai_governance
+
+    settings = service.get_settings().model_copy(
+        update={
+            "allow_paid_ai_in_development": True,
+            "ai_canary_models": {"enrichment": "test-canary"},
+            "ai_canary_percentages": {"enrichment": 100},
+        }
+    )
+    monkeypatch.setattr(service, "get_settings", lambda: settings)
+    monkeypatch.setattr(ai_governance, "get_settings", lambda: settings)
+    record = AsyncMock()
+    monkeypatch.setattr(ai_governance, "record_ai_invocation", record)
+
+    @asynccontextmanager
+    async def limit(**kwargs):
+        yield
+
+    monkeypatch.setattr(service.ai_rate_limiter, "limit", limit)
+    create = AsyncMock(
+        return_value=SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=json.dumps(
+                            {
+                                "total": TOTAL,
+                                "assumptions": [],
+                            }
+                        )
+                    )
+                )
+            ],
+        )
+    )
+
+    class Client:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=create))
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    monkeypatch.setattr(service, "AsyncOpenAI", Client)
+    _, _, model = await service.calculate_totals(recipe(), user_id="owner")
+    assert model == "test-canary"
+    assert create.await_args.kwargs["model"] == "test-canary"
+    _, _, model = await service.calculate_totals(
+        recipe(),
+        pinned_model=settings.enrichment_model,
+        allow_canary=False,
+    )
+    assert model == settings.enrichment_model
+    assert create.await_args.kwargs["model"] == settings.enrichment_model
+    assert record.await_args.kwargs["rollout_variant"] == "pinned_repair"
+    with pytest.raises(service.NutritionUnavailable) as caught:
+        await service.calculate_totals(recipe(), pinned_model="changed-model", allow_canary=False)
+    assert caught.value.code == "model_changed"
+    assert create.await_count == 2
+
+
+async def test_forced_refresh_cannot_overlay_prior_ai_totals_for_different_source_portion(
+    fake_calculator,
+):
+    original = recipe(4)
+    original["nutrition"] = {
+        "perServing": {"calories": 250, "protein": 7, "carbs": 20, "fat": 10},
+        "total": {"calories": 1000, "protein": 28, "carbs": 80, "fat": 40},
+        "sourceServingSize": "1 cookie",
+        "sourcePerServing": {"calories": 100, "protein": 1},
+        "servingBasis": "recipe_servings",
+        "servingsUsed": 4,
+    }
+    original["derivedData"] = {
+        "nutrition": {"source": "source_and_ai_estimate", "status": "current"}
+    }
+    result = await service.enrich_nutrition(original, preserve_source=True, force=True)
+    assert result["nutrition"]["total"] == TOTAL
+    assert result["nutrition"]["perServing"]["calories"] == 200
+    assert result["nutrition"]["sourcePerServing"] == {"calories": 100, "protein": 1}
+    assert len(fake_calculator) == 1

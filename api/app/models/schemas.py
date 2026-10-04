@@ -78,6 +78,7 @@ class Nutrition(BaseModel):
     perServing: NutritionValues = NutritionValues()
     total: NutritionValues = NutritionValues()
     sourceServingSize: Optional[str] = Field(default=None, max_length=200)
+    sourcePerServing: Optional[NutritionValues] = None
     servingBasis: Optional[Literal["source", "recipe_servings", "whole_recipe"]] = None
     servingsUsed: Optional[int] = Field(default=None, ge=1, le=1_000)
     assumptions: list[str] = Field(default_factory=list)
