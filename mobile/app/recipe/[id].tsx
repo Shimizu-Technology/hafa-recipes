@@ -508,7 +508,7 @@ export default function RecipeDetailScreen() {
       });
     });
     
-    const nutritionText = formatNutritionAsText(extracted.nutrition, extracted.derivedData?.nutrition, scaleFactor, nutritionBasis);
+    const nutritionText = formatNutritionAsText(extracted.nutrition, extracted.derivedData?.nutrition, scaleFactor, nutritionBasis, extracted.servings ?? null);
     if (nutritionText) text += `\n${nutritionText}\n`;
     
     // Equipment
@@ -1240,6 +1240,7 @@ export default function RecipeDetailScreen() {
                   accessibilityElementsHidden={activeTab !== 'nutrition'}
                   importantForAccessibility={activeTab === 'nutrition' ? 'auto' : 'no-hide-descendants'}>
                   <NutritionPanel nutrition={extracted.nutrition} metadata={extracted.derivedData?.nutrition}
+                    recipeServings={extracted.servings ?? null}
                     scaleFactor={scaleFactor}
                     selectedBasisId={nutritionBasis} onBasisChange={setNutritionBasis}
                     isLoading={isRefreshingNutrition} error={nutritionError} onRefresh={isOwner ? refreshNutrition : undefined} />

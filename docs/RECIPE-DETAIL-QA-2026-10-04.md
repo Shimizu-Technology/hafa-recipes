@@ -6,7 +6,7 @@ The update also fixes correctness issues found during the audit: equivalent publ
 
 ## Verification
 
-The full repository gate passes with a disposable PostgreSQL database: 801 API tests, 720 mobile tests, 13 admin tests, mobile TypeScript and Expo checks, and web/admin builds and audits. Four database-backed regressions verify both recipe-save endpoints, known and unknown serving counts, and removal of obsolete assumptions. Ten API tests remain skipped under the repository's existing gate configuration.
+The full repository gate passes with a disposable PostgreSQL database: 801 API tests, 722 mobile tests, 13 admin tests, mobile TypeScript and Expo checks, and web/admin builds and audits. Four database-backed regressions verify both recipe-save endpoints, known and unknown serving counts, and removal of obsolete assumptions. Ten API tests remain skipped under the repository's existing gate configuration.
 
 Native computer-use QA used an isolated local API, synthetic recipe fixtures, development Clerk identity, and paid AI disabled. The tests ran in the existing development client on iPhone SE (375-point width, iOS 18.5) and iPhone 17 Pro (iOS 26.5), with light/dark appearance and the largest iOS accessibility text setting.
 
@@ -14,6 +14,7 @@ Native computer-use QA used an isolated local API, synthetic recipe fixtures, de
 | --- | --- |
 | Known yield | Per-serving 440 calories and whole-recipe 1,760 calories are labeled separately. Changing 4 to 5 servings changes the whole total to 2,200, while the portion stays 440. |
 | Costs and ingredients | The same change updates the header and cost tab from $12 to $15, keeps $3 per serving, and scales ingredient quantities and costs. |
+| Known yield with whole totals only | A four-serving recipe keeps its accepted yield without a false missing-count message. Changing to five servings shows 2,200 calories, $15, and “For the scaled recipe.” Screen and export use the same context. |
 | Unknown yield | Only whole-recipe nutrition is offered; no serving control or invented per-serving cost appears. |
 | Publisher nutrition | A source portion of “1 cookie” shows 200 calories once, with publisher provenance. |
 | Partial/stale data | Only supplied values appear. The incomplete-source explanation and stale warning stay visible. Refreshing the synthetic stale estimate clears its warning. |

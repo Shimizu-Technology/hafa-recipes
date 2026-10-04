@@ -71,6 +71,22 @@ describe('nutrition basis and export', () => {
     expect(selectNutritionBasis(bases)?.id).toBe('whole_recipe');
     expect(bases[1].detail).toBe('1 cookie');
   });
+  it('labels whole-only nutrition using the accepted yield and independently identifies scaled totals', () => {
+    const nutrition = { ...knownNutrition(), servingBasis: 'whole_recipe' as const, servingsUsed: null };
+    expect(nutritionBases(nutrition, 1, 4)[0].detail).toBeUndefined();
+    expect(nutritionBases(nutrition, 2, 4)[0]).toMatchObject({ detail: 'For the scaled recipe',
+      values: expect.arrayContaining([expect.objectContaining({ key: 'calories', value: 800 })]) });
+    expect(nutritionBases(nutrition, 1, null)[0].detail).toBe('A serving count was not provided.');
+    expect(nutritionBases(nutrition, 2, null)[0].detail).toContain('For the scaled recipe');
+    const text = formatNutritionAsText(nutrition, undefined, 2, 'whole_recipe', 4);
+    expect(text).toContain('NUTRITION — Whole recipe (For the scaled recipe)');
+    expect(text).toContain('Calories: 800 cal');
+    expect(text).not.toContain('A serving count was not provided.');
+    expect(formatNutritionAsText(nutrition, undefined, 1, 'whole_recipe', null)).toContain('A serving count was not provided.');
+    for (const factor of [NaN, Infinity, 0, -1]) {
+      expect(nutritionBases(nutrition, factor, 4)[0].detail).toBeUndefined();
+    }
+  });
   it('deduplicates equivalent source portions without mutating saved values', () => {
     const nutrition = { ...knownNutrition(), servingBasis: 'source' as const,
       total: normalizeNutritionValues({}), sourcePerServing: { calories: 100, protein: 0, fat: 1.25, fiber: 0.2 }, sourceServingSize: '1 bowl' };

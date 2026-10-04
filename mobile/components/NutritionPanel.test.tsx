@@ -33,6 +33,16 @@ function renderPanel(props: Partial<React.ComponentProps<typeof NutritionPanel>>
 }
 
 describe('NutritionPanel', () => {
+  it('does not describe an accepted known yield as missing when nutrition only supplies batch totals', async () => {
+    const panel = renderPanel({ nutrition: { ...nutrition, servingBasis: 'whole_recipe', servingsUsed: null },
+      recipeServings: 4, scaleFactor: 2 });
+    try {
+      await act(async () => panel.render());
+      expect(panel.byLabel('Calories: 800 cal')).toHaveLength(1);
+      expect(panel.text()).toContain('For the scaled recipe');
+      expect(panel.text()).not.toContain('A serving count was not provided.');
+    } finally { await act(async () => panel.renderer.unmount()); }
+  });
   it('shows one basis at a time and changes totals without losing zero or fractional values', async () => {
     const panel = renderPanel({ scaleFactor: 2 });
     try {

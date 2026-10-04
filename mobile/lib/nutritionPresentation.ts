@@ -46,8 +46,15 @@ function equalValues(left: NutritionBasis['values'], right: NutritionBasis['valu
     item.key === right[index]?.key && item.value === right[index]?.value);
 }
 
-export function nutritionBases(nutrition: Nutrition | null | undefined, scaleFactor = 1): NutritionBasis[] {
+export function nutritionBases(nutrition: Nutrition | null | undefined, scaleFactor = 1,
+  recipeServings?: number | null): NutritionBasis[] {
   const display = nutritionDisplay(nutrition, scaleFactor);
+  const servings = recipeServings === undefined ? nutrition?.servingsUsed : recipeServings;
+  const hasKnownServings = typeof servings === 'number' && Number.isFinite(servings) && servings > 0;
+  const wholeDetails = [
+    ...(display.wholeRecipe && !hasKnownServings ? ['A serving count was not provided.'] : []),
+    ...(scaleFactor !== 1 && Number.isFinite(scaleFactor) && scaleFactor > 0 ? ['For the scaled recipe'] : []),
+  ].join(' ') || undefined;
   const bases: NutritionBasis[] = [];
   if (display.perServing.length > 0) {
     bases.push(nutrition?.servingBasis === 'source'
@@ -55,8 +62,7 @@ export function nutritionBases(nutrition: Nutrition | null | undefined, scaleFac
       : { id: 'recipe_serving', label: 'Per serving', detail: nutrition?.servingsUsed ? `Based on ${nutrition.servingsUsed} recipe servings` : undefined, values: display.perServing });
   }
   if (display.total.length > 0) bases.push({ id: 'whole_recipe', label: 'Whole recipe',
-    detail: display.wholeRecipe ? 'A serving count was not provided.'
-      : scaleFactor !== 1 && Number.isFinite(scaleFactor) && scaleFactor > 0 ? 'For the scaled recipe' : undefined,
+    detail: wholeDetails,
     values: display.total });
   if (display.sourcePerServing.length > 0) {
     const sourceBasis = bases.find((basis) => basis.id === 'source_serving');
@@ -102,8 +108,8 @@ export function nutritionStatusMessage(hasValues: boolean, metadata?: Partial<De
 
 /** Share exactly one honest basis, with the same selection/default rules as the panel. */
 export function formatNutritionAsText(nutrition?: Nutrition | null, metadata?: Partial<DerivedValueMetadata>,
-  scaleFactor = 1, selectedBasisId?: NutritionBasisId) {
-  const basis = selectNutritionBasis(nutritionBases(nutrition, scaleFactor), selectedBasisId);
+  scaleFactor = 1, selectedBasisId?: NutritionBasisId, recipeServings?: number | null) {
+  const basis = selectNutritionBasis(nutritionBases(nutrition, scaleFactor, recipeServings), selectedBasisId);
   if (!basis) return '';
   const status = nutritionStatusMessage(true, metadata);
   const assumptions = nutritionAssumptions(nutrition, metadata);

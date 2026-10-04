@@ -11,16 +11,17 @@ import {
 } from '@/lib/nutritionPresentation';
 
 export function NutritionPanel({ nutrition, metadata, scaleFactor = 1, isLoading = false, error,
-  onRefresh, selectedBasisId, onBasisChange }: {
+  onRefresh, selectedBasisId, onBasisChange, recipeServings }: {
   nutrition?: Nutrition | null; metadata?: Partial<DerivedValueMetadata>; scaleFactor?: number;
   isLoading?: boolean; error?: string | null; onRefresh?: () => void;
   selectedBasisId?: NutritionBasisId; onBasisChange?: (basisId: NutritionBasisId) => void;
+  recipeServings?: number | null;
 }) {
   const colors = useColors();
   const { scaleFontSize } = useTextSize();
   const [localBasisId, setLocalBasisId] = useState<NutritionBasisId>();
   const [detailsExpanded, setDetailsExpanded] = useState(false);
-  const bases = nutritionBases(nutrition, scaleFactor);
+  const bases = nutritionBases(nutrition, scaleFactor, recipeServings);
   // A controlled parent can reset to undefined after a recipe revision.
   // Never let an earlier local choice override that default selection.
   const requestedBasisId = onBasisChange ? selectedBasisId : selectedBasisId ?? localBasisId;
