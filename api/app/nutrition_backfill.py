@@ -18,6 +18,8 @@ from sqlalchemy import text
 
 from app.config import get_settings
 from app.db.database import engine as default_engine
+from app.nutrition_repair_lock import LOCK_NAME as LOCK_NAME
+from app.nutrition_repair_lock import NutritionBackfillBlocked, dedicated_lock_session
 from app.recipe_estimates import source_is_incomplete
 from app.services.nutrition import (
     NUTRITION_VERSION,
@@ -26,12 +28,7 @@ from app.services.nutrition import (
     ingredients_for_nutrition,
 )
 
-LOCK_NAME = "hafa:nutrition-backfill:v2"
 _LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
-
-
-class NutritionBackfillBlocked(RuntimeError):
-    pass
 
 
 class RepairPacer:
@@ -252,14 +249,10 @@ async def run_backfill(
         raise NutritionBackfillBlocked(
             "Apply requires a bounded --max-estimates 1..100 provider-call budget"
         )
-    # One session-level lock prevents simultaneous repair runs and billable duplicate work.
-    async with engine.connect() as lock:
-        acquired = await lock.scalar(
-            text("SELECT pg_try_advisory_lock(hashtext(:name))"), {"name": LOCK_NAME}
-        )
-        await lock.commit()
-        if not acquired:
-            raise NutritionBackfillBlocked("Another nutrition repair is running")
+    # The data engine can use transaction pooling; the lock must stay on one
+    # dedicated direct session across commits, pacing and provider work.
+    async with dedicated_lock_session(engine) as lock:
+        await lock.acquire()
         try:
             async with engine.begin() as connection:
                 existing = (
@@ -381,6 +374,7 @@ async def run_backfill(
                 # Custom calculators own their pacing (tests can stay immediate).
                 if pace_default:
                     await repair_pacer.wait()
+                await lock.verify()
                 calls += 1
                 updated = await calculator(
                     estimate_basis,
@@ -424,6 +418,7 @@ async def run_backfill(
                         break
                     status = "retryable_failures"
                     continue
+                await lock.verify()
                 async with engine.begin() as connection:
                     current = (
                         (
@@ -481,10 +476,7 @@ async def run_backfill(
                 provider_calls=calls,
             )
         finally:
-            await lock.execute(
-                text("SELECT pg_advisory_unlock(hashtext(:name))"), {"name": LOCK_NAME}
-            )
-            await lock.commit()
+            await lock.release()
 
 
 def _build_parser() -> argparse.ArgumentParser:

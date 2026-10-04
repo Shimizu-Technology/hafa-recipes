@@ -688,3 +688,186 @@ async def test_exhausted_attempts_remain_visible_when_later_item_hits_local_limi
             )
             == untouched
         )
+
+
+async def nutrition_lock_count(engine):
+    from app.nutrition_repair_lock import LOCK_NAME
+
+    async with engine.connect() as connection:
+        return await connection.scalar(
+            text("""
+            SELECT COUNT(*) FROM pg_locks
+            WHERE locktype='advisory' AND granted
+            AND classid=((hashtext(:name)::bigint >> 32) & 4294967295)
+            AND objid=(hashtext(:name)::bigint & 4294967295) AND objsubid=1
+        """),
+            {"name": LOCK_NAME},
+        )
+
+
+async def test_direct_lock_survives_rotating_data_transactions_and_releases_between_resumes(
+    database,
+):
+    from sqlalchemy.pool import NullPool
+
+    await seed(database)
+    await seed(database, number=2)
+    rotating = create_async_engine(DATABASE, poolclass=NullPool)
+    pids = []
+
+    async def calculate(extracted, **kwargs):
+        # Each data transaction gets a fresh physical connection, as through a
+        # transaction pooler. The independent session lock stays continuously held.
+        for _ in range(2):
+            async with rotating.begin() as connection:
+                pids.append(await connection.scalar(text("SELECT pg_backend_pid()")))
+                assert await nutrition_lock_count(rotating) == 1
+        return await fake_calculator(extracted, **kwargs)
+
+    try:
+        plan = await run_backfill(engine=rotating, release_id="test-release")
+        kwargs = {**apply_args(plan), "max_estimates": 1}
+        first = await run_backfill(engine=rotating, calculator=calculate, **kwargs)
+        assert first["status"] == "budget_limited"
+        assert await nutrition_lock_count(rotating) == 0
+        final = await run_backfill(engine=rotating, calculator=calculate, **kwargs)
+        assert final["status"] == "completed"
+        assert await nutrition_lock_count(rotating) == 0
+        assert len(set(pids)) == 4
+    finally:
+        await rotating.dispose()
+
+
+async def test_simultaneous_repairs_are_excluded_and_same_run_can_resume_after_release(database):
+    import asyncio
+
+    await seed(database)
+    plan = await run_backfill(engine=database, release_id="test-release")
+    entered = asyncio.Event()
+    finish = asyncio.Event()
+    calls = []
+
+    async def wait_in_provider(extracted, **kwargs):
+        calls.append(extracted)
+        entered.set()
+        await finish.wait()
+        return await fake_calculator(extracted, **kwargs)
+
+    first = asyncio.create_task(
+        run_backfill(engine=database, calculator=wait_in_provider, **apply_args(plan))
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        assert await nutrition_lock_count(database) == 1
+        with pytest.raises(NutritionBackfillBlocked, match="Another nutrition repair"):
+            await run_backfill(engine=database, calculator=fake_calculator, **apply_args(plan))
+        assert len(calls) == 1
+    finally:
+        finish.set()
+        await first
+    assert await nutrition_lock_count(database) == 0
+    repeated = await run_backfill(engine=database, calculator=fake_calculator, **apply_args(plan))
+    assert repeated["processed"] == {"already_terminal": 1}
+    assert repeated["provider_calls"] == 0
+    assert await nutrition_lock_count(database) == 0
+
+
+@pytest.mark.parametrize("outcome", ["raised", "local_limit"])
+async def test_direct_session_lock_is_released_on_exception_or_denial(database, outcome):
+    await seed(database)
+    plan = await run_backfill(engine=database, release_id="test-release")
+
+    async def fail(extracted, **kwargs):
+        if outcome == "raised":
+            raise RuntimeError("test interrupted calculation")
+        return {
+            **extracted,
+            "derivedData": {
+                "nutrition": {
+                    "status": "unavailable",
+                    "errorCode": "local_rate_limit",
+                }
+            },
+        }
+
+    if outcome == "raised":
+        with pytest.raises(RuntimeError, match="test interrupted calculation"):
+            await run_backfill(engine=database, calculator=fail, **apply_args(plan))
+    else:
+        result = await run_backfill(engine=database, calculator=fail, **apply_args(plan))
+        assert result["status"] == "rate_limited"
+    assert await nutrition_lock_count(database) == 0
+
+
+async def test_changed_backend_cannot_unlock_another_session_holder(database):
+    from app.nutrition_repair_lock import LOCK_NAME, dedicated_lock_session
+
+    async with dedicated_lock_session(database) as original:
+        await original.acquire()
+        original_connection = original.connection
+        await original_connection.scalar(
+            text("SELECT pg_advisory_unlock(hashtext(:name))"), {"name": LOCK_NAME}
+        )
+        await original_connection.commit()
+        async with dedicated_lock_session(database) as other:
+            await other.acquire()
+            assert original.pid != other.pid
+            original.connection = other.connection
+            try:
+                with pytest.raises(NutritionBackfillBlocked, match="session changed"):
+                    await original.verify()
+                with pytest.raises(NutritionBackfillBlocked, match="not released safely"):
+                    await original.release()
+                await other.verify()
+            finally:
+                original.connection = original_connection
+                original.acquired = False  # This test already released its own original lock.
+                await other.release()
+    assert await nutrition_lock_count(database) == 0
+
+
+async def test_lock_lost_during_calculation_stops_before_recipe_write(database, monkeypatch):
+    from contextlib import asynccontextmanager
+
+    from app import nutrition_backfill
+    from app.nutrition_repair_lock import LOCK_NAME, dedicated_lock_session
+
+    recipe_id, original = await seed(database)
+    plan = await run_backfill(engine=database, release_id="test-release")
+    held_sessions = []
+
+    @asynccontextmanager
+    async def capture_lock(engine):
+        async with dedicated_lock_session(engine) as lock:
+            held_sessions.append(lock)
+            yield lock
+
+    monkeypatch.setattr(nutrition_backfill, "dedicated_lock_session", capture_lock)
+
+    async def lose_own_lock(extracted, **kwargs):
+        lock = held_sessions[0]
+        assert (
+            await lock.connection.scalar(
+                text("SELECT pg_advisory_unlock(hashtext(:name))"), {"name": LOCK_NAME}
+            )
+            is True
+        )
+        await lock.connection.commit()
+        return await fake_calculator(extracted, **kwargs)
+
+    with pytest.raises(NutritionBackfillBlocked):
+        await run_backfill(engine=database, calculator=lose_own_lock, **apply_args(plan))
+    async with database.connect() as connection:
+        assert (
+            await connection.scalar(
+                text("SELECT extracted FROM recipes WHERE id=:id"), {"id": recipe_id}
+            )
+            == original
+        )
+        assert (
+            await connection.scalar(
+                text("SELECT COUNT(*) FROM nutrition_backfill_events WHERE outcome='succeeded'")
+            )
+            == 0
+        )
+    assert await nutrition_lock_count(database) == 0
