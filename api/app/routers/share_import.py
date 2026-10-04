@@ -42,6 +42,11 @@ class CredentialResponse(BaseModel):
 class ImportRequest(BaseModel):
     capture_id: UUID
     url: str = Field(min_length=1, max_length=2048)
+    # Older extensions omit these fields and retain their credential defaults.
+    # New captures snapshot intent so a later preference change cannot publish
+    # a previously private capture, or change its cost-estimate location.
+    is_public: bool | None = None
+    location: str | None = Field(default=None, min_length=1, max_length=100)
     model_config = ConfigDict(extra="forbid")
 
     @field_validator("url")
@@ -146,6 +151,11 @@ async def submit(
             "recipe_id": str(existing.recipe_id) if existing.recipe_id else None,
             "replayed": True,
         }
+    is_public = credential.is_public if request.is_public is None else request.is_public
+    if is_public and not credential.is_public:
+        raise HTTPException(403, "Open Håfa to enable public recipe sharing")
+    if is_public:
+        await require_current_publishing_disclosure(db, credential.app_user_id)
     # Enqueue commits the job before its receipt. Count both durable records,
     # deduplicated by capture, while the account lock still serializes intake.
     # A crash in that gap must neither free budget nor block replay recovery.
@@ -181,7 +191,9 @@ async def submit(
     )
     result = await start_extraction_job(
         ExtractRequest(
-            url=request.url, location=credential.location, is_public=credential.is_public
+            url=request.url,
+            location=credential.location if request.location is None else request.location,
+            is_public=is_public,
         ),
         idempotency_key=job_key,
         db=db,

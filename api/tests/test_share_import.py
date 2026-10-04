@@ -191,6 +191,94 @@ async def test_caller_cannot_change_scope_and_limit(sharing_db):
         ).status_code == 429
 
 
+@pytest.mark.asyncio
+async def test_capture_preferences_cannot_broaden_capability_and_survive_rotation(sharing_db):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app_for(sharing_db)), base_url="https://test"
+    ) as client:
+        installation = str(uuid4())
+        issued = await client.post("/api/share/credentials", json={"installation_id": installation})
+        headers = {"Authorization": "Bearer " + issued.json()["token"]}
+        public_capture = {
+            "capture_id": str(uuid4()), "url": "https://example.com/public",
+            "is_public": True, "location": "Hawaii",
+        }
+        denied = await client.post("/api/share/imports", json=public_capture, headers=headers)
+        assert denied.status_code == 403
+        async with sharing_db() as db:
+            assert await db.scalar(select(func.count()).select_from(ExtractionJob)) == 0
+            owner = await db.get(AppUser, "stable_owner")
+            owner.publishing_disclosure_version = 1
+            await db.commit()
+        issued = await client.post(
+            "/api/share/credentials",
+            json={"installation_id": installation, "is_public": True, "location": "Guam"},
+        )
+        assert issued.status_code == 201, issued.text
+        headers = {"Authorization": "Bearer " + issued.json()["token"]}
+        accepted = await client.post("/api/share/imports", json=public_capture, headers=headers)
+        assert accepted.status_code == 202, accepted.text
+        private_capture = {
+            "capture_id": str(uuid4()), "url": "https://example.com/private",
+            "is_public": False, "location": "United Kingdom",
+        }
+        accepted_private = await client.post("/api/share/imports", json=private_capture, headers=headers)
+        assert accepted_private.status_code == 202, accepted_private.text
+        # An old extension omits the snapshot and retains credential defaults.
+        legacy = await client.post(
+            "/api/share/imports", headers=headers,
+            json={"capture_id": str(uuid4()), "url": "https://example.com/legacy"},
+        )
+        assert legacy.status_code == 202, legacy.text
+        async with sharing_db() as db:
+            public_job = await db.get(ExtractionJob, accepted.json()["job_id"])
+            private_job = await db.get(ExtractionJob, accepted_private.json()["job_id"])
+            legacy_job = await db.get(ExtractionJob, legacy.json()["job_id"])
+            assert public_job.requested_is_public is True and public_job.location == "Hawaii"
+            assert private_job.requested_is_public is False and private_job.location == "United Kingdom"
+            assert legacy_job.requested_is_public is True and legacy_job.location == "Guam"
+        # Replaying an accepted capture after changing settings never mutates it.
+        issued = await client.post("/api/share/credentials", json={"installation_id": installation})
+        headers = {"Authorization": "Bearer " + issued.json()["token"]}
+        replay = await client.post(
+            "/api/share/imports", headers=headers,
+            json={**private_capture, "is_public": True, "location": "Hawaii"},
+        )
+        assert replay.status_code == 202 and replay.json()["replayed"]
+        async with sharing_db() as db:
+            private_job = await db.get(ExtractionJob, accepted_private.json()["job_id"])
+            assert private_job.requested_is_public is False and private_job.location == "United Kingdom"
+
+
+@pytest.mark.asyncio
+async def test_public_capture_rechecks_disclosure_at_submission(sharing_db):
+    async with sharing_db() as db:
+        owner = await db.get(AppUser, "stable_owner")
+        owner.publishing_disclosure_version = 1
+        await db.commit()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app_for(sharing_db)), base_url="https://test"
+    ) as client:
+        issued = await client.post(
+            "/api/share/credentials", json={"installation_id": str(uuid4()), "is_public": True}
+        )
+        headers = {"Authorization": "Bearer " + issued.json()["token"]}
+        async with sharing_db() as db:
+            owner = await db.get(AppUser, "stable_owner")
+            owner.publishing_disclosure_version = 0
+            await db.commit()
+        rejected = await client.post(
+            "/api/share/imports", headers=headers,
+            json={"capture_id": str(uuid4()), "url": "https://example.com/public", "is_public": True},
+        )
+        assert rejected.status_code == 409
+        private = await client.post(
+            "/api/share/imports", headers=headers,
+            json={"capture_id": str(uuid4()), "url": "https://example.com/private", "is_public": False},
+        )
+        assert private.status_code == 202, private.text
+
+
 def test_production_migration_requires_verified_restore_point(monkeypatch):
     from types import SimpleNamespace
 

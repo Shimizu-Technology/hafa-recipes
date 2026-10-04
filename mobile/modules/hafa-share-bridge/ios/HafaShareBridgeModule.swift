@@ -24,6 +24,16 @@ public final class HafaShareBridgeModule: Module {
         return true
       }) != nil else { throw NSError(domain: HafaShareStore.service, code: 2) }
     }
+    AsyncFunction("configurePreferences") { (accountScopeId: String, location: String, isPublic: Bool) throws in
+      guard !accountScopeId.isEmpty, !location.isEmpty, location.count <= 100 else {
+        throw NSError(domain: HafaShareStore.service, code: 3)
+      }
+      guard HafaShareStore.locked({ defaults -> Bool in
+        defaults.set(["accountScopeId": accountScopeId, "location": location, "isPublic": isPublic],
+          forKey: HafaShareStore.preferencesKey)
+        return true
+      }) != nil else { throw NSError(domain: HafaShareStore.service, code: 2) }
+    }
     AsyncFunction("readCaptureMetadata") { (key: String) -> String? in
       HafaShareStore.locked { defaults -> String? in
         guard let metadata = HafaShareStore.metadata(key, defaults: defaults), let data = try? JSONSerialization.data(withJSONObject: metadata) else { return nil }
@@ -42,6 +52,7 @@ public final class HafaShareBridgeModule: Module {
         let state = defaults.dictionary(forKey: HafaShareStore.sessionKey)
         let token = HafaShareStore.readToken()
         defaults.removeObject(forKey: HafaShareStore.sessionKey)
+        defaults.removeObject(forKey: HafaShareStore.preferencesKey)
         try HafaShareStore.writeToken(nil)
         return (state, token)
       }
