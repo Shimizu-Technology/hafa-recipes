@@ -1,5 +1,6 @@
 """Scoped share capability and durable enqueue contract."""
 
+import asyncio
 import importlib
 import os
 from datetime import timedelta
@@ -202,3 +203,73 @@ def test_production_migration_requires_verified_restore_point(monkeypatch):
     with pytest.raises(RuntimeError, match="MIGRATION_032_RESTORE_POINT"):
         migration._require_restore_point(applied=False)
     migration._require_restore_point(applied=True)
+
+
+@pytest.mark.asyncio
+async def test_committed_jobs_without_receipts_consume_budget_and_can_replay(sharing_db):
+    """Simulate termination after durable enqueue but before receipt commit."""
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app_for(sharing_db)), base_url="https://test"
+    ) as client:
+        issue = await client.post("/api/share/credentials", json={"installation_id": str(uuid4())})
+        headers = {"Authorization": "Bearer " + issue.json()["token"]}
+        captures = [uuid4() for _ in range(30)]
+        async with sharing_db() as db:
+            db.add_all([
+                ExtractionJob(user_id="stable_owner", url=f"https://example.com/{capture}",
+                              idempotency_key=f"share:{capture}", requested_display_name="Owner")
+                for capture in captures
+            ])
+            await db.commit()
+        fresh = await client.post("/api/share/imports", headers=headers,
+                                  json={"capture_id": str(uuid4()), "url": "https://example.com/new"})
+        assert fresh.status_code == 429
+        replay = await client.post("/api/share/imports", headers=headers,
+                                   json={"capture_id": str(captures[0]), "url": f"https://example.com/{captures[0]}"})
+        assert replay.status_code == 202, replay.text
+        async with sharing_db() as db:
+            assert await db.scalar(select(func.count()).select_from(ExtractionJob)) == 30
+            assert await db.scalar(select(func.count()).select_from(ShareImportReceipt)) == 1
+        # Its receipt and job are one accepted capture, not two budget entries.
+        async with sharing_db() as db:
+            await db.execute(delete(ExtractionJob).where(ExtractionJob.idempotency_key == f"share:{captures[-1]}"))
+            await db.commit()
+        fresh = await client.post("/api/share/imports", headers=headers,
+                                  json={"capture_id": str(uuid4()), "url": "https://example.com/new"})
+        assert fresh.status_code == 202, fresh.text
+
+
+@pytest.mark.asyncio
+async def test_concurrent_submissions_during_receipt_gap_cannot_exceed_limit(sharing_db, monkeypatch):
+    from app.routers import share_import
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app_for(sharing_db)), base_url="https://test"
+    ) as client:
+        issue = await client.post("/api/share/credentials", json={"installation_id": str(uuid4())})
+        headers = {"Authorization": "Bearer " + issue.json()["token"]}
+        async with sharing_db() as db:
+            db.add_all([ShareImportReceipt(app_user_id="stable_owner", capture_id=uuid4(),
+                                          url="https://example.com/prior") for _ in range(29)])
+            await db.commit()
+        enqueued = asyncio.Event()
+        release_receipt = asyncio.Event()
+        original = share_import.start_extraction_job
+        async def delayed_enqueue(*args, **kwargs):
+            result = await original(*args, **kwargs)
+            enqueued.set()
+            await release_receipt.wait()
+            return result
+        monkeypatch.setattr(share_import, "start_extraction_job", delayed_enqueue)
+        first = asyncio.create_task(client.post("/api/share/imports", headers=headers,
+                                                json={"capture_id": str(uuid4()), "url": "https://example.com/first"}))
+        try:
+            await asyncio.wait_for(enqueued.wait(), 5)
+            second = await asyncio.wait_for(client.post("/api/share/imports", headers=headers,
+                                                       json={"capture_id": str(uuid4()), "url": "https://example.com/second"}), 5)
+            assert second.status_code == 429
+        finally:
+            release_receipt.set()
+            result = await first
+        assert result.status_code == 202, result.text
+        async with sharing_db() as db:
+            assert await db.scalar(select(func.count()).select_from(ShareImportReceipt)) == 30

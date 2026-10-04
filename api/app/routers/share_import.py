@@ -6,13 +6,14 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import delete, func, select
+from sqlalchemy import String, cast, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import ClerkUser, get_current_user
 from app.db import get_db
 from app.grocery_sync import grocery_account_scope_id
 from app.models.identity import AppUser
+from app.models.recipe import ExtractionJob
 from app.models.share_import import ShareImportCredential, ShareImportReceipt
 from app.publishing import require_current_publishing_disclosure
 from app.routers.extract import ExtractRequest, start_extraction_job
@@ -145,15 +146,29 @@ async def submit(
             "recipe_id": str(existing.recipe_id) if existing.recipe_id else None,
             "replayed": True,
         }
-    recent_count = await db.scalar(
-        select(func.count())
-        .select_from(ShareImportReceipt)
-        .where(
-            ShareImportReceipt.app_user_id == credential.app_user_id,
-            ShareImportReceipt.created_at >= utc_now() - timedelta(hours=1),
+    # Enqueue commits the job before its receipt. Count both durable records,
+    # deduplicated by capture, while the account lock still serializes intake.
+    # A crash in that gap must neither free budget nor block replay recovery.
+    job_key = f"share:{request.capture_id}"
+    recovering_job = await db.scalar(
+        select(ExtractionJob.id).where(
+            ExtractionJob.user_id == credential.app_user_id,
+            ExtractionJob.idempotency_key == job_key,
         )
     )
-    if recent_count >= 30:
+    cutoff = utc_now() - timedelta(hours=1)
+    recent_captures = select(cast(ShareImportReceipt.capture_id, String)).where(
+            ShareImportReceipt.app_user_id == credential.app_user_id,
+            ShareImportReceipt.created_at >= cutoff,
+    ).union(
+        select(func.substr(ExtractionJob.idempotency_key, 7)).where(
+            ExtractionJob.user_id == credential.app_user_id,
+            ExtractionJob.idempotency_key.like("share:%"),
+            ExtractionJob.created_at >= cutoff,
+        )
+    )
+    recent_count = await db.scalar(select(func.count()).select_from(recent_captures.subquery()))
+    if recent_count >= 30 and recovering_job is None:
         raise HTTPException(
             429, "Sharing limit reached; try again later", headers={"Retry-After": "3600"}
         )
@@ -168,7 +183,7 @@ async def submit(
         ExtractRequest(
             url=request.url, location=credential.location, is_public=credential.is_public
         ),
-        idempotency_key=f"share:{request.capture_id}",
+        idempotency_key=job_key,
         db=db,
         user=actor,
     )
