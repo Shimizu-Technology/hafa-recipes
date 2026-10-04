@@ -46,7 +46,7 @@ AI can make mistakes. Review extracted ingredients, directions, allergens, tempe
 
 Made in Guam by Shimizu Technology.`;
 const RELEASE_NOTES =
-  'Keep a personal pantry or share one with the same household as your grocery list. Add checked groceries to your pantry, track amounts and dates, and find recipes using what is still usable. What Can I Make now has roomier recipe results and clearer missing ingredients. Ask Håfa opens from a compact floating message button above the tabs that hides while you type.';
+  'Import recipes from a cleaner screen with the action always within reach. Share a recipe link to Håfa to start importing directly, and queue another while an import finishes. Nutrition estimates now cover more recipes, show whole-recipe totals when servings are unknown, and can be recalculated after ingredient changes.';
 
 function requiredEnvironmentValue(environment, name) {
   const value = String(environment[name] ?? '').trim();
@@ -138,7 +138,7 @@ function buildStoreConfig({ environment, listing }) {
         demoUsername: reviewerEmail,
         demoPassword: reviewerPassword,
         demoRequired: true,
-        notes: 'Use the provided email and password on the Sign In screen. The Discover tab and public recipe details are available without an account. Grocery lists, meal planning, recipe creation, Ask Håfa, and the interactive home-screen widget require the review account. To test sharing, share a recipe link from Safari to Håfa Recipes. The share extension confirms capture and closes back to Safari; open Håfa Recipes and go to Import to finish the queued recipe. The extension intentionally does not auto-open the app. The app does not provide persistent background audio. Audio is limited to foreground source-video playback, cook-mode narration, and timer sounds; timer completion while the app is backgrounded uses a local notification.',
+        notes: 'Use the provided email and password on the Sign In screen. The Discover tab and public recipe details are available without an account. Grocery lists, meal planning, recipe creation, Ask Håfa, and the interactive home-screen widget require the review account. To test sharing, sign in and open Import once, then share a recipe link from Safari to Håfa Recipes. The share extension starts the import and closes back to Safari. Open Håfa Recipes to see its progress or completed recipe. Offline captures are retained for importing when the app reconnects. The app does not provide persistent background audio. Audio is limited to foreground source-video playback, cook-mode narration, and timer sounds; timer completion while the app is backgrounded uses a local notification.',
       },
     },
   };
