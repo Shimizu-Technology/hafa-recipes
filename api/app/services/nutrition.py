@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from app.ai_governance import AIInvocationTracker, ai_request_context
 from app.config import get_settings
-from app.rate_limit import ai_rate_limiter
+from app.rate_limit import RateLimitExceeded, ai_rate_limiter
 from app.recipe_derived_data import dependency_fingerprint, ensure_derived_metadata
 from app.recipe_estimates import valid_quantity_estimate
 
@@ -51,9 +51,10 @@ class Calculation(BaseModel):
 
 
 class NutritionUnavailable(Exception):
-    def __init__(self, code: str, reason: str):
+    def __init__(self, code: str, reason: str, *, retry_after: int | None = None):
         self.code = code
         self.reason = reason
+        self.retry_after = retry_after
         super().__init__(reason)
 
 
@@ -307,6 +308,12 @@ UNTRUSTED_INGREDIENTS_JSON:
                     )
     except NutritionUnavailable:
         raise
+    except RateLimitExceeded as exc:
+        raise NutritionUnavailable(
+            "local_rate_limit",
+            f"Nutrition estimates are busy. Try again in {exc.retry_after} seconds.",
+            retry_after=exc.retry_after,
+        ) from exc
     except Exception as exc:
         raise NutritionUnavailable(
             "provider_unavailable",

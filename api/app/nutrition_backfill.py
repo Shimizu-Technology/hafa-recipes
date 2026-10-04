@@ -8,6 +8,8 @@ import hashlib
 import json
 import os
 import re
+import time
+from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from typing import Any
 from uuid import UUID, uuid4
@@ -16,6 +18,8 @@ from sqlalchemy import text
 
 from app.config import get_settings
 from app.db.database import engine as default_engine
+from app.nutrition_repair_lock import LOCK_NAME as LOCK_NAME
+from app.nutrition_repair_lock import NutritionBackfillBlocked, dedicated_lock_session
 from app.recipe_estimates import source_is_incomplete
 from app.services.nutrition import (
     NUTRITION_VERSION,
@@ -24,12 +28,34 @@ from app.services.nutrition import (
     ingredients_for_nutrition,
 )
 
-LOCK_NAME = "hafa:nutrition-backfill:v2"
 _LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
 
 
-class NutritionBackfillBlocked(RuntimeError):
-    pass
+class RepairPacer:
+    """Keep repair starts below the existing per-owner ten-per-minute budget."""
+
+    def __init__(
+        self,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ):
+        self._clock = clock
+        self._sleep = sleep
+        self._next_start: float | None = None
+        self._lock = asyncio.Lock()
+
+    async def wait(self) -> None:
+        async with self._lock:
+            now = self._clock()
+            while self._next_start is not None and now < self._next_start:
+                await self._sleep(self._next_start - now)
+                now = self._clock()
+            self._next_start = now + 7.0
+
+
+# Deliberately process-scoped: a resumed page must not start a new burst.
+repair_pacer = RepairPacer()
 
 
 def digest(value: Any) -> str:
@@ -179,7 +205,7 @@ async def run_backfill(
     expected_release_id: str | None = None,
     release_id: str | None = None,
     max_estimates: int | None = None,
-    calculator=enrich_nutrition,
+    calculator=None,
 ) -> dict:
     """Apply a pinned plan once; retry failed items and stop on concurrent changes."""
     engine = engine or default_engine
@@ -197,6 +223,9 @@ async def run_backfill(
         return summary(
             plan, apply=False, status="would_apply" if plan["planned_items"] else "unchanged"
         )
+    if calculator is None:
+        calculator = enrich_nutrition
+    pace_default = calculator is enrich_nutrition
     if not backfill_id or len(backfill_id) > 96 or not _LABEL.fullmatch(backfill_id):
         raise NutritionBackfillBlocked("Apply requires a safe --backfill-id")
     if not restore_point or not _LABEL.fullmatch(restore_point):
@@ -220,14 +249,10 @@ async def run_backfill(
         raise NutritionBackfillBlocked(
             "Apply requires a bounded --max-estimates 1..100 provider-call budget"
         )
-    # One session-level lock prevents simultaneous repair runs and billable duplicate work.
-    async with engine.connect() as lock:
-        acquired = await lock.scalar(
-            text("SELECT pg_try_advisory_lock(hashtext(:name))"), {"name": LOCK_NAME}
-        )
-        await lock.commit()
-        if not acquired:
-            raise NutritionBackfillBlocked("Another nutrition repair is running")
+    # The data engine can use transaction pooling; the lock must stay on one
+    # dedicated direct session across commits, pacing and provider work.
+    async with dedicated_lock_session(engine) as lock:
+        await lock.acquire()
         try:
             async with engine.begin() as connection:
                 existing = (
@@ -345,6 +370,11 @@ async def run_backfill(
                     if source_is_incomplete(snapshot, extraction_method=row["extraction_method"]):
                         estimate_basis["sourceIncomplete"] = True
                     owner_id = row["user_id"]
+                # The audit/snapshot transaction is committed before waiting.
+                # Custom calculators own their pacing (tests can stay immediate).
+                if pace_default:
+                    await repair_pacer.wait()
+                await lock.verify()
                 calls += 1
                 updated = await calculator(
                     estimate_basis,
@@ -382,8 +412,13 @@ async def run_backfill(
                             failure_code=metadata.get("errorCode") or "unavailable",
                         )
                     processed["failed"] = processed.get("failed", 0) + 1
+                    if metadata.get("errorCode") == "local_rate_limit":
+                        processed["local_rate_limit"] = processed.get("local_rate_limit", 0) + 1
+                        status = "rate_limited"
+                        break
                     status = "retryable_failures"
                     continue
+                await lock.verify()
                 async with engine.begin() as connection:
                     current = (
                         (
@@ -429,6 +464,7 @@ async def run_backfill(
                 "completed",
                 "retryable_failures",
                 "budget_limited",
+                "rate_limited",
             }:
                 status = "attempt_limit"
             return summary(
@@ -440,10 +476,7 @@ async def run_backfill(
                 provider_calls=calls,
             )
         finally:
-            await lock.execute(
-                text("SELECT pg_advisory_unlock(hashtext(:name))"), {"name": LOCK_NAME}
-            )
-            await lock.commit()
+            await lock.release()
 
 
 def _build_parser() -> argparse.ArgumentParser:
