@@ -64,19 +64,23 @@ class Times(BaseModel):
 
 class NutritionValues(BaseModel):
     """Nutritional values (used for both per-serving and total)."""
-    calories: Optional[int] = None
-    protein: Optional[float] = None  # grams
-    carbs: Optional[float] = None  # grams
-    fat: Optional[float] = None  # grams
-    fiber: Optional[float] = None  # grams
-    sugar: Optional[float] = None  # grams
-    sodium: Optional[float] = None  # milligrams
+    calories: Optional[int] = Field(default=None, ge=0, le=1_000_000)
+    protein: Optional[float] = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)  # grams
+    carbs: Optional[float] = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)  # grams
+    fat: Optional[float] = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)  # grams
+    fiber: Optional[float] = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)  # grams
+    sugar: Optional[float] = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)  # grams
+    sodium: Optional[float] = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)  # milligrams
 
 
 class Nutrition(BaseModel):
     """Complete nutrition information."""
     perServing: NutritionValues = NutritionValues()
     total: NutritionValues = NutritionValues()
+    sourceServingSize: Optional[str] = Field(default=None, max_length=200)
+    servingBasis: Optional[Literal["source", "recipe_servings", "whole_recipe"]] = None
+    servingsUsed: Optional[int] = Field(default=None, ge=1, le=1_000)
+    assumptions: list[str] = Field(default_factory=list)
     
     @classmethod
     def from_dict(cls, data: dict) -> "Nutrition":
@@ -93,6 +97,11 @@ class DerivedValueMetadata(BaseModel):
     """Freshness and provenance for a value computed from recipe inputs."""
     status: Literal["current", "stale", "unverified", "unavailable"]
     source: str = "unknown"
+    reason: Optional[str] = None
+    errorCode: Optional[str] = None
+    servingBasis: Optional[Literal["source", "recipe_servings", "whole_recipe"]] = None
+    servingsUsed: Optional[int] = Field(default=None, ge=1, le=1_000)
+    assumptions: list[str] = Field(default_factory=list)
     model: Optional[str] = None
     dataVersion: str
     calculatedAt: Optional[datetime] = None

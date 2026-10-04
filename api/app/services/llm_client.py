@@ -1520,7 +1520,7 @@ class LLMService:
         nutrition = recipe.get("nutrition", {})
         for section in ["perServing", "total"]:
             if section in nutrition and isinstance(nutrition[section], dict):
-                for key in ["calories", "protein", "carbs", "fat", "fiber", "sugar", "sodium"]:
+                for key in ["calories"]:
                     value = nutrition[section].get(key)
                     if value is not None and isinstance(value, (int, float)):
                         nutrition[section][key] = int(round(value))

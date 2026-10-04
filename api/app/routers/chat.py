@@ -3,7 +3,7 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Annotated, Literal, Optional
 from uuid import UUID
 
@@ -23,7 +23,9 @@ from app.models.recipe import Recipe
 from app.moderation import is_publicly_viewable
 from app.public_identity import public_contributor_id
 from app.rate_limit import RateLimitExceeded, ai_rate_limiter
+from app.services.nutrition import NutritionUnavailable, enrich_nutrition
 from app.services.storage import MAX_CHAT_IMAGE_BYTES, StorageCleanupError, storage_service
+from app.services.website import WebsiteService
 
 router = APIRouter(prefix="/api/recipes", tags=["chat"])
 
@@ -103,7 +105,7 @@ class EstimateNutritionRequest(BaseModel):
     """Request to estimate nutrition for a recipe."""
 
     ingredients: list[BoundedIngredient] = Field(min_length=1, max_length=100)
-    servings: int = Field(default=4, ge=1, le=1_000)
+    servings: int | None = Field(default=None, ge=1, le=1_000)
 
 
 class NutritionEstimate(BaseModel):
@@ -118,7 +120,11 @@ class NutritionEstimate(BaseModel):
 class EstimateNutritionResponse(BaseModel):
     """Response with estimated nutrition."""
 
-    nutrition: NutritionEstimate
+    nutrition: dict[str, float]
+    total: dict[str, float]
+    servingBasis: Literal["recipe_servings", "whole_recipe"]
+    servingsUsed: int | None
+    assumptions: list[str]
     model: str
     calculated_at: datetime
 
@@ -849,94 +855,18 @@ async def estimate_nutrition(
     """
     Estimate nutrition facts for a recipe based on ingredients.
     """
-    ingredient_list = "\n".join(f"- {ing}" for ing in request.ingredients)
-
-    prompt = f"""Estimate the nutrition facts PER SERVING for a recipe with {request.servings} servings.
-
-Ingredients:
-{ingredient_list}
-
-Calculate reasonable estimates based on standard nutritional databases.
-Return ONLY a JSON object with these numeric values (integers, no units):
-{{"calories": number, "protein": number, "carbs": number, "fat": number}}
-
-Example: {{"calories": 350, "protein": 25, "carbs": 30, "fat": 12}}
-
-    Return ONLY the JSON object, no other text."""
-
+    extracted = {"servings": request.servings, "ingredients": [
+        WebsiteService._parse_ingredient_string(ingredient) for ingredient in request.ingredients]}
     try:
-        if not settings.is_ai_capability_enabled("enrichment"):
-            raise HTTPException(status_code=503, detail="AI enrichment is temporarily unavailable")
-        with ai_request_context(user_id=user.id, route="estimate_nutrition"):
-            async with ai_rate_limiter.limit(
-                user_id=user.id,
-                capability="enrichment",
-                requests_per_minute=10,
-                max_concurrency=2,
-            ):
-                async with AIInvocationTracker(
-                    capability="enrichment",
-                    primary_model=settings.enrichment_model,
-                    prompt_version=PROMPT_VERSIONS["enrichment_nutrition"],
-                    schema_version="nutrition-estimate-v1",
-                ) as invocation:
-                    response = await openai_client.chat.completions.create(
-                        model=invocation.model,
-                        messages=[
-                            {
-                                "role": "system",
-                                "content": "Estimate nutrition conservatively and return only valid JSON.",
-                            },
-                            {"role": "user", "content": prompt},
-                        ],
-                        max_completion_tokens=100,
-                        reasoning_effort=settings.openai_reasoning_effort,
-                        response_format={"type": "json_object"},
-                        extra_body={"safety_identifier": public_contributor_id(user.id)},
-                    )
+        result = await enrich_nutrition(extracted, user_id=user.id, force=True, raise_on_failure=True)
+    except NutritionUnavailable as exc:
+        raise HTTPException(status_code=503, detail={"code": exc.code, "message": exc.reason}) from exc
+    nutrition = result["nutrition"]
+    metadata = result["derivedData"]["nutrition"]
+    return EstimateNutritionResponse(nutrition=nutrition["perServing"], total=nutrition["total"],
+        servingBasis=nutrition["servingBasis"], servingsUsed=nutrition["servingsUsed"],
+        assumptions=nutrition["assumptions"], model=metadata["model"], calculated_at=metadata["calculatedAt"])
 
-                    result = response.choices[0].message.content.strip()
-                    try:
-                        if result.startswith("```"):
-                            result = result.split("```")[1]
-                            if result.startswith("json"):
-                                result = result[4:]
-
-                        json_match = result
-                        if "{" in result:
-                            start = result.index("{")
-                            end = result.rindex("}") + 1
-                            json_match = result[start:end]
-
-                        nutrition = json.loads(json_match)
-                        parsed = NutritionEstimate(
-                            calories=int(nutrition.get("calories", 0)),
-                            protein=int(nutrition.get("protein", 0)),
-                            carbs=int(nutrition.get("carbs", 0)),
-                            fat=int(nutrition.get("fat", 0)),
-                        )
-                        invocation.succeed(response)
-                        return EstimateNutritionResponse(
-                            nutrition=parsed,
-                            model=invocation.model,
-                            calculated_at=datetime.now(timezone.utc),
-                        )
-                    except (json.JSONDecodeError, ValueError):
-                        invocation.fail("invalid_schema", response)
-                        raise HTTPException(
-                            status_code=500,
-                            detail="Failed to parse nutrition data. Please try again.",
-                        )
-
-    except RateLimitExceeded as exc:
-        raise _rate_limit_http_exception(exc) from exc
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ Nutrition provider error: {type(e).__name__}")
-        raise HTTPException(
-            status_code=500, detail="Failed to estimate nutrition. Please try again."
-        )
 
 
 # ============================================================

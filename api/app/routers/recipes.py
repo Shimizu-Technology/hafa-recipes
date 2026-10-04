@@ -66,6 +66,13 @@ from app.recipe_review import (
     validate_resolved_issue_ids,
 )
 from app.services.extraction_confidence import normalize_extraction_confidence
+from app.services.nutrition import (
+    NutritionUnavailable,
+    enrich_nutrition,
+    ingredients_for_nutrition,
+    nutrition_fingerprint,
+    sanitized_nutrition,
+)
 from app.services.storage import storage_service
 from app.source_urls import canonicalize_source
 
@@ -109,6 +116,7 @@ def normalized_recipe_extracted(recipe: Recipe) -> dict:
         extracted["nutrition"] = {"perServing": {}, "total": {}}
     elif not nutrition.get("perServing") or not nutrition.get("total"):
         extracted["nutrition"] = {
+            **nutrition,
             "perServing": nutrition.get("perServing") or {},
             "total": nutrition.get("total") or {}
         }
@@ -117,7 +125,14 @@ def normalized_recipe_extracted(recipe: Recipe) -> dict:
     if extracted.get("times") is None:
         extracted["times"] = {}
 
-    return ensure_derived_metadata(extracted)
+    result = ensure_derived_metadata(extracted)
+    entry = result["derivedData"]["nutrition"]
+    if entry["status"] == "unavailable" and not entry.get("reason"):
+        if result.get("sourceIncomplete") is True:
+            entry.update(errorCode="incomplete_recipe", reason="Complete the ingredient list before estimating nutrition.")
+        elif not ingredients_for_nutrition(result):
+            entry.update(errorCode="missing_ingredients", reason="Add ingredients before estimating nutrition.")
+    return result
 
 
 def generate_change_summary(old_extracted: dict, new_extracted: dict) -> str:
@@ -402,10 +417,13 @@ class ManualComponent(BaseModel):
 
 class ManualNutrition(BaseModel):
     """Nutrition data for manual recipe entry."""
-    calories: Optional[int] = Field(default=None, ge=0, le=100_000)
-    protein: Optional[int] = Field(default=None, ge=0, le=10_000)
-    carbs: Optional[int] = Field(default=None, ge=0, le=10_000)
-    fat: Optional[int] = Field(default=None, ge=0, le=10_000)
+    calories: Optional[int] = Field(default=None, ge=0, le=1_000_000)
+    protein: Optional[float] = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    carbs: Optional[float] = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    fat: Optional[float] = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    fiber: Optional[float] = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    sugar: Optional[float] = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    sodium: Optional[float] = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
 
 
 class RecipeEdit(BaseModel):
@@ -422,6 +440,9 @@ class RecipeEdit(BaseModel):
     tags: Optional[List[str]] = None
     is_public: Optional[bool] = None
     nutrition: Optional[ManualNutrition] = None
+    nutrition_total: Optional[ManualNutrition] = None
+    nutrition_serving_basis: Optional[Literal["source", "recipe_servings", "whole_recipe"]] = None
+    nutrition_assumptions: list[str] = Field(default_factory=list, max_length=100)
     nutrition_recalculated: bool = False
     nutrition_model: Optional[str] = None
     review_content_revision: Optional[int] = Field(default=None, ge=1)
@@ -448,15 +469,11 @@ class RecipeEdit(BaseModel):
                 path,
             ):
                 raise ValueError(f"invalid recipe review path: {path}")
-        if self.nutrition_recalculated and self.nutrition is None:
+        if self.nutrition_recalculated and self.nutrition is None and self.nutrition_total is None:
             raise ValueError("nutrition is required when nutrition_recalculated is true")
-        if self.nutrition_recalculated and self.nutrition is not None:
-            values = (
-                self.nutrition.calories,
-                self.nutrition.protein,
-                self.nutrition.carbs,
-                self.nutrition.fat,
-            )
+        if self.nutrition_recalculated and (self.nutrition is not None or self.nutrition_total is not None):
+            replacement = self.nutrition or self.nutrition_total
+            values = (replacement.calories, replacement.protein, replacement.carbs, replacement.fat)
             if any(value is None for value in values):
                 raise ValueError(
                     "calories, protein, carbs, and fat are required for recalculated nutrition"
@@ -501,6 +518,9 @@ class ManualRecipeCreate(BaseModel):
     tags: Optional[List[str]] = None
     is_public: bool = False
     nutrition: Optional[ManualNutrition] = None
+    nutrition_total: Optional[ManualNutrition] = None
+    nutrition_serving_basis: Optional[Literal["source", "recipe_servings", "whole_recipe"]] = None
+    nutrition_assumptions: list[str] = Field(default_factory=list, max_length=100)
     source_type: Optional[Literal["manual", "photo", "text"]] = "manual"
 
 
@@ -577,13 +597,18 @@ def _build_edited_extracted(
                 "protein": edit.nutrition.protein if edit.nutrition else old_per_serving.get("protein"),
                 "carbs": edit.nutrition.carbs if edit.nutrition else old_per_serving.get("carbs"),
                 "fat": edit.nutrition.fat if edit.nutrition else old_per_serving.get("fat"),
-                "fiber": None if edit.nutrition_recalculated else old_per_serving.get("fiber"),
-                "sugar": None if edit.nutrition_recalculated else old_per_serving.get("sugar"),
-                "sodium": None if edit.nutrition_recalculated else old_per_serving.get("sodium"),
+                "fiber": edit.nutrition.fiber if edit.nutrition else (None if edit.nutrition_recalculated else old_per_serving.get("fiber")),
+                "sugar": edit.nutrition.sugar if edit.nutrition else (None if edit.nutrition_recalculated else old_per_serving.get("sugar")),
+                "sodium": edit.nutrition.sodium if edit.nutrition else (None if edit.nutrition_recalculated else old_per_serving.get("sodium")),
             },
-            "total": {} if edit.nutrition_recalculated else old_nutrition.get("total") or {},
+            "total": edit.nutrition_total.model_dump(exclude_none=True) if edit.nutrition_total else ({} if edit.nutrition_recalculated else old_nutrition.get("total") or {}),
+            "servingBasis": edit.nutrition_serving_basis or old_nutrition.get("servingBasis"),
+            "servingsUsed": edit.servings if edit.nutrition_recalculated else old_nutrition.get("servingsUsed"),
+            "assumptions": edit.nutrition_assumptions if edit.nutrition_recalculated else old_nutrition.get("assumptions") or [],
         },
     }
+    if edit.nutrition_total and not edit.nutrition and edit.nutrition_recalculated:
+        new_extracted["nutrition"]["perServing"] = {}
     estimate_basis = dict(old_extracted)
     if source_is_incomplete(old_extracted, extraction_method=extraction_method):
         estimate_basis["sourceIncomplete"] = True
@@ -799,9 +824,9 @@ async def create_manual_recipe(
                 "protein": recipe_input.nutrition.protein if recipe_input.nutrition else None,
                 "carbs": recipe_input.nutrition.carbs if recipe_input.nutrition else None,
                 "fat": recipe_input.nutrition.fat if recipe_input.nutrition else None,
-                "fiber": None,
-                "sugar": None,
-                "sodium": None,
+                "fiber": recipe_input.nutrition.fiber if recipe_input.nutrition else None,
+                "sugar": recipe_input.nutrition.sugar if recipe_input.nutrition else None,
+                "sodium": recipe_input.nutrition.sodium if recipe_input.nutrition else None,
             },
             "total": {
                 "calories": None,
@@ -822,6 +847,12 @@ async def create_manual_recipe(
         source="user_provided",
     )
 
+    if recipe_input.nutrition_total:
+        extracted["nutrition"]["total"] = recipe_input.nutrition_total.model_dump(exclude_none=True)
+    extracted["nutrition"].update(servingBasis=recipe_input.nutrition_serving_basis,
+                                  assumptions=recipe_input.nutrition_assumptions)
+    extracted = await enrich_nutrition(extracted, user_id=user.id, source="user_provided",
+                                      preserve_source=recipe_input.nutrition is not None)
     # Create the recipe
     # Preserve the capture origin when an imported draft is edited before saving.
     source_type = recipe_input.source_type or "manual"
@@ -948,6 +979,7 @@ async def _save_captured_recipe(
     # smuggle the original capture text into JSONB) cannot be persisted.
     capture_draft = normalize_recipe_estimates(capture_data.extracted, clean_import_notes=True)
     capture_draft["sourceUrl"] = source_url
+    capture_draft["nutrition"] = sanitized_nutrition(capture_draft.get("nutrition"))
     low_confidence, _ = normalize_extraction_confidence(capture_draft)
     try:
         extracted = RecipeExtracted.model_validate(capture_draft).model_dump(mode="json")
@@ -956,7 +988,7 @@ async def _save_captured_recipe(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Invalid extracted recipe draft",
         ) from exc
-    extracted = ensure_derived_metadata(extracted)
+    extracted = await enrich_nutrition(extracted, user_id=user.id)
 
     new_recipe = Recipe(
         source_url=source_url,
@@ -1935,6 +1967,51 @@ async def check_duplicate(
         }
 
     return {"exists": False, "owned_by_user": False}
+
+
+class NutritionRefreshRequest(BaseModel):
+    expected_content_revision: Optional[int] = Field(default=None, ge=1)
+
+
+@router.post("/{recipe_id}/nutrition", response_model=RecipeResponse)
+async def refresh_recipe_nutrition(
+    recipe_id: UUID,
+    request: NutritionRefreshRequest = Body(default_factory=NutritionRefreshRequest),
+    db: AsyncSession = Depends(get_db),
+    user: ClerkUser = Depends(get_current_user),
+):
+    """Recalculate only nutrition from the current owned recipe, without reimporting it."""
+    recipe = (await db.execute(select(Recipe).where(Recipe.id == recipe_id))).scalar_one_or_none()
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    if recipe.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Only the recipe owner can recalculate nutrition")
+    preserve_source_nutrition = recipe.extraction_method == "website-jsonld" and ((recipe.extracted or {}).get("derivedData") or {}).get("nutrition", {}).get("status") != "stale"
+    revision = int(recipe.content_revision or 1)
+    if request.expected_content_revision is not None and request.expected_content_revision != revision:
+        raise HTTPException(status_code=409, detail="Recipe changed. Refresh it before recalculating nutrition.")
+    snapshot = deepcopy(recipe.extracted or {})
+    fingerprint = nutrition_fingerprint(snapshot)
+    await db.rollback()  # Do not hold a database transaction during provider work.
+    try:
+        updated = await enrich_nutrition(snapshot, user_id=user.id, force=True,
+            preserve_source=preserve_source_nutrition, raise_on_failure=True)
+    except NutritionUnavailable as exc:
+        raise HTTPException(status_code=503, detail={"code": exc.code, "message": exc.reason}) from exc
+    recipe = (await db.execute(select(Recipe).where(Recipe.id == recipe_id).with_for_update()
+                              .execution_options(populate_existing=True))).scalar_one_or_none()
+    if recipe is None or recipe.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    if int(recipe.content_revision or 1) != revision or nutrition_fingerprint(recipe.extracted or {}) != fingerprint or recipe.extracted != snapshot:
+        raise HTTPException(status_code=409, detail="Recipe changed while nutrition was calculated. Refresh and retry.")
+    await create_recipe_version(db, recipe, "nutrition", user.id, change_summary="Recalculated nutrition")
+    current = deepcopy(recipe.extracted or {})
+    current["nutrition"] = updated["nutrition"]
+    current.setdefault("derivedData", {})["nutrition"] = updated["derivedData"]["nutrition"]
+    recipe.extracted = current
+    await db.commit()
+    await db.refresh(recipe)
+    return recipe_to_detail_response(recipe, user.id)
 
 
 @router.get("/{recipe_id}", response_model=RecipeResponse)

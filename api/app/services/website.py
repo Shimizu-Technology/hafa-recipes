@@ -670,45 +670,60 @@ class WebsiteService:
         if jsonld.get('totalTime'):
             times['total'] = cls._parse_iso_duration(jsonld['totalTime'])
         
-        # Parse nutrition
+        # Preserve publisher nutrition, including decimal macros and unit conversions.
         nutrition = {}
-        if jsonld.get('nutrition'):
-            raw_nutrition = jsonld['nutrition']
+        raw_nutrition = jsonld.get("nutrition")
+        if isinstance(raw_nutrition, dict):
             per_serving = {}
-            if raw_nutrition.get('calories'):
-                cal_str = str(raw_nutrition['calories'])
-                cal_match = re.search(r'(\d+)', cal_str)
-                if cal_match:
-                    per_serving['calories'] = int(cal_match.group(1))
-            if raw_nutrition.get('proteinContent'):
-                prot_str = str(raw_nutrition['proteinContent'])
-                prot_match = re.search(r'(\d+)', prot_str)
-                if prot_match:
-                    per_serving['protein'] = int(prot_match.group(1))
-            if raw_nutrition.get('carbohydrateContent'):
-                carb_str = str(raw_nutrition['carbohydrateContent'])
-                carb_match = re.search(r'(\d+)', carb_str)
-                if carb_match:
-                    per_serving['carbs'] = int(carb_match.group(1))
-            if raw_nutrition.get('fatContent'):
-                fat_str = str(raw_nutrition['fatContent'])
-                fat_match = re.search(r'(\d+)', fat_str)
-                if fat_match:
-                    per_serving['fat'] = int(fat_match.group(1))
+            source_fields = {"calories": "calories", "proteinContent": "protein",
+                             "carbohydrateContent": "carbs", "fatContent": "fat",
+                             "fiberContent": "fiber", "sugarContent": "sugar", "sodiumContent": "sodium"}
+            for source_key, key in source_fields.items():
+                raw = raw_nutrition.get(source_key)
+                if raw is None or isinstance(raw, bool):
+                    continue
+                text_value = str(raw).strip().replace(",", "")
+                number = re.match(r"^(\d+(?:\.\d+)?|\.\d+)\s*([a-zA-Z]*)", text_value)
+                if not number:
+                    continue
+                value = float(number.group(1))
+                unit = number.group(2).lower()
+                if key == "calories":
+                    if unit == "kj":
+                        value /= 4.184
+                    elif unit not in ("", "kcal", "cal", "calories", "calorie"):
+                        continue
+                    value = round(value)
+                elif key == "sodium":
+                    if unit == "g":
+                        value *= 1000
+                    elif unit not in ("", "mg", "milligrams"):
+                        continue
+                elif unit == "mg":
+                    value /= 1000
+                elif unit not in ("", "g", "grams"):
+                    continue
+                if 0 <= value <= 1_000_000:
+                    per_serving[key] = value if key == "calories" else round(value, 2)
             if per_serving:
-                nutrition = {"perServing": per_serving, "total": {}}
-        
-        # Parse servings
+                nutrition = {"perServing": per_serving, "total": {}, "servingBasis": "source"}
+                if isinstance(raw_nutrition.get("servingSize"), str):
+                    nutrition["sourceServingSize"] = raw_nutrition["servingSize"][:200]
+
+        # A batch yield such as "24 cookies" is not a stated serving count.
         servings = None
-        if jsonld.get('recipeYield'):
-            yield_val = jsonld['recipeYield']
-            if isinstance(yield_val, list):
-                yield_val = yield_val[0] if yield_val else None
-            if yield_val:
-                match = re.search(r'(\d+)', str(yield_val))
-                if match:
-                    servings = int(match.group(1))
-        
+        yields = jsonld.get("recipeYield")
+        for yield_value in yields if isinstance(yields, list) else [yields]:
+            if yield_value is None:
+                continue
+            text_yield = str(yield_value).strip()
+            match = re.search(r"\b(\d+)\s*(?:servings?|people|portions?)\b", text_yield, re.I)
+            if not match:
+                match = re.fullmatch(r"(\d+)", text_yield)
+            if match and 1 <= int(match.group(1)) <= 1_000:
+                servings = int(match.group(1))
+                break
+
         # Parse tags/keywords - handle various separators (comma, semicolon, double semicolon)
         tags = []
         if jsonld.get('keywords'):

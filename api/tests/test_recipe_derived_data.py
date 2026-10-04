@@ -21,7 +21,7 @@ def recipe(*, servings=4, ingredient="rice", nutrition=200, cost=5.0):
                 "steps": ["Cook"],
             }
         ],
-        "nutrition": {"perServing": {"calories": nutrition}, "total": {}},
+        "nutrition": {"perServing": {"calories": nutrition, "protein": 5, "carbs": 35, "fat": 4}, "total": {}},
         "totalEstimatedCost": cost,
         "tags": ["dinner"],
         "times": {"total": "20 min"},
