@@ -3,6 +3,8 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const mocks = vi.hoisted(() => ({ refresh: vi.fn(), refetch: vi.fn(), owner: 'owner-a', recipeId: 'recipe-a' }));
+vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
+vi.mock('@/hooks/useTextSize', () => ({ useTextSize: () => ({ scaleFontSize: (size: number) => size }) }));
 vi.mock('@/lib/api', () => ({ api: { refreshRecipeNutrition: mocks.refresh } }));
 vi.mock('react-native', async () => {
   const { createElement } = await import('react');
