@@ -25,8 +25,6 @@ import { RecipeHero } from './RecipeHero';
 
 const commonProps = {
   recipeTitle: 'Chicken Kelaguen',
-  imageError: false,
-  onImageError: vi.fn(),
   onOpenSource: vi.fn(),
 };
 
@@ -112,27 +110,18 @@ describe('RecipeHero', () => {
     }
   });
 
-  it('clears a failed thumbnail while preserving the playable hero', async () => {
+  it('collapses failed social photos and recovers on replacement without accepting old failures', async () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
-
+    const props = { ...commonProps, sourceUrl: 'https://www.instagram.com/reel/Example_42/', thumbnailUrl: 'https://example.com/old.jpg' };
     try {
-      await act(async () => {
-        renderer.render(React.createElement(RecipeHero, {
-          ...commonProps,
-          sourceUrl: 'https://www.youtube.com/watch?v=abcDEF_1234',
-          thumbnailUrl: 'https://example.com/missing.jpg',
-          imageError: true,
-        }));
-      });
-
-      const player = renderer.container.queryAll(
-        (instance) => instance.type === 'SourcePlaybackCard',
-      )[0];
-      expect(player.props.thumbnailUrl).toBeNull();
-      expect(player.props.onThumbnailError).toBe(commonProps.onImageError);
-    } finally {
-      await act(async () => renderer.unmount());
-    }
+      await act(async () => renderer.render(React.createElement(RecipeHero, props)));
+      const oldCard = renderer.container.queryAll((instance) => instance.type === 'SourcePlaybackCard')[0];
+      await act(async () => oldCard.props.onThumbnailError());
+      expect(renderer.container.queryAll((instance) => instance.type === 'SourcePlaybackCard')[0].props.thumbnailUrl).toBeNull();
+      await act(async () => renderer.render(React.createElement(RecipeHero, { ...props, thumbnailUrl: 'https://example.com/new.jpg' })));
+      await act(async () => oldCard.props.onThumbnailError());
+      expect(renderer.container.queryAll((instance) => instance.type === 'SourcePlaybackCard')[0].props.thumbnailUrl).toBe('https://example.com/new.jpg');
+    } finally { await act(async () => renderer.unmount()); }
   });
 
   it('falls back to the recipe image when the source is not playable', async () => {
@@ -160,7 +149,7 @@ describe('RecipeHero', () => {
     }
   });
 
-  it('uses an accessible placeholder when no usable image remains', async () => {
+  it('omits an empty photo area when no image is available', async () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
     try {
@@ -172,12 +161,9 @@ describe('RecipeHero', () => {
         }));
       });
 
-      expect(renderer.container.queryAll(
-        (instance) => instance.props.accessibilityLabel
-          === 'Chicken Kelaguen recipe image placeholder',
-      )).toHaveLength(1);
+      expect(renderer.container.queryAll((instance) => instance.props.accessibilityRole === 'image')).toHaveLength(0);
       expect(renderer.container.queryAll((instance) => instance.type === 'ExpoImage')).toHaveLength(0);
-      expect(renderer.container.queryAll((instance) => instance.type === 'Ionicons')).toHaveLength(1);
+      expect(renderer.container.queryAll((instance) => instance.type === 'Ionicons')).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());
     }
@@ -195,10 +181,7 @@ describe('RecipeHero', () => {
         }));
       });
 
-      expect(renderer.container.queryAll(
-        (instance) => instance.props.accessibilityLabel
-          === 'Chicken Kelaguen recipe image placeholder',
-      )).toHaveLength(1);
+      expect(renderer.container.queryAll((instance) => instance.props.accessibilityRole === 'image')).toHaveLength(0);
       expect(renderer.container.queryAll((instance) => instance.type === 'ExpoImage')).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());

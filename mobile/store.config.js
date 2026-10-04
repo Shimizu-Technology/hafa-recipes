@@ -45,7 +45,7 @@ DISCOVER AND ORGANIZE
 AI can make mistakes. Review extracted ingredients, directions, allergens, temperatures, and food-safety guidance before cooking.
 
 Made in Guam by Shimizu Technology.`;
-const RELEASE_NOTES = 'Recipe details are easier to read and cook from. Nutrition shows one clearly labeled portion at a time, with full calculation details available on request. Equipment is now with preparation, serving changes stay consistent across costs and shared recipes, and saved nutrition assumptions remain available after editing.';
+const RELEASE_NOTES = 'Recipe photos are back at the top in a larger, rounded layout. Original-source controls sit below the photo, and missing or replaced photos recover cleanly.';
   'Import recipes from a cleaner screen with the action always within reach. Share a recipe link to Håfa to start importing directly, and queue another while an import finishes. Nutrition estimates now cover more recipes, show whole-recipe totals when servings are unknown, and can be recalculated after ingredient changes.';
 
 function requiredEnvironmentValue(environment, name) {

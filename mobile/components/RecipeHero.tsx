@@ -1,5 +1,7 @@
-import { StyleSheet } from 'react-native';
+import { useState } from 'react';
+import { StyleSheet, View as RNView } from 'react-native';
 
+import { radius, spacing } from '../constants/Colors';
 import { getSourcePlayback } from '../lib/sourcePlayback';
 import { getSourcePlaybackMode } from '../lib/sourcePlaybackConfig';
 import { SourcePlaybackCard } from './SourcePlaybackCard';
@@ -9,64 +11,45 @@ type RecipeHeroProps = {
   recipeTitle: string;
   sourceUrl: string;
   thumbnailUrl?: string | null;
-  imageError: boolean;
-  onImageError: () => void;
   onOpenSource: () => void;
-  compact?: boolean;
 };
 
-/** Select the playable, image, or placeholder hero for a recipe. */
-export function RecipeHero({
-  recipeTitle,
-  sourceUrl,
-  thumbnailUrl,
-  imageError,
-  onImageError,
-  onOpenSource,
-  compact = false,
-}: RecipeHeroProps) {
-  const playback = getSourcePlayback(sourceUrl);
-  const normalizedThumbnailUrl = thumbnailUrl?.trim() || null;
-  const usableThumbnailUrl = imageError ? null : normalizedThumbnailUrl;
+/** Changing the image/source remounts its state, isolating late image failures and open players. */
+export function RecipeHero(props: RecipeHeroProps) {
+  const thumbnailUrl = props.thumbnailUrl?.trim() || null;
+  return <RecipeHeroContent key={JSON.stringify([props.sourceUrl, thumbnailUrl])}
+    {...props} thumbnailUrl={thumbnailUrl} />;
+}
 
-  if (playback) {
-    return (
-      <SourcePlaybackCard
+/** Give the food the lead; keep source access when a photo is missing or fails. */
+function RecipeHeroContent({ recipeTitle, sourceUrl, thumbnailUrl, onOpenSource }: RecipeHeroProps) {
+  const [imageError, setImageError] = useState(false);
+  const playback = getSourcePlayback(sourceUrl);
+  const usableThumbnailUrl = imageError ? null : thumbnailUrl;
+
+  if (!playback && !usableThumbnailUrl) return null;
+
+  return (
+    <RNView style={styles.container}>
+      {playback ? <SourcePlaybackCard
         playback={playback}
         recipeTitle={recipeTitle}
         thumbnailUrl={usableThumbnailUrl}
-        onThumbnailError={onImageError}
+        onThumbnailError={() => setImageError(true)}
         onOpenSource={onOpenSource}
         embeddedPlaybackEnabled={getSourcePlaybackMode() === 'embedded'}
-        compact={compact}
-      />
-    );
-  }
-
-  if (compact && !usableThumbnailUrl) return null;
-
-  return (
-    <RecipeThumbnail
-      uri={usableThumbnailUrl}
-      style={compact ? styles.compactImage : usableThumbnailUrl ? styles.heroImage : styles.placeholderHero}
-      onError={onImageError}
-      accessibilityLabel={usableThumbnailUrl
-        ? `${recipeTitle} recipe`
-        : `${recipeTitle} recipe image placeholder`}
-      placeholderIconSize={64}
-      priority="high"
-    />
+      /> : <RecipeThumbnail
+        uri={usableThumbnailUrl}
+        style={styles.heroImage}
+        onError={() => setImageError(true)}
+        accessibilityLabel={`${recipeTitle} recipe`}
+        priority="high"
+      />}
+    </RNView>
   );
 }
 
 const styles = StyleSheet.create({
-  compactImage: { width: '100%', aspectRatio: 2.1, maxHeight: 220 },
-  heroImage: {
-    width: '100%',
-    height: 300,
-  },
-  placeholderHero: {
-    width: '100%',
-    height: 200,
-  },
+  container: { width: '100%', maxWidth: 800, alignSelf: 'center', paddingHorizontal: spacing.lg, paddingTop: spacing.md },
+  heroImage: { width: '100%', aspectRatio: 4 / 3, maxHeight: 340, borderRadius: radius.xl },
 });
