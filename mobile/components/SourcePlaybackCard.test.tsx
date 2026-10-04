@@ -25,6 +25,7 @@ vi.mock('@/components/Themed', () => ({
     text: '#111',
     textMuted: '#666',
     tint: '#155c52',
+    actionText: '#155c52',
   }),
 }));
 vi.mock('@/components/RecipeThumbnail', () => ({ RecipeThumbnail: 'RecipeThumbnail' }));
@@ -111,7 +112,7 @@ describe('SourcePlaybackCard', () => {
         (instance) => instance.props.accessibilityRole === 'link',
       )).toHaveLength(1);
       expect(renderer.container.queryAll(
-        (instance) => instance.props.children === 'YouTube opens in its app or website.',
+        (instance) => instance.props.children === 'Watch original video on YouTube',
       )).toHaveLength(1);
 
       await act(async () => externalAction.props.onPress());
@@ -212,13 +213,13 @@ describe('SourcePlaybackCard', () => {
     }
   });
 
-  it('keeps the cached thumbnail and original-source action available', async () => {
+  it('shows one unobscured cached photo above the source action and keeps privacy visible', async () => {
     const onOpenSource = vi.fn();
     const { renderer } = await renderCard(youtubePlayback, onOpenSource);
     try {
-      const thumbnail = renderer.container.queryAll(
-        (instance) => instance.type === 'RecipeThumbnail',
-      )[0];
+      const photos = renderer.container.queryAll((instance) => instance.type === 'RecipeThumbnail');
+      expect(photos).toHaveLength(1);
+      const thumbnail = photos[0];
       expect(thumbnail.props).toMatchObject({
         uri: 'https://example.com/thumbnail.jpg',
         accessible: false,
@@ -234,4 +235,19 @@ describe('SourcePlaybackCard', () => {
       await act(async () => renderer.unmount());
     }
   });
+  it('keeps a source action without reserving a blank image when the photo is absent', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    const onOpenSource = vi.fn();
+    try {
+      await act(async () => renderer.render(React.createElement(SourcePlaybackCard, {
+        playback: youtubePlayback, recipeTitle: 'Kelaguen', thumbnailUrl: '   ', onOpenSource, embeddedPlaybackEnabled: false,
+      })));
+      expect(renderer.container.queryAll((instance) => instance.type === 'RecipeThumbnail')).toHaveLength(0);
+      const action = renderer.container.queryAll((instance) => instance.props.accessibilityLabel === 'Watch original video on YouTube for Kelaguen')[0];
+      await act(async () => action.props.onPress());
+      expect(onOpenSource).toHaveBeenCalledOnce();
+      expect(renderer.container.queryAll((instance) => instance.type === 'SourcePlaybackModal')).toHaveLength(0);
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
 });

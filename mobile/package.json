@@ -1,7 +1,7 @@
 {
   "name": "recipe-mobile",
   "main": "expo-router/entry",
-  "version": "2.6.8",
+  "version": "2.6.9",
   "scripts": {
     "postinstall": "patch-package",
     "start": "expo start",

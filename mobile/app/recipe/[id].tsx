@@ -146,7 +146,6 @@ export default function RecipeDetailScreen() {
   const toggleSharingMutation = useToggleRecipeSharing();
   const addToGroceryMutation = useAddFromRecipe();
   const extraction = useAsyncExtraction();
-  const [imageError, setImageError] = useState(false);
   const [showIngredientPicker, setShowIngredientPicker] = useState(false);
   const [showDetailsReview, setShowDetailsReview] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
@@ -168,7 +167,6 @@ export default function RecipeDetailScreen() {
     setNutritionBasis(undefined);
   }, [id, recipe?.content_revision]);
   useEffect(() => {
-    setImageError(false);
     setShowIngredientsRef(false);
     setShowRelated(false);
   }, [id]);
@@ -781,12 +779,10 @@ export default function RecipeDetailScreen() {
         >
           <RNView>
           <RecipeHero
-            compact
+            key={recipe.id}
             recipeTitle={extracted.title}
             sourceUrl={recipe.source_url}
             thumbnailUrl={recipe.thumbnail_url}
-            imageError={imageError}
-            onImageError={() => setImageError(true)}
             onOpenSource={handleOpenSource}
           />
 

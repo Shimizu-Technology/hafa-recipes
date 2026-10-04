@@ -43,7 +43,7 @@ function previewAction(playback: SourcePlayback, opensExternally: boolean): stri
     : `Play ${playback.providerLabel} video`;
 }
 
-/** Compact source preview that opens a focused player or the original post. */
+/** An unobscured recipe photo with a wrapping source action; players load only on request. */
 export function SourcePlaybackCard({
   playback,
   recipeTitle,
@@ -58,6 +58,8 @@ export function SourcePlaybackCard({
   const shouldOpenSource = useRef(false);
   const isExternal = playback.mode === 'external' || !embeddedPlaybackEnabled;
   const actionLabel = previewAction(playback, isExternal);
+  const hasPhoto = !compact && Boolean(thumbnailUrl?.trim());
+  const photoAspectRatio = playback.provider === 'youtube' ? 16 / 9 : 4 / 3;
 
   useEffect(() => {
     if (isPlayerVisible || !shouldOpenSource.current) return;
@@ -79,9 +81,14 @@ export function SourcePlaybackCard({
   };
 
   return (
-    <RNView style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+    <RNView style={[
+      styles.card,
+      { backgroundColor: colors.card, borderColor: colors.cardBorder },
+      // Cap the whole card so its source row stays aligned with the proportional photo.
+      hasPhoto && { maxWidth: photoAspectRatio * 340 + 2 },
+    ]}>
       <TouchableOpacity
-        style={compact ? styles.compactPreview : styles.preview}
+        style={styles.preview}
         onPress={handlePreviewPress}
         activeOpacity={0.9}
         accessibilityRole={isExternal ? 'link' : 'button'}
@@ -90,69 +97,41 @@ export function SourcePlaybackCard({
           ? 'Opens the original source outside Håfa Recipes'
           : `Loading this player connects to ${playback.providerLabel}; its privacy terms apply`}
       >
-        {compact ? <>
-          <RecipeThumbnail uri={thumbnailUrl} style={styles.compactThumbnail} accessible={false}
-            placeholderIconSize={28} onError={onThumbnailError} />
-          <RNView style={styles.compactCopy}>
-            <Text style={[styles.footerTitle, { color: colors.text }]}>{playback.providerLabel} {mediaLabel(playback.mediaKind)}</Text>
-            <Text style={[styles.compactAction, { color: colors.actionText }]}>{actionLabel}</Text>
-          </RNView>
-          <Ionicons name={isExternal ? 'open-outline' : 'play-circle-outline'} size={24} color={colors.actionText} />
-        </> : <><RecipeThumbnail
+        {hasPhoto && <RecipeThumbnail
           uri={thumbnailUrl}
-          style={styles.previewImage}
+          style={[styles.previewImage, { aspectRatio: photoAspectRatio }]}
           accessible={false}
-          placeholderIconSize={56}
           priority="high"
           onError={onThumbnailError}
-        />
-        <RNView pointerEvents="none" style={styles.previewScrim} />
-        <RNView style={styles.providerBadge} pointerEvents="none">
-          <Ionicons name={PROVIDER_ICONS[playback.provider]} size={15} color="#FFFFFF" />
-          <Text style={styles.providerBadgeText}>
-            {playback.providerLabel} {mediaLabel(playback.mediaKind)}
-          </Text>
-        </RNView>
-        <RNView style={styles.previewAction} pointerEvents="none">
-          <RNView style={[styles.actionIcon, { backgroundColor: colors.tint }]}>
-            <Ionicons
-              name={isExternal
-                ? 'open-outline'
-                : playback.mediaKind === 'photo'
-                  ? 'images-outline'
-                  : 'play'}
-              size={27}
-              color="#FFFFFF"
-            />
+        />}
+        <RNView style={styles.sourceAction}>
+          <RNView style={[styles.providerIcon, { backgroundColor: `${colors.tint}15` }]}>
+            <Ionicons name={PROVIDER_ICONS[playback.provider]} size={22} color={colors.actionText} />
           </RNView>
-          <Text style={styles.previewActionText}>{actionLabel}</Text>
-        </RNView></>}
+          <RNView style={styles.sourceCopy}>
+            <Text style={[styles.footerTitle, { color: colors.text }]}>{playback.providerLabel} {mediaLabel(playback.mediaKind)}</Text>
+            <Text style={[styles.sourceActionText, { color: colors.actionText }]}>{actionLabel}</Text>
+          </RNView>
+          <Ionicons name={isExternal ? 'open-outline' : playback.mediaKind === 'photo' ? 'images-outline' : 'play-circle-outline'}
+            size={24} color={colors.actionText} />
+        </RNView>
       </TouchableOpacity>
 
-      {(!compact || !isExternal) && <RNView style={styles.footer}>
-        <RNView style={styles.footerCopy}>
-          <Text style={[styles.footerTitle, { color: colors.text }]}>
-            {isExternal
-              ? 'Continue with the creator'
-              : `Watch here or on ${playback.providerLabel}`}
-          </Text>
+      {!isExternal && <RNView style={[styles.footer, { borderTopColor: colors.cardBorder }]}>
+        <RNView >
           <Text style={[styles.footerText, { color: colors.textMuted }]}>
-            {isExternal
-              ? `${playback.providerLabel} opens in its app or website.`
-              : `Loading this player connects to ${playback.providerLabel}; its privacy terms apply.`}
+            Loading this player connects to {playback.providerLabel}; its privacy terms apply.
           </Text>
         </RNView>
-        {!isExternal && (
-          <TouchableOpacity
+        <TouchableOpacity
             onPress={() => { void onOpenSource(); }}
             style={styles.openButton}
             accessibilityRole="link"
             accessibilityLabel={`Open original recipe on ${playback.providerLabel}`}
           >
-            <Text style={[styles.openButtonText, { color: colors.tint }]}>Open {playback.providerLabel}</Text>
-            <Ionicons name="open-outline" size={16} color={colors.tint} />
-          </TouchableOpacity>
-        )}
+            <Text style={[styles.openButtonText, { color: colors.actionText }]}>Open {playback.providerLabel}</Text>
+            <Ionicons name="open-outline" size={16} color={colors.actionText} />
+        </TouchableOpacity>
       </RNView>}
 
       {playback.mode === 'modal' && embeddedPlaybackEnabled && isPlayerVisible && (
@@ -170,83 +149,19 @@ export function SourcePlaybackCard({
 }
 
 const styles = StyleSheet.create({
-  compactPreview: { minHeight: 88, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  compactThumbnail: { width: 56, height: 56, borderRadius: radius.sm },
-  compactCopy: { flex: 1, minWidth: 0 },
-  compactAction: { fontSize: fontSize.sm, marginTop: spacing.xs },
-  card: {
-    borderWidth: 1,
-    overflow: 'hidden',
-    borderLeftWidth: 0,
-    borderRightWidth: 0,
-  },
-  preview: {
-    aspectRatio: 16 / 9,
-    width: '100%',
-    position: 'relative',
-    overflow: 'hidden',
-    backgroundColor: '#12100E',
-  },
-  previewImage: { ...StyleSheet.absoluteFill },
-  previewScrim: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(20, 12, 8, 0.34)',
-  },
-  providerBadge: {
-    position: 'absolute',
-    top: spacing.md,
-    left: spacing.md,
-    minHeight: 32,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.full,
-    backgroundColor: 'rgba(20, 12, 8, 0.78)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  providerBadgeText: {
-    color: '#FFFFFF',
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.bold,
-    letterSpacing: 0.2,
-    textTransform: 'capitalize',
-  },
-  previewAction: {
-    position: 'absolute',
-    left: spacing.md,
-    right: spacing.md,
-    top: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-  actionIcon: {
-    width: 62,
-    height: 62,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingLeft: 2,
-    borderWidth: 4,
-    borderColor: 'rgba(255,255,255,0.72)',
-  },
-  previewActionText: {
-    color: '#FFFFFF',
-    fontFamily: fontFamily.semibold,
-    fontSize: fontSize.md,
-    textShadowColor: 'rgba(0,0,0,0.55)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
+  card: { width: '100%', alignSelf: 'center', borderWidth: 1, borderRadius: radius.xl, overflow: 'hidden' },
+  preview: { width: '100%' },
+  previewImage: { width: '100%', maxHeight: 340 },
+  sourceAction: { minHeight: 80, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  providerIcon: { width: 40, height: 40, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' },
+  sourceCopy: { flex: 1, minWidth: 0 },
+  sourceActionText: { fontSize: fontSize.sm, marginTop: spacing.xs },
   footer: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
+    borderTopWidth: StyleSheet.hairlineWidth,
     gap: spacing.sm,
   },
-  footerCopy: { flex: 1 },
   footerTitle: { fontFamily: fontFamily.semibold, fontSize: fontSize.md },
   footerText: { fontSize: fontSize.xs, marginTop: 2 },
   openButton: {
