@@ -21,6 +21,7 @@ Computer-use QA ran against the final JavaScript on owned iPhone 17 Pro (iOS 26.
 - Submitted a private import with notes through the actual UI/API and verified those values on the owner-scoped job.
 - Queued a second link, kept a third unsubmitted draft, and supplied two synthetic local worker completions. The second intake started automatically; both completions preserved the third draft and did not force navigation.
 - Restored an older failed job placed after four saved jobs. Recovery controls remained available with history collapsed, and restoring it preserved the new draft. Expanded/collapsed saved history, opened/closed Import help, and opened/closed Ask Håfa without sending a message.
+- CodeRabbit identified ambiguous saved rows from the same platform. Rows now show a source path/video ID and include it in the accessibility name. A temporary native fixture confirmed two same-platform, same-status imports remain distinguishable on the SE; the fixture was removed before release.
 
 The native shell was the existing development build; these changes add no native dependency. Physical-device and store-build testing remain release checks. Paid extraction providers were disabled locally, so completion transitions used synthetic fixtures rather than a new live AI extraction. Recent activity still uses the existing eight-job API window; this is not unlimited history.
 

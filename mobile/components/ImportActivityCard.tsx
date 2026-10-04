@@ -34,6 +34,21 @@ export function importSourceLabel(sourceUrl: string): string {
   }
 }
 
+export function importSourceDetail(sourceUrl: string): string {
+  try {
+    const url = new URL(sourceUrl);
+    let path = url.pathname;
+    try { path = decodeURIComponent(path); } catch { /* Keep an invalid escape encoded. */ }
+    path = path.replace(/^\/+|\/+$/g, '');
+    const hostname = url.hostname.toLowerCase();
+    const videoId = (hostname === 'youtube.com' || hostname.endsWith('.youtube.com'))
+      ? url.searchParams.get('v') : null;
+    return videoId ? `${path} · ${videoId}` : path || url.hostname;
+  } catch {
+    return 'Recipe link';
+  }
+}
+
 export function importAgeLabel(timestamp?: string, now = Date.now()): string {
   if (!timestamp) return 'Recently';
   const parsed = new Date(timestamp).getTime();
@@ -108,10 +123,11 @@ export function ImportActivityCard({
   const renderJob = (job: JobStatus, index: number) => {
     const presentation = importJobPresentation(job);
     const statusColor = colorFor(presentation.colorKind);
+    const detail = importSourceDetail(job.url);
     return (
       <TouchableOpacity key={job.id} disabled={!presentation.action}
         accessibilityRole={presentation.action ? 'button' : undefined}
-        accessibilityLabel={presentation.actionLabel ? `${presentation.actionLabel} ${importSourceLabel(job.url)} import` : undefined}
+        accessibilityLabel={presentation.actionLabel ? `${presentation.actionLabel} ${importSourceLabel(job.url)} import, ${detail}` : undefined}
         accessibilityHint={presentation.label}
         onPress={() => {
           if (presentation.action === 'open') onOpenRecipe(job);
@@ -120,6 +136,7 @@ export function ImportActivityCard({
         <Ionicons name={presentation.icon} size={20} color={statusColor} />
         <RNView style={styles.jobCopy}>
           <Text style={[styles.source, { color: colors.text }]}>{importSourceLabel(job.url)}</Text>
+          <Text numberOfLines={2} style={[styles.status, { color: colors.textSecondary }]}>{detail}</Text>
           <Text style={[styles.status, { color: statusColor }]}>{presentation.label}</Text>
           {ACTIVE_STATUSES.includes(job.status) && (
             <RNView style={[styles.progressTrack, { backgroundColor: colors.border }]}
