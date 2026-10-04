@@ -611,3 +611,80 @@ async def test_local_limit_stops_invocation_without_burning_following_attempts(d
             )
             == "local_rate_limit"
         )
+
+
+async def test_exhausted_attempts_remain_visible_when_later_item_hits_local_limit(database):
+    exhausted_id, _ = await seed(database)
+    denied_id, _ = await seed(database, number=2)
+    untouched_id, untouched = await seed(database, number=3)
+    plan = await run_backfill(engine=database, release_id="test-release")
+
+    async def failure(extracted, **kwargs):
+        return {
+            **extracted,
+            "derivedData": {
+                "nutrition": {
+                    "status": "unavailable",
+                    "errorCode": "provider_unavailable",
+                }
+            },
+        }
+
+    first = await run_backfill(
+        engine=database,
+        calculator=failure,
+        **{**apply_args(plan), "max_estimates": 1, "max_attempts": 1},
+    )
+    assert first["status"] == "budget_limited"
+    calls = []
+
+    async def denied(extracted, **kwargs):
+        calls.append(extracted)
+        return {
+            **extracted,
+            "derivedData": {
+                "nutrition": {
+                    "status": "unavailable",
+                    "errorCode": "local_rate_limit",
+                }
+            },
+        }
+
+    resumed = await run_backfill(
+        engine=database,
+        calculator=denied,
+        **{**apply_args(plan), "max_attempts": 1},
+    )
+    assert resumed["status"] == "attempt_limit"
+    assert resumed["processed"] == {"attempt_limit": 1, "failed": 1, "local_rate_limit": 1}
+    assert resumed["provider_calls"] == len(calls) == 1
+    async with database.connect() as connection:
+        assert (
+            await connection.scalar(
+                text("SELECT MAX(attempt) FROM nutrition_backfill_events WHERE recipe_id=:id"),
+                {"id": exhausted_id},
+            )
+            == 1
+        )
+        assert (
+            await connection.scalar(
+                text(
+                    "SELECT failure_code FROM nutrition_backfill_events WHERE recipe_id=:id AND outcome='failed'"
+                ),
+                {"id": denied_id},
+            )
+            == "local_rate_limit"
+        )
+        assert (
+            await connection.scalar(
+                text("SELECT COUNT(*) FROM nutrition_backfill_events WHERE recipe_id=:id"),
+                {"id": untouched_id},
+            )
+            == 0
+        )
+        assert (
+            await connection.scalar(
+                text("SELECT extracted FROM recipes WHERE id=:id"), {"id": untouched_id}
+            )
+            == untouched
+        )

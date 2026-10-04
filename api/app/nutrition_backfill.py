@@ -469,6 +469,7 @@ async def run_backfill(
                 "completed",
                 "retryable_failures",
                 "budget_limited",
+                "rate_limited",
             }:
                 status = "attempt_limit"
             return summary(
