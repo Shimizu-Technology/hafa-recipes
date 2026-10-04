@@ -521,6 +521,8 @@ class ManualRecipeCreate(BaseModel):
     nutrition_total: Optional[ManualNutrition] = None
     nutrition_serving_basis: Optional[Literal["source", "recipe_servings", "whole_recipe"]] = None
     nutrition_assumptions: list[str] = Field(default_factory=list, max_length=100)
+    nutrition_source_serving_size: str | None = Field(default=None, max_length=200)
+    nutrition_source_per_serving: ManualNutrition | None = None
     source_type: Optional[Literal["manual", "photo", "text"]] = "manual"
 
 
@@ -862,6 +864,10 @@ async def create_manual_recipe(
         extracted["nutrition"]["total"] = recipe_input.nutrition_total.model_dump(exclude_none=True)
     extracted["nutrition"].update(servingBasis=recipe_input.nutrition_serving_basis,
                                   assumptions=recipe_input.nutrition_assumptions)
+    if recipe_input.nutrition_source_serving_size:
+        extracted["nutrition"]["sourceServingSize"] = recipe_input.nutrition_source_serving_size
+    if recipe_input.nutrition_source_per_serving:
+        extracted["nutrition"]["sourcePerServing"] = recipe_input.nutrition_source_per_serving.model_dump(exclude_none=True)
     extracted = await enrich_nutrition(extracted, user_id=user.id, source="user_provided",
                                       preserve_source=recipe_input.nutrition is not None)
     # Create the recipe

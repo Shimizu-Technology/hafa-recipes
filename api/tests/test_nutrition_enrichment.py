@@ -467,6 +467,32 @@ async def test_invalid_ocr_nutrition_does_not_lose_valid_import(monkeypatch, fak
     assert len(fake_calculator) == 1
 
 
+async def test_manual_import_draft_preserves_publisher_portion_through_save(fake_calculator):
+    import json
+
+    from app.routers import recipes
+    from tests.test_advisory_import_routes import _database, _user
+
+    db, saved = _database()
+    source = {"calories": 100, "protein": 1, "carbs": 15, "fat": 4}
+    original = recipe()
+    response = await recipes.create_manual_recipe(
+        recipe_data=json.dumps({"title": "Cookie draft", "servings": 8,
+                               "ingredients": original["components"][0]["ingredients"],
+                               "steps": original["components"][0]["steps"],
+                               "nutrition": source, "nutrition_serving_basis": "source",
+                               "nutrition_source_serving_size": "1 cookie",
+                               "nutrition_source_per_serving": source}),
+        image=None, db=db, user=_user(),
+    )
+    assert response.extracted.nutrition.sourceServingSize == "1 cookie"
+    assert response.extracted.nutrition.sourcePerServing.calories == 100
+    assert response.extracted.nutrition.perServing.calories == 100
+    assert response.extracted.nutrition.total.calories is None
+    assert saved[0].extracted["nutrition"]["servingsUsed"] is None
+    assert fake_calculator == []
+
+
 def test_unusable_existing_draft_has_specific_unavailable_reason():
     from app.models.recipe import Recipe
     from app.routers.recipes import normalized_recipe_extracted
