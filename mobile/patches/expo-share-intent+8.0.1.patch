@@ -14,6 +14,30 @@ index c1179ac..313a61c 100644
      clearShareIntent(key: string): Promise<void>;
      hasShareIntent(key: string): boolean;
  }
+diff --git a/node_modules/expo-share-intent/build/ExpoShareIntentModule.types.d.ts b/node_modules/expo-share-intent/build/ExpoShareIntentModule.types.d.ts
+index f2ebd1a..0d46a64 100644
+--- a/node_modules/expo-share-intent/build/ExpoShareIntentModule.types.d.ts
++++ b/node_modules/expo-share-intent/build/ExpoShareIntentModule.types.d.ts
+@@ -42,7 +42,19 @@ export type ShareIntentMeta = Record<string, string | undefined> & {
+ /**
+  * Base type for what shared content is common between both platforms.
+  */
++export type HafaShareCaptureMetadata = {
++    captureKey: string;
++    captureId: string;
++    accountScopeId?: string;
++    jobId?: string;
++    recipeId?: string;
++    submitted?: boolean;
++    requestedIsPublic?: boolean;
++    location?: string;
++};
+ interface BaseShareIntent {
++    /** Atomic iOS native payload/identity snapshot; never read the mutable queue head to identify this event. */
++    _hafa?: HafaShareCaptureMetadata;
+     meta?: ShareIntentMeta | null;
+     text?: string | null;
+ }
 diff --git a/node_modules/expo-share-intent/build/useShareIntent.js b/node_modules/expo-share-intent/build/useShareIntent.js
 index 1ab12c4..33dc33e 100644
 --- a/node_modules/expo-share-intent/build/useShareIntent.js
@@ -47,8 +71,24 @@ index 1ab12c4..33dc33e 100644
      }, [url, options.disabled]);
      /**
       * Handle application state (active, background, inactive)
+diff --git a/node_modules/expo-share-intent/build/utils.js b/node_modules/expo-share-intent/build/utils.js
+index 3d343c6..2f21541 100644
+--- a/node_modules/expo-share-intent/build/utils.js
++++ b/node_modules/expo-share-intent/build/utils.js
+@@ -114,6 +114,11 @@ export const parseShareIntent = (value, options) => {
+             type: isMedia ? "media" : "file",
+         };
+     }
++    // Keep native capture identity bound to this event's payload, including
++    // duplicate foreground events that arrive after the durable queue advances.
++    if (shareIntent?._hafa && typeof shareIntent._hafa === "object") {
++        result = { ...result, _hafa: shareIntent._hafa };
++    }
+     options.debug &&
+         console.debug("useShareIntent[parsed] ", JSON.stringify(result, null, 2));
+     return result;
 diff --git a/node_modules/expo-share-intent/ios/ExpoShareIntentModule.swift b/node_modules/expo-share-intent/ios/ExpoShareIntentModule.swift
-index e52b6d0..dedfaab 100644
+index e52b6d0..2a1d56c 100644
 --- a/node_modules/expo-share-intent/ios/ExpoShareIntentModule.swift
 +++ b/node_modules/expo-share-intent/ios/ExpoShareIntentModule.swift
 @@ -5,10 +5,12 @@
@@ -64,7 +104,7 @@ index e52b6d0..dedfaab 100644
      // Each module class must implement the definition function. The definition consists of components
      // that describes the module's functionality and behavior.
      // See https://docs.expo.dev/modules/module-api for more details about available components.
-@@ -18,14 +20,19 @@ public class ExpoShareIntentModule: Module {
+@@ -18,14 +20,27 @@ public class ExpoShareIntentModule: Module {
          // The module will be accessible from `requireNativeModule('ExpoShareIntentModule')` in JavaScript.
          Name("ExpoShareIntentModule")
  
@@ -82,13 +122,21 @@ index e52b6d0..dedfaab 100644
 +                if url.isEmpty && pendingUrl == nil { return nil }
 +                // Deliver the durable head even when a stale deep link arrives.
 +                // Main-app metadata and payload must refer to the same capture.
-+                return self.handleUrl(url: URL(string: pendingUrl ?? url))
++                guard let captureURL = URL(string: pendingUrl ?? url),
++                    let captureKey = captureURL.host?.components(separatedBy: "=").last,
++                    let payload = self.handleUrl(url: captureURL) else { return nil }
++                // Payload and capture identity leave this lock as one immutable
++                // snapshot. A foreground refresh emitted before acknowledgment
++                // must never resolve its metadata against a later queue head.
++                return HafaShareCaptureSnapshot.serialize(
++                    payloadJSON: payload, captureKey: captureKey, defaults: defaults)
++
 +            } ?? nil
 +            if let json, json != "error" && json != "empty" {
                  self.sendEvent(
                      "onChange",
                      [
-@@ -35,10 +42,26 @@ public class ExpoShareIntentModule: Module {
+@@ -35,10 +50,26 @@ public class ExpoShareIntentModule: Module {
          }
  
          Function("clearShareIntent") { (sharedKey: String) in
@@ -119,7 +167,7 @@ index e52b6d0..dedfaab 100644
          }
  
          Function("hasShareIntent") { (key: String) in
-@@ -161,6 +184,25 @@ public class ExpoShareIntentModule: Module {
+@@ -161,6 +192,25 @@ public class ExpoShareIntentModule: Module {
          return "error"
      }
  
@@ -145,6 +193,36 @@ index e52b6d0..dedfaab 100644
      private func getAppGroupIdentifier() -> String? {
          let appGroupIdentifier: String? =
              Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier")
+@@ -291,3 +341,29 @@ extension Encodable {
+         return jsonString
+     }
+ }
++
++// HAFA_ATOMIC_CAPTURE_SNAPSHOT_BEGIN
++// This helper runs only inside the same flock transaction as payload lookup.
++// Its returned JSON contains the complete identity snapshot consumed by JS.
++enum HafaShareCaptureSnapshot {
++    static func serialize(payloadJSON: String, captureKey: String, defaults: UserDefaults) -> String? {
++        guard let payloadData = payloadJSON.data(using: .utf8),
++            var payload = (try? JSONSerialization.jsonObject(with: payloadData)) as? [String: Any]
++        else { return nil }
++        var metadata = defaults.dictionary(forKey: "\(captureKey).meta") ?? [
++            "captureId": captureKey.components(separatedBy: ".").last
++                .flatMap { UUID(uuidString: $0)?.uuidString.lowercased() }
++                ?? UUID().uuidString.lowercased(),
++            "submitted": false,
++            "requestedIsPublic": false,
++        ]
++        // Persist upgrades inside this transaction so repeated pre-ack events
++        // share one stable ID even for legacy captures without a UUID suffix.
++        metadata["captureKey"] = captureKey
++        defaults.set(metadata, forKey: "\(captureKey).meta")
++        payload["_hafa"] = metadata
++        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
++        return String(data: data, encoding: .utf8)
++    }
++}
++// HAFA_ATOMIC_CAPTURE_SNAPSHOT_END
 diff --git a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
 index f1f4b72..6544faf 100644
 --- a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
