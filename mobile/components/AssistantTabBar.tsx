@@ -19,6 +19,7 @@ export function AssistantTabBar({ isSignedIn, ...tabBarProps }: Props) {
   const [keyboardVisible, setKeyboardVisible] = useState(() => Keyboard.isVisible());
   const [showChat, setShowChat] = useState(false);
   const [hasOpenedChat, setHasOpenedChat] = useState(false);
+  const isImportTab = tabBarProps.state.routes?.[tabBarProps.state.index]?.name === 'index';
 
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
@@ -40,7 +41,7 @@ export function AssistantTabBar({ isSignedIn, ...tabBarProps }: Props) {
     <View style={{ backgroundColor: colors.backgroundElevated, overflow: 'visible' }}>
       <BottomTabBar {...tabBarProps} />
       {isSignedIn && !keyboardVisible && (
-        <View style={styles.floatingAction}>
+        <View style={{ ...styles.floatingAction, marginBottom: isImportTab ? 112 : 12 }}>
           <AssistantFloatingButton onPress={() => {
             setHasOpenedChat(true);
             setShowChat(true);
