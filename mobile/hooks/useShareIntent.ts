@@ -37,6 +37,8 @@ export function useHandleShareIntent() {
   const currentPayloadRef = useRef(shareIntent);
   currentPayloadRef.current = shareIntent;
   const processedPayloads = useRef(new WeakSet<object>());
+  const processedCaptureIds = useRef(new Set<string>());
+  const processedCaptureKeys = useRef(new Set<string>());
   const [workerVersion, setWorkerVersion] = useState(0);
   useEffect(() => {
     mountedRef.current = true;
@@ -49,6 +51,17 @@ export function useHandleShareIntent() {
   useEffect(() => {
     if (!isLoaded || !hasShareIntent || !shareIntent || processingRef.current ||
         (isSignedIn && !ownerId) || processedPayloads.current.has(shareIntent)) return;
+    // Metadata and content are a single locked native snapshot. Reading the
+    // queue head later can bind replayed payload A to the next capture B.
+    let native: NativeCaptureMetadata | null = null;
+    if (Platform.OS === 'ios') {
+      const snapshot = (shareIntent as typeof shareIntent & { _hafa?: unknown })._hafa;
+      try {
+        native = typeof snapshot === 'string' ? JSON.parse(snapshot) : snapshot as NativeCaptureMetadata | null;
+      } catch { native = null; }
+      if (native?.captureId && native.captureKey &&
+          (processedCaptureIds.current.has(native.captureId) || processedCaptureKeys.current.has(native.captureKey))) return;
+    }
     processingRef.current = true;
     setIsProcessing(true);
     let shouldDrain = false;
@@ -63,13 +76,8 @@ export function useHandleShareIntent() {
           resetShareIntent(false);
           return;
         }
-        let native: NativeCaptureMetadata | null = null;
-        if (Platform.OS === 'ios') {
-          const raw = await ShareBridge.getCurrentCaptureMetadata();
-          native = raw ? JSON.parse(raw) as NativeCaptureMetadata : null;
-          if (!native?.captureKey || !native.captureId) {
-            throw new Error('Could not confirm this shared recipe. It is still saved; please reopen Håfa to try again.');
-          }
+        if (Platform.OS === 'ios' && (!native?.captureKey || !native.captureId)) {
+          throw new Error('Could not confirm this shared recipe. It is still saved; please reopen Håfa to try again.');
         }
         let id = native?.captureId || payloadIds.current.get(shareIntent);
         if (!id) {
@@ -95,6 +103,10 @@ export function useHandleShareIntent() {
         }
         // Clear only the JS payload. Native data was acknowledged by exact ID.
         processedPayloads.current.add(shareIntent);
+        if (native) {
+          processedCaptureIds.current.add(native.captureId);
+          processedCaptureKeys.current.add(native.captureKey);
+        }
         shouldDrain = Platform.OS === 'ios';
         // A new onChange can arrive while A is persisting/acknowledging. Do
         // not clear B's payload or navigate for A after B has taken its place.

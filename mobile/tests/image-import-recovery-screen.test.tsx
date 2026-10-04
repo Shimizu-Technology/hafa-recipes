@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   focused: true,
+  ownerId: 'owner-a',
   inboxEntries: [] as any[],
   addInbox: vi.fn(async () => undefined),
   claimInbox: vi.fn(async () => undefined),
@@ -171,7 +172,7 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 vi.mock('@/lib/shareCapture', () => ({ consumePendingShareCapture: () => null, stagePendingShareCapture: () => 'token' }));
-vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: 'owner-a', entries: mocks.inboxEntries, storageError: null }) }));
+vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: mocks.ownerId, entries: mocks.inboxEntries, storageError: null }) }));
 vi.mock('@/lib/importInbox', () => ({ importInbox: { add: mocks.addInbox, claim: mocks.claimInbox, patch: vi.fn(), remove: vi.fn() } }));
 vi.mock('@/hooks/usePublishingDisclosure', () => ({
   usePublishingDisclosure: () => ({
@@ -196,7 +197,7 @@ function touchableWithText(renderer: ReactTestRenderer, text: string) {
 
 describe('classified image recovery', () => {
   beforeEach(() => {
-    mocks.focused = true;
+    mocks.focused = true; mocks.ownerId = 'owner-a';
     mocks.pendingShareCount = 0;
     mocks.queueChanged = null;
     mocks.getShareIntent.mockReset();
@@ -259,6 +260,23 @@ describe('classified image recovery', () => {
       await act(async () => renderer?.unmount());
       vi.useRealTimers();
     }
+  });
+
+  it('does not save A images under B after a delayed extraction', async () => {
+    let finish!: (value: any) => void;
+    mocks.extractMultiple.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    await act(async () => touchableWithText(renderer, 'Import Screenshots or Photos')!.props.onPress());
+    const chooseAction = mocks.alert.mock.calls.at(-1)?.[2].find((action: { text: string }) => action.text === 'Choose Screenshots or Photos');
+    await act(async () => { await chooseAction.onPress(); });
+    let submit!: Promise<void>;
+    await act(async () => { submit = renderer.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Import Recipe from 2 Images')!.props.onPress(); });
+    mocks.ownerId = 'owner-b';
+    await act(async () => renderer.update(<ExtractScreen />));
+    await act(async () => { finish({ success: true, recipe: { title: 'A images', components: [] } }); await submit; });
+    expect(mocks.save).not.toHaveBeenCalled(); expect(mocks.push).not.toHaveBeenCalled();
+    await act(async () => renderer.unmount());
   });
 
   it('opens a private photo draft while retaining every selected source image', async () => {
@@ -429,7 +447,7 @@ describe('classified image recovery', () => {
     expect(mocks.extractMultiple).toHaveBeenCalledTimes(1);
     expect(mocks.push).toHaveBeenCalledWith({ pathname: '/ocr-review', params: {
       recipe: JSON.stringify(recipe), sourceType: 'photo', isPublic: 'true', location: 'Guam', saveFailed: 'true',
-      captureId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', saveErrorKind: 'retry', saveErrorMessage: 'Offline',
+      captureId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', captureOwnerId: 'owner-a', saveErrorKind: 'retry', saveErrorMessage: 'Offline',
     } });
   });
 

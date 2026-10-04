@@ -1,3 +1,5 @@
+import { CaptureAccountChangedError } from '@/lib/captureAccount';
+import type { CapturedRecipeSaveInput } from '@/lib/captureSave';
 /**
  * React Query hooks for recipe operations.
  */
@@ -1498,21 +1500,31 @@ export function useUnsaveRecipe() {
 
 export function useSaveCapturedRecipe() {
   const queryClient = useQueryClient();
-
+  const { userId: subject } = useAuth();
+  const identity = useCurrentUserIdentity();
+  const ownerId = identity.data?.id;
+  const current = useRef({ ownerId, subject, mounted: true });
+  current.current = { ...current.current, ownerId, subject };
+  useEffect(() => {
+    current.current.mounted = true;
+    return () => { current.current.mounted = false; };
+  }, []);
   return useMutation({
-    mutationFn: (params: {
-      extracted: any;
-      source_type: CaptureSourceType;
-      is_public?: boolean;
-      capture_id?: string;
-    }) => api.saveCapturedRecipe(params),
+    mutationFn: (params: Omit<CapturedRecipeSaveInput, 'is_public'> & { is_public?: boolean }) => {
+      const expectedOwner = params.expected_owner_id ?? ownerId;
+      const expectedSubject = subject;
+      const guard = () => {
+        if (!expectedOwner || !current.current.mounted || current.current.ownerId !== expectedOwner || current.current.subject !== expectedSubject) {
+          throw new CaptureAccountChangedError();
+        }
+        params.requestGuard?.();
+      };
+      guard();
+      return api.saveCapturedRecipe({ ...params, requestGuard: guard });
+    },
     onSuccess: (data) => {
       invalidateCreatedRecipeQueries(queryClient, data.id);
       queryClient.invalidateQueries({ queryKey: ['myRecipes'] });
-      console.log('Captured recipe saved successfully:', data.id);
-    },
-    onError: () => {
-      // Error handled by caller with Alert
     },
   });
 }

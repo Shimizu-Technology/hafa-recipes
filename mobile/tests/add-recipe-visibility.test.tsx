@@ -1,3 +1,4 @@
+vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: 'owner-a', entries: [] }) }));
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -202,7 +203,7 @@ describe('AddRecipeScreen visibility', () => {
     expect(mocks.requestPublishing).toHaveBeenCalledTimes(2);
     expect(mocks.createManualRecipe).toHaveBeenCalledWith(
       expect.objectContaining({ is_public: true }),
-      null,
+      null, expect.any(Function),
     );
   });
 
@@ -217,7 +218,7 @@ describe('AddRecipeScreen visibility', () => {
     expect(mocks.requestPublishing).toHaveBeenCalledTimes(1);
     expect(mocks.createManualRecipe).toHaveBeenCalledWith(
       expect.objectContaining({ is_public: false }),
-      null,
+      null, expect.any(Function),
     );
   });
 
@@ -245,7 +246,7 @@ describe('AddRecipeScreen visibility', () => {
         is_public: false,
         source_type: 'photo',
       }),
-      'file:///recipe-card.jpg',
+      'file:///recipe-card.jpg', expect.any(Function),
     );
   });
   it('preserves an imported AI estimate separately when saving from the fallback editor', async () => {
@@ -253,7 +254,7 @@ describe('AddRecipeScreen visibility', () => {
     mocks.params.initialData = JSON.stringify({ title: 'Rice', ingredients: [{ name: 'rice', quantity: null, unit: null, quantityEstimate: estimate }], steps: ['Cook.'] });
     const renderer = await renderRecipe();
     await act(async () => headerAction(renderer, 'Save private').props.onPress());
-    expect(mocks.createManualRecipe).toHaveBeenCalledWith(expect.objectContaining({ ingredients: [expect.objectContaining({ quantity: null, quantityEstimate: estimate })] }), null);
+    expect(mocks.createManualRecipe).toHaveBeenCalledWith(expect.objectContaining({ ingredients: [expect.objectContaining({ quantity: null, quantityEstimate: estimate })] }), null, expect.any(Function));
   });
 
   it('discards contextual estimates when the user changes the serving count in the fallback editor', async () => {
@@ -263,7 +264,7 @@ describe('AddRecipeScreen visibility', () => {
     const input = renderer.root.findAllByType('TextInput' as unknown as React.ComponentType).find(node => node.props.value === '4')!;
     await act(async () => input.props.onChangeText('6'));
     await act(async () => headerAction(renderer, 'Save private').props.onPress());
-    expect(mocks.createManualRecipe).toHaveBeenCalledWith(expect.objectContaining({ servings: 6, ingredients: [expect.objectContaining({ quantity: null, quantityEstimate: null })] }), null);
+    expect(mocks.createManualRecipe).toHaveBeenCalledWith(expect.objectContaining({ servings: 6, ingredients: [expect.objectContaining({ quantity: null, quantityEstimate: null })] }), null, expect.any(Function));
   });
 
   it('does not copy an AI unit into source fields when renaming an ingredient', async () => {
@@ -273,7 +274,7 @@ describe('AddRecipeScreen visibility', () => {
     const input = renderer.root.findAllByType('TextInput' as unknown as React.ComponentType).find(node => node.props.placeholder === 'Ingredient name')!;
     await act(async () => input.props.onChangeText('brown rice'));
     await act(async () => headerAction(renderer, 'Save private').props.onPress());
-    expect(mocks.createManualRecipe).toHaveBeenCalledWith(expect.objectContaining({ ingredients: [expect.objectContaining({ name: 'brown rice', quantity: null, unit: null, quantityEstimate: null })] }), null);
+    expect(mocks.createManualRecipe).toHaveBeenCalledWith(expect.objectContaining({ ingredients: [expect.objectContaining({ name: 'brown rice', quantity: null, unit: null, quantityEstimate: null })] }), null, expect.any(Function));
   });
 
   it('defaults new entries to public and saves without a tags or nutrition prompt', async () => {
@@ -281,7 +282,7 @@ describe('AddRecipeScreen visibility', () => {
     const renderer = await renderRecipe();
     expect(visibilityOption(renderer, 'Public in Discover').props.accessibilityState.checked).toBe(true);
     await act(async () => headerAction(renderer, 'Publish').props.onPress());
-    expect(mocks.createManualRecipe).toHaveBeenCalledWith(expect.objectContaining({ is_public: true }), null);
+    expect(mocks.createManualRecipe).toHaveBeenCalledWith(expect.objectContaining({ is_public: true }), null, expect.any(Function));
     expect(mocks.alert).not.toHaveBeenCalled();
     expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
   });

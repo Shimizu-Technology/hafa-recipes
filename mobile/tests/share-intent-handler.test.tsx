@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   alert: vi.fn(), replace: vi.fn(), reset: vi.fn(), add: vi.fn(), ack: vi.fn(), metadata: vi.fn(),
   scopeOwner: vi.fn(), getShareIntent: vi.fn(), signedIn: true,
-  payload: { webUrl: 'https://example.com/recipe', files: null, text: null, type: 'weburl' },
+  payload: { webUrl: 'https://example.com/recipe', files: null, text: null, type: 'weburl', _hafa: {} as Record<string, unknown> },
   action: { kind: 'url', url: 'https://example.com/recipe' } as Record<string, unknown>,
   hasIntent: true,
 }));
@@ -32,7 +32,7 @@ let renderer: ReactTestRenderer;
 async function render() { await act(async () => { renderer = create(<Harness />); }); }
 beforeEach(() => {
   vi.useFakeTimers(); vi.clearAllMocks(); mocks.signedIn = true; mocks.hasIntent = true;
-  mocks.payload = { webUrl: 'https://example.com/recipe', files: null, text: null, type: 'weburl' };
+  mocks.payload = { webUrl: 'https://example.com/recipe', files: null, text: null, type: 'weburl', _hafa: { captureKey: 'key-a', captureId: 'capture-a', accountScopeId: 'scope-a' } };
   mocks.action = { kind: 'url', url: 'https://example.com/recipe' };
   mocks.metadata.mockResolvedValue(JSON.stringify({ captureKey: 'key-a', captureId: 'capture-a', accountScopeId: 'scope-a' }));
   mocks.scopeOwner.mockResolvedValue('durable-owner'); mocks.add.mockResolvedValue(undefined); mocks.ack.mockResolvedValue(true);
@@ -51,7 +51,7 @@ describe('durable share intake', () => {
     let finishA!: () => void;
     mocks.add.mockImplementationOnce(() => new Promise<void>((resolve) => { finishA = resolve; }));
     await render();
-    mocks.payload = { webUrl: 'https://example.com/b', files: null, text: null, type: 'weburl' };
+    mocks.payload = { webUrl: 'https://example.com/b', files: null, text: null, type: 'weburl', _hafa: { captureKey: 'key-b', captureId: 'capture-b', accountScopeId: 'scope-a' } };
     mocks.action = { kind: 'url', url: 'https://example.com/b' };
     mocks.metadata.mockResolvedValue(JSON.stringify({ captureKey: 'key-b', captureId: 'capture-b', accountScopeId: 'scope-a' }));
     await act(async () => renderer.update(<Harness />));
@@ -63,6 +63,28 @@ describe('durable share intake', () => {
     await act(async () => { vi.runOnlyPendingTimers(); });
     expect(mocks.getShareIntent).toHaveBeenCalled();
   });
+  it('ignores duplicate A2 snapshots while the native head moves to queued B', async () => {
+    let finishA!: () => void;
+    mocks.add.mockImplementationOnce(() => new Promise<void>((resolve) => { finishA = resolve; }));
+    await render();
+    mocks.payload = { ...mocks.payload, _hafa: { ...mocks.payload._hafa } };
+    await act(async () => renderer.update(<Harness />));
+    mocks.metadata.mockResolvedValue(JSON.stringify({ captureKey: 'key-b', captureId: 'capture-b', accountScopeId: 'scope-a' }));
+    await act(async () => finishA());
+    expect(mocks.add).toHaveBeenCalledOnce(); expect(mocks.ack).toHaveBeenCalledExactlyOnceWith('key-a');
+    expect(mocks.metadata).not.toHaveBeenCalled();
+    mocks.getShareIntent.mockImplementationOnce(async () => {
+      mocks.payload = { webUrl: 'https://example.com/b', files: null, text: null, type: 'weburl', _hafa: { captureKey: 'key-b', captureId: 'capture-b', accountScopeId: 'scope-a' } };
+      mocks.action = { kind: 'url', url: 'https://example.com/b' };
+      renderer.update(<Harness />);
+    });
+    await act(async () => { vi.runOnlyPendingTimers(); });
+    expect(mocks.add.mock.calls.map(([entry]) => [entry.id, entry.capture.url])).toEqual([
+      ['capture-a', 'https://example.com/recipe'], ['capture-b', 'https://example.com/b'],
+    ]);
+    expect(mocks.ack.mock.calls.map(([key]) => key)).toEqual(['key-a', 'key-b']);
+    expect(mocks.metadata).not.toHaveBeenCalled();
+  });
   it('retains native content when the durable write fails', async () => {
     mocks.add.mockRejectedValueOnce(new Error('Disk full'));
     await render();
@@ -71,7 +93,7 @@ describe('durable share intake', () => {
   });
   it('retains a signed-out URL without silently assigning it after sign-in', async () => {
     mocks.signedIn = false;
-    mocks.metadata.mockResolvedValue(JSON.stringify({ captureKey: 'key-a', captureId: 'capture-a' }));
+    mocks.payload._hafa = { captureKey: 'key-a', captureId: 'capture-a' };
     await render();
     expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ ownerId: null, state: 'waiting' }));
     expect(mocks.ack).toHaveBeenCalledWith('key-a');
@@ -87,7 +109,7 @@ describe('durable share intake', () => {
     expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ ownerId: null, accountScopeId: 'scope-a', state: 'waiting' }));
   });
   it('stores server-submitted jobs without starting another extraction', async () => {
-    mocks.metadata.mockResolvedValue(JSON.stringify({ captureKey: 'key-a', captureId: 'capture-a', accountScopeId: 'scope-a', submitted: true, jobId: 'job-a' }));
+    mocks.payload._hafa = { captureKey: 'key-a', captureId: 'capture-a', accountScopeId: 'scope-a', submitted: true, jobId: 'job-a' };
     await render();
     expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ state: 'accepted', jobId: 'job-a' }));
   });

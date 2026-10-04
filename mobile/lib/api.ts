@@ -483,9 +483,12 @@ class ApiClient {
       nutrition_total?: NutritionEstimateValues | null;
       nutrition_serving_basis?: 'source' | 'recipe_servings' | 'whole_recipe';
       nutrition_assumptions?: string[];
+      nutrition_source_serving_size?: string | null;
+      nutrition_source_per_serving?: NutritionEstimateValues | null;
       source_type?: 'manual' | CaptureSourceType;
     },
-    imageUri?: string | null
+    imageUri?: string | null,
+    requestGuard?: RequestGuard
   ): Promise<Recipe> {
     // Create form data for multipart upload
     const formData = new FormData();
@@ -506,6 +509,7 @@ class ApiClient {
     
     // Use fetch for multipart form data (axios has issues with FormData in React Native)
     const token = await this.getAuthTokenWithRetry('/api/recipes/manual');
+    requestGuard?.();
     
     const response = await fetch(`${API_BASE_URL}/api/recipes/manual`, {
       method: 'POST',
@@ -850,13 +854,14 @@ class ApiClient {
     source_type: CaptureSourceType;
     is_public?: boolean;
     capture_id?: string;
+    requestGuard?: RequestGuard;
   }): Promise<Recipe> {
     const { data } = await this.client.post('/api/recipes/from-capture', {
       extracted: params.extracted,
       source_type: params.source_type,
       is_public: params.is_public ?? false,
       ...(params.capture_id ? { capture_id: params.capture_id } : {}),
-    });
+    }, { requestGuard: params.requestGuard } as GuardedRequestConfig);
     return data;
   }
 

@@ -1,3 +1,5 @@
+import { useImportInbox } from '@/hooks/useImportInbox';
+import { CaptureAccountChangedError } from '@/lib/captureAccount';
 import { NutritionPanel } from '@/components/NutritionPanel';
 import { hasNutritionValues, normalizeNutritionValues } from '@/lib/nutritionPresentation';
 import type { NutritionEstimateValues } from '@/lib/api';
@@ -92,18 +94,30 @@ export default function AddRecipeScreen() {
     isPublic: isPublicParam,
     fromOcr,
     captureSource,
+    captureOwnerId,
   } = useLocalSearchParams<{
     initialData?: string;
     initialImageUri?: string;
     isPublic?: string;
     fromOcr?: string;
     captureSource?: 'photo' | 'text';
+    captureOwnerId?: string;
   }>();
   
+  const inbox = useImportInbox();
+  const captureOwner = useRef({ ownerId: inbox.ownerId, mounted: true });
+  captureOwner.current.ownerId = inbox.ownerId;
+  useEffect(() => {
+    captureOwner.current.mounted = true;
+    return () => { captureOwner.current.mounted = false; };
+  }, []);
+  const savingOwner = useRef<string | null>(null);
   // `fromOcr` preserves navigation compatibility with released photo flows.
   const importedSource = captureSource === 'text'
     ? 'text'
     : (captureSource === 'photo' || fromOcr === 'true' ? 'photo' : 'manual');
+  const importedOwner = useRef<string | null>(captureOwnerId ?? null);
+  if (importedSource !== 'manual' && !importedOwner.current && inbox.ownerId) importedOwner.current = inbox.ownerId;
 
   // Form state
   const [title, setTitle] = useState('');
@@ -217,7 +231,7 @@ export default function AddRecipeScreen() {
   // AI feature states
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const [isEstimatingNutrition, setIsEstimatingNutrition] = useState(false);
-  const [sourceNutrition, setSourceNutrition] = useState<Nutrition | null>(null);
+  const [sourceNutrition, setSourceNutrition] = useState<(Nutrition & { sourcePerServing?: NutritionEstimateValues }) | null>(null);
   const [estimatedNutrition, setEstimatedNutrition] = useState<NutritionEstimateValues | null>(null);
   const [estimatedNutritionTotal, setEstimatedNutritionTotal] = useState<NutritionEstimateValues | null>(null);
   const [nutritionBasis, setNutritionBasis] = useState<'source' | 'recipe_servings' | 'whole_recipe'>('recipe_servings');
@@ -231,6 +245,12 @@ export default function AddRecipeScreen() {
   // Create recipe mutation
   const createMutation = useMutation({
     mutationFn: async () => {
+      const originalOwner = importedSource === 'manual' ? inbox.ownerId : importedOwner.current;
+      const guardOwner = () => {
+        if (!originalOwner || !captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) throw new CaptureAccountChangedError();
+      };
+      guardOwner();
+      savingOwner.current = originalOwner;
       // Filter out empty ingredients and steps
       const validIngredients = ingredients
         .filter(ing => ing.name.trim())
@@ -277,19 +297,23 @@ export default function AddRecipeScreen() {
           is_public: isStructurallyComplete ? isPublic : false,
           nutrition: nutritionMatchesInputs ? estimatedNutrition : null,
           nutrition_total: nutritionMatchesInputs ? estimatedNutritionTotal : null,
+          nutrition_source_serving_size: nutritionMatchesInputs ? sourceNutrition?.sourceServingSize ?? null : null,
+          nutrition_source_per_serving: nutritionMatchesInputs ? sourceNutrition?.sourcePerServing ?? null : null,
           nutrition_serving_basis: nutritionBasis,
           nutrition_assumptions: nutritionAssumptions,
           source_type: importedSource,
         },
-        imageUri
+        imageUri, guardOwner
       );
     },
     onSuccess: (recipe) => {
+      if (!captureOwner.current.mounted || captureOwner.current.ownerId !== savingOwner.current) return;
       invalidateCreatedRecipeQueries(queryClient, recipe.id);
       
       router.replace(`/recipe/${recipe.id}`);
     },
     onError: (error: Error) => {
+      if (error instanceof CaptureAccountChangedError) return;
       Alert.alert('Error', error.message || 'Failed to create recipe');
     },
   });

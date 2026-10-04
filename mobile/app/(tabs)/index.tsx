@@ -31,7 +31,7 @@ import { consumePendingShareCapture, stagePendingShareCapture } from '@/lib/shar
 import { importInbox, type ImportInboxEntry } from '@/lib/importInbox';
 import { useImportInbox } from '@/hooks/useImportInbox';
 import { RecipeVisibilitySelector } from '@/components/RecipeVisibilitySelector';
-import { saveCaptureOrRecover } from '@/lib/captureSave';
+import { CaptureAccountChangedError, saveCaptureOrRecover } from '@/lib/captureSave';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import {
   getImageImportFailurePresentation,
@@ -59,6 +59,12 @@ export default function ExtractScreen() {
   const [showOptions, setShowOptions] = useState(false);
   const [showProgressDetails, setShowProgressDetails] = useState(false);
   const inbox = useImportInbox();
+  const captureOwner = useRef({ ownerId: inbox.ownerId, mounted: true });
+  captureOwner.current.ownerId = inbox.ownerId;
+  useEffect(() => {
+    captureOwner.current.mounted = true;
+    return () => { captureOwner.current.mounted = false; };
+  }, []);
   const [selectedLocation, setSelectedLocation] = useState('Guam');
   const [isPublic, setIsPublic] = useState(true);
   const currentDraft = useRef({ url, notes, isPublic, selectedLocation, ownerId: inbox.ownerId });
@@ -72,6 +78,11 @@ export default function ExtractScreen() {
   const [selectedImages, setSelectedImages] = useState<RecipeImageUpload[]>([]); // Multi-image support
   const [showImageGallery, setShowImageGallery] = useState(false);
   const [selectedInboxId, setSelectedInboxId] = useState<string | null>(null);
+  useEffect(() => {
+    imageImportInFlight.current = false;
+    setIsOcrExtracting(false); setOcrProgress('');
+    setSelectedImages([]); setShowImageGallery(false); setSelectedInboxId(null);
+  }, [inbox.ownerId]);
   const [pendingShares, setPendingShares] = useState(0);
   const [isOpeningNextShare, setIsOpeningNextShare] = useState(false);
   const openingNextShare = useRef(false);
@@ -229,12 +240,18 @@ export default function ExtractScreen() {
 
   const extractFromImages = async () => {
     if (selectedImages.length === 0 || imageImportInFlight.current || isCheckingDisclosure) return;
+    const originalOwner = inbox.ownerId;
+    if (!originalOwner) { Alert.alert('Sign In to Import', 'Please sign in and wait for your recipe library to load.'); return; }
+    const guardOwner = () => {
+      if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) throw new CaptureAccountChangedError();
+    };
     imageImportInFlight.current = true;
-    if (isPublic && !(await requestPublishing())) {
-      imageImportInFlight.current = false;
-      setIsPublic(false);
-      return;
+    if (isPublic) {
+      const allowed = await requestPublishing();
+      if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
+      if (!allowed) { imageImportInFlight.current = false; setIsPublic(false); return; }
     }
+    if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
 
     setIsOcrExtracting(true);
     setShowImageGallery(false);
@@ -245,11 +262,13 @@ export default function ExtractScreen() {
     try {
       setOcrProgress(`Extracting recipe with AI vision...`);
 
+      guardOwner();
       // Use single or multi-image API based on count
       const result = imageCount === 1
         ? await api.extractRecipeFromImage(selectedImages[0], selectedLocation)
         : await api.extractRecipeFromMultipleImages(selectedImages, selectedLocation);
 
+      guardOwner();
       if (result.success && result.recipe) {
         setOcrProgress('Saving recipe...');
         const destination = await saveCaptureOrRecover({
@@ -257,11 +276,15 @@ export default function ExtractScreen() {
           source_type: 'photo',
           is_public: isPublic,
           capture_id: selectedInboxId ?? undefined,
+          expected_owner_id: originalOwner, requestGuard: guardOwner,
         }, selectedLocation, saveCapturedRecipe.mutateAsync);
+        guardOwner();
         if (selectedInboxId && typeof destination === 'string') {
           await importInbox.patch(selectedInboxId, { state: 'accepted', recipeId: destination.split('/').pop() });
+          guardOwner();
           setSelectedInboxId(null);
         }
+        guardOwner();
         setSelectedImages([]);
         router.push(destination);
       } else {
@@ -271,6 +294,7 @@ export default function ExtractScreen() {
               {
                 text: 'Use Image & Enter Manually',
                 onPress: () => {
+                  try { guardOwner(); } catch { return; }
                   const draftRoute = getManualImageDraftRoute(selectedImages[0]?.uri);
                   if (!draftRoute) return;
                   // Keep every selected source on Import so multi-page recovery
@@ -284,6 +308,7 @@ export default function ExtractScreen() {
         setShowImageGallery(true); // Show gallery again to retry
       }
     } catch (error: any) {
+      if (error instanceof CaptureAccountChangedError || !captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
       // User-facing alert is sufficient
       Alert.alert(
         'Extraction Failed',
@@ -291,9 +316,11 @@ export default function ExtractScreen() {
       );
       setShowImageGallery(true); // Show gallery again to retry
     } finally {
-      imageImportInFlight.current = false;
-      setIsOcrExtracting(false);
-      setOcrProgress('');
+      if (captureOwner.current.ownerId === originalOwner) imageImportInFlight.current = false;
+      if (captureOwner.current.mounted && captureOwner.current.ownerId === originalOwner) {
+        setIsOcrExtracting(false);
+        setOcrProgress('');
+      }
     }
   };
 
