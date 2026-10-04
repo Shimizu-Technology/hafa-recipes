@@ -15,6 +15,7 @@ type SourcePlaybackCardProps = {
   onThumbnailError?: () => void;
   onOpenSource: () => void | Promise<void>;
   embeddedPlaybackEnabled?: boolean;
+  compact?: boolean;
 };
 
 const PROVIDER_ICONS = {
@@ -50,6 +51,7 @@ export function SourcePlaybackCard({
   onThumbnailError,
   onOpenSource,
   embeddedPlaybackEnabled = true,
+  compact = false,
 }: SourcePlaybackCardProps) {
   const colors = useColors();
   const [isPlayerVisible, setIsPlayerVisible] = useState(false);
@@ -79,7 +81,7 @@ export function SourcePlaybackCard({
   return (
     <RNView style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
       <TouchableOpacity
-        style={styles.preview}
+        style={compact ? styles.compactPreview : styles.preview}
         onPress={handlePreviewPress}
         activeOpacity={0.9}
         accessibilityRole={isExternal ? 'link' : 'button'}
@@ -88,7 +90,15 @@ export function SourcePlaybackCard({
           ? 'Opens the original source outside Håfa Recipes'
           : `Loading this player connects to ${playback.providerLabel}; its privacy terms apply`}
       >
-        <RecipeThumbnail
+        {compact ? <>
+          <RecipeThumbnail uri={thumbnailUrl} style={styles.compactThumbnail} accessible={false}
+            placeholderIconSize={28} onError={onThumbnailError} />
+          <RNView style={styles.compactCopy}>
+            <Text style={[styles.footerTitle, { color: colors.text }]}>{playback.providerLabel} {mediaLabel(playback.mediaKind)}</Text>
+            <Text style={[styles.compactAction, { color: colors.actionText }]}>{actionLabel}</Text>
+          </RNView>
+          <Ionicons name={isExternal ? 'open-outline' : 'play-circle-outline'} size={24} color={colors.actionText} />
+        </> : <><RecipeThumbnail
           uri={thumbnailUrl}
           style={styles.previewImage}
           accessible={false}
@@ -116,10 +126,10 @@ export function SourcePlaybackCard({
             />
           </RNView>
           <Text style={styles.previewActionText}>{actionLabel}</Text>
-        </RNView>
+        </RNView></>}
       </TouchableOpacity>
 
-      <RNView style={styles.footer}>
+      {(!compact || !isExternal) && <RNView style={styles.footer}>
         <RNView style={styles.footerCopy}>
           <Text style={[styles.footerTitle, { color: colors.text }]}>
             {isExternal
@@ -143,7 +153,7 @@ export function SourcePlaybackCard({
             <Ionicons name="open-outline" size={16} color={colors.tint} />
           </TouchableOpacity>
         )}
-      </RNView>
+      </RNView>}
 
       {playback.mode === 'modal' && embeddedPlaybackEnabled && isPlayerVisible && (
         <SourcePlaybackModal
@@ -160,6 +170,10 @@ export function SourcePlaybackCard({
 }
 
 const styles = StyleSheet.create({
+  compactPreview: { minHeight: 88, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  compactThumbnail: { width: 56, height: 56, borderRadius: radius.sm },
+  compactCopy: { flex: 1, minWidth: 0 },
+  compactAction: { fontSize: fontSize.sm, marginTop: spacing.xs },
   card: {
     borderWidth: 1,
     overflow: 'hidden',

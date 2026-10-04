@@ -44,3 +44,97 @@ describe('nutrition presentation', () => {
     expect(display.sourcePerServing).toMatchObject([{ key: 'calories', value: 100 }, { key: 'sugar', value: 0 }]);
   });
 });
+
+import {
+  formatNutritionAsText, nutritionAssumptions, nutritionBases, nutritionProvenance,
+  nutritionStatusMessage, selectNutritionBasis,
+} from './nutritionPresentation';
+
+const knownNutrition = () => ({ servingBasis: 'recipe_servings' as const, servingsUsed: 4,
+  perServing: normalizeNutritionValues({ calories: 100, protein: 0, fat: 1.25, fiber: 0.2 }),
+  total: normalizeNutritionValues({ calories: 400, protein: 0, fat: 5, fiber: 0.8 }),
+});
+
+describe('nutrition basis and export', () => {
+  it('defaults to a recipe serving and selects scaled whole totals without scaling per servings', () => {
+    const bases = nutritionBases(knownNutrition(), 2);
+    expect(selectNutritionBasis(bases)?.id).toBe('recipe_serving');
+    expect(selectNutritionBasis(bases, 'whole_recipe')?.values[0].value).toBe(800);
+    expect(selectNutritionBasis(bases, 'recipe_serving')?.values[0].value).toBe(100);
+    expect(selectNutritionBasis(bases, 'source_serving')?.id).toBe('recipe_serving');
+  });
+  it('never offers recipe servings for an unknown yield, but retains a distinct source portion', () => {
+    const nutrition = { ...knownNutrition(), servingBasis: 'whole_recipe' as const,
+      sourcePerServing: { calories: 50 }, sourceServingSize: '1 cookie' };
+    const bases = nutritionBases(nutrition);
+    expect(bases.map(b => b.id)).toEqual(['whole_recipe', 'source_serving']);
+    expect(selectNutritionBasis(bases)?.id).toBe('whole_recipe');
+    expect(bases[1].detail).toBe('1 cookie');
+  });
+  it('labels whole-only nutrition using the accepted yield and independently identifies scaled totals', () => {
+    const nutrition = { ...knownNutrition(), servingBasis: 'whole_recipe' as const, servingsUsed: null };
+    expect(nutritionBases(nutrition, 1, 4)[0].detail).toBeUndefined();
+    expect(nutritionBases(nutrition, 2, 4)[0]).toMatchObject({ detail: 'For the scaled recipe',
+      values: expect.arrayContaining([expect.objectContaining({ key: 'calories', value: 800 })]) });
+    expect(nutritionBases(nutrition, 1, null)[0].detail).toBe('A serving count was not provided.');
+    expect(nutritionBases(nutrition, 2, null)[0].detail).toContain('For the scaled recipe');
+    const text = formatNutritionAsText(nutrition, undefined, 2, 'whole_recipe', 4);
+    expect(text).toContain('NUTRITION — Whole recipe (For the scaled recipe)');
+    expect(text).toContain('Calories: 800 cal');
+    expect(text).not.toContain('A serving count was not provided.');
+    expect(formatNutritionAsText(nutrition, undefined, 1, 'whole_recipe', null)).toContain('A serving count was not provided.');
+    for (const factor of [NaN, Infinity, 0, -1]) {
+      expect(nutritionBases(nutrition, factor, 4)[0].detail).toBeUndefined();
+    }
+  });
+  it('deduplicates equivalent source portions without mutating saved values', () => {
+    const nutrition = { ...knownNutrition(), servingBasis: 'source' as const,
+      total: normalizeNutritionValues({}), sourcePerServing: { calories: 100, protein: 0, fat: 1.25, fiber: 0.2 }, sourceServingSize: '1 bowl' };
+    const before = JSON.stringify(nutrition);
+    expect(nutritionBases(nutrition)).toHaveLength(1);
+    expect(JSON.stringify(nutrition)).toBe(before);
+  });
+  it('does not deduplicate equal numbers for different recipe and source portions', () => {
+    const nutrition = { ...knownNutrition(), sourceServingSize: '1 cookie', sourcePerServing: knownNutrition().perServing };
+    expect(nutritionBases(nutrition).map(b => b.id)).toEqual(['recipe_serving', 'whole_recipe', 'source_serving']);
+  });
+  it('keeps differing same-source data reachable rather than silently overwriting it', () => {
+    const nutrition = { ...knownNutrition(), servingBasis: 'source' as const, sourcePerServing: { calories: 90 } };
+    expect(nutritionBases(nutrition).map(b => b.id)).toEqual(['source_serving', 'whole_recipe', 'source_reported']);
+  });
+  it('handles source-only and secondary-only partial nutrition without fabricated primary values', () => {
+    const nutrition = { perServing: normalizeNutritionValues({}), total: normalizeNutritionValues({}), sourcePerServing: { sodium: 0 } };
+    expect(selectNutritionBasis(nutritionBases(nutrition))).toMatchObject({ id: 'source_serving', values: [{ key: 'sodium', value: 0 }] });
+    expect(formatNutritionAsText(nutrition)).toContain('Sodium: 0 mg');
+    expect(formatNutritionAsText(nutrition)).not.toContain('Calories:');
+    expect(formatNutritionAsText(null)).toBe('');
+  });
+  it('reconciles both assumptions stores and does not let an empty array hide text', () => {
+    const nutrition = { ...knownNutrition(), assumptions: ['Nutrition assumption', 'Same assumption'] };
+    expect(nutritionAssumptions(nutrition, { assumptions: [] })).toEqual(['Nutrition assumption', 'Same assumption']);
+    expect(nutritionAssumptions(nutrition, { assumptions: ['Metadata assumption', 'Same assumption', ' '] }))
+      .toEqual(['Metadata assumption', 'Same assumption', 'Nutrition assumption']);
+  });
+  it.each([
+    ['source', 'provided by the recipe source'], ['user_provided', 'entered manually'],
+    ['ai_estimate', 'Estimated from'], ['source_and_ai_estimate', 'Combines source-provided'],
+  ])('explains %s provenance without inventing how values were obtained', (source, copy) => {
+    expect(nutritionProvenance({ source })).toContain(copy);
+  });
+  it('exports the selected basis, full assumptions, provenance and freshness warnings', () => {
+    const nutrition = { ...knownNutrition(), assumptions: ['Used 2 tablespoons of oil.', 'Yield measured after cooking.'] };
+    const text = formatNutritionAsText(nutrition, { source: 'ai_estimate', status: 'stale', assumptions: [] }, 2, 'whole_recipe');
+    expect(text).toContain('NUTRITION — Whole recipe (For the scaled recipe)');
+    expect(text).toContain('Calories: 800 cal');
+    expect(text).toContain('Protein: 0 g');
+    expect(text).toContain('Ingredients or servings changed');
+    expect(text).toContain('• Used 2 tablespoons of oil.');
+    expect(text).toContain('• Yield measured after cooking.');
+    expect(text).not.toContain('NUTRITION — Per serving');
+  });
+  it('keeps unavailable and unverified notices independent of whether data exists', () => {
+    expect(nutritionStatusMessage(true, { status: 'unavailable', reason: 'Missing oil amount' })).toBe('Missing oil amount');
+    expect(nutritionStatusMessage(true, { status: 'unverified' })).toContain('older nutrition');
+    expect(nutritionStatusMessage(false, { status: 'current' })).toContain('needs ingredient amounts');
+  });
+});

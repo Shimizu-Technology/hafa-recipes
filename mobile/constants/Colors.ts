@@ -42,6 +42,7 @@ export default {
 
     // UI elements
     tint: tintColorLight,
+    actionText: brand.reef,
     accent: brand.clay,
     accentSoft: brand.clayLight,
     border: brand.border,
@@ -75,6 +76,7 @@ export default {
 
     // UI elements
     tint: tintColorDark,
+    actionText: brand.reefHighlight,
     accent: '#E58A68',
     accentSoft: 'rgba(229, 138, 104, 0.16)',
     border: '#2D352F',

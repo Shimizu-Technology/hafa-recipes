@@ -109,6 +109,16 @@ def mark_fresh(
             "calculatedAt": timestamp,
             "dependencyFingerprint": dependency_fingerprint(result, key),
         }
+        if key == "nutrition":
+            # The replacement nutrition is authoritative for this calculation.
+            # Never carry assumptions or a serving basis from the old metadata
+            # into a new estimate (an empty assumptions list is meaningful).
+            nutrition = result.get("nutrition") or {}
+            metadata[key].update(
+                assumptions=list(nutrition.get("assumptions") or []),
+                servingBasis=nutrition.get("servingBasis"),
+                servingsUsed=nutrition.get("servingsUsed"),
+            )
         if model:
             metadata[key]["model"] = model
 

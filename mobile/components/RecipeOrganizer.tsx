@@ -38,6 +38,7 @@ type RecipeOrganizerProps = {
   isNoteLoading: boolean;
   isNoteSaving: boolean;
   onSaveNote: (note: string) => Promise<void>;
+  compact?: boolean;
 };
 
 const PANEL_TITLES: Record<OrganizerPanel, string> = {
@@ -64,6 +65,7 @@ export function RecipeOrganizer({
   isNoteLoading,
   isNoteSaving,
   onSaveNote,
+  compact = false,
 }: RecipeOrganizerProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -117,23 +119,23 @@ export function RecipeOrganizer({
   return (
     <>
       <RNView
-        style={[styles.organizer, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
+        style={[styles.organizer, compact && styles.compactOrganizer, { backgroundColor: compact ? colors.background : colors.backgroundSecondary, borderColor: colors.border }]}
       >
-        <RNView style={styles.organizerHeading}>
+        {!compact && <RNView style={styles.organizerHeading}>
           <Text style={[styles.organizerTitle, { color: colors.text }]}>Save &amp; plan</Text>
           <Text style={[styles.organizerHint, { color: colors.textMuted }]}>Your private recipe tools</Text>
-        </RNView>
+        </RNView>}
         <RNView style={styles.actionRow}>
           {organizerActions.map((action) => (
             <TouchableOpacity
               key={action.panel}
-              style={[styles.action, { backgroundColor: colors.card, borderColor: colors.border }]}
+              style={[styles.action, compact && styles.compactAction, { backgroundColor: compact ? colors.backgroundSecondary : colors.card, borderColor: colors.border }]}
               onPress={() => setActivePanel(action.panel)}
               activeOpacity={0.75}
               accessibilityRole="button"
               accessibilityLabel={`Open ${action.label}. ${action.summary}`}
             >
-              <Ionicons name={action.icon} size={20} color={colors.tint} />
+              <Ionicons name={action.icon} size={18} color={colors.actionText} />
               <Text style={[styles.actionLabel, { color: colors.text }]}>{action.label}</Text>
               <Text style={[styles.actionSummary, { color: colors.textMuted }]} numberOfLines={1}>
                 {action.summary}
@@ -315,6 +317,8 @@ export function RecipeOrganizer({
 }
 
 const styles = StyleSheet.create({
+  compactOrganizer: { padding: 0, borderWidth: 0, marginBottom: spacing.md },
+  compactAction: { minHeight: 64, borderWidth: 0, borderRadius: radius.sm },
   organizer: {
     borderWidth: 1,
     borderRadius: radius.lg,

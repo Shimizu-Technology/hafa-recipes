@@ -12,6 +12,7 @@ type RecipeHeroProps = {
   imageError: boolean;
   onImageError: () => void;
   onOpenSource: () => void;
+  compact?: boolean;
 };
 
 /** Select the playable, image, or placeholder hero for a recipe. */
@@ -22,6 +23,7 @@ export function RecipeHero({
   imageError,
   onImageError,
   onOpenSource,
+  compact = false,
 }: RecipeHeroProps) {
   const playback = getSourcePlayback(sourceUrl);
   const normalizedThumbnailUrl = thumbnailUrl?.trim() || null;
@@ -36,14 +38,17 @@ export function RecipeHero({
         onThumbnailError={onImageError}
         onOpenSource={onOpenSource}
         embeddedPlaybackEnabled={getSourcePlaybackMode() === 'embedded'}
+        compact={compact}
       />
     );
   }
 
+  if (compact && !usableThumbnailUrl) return null;
+
   return (
     <RecipeThumbnail
       uri={usableThumbnailUrl}
-      style={usableThumbnailUrl ? styles.heroImage : styles.placeholderHero}
+      style={compact ? styles.compactImage : usableThumbnailUrl ? styles.heroImage : styles.placeholderHero}
       onError={onImageError}
       accessibilityLabel={usableThumbnailUrl
         ? `${recipeTitle} recipe`
@@ -55,6 +60,7 @@ export function RecipeHero({
 }
 
 const styles = StyleSheet.create({
+  compactImage: { width: '100%', aspectRatio: 2.1, maxHeight: 220 },
   heroImage: {
     width: '100%',
     height: 300,

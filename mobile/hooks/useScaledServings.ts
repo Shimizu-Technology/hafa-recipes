@@ -6,7 +6,7 @@
  */
 
 import type { QuantityEstimate } from '@/types/recipe';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SCALED_SERVINGS_KEY_PREFIX = 'scaled_servings_';
@@ -15,55 +15,52 @@ const SCALED_SERVINGS_KEY_PREFIX = 'scaled_servings_';
  * Hook to manage persisted scaled servings for a specific recipe.
  */
 export function useScaledServings(recipeId: string, originalServings: number) {
-  const [scaledServings, setScaledServingsState] = useState<number | null>(null);
+  const [selection, setSelection] = useState<{ recipeId: string; servings: number | null }>({ recipeId, servings: null });
   const [isLoading, setIsLoading] = useState(true);
-
+  const editRevision = useRef(0);
   const storageKey = `${SCALED_SERVINGS_KEY_PREFIX}${recipeId}`;
+  const scaledServings = selection.recipeId === recipeId ? selection.servings : null;
 
-  // Load persisted value on mount
   useEffect(() => {
-    loadPersistedServings();
-  }, [recipeId]);
-
-  const loadPersistedServings = async () => {
+    let cancelled = false;
+    const revision = editRevision.current;
     setIsLoading(true);
-    try {
-      const stored = await AsyncStorage.getItem(storageKey);
-      if (stored) {
-        const parsed = parseInt(stored, 10);
-        if (!isNaN(parsed) && parsed > 0) {
-          setScaledServingsState(parsed);
-        }
-      }
-    } catch {
-      // Non-critical - use default
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    void AsyncStorage.getItem(storageKey).then(stored => {
+      if (cancelled || revision !== editRevision.current) return;
+      const parsed = stored === null ? NaN : Number(stored);
+      setSelection({ recipeId, servings: Number.isInteger(parsed) && parsed > 0 ? parsed : null });
+    }).catch(() => {
+      // Storage is optional; use this recipe's original servings.
+    }).finally(() => {
+      if (!cancelled) setIsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [recipeId, storageKey]);
 
   const setScaledServings = useCallback(async (servings: number | null) => {
-    setScaledServingsState(servings);
+    editRevision.current += 1;
+    const next = servings !== null && Number.isInteger(servings) && servings > 0 ? servings : null;
+    setSelection({ recipeId, servings: next });
     try {
-      if (servings === null || servings === originalServings) {
-        // Clear storage if reset to original
+      if (next === null || next === originalServings) {
         await AsyncStorage.removeItem(storageKey);
       } else {
-        await AsyncStorage.setItem(storageKey, servings.toString());
+        await AsyncStorage.setItem(storageKey, next.toString());
       }
     } catch {
       // Non-critical
     }
-  }, [storageKey, originalServings]);
+  }, [recipeId, storageKey, originalServings]);
 
   const resetServings = useCallback(async () => {
-    setScaledServingsState(null);
+    editRevision.current += 1;
+    setSelection({ recipeId, servings: null });
     try {
       await AsyncStorage.removeItem(storageKey);
     } catch {
       // Non-critical
     }
-  }, [storageKey]);
+  }, [recipeId, storageKey]);
 
   // Computed values
   const currentServings = scaledServings ?? originalServings;
