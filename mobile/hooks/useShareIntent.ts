@@ -70,14 +70,32 @@ export function useHandleShareIntent() {
         // Resolve content separately from authentication. Signed-out shares are
         // durable, unassigned captures that require an explicit account choice.
         const action = resolveShareIntent(shareIntent, true);
-        if (action.kind === 'unsupported' || action.kind === 'sign-in-required') {
-          Alert.alert('Could Not Import Share', action.kind === 'unsupported'
-            ? action.message : 'Please sign in to finish importing this recipe.');
-          resetShareIntent(false);
+        if (action.kind === 'sign-in-required') {
+          Alert.alert('Could Not Import Share', 'Please sign in to finish importing this recipe.');
+          // This is recoverable after authentication. Keep the native capture
+          // and its identity unprocessed so signing in can retry its intake.
+          if (currentPayloadRef.current === shareIntent) resetShareIntent(false);
           return;
         }
         if (Platform.OS === 'ios' && (!native?.captureKey || !native.captureId)) {
           throw new Error('Could not confirm this shared recipe. It is still saved; please reopen Håfa to try again.');
+        }
+        if (action.kind === 'unsupported') {
+          // An unsupported capture cannot enter the recipe inbox. Reject only
+          // this exact native entry so it cannot block later supported shares.
+          // Failed acknowledgment leaves it unprocessed and safe to retry.
+          if (native && !(await ShareBridge.acknowledgeCapture(native.captureKey))) {
+            throw new Error(`${action.message} This share could not be dismissed yet. It is still saved; reopen Håfa to try again.`);
+          }
+          processedPayloads.current.add(shareIntent);
+          if (native) {
+            processedCaptureIds.current.add(native.captureId);
+            processedCaptureKeys.current.add(native.captureKey);
+          }
+          shouldDrain = Platform.OS === 'ios';
+          if (currentPayloadRef.current === shareIntent) resetShareIntent(Platform.OS !== 'ios');
+          if (mountedRef.current) Alert.alert('Could Not Import Share', action.message);
+          return;
         }
         let id = native?.captureId || payloadIds.current.get(shareIntent);
         if (!id) {

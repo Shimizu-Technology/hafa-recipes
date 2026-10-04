@@ -85,6 +85,60 @@ describe('durable share intake', () => {
     expect(mocks.ack.mock.calls.map(([key]) => key)).toEqual(['key-a', 'key-b']);
     expect(mocks.metadata).not.toHaveBeenCalled();
   });
+  it('rejects unsupported A by its exact identity and drains supported B', async () => {
+    mocks.action = { kind: 'unsupported', message: 'Share JPEG, PNG, GIF, or WebP recipe images.' };
+    await render();
+    expect(mocks.ack).toHaveBeenCalledExactlyOnceWith('key-a');
+    expect(mocks.add).not.toHaveBeenCalled();
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.reset).toHaveBeenCalledExactlyOnceWith(false);
+    expect(mocks.alert).toHaveBeenCalledWith('Could Not Import Share', mocks.action.message);
+    // A duplicate foreground snapshot must not reject or consume B again.
+    mocks.payload = { ...mocks.payload, _hafa: { ...mocks.payload._hafa } };
+    await act(async () => renderer.update(<Harness />));
+    expect(mocks.ack).toHaveBeenCalledOnce();
+    mocks.getShareIntent.mockImplementationOnce(async () => {
+      mocks.payload = { webUrl: 'https://example.com/b', files: null, text: null, type: 'weburl', _hafa: { captureKey: 'key-b', captureId: 'capture-b', accountScopeId: 'scope-a' } };
+      mocks.action = { kind: 'url', url: 'https://example.com/b' };
+      renderer.update(<Harness />);
+    });
+    await act(async () => { vi.runOnlyPendingTimers(); });
+    expect(mocks.add).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: 'capture-b', capture: { kind: 'url', url: 'https://example.com/b' } }));
+    expect(mocks.ack.mock.calls.map(([key]) => key)).toEqual(['key-a', 'key-b']);
+  });
+  it('preserves unsupported A after acknowledgment failure and retries the same key safely', async () => {
+    mocks.action = { kind: 'unsupported', message: 'Share supported recipe images.' };
+    mocks.ack.mockResolvedValueOnce(false);
+    await render();
+    expect(mocks.reset).not.toHaveBeenCalled();
+    expect(mocks.add).not.toHaveBeenCalled();
+    await act(async () => { vi.runOnlyPendingTimers(); });
+    expect(mocks.getShareIntent).not.toHaveBeenCalled();
+    expect(mocks.alert).toHaveBeenCalledWith('Shared Recipe Saved for Later', expect.stringContaining('still saved'));
+    // A native refresh emits a fresh object with the original atomic identity.
+    mocks.payload = { ...mocks.payload, _hafa: { ...mocks.payload._hafa } };
+    await act(async () => renderer.update(<Harness />));
+    expect(mocks.ack.mock.calls.map(([key]) => key)).toEqual(['key-a', 'key-a']);
+    expect(mocks.reset).toHaveBeenCalledExactlyOnceWith(false);
+    await act(async () => { vi.runOnlyPendingTimers(); });
+    expect(mocks.getShareIntent).toHaveBeenCalledOnce();
+  });
+  it('retains sign-in-required native captures without acknowledging or draining them', async () => {
+    mocks.signedIn = false;
+    mocks.action = { kind: 'sign-in-required' };
+    await render();
+    expect(mocks.ack).not.toHaveBeenCalled();
+    expect(mocks.add).not.toHaveBeenCalled();
+    await act(async () => { vi.runOnlyPendingTimers(); });
+    expect(mocks.getShareIntent).not.toHaveBeenCalled();
+    expect(mocks.reset).toHaveBeenCalledWith(false);
+    // Authentication recovery can replay the preserved capture for intake.
+    mocks.signedIn = true;
+    mocks.action = { kind: 'url', url: 'https://example.com/recipe' };
+    await act(async () => renderer.update(<Harness />));
+    expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ id: 'capture-a' }));
+    expect(mocks.ack).toHaveBeenCalledExactlyOnceWith('key-a');
+  });
   it('retains native content when the durable write fails', async () => {
     mocks.add.mockRejectedValueOnce(new Error('Disk full'));
     await render();
