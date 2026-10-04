@@ -1,7 +1,10 @@
 import { getIngredientAmount, getCookingNotes } from '@/lib/recipeTrust';
 import { NutritionPanel } from '@/components/NutritionPanel';
 import { useNutritionRefresh } from '@/hooks/useNutritionRefresh';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useRecipeTabScroll } from '@/hooks/useRecipeTabScroll';
+import { recipeCost, recipeLoadError, canRetainRecipeOnError } from '@/lib/recipeDetailPresentation';
+import { formatNutritionAsText, type NutritionBasisId } from '@/lib/nutritionPresentation';
 import {
   StyleSheet,
   ScrollView,
@@ -133,9 +136,12 @@ export default function RecipeDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { scaleFontSize } = useTextSize();
-  const [activeTab, setActiveTab] = useState<TabType>('ingredients');
+  const { activeTab, selectTab, scrollRef, onScroll, onTabsLayout, onContentSizeChange } = useRecipeTabScroll<TabType>(id, 'ingredients');
+  const [nutritionBasis, setNutritionBasis] = useState<NutritionBasisId | undefined>();
+  const [showRelated, setShowRelated] = useState(false);
+  const [cookDockHeight, setCookDockHeight] = useState(0);
   
-  const { data: recipe, isLoading, error, refetch } = useRecipe(id);
+  const { data: recipe, isLoading, isFetching, error, refetch } = useRecipe(id);
   const deleteMutation = useDeleteRecipe();
   const toggleSharingMutation = useToggleRecipeSharing();
   const addToGroceryMutation = useAddFromRecipe();
@@ -158,6 +164,15 @@ export default function RecipeDetailScreen() {
   const blockMutation = useBlockContributor();
   const { requestPublishing } = usePublishingDisclosure();
   
+  useEffect(() => {
+    setNutritionBasis(undefined);
+  }, [id, recipe?.content_revision]);
+  useEffect(() => {
+    setImageError(false);
+    setShowIngredientsRef(false);
+    setShowRelated(false);
+  }, [id]);
+
   // Check if user is admin (from Clerk public metadata)
   const isAdmin = (user?.publicMetadata as any)?.role === 'admin';
   
@@ -198,16 +213,23 @@ export default function RecipeDetailScreen() {
   
   // Scaled servings hook - must be called before any early returns
   // Uses default of 1 when recipe isn't loaded yet
-  const originalServings = recipe?.extracted?.servings || 1;
+  const knownServings = recipe?.extracted?.servings;
+  const hasKnownServings = typeof knownServings === 'number' && Number.isFinite(knownServings) && knownServings > 0;
+  const originalServings = hasKnownServings ? knownServings : 1;
   const {
     scaledServings,
     setScaledServings,
     resetServings,
-    currentServings,
-    scaleFactor,
-    isScaled,
+    currentServings: storedServings,
+    scaleFactor: storedScaleFactor,
+    isScaled: hasStoredScale,
   } = useScaledServings(id, originalServings);
   
+  const currentServings = hasKnownServings ? storedServings : 1;
+  const scaleFactor = hasKnownServings ? storedScaleFactor : 1;
+  const isScaled = hasKnownServings && hasStoredScale;
+  const costSummary = recipeCost(recipe?.extracted?.totalEstimatedCost, knownServings, scaleFactor);
+
   const handleSaveNote = async (noteText: string) => {
     try {
       await updateNoteMutation.mutateAsync({ recipeId: id, noteText });
@@ -440,9 +462,9 @@ export default function RecipeDetailScreen() {
     
     // Meta info
     const metaParts: string[] = [];
-    if (extracted.servings) metaParts.push(`${extracted.servings} servings`);
+    if (extracted.servings) metaParts.push(`${currentServings} servings`);
     if (extracted.times?.total) metaParts.push(`${extracted.times.total}`);
-    if (extracted.totalEstimatedCost) metaParts.push(`$${extracted.totalEstimatedCost.toFixed(2)}`);
+    if (costSummary) metaParts.push(`$${costSummary.total.toFixed(2)} estimated total`);
     if (metaParts.length > 0) {
       text += metaParts.join('  •  ') + '\n\n';
     }
@@ -461,7 +483,7 @@ export default function RecipeDetailScreen() {
       }
       component.ingredients.forEach(ing => {
         const amount = getIngredientAmount(ing);
-        const qty = amount.quantity || '';
+        const qty = scaleQuantity(amount.quantity, scaleFactor) || '';
         const unit = amount.unit || '';
         const qtyUnit = qty ? `${qty}${unit ? ' ' + unit : ''} ` : '';
         const usefulNotes = getCookingNotes(ing.notes);
@@ -486,21 +508,8 @@ export default function RecipeDetailScreen() {
       });
     });
     
-    // Nutrition (if available)
-    if (extracted.nutrition?.perServing) {
-      const n = extracted.nutrition.perServing;
-      const nutritionParts: string[] = [];
-      if (typeof n.calories === 'number' && Number.isFinite(n.calories)) nutritionParts.push(`${n.calories} cal`);
-      if (typeof n.protein === 'number' && Number.isFinite(n.protein)) nutritionParts.push(`${n.protein}g protein`);
-      if (typeof n.carbs === 'number' && Number.isFinite(n.carbs)) nutritionParts.push(`${n.carbs}g carbs`);
-      if (typeof n.fat === 'number' && Number.isFinite(n.fat)) nutritionParts.push(`${n.fat}g fat`);
-      
-      if (nutritionParts.length > 0) {
-        text += '\nNUTRITION (per serving)\n';
-        text += '─'.repeat(20) + '\n';
-        text += nutritionParts.join(' | ') + '\n';
-      }
-    }
+    const nutritionText = formatNutritionAsText(extracted.nutrition, extracted.derivedData?.nutrition, scaleFactor, nutritionBasis);
+    if (nutritionText) text += `\n${nutritionText}\n`;
     
     // Equipment
     if (extracted.equipment && extracted.equipment.length > 0) {
@@ -623,7 +632,7 @@ export default function RecipeDetailScreen() {
   if (isLoading) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color={colors.tint} />
+        <ActivityIndicator size="large" color={colors.actionText} />
         <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
           Loading recipe...
         </Text>
@@ -631,7 +640,8 @@ export default function RecipeDetailScreen() {
     );
   }
 
-  if (error || !recipe) {
+  if (!recipe || (error && !canRetainRecipeOnError(error))) {
+    const loadError = recipeLoadError(error);
     return (
       <View style={styles.centerContainer}>
         <Ionicons
@@ -641,10 +651,15 @@ export default function RecipeDetailScreen() {
           style={styles.errorIcon}
         />
         <Text style={[styles.errorTitle, { color: colors.text }]}>
-          Recipe not found
+          {loadError.title}
         </Text>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={[styles.linkText, { color: colors.tint }]}>Go back</Text>
+        <Text style={[styles.errorMessage, { color: colors.textSecondary }]}>{loadError.message}</Text>
+        {loadError.canRetry && <TouchableOpacity style={styles.retryButton} onPress={() => { void refetch(); }}
+          disabled={isFetching} accessibilityRole="button" accessibilityLabel="Retry loading recipe" accessibilityState={{ busy: isFetching, disabled: isFetching }}>
+          <Text style={[styles.linkText, { color: colors.actionText }]}>{isFetching ? 'Retrying…' : 'Try again'}</Text>
+        </TouchableOpacity>}
+        <TouchableOpacity style={styles.retryButton} accessibilityRole="button" onPress={() => router.back()}>
+          <Text style={[styles.linkText, { color: colors.actionText }]}>Go back</Text>
         </TouchableOpacity>
       </View>
     );
@@ -702,7 +717,7 @@ export default function RecipeDetailScreen() {
     { key: 'ingredients', label: 'Ingredients' },
     { key: 'steps', label: 'Steps' },
     { key: 'nutrition', label: 'Nutrition' },
-    ...(extracted.totalEstimatedCost ? [{ key: 'cost' as TabType, label: 'Cost' }] : []),
+    ...(costSummary ? [{ key: 'cost' as TabType, label: 'Cost' }] : []),
   ];
 
   // Recipe scaling logic - now using the shared scaleQuantity utility from useScaledServings
@@ -721,7 +736,7 @@ export default function RecipeDetailScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Ask about this recipe"
               >
-                <Ionicons name="chatbubbles-outline" size={22} color={colors.tint} />
+                <Ionicons name="chatbubbles-outline" size={22} color={colors.actionText} />
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={handleShare}
@@ -729,7 +744,7 @@ export default function RecipeDetailScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Share recipe"
               >
-                <Ionicons name="share-outline" size={22} color={colors.tint} />
+                <Ionicons name="share-outline" size={22} color={colors.actionText} />
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={handleMoreOptions}
@@ -737,7 +752,7 @@ export default function RecipeDetailScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="More recipe options"
               >
-                <Ionicons name="ellipsis-horizontal" size={22} color={colors.tint} />
+                <Ionicons name="ellipsis-horizontal" size={22} color={colors.actionText} />
               </TouchableOpacity>
             </RNView>
           ),
@@ -750,17 +765,23 @@ export default function RecipeDetailScreen() {
           keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
         >
         <ScrollView 
+          ref={scrollRef}
           showsVerticalScrollIndicator={false}
+          stickyHeaderIndices={[1]}
+          scrollEventThrottle={16}
+          onScroll={onScroll}
+          onContentSizeChange={onContentSizeChange}
           contentContainerStyle={[
             styles.scrollContent,
             {
-              paddingBottom: insets.bottom + spacing.xl
-                + 100,
+              paddingBottom: (canShowRecipePrimaryAction(isOwner, cookPresentation.canCook) ? cookDockHeight : 0) + spacing.lg,
             },
           ]}
           keyboardShouldPersistTaps="handled"
         >
+          <RNView>
           <RecipeHero
+            compact
             recipeTitle={extracted.title}
             sourceUrl={recipe.source_url}
             thumbnailUrl={recipe.thumbnail_url}
@@ -771,8 +792,15 @@ export default function RecipeDetailScreen() {
 
           {/* Content */}
           <RNView style={styles.content}>
+            {error && <RNView style={[styles.refreshNotice, { borderColor: colors.border }]}>
+              <Text style={{ flex: 1, color: colors.textSecondary }}>Couldn’t refresh. Showing the saved recipe.</Text>
+              <TouchableOpacity style={styles.retryButton} disabled={isFetching} accessibilityRole="button"
+                accessibilityLabel="Retry refreshing recipe" accessibilityState={{ busy: isFetching }} onPress={() => { void refetch(); }}>
+                <Text style={{ color: colors.actionText }}>{isFetching ? 'Retrying…' : 'Retry'}</Text>
+              </TouchableOpacity>
+            </RNView>}
             {/* Title */}
-            <Text style={[styles.title, { color: colors.text }]}>
+            <Text accessibilityRole="header" style={[styles.title, { color: colors.text, fontSize: scaleFontSize(30), lineHeight: scaleFontSize(36) }]}>
               {extracted.title}
             </Text>
 
@@ -786,25 +814,28 @@ export default function RecipeDetailScreen() {
                   </Text>
                 </RNView>
                 <TouchableOpacity onPress={() => setShowRecipeAppeal(true)} accessibilityRole="button">
-                  <Text style={[styles.moderationAppealText, { color: colors.tint }]}>Appeal</Text>
+                  <Text style={[styles.moderationAppealText, { color: colors.actionText }]}>Appeal</Text>
                 </TouchableOpacity>
               </RNView>
             )}
 
             {/* Meta Row */}
             <RNView style={styles.metaRow}>
-              {extracted.servings && (
+              {hasKnownServings && (
                 <RNView style={[styles.metaItemScalable, { backgroundColor: colors.backgroundSecondary }]}>
                   <TouchableOpacity 
                     style={[styles.scaleButton, { backgroundColor: colors.tint + '20' }]}
                     onPress={() => setScaledServings(Math.max(1, currentServings - 1))}
+                    disabled={currentServings <= 1}
+                    accessibilityRole="button" accessibilityLabel="Decrease servings"
+                    accessibilityState={{ disabled: currentServings <= 1 }}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="remove" size={16} color={colors.tint} />
+                    <Ionicons name="remove" size={16} color={colors.actionText} />
                   </TouchableOpacity>
                   <RNView style={styles.servingsDisplay}>
-                    <Ionicons name="people-outline" size={18} color={colors.tint} />
-                    <Text style={[styles.metaValue, { color: isScaled ? colors.tint : colors.text }]}>
+                    <Ionicons name="people-outline" size={18} color={colors.actionText} />
+                    <Text style={[styles.metaValue, { color: isScaled ? colors.actionText : colors.text }]}>
                       {currentServings}
                     </Text>
                     <Text style={[styles.metaLabel, { color: colors.textMuted }]}>
@@ -814,14 +845,16 @@ export default function RecipeDetailScreen() {
                   <TouchableOpacity 
                     style={[styles.scaleButton, { backgroundColor: colors.tint + '20' }]}
                     onPress={() => setScaledServings(currentServings + 1)}
+                    accessibilityRole="button" accessibilityLabel="Increase servings"
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="add" size={16} color={colors.tint} />
+                    <Ionicons name="add" size={16} color={colors.actionText} />
                   </TouchableOpacity>
                   {isScaled && (
                     <TouchableOpacity 
                       style={styles.resetButton}
                       onPress={resetServings}
+                      accessibilityRole="button" accessibilityLabel="Reset to original servings"
                       activeOpacity={0.7}
                     >
                       <Ionicons name="refresh" size={14} color={colors.textMuted} />
@@ -831,17 +864,17 @@ export default function RecipeDetailScreen() {
               )}
               {extracted.times?.total && (
                 <RNView style={[styles.metaItem, { backgroundColor: colors.backgroundSecondary }]}>
-                  <Ionicons name="time-outline" size={18} color={colors.tint} />
+                  <Ionicons name="time-outline" size={18} color={colors.actionText} />
                   <Text style={[styles.metaValue, { color: colors.text }]}>
                     {extracted.times.total}
                   </Text>
                 </RNView>
               )}
-              {extracted.totalEstimatedCost && (
+              {costSummary && (
                 <RNView style={[styles.metaItem, { backgroundColor: colors.backgroundSecondary }]}>
-                  <Ionicons name="cash-outline" size={18} color={colors.tint} />
+                  <Ionicons name="cash-outline" size={18} color={colors.actionText} />
                   <Text style={[styles.metaValue, { color: colors.text }]}>
-                    ${extracted.totalEstimatedCost.toFixed(2)}
+                    ${costSummary.total.toFixed(2)}
                   </Text>
                 </RNView>
               )}
@@ -872,8 +905,8 @@ export default function RecipeDetailScreen() {
                 <Text style={[styles.reviewNoticeText, { color: colors.textSecondary }]}>
                   {estimateCount ? 'Includes AI estimated amounts' : 'Some details may need a check'}
                 </Text>
-                <Text style={[styles.reviewNoticeAction, { color: colors.tint }]}>Optional check</Text>
-                <Ionicons name="chevron-forward" size={16} color={colors.tint} />
+                <Text style={[styles.reviewNoticeAction, { color: colors.actionText }]}>Optional check</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.actionText} />
               </TouchableOpacity>
             )}
             {reviewDetails && recipe.review_state === 'source_incomplete' && (
@@ -908,52 +941,9 @@ export default function RecipeDetailScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={reviewDetails.actionLabel}
                 >
-                  <Text style={[styles.reviewSourceButtonText, { color: colors.tint }]}>{reviewDetails.actionLabel}</Text>
+                  <Text style={[styles.reviewSourceButtonText, { color: colors.actionText }]}>{reviewDetails.actionLabel}</Text>
                 </TouchableOpacity>
               </RNView>
-            )}
-
-            {/* Tags */}
-            {extracted.tags.length > 0 && (
-              <RNView style={styles.tagContainer}>
-                {extracted.tags.map((tag, index) => (
-                  <Chip key={index} label={tag} size="sm" />
-                ))}
-              </RNView>
-            )}
-
-            {/* Recipe Notes (from creator/extraction) */}
-            {cookingNotes && (
-              <RNView style={[styles.notesSection, { backgroundColor: colors.backgroundSecondary }]}>
-                <RNView style={styles.notesTitleRow}>
-                  <Ionicons name="document-text-outline" size={18} color={colors.tint} />
-                  <Text style={[styles.notesTitle, { color: colors.text }]}>Recipe Notes</Text>
-                </RNView>
-                <Text style={[styles.notesText, { color: colors.textSecondary }]}>
-                  {cookingNotes}
-                </Text>
-              </RNView>
-            )}
-
-            {userId && (
-              <RecipeOrganizer
-                recipeTitle={extracted.title}
-                collections={recipeCollections}
-                areCollectionsLoading={isCollectionsLoading || isRecipeCollectionsLoading}
-                onOpenCollection={(collectionId) => router.push(appRoutes.collection(collectionId))}
-                onManageCollections={() => setShowCollectionModal(true)}
-                planEntries={recipePlanEntries}
-                isPlanLoading={isRecipePlanLoading}
-                hasPlanError={isRecipePlanError}
-                isPlanRetrying={isRecipePlanRetrying}
-                onOpenPlanDate={(date) => router.push(appRoutes.plannerDate(date))}
-                onPlanRecipe={() => router.push(appRoutes.plannerRecipe(id))}
-                onRetryPlan={() => { void refetchRecipePlan(); }}
-                savedNote={personalNote?.note_text}
-                isNoteLoading={isNoteLoading}
-                isNoteSaving={updateNoteMutation.isPending}
-                onSaveNote={handleSaveNote}
-              />
             )}
 
             {/* Source Button */}
@@ -987,7 +977,7 @@ export default function RecipeDetailScreen() {
                 activeOpacity={0.7}
                 disabled={toggleSharingMutation.isPending}
                 accessibilityRole="button"
-                accessibilityLabel={visibilityPresentation?.label}
+                accessibilityLabel={`${visibilityPresentation?.label}. ${visibilityPresentation?.subtitle}`}
                 accessibilityHint={visibilityPresentation?.accessibilityHint}
                 accessibilityState={{ busy: toggleSharingMutation.isPending }}
               >
@@ -1006,11 +996,7 @@ export default function RecipeDetailScreen() {
                       : visibilityPresentation?.label
                     }
                   </Text>
-                  {!toggleSharingMutation.isPending && (
-                    <Text style={[styles.shareButtonSubtitle, { color: colors.textMuted }]}>
-                      {visibilityPresentation?.subtitle}
-                    </Text>
-                  )}
+
                 </RNView>
                 <Ionicons 
                   name={recipe.is_public ? 'checkmark-circle' : 'add-circle-outline'} 
@@ -1023,15 +1009,19 @@ export default function RecipeDetailScreen() {
             {/* Public badge for non-owner viewing public recipe */}
             {!isOwner && recipe.is_public && (
               <RNView style={[styles.publicBadge, { backgroundColor: colors.tint + '15' }]}>
-                <Ionicons name="globe" size={16} color={colors.tint} />
-                <Text style={[styles.publicBadgeText, { color: colors.tint }]}>
+                <Ionicons name="globe" size={16} color={colors.actionText} />
+                <Text style={[styles.publicBadgeText, { color: colors.actionText }]}>
                   Public Recipe
                 </Text>
               </RNView>
             )}
 
+          </RNView>
+          </RNView>
             {/* Tabs */}
-            <RNView style={[styles.tabContainer, { borderBottomColor: colors.border }]}>
+            <RNView onLayout={onTabsLayout}
+              style={[styles.tabContainer, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow}>
               {tabs.map((tab) => (
                 <TouchableOpacity
                   key={tab.key}
@@ -1039,12 +1029,14 @@ export default function RecipeDetailScreen() {
                     styles.tab,
                     activeTab === tab.key && { borderBottomColor: colors.tint },
                   ]}
-                  onPress={() => setActiveTab(tab.key)}
+                  onPress={() => selectTab(tab.key)}
+                  accessibilityRole="tab" accessibilityLabel={tab.label}
+                  accessibilityState={{ selected: activeTab === tab.key }}
                 >
                   <Text 
                     style={[
                       styles.tabText, 
-                      { color: activeTab === tab.key ? colors.tint : colors.textMuted },
+                      { color: activeTab === tab.key ? colors.actionText : colors.textMuted },
                       activeTab === tab.key && styles.tabTextActive,
                     ]}
                   >
@@ -1052,16 +1044,24 @@ export default function RecipeDetailScreen() {
                   </Text>
                 </TouchableOpacity>
               ))}
+              </ScrollView>
             </RNView>
+            <RNView style={styles.content}>
 
             {/* Tab Content */}
             <RNView style={styles.tabContent}>
               {activeTab === 'ingredients' && (
                 <>
+                  {extracted.equipment && extracted.equipment.length > 0 && <RNView style={[styles.preparation, { borderColor: colors.border }]}>
+                    <Text accessibilityRole="header" style={[styles.notesTitle, { color: colors.text }]}>Equipment</Text>
+                    <Text style={[styles.notesText, { color: colors.textSecondary, fontSize: scaleFontSize(fontSize.md), lineHeight: scaleFontSize(23) }]}>
+                      {extracted.equipment.join(' · ')}
+                    </Text>
+                  </RNView>}
                   {extracted.components.map((component, compIndex) => (
                     <RNView key={compIndex} style={styles.componentSection}>
                       {extracted.components.length > 1 && component.name && typeof component.name === 'string' ? (
-                        <Text style={[styles.componentTitle, { color: colors.tint }]}>
+                        <Text style={[styles.componentTitle, { color: colors.actionText }]}>
                           {component.name}
                         </Text>
                       ) : null}
@@ -1084,7 +1084,7 @@ export default function RecipeDetailScreen() {
                               <RNView style={styles.ingredientMain}>
                                 <Text style={[styles.ingredientText, { color: colors.text, fontSize: scaleFontSize(fontSize.md), lineHeight: scaleFontSize(22) }]}>
                                   {qtyUnit ? (
-                                    <Text style={[styles.ingredientQty, isScaled && { color: colors.tint }]}>
+                                    <Text style={[styles.ingredientQty, isScaled && { color: colors.actionText }]}>
                                       {qtyUnit}
                                     </Text>
                                   ) : null}
@@ -1105,7 +1105,7 @@ export default function RecipeDetailScreen() {
                                   </TouchableOpacity>
                                 ) : null}
                               </RNView>
-                              {cost ? <Text style={[styles.ingredientCost, { color: colors.textMuted }]}>{cost}</Text> : null}
+                              {cost !== null ? <Text style={[styles.ingredientCost, { color: colors.textMuted }]}>{cost}</Text> : null}
                             </RNView>
                           </RNView>
                         );
@@ -1115,13 +1115,14 @@ export default function RecipeDetailScreen() {
                   
                   {/* Add to Grocery List Button */}
                   <TouchableOpacity
-                    style={[styles.addToGroceryButton, { backgroundColor: colors.tint }]}
+                    style={[styles.addToGroceryButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
                     onPress={handleAddToGrocery}
                     activeOpacity={0.8}
                     disabled={addToGroceryMutation.isPending}
+                    accessibilityRole="button" accessibilityLabel="Add to Grocery List" accessibilityState={{ busy: addToGroceryMutation.isPending }}
                   >
-                    <Ionicons name="cart-outline" size={20} color="#FFFFFF" />
-                    <Text style={styles.addToGroceryText}>
+                    <Ionicons name="cart-outline" size={20} color={colors.actionText} />
+                    <Text style={[styles.addToGroceryText, { color: colors.actionText }]}>
                       {addToGroceryMutation.isPending ? 'Adding...' : 'Add to Grocery List'}
                     </Text>
                   </TouchableOpacity>
@@ -1130,20 +1131,40 @@ export default function RecipeDetailScreen() {
 
               {activeTab === 'steps' && (
                 <>
+            {/* Recipe Notes (from creator/extraction) */}
+            {cookingNotes && (
+              <RNView style={[styles.notesSection, { backgroundColor: colors.backgroundSecondary }]}>
+                <RNView style={styles.notesTitleRow}>
+                  <Ionicons name="document-text-outline" size={18} color={colors.actionText} />
+                  <Text style={[styles.notesTitle, { color: colors.text }]}>Recipe Notes</Text>
+                </RNView>
+                <Text style={[styles.notesText, { color: colors.textSecondary }]}>
+                  {cookingNotes}
+                </Text>
+              </RNView>
+            )}
+
+                  {extracted.equipment && extracted.equipment.length > 0 && <TouchableOpacity style={styles.prepLink}
+                    accessibilityRole="button" accessibilityLabel="View equipment in Ingredients" onPress={() => selectTab('ingredients', true)}>
+                    <Ionicons name="construct-outline" size={18} color={colors.actionText} />
+                    <Text style={{ color: colors.actionText }}>Equipment · {extracted.equipment.length} items</Text>
+                    <Ionicons name="chevron-forward" size={16} color={colors.actionText} />
+                  </TouchableOpacity>}
                   {/* Quick Reference: Ingredients */}
                   <TouchableOpacity
                     style={[styles.ingredientsRefHeader, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
                     onPress={() => setShowIngredientsRef(!showIngredientsRef)}
+                    accessibilityRole="button" accessibilityLabel="Quick reference: Ingredients" accessibilityState={{ expanded: showIngredientsRef }}
                     activeOpacity={0.7}
                   >
                     <RNView style={styles.ingredientsRefTitleRow}>
-                      <Ionicons name="list-outline" size={18} color={colors.tint} />
+                      <Ionicons name="list-outline" size={18} color={colors.actionText} />
                       <Text style={[styles.ingredientsRefTitle, { color: colors.text }]}>
                         Quick Reference: Ingredients
                       </Text>
                       {isScaled && (
                         <RNView style={[styles.scaledBadge, { backgroundColor: colors.tint + '20' }]}>
-                          <Text style={[styles.scaledBadgeText, { color: colors.tint }]}>
+                          <Text style={[styles.scaledBadgeText, { color: colors.actionText }]}>
                             {currentServings} servings
                           </Text>
                         </RNView>
@@ -1161,7 +1182,7 @@ export default function RecipeDetailScreen() {
                       {extracted.components.map((component, compIndex) => (
                         <RNView key={compIndex}>
                           {extracted.components.length > 1 && (
-                            <Text style={[styles.ingredientsRefCompTitle, { color: colors.tint }]}>
+                            <Text style={[styles.ingredientsRefCompTitle, { color: colors.actionText }]}>
                               {component.name}
                             </Text>
                           )}
@@ -1172,7 +1193,7 @@ export default function RecipeDetailScreen() {
                             const missingQuantityLabel = getMissingQuantityLabel(recipe.review_state, ing);
                             return (
                               <RNView key={ingIndex} style={styles.ingredientsRefItem}>
-                                <Text style={[styles.ingredientsRefQty, isScaled && { color: colors.tint }]}>
+                                <Text style={[styles.ingredientsRefQty, isScaled && { color: colors.actionText }]}>
                                   {scaledQty || (missingQuantityLabel ? '?' : '•')}{unit ? ` ${unit}` : ''}
                                 </Text>
                                 <Text style={[styles.ingredientsRefName, { color: colors.text }]}>
@@ -1195,7 +1216,7 @@ export default function RecipeDetailScreen() {
                   {extracted.components.map((component, compIndex) => (
                     <RNView key={compIndex} style={styles.componentSection}>
                       {extracted.components.length > 1 && (
-                        <Text style={[styles.componentTitle, { color: colors.tint }]}>
+                        <Text style={[styles.componentTitle, { color: colors.actionText }]}>
                           {component.name}
                         </Text>
                       )}
@@ -1214,37 +1235,18 @@ export default function RecipeDetailScreen() {
                 </>
               )}
 
-              {activeTab === 'nutrition' && (
-                <>
+              {/* Keep disclosure state when switching tabs so the reading position remains meaningful. */}
+                <RNView key={`nutrition-${id}`} style={{ display: activeTab === 'nutrition' ? 'flex' : 'none' }}
+                  accessibilityElementsHidden={activeTab !== 'nutrition'}
+                  importantForAccessibility={activeTab === 'nutrition' ? 'auto' : 'no-hide-descendants'}>
                   <NutritionPanel nutrition={extracted.nutrition} metadata={extracted.derivedData?.nutrition}
-                    scaleFactor={extracted.nutrition?.servingBasis === 'whole_recipe' ? 1 : scaleFactor}
+                    scaleFactor={scaleFactor}
+                    selectedBasisId={nutritionBasis} onBasisChange={setNutritionBasis}
                     isLoading={isRefreshingNutrition} error={nutritionError} onRefresh={isOwner ? refreshNutrition : undefined} />
 
-                  {/* Equipment */}
-                  {extracted.equipment && extracted.equipment.length > 0 && (
-                    <RNView style={styles.equipmentSection}>
-                      <Text style={[styles.nutritionTitle, { color: colors.text }]}>
-                        Equipment
-                      </Text>
-                      <RNView style={styles.equipmentList}>
-                        {extracted.equipment.map((item, index) => (
-                          <RNView 
-                            key={index} 
-                            style={[styles.equipmentItem, { backgroundColor: colors.backgroundSecondary }]}
-                          >
-                            <Ionicons name="construct-outline" size={15} color={colors.textMuted} />
-                            <Text style={[styles.equipmentText, { color: colors.text }]}>
-                              {item}
-                            </Text>
-                          </RNView>
-                        ))}
-                      </RNView>
-                    </RNView>
-                  )}
-                </>
-              )}
+                </RNView>
 
-              {activeTab === 'cost' && extracted.totalEstimatedCost && (
+              {activeTab === 'cost' && costSummary && (
                 <>
                   {costStatus && costStatus !== 'current' && (
                     <RNView style={[
@@ -1270,7 +1272,7 @@ export default function RecipeDetailScreen() {
                     <RNView style={[styles.costTotalBox, { backgroundColor: colors.tint }]}>
                       <Text style={styles.costTotalLabel}>Estimated Total Cost</Text>
                       <Text style={styles.costTotalValue}>
-                        ${(extracted.totalEstimatedCost * scaleFactor).toFixed(2)}
+                        ${costSummary.total.toFixed(2)}
                       </Text>
                       {isScaled && (
                         <Text style={styles.costScaledNote}>
@@ -1279,15 +1281,16 @@ export default function RecipeDetailScreen() {
                       )}
                     </RNView>
                     
+                    {!hasKnownServings && <Text style={[styles.notesText, { color: colors.textSecondary }]}>For the whole recipe. A serving count was not provided.</Text>}
                     <RNView style={styles.costMetaRow}>
-                      <RNView style={[styles.costMetaItem, { backgroundColor: colors.backgroundSecondary }]}>
+                      {costSummary.perServing !== null && <RNView style={[styles.costMetaItem, { backgroundColor: colors.backgroundSecondary }]}>
                         <Text style={[styles.costMetaValue, { color: colors.text }]}>
-                          ${((extracted.totalEstimatedCost * scaleFactor) / currentServings).toFixed(2)}
+                          ${costSummary.perServing!.toFixed(2)}
                         </Text>
                         <Text style={[styles.costMetaLabel, { color: colors.textMuted }]}>
                           per serving
                         </Text>
-                      </RNView>
+                      </RNView>}
                       <RNView style={[styles.costMetaItem, { backgroundColor: colors.backgroundSecondary }]}>
                         <RNView style={styles.costMetaValueRow}>
                           <Ionicons name="location-outline" size={16} color={colors.text} />
@@ -1310,7 +1313,7 @@ export default function RecipeDetailScreen() {
                     {extracted.components.map((component, compIndex) => (
                       <RNView key={compIndex}>
                         {extracted.components.length > 1 && (
-                          <Text style={[styles.componentTitle, { color: colors.tint }]}>
+                          <Text style={[styles.componentTitle, { color: colors.actionText }]}>
                             {component.name}
                           </Text>
                         )}
@@ -1337,7 +1340,7 @@ export default function RecipeDetailScreen() {
                                     </Text>
                                   )}
                                 </RNView>
-                                <Text style={[styles.costItemPrice, { color: colors.tint }]}>
+                                <Text style={[styles.costItemPrice, { color: colors.actionText }]}>
                                   ${scaledCost.toFixed(2)}
                                 </Text>
                               </RNView>
@@ -1351,13 +1354,49 @@ export default function RecipeDetailScreen() {
             </RNView>
           </RNView>
           
+          <RNView style={styles.supportingContent}>
+            {userId && (
+              <RecipeOrganizer
+                compact
+                recipeTitle={extracted.title}
+                collections={recipeCollections}
+                areCollectionsLoading={isCollectionsLoading || isRecipeCollectionsLoading}
+                onOpenCollection={(collectionId) => router.push(appRoutes.collection(collectionId))}
+                onManageCollections={() => setShowCollectionModal(true)}
+                planEntries={recipePlanEntries}
+                isPlanLoading={isRecipePlanLoading}
+                hasPlanError={isRecipePlanError}
+                isPlanRetrying={isRecipePlanRetrying}
+                onOpenPlanDate={(date) => router.push(appRoutes.plannerDate(date))}
+                onPlanRecipe={() => router.push(appRoutes.plannerRecipe(id))}
+                onRetryPlan={() => { void refetchRecipePlan(); }}
+                savedNote={personalNote?.note_text}
+                isNoteLoading={isNoteLoading}
+                isNoteSaving={updateNoteMutation.isPending}
+                onSaveNote={handleSaveNote}
+              />
+            )}
+
+            {/* Tags */}
+            {extracted.tags.length > 0 && (
+              <RNView style={styles.tagContainer}>
+                {extracted.tags.map((tag, index) => (
+                  <Chip key={index} label={tag} size="sm" />
+                ))}
+              </RNView>
+            )}
+
+
+          </RNView>
           {/* Similar Recipes Section */}
           {(isSimilarLoading || (similarRecipes && similarRecipes.length > 0)) && (
             <RNView style={styles.similarSection}>
-              <Text style={[styles.similarTitle, { color: colors.text }]}>
-                You May Also Like
-              </Text>
-              {isSimilarLoading ? (
+              <TouchableOpacity style={styles.relatedDisclosure} onPress={() => setShowRelated(!showRelated)}
+                accessibilityRole="button" accessibilityLabel="More recipes like this" accessibilityState={{ expanded: showRelated }}>
+                <Text style={[styles.similarTitle, { color: colors.text }]}>More recipes like this</Text>
+                <Ionicons name={showRelated ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+              {showRelated && (isSimilarLoading ? (
                 <SkeletonSimilarRecipes count={3} />
               ) : (
               <ScrollView 
@@ -1374,13 +1413,14 @@ export default function RecipeDetailScreen() {
                   />
                 ))}
         </ScrollView>
-              )}
+              ))}
             </RNView>
           )}
         </ScrollView>
         
         {/* Cooking stays primary; review is optional beside the advisory. */}
-        <RNView style={[
+        {canShowRecipePrimaryAction(isOwner, cookPresentation.canCook) && <RNView
+          onLayout={(event) => setCookDockHeight(event.nativeEvent.layout.height)} style={[
           styles.floatingButtonContainer,
           { 
             backgroundColor: colors.background,
@@ -1404,7 +1444,7 @@ export default function RecipeDetailScreen() {
               <Text style={styles.floatingCookButtonText}>{cookPresentation.buttonLabel}</Text>
             </TouchableOpacity>
           ) : null}
-        </RNView>
+        </RNView>}
       </KeyboardAvoidingView>
 
       {showDetailsReview && isOwner && (
@@ -1574,8 +1614,15 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  refreshNotice: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, marginBottom: spacing.md },
+  supportingContent: { paddingHorizontal: spacing.lg },
+  errorMessage: { textAlign: 'center', marginBottom: spacing.md },
+  retryButton: { minHeight: 44, minWidth: 88, alignItems: 'center', justifyContent: 'center' },
+  preparation: { paddingBottom: spacing.md, marginBottom: spacing.lg, borderBottomWidth: StyleSheet.hairlineWidth, gap: spacing.xs },
+  prepLink: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
+  relatedDisclosure: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   scrollContent: {
-    paddingBottom: 100, // Extra padding for floating button
+    flexGrow: 1,
   },
   moderationNotice: {
     marginTop: spacing.md,
@@ -1659,16 +1706,16 @@ const styles = StyleSheet.create({
   },
   headerButtons: {
     flexDirection: 'row',
-    gap: spacing.md,
+    gap: 0,
   },
   headerButton: {
-    padding: spacing.xs,
+    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
   },
   content: {
     padding: spacing.lg,
   },
   title: {
-    fontSize: fontSize.xxxl,
+    fontSize: fontSize.xxl,
     fontFamily: fontFamily.display,
     lineHeight: 42,
     marginBottom: spacing.md,
@@ -1707,9 +1754,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   scaleButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1720,13 +1767,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
   },
   resetButton: {
-    padding: spacing.xs,
+    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
     marginLeft: spacing.xs,
   },
   // Notes section
   notesSection: {
-    padding: spacing.lg,
-    borderRadius: radius.xl,
+    padding: spacing.md,
+    borderRadius: radius.md,
     marginBottom: spacing.lg,
   },
   notesTitleRow: {
@@ -1884,13 +1931,14 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.semibold,
   },
   sourceButton: {
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
-    padding: spacing.md,
+    paddingVertical: spacing.sm,
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 0,
     marginBottom: spacing.sm,
   },
   sourceButtonText: {
@@ -1899,14 +1947,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   shareButton: {
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
-    padding: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    marginBottom: spacing.lg,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 0,
+    marginBottom: spacing.sm,
   },
   shareButtonText: {
     fontSize: fontSize.md,
@@ -1933,12 +1983,14 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   tabContainer: {
+    paddingHorizontal: spacing.sm,
     flexDirection: 'row',
     borderBottomWidth: 1,
-    marginBottom: spacing.lg,
   },
+  tabRow: { flexGrow: 1 },
   tab: {
     flex: 1,
+    minHeight: 48, paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
     alignItems: 'center',
     borderBottomWidth: 2,
@@ -2006,9 +2058,9 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   stepNumber: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: spacing.md,
@@ -2164,6 +2216,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
   },
   addToGroceryButton: {
+    minHeight: 48, borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2303,11 +2356,11 @@ const styles = StyleSheet.create({
   },
   // Similar Recipes Section
   similarSection: {
-    marginTop: spacing.xl,
-    paddingHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.lg,
   },
   similarTitle: {
-    fontSize: fontSize.lg,
+    fontSize: fontSize.md,
     fontWeight: fontWeight.bold,
     marginBottom: spacing.md,
   },

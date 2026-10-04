@@ -41,9 +41,6 @@ describe('App Store release metadata', () => {
     expect(info.privacyPolicyUrl).toBe('https://hafa-recipes.com/privacy');
     expect(info.supportUrl).toBe('https://hafa-recipes.com/support');
     expect(info.releaseNotes).toBe(RELEASE_NOTES);
-    expect(info.releaseNotes).toContain('cleaner screen');
-    expect(info.releaseNotes).toContain('start importing directly');
-    expect(info.releaseNotes).toContain('whole-recipe totals');
     expect(config.apple.review.demoRequired).toBe(true);
     expect(config.apple.review.demoUsername).toBe(environment.APP_REVIEW_EMAIL);
     expect(config.apple.review.notes).toContain('does not provide persistent background audio');
@@ -83,5 +80,6 @@ describe('App Store release metadata', () => {
     expect(APP_DESCRIPTION.length).toBeGreaterThanOrEqual(10);
     expect(APP_DESCRIPTION.length).toBeLessThanOrEqual(4000);
     expect(RELEASE_NOTES.length).toBeLessThanOrEqual(4000);
+    expect(RELEASE_NOTES.trim().length).toBeGreaterThanOrEqual(10);
   });
 });

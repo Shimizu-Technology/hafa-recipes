@@ -29,7 +29,7 @@ export function NutritionPanel({ nutrition, metadata, scaleFactor = 1, isLoading
   const statusMessage = nutritionStatusMessage(Boolean(basis), metadata);
   const provenance = nutritionProvenance(metadata);
   // Keep large text readable with the product's existing dark/light action colors.
-  const actionColor = 'actionText' in colors && typeof colors.actionText === 'string' ? colors.actionText : colors.text;
+  const actionColor = colors.actionText;
   const textStyles = {
     title: { fontSize: scaleFontSize(fontSize.lg), lineHeight: scaleFontSize(24) },
     body: { fontSize: scaleFontSize(fontSize.sm), lineHeight: scaleFontSize(20) },
