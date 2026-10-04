@@ -18,6 +18,17 @@ describe('nutrition presentation', () => {
     expect(nutritionDisplay(nutrition, 2).total[0].value).toBe(800);
     expect(nutritionDisplay(nutrition, 2).perServing[0].value).toBe(100);
   });
+  it('preserves fractional whole-recipe nutrients instead of rounding them to zero', () => {
+    const nutrition = { servingBasis: 'whole_recipe' as const,
+      total: normalizeNutritionValues({ fat: 1.25, fiber: 0.2, sugar: 0 }),
+      perServing: normalizeNutritionValues({}) };
+    expect(nutritionDisplay(nutrition).total).toMatchObject([
+      { key: 'fat', value: 1.25 }, { key: 'fiber', value: 0.2 }, { key: 'sugar', value: 0 },
+    ]);
+    expect(nutritionDisplay(nutrition, 0.5).total).toMatchObject([
+      { key: 'fat', value: 0.63 }, { key: 'fiber', value: 0.1 }, { key: 'sugar', value: 0 },
+    ]);
+  });
   it('rejects NaN and empty objects', () => {
     expect(hasNutritionValues({ calories: NaN })).toBe(false);
     expect(hasNutritionValues({})).toBe(false);

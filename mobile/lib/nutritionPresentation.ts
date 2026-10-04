@@ -23,7 +23,7 @@ export function nutritionDisplay(nutrition: Nutrition | null | undefined, scaleF
   const wholeRecipe = nutrition?.servingBasis === 'whole_recipe';
   const scale = Number.isFinite(scaleFactor) && scaleFactor > 0 ? scaleFactor : 1;
   const total = NUTRIENTS.filter(({ key }) => Number.isFinite(nutrition?.total?.[key]) && typeof nutrition?.total?.[key] === 'number')
-    .map((item) => ({ ...item, value: Math.round(Number(nutrition?.total?.[item.key]) * scale) }));
+    .map((item) => ({ ...item, value: Math.round(Number(nutrition?.total?.[item.key]) * scale * 100) / 100 }));
   const perServing = wholeRecipe ? [] : NUTRIENTS.filter(({ key }) => typeof nutrition?.perServing?.[key] === 'number' && Number.isFinite(nutrition?.perServing?.[key]))
     .map((item) => ({ ...item, value: Number(nutrition?.perServing?.[item.key]) }));
   const sourcePerServing = NUTRIENTS.filter(({ key }) => typeof nutrition?.sourcePerServing?.[key] === 'number' && Number.isFinite(nutrition?.sourcePerServing?.[key]))
