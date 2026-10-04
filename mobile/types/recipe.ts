@@ -48,6 +48,7 @@ export interface Nutrition {
   servingsUsed?: number | null;
   assumptions?: string[];
   sourceServingSize?: string;
+  sourcePerServing?: Partial<NutritionValues> | null;
 }
 
 export type DerivedValueStatus = 'current' | 'stale' | 'unverified' | 'unavailable';

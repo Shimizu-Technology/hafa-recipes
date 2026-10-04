@@ -40,8 +40,15 @@ export function NutritionPanel({ nutrition, metadata, scaleFactor = 1, isLoading
       </View>)}</View>
     </>}
     {display.perServing.length > 0 && <>
-      <Text style={[styles.label, { color: colors.text }]}>Per serving</Text>
+      <Text style={[styles.label, { color: colors.text }]}>{nutrition?.servingBasis === 'source' && nutrition.sourceServingSize ? 'Per source serving' : 'Per serving'}</Text>
       <View style={styles.grid}>{display.perServing.map((item) => <View key={item.key} style={[styles.cell, { backgroundColor: colors.backgroundSecondary }]}>
+        <Text style={[styles.value, { color: colors.tint }]}>{item.value} {item.unit}</Text>
+        <Text style={[styles.note, { color: colors.textMuted }]}>{item.label}</Text>
+      </View>)}</View>
+    </>}
+    {display.sourcePerServing.length > 0 && <>
+      <Text style={[styles.label, { color: colors.text }]}>Per source serving{nutrition?.sourceServingSize ? ` · ${nutrition.sourceServingSize}` : ''}</Text>
+      <View style={styles.grid}>{display.sourcePerServing.map((item) => <View key={item.key} style={[styles.cell, { backgroundColor: colors.backgroundSecondary }]}>
         <Text style={[styles.value, { color: colors.tint }]}>{item.value} {item.unit}</Text>
         <Text style={[styles.note, { color: colors.textMuted }]}>{item.label}</Text>
       </View>)}</View>

@@ -22,4 +22,14 @@ describe('nutrition presentation', () => {
     expect(hasNutritionValues({ calories: NaN })).toBe(false);
     expect(hasNutritionValues({})).toBe(false);
   });
+  it('keeps publisher portions separate from recipe-serving estimates while scaling', () => {
+    const nutrition = { servingBasis: 'recipe_servings' as const, sourceServingSize: '1 cookie',
+      sourcePerServing: { calories: 100, sugar: 0 },
+      perServing: normalizeNutritionValues({ calories: 300 }),
+      total: normalizeNutritionValues({ calories: 2400 }) };
+    const display = nutritionDisplay(nutrition, 2);
+    expect(display.total[0].value).toBe(4800);
+    expect(display.perServing[0].value).toBe(300);
+    expect(display.sourcePerServing).toMatchObject([{ key: 'calories', value: 100 }, { key: 'sugar', value: 0 }]);
+  });
 });

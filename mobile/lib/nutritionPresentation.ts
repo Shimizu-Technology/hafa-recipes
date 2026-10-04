@@ -26,5 +26,8 @@ export function nutritionDisplay(nutrition: Nutrition | null | undefined, scaleF
     .map((item) => ({ ...item, value: Math.round(Number(nutrition?.total?.[item.key]) * scale) }));
   const perServing = wholeRecipe ? [] : NUTRIENTS.filter(({ key }) => typeof nutrition?.perServing?.[key] === 'number' && Number.isFinite(nutrition?.perServing?.[key]))
     .map((item) => ({ ...item, value: Number(nutrition?.perServing?.[item.key]) }));
-  return { wholeRecipe, total, perServing, hasValues: total.length > 0 || perServing.length > 0 };
+  const sourcePerServing = NUTRIENTS.filter(({ key }) => typeof nutrition?.sourcePerServing?.[key] === 'number' && Number.isFinite(nutrition?.sourcePerServing?.[key]))
+    .map((item) => ({ ...item, value: Number(nutrition?.sourcePerServing?.[item.key]) }));
+  return { wholeRecipe, total, perServing, sourcePerServing,
+    hasValues: total.length > 0 || perServing.length > 0 || sourcePerServing.length > 0 };
 }
