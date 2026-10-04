@@ -1,6 +1,9 @@
+import json
+
 import pytest
 from pydantic import ValidationError
 
+from app.models.schemas import RecipeExtracted
 from app.recipe_derived_data import (
     dependency_fingerprint,
     ensure_derived_metadata,
@@ -123,6 +126,68 @@ def test_recipe_edit_clears_unsupported_nutrients_after_recalculation():
     assert result["nutrition"]["total"] == {}
     assert result["derivedData"]["nutrition"]["status"] == "current"
     assert result["derivedData"]["nutrition"]["model"] == "gpt-5.6-luna"
+
+
+@pytest.mark.parametrize("servings,basis", [(4, "recipe_servings"), (None, "whole_recipe")])
+def test_recalculated_disclosure_survives_edit_storage_and_response_schema(servings, basis):
+    old = mark_fresh(recipe(), "nutrition", source="source", model="old-model")
+    old["derivedData"]["nutrition"].update(
+        assumptions=["Old amount"], reason="Old failure", errorCode="old_error",
+    )
+    values = {"calories": 840, "protein": 16, "carbs": 180, "fat": 6}
+    assumptions = ["Rice: used an estimated amount of 2 cups.", "Oil: assumed 1 tbsp."]
+    edit = RecipeEdit(
+        title="Updated", servings=servings,
+        ingredients=[{"name": "rice"}], steps=["Cook"],
+        nutrition={"calories": 210, "protein": 4, "carbs": 45, "fat": 1} if servings else {},
+        nutrition_total=values, nutrition_serving_basis=basis,
+        nutrition_assumptions=assumptions, nutrition_recalculated=True,
+        nutrition_model="replacement-model",
+    )
+
+    saved = _build_edited_extracted(old, edit)
+    # Exercise the JSONB-compatible payload and the actual response model that
+    # used to insert an empty metadata assumptions array ahead of the real list.
+    reloaded = json.loads(json.dumps(saved))
+    reloaded["sourceUrl"] = "manual://test"
+    response = RecipeExtracted.model_validate(reloaded).model_dump(mode="json")
+    metadata = response["derivedData"]["nutrition"]
+
+    assert metadata["assumptions"] == response["nutrition"]["assumptions"] == assumptions
+    assert metadata["servingBasis"] == response["nutrition"]["servingBasis"] == basis
+    assert metadata["servingsUsed"] == response["nutrition"]["servingsUsed"] == servings
+    assert metadata["source"] == "ai_estimate"
+    assert metadata["model"] == "replacement-model"
+    assert metadata["status"] == "current"
+    assert metadata["reason"] is None
+    assert metadata["errorCode"] is None
+    assert metadata["dependencyFingerprint"] == dependency_fingerprint(saved)
+    assert metadata["calculatedAt"] is not None
+    if not servings:
+        assert all(value is None for value in response["nutrition"]["perServing"].values())
+
+
+def test_new_calculation_without_assumptions_does_not_reuse_old_disclosure():
+    old = mark_fresh(recipe(), "nutrition", source="source", model="old-model")
+    old["derivedData"]["nutrition"].update(
+        assumptions=["Old amount"], servingBasis="source", servingsUsed=8,
+    )
+    replacement = recipe(ingredient="noodles")
+
+    result = invalidate_changed_inputs(old, replacement, nutrition_recalculated=True)
+    metadata = result["derivedData"]["nutrition"]
+
+    assert metadata["assumptions"] == []
+    assert metadata["servingBasis"] is None
+    assert metadata["servingsUsed"] is None
+    assert "model" not in metadata
+    # Editing only inputs keeps the previous estimate's disclosure and provenance,
+    # but explicitly marks it stale rather than representing a new calculation.
+    stale = invalidate_changed_inputs(old, replacement)["derivedData"]["nutrition"]
+    assert stale["status"] == "stale"
+    assert stale["assumptions"] == ["Old amount"]
+    assert stale["source"] == "source"
+    assert stale["model"] == "old-model"
 
 
 @pytest.mark.parametrize(
