@@ -1,3 +1,4 @@
+import { legacyShareReceipts } from '@/lib/legacyShareReceipts';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as Crypto from 'expo-crypto';
 import {
@@ -43,8 +44,9 @@ export default function ExtractScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { isSignedIn, isLoaded: isAuthLoaded } = useAuth();
-  const { sharedUrl, captureToken, inboxCaptureId } = useLocalSearchParams<{
+  const { sharedUrl, sharedReceiptId, captureToken, inboxCaptureId } = useLocalSearchParams<{
     sharedUrl?: string;
+    sharedReceiptId?: string;
     captureToken?: string;
     inboxCaptureId?: string;
   }>();
@@ -114,37 +116,36 @@ export default function ExtractScreen() {
   const saveCapturedRecipe = useSaveCapturedRecipe();
   const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
 
-  // A legacy route parameter is one receipt. Keep its identity and original
-  // owner choice across effect reruns, storage retries and auth transitions.
-  const legacySharedCapture = useRef<{ url: string; id: string; entry?: ImportInboxEntry; inFlight: boolean; persisted: boolean } | null>(null);
-  if (!sharedUrl) legacySharedCapture.current = null;
-  else if (legacySharedCapture.current?.url !== sharedUrl) {
-    legacySharedCapture.current = { url: sharedUrl, id: Crypto.randomUUID(), inFlight: false, persisted: false };
-  }
+  // Route receipt IDs and a session registry survive auth-driven remounts.
+  const currentLegacyRoute = useRef({ sharedUrl, sharedReceiptId });
+  currentLegacyRoute.current = { sharedUrl, sharedReceiptId };
   const [legacyShareRetryVersion, setLegacyShareRetryVersion] = useState(0);
   useEffect(() => {
-    const receipt = legacySharedCapture.current;
-    if (!receipt || receipt.inFlight || receipt.persisted) return;
-    if (!receipt.entry) {
-      // A share received signed out or before identity verification needs an
-      // explicit claim. A later account must never automatically acquire it.
+    if (!sharedUrl) { legacyShareReceipts.clearRoute(); return; }
+    let cancelled = false;
+    try {
       const ownerId = isAuthLoaded && isSignedIn ? inbox.ownerId : null;
-      receipt.entry = {
-        id: receipt.id, ownerId, capture: { kind: 'url', url: receipt.url }, createdAt: Date.now(),
-        state: ownerId ? 'ready' : 'waiting',
-        request: { url: receipt.url, location: 'Guam', notes: '', is_public: false },
-      };
+      const receipt = legacyShareReceipts.receive(sharedUrl, sharedReceiptId, ownerId);
+      // Publish the ID before the first awaited storage operation. The session
+      // registry covers an auth remount even before router updates are rendered.
+      if (!sharedReceiptId) router.setParams({ sharedReceiptId: receipt.id });
+      void legacyShareReceipts.persist(receipt, importInbox).then(() => {
+        if (!cancelled && captureOwner.current.mounted && legacyShareReceipts.isCurrent(receipt) &&
+            currentLegacyRoute.current.sharedUrl === receipt.url) {
+          router.setParams({ sharedUrl: undefined, sharedReceiptId: undefined });
+        }
+      }).catch((error: Error) => {
+        if (!cancelled && captureOwner.current.mounted && legacyShareReceipts.isCurrent(receipt)) {
+          Alert.alert('Could Not Save Import', error.message, [{ text: 'Retry', onPress: () => {
+            if (captureOwner.current.mounted && legacyShareReceipts.isCurrent(receipt)) setLegacyShareRetryVersion((version) => version + 1);
+          } }, { text: 'Later', style: 'cancel' }]);
+        }
+      });
+    } catch (error) {
+      Alert.alert('Could Not Save Import', error instanceof Error ? error.message : 'Please share this link again.');
     }
-    receipt.inFlight = true;
-    void importInbox.add(receipt.entry).then(() => {
-      receipt.persisted = true;
-      if (captureOwner.current.mounted && legacySharedCapture.current === receipt) router.setParams({ sharedUrl: undefined });
-    }).catch((error: Error) => {
-      if (captureOwner.current.mounted && legacySharedCapture.current === receipt) Alert.alert('Could Not Save Import', error.message, [{ text: 'Retry', onPress: () => {
-        if (captureOwner.current.mounted && legacySharedCapture.current === receipt) setLegacyShareRetryVersion((version) => version + 1);
-      } }, { text: 'Later', style: 'cancel' }]);
-    }).finally(() => { receipt.inFlight = false; });
-  }, [router, sharedUrl, inbox.ownerId, isAuthLoaded, isSignedIn, legacyShareRetryVersion]);
+    return () => { cancelled = true; };
+  }, [router, sharedUrl, sharedReceiptId, inbox.ownerId, isAuthLoaded, isSignedIn, legacyShareRetryVersion]);
 
   const openCapturedEntry = async (entry: ImportInboxEntry) => {
     if (!inbox.ownerId) { router.push('/(auth)/sign-in'); return; }

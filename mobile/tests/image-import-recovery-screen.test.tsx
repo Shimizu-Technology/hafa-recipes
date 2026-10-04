@@ -9,7 +9,8 @@ const mocks = vi.hoisted(() => ({
   focused: true,
   ownerId: 'owner-a' as string | null,
   signedIn: true, authLoaded: true,
-  params: { sharedUrl: undefined as string | undefined },
+  params: { sharedUrl: undefined as string | undefined, sharedReceiptId: undefined as string | undefined },
+  uuid: vi.fn(),
   setParams: vi.fn(),
   inboxEntries: [] as any[],
   addInbox: vi.fn(async (_entry: any) => undefined),
@@ -68,7 +69,7 @@ const mocks = vi.hoisted(() => ({
   requestPublishing: vi.fn(),
 }));
 
-vi.mock('expo-crypto', () => ({ randomUUID: () => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }));
+vi.mock('expo-crypto', () => ({ randomUUID: mocks.uuid }));
 vi.mock('expo-share-intent', () => ({
   ShareIntentModule: {
     addListener: vi.fn((_name: string, callback: (event: { pendingCount: number }) => void) => {
@@ -176,7 +177,7 @@ vi.mock('@/lib/api', () => ({
 }));
 vi.mock('@/lib/shareCapture', () => ({ consumePendingShareCapture: () => null, stagePendingShareCapture: () => 'token' }));
 vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: mocks.ownerId, entries: mocks.inboxEntries, storageError: null }) }));
-vi.mock('@/lib/importInbox', () => ({ importInbox: { add: mocks.addInbox, claim: mocks.claimInbox, patch: vi.fn(), remove: vi.fn() } }));
+vi.mock('@/lib/importInbox', () => ({ importInbox: { hydrate: async () => undefined, snapshot: () => mocks.inboxEntries, add: mocks.addInbox, claim: mocks.claimInbox, patch: vi.fn(), remove: vi.fn() } }));
 vi.mock('@/hooks/usePublishingDisclosure', () => ({
   usePublishingDisclosure: () => ({
     requestPublishing: mocks.requestPublishing,
@@ -187,6 +188,7 @@ vi.mock('@/lib/imageImportClassification', async () => (
   await import('../lib/imageImportClassification')
 ));
 
+import { legacyShareReceipts } from '@/lib/legacyShareReceipts';
 import ExtractScreen from '../app/(tabs)/index';
 
 /** Find a screen action by its visible themed-text label. */
@@ -201,7 +203,9 @@ function touchableWithText(renderer: ReactTestRenderer, text: string) {
 describe('classified image recovery', () => {
   beforeEach(() => {
     mocks.focused = true; mocks.ownerId = 'owner-a'; mocks.signedIn = true; mocks.authLoaded = true;
-    mocks.params.sharedUrl = undefined; mocks.setParams.mockClear();
+    legacyShareReceipts.clearRoute();
+    mocks.uuid.mockReset(); mocks.uuid.mockReturnValue('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+    mocks.params.sharedUrl = undefined; mocks.params.sharedReceiptId = undefined; mocks.setParams.mockReset();
     mocks.addInbox.mockReset(); mocks.addInbox.mockResolvedValue(undefined); mocks.claimInbox.mockClear();
     mocks.pendingShareCount = 0;
     mocks.queueChanged = null;
@@ -234,6 +238,31 @@ describe('classified image recovery', () => {
     mocks.extraction.startExtraction.mockResolvedValue({ isExisting: false });
   });
 
+  it('preserves a retained URL receipt through delayed A unmount and B remount, then allows a later identical share', async () => {
+    mocks.params.sharedUrl = 'https://example.com/shared';
+    mocks.uuid.mockReturnValueOnce('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa').mockReturnValueOnce('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+    mocks.setParams.mockImplementation((patch: Partial<typeof mocks.params>) => { Object.assign(mocks.params, patch); });
+    let finish!: () => void;
+    mocks.addInbox.mockImplementationOnce(() => new Promise<undefined>((resolve) => { finish = () => resolve(undefined); }));
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    await act(async () => renderer.unmount());
+    mocks.ownerId = 'owner-b';
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    expect(mocks.addInbox).toHaveBeenCalledOnce();
+    expect(mocks.params.sharedReceiptId).toBe('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+    expect(mocks.setParams.mock.invocationCallOrder[0]).toBeLessThan(mocks.addInbox.mock.invocationCallOrder[0]);
+    expect(mocks.addInbox.mock.calls[0][0]).toMatchObject({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', ownerId: 'owner-a' });
+    await act(async () => finish());
+    expect(mocks.params).toMatchObject({ sharedUrl: undefined, sharedReceiptId: undefined });
+    await act(async () => renderer.update(<ExtractScreen />));
+    mocks.params.sharedUrl = 'https://example.com/shared';
+    await act(async () => renderer.update(<ExtractScreen />));
+    expect(mocks.addInbox).toHaveBeenCalledTimes(2);
+    expect(mocks.addInbox.mock.calls[1][0]).toMatchObject({ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', ownerId: 'owner-b', state: 'ready' });
+    await act(async () => renderer.unmount());
+  });
+
   it('persists one legacy URL receipt while a delayed write spans an account transition', async () => {
     mocks.params.sharedUrl = 'https://example.com/shared';
     let finish!: () => void;
@@ -247,7 +276,7 @@ describe('classified image recovery', () => {
     await act(async () => renderer.update(<ExtractScreen />));
     expect(mocks.addInbox).toHaveBeenCalledOnce();
     expect(mocks.addInbox.mock.calls[0][0]).toMatchObject({ ownerId: 'owner-a', state: 'ready', capture: { url: 'https://example.com/shared' } });
-    expect(mocks.setParams).toHaveBeenCalledWith({ sharedUrl: undefined });
+    expect(mocks.setParams).toHaveBeenCalledWith({ sharedUrl: undefined, sharedReceiptId: undefined });
     await act(async () => renderer.unmount());
   });
 
