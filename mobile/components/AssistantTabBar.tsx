@@ -40,8 +40,8 @@ export function AssistantTabBar({ isSignedIn, ...tabBarProps }: Props) {
   return (
     <View style={{ backgroundColor: colors.backgroundElevated, overflow: 'visible' }}>
       <BottomTabBar {...tabBarProps} />
-      {isSignedIn && !keyboardVisible && (
-        <View style={{ ...styles.floatingAction, marginBottom: isImportTab ? 112 : 12 }}>
+      {isSignedIn && !keyboardVisible && !isImportTab && (
+        <View style={styles.floatingAction}>
           <AssistantFloatingButton onPress={() => {
             setHasOpenedChat(true);
             setShowChat(true);

@@ -100,7 +100,7 @@ export function RecipeVisibilitySelector({
                 <Text
                   style={[
                     styles.optionTitle,
-                    { color: selected ? selectedColor : colors.text },
+                    { color: colors.text },
                   ]}
                 >
                   {option.title}

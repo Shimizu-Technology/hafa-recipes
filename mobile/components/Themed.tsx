@@ -111,6 +111,7 @@ export function Card({ children, style, noPadding, elevated, ...props }: CardPro
 
 // Input component
 interface InputProps {
+  accessibilityLabel?: string;
   value: string;
   onChangeText: (text: string) => void;
   placeholder?: string;
@@ -126,10 +127,13 @@ interface InputProps {
   showClearButton?: boolean;
   autoFocus?: boolean;
   onSubmitEditing?: () => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
   returnKeyType?: 'done' | 'go' | 'next' | 'search' | 'send';
 }
 
 export function Input({
+  accessibilityLabel,
   value,
   onChangeText,
   placeholder,
@@ -145,6 +149,8 @@ export function Input({
   showClearButton = true,
   autoFocus,
   onSubmitEditing,
+  onFocus,
+  onBlur,
   returnKeyType,
 }: InputProps) {
   const colors = useColors();
@@ -153,6 +159,7 @@ export function Input({
   return (
     <DefaultView style={{ position: 'relative' }}>
       <DefaultTextInput
+        accessibilityLabel={accessibilityLabel}
         maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
         value={value}
         onChangeText={onChangeText}
@@ -168,6 +175,8 @@ export function Input({
         maxLength={maxLength}
         autoFocus={autoFocus}
         onSubmitEditing={onSubmitEditing}
+        onFocus={onFocus}
+        onBlur={onBlur}
         returnKeyType={returnKeyType}
         style={[
           {

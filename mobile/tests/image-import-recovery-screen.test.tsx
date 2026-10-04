@@ -67,8 +67,11 @@ const mocks = vi.hoisted(() => ({
   })),
   push: vi.fn(),
   requestPublishing: vi.fn(),
+  clipboard: vi.fn(async () => 'https://example.com/copied'),
 }));
 
+vi.mock('expo-clipboard', () => ({ getStringAsync: mocks.clipboard }));
+vi.mock('@/components/RecipeChatModal', () => ({ default: () => null }));
 vi.mock('expo-crypto', () => ({ randomUUID: mocks.uuid }));
 vi.mock('expo-share-intent', () => ({
   ShareIntentModule: {
@@ -91,6 +94,8 @@ vi.mock('react-native', async () => {
     Alert: { alert: mocks.alert },
     Image: host('Image'),
     KeyboardAvoidingView: host('KeyboardAvoidingView'),
+    Keyboard: { dismiss: vi.fn(), isVisible: () => false, addListener: () => ({ remove: vi.fn() }) },
+    Modal: (props: Record<string, unknown>) => props.visible ? ReactModule.createElement('Modal', props, props.children as React.ReactNode) : null,
     Linking: { openURL: vi.fn() },
     Platform: { OS: 'ios' },
     ScrollView: host('ScrollView'),
@@ -109,9 +114,11 @@ vi.mock('expo-router', async () => {
     },
   };
 });
-vi.mock('react-native-safe-area-context', () => ({
-  useSafeAreaInsets: () => ({ top: 0, bottom: 0 }),
-}));
+vi.mock('react-native-safe-area-context', async () => {
+  const ReactModule = await import('react');
+  const host = (props: Record<string, unknown>) => ReactModule.createElement('SafeAreaView', props, props.children as React.ReactNode);
+  return { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }), SafeAreaProvider: host, SafeAreaView: host };
+});
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isSignedIn: mocks.signedIn, isLoaded: mocks.authLoaded }) }));
 vi.mock('expo-image-picker', () => ({
   launchCameraAsync: vi.fn(),
@@ -218,6 +225,8 @@ describe('classified image recovery', () => {
     mocks.extractMultiple.mockClear();
     mocks.launchLibrary.mockClear();
     mocks.push.mockClear();
+    mocks.clipboard.mockReset();
+    mocks.clipboard.mockResolvedValue('https://example.com/copied');
     mocks.requestPublishing.mockReset();
     mocks.requestPublishing.mockResolvedValue(true);
     mocks.extraction.isComplete = false;
@@ -236,6 +245,49 @@ describe('classified image recovery', () => {
     mocks.extraction.reset.mockResolvedValue(undefined);
     mocks.extraction.startExtraction.mockReset();
     mocks.extraction.startExtraction.mockResolvedValue({ isExisting: false });
+  });
+
+  it('keeps settings separate from help and retains notes and visibility after closing', async () => {
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    const touchable = (label: string) => renderer.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType)
+      .find(node => node.props.accessibilityLabel === label)!;
+    expect(renderer.root.findAllByType('Modal' as unknown as React.ComponentType)).toHaveLength(0);
+    await act(async () => touchable('Import settings').props.onPress());
+    await act(async () => touchable('Private').props.onPress());
+    await act(async () => touchable('Cost estimate location, Guam').props.onPress());
+    await act(async () => touchable('Hawaii').props.onPress());
+    expect(touchable('Cost estimate location, Hawaii').props.accessibilityState.expanded).toBe(false);
+    await act(async () => renderer.root.findAllByType('Input' as unknown as React.ComponentType)
+      .find(node => node.props.accessibilityLabel === 'Personal notes')!.props.onChangeText('Less sugar'));
+    await act(async () => touchable('Done with import settings').props.onPress());
+    expect(renderer.root.findAllByType('Modal' as unknown as React.ComponentType)).toHaveLength(0);
+    expect(touchable('Import settings').props.accessibilityHint).toContain('Private. Only you');
+    expect(touchable('Import settings').props.accessibilityHint).toContain('Personal notes added');
+    expect(touchable('Import settings').props.accessibilityHint).toContain('Hawaii');
+    await act(async () => touchable('Import settings').props.onPress());
+    expect(renderer.root.findAllByType('Input' as unknown as React.ComponentType)
+      .find(node => node.props.accessibilityLabel === 'Personal notes')!.props.value).toBe('Less sugar');
+    await act(async () => renderer.unmount());
+  });
+
+  it.each(['edit', 'account', 'unmount'] as const)('does not overwrite a newer draft after a clipboard %s race', async (change) => {
+    let finish!: (text: string) => void;
+    mocks.clipboard.mockImplementationOnce(() => new Promise<string>((resolve) => { finish = resolve; }));
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    await act(async () => renderer.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType)
+      .find(node => node.props.accessibilityLabel === 'Paste recipe link')!.props.onPress());
+    const input = () => renderer.root.findAllByType('Input' as unknown as React.ComponentType)
+      .find(node => node.props.accessibilityLabel === 'Recipe link')!;
+    if (change === 'edit') await act(async () => input().props.onChangeText('https://example.com/newer'));
+    if (change === 'account') { mocks.ownerId = 'owner-b'; await act(async () => renderer.update(<ExtractScreen />)); }
+    if (change === 'unmount') await act(async () => renderer.unmount());
+    await act(async () => finish('https://example.com/stale'));
+    if (change !== 'unmount') {
+      expect(input().props.value).toBe(change === 'edit' ? 'https://example.com/newer' : '');
+      await act(async () => renderer.unmount());
+    }
   });
 
   it('preserves a retained URL receipt through delayed A unmount and B remount, then allows a later identical share', async () => {
@@ -345,7 +397,7 @@ describe('classified image recovery', () => {
     mocks.extractMultiple.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     let renderer!: ReactTestRenderer;
     await act(async () => { renderer = create(<ExtractScreen />); });
-    await act(async () => touchableWithText(renderer, 'Import Screenshots or Photos')!.props.onPress());
+    await act(async () => touchableWithText(renderer, 'Scan photos or screenshots')!.props.onPress());
     const chooseAction = mocks.alert.mock.calls.at(-1)?.[2].find((action: { text: string }) => action.text === 'Choose Screenshots or Photos');
     await act(async () => { await chooseAction.onPress(); });
     let submit!: Promise<void>;
@@ -364,7 +416,7 @@ describe('classified image recovery', () => {
     });
 
     await act(async () => {
-      touchableWithText(renderer!, 'Import Screenshots or Photos')!.props.onPress();
+      touchableWithText(renderer!, 'Scan photos or screenshots')!.props.onPress();
     });
     const chooseAction = mocks.alert.mock.calls.at(-1)?.[2]
       .find((action: { text: string }) => action.text === 'Choose Screenshots or Photos');
@@ -417,14 +469,14 @@ describe('classified image recovery', () => {
     mocks.inboxEntries = [{ id: 'b', ownerId: 'owner-a', state: 'ready', capture: { kind: 'url', url: 'https://example.com/b' } }];
     let renderer: ReactTestRenderer;
     await act(async () => { renderer = create(<ExtractScreen />); });
-    await act(async () => renderer!.root.findByProps({ placeholder: 'TikTok, Instagram, YouTube, or recipe website link' }).props.onChangeText('https://example.com/c'));
+    await act(async () => renderer!.root.findByProps({ placeholder: 'Paste a recipe link' }).props.onChangeText('https://example.com/c'));
     mocks.extraction.isExtracting = false;
     mocks.extraction.isComplete = true;
     mocks.extraction.recipeId = 'recipe-a';
     await act(async () => renderer!.update(<ExtractScreen />));
     expect(mocks.push).not.toHaveBeenCalled();
     expect(mocks.extraction.reset).not.toHaveBeenCalled();
-    expect(renderer!.root.findByProps({ placeholder: 'TikTok, Instagram, YouTube, or recipe website link' }).props.value).toBe('https://example.com/c');
+    expect(renderer!.root.findByProps({ placeholder: 'Paste a recipe link' }).props.value).toBe('https://example.com/c');
     expect(mocks.inboxEntries[0].id).toBe('b');
     await act(async () => renderer!.unmount());
     mocks.inboxEntries = [];
@@ -435,11 +487,11 @@ describe('classified image recovery', () => {
     mocks.extraction.recipeId = 'saved-recipe';
     let renderer: ReactTestRenderer;
     await act(async () => { renderer = create(<ExtractScreen />); });
-    await act(async () => renderer!.root.findByProps({ placeholder: 'TikTok, Instagram, YouTube, or recipe website link' }).props.onChangeText('https://example.com/next'));
+    await act(async () => renderer!.root.findByProps({ placeholder: 'Paste a recipe link' }).props.onChangeText('https://example.com/next'));
     expect(mocks.push).not.toHaveBeenCalled();
     await act(async () => renderer!.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Open Recipe')!.props.onPress());
     expect(mocks.push).toHaveBeenCalledWith('/recipe/saved-recipe');
-    expect(renderer!.root.findByProps({ placeholder: 'TikTok, Instagram, YouTube, or recipe website link' }).props.value).toBe('https://example.com/next');
+    expect(renderer!.root.findByProps({ placeholder: 'Paste a recipe link' }).props.value).toBe('https://example.com/next');
     await act(async () => renderer!.unmount());
   });
 
@@ -457,7 +509,7 @@ describe('classified image recovery', () => {
     mocks.extraction.isExtracting = true;
     let renderer: ReactTestRenderer;
     await act(async () => { renderer = create(<ExtractScreen />); });
-    await act(async () => renderer!.root.findByProps({ placeholder: 'TikTok, Instagram, YouTube, or recipe website link' }).props.onChangeText('https://example.com/b'));
+    await act(async () => renderer!.root.findByProps({ placeholder: 'Paste a recipe link' }).props.onChangeText('https://example.com/b'));
     await act(async () => renderer!.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Add to Queue')!.props.onPress());
     expect(mocks.addInbox).toHaveBeenCalledWith(expect.objectContaining({ state: 'ready', capture: { kind: 'url', url: 'https://example.com/b' } }));
     expect(mocks.extraction.reset).not.toHaveBeenCalled();
@@ -471,10 +523,10 @@ describe('classified image recovery', () => {
     else mocks.addInbox.mockImplementationOnce(() => new Promise<undefined>((resolve) => { finish = () => resolve(undefined); }));
     let renderer!: ReactTestRenderer;
     await act(async () => { renderer = create(<ExtractScreen />); });
-    const input = () => renderer.root.findByProps({ placeholder: 'TikTok, Instagram, YouTube, or recipe website link' });
+    const input = () => renderer.root.findByProps({ placeholder: 'Paste a recipe link' });
     await act(async () => input().props.onChangeText('https://example.com/a'));
     let submit!: Promise<void>;
-    await act(async () => { submit = renderer.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Extract Recipe')!.props.onPress(); });
+    await act(async () => { submit = renderer.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Import Recipe')!.props.onPress(); });
     await act(async () => input().props.onChangeText('https://example.com/b'));
     await act(async () => { finish(); await submit; });
     expect(mocks.addInbox).toHaveBeenCalledWith(expect.objectContaining({ capture: { kind: 'url', url: 'https://example.com/a' } }));
@@ -504,10 +556,10 @@ describe('classified image recovery', () => {
     mocks.extraction.requestedIsPublic = true;
     let renderer: ReactTestRenderer;
     await act(async () => { renderer = create(<ExtractScreen />); });
-    await act(async () => renderer!.root.findByProps({ placeholder: 'TikTok, Instagram, YouTube, or recipe website link' }).props.onChangeText('https://example.com/next'));
+    await act(async () => renderer!.root.findByProps({ placeholder: 'Paste a recipe link' }).props.onChangeText('https://example.com/next'));
     await act(async () => renderer!.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Retry Import')!.props.onPress());
     expect(mocks.addInbox).toHaveBeenCalledWith(expect.objectContaining({ request: { url: 'https://example.com/recipe', location: 'Hawaii', notes: 'Use the caption measurements', is_public: true } }));
-    expect(renderer!.root.findByProps({ placeholder: 'TikTok, Instagram, YouTube, or recipe website link' }).props.value).toBe('https://example.com/next');
+    expect(renderer!.root.findByProps({ placeholder: 'Paste a recipe link' }).props.value).toBe('https://example.com/next');
     await act(async () => renderer!.unmount());
   });
 
@@ -517,7 +569,7 @@ describe('classified image recovery', () => {
     mocks.save.mockRejectedValueOnce(new Error('Offline'));
     let renderer: ReactTestRenderer;
     await act(async () => { renderer = create(<ExtractScreen />); });
-    await act(async () => touchableWithText(renderer!, 'Import Screenshots or Photos')!.props.onPress());
+    await act(async () => touchableWithText(renderer!, 'Scan photos or screenshots')!.props.onPress());
     const choose = mocks.alert.mock.calls.at(-1)?.[2].find((action: { text: string }) => action.text === 'Choose Screenshots or Photos');
     await act(async () => choose.onPress());
     await act(async () => renderer!.root.findAllByType('Button' as unknown as React.ComponentType)

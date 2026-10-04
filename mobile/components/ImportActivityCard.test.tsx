@@ -55,6 +55,7 @@ import {
   importAgeLabel,
   importJobPresentation,
   importSourceLabel,
+  importSourceDetail,
 } from './ImportActivityCard';
 import type { JobStatus } from '@/types/recipe';
 
@@ -78,6 +79,10 @@ describe('ImportActivityCard', () => {
     expect(importSourceLabel('https://youtu.be/abc')).toBe('YouTube');
     expect(importSourceLabel('https://www.instagram.com/reel/abc')).toBe('Instagram');
     expect(importSourceLabel('not a URL')).toBe('Recipe link');
+    expect(importSourceDetail('https://www.youtube.com/watch?v=abc&tracking=ignore')).toBe('watch · abc');
+    expect(importSourceDetail('https://m.youtube.com/watch?v=xyz&tracking=ignore')).toBe('watch · xyz');
+    expect(importSourceDetail('https://www.instagram.com/reel/abc/?tracking=ignore')).toBe('reel/abc');
+    expect(importSourceDetail('https://user:secret@example.com/%E0%A4?tracking=ignore')).toBe('%E0%A4');
     expect(importAgeLabel('2026-09-07T00:00:00Z', Date.parse('2026-09-07T02:00:00Z'))).toBe('2h ago');
   });
 
@@ -105,15 +110,18 @@ describe('ImportActivityCard', () => {
     const failed = job({ id: 'failed', status: 'failed', recipe_id: null });
     const screen = await render(
       <ImportActivityCard
-        jobs={[active, job(), failed, job({ id: 'cancelled', status: 'cancelled' })]}
+        jobs={[job(), job({ id: 'saved-2', url: 'https://www.youtube.com/watch?v=xyz' }), job({ id: 'saved-3' }), job({ id: 'saved-4' }), active, failed, job({ id: 'cancelled', status: 'cancelled' })]}
         onOpenRecipe={onOpenRecipe}
         onRestore={onRestore}
       />,
     );
 
-    await fireEvent.press(screen.getByLabelText('View progress YouTube import'));
-    await fireEvent.press(screen.getByLabelText('Open recipe YouTube import'));
-    await fireEvent.press(screen.getByLabelText('View options YouTube import'));
+    await fireEvent.press(screen.getByLabelText('View progress YouTube import, watch · abc'));
+    expect(screen.queryByLabelText('Open recipe YouTube import, watch · xyz')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('Recent imports'));
+    expect(screen.getByLabelText('Open recipe YouTube import, watch · xyz')).toBeTruthy();
+    await fireEvent.press(screen.getAllByLabelText('Open recipe YouTube import, watch · abc')[0]);
+    await fireEvent.press(screen.getByLabelText('View options YouTube import, watch · abc'));
 
     expect(onRestore).toHaveBeenCalledWith(active);
     expect(onOpenRecipe).toHaveBeenCalledWith(expect.objectContaining({ id: 'job-1' }));
