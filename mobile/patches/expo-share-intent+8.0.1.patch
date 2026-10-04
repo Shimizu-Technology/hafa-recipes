@@ -224,7 +224,7 @@ index e52b6d0..2a1d56c 100644
 +}
 +// HAFA_ATOMIC_CAPTURE_SNAPSHOT_END
 diff --git a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
-index f1f4b72..6544faf 100644
+index f1f4b72..cc69140 100644
 --- a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
 +++ b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
 @@ -4,6 +4,7 @@
@@ -244,7 +244,7 @@ index f1f4b72..6544faf 100644
    let hideView: Bool = <HIDEVIEW>
    var sharedMedia: [SharedMediaFile] = []
    var sharedWebUrl: [WebUrl] = []
-@@ -490,24 +491,85 @@ class ShareViewController: UIViewController {
+@@ -490,24 +491,175 @@ class ShareViewController: UIViewController {
    }
  
    private func redirectToHostApp(type: RedirectType) {
@@ -269,11 +269,11 @@ index f1f4b72..6544faf 100644
 +    let saved = HafaShareStore.locked { defaults -> Bool in
 +      guard defaults.object(forKey: captureKey) != nil else { return false }
 +      var metadata: [String: Any] = ["captureId": captureID, "captureKey": captureKey, "submitted": false]
-+      if let session = defaults.dictionary(forKey: HafaShareStore.sessionKey) {
-+        metadata["accountScopeId"] = session["accountScopeId"]
-+        metadata["location"] = session["location"]
-+        metadata["requestedIsPublic"] = session["isPublic"] ?? false
-+      } else { metadata["requestedIsPublic"] = false }
++      let preferences = HafaShareStore.capturePreferences(
++        session: defaults.dictionary(forKey: HafaShareStore.sessionKey),
++        preferences: defaults.dictionary(forKey: HafaShareStore.preferencesKey))
++      metadata.merge(preferences) { _, snapshot in snapshot }
++      captureVisibility = metadata["requestedIsPublic"] as? Bool ?? false
 +      defaults.set(metadata, forKey: "\(captureKey).meta")
 +      var pending = defaults.stringArray(forKey: HafaShareStore.pendingKey) ?? []
 +      pending.append("\(shareProtocol)://dataUrl=\(captureKey)#\(type)")
@@ -281,7 +281,9 @@ index f1f4b72..6544faf 100644
 +      return true
 +    } ?? false
 +    guard saved else { dismissWithError(message: "Could not save shared recipe"); return }
-+    showCaptureConfirmation("Importing into Håfa…")
++    captureSource = sharedWebUrl.first.flatMap { URL(string: $0.url)?.host }
++      ?? (type == .media ? "Shared photos" : "Shared recipe")
++    showCaptureConfirmation(title: "Saving your recipe", detail: "Adding it to Håfa.")
 +    // URLs from Safari/social apps are accepted by the API immediately. Text
 +    // and photos retain their complete native payload for main-app intake.
 +    let link: String?
@@ -294,39 +296,127 @@ index f1f4b72..6544faf 100644
 +    }
 +    guard let link, let url = URL(string: link), ["http", "https"].contains(url.scheme ?? "") else {
 +      finishCapture(accepted: false); return
-     }
--    extensionContext!.completeRequest(returningItems: [], completionHandler: nil)
++    }
 +    HafaShareStore.enqueueLink(captureKey: captureKey, url: link) { accepted in
 +      DispatchQueue.main.async { self.finishCapture(accepted: accepted) }
 +    }
 +  }
 +
-+  private var captureConfirmation: UILabel?
-+  private func showCaptureConfirmation(_ text: String) {
-+    let confirmation = captureConfirmation ?? UILabel()
-+    if captureConfirmation == nil {
-+      confirmation.translatesAutoresizingMaskIntoConstraints = false
-+      confirmation.numberOfLines = 3
-+      confirmation.textAlignment = .center
-+      confirmation.textColor = .label
-+      confirmation.font = .preferredFont(forTextStyle: .headline)
-+      view.backgroundColor = .systemBackground
-+      view.addSubview(confirmation)
++  private var confirmationTitle: UILabel?
++  private var confirmationDetail: UILabel?
++  private var confirmationSpinner: UIActivityIndicatorView?
++  private var confirmationDone: UIButton?
++  private var captureVisibility = false
++  private var captureSource = "Shared recipe"
++
++  private func showCaptureConfirmation(title: String, detail: String) {
++    if confirmationTitle == nil {
++      view.isOpaque = true
++      view.backgroundColor = UIColor(red: 0.05, green: 0.08, blue: 0.06, alpha: 1)
++      preferredContentSize = CGSize(width: 420, height: 440)
++      let scroll = UIScrollView()
++      scroll.translatesAutoresizingMaskIntoConstraints = false
++      view.addSubview(scroll)
++      let panel = UIView()
++      panel.translatesAutoresizingMaskIntoConstraints = false
++      panel.backgroundColor = UIColor(red: 0.09, green: 0.12, blue: 0.10, alpha: 1)
++      panel.layer.cornerRadius = 24
++      scroll.addSubview(panel)
++      let stack = UIStackView()
++      stack.axis = .vertical
++      stack.spacing = 16
++      stack.translatesAutoresizingMaskIntoConstraints = false
++      panel.addSubview(stack)
++      let brand = UILabel()
++      brand.text = "Håfa Recipes"
++      brand.textColor = .white
++      brand.font = .preferredFont(forTextStyle: .title2)
++      brand.adjustsFontForContentSizeCategory = true
++      stack.addArrangedSubview(brand)
++      let source = UILabel()
++      source.text = captureSource
++      source.textColor = UIColor(white: 0.72, alpha: 1)
++      source.font = .preferredFont(forTextStyle: .subheadline)
++      source.adjustsFontForContentSizeCategory = true
++      source.numberOfLines = 0
++      stack.addArrangedSubview(source)
++      let heading = UILabel()
++      heading.textColor = .white
++      heading.font = .preferredFont(forTextStyle: .headline)
++      heading.adjustsFontForContentSizeCategory = true
++      heading.numberOfLines = 0
++      heading.accessibilityTraits.insert(.header)
++      stack.addArrangedSubview(heading)
++      let message = UILabel()
++      message.textColor = UIColor(white: 0.80, alpha: 1)
++      message.font = .preferredFont(forTextStyle: .body)
++      message.adjustsFontForContentSizeCategory = true
++      message.numberOfLines = 0
++      stack.addArrangedSubview(message)
++      let visibility = UILabel()
++      visibility.text = captureVisibility ? "Requested visibility: Public in Discover" : "Requested visibility: Private"
++      visibility.textColor = UIColor(white: 0.72, alpha: 1)
++      visibility.font = .preferredFont(forTextStyle: .footnote)
++      visibility.adjustsFontForContentSizeCategory = true
++      visibility.numberOfLines = 0
++      stack.addArrangedSubview(visibility)
++      let spinner = UIActivityIndicatorView(style: .medium)
++      spinner.color = UIColor(red: 0.35, green: 0.75, blue: 0.69, alpha: 1)
++      spinner.hidesWhenStopped = true
++      spinner.startAnimating()
++      stack.addArrangedSubview(spinner)
++      let done = UIButton(type: .system)
++      var configuration = UIButton.Configuration.filled()
++      configuration.title = "Done"
++      configuration.baseBackgroundColor = UIColor(red: 0.20, green: 0.50, blue: 0.47, alpha: 1)
++      configuration.baseForegroundColor = .white
++      configuration.cornerStyle = .large
++      configuration.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 20, bottom: 14, trailing: 20)
++      done.configuration = configuration
++      done.titleLabel?.adjustsFontForContentSizeCategory = true
++      done.addTarget(self, action: #selector(closeCaptureConfirmation), for: .touchUpInside)
++      done.isEnabled = false
++      stack.addArrangedSubview(done)
 +      NSLayoutConstraint.activate([
-+        confirmation.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
-+        confirmation.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
-+        confirmation.centerYAnchor.constraint(equalTo: view.centerYAnchor),
++        scroll.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
++        scroll.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
++        scroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
++        scroll.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
++        panel.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 24),
++        panel.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -24),
++        panel.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 32),
++        panel.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -32),
++        panel.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -48),
++        stack.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 24),
++        stack.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -24),
++        stack.topAnchor.constraint(equalTo: panel.topAnchor, constant: 24),
++        stack.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -24),
++        done.heightAnchor.constraint(greaterThanOrEqualToConstant: 48),
 +      ])
-+      captureConfirmation = confirmation
-+    }
-+    confirmation.text = text
++      confirmationTitle = heading
++      confirmationDetail = message
++      confirmationSpinner = spinner
++      confirmationDone = done
+     }
+-    extensionContext!.completeRequest(returningItems: [], completionHandler: nil)
++    confirmationTitle?.text = title
++    confirmationDetail?.text = detail
 +  }
 +
 +  private func finishCapture(accepted: Bool) {
-+    showCaptureConfirmation(accepted ? "Import started in Håfa\nYour recipe will be ready in your library" : "Saved to Håfa\nOpen Håfa to continue importing")
-+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-+      self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
-+    }
++    showCaptureConfirmation(
++      title: accepted ? "Import started" : "Saved for later",
++      detail: accepted
++        ? "Open Håfa to follow the import. Your recipe will appear in your library when it is ready."
++        : "Open Håfa to finish importing this recipe. Your shared content is saved on this device.")
++    confirmationSpinner?.stopAnimating()
++    confirmationSpinner?.isHidden = true
++    confirmationDone?.isEnabled = true
++    UIAccessibility.post(notification: .announcement, argument: accepted ? "Import started in Håfa" : "Saved for later. Open Håfa to continue.")
++  }
++
++  @objc private func closeCaptureConfirmation() {
++    extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
 +  }
 +
 +  private func withLockedDefaults<T>(_ operation: (UserDefaults) -> T) -> T? {

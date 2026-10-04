@@ -3,6 +3,7 @@ import { useAuth } from '@clerk/expo';
 import { importInbox, visibleImportEntries } from '@/lib/importInbox';
 import { useCurrentUserIdentity } from '@/hooks/useRecipes';
 import { useAsyncExtraction } from '@/contexts/ExtractionContext';
+import { api } from '@/lib/api';
 
 export function useImportInbox() {
   const { isSignedIn } = useAuth();
@@ -42,6 +43,15 @@ export function useImportInboxProcessor() {
     void (async () => {
       let persistedOutcome = false;
       try {
+        if (entry.request?.is_public) {
+          const disclosure = await api.getPublishingDisclosure();
+          if (ownerRef.current !== ownerId) return;
+          if (disclosure.requires_acceptance) {
+            await importInbox.patch(entry.id, { state: 'waiting', error: 'Review public sharing to finish this import.' });
+            persistedOutcome = true;
+            return;
+          }
+        }
         // Retire the completed display only when a new job takes its place.
         if (extraction.jobId || extraction.isComplete || extraction.isFailed) await extraction.reset();
         if (ownerRef.current !== ownerId) return;

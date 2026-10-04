@@ -14,6 +14,7 @@ const publishingDisclosureKey = ['publishingDisclosure'] as const;
 export function usePublishingDisclosure() {
   const queryClient = useQueryClient();
   const inFlight = useRef(false);
+  const chosePrivate = useRef(false);
   const isMounted = useRef(true);
   const isScreenActive = useRef(false);
   const [isCheckingDisclosure, setIsCheckingDisclosure] = useState(false);
@@ -31,6 +32,7 @@ export function usePublishingDisclosure() {
 
   const requestPublishing = useCallback(async (recipePreview?: string): Promise<boolean> => {
     if (inFlight.current) return false;
+    chosePrivate.current = false;
     inFlight.current = true;
     setIsCheckingDisclosure(true);
 
@@ -49,7 +51,7 @@ export function usePublishingDisclosure() {
             ? `${PUBLISHING_DISCLOSURE_MESSAGE}\n\nFor this recipe: ${recipePreview}`
             : PUBLISHING_DISCLOSURE_MESSAGE,
           [
-            { text: 'Keep private', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Keep private', style: 'cancel', onPress: () => { chosePrivate.current = true; resolve(false); } },
             {
               text: 'Agree and publish',
               onPress: async () => {
@@ -64,7 +66,7 @@ export function usePublishingDisclosure() {
                   if (isScreenActive.current) {
                     Alert.alert(
                       'Couldn’t update publishing preference',
-                      'Please check your connection and try again. Your recipe remains private.',
+                      'Please check your connection and try again.',
                     );
                   }
                   resolve(false);
@@ -79,7 +81,7 @@ export function usePublishingDisclosure() {
       if (isScreenActive.current) {
         Alert.alert(
           'Couldn’t check publishing preference',
-          'Please check your connection and try again. Your recipe remains private.',
+          'Please check your connection and try again.',
         );
       }
       return false;
@@ -89,5 +91,5 @@ export function usePublishingDisclosure() {
     }
   }, [queryClient]);
 
-  return { requestPublishing, isCheckingDisclosure };
+  return { requestPublishing, isCheckingDisclosure, didChoosePrivate: () => chosePrivate.current };
 }

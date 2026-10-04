@@ -8,6 +8,7 @@ enum HafaShareStore {
   static let appGroup = "group.com.shimizutechnology.recipeextractor"
   static let pendingKey = "hafarecipesShareKey.pending"
   static let sessionKey = "hafa.share.session.v1"
+  static let preferencesKey = "hafa.share.preferences.v1"
   static let service = "com.shimizutechnology.hafa.share-import.v1"
 
   static func locked<T>(_ operation: (UserDefaults) throws -> T) rethrows -> T? {
@@ -100,17 +101,39 @@ enum HafaShareStore {
     return URLSession(configuration: configuration, delegate: HafaShareNetworkDelegate(), delegateQueue: nil)
   }
 
+  // Capture intent is independent of the server credential's capability.
+  // A private credential may defer a public capture for foreground disclosure,
+  // but must never silently turn that capture into a private import.
+  static func capturePreferences(session: [String: Any]?, preferences: [String: Any]?) -> [String: Any] {
+    guard let session, let account = session["accountScopeId"] as? String, !account.isEmpty else {
+      // Preferences can be saved before credential provisioning finishes.
+      // Without a session retain that intent, but leave ownership unassigned.
+      return ["requestedIsPublic": preferences?["isPublic"] as? Bool ?? true,
+        "location": preferences?["location"] as? String ?? "Guam"]
+    }
+    let source = preferences?["accountScopeId"] as? String == account ? preferences! : session
+    return ["accountScopeId": account, "location": source["location"] as? String ?? "Guam",
+      "requestedIsPublic": source["isPublic"] as? Bool ?? true]
+  }
+
+  static func importPayload(captureID: String, url: String, metadata: [String: Any]) -> [String: Any] {
+    var payload: [String: Any] = ["capture_id": captureID, "url": url]
+    if let isPublic = metadata["requestedIsPublic"] as? Bool { payload["is_public"] = isPublic }
+    if let location = metadata["location"] as? String { payload["location"] = location }
+    return payload
+  }
+
   static func enqueueLink(captureKey key: String, url: String, completion: @escaping (Bool) -> Void) {
     // Snapshot under the same lock used by configure/clear. If signed out,
     // retain the original capture locally and do not submit under any account.
-    guard let state = locked({ defaults -> ([String: Any], String)? in
-      guard let session = defaults.dictionary(forKey: sessionKey), let token = readToken() else { return nil }
-      return (session, token)
+    guard let state = locked({ defaults -> ([String: Any], String, [String: Any])? in
+      guard let session = defaults.dictionary(forKey: sessionKey), let token = readToken(),
+        let metadata = defaults.dictionary(forKey: "\(key).meta"),
+        metadata["accountScopeId"] as? String == session["accountScopeId"] as? String else { return nil }
+      return (session, token, metadata)
     }) ?? nil, let base = state.0["apiBaseURL"] as? String,
       let baseURL = validBaseURL(base),
-      let metadata = locked({ $0.dictionary(forKey: "\(key).meta") }) ?? nil,
-      let captureID = metadata["captureId"] as? String,
-      metadata["accountScopeId"] as? String == state.0["accountScopeId"] as? String else {
+      let captureID = state.2["captureId"] as? String else {
       completion(false); return
     }
     let endpoint = baseURL.appendingPathComponent("api/share/imports")
@@ -119,7 +142,7 @@ enum HafaShareStore {
     request.timeoutInterval = 7
     request.setValue("Bearer \(state.1)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.httpBody = try? JSONSerialization.data(withJSONObject: ["capture_id": captureID, "url": url])
+    request.httpBody = try? JSONSerialization.data(withJSONObject: importPayload(captureID: captureID, url: url, metadata: state.2))
     let session = networkSession()
     session.dataTask(with: request) { data, response, _ in
       defer { session.finishTasksAndInvalidate() }

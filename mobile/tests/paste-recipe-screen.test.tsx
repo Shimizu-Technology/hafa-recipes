@@ -89,7 +89,7 @@ vi.mock('@/hooks/useRecipes', () => ({
   useLocations: () => ({ data: { locations: [{ code: 'GU', name: 'Guam' }] } }),
 }));
 vi.mock('@/hooks/usePublishingDisclosure', () => ({
-  usePublishingDisclosure: () => ({ requestPublishing: mocks.requestPublishing, isCheckingDisclosure: false }),
+  usePublishingDisclosure: () => ({ requestPublishing: mocks.requestPublishing, didChoosePrivate: () => true, isCheckingDisclosure: false }),
 }));
 vi.mock('@/lib/api', () => ({
   api: { extractRecipeFromText: mocks.extract },

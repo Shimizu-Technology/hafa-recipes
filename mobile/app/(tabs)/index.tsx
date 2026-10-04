@@ -27,7 +27,9 @@ import ExtractionProgress from '@/components/ExtractionProgress';
 import { ImportSettingsPanel, ImportHelpPanel } from '@/components/ImportPanels';
 import RecipeChatModal from '@/components/RecipeChatModal';
 import { SignInBanner } from '@/components/SignInBanner';
-import { useExtractionJobs, useLocations, useCheckDuplicate, useSaveCapturedRecipe } from '@/hooks/useRecipes';
+import { useExtractionJobs, useLocations, useCheckDuplicate, useSaveCapturedRecipe, useRecipe } from '@/hooks/useRecipes';
+import { useImportPreferences } from '@/hooks/useImportPreferences';
+import { getImportStatusPresentation } from '@/lib/importStatusPresentation';
 import { useAsyncExtraction } from '@/contexts/ExtractionContext';
 import { ImportActivityCard } from '@/components/ImportActivityCard';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
@@ -79,6 +81,9 @@ export default function ExtractScreen() {
     return () => subscription.remove();
   }, []);
   const inbox = useImportInbox();
+  const preferences = useImportPreferences(inbox.ownerId);
+  const latestPreferences = useRef(preferences);
+  latestPreferences.current = preferences;
   const captureOwner = useRef({ ownerId: inbox.ownerId, mounted: true });
   captureOwner.current.ownerId = inbox.ownerId;
   useEffect(() => {
@@ -87,6 +92,23 @@ export default function ExtractScreen() {
   }, []);
   const [selectedLocation, setSelectedLocation] = useState('Guam');
   const [isPublic, setIsPublic] = useState(true);
+  const initializedPreferencesOwner = useRef<string | null>(null);
+  useEffect(() => {
+    if (preferences.ready && initializedPreferencesOwner.current !== inbox.ownerId) {
+      initializedPreferencesOwner.current = inbox.ownerId;
+      setIsPublic(preferences.isPublic); setSelectedLocation(preferences.location);
+      setUrl(''); setNotes('');
+    }
+    if (!inbox.ownerId) initializedPreferencesOwner.current = null;
+  }, [inbox.ownerId, preferences.ready, preferences.isPublic, preferences.location]);
+  const rememberImportSettings = (patch: { isPublic?: boolean; location?: string }) => {
+    void preferences.update(patch).catch(() => Alert.alert('Could not save import settings', 'Your choice applies to this recipe. Please try again to update sharing from other apps.'));
+  };
+  const restoreComposerPreferences = () => {
+    const latest = latestPreferences.current;
+    initializedPreferencesOwner.current = latest.ready ? captureOwner.current.ownerId : null;
+    setIsPublic(latest.isPublic); setSelectedLocation(latest.location);
+  };
   const currentDraft = useRef({ url, notes, isPublic, selectedLocation, ownerId: inbox.ownerId });
   currentDraft.current = { url, notes, isPublic, selectedLocation, ownerId: inbox.ownerId };
   const [isChecking, setIsChecking] = useState(false);
@@ -129,10 +151,13 @@ export default function ExtractScreen() {
 
   const { data: locationsData } = useLocations();
   const extraction = useAsyncExtraction();
+  const completedRecipe = useRecipe(extraction.recipeId || '', Boolean(isSignedIn && extraction.isComplete && extraction.recipeId));
+  const importStatus = getImportStatusPresentation(extraction, completedRecipe.data);
+  useEffect(() => { setShowProgressDetails(false); }, [extraction.jobId]);
   const recentImports = useExtractionJobs('extract', Boolean(isSignedIn));
   const checkDuplicate = useCheckDuplicate();
   const saveCapturedRecipe = useSaveCapturedRecipe();
-  const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
+  const { requestPublishing, isCheckingDisclosure, didChoosePrivate } = usePublishingDisclosure();
 
   // Route receipt IDs and a session registry survive auth-driven remounts.
   const currentLegacyRoute = useRef({ sharedUrl, sharedReceiptId });
@@ -167,13 +192,27 @@ export default function ExtractScreen() {
 
   const openCapturedEntry = async (entry: ImportInboxEntry) => {
     if (!inbox.ownerId) { router.push('/(auth)/sign-in'); return; }
-    await importInbox.claim(entry.id, inbox.ownerId, entry.request);
+    const owner = inbox.ownerId;
+    if (entry.capture.kind === 'url' && entry.request?.is_public) {
+      const allowed = await requestPublishing();
+      if (!captureOwner.current.mounted || captureOwner.current.ownerId !== owner) return;
+      if (!allowed) {
+        if (didChoosePrivate()) await importInbox.patch(entry.id, { request: { ...entry.request, is_public: false },
+          preferences: { isPublic: false, location: entry.request.location || 'Guam' }, state: 'waiting',
+          error: 'Set to private. Tap Finish to import.' });
+        return;
+      }
+    }
+    await importInbox.claim(entry.id, owner, entry.request);
+    if (!captureOwner.current.mounted || captureOwner.current.ownerId !== owner) return;
     if (entry.capture.kind === 'url') return;
     if (entry.capture.kind === 'text') {
       router.push({ pathname: '/paste-recipe', params: { inboxCaptureId: entry.id } });
     } else {
+      initializedPreferencesOwner.current = owner;
       setSelectedInboxId(entry.id);
-      setIsPublic(false);
+      setIsPublic(entry.preferences?.isPublic ?? false);
+      setSelectedLocation(entry.preferences?.location || 'Guam');
       const captureToken = stagePendingShareCapture(entry.capture);
       router.setParams({ captureToken });
     }
@@ -274,6 +313,8 @@ export default function ExtractScreen() {
   const clearImages = () => {
     setSelectedImages([]);
     setShowImageGallery(false);
+    setSelectedInboxId(null);
+    restoreComposerPreferences();
   };
 
   const extractFromImages = async () => {
@@ -287,7 +328,7 @@ export default function ExtractScreen() {
     if (isPublic) {
       const allowed = await requestPublishing();
       if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
-      if (!allowed) { imageImportInFlight.current = false; setIsPublic(false); return; }
+      if (!allowed) { imageImportInFlight.current = false; if (didChoosePrivate()) setIsPublic(false); return; }
     }
     if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
 
@@ -324,6 +365,7 @@ export default function ExtractScreen() {
         }
         guardOwner();
         setSelectedImages([]);
+        restoreComposerPreferences();
         router.push(destination);
       } else {
         const failure = getImageImportFailurePresentation(result);
@@ -379,7 +421,7 @@ export default function ExtractScreen() {
     const draft = { url, notes, isPublic, selectedLocation, ownerId: inbox.ownerId };
     if (currentDraft.current.ownerId !== draft.ownerId) return;
     if (isPublic && !(await requestPublishing())) {
-      if (JSON.stringify(currentDraft.current) === JSON.stringify(draft)) setIsPublic(false);
+      if (didChoosePrivate() && JSON.stringify(currentDraft.current) === JSON.stringify(draft)) setIsPublic(false);
       return;
     }
 
@@ -710,7 +752,7 @@ export default function ExtractScreen() {
               style={{ backgroundColor: colors.background }} />
             <Text style={[styles.supportedSources, { color: colors.textMuted }]}>TikTok, Instagram, YouTube & recipe websites</Text>
             <TouchableOpacity style={styles.settingsSummary} onPress={() => { Keyboard.dismiss(); setPanel('settings'); }}
-              disabled={isLoading || isCheckingDisclosure} accessibilityRole="button" accessibilityLabel="Import settings"
+              disabled={!preferences.ready || isLoading || isCheckingDisclosure} accessibilityRole="button" accessibilityLabel="Import settings"
               accessibilityHint={`${isPublic ? 'Public in Discover. Anyone can find this recipe.' : 'Private. Only you can open this recipe.'} Cost estimates for ${selectedLocation}.${notes.trim() ? ' Personal notes added.' : ''}`}>
               <Ionicons name={isPublic ? 'globe-outline' : 'lock-closed-outline'} size={20} color={colors.tint} />
               <RNView style={styles.settingsCopy}>
@@ -721,7 +763,7 @@ export default function ExtractScreen() {
             </TouchableOpacity>
             <Button title={!isSignedIn ? 'Sign In to Import' : isPreparingImports ? 'Preparing Imports...' : isChecking ? 'Checking...' : extraction.isExtracting ? 'Add to Queue' : 'Import Recipe'}
               onPress={!isSignedIn ? () => router.push('/(auth)/sign-in') : () => { Keyboard.dismiss(); return handleExtract(); }}
-              disabled={Boolean(isSignedIn) && (isPreparingImports || isLoading || isCheckingDisclosure || !url.trim())}
+              disabled={Boolean(isSignedIn) && (!preferences.ready || isPreparingImports || isLoading || isCheckingDisclosure || !url.trim())}
               loading={isChecking} size="md" />
           </RNView>
 
@@ -731,19 +773,24 @@ export default function ExtractScreen() {
                 {extraction.isExtracting ? <ActivityIndicator color={colors.tint} /> : <Ionicons
                   name={extraction.isFailed ? 'alert-circle-outline' : 'checkmark-circle-outline'} size={22} color={extraction.isFailed ? colors.error : colors.tint} />}
                 <RNView style={{ flex: 1 }}>
-                  <Text style={{ color: colors.text, fontFamily: fontFamily.semibold }}>
-                    {extraction.isExtracting ? `Importing · ${extraction.progress}%` : extraction.isFailed ? 'Import needs attention' : 'Recipe saved'}
+                  <Text style={{ color: colors.text, fontFamily: fontFamily.semibold }} accessibilityRole="header">
+                    {importStatus.title}
                   </Text>
                   <Text style={[styles.hint, { color: colors.textMuted }]} numberOfLines={2}>
-                    {extraction.connectionNotice || extraction.error || extraction.message || 'You can add another recipe while this finishes.'}
+                    {importStatus.description}
                   </Text>
                 </RNView>
-                <TouchableOpacity onPress={() => setShowProgressDetails(!showProgressDetails)} accessibilityRole="button" accessibilityLabel="Import details" accessibilityState={{ expanded: showProgressDetails }}>
+                <TouchableOpacity style={styles.detailsAction} onPress={() => setShowProgressDetails(!showProgressDetails)} accessibilityRole="button" accessibilityLabel="Import details" accessibilityState={{ expanded: showProgressDetails }}>
                   <Ionicons name={showProgressDetails ? 'chevron-up' : 'chevron-down'} size={20} color={colors.tint} />
                 </TouchableOpacity>
               </RNView>
+              {extraction.isExtracting && <RNView style={[styles.progressTrack, { backgroundColor: colors.border }]}
+                accessibilityRole="progressbar" accessibilityLabel="Recipe import progress"
+                accessibilityValue={{ min: 0, max: 100, now: importStatus.progress }}>
+                <RNView style={{ width: `${importStatus.progress}%`, height: 3, backgroundColor: colors.tint }} />
+              </RNView>}
 
-              {showProgressDetails && <RNView>          <ExtractionProgress
+              {showProgressDetails && <ExtractionProgress
             progress={extraction.progress}
             currentStep={extraction.currentStep}
             message={extraction.message}
@@ -758,25 +805,19 @@ export default function ExtractScreen() {
             isWebsite={extraction.sourceUrl ? extraction.isWebsiteExtraction : extractingAsWebsite}
             lowConfidence={extraction.lowConfidence}
             confidenceWarning={extraction.confidenceWarning}
-          />
-
-</RNView>}
+          />}
           {extraction.isComplete && extraction.recipeId ? (
             <>
-              <RNView style={styles.buttonRow}>
+              <RNView style={styles.statusActions}>
                 <Button
                   title="Open Recipe"
                   onPress={handleReviewCompletedRecipe}
-                  size="lg"
+                  size="md"
+                  style={styles.openRecipeAction}
                 />
-              </RNView>
-              <RNView style={styles.buttonRow}>
-                <Button
-                  title="Import Another"
-                  onPress={clearCompletedExtraction}
-                  variant="secondary"
-                  size="lg"
-                />
+                <TouchableOpacity style={styles.textAction} onPress={clearCompletedExtraction} accessibilityRole="button" accessibilityLabel="Dismiss saved import">
+                  <Text style={[styles.smallActionText, { color: colors.textSecondary }]}>Dismiss</Text>
+                </TouchableOpacity>
               </RNView>
             </>
           ) : extraction.isFailed ? (
@@ -788,7 +829,7 @@ export default function ExtractScreen() {
                     onPress={handleKeepSourceDraft}
                     loading={isSavingSourceDraft}
                     disabled={isSavingSourceDraft}
-                    size="lg"
+                    size="md"
                   />
                 </RNView>
               )}
@@ -798,18 +839,16 @@ export default function ExtractScreen() {
                   onPress={extraction.canRetryStart ? extraction.retryPendingStart : handleRetry}
                   disabled={isSavingSourceDraft}
                   variant={extraction.canSaveDraft ? 'secondary' : 'primary'}
-                  size="lg"
+                  size="md"
                 />
               </RNView>
             </>
           ) : (
-            <RNView style={styles.buttonRow}>
-              <Button
-                title="Cancel"
-                onPress={handleCancel}
-                variant="secondary"
-                size="lg"
-              />
+            <RNView style={styles.statusActions}>
+              <Text style={[styles.hint, { color: colors.textMuted, flex: 1 }]}>You can leave Håfa while this imports.</Text>
+              <TouchableOpacity style={styles.textAction} onPress={handleCancel} accessibilityRole="button" accessibilityLabel="Cancel recipe import">
+                <Text style={[styles.smallActionText, { color: colors.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
             </RNView>
           )}
 
@@ -818,6 +857,7 @@ export default function ExtractScreen() {
           )}
 
           {inbox.storageError && <Text style={{ color: colors.error }}>{inbox.storageError}</Text>}
+          {preferences.error && <Text style={{ color: colors.error }}>{preferences.error}</Text>}
           {inbox.entries.length > 0 && <RNView style={[styles.compactProgress, { borderColor: colors.border }]}>
             <Text style={[styles.label, { color: colors.text }]}>Waiting imports · {inbox.entries.length}</Text>
             {inbox.entries.map((entry) => <RNView key={entry.id} style={styles.inboxRow}>
@@ -845,7 +885,7 @@ export default function ExtractScreen() {
               { title: 'Write your own recipe', icon: 'create-outline', onPress: () => router.push({ pathname: '/add-recipe', params: { isPublic: isPublic ? 'true' : 'false' } }) },
             ] as const).map((method, index) => (
               <TouchableOpacity key={method.title} accessibilityRole="button" accessibilityLabel={method.title}
-                onPress={method.onPress} disabled={!isSignedIn || isLoading} activeOpacity={0.7}
+                onPress={method.onPress} disabled={!isSignedIn || !preferences.ready || isLoading} activeOpacity={0.7}
                 style={[styles.alternateRow, index > 0 && { borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth }]}>
                 <Ionicons name={method.icon} size={21} color={colors.tint} />
                 <Text style={[styles.alternateTitle, { color: colors.text }]}>{method.title}</Text>
@@ -870,9 +910,9 @@ export default function ExtractScreen() {
         {!isSignedIn && <SignInBanner message="Sign in to extract recipes" />}
       </KeyboardAvoidingView>
       <ImportSettingsPanel visible={panel === 'settings'} onClose={() => setPanel(null)}
-        isPublic={isPublic} onVisibilityChange={setIsPublic} location={selectedLocation}
-        locations={locationsData?.locations || []} onLocationChange={setSelectedLocation}
-        notes={notes} onNotesChange={setNotes} disabled={isLoading || isCheckingDisclosure} />
+        isPublic={isPublic} onVisibilityChange={(value) => { setIsPublic(value); rememberImportSettings({ isPublic: value }); }} location={selectedLocation}
+        locations={locationsData?.locations || []} onLocationChange={(value) => { setSelectedLocation(value); rememberImportSettings({ location: value }); }}
+        notes={notes} onNotesChange={setNotes} disabled={!preferences.ready || isLoading || isCheckingDisclosure} />
       <ImportHelpPanel visible={panel === 'help'} onClose={() => setPanel(null)} onWebsiteSupport={handleWebsiteSupportPress} />
       {isSignedIn && hasOpenedChat && <RecipeChatModal isVisible={showChat} onClose={() => setShowChat(false)} />}
     </RNView>
@@ -880,7 +920,11 @@ export default function ExtractScreen() {
 }
 
 const styles = StyleSheet.create({
-  linkComposer: { padding: spacing.md, borderWidth: 1, borderRadius: radius.lg, marginBottom: spacing.lg, gap: spacing.sm },
+  linkComposer: { padding: spacing.md, borderWidth: 1, borderRadius: radius.lg, marginBottom: spacing.md, gap: spacing.xs },
+  detailsAction: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
+  progressTrack: { height: 3, borderRadius: 2, overflow: 'hidden' },
+  statusActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
+  openRecipeAction: { flexGrow: 1 },
   composerLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   composerLabel: { fontSize: fontSize.md, fontFamily: fontFamily.semibold },
   textAction: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 44, paddingHorizontal: spacing.xs },
@@ -916,6 +960,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
+    width: '100%',
+    maxWidth: 680,
+    alignSelf: 'center',
     padding: spacing.lg,
     paddingBottom: spacing.xxl,
   },
