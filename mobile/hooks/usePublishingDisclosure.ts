@@ -66,7 +66,7 @@ export function usePublishingDisclosure() {
                   if (isScreenActive.current) {
                     Alert.alert(
                       'Couldn’t update publishing preference',
-                      'Please check your connection and try again. Your recipe remains private.',
+                      'Please check your connection and try again.',
                     );
                   }
                   resolve(false);
@@ -81,7 +81,7 @@ export function usePublishingDisclosure() {
       if (isScreenActive.current) {
         Alert.alert(
           'Couldn’t check publishing preference',
-          'Please check your connection and try again. Your recipe remains private.',
+          'Please check your connection and try again.',
         );
       }
       return false;

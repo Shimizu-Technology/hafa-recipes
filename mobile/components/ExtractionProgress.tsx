@@ -20,7 +20,7 @@ export default function ExtractionProgress(props: ExtractionProgressProps) {
     {props.connectionNotice && <Text style={[styles.copy, { color: colors.textSecondary }]}>{props.connectionNotice}</Text>}
     {props.error && <Text style={[styles.copy, { color: colors.error }]}>{props.error}</Text>}
     {props.isRetrying && <Text style={[styles.copy, { color: colors.textSecondary }]}>
-      Retrying automatically{props.maxAttempts ? ` · Attempt ${Math.min(props.attemptCount || 0, props.maxAttempts)} of ${props.maxAttempts}` : ''}
+      Retrying automatically{props.maxAttempts ? ` · Attempt ${Math.min((props.attemptCount ?? 0) + 1, props.maxAttempts)} of ${props.maxAttempts}` : ''}
     </Text>}
     {props.currentStep === 'complete' && props.lowConfidence && props.confidenceWarning &&
       <Text style={[styles.copy, { color: colors.textSecondary }]}>{props.confidenceWarning}</Text>}

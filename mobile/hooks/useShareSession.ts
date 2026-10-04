@@ -37,6 +37,9 @@ export function useShareSession() {
   const identity = useCurrentUserIdentity(Boolean(isSignedIn));
   const ownerId = isSignedIn ? identity.data?.id : null;
   const preferences = useImportPreferences(ownerId ?? null);
+  // Subscribe to disclosure cache updates without fetching here. Foreground
+  // acceptance upgrades the native capability immediately; sync still verifies
+  // the current disclosure directly with the server before provisioning.
   const disclosureQuery = useQuery({ queryKey: ['publishingDisclosure'],
     queryFn: () => api.getPublishingDisclosure(), enabled: false });
   const active = useRef({ ownerId, subject: userId, signedIn: Boolean(isSignedIn) });
