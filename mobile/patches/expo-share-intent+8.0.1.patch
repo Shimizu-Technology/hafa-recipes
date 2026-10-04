@@ -1,5 +1,5 @@
 diff --git a/node_modules/expo-share-intent/build/ExpoShareIntentModule.d.ts b/node_modules/expo-share-intent/build/ExpoShareIntentModule.d.ts
-index c1179ac..2f62650 100644
+index c1179ac..313a61c 100644
 --- a/node_modules/expo-share-intent/build/ExpoShareIntentModule.d.ts
 +++ b/node_modules/expo-share-intent/build/ExpoShareIntentModule.d.ts
 @@ -4,9 +4,11 @@ type ExpoShareIntentModuleEvents = {
@@ -48,7 +48,7 @@ index 1ab12c4..33dc33e 100644
      /**
       * Handle application state (active, background, inactive)
 diff --git a/node_modules/expo-share-intent/ios/ExpoShareIntentModule.swift b/node_modules/expo-share-intent/ios/ExpoShareIntentModule.swift
-index e52b6d0..93f8a55 100644
+index e52b6d0..dedfaab 100644
 --- a/node_modules/expo-share-intent/ios/ExpoShareIntentModule.swift
 +++ b/node_modules/expo-share-intent/ios/ExpoShareIntentModule.swift
 @@ -5,10 +5,12 @@
@@ -64,7 +64,7 @@ index e52b6d0..93f8a55 100644
      // Each module class must implement the definition function. The definition consists of components
      // that describes the module's functionality and behavior.
      // See https://docs.expo.dev/modules/module-api for more details about available components.
-@@ -18,14 +20,17 @@ public class ExpoShareIntentModule: Module {
+@@ -18,14 +20,19 @@ public class ExpoShareIntentModule: Module {
          // The module will be accessible from `requireNativeModule('ExpoShareIntentModule')` in JavaScript.
          Name("ExpoShareIntentModule")
  
@@ -80,13 +80,15 @@ index e52b6d0..93f8a55 100644
 +            let json = self.withLockedDefaults { defaults -> String? in
 +                let pendingUrl = defaults.stringArray(forKey: self.pendingQueueKey)?.first
 +                if url.isEmpty && pendingUrl == nil { return nil }
-+                return self.handleUrl(url: URL(string: url.isEmpty ? (pendingUrl ?? "") : url))
++                // Deliver the durable head even when a stale deep link arrives.
++                // Main-app metadata and payload must refer to the same capture.
++                return self.handleUrl(url: URL(string: pendingUrl ?? url))
 +            } ?? nil
 +            if let json, json != "error" && json != "empty" {
                  self.sendEvent(
                      "onChange",
                      [
-@@ -35,10 +40,29 @@ public class ExpoShareIntentModule: Module {
+@@ -35,10 +42,26 @@ public class ExpoShareIntentModule: Module {
          }
  
          Function("clearShareIntent") { (sharedKey: String) in
@@ -95,22 +97,19 @@ index e52b6d0..93f8a55 100644
 -            userDefaults?.set(nil, forKey: sharedKey)
 -            userDefaults?.synchronize()
 +            let remaining = self.withLockedDefaults { defaults -> Int in
-+                let pendingKey = "\(sharedKey).pending"
-+                var pending = defaults.stringArray(forKey: pendingKey) ?? []
-+                if !pending.isEmpty {
-+                    let completed = pending.removeFirst()
-+                    if let captureKey = URL(string: completed)?.host?.components(separatedBy: "=").last {
-+                        defaults.removeObject(forKey: captureKey)
-+                    }
-+                    defaults.set(pending, forKey: pendingKey)
++                var pending = defaults.stringArray(forKey: self.pendingQueueKey) ?? []
++                if sharedKey != "hafarecipesShareKey" {
++                    pending.removeAll { URL(string: $0)?.host?.components(separatedBy: "=").last == sharedKey }
++                    defaults.removeObject(forKey: sharedKey)
++                    defaults.removeObject(forKey: "\(sharedKey).meta")
++                    defaults.set(pending, forKey: self.pendingQueueKey)
 +                } else {
++                    // Only clear legacy single-slot payload, never newer captures.
 +                    defaults.removeObject(forKey: sharedKey)
 +                }
 +                return pending.count
 +            }
-+            if let remaining {
-+                self.sendEvent("onQueueChange", ["pendingCount": remaining])
-+            }
++            if let remaining { self.sendEvent("onQueueChange", ["pendingCount": remaining]) }
 +        }
 +
 +        AsyncFunction("getPendingShareCount") { () -> Int in
@@ -120,7 +119,7 @@ index e52b6d0..93f8a55 100644
          }
  
          Function("hasShareIntent") { (key: String) in
-@@ -161,6 +185,25 @@ public class ExpoShareIntentModule: Module {
+@@ -161,6 +184,25 @@ public class ExpoShareIntentModule: Module {
          return "error"
      }
  
@@ -147,7 +146,7 @@ index e52b6d0..93f8a55 100644
          let appGroupIdentifier: String? =
              Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier")
 diff --git a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
-index f1f4b72..ddd4069 100644
+index f1f4b72..6544faf 100644
 --- a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
 +++ b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
 @@ -4,6 +4,7 @@
@@ -158,7 +157,16 @@ index f1f4b72..ddd4069 100644
  import MobileCoreServices
  import Photos
  import Social
-@@ -490,24 +491,60 @@ class ShareViewController: UIViewController {
+@@ -12,7 +13,7 @@ import UIKit
+ class ShareViewController: UIViewController {
+   let hostAppGroupIdentifier: String = "<GROUPIDENTIFIER>"
+   let shareProtocol: String = "<SCHEME>"
+-  let sharedKey: String = "<SCHEME>ShareKey"
++  let sharedKey: String = "<SCHEME>ShareKey.\(UUID().uuidString)"
+   let hideView: Bool = <HIDEVIEW>
+   var sharedMedia: [SharedMediaFile] = []
+   var sharedWebUrl: [WebUrl] = []
+@@ -490,24 +491,85 @@ class ShareViewController: UIViewController {
    }
  
    private func redirectToHostApp(type: RedirectType) {
@@ -178,41 +186,66 @@ index f1f4b72..ddd4069 100644
 -        }
 -      }
 -      responder = responder!.next
-+    // A Share extension cannot reliably open its containing app. Opening via
-+    // UIApplication's responder chain leaves some hosts dimmed after return.
-+    // Move this capture to a unique app-group key and let the app drain it.
-+    let saved = withLockedDefaults { defaults -> Bool in
-+      guard let captured = defaults.object(forKey: sharedKey) else { return false }
-+      let captureKey = "\(sharedKey).\(UUID().uuidString)"
-+      let pendingKey = "\(sharedKey).pending"
-+      let url = "\(shareProtocol)://dataUrl=\(captureKey)#\(type)"
-+      defaults.set(captured, forKey: captureKey)
-+      defaults.removeObject(forKey: sharedKey)
-+      var pending = defaults.stringArray(forKey: pendingKey) ?? []
-+      pending.append(url)
-+      defaults.set(pending, forKey: pendingKey)
++    let captureID = UUID().uuidString.lowercased()
++    let captureKey = sharedKey
++    let saved = HafaShareStore.locked { defaults -> Bool in
++      guard defaults.object(forKey: captureKey) != nil else { return false }
++      var metadata: [String: Any] = ["captureId": captureID, "captureKey": captureKey, "submitted": false]
++      if let session = defaults.dictionary(forKey: HafaShareStore.sessionKey) {
++        metadata["accountScopeId"] = session["accountScopeId"]
++        metadata["location"] = session["location"]
++        metadata["requestedIsPublic"] = session["isPublic"] ?? false
++      } else { metadata["requestedIsPublic"] = false }
++      defaults.set(metadata, forKey: "\(captureKey).meta")
++      var pending = defaults.stringArray(forKey: HafaShareStore.pendingKey) ?? []
++      pending.append("\(shareProtocol)://dataUrl=\(captureKey)#\(type)")
++      defaults.set(pending, forKey: HafaShareStore.pendingKey)
 +      return true
 +    } ?? false
-+    guard saved else {
-+      dismissWithError(message: "Could not save shared recipe")
-+      return
++    guard saved else { dismissWithError(message: "Could not save shared recipe"); return }
++    showCaptureConfirmation("Importing into Håfa…")
++    // URLs from Safari/social apps are accepted by the API immediately. Text
++    // and photos retain their complete native payload for main-app intake.
++    let link: String?
++    if let web = sharedWebUrl.first { link = web.url }
++    else {
++      let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
++      let text = sharedText.joined(separator: "\n")
++      let matches = detector?.matches(in: text, range: NSRange(text.startIndex..., in: text)) ?? []
++      link = matches.count == 1 ? matches.first?.url?.absoluteString : nil
++    }
++    guard let link, let url = URL(string: link), ["http", "https"].contains(url.scheme ?? "") else {
++      finishCapture(accepted: false); return
      }
 -    extensionContext!.completeRequest(returningItems: [], completionHandler: nil)
++    HafaShareStore.enqueueLink(captureKey: captureKey, url: link) { accepted in
++      DispatchQueue.main.async { self.finishCapture(accepted: accepted) }
++    }
++  }
 +
-+    let confirmation = UILabel()
-+    confirmation.translatesAutoresizingMaskIntoConstraints = false
-+    confirmation.text = "Saved to Håfa\nOpen Håfa to finish importing"
-+    confirmation.numberOfLines = 2
-+    confirmation.textAlignment = .center
-+    confirmation.textColor = .label
-+    confirmation.font = .preferredFont(forTextStyle: .headline)
-+    view.backgroundColor = .systemBackground
-+    view.addSubview(confirmation)
-+    NSLayoutConstraint.activate([
-+      confirmation.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
-+      confirmation.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
-+      confirmation.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-+    ])
++  private var captureConfirmation: UILabel?
++  private func showCaptureConfirmation(_ text: String) {
++    let confirmation = captureConfirmation ?? UILabel()
++    if captureConfirmation == nil {
++      confirmation.translatesAutoresizingMaskIntoConstraints = false
++      confirmation.numberOfLines = 3
++      confirmation.textAlignment = .center
++      confirmation.textColor = .label
++      confirmation.font = .preferredFont(forTextStyle: .headline)
++      view.backgroundColor = .systemBackground
++      view.addSubview(confirmation)
++      NSLayoutConstraint.activate([
++        confirmation.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
++        confirmation.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
++        confirmation.centerYAnchor.constraint(equalTo: view.centerYAnchor),
++      ])
++      captureConfirmation = confirmation
++    }
++    confirmation.text = text
++  }
++
++  private func finishCapture(accepted: Bool) {
++    showCaptureConfirmation(accepted ? "Import started in Håfa\nYour recipe will be ready in your library" : "Saved to Håfa\nOpen Håfa to continue importing")
 +    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
 +      self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
 +    }
@@ -236,3 +269,61 @@ index f1f4b72..ddd4069 100644
    }
  
    enum RedirectType {
+diff --git a/node_modules/expo-share-intent/plugin/build/ios/withIosAppEntitlements.js b/node_modules/expo-share-intent/plugin/build/ios/withIosAppEntitlements.js
+index 0633a61..ab77304 100644
+--- a/node_modules/expo-share-intent/plugin/build/ios/withIosAppEntitlements.js
++++ b/node_modules/expo-share-intent/plugin/build/ios/withIosAppEntitlements.js
+@@ -6,6 +6,10 @@ const constants_1 = require("./constants");
+ const withAppEntitlements = (config, parameters) => {
+     return (0, config_plugins_1.withEntitlementsPlist)(config, async (config) => {
+         const appIdentifier = config.ios?.bundleIdentifier;
++        const defaultKeychain = `$(AppIdentifierPrefix)${appIdentifier}`;
++        const sharedKeychain = "$(AppIdentifierPrefix)com.shimizutechnology.recipeextractor.share-import";
++        const keychains = config.modResults["keychain-access-groups"] || [];
++        config.modResults["keychain-access-groups"] = [defaultKeychain, ...keychains.filter((key) => key !== defaultKeychain && key !== sharedKeychain), sharedKeychain];
+         const existing = config.modResults["com.apple.security.application-groups"];
+         config.modResults["com.apple.security.application-groups"] = [
+             (0, constants_1.getAppGroup)(appIdentifier, parameters),
+diff --git a/node_modules/expo-share-intent/plugin/build/ios/withIosAppInfoPlist.js b/node_modules/expo-share-intent/plugin/build/ios/withIosAppInfoPlist.js
+index b7d090c..c282473 100644
+--- a/node_modules/expo-share-intent/plugin/build/ios/withIosAppInfoPlist.js
++++ b/node_modules/expo-share-intent/plugin/build/ios/withIosAppInfoPlist.js
+@@ -7,6 +7,7 @@ const withIosAppInfoPlist = (config, parameters) => {
+     return (0, config_plugins_1.withInfoPlist)(config, (config) => {
+         const appIdentifier = config.ios?.bundleIdentifier;
+         config.modResults["AppGroupIdentifier"] = (0, constants_1.getAppGroup)(appIdentifier, parameters);
++        config.modResults.HafaShareKeychainAccessGroup = "$(AppIdentifierPrefix)com.shimizutechnology.recipeextractor.share-import";
+         return config;
+     });
+ };
+diff --git a/node_modules/expo-share-intent/plugin/build/ios/writeIosShareExtensionFiles.js b/node_modules/expo-share-intent/plugin/build/ios/writeIosShareExtensionFiles.js
+index 9ceec1c..cd67740 100644
+--- a/node_modules/expo-share-intent/plugin/build/ios/writeIosShareExtensionFiles.js
++++ b/node_modules/expo-share-intent/plugin/build/ios/writeIosShareExtensionFiles.js
+@@ -42,7 +42,9 @@ async function writeShareExtensionFiles(platformProjectRoot, scheme, appIdentifi
+     // ShareViewController.swift
+     const viewControllerFilePath = getShareExtensionViewControllerPath(platformProjectRoot, parameters);
+     const viewControllerContent = getShareExtensionViewControllerContent(scheme, (0, constants_1.getAppGroup)(appIdentifier, parameters), parameters.iosHideView);
+-    await node_fs_1.default.promises.writeFile(viewControllerFilePath, viewControllerContent);
++    const sharedCorePath = node_path_1.default.join(platformProjectRoot, "..", "modules", "hafa-share-bridge", "ios", "HafaShareShared.swift");
++    const sharedCore = await node_fs_1.default.promises.readFile(sharedCorePath, "utf8");
++    await node_fs_1.default.promises.writeFile(viewControllerFilePath, viewControllerContent + "\n" + sharedCore);
+     // ShareExtensionPreprocessor.js
+     const preprocessorFilePath = getPreprocessorFilePath(platformProjectRoot, parameters);
+     const preprocessorContent = getPreprocessorContent(parameters);
+@@ -54,6 +56,7 @@ function getShareExtensionEntitlementsFilePath(platformProjectRoot, parameters)
+ }
+ function getShareExtensionEntitlements(appIdentifier, parameters) {
+     return {
++        "keychain-access-groups": ["$(AppIdentifierPrefix)com.shimizutechnology.recipeextractor.share-import"],
+         "com.apple.security.application-groups": [
+             (0, constants_1.getAppGroup)(appIdentifier, parameters),
+         ],
+@@ -68,6 +71,7 @@ function getShareExtensionInfoFilePath(platformProjectRoot, parameters) {
+ }
+ function getShareExtensionInfoContent(appName, appIdentifier, parameters) {
+     return plist_1.default.build({
++        HafaShareKeychainAccessGroup: "$(AppIdentifierPrefix)com.shimizutechnology.recipeextractor.share-import",
+         CFBundleName: "$(PRODUCT_NAME)",
+         CFBundleDisplayName: parameters.iosShareExtensionName || `${appName} - Share Extension`,
+         CFBundleIdentifier: "$(PRODUCT_BUNDLE_IDENTIFIER)",

@@ -184,6 +184,7 @@ class Settings(BaseSettings):
     migration_029_restore_point: str | None = None
     migration_030_restore_point: str | None = None
     migration_031_restore_point: str | None = None
+    migration_032_restore_point: str | None = None
     cors_origins: str = ""
     enable_sentry_debug: bool = False
     

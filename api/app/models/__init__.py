@@ -19,8 +19,11 @@ from .pantry import (
     PantryTransferReceipt,
 )
 from .recipe import ExtractionJob, Recipe, RecipeCorrectionEvent
+from .share_import import ShareImportCredential, ShareImportReceipt
 
 __all__ = [
+    "ShareImportCredential",
+    "ShareImportReceipt",
     "Recipe",
     "ExtractionJob",
     "RecipeCorrectionEvent",
