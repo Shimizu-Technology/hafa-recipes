@@ -393,6 +393,7 @@ export function useAsyncExtractionController() {
   const currentStartTimeRef = useRef<number | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const startingRef = useRef(false);
+  const controllerMountedRef = useRef(true);
   const identityEpochRef = useRef(0);
   const currentOwnerRef = useRef(durableUserId);
   currentOwnerRef.current = durableUserId;
@@ -417,6 +418,18 @@ export function useAsyncExtractionController() {
     if (updateState) setIsPolling(false);
   }, []);
 
+  useEffect(() => {
+    controllerMountedRef.current = true;
+    return () => {
+      // Identity binding can unmount this controller before the API token getter
+      // changes accounts. Invalidate pending storage/token continuations, keeping
+      // their owner-scoped receipt available for the original account to recover.
+      controllerMountedRef.current = false;
+      identityEpochRef.current += 1;
+      stopPollingTimers(false);
+    };
+  }, [stopPollingTimers]);
+
   const clearActiveJob = useCallback(async () => {
     if (!durableUserId) return;
     try {
@@ -440,7 +453,7 @@ export function useAsyncExtractionController() {
 
   const startPolling = useCallback((id: string, startedAt: number) => {
     const identityEpoch = identityEpochRef.current;
-    const isCurrentOwner = () => identityEpoch === identityEpochRef.current && currentOwnerRef.current === durableUserId;
+    const isCurrentOwner = () => controllerMountedRef.current && identityEpoch === identityEpochRef.current && currentOwnerRef.current === durableUserId;
     if (!isCurrentOwner()) return;
     stopPollingTimers(false);
     const generation = pollingGenerationRef.current;
@@ -573,7 +586,7 @@ export function useAsyncExtractionController() {
 
   const beginStoredRequest = useCallback(async (storedJob: StoredExtractionJob, expectedEpoch = identityEpochRef.current) => {
     const identityEpoch = expectedEpoch;
-    const isCurrentOwner = () => identityEpoch === identityEpochRef.current && currentOwnerRef.current === storedJob.userId;
+    const isCurrentOwner = () => controllerMountedRef.current && identityEpoch === identityEpochRef.current && currentOwnerRef.current === storedJob.userId;
     const assertCurrentOwner = () => {
       if (!isCurrentOwner()) throw new Error('Your account changed. This import is still saved for its original account.');
     };
@@ -670,7 +683,7 @@ export function useAsyncExtractionController() {
   const retryPendingStart = useCallback(async () => {
     if (!durableUserId) return;
     const identityEpoch = identityEpochRef.current;
-    const isCurrentOwner = () => identityEpoch === identityEpochRef.current && currentOwnerRef.current === durableUserId;
+    const isCurrentOwner = () => controllerMountedRef.current && identityEpoch === identityEpochRef.current && currentOwnerRef.current === durableUserId;
     try {
       const raw = await AsyncStorage.getItem(activeJobKey(durableUserId));
       if (!isCurrentOwner()) return;
@@ -791,7 +804,7 @@ export function useAsyncExtractionController() {
 
     return () => {
       cancelled = true;
-      stopPollingTimers();
+      stopPollingTimers(false);
     };
   }, [clerkUserId, durableUserId, isAuthLoaded, startPolling, stopPollingTimers]);
 
@@ -802,6 +815,9 @@ export function useAsyncExtractionController() {
   }, [activeJobsQuery.data, hasHydratedStoredJob, isStarting, restoreJob]);
 
   const startExtraction = async (request: ExtractRequest, idempotencyKey?: string) => {
+    if (!controllerMountedRef.current || currentOwnerRef.current !== durableUserId) {
+      throw new Error('Your account changed. Please reopen the import in its original account.');
+    }
     if (!durableUserId) {
       throw new Error(clerkUserId
         ? 'Please wait while we verify your recipe library, then try again.'
@@ -830,6 +846,9 @@ export function useAsyncExtractionController() {
   };
 
   const startReExtraction = async (recipeId: string, location = 'Guam') => {
+    if (!controllerMountedRef.current || currentOwnerRef.current !== durableUserId) {
+      throw new Error('Your account changed. Please reopen the import in its original account.');
+    }
     if (!durableUserId) {
       throw new Error(clerkUserId
         ? 'Please wait while we verify your recipe library, then try again.'
@@ -858,7 +877,7 @@ export function useAsyncExtractionController() {
   };
 
   const reset = async () => {
-    if (currentOwnerRef.current !== durableUserId) return;
+    if (!controllerMountedRef.current || currentOwnerRef.current !== durableUserId) return;
     stopPollingTimers();
     currentJobIdRef.current = null;
     currentStartTimeRef.current = null;
@@ -881,7 +900,7 @@ export function useAsyncExtractionController() {
 
   const cancel = async () => {
     const identityEpoch = identityEpochRef.current;
-    if (currentOwnerRef.current !== durableUserId) return;
+    if (!controllerMountedRef.current || currentOwnerRef.current !== durableUserId) return;
     if (jobId) {
       try {
         await api.cancelJob(jobId);
@@ -896,7 +915,7 @@ export function useAsyncExtractionController() {
   const saveSourceDraft = async () => {
     const identityEpoch = identityEpochRef.current;
     const assertCurrentOwner = () => {
-      if (identityEpoch !== identityEpochRef.current || currentOwnerRef.current !== durableUserId) {
+      if (!controllerMountedRef.current || identityEpoch !== identityEpochRef.current || currentOwnerRef.current !== durableUserId) {
         throw new Error('Your account changed. Please reopen the import in its original account.');
       }
     };
