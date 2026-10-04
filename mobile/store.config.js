@@ -45,8 +45,15 @@ DISCOVER AND ORGANIZE
 AI can make mistakes. Review extracted ingredients, directions, allergens, temperatures, and food-safety guidance before cooking.
 
 Made in Guam by Shimizu Technology.`;
-const RELEASE_NOTES = 'Recipe photos are back at the top in a larger, rounded layout. Original-source controls sit below the photo, and missing or replaced photos recover cleanly.';
-  'Import recipes from a cleaner screen with the action always within reach. Share a recipe link to Håfa to start importing directly, and queue another while an import finishes. Nutrition estimates now cover more recipes, show whole-recipe totals when servings are unknown, and can be recalculated after ingredient changes.';
+const RELEASE_NOTES = `This update makes importing and cooking from saved recipes easier.
+
+• Share recipe links to Håfa and start an import in the background. Queue another recipe while one is processing.
+• Use a cleaner import page with clearer progress, optional details, and a simpler saved-recipe view.
+• New imports default to Public in Discover after the publishing notice. Choose Private when you prefer, and your choice is remembered.
+• See nutrition estimates when the source leaves them out, with clearer portions and expandable assumptions.
+• Enjoy larger recipe photos, tidier recipe details, and equipment listed with the ingredients.
+
+Includes fixes for import recovery, privacy choices, and recipe display.`;
 
 function requiredEnvironmentValue(environment, name) {
   const value = String(environment[name] ?? '').trim();
@@ -138,7 +145,7 @@ function buildStoreConfig({ environment, listing }) {
         demoUsername: reviewerEmail,
         demoPassword: reviewerPassword,
         demoRequired: true,
-        notes: 'Use the provided email and password on the Sign In screen. The Discover tab and public recipe details are available without an account. Grocery lists, meal planning, recipe creation, Ask Håfa, and the interactive home-screen widget require the review account. To test sharing, sign in and open Import once, then share a recipe link from Safari to Håfa Recipes. The share extension starts the import and closes back to Safari. Open Håfa Recipes to see its progress or completed recipe. Offline captures are retained for importing when the app reconnects. The app does not provide persistent background audio. Audio is limited to foreground source-video playback, cook-mode narration, and timer sounds; timer completion while the app is backgrounded uses a local notification.',
+        notes: 'Use the provided email and password on the Sign In screen. The Discover tab and public recipe details are available without an account. Grocery lists, meal planning, recipe creation, Ask Håfa, and the interactive home-screen widget require the review account. To test sharing, sign in and open Import once, then share a recipe link from Safari to Håfa Recipes. The share extension starts the import. Tap Done to return to Safari, then open Håfa Recipes to see its progress or completed recipe. Offline captures are retained for importing when the app reconnects. The app does not provide persistent background audio. Audio is limited to foreground source-video playback, cook-mode narration, and timer sounds; timer completion while the app is backgrounded uses a local notification.',
       },
     },
   };
