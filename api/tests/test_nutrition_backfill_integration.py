@@ -494,3 +494,120 @@ async def test_method_only_change_during_calculation_conflicts_before_nutrition_
             )
             == 0
         )
+
+
+async def test_default_repair_paces_eleven_same_owner_estimates_across_resumes_without_open_transaction(
+    database, monkeypatch
+):
+    from app import nutrition_backfill
+    from tests.test_nutrition_repair_pacing import configure_virtual_nutrition
+
+    for number in range(1, 12):
+        await seed(database, number=number)
+    harness = configure_virtual_nutrition(monkeypatch)
+
+    async def sleep_after_commit(seconds):
+        async with database.connect() as connection:
+            assert (
+                await connection.scalar(
+                    text(
+                        "SELECT COUNT(*) FROM pg_stat_activity WHERE datname=current_database() AND state='idle in transaction'"
+                    )
+                )
+                == 0
+            )
+        await harness.clock.sleep(seconds)
+
+    monkeypatch.setattr(
+        nutrition_backfill,
+        "repair_pacer",
+        nutrition_backfill.RepairPacer(
+            clock=harness.clock.read,
+            sleep=sleep_after_commit,
+        ),
+    )
+    plan = await run_backfill(engine=database, release_id="test-release", batch_size=20)
+    assert harness.clock.sleeps == []
+    assert harness.create.await_count == 0
+    kwargs = {**apply_args(plan), "batch_size": 20, "max_estimates": 5}
+    first = await run_backfill(engine=database, **kwargs)
+    second = await run_backfill(engine=database, **kwargs)
+    final = await run_backfill(engine=database, **kwargs)
+    assert [first["status"], second["status"], final["status"]] == [
+        "budget_limited",
+        "budget_limited",
+        "completed",
+    ]
+    assert [
+        first["processed"]["succeeded"],
+        second["processed"]["succeeded"],
+        final["processed"]["succeeded"],
+    ] == [5, 5, 1]
+    assert harness.starts == [7.0 * number for number in range(11)]
+    assert harness.create.await_count == harness.record.await_count == 11
+    async with database.connect() as connection:
+        assert (
+            await connection.scalar(
+                text("SELECT COUNT(*) FROM nutrition_backfill_events WHERE outcome='succeeded'")
+            )
+            == 11
+        )
+        assert (
+            await connection.scalar(
+                text("SELECT COUNT(*) FROM nutrition_backfill_events WHERE outcome='failed'")
+            )
+            == 0
+        )
+        assert (
+            await connection.scalar(
+                text("SELECT COUNT(*) FROM recipes WHERE user_id='owner' AND content_revision=1")
+            )
+            == 11
+        )
+
+
+async def test_dry_runs_and_injected_fake_calculators_never_wait(database, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app import nutrition_backfill
+
+    await seed(database)
+    wait = AsyncMock(side_effect=AssertionError("Dry runs and injected calculators must not wait"))
+    monkeypatch.setattr(nutrition_backfill.repair_pacer, "wait", wait)
+    plan = await run_backfill(engine=database, release_id="test-release")
+    result = await run_backfill(engine=database, calculator=fake_calculator, **apply_args(plan))
+    assert result["processed"] == {"succeeded": 1}
+    wait.assert_not_awaited()
+
+
+async def test_local_limit_stops_invocation_without_burning_following_attempts(database):
+    await seed(database)
+    await seed(database, number=2)
+    plan = await run_backfill(engine=database, release_id="test-release")
+
+    async def denied(extracted, **kwargs):
+        return {
+            **extracted,
+            "derivedData": {
+                "nutrition": {"status": "unavailable", "errorCode": "local_rate_limit"}
+            },
+        }
+
+    result = await run_backfill(engine=database, calculator=denied, **apply_args(plan))
+    assert result["status"] == "rate_limited"
+    assert result["provider_calls"] == 1
+    assert result["processed"] == {"failed": 1, "local_rate_limit": 1}
+    async with database.connect() as connection:
+        assert await connection.scalar(text("SELECT COUNT(*) FROM nutrition_backfill_events")) == 2
+        assert (
+            await connection.scalar(
+                text("SELECT COUNT(DISTINCT recipe_id) FROM nutrition_backfill_events")
+            )
+            == 1
+        )
+        assert (
+            await connection.scalar(
+                text("SELECT failure_code FROM nutrition_backfill_events WHERE outcome='failed'")
+            )
+            == "local_rate_limit"
+        )
