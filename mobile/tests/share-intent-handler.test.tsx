@@ -25,6 +25,7 @@ vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => queryClient }));
 const queryClient = { invalidateQueries: vi.fn() };
 vi.mock('@/hooks/useRecipes', () => ({ extractionJobKeys: { all: ['jobs'] }, useCurrentUserIdentity: () => ({ data: { id: 'durable-owner' } }) }));
 vi.mock('@/hooks/useImportInbox', () => ({ useImportInboxProcessor: () => undefined }));
+vi.mock('@/hooks/useImportPreferences', () => ({ useImportPreferences: () => ({ ready: true, isPublic: true, location: 'Guam' }) }));
 vi.mock('@/hooks/useShareSession', () => ({ useShareSession: () => undefined }));
 import { useHandleShareIntent } from '../hooks/useShareIntent';
 function Harness() { useHandleShareIntent(); return null; }
@@ -46,6 +47,23 @@ describe('durable share intake', () => {
     expect(mocks.add.mock.invocationCallOrder[0]).toBeLessThan(mocks.ack.mock.invocationCallOrder[0]);
     expect(mocks.reset).toHaveBeenCalledWith(false);
     expect(mocks.replace).toHaveBeenCalledWith({ pathname: '/', params: { inboxCaptureId: 'capture-a' } });
+  });
+  it('round-trips the exact native public/private preference and location', async () => {
+    mocks.payload._hafa = { ...mocks.payload._hafa, requestedIsPublic: true, location: 'Hawaii' };
+    await render();
+    expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({
+      request: expect.objectContaining({ is_public: true, location: 'Hawaii' }),
+      preferences: { isPublic: true, location: 'Hawaii' },
+    }));
+    mocks.payload = { ...mocks.payload, _hafa: { captureKey: 'key-b', captureId: 'capture-b', accountScopeId: 'scope-a', requestedIsPublic: false } };
+    await act(async () => renderer.update(<Harness />));
+    expect(mocks.add.mock.calls[1][0].request.is_public).toBe(false);
+  });
+  it('retains visibility for shared text and images awaiting review', async () => {
+    mocks.action = { kind: 'text', text: 'Rice recipe' };
+    mocks.payload._hafa.requestedIsPublic = true;
+    await render();
+    expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ state: 'waiting', preferences: { isPublic: true, location: 'Guam' } }));
   });
   it('processes B arriving while A persists without reopening or clearing B for A', async () => {
     let finishA!: () => void;

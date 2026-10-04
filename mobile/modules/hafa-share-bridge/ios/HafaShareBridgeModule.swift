@@ -21,11 +21,19 @@ public final class HafaShareBridgeModule: Module {
         defaults.removeObject(forKey: HafaShareStore.sessionKey)
         try HafaShareStore.writeToken(token)
         defaults.set(["apiBaseURL": apiBaseURL, "accountScopeId": accountScopeId, "expiresAt": expiresAt, "location": location, "isPublic": isPublic], forKey: HafaShareStore.sessionKey)
+        // Bind pre-provisioning intent atomically with the new session. A
+        // capture between native calls must not fall back to token visibility.
+        if var preferences = defaults.dictionary(forKey: HafaShareStore.preferencesKey),
+          preferences["accountScopeId"] as? String == "" {
+          preferences["accountScopeId"] = accountScopeId
+          defaults.set(preferences, forKey: HafaShareStore.preferencesKey)
+        }
         return true
       }) != nil else { throw NSError(domain: HafaShareStore.service, code: 2) }
     }
     AsyncFunction("configurePreferences") { (accountScopeId: String, location: String, isPublic: Bool) throws in
-      guard !accountScopeId.isEmpty, !location.isEmpty, location.count <= 100 else {
+      // An empty scope stores intent before provisioning; captures remain unassigned.
+      guard !location.isEmpty, location.count <= 100 else {
         throw NSError(domain: HafaShareStore.service, code: 3)
       }
       guard HafaShareStore.locked({ defaults -> Bool in

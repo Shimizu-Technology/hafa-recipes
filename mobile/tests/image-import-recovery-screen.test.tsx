@@ -7,9 +7,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   focused: true,
+  preferences: { ready: true, isPublic: true, location: 'Guam', update: vi.fn(async () => undefined) },
+  pendingCapture: null as any,
   ownerId: 'owner-a' as string | null,
   signedIn: true, authLoaded: true,
-  params: { sharedUrl: undefined as string | undefined, sharedReceiptId: undefined as string | undefined },
+  params: { sharedUrl: undefined as string | undefined, sharedReceiptId: undefined as string | undefined, captureToken: undefined as string | undefined },
   uuid: vi.fn(),
   setParams: vi.fn(),
   inboxEntries: [] as any[],
@@ -53,7 +55,7 @@ const mocks = vi.hoisted(() => ({
     startReExtraction: vi.fn(),
     terminalStatus: null,
   },
-  extractMultiple: vi.fn(async () => ({
+  extractMultiple: vi.fn(async (_images: unknown[], _location: string) => ({
     success: false,
     error_code: 'IMAGE_UNSUPPORTED',
     error: 'These images do not show one readable recipe.',
@@ -164,7 +166,9 @@ vi.mock('@/constants/Colors', () => ({
   radius: { sm: 8, md: 14, lg: 20, xl: 28, xxl: 36, full: 9999 },
   spacing: { xs: 4, sm: 8, md: 16, lg: 24, xl: 32, xxl: 48 },
 }));
+vi.mock('@/hooks/useImportPreferences', () => ({ useImportPreferences: () => mocks.preferences }));
 vi.mock('@/hooks/useRecipes', () => ({
+  useRecipe: () => ({ data: undefined }),
   useSaveCapturedRecipe: () => ({ mutateAsync: mocks.save }),
   useCheckDuplicate: () => ({ mutateAsync: mocks.checkDuplicate }),
   useExtractionJobs: () => ({ data: [] }),
@@ -182,12 +186,12 @@ vi.mock('@/lib/api', () => ({
     extractRecipeFromMultipleImages: mocks.extractMultiple,
   },
 }));
-vi.mock('@/lib/shareCapture', () => ({ consumePendingShareCapture: () => null, stagePendingShareCapture: () => 'token' }));
+vi.mock('@/lib/shareCapture', () => ({ consumePendingShareCapture: () => mocks.pendingCapture, stagePendingShareCapture: (capture: any) => { mocks.pendingCapture = capture; return 'token'; } }));
 vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: mocks.ownerId, entries: mocks.inboxEntries, storageError: null }) }));
 vi.mock('@/lib/importInbox', () => ({ importInbox: { hydrate: async () => undefined, snapshot: () => mocks.inboxEntries, add: mocks.addInbox, claim: mocks.claimInbox, patch: vi.fn(), remove: vi.fn() } }));
 vi.mock('@/hooks/usePublishingDisclosure', () => ({
   usePublishingDisclosure: () => ({
-    requestPublishing: mocks.requestPublishing,
+    requestPublishing: mocks.requestPublishing, didChoosePrivate: () => true,
     isCheckingDisclosure: false,
   }),
 }));
@@ -209,6 +213,7 @@ function touchableWithText(renderer: ReactTestRenderer, text: string) {
 
 describe('classified image recovery', () => {
   beforeEach(() => {
+    mocks.preferences.ready = true; mocks.preferences.isPublic = true; mocks.preferences.location = 'Guam'; mocks.pendingCapture = null; mocks.params.captureToken = undefined; mocks.inboxEntries = [];
     mocks.focused = true; mocks.ownerId = 'owner-a'; mocks.signedIn = true; mocks.authLoaded = true;
     legacyShareReceipts.clearRoute();
     mocks.uuid.mockReset(); mocks.uuid.mockReturnValue('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
@@ -561,6 +566,49 @@ describe('classified image recovery', () => {
     expect(mocks.addInbox).toHaveBeenCalledWith(expect.objectContaining({ request: { url: 'https://example.com/recipe', location: 'Hawaii', notes: 'Use the caption measurements', is_public: true } }));
     expect(renderer!.root.findByProps({ placeholder: 'Paste a recipe link' }).props.value).toBe('https://example.com/next');
     await act(async () => renderer!.unmount());
+  });
+
+  it('keeps a private captured image private when account defaults hydrate late, then restores composer defaults', async () => {
+    mocks.preferences.ready = false;
+    mocks.inboxEntries = [{ id: 'private-image', ownerId: 'owner-a', state: 'waiting',
+      capture: { kind: 'images', images: [{ uri: 'file:///private.jpg', mimeType: 'image/jpeg' }, { uri: 'file:///private-back.jpg', mimeType: 'image/jpeg' }] },
+      preferences: { isPublic: false, location: 'Hawaii' } }];
+    mocks.setParams.mockImplementation((patch) => Object.assign(mocks.params, patch));
+    mocks.extractMultiple.mockResolvedValueOnce({ success: true, recipe: { title: 'Private family recipe', components: [] } } as any);
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    await act(async () => touchableWithText(renderer, 'Finish')!.props.onPress());
+    await act(async () => renderer.update(<ExtractScreen />));
+    mocks.preferences.ready = true;
+    await act(async () => renderer.update(<ExtractScreen />));
+    await act(async () => renderer.root.findAllByType('Button' as unknown as React.ComponentType)
+      .find(node => node.props.children === 'Import Recipe from 2 Images')!.props.onPress());
+    expect(mocks.requestPublishing).not.toHaveBeenCalled();
+    expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ is_public: false, capture_id: 'private-image' }));
+    expect(mocks.extractMultiple.mock.calls.at(-1)?.[1]).toBe('Hawaii');
+    expect(renderer.root.findAllByType('ThemedText' as unknown as React.ComponentType)
+      .some(node => node.props.children === 'Public in Discover')).toBe(true);
+    await act(async () => renderer.unmount());
+  });
+
+  it('applies private account defaults that arrive after a captured photo is closed', async () => {
+    mocks.preferences.ready = false;
+    mocks.inboxEntries = [{ id: 'photo', ownerId: 'owner-a', state: 'waiting',
+      capture: { kind: 'images', images: [{ uri: 'file:///photo.jpg', mimeType: 'image/jpeg' }] },
+      preferences: { isPublic: true, location: 'Hawaii' } }];
+    mocks.setParams.mockImplementation((patch) => Object.assign(mocks.params, patch));
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    await act(async () => touchableWithText(renderer, 'Finish')!.props.onPress());
+    await act(async () => renderer.update(<ExtractScreen />));
+    // The gallery back action is the first touchable in its header.
+    const headerActions = renderer.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType);
+    await act(async () => headerActions[0].props.onPress());
+    mocks.preferences.ready = true; mocks.preferences.isPublic = false;
+    await act(async () => renderer.update(<ExtractScreen />));
+    expect(renderer.root.findAllByType('ThemedText' as unknown as React.ComponentType)
+      .some(node => node.props.children === 'Private recipe')).toBe(true);
+    await act(async () => renderer.unmount());
   });
 
   it('keeps extracted images recoverable after a failed automatic save', async () => {

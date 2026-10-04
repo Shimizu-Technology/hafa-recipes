@@ -51,7 +51,7 @@ export default function PasteRecipeScreen() {
     captureOwner.current.mounted = true;
     return () => { captureOwner.current.mounted = false; };
   }, []);
-  const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
+  const { requestPublishing, isCheckingDisclosure, didChoosePrivate } = usePublishingDisclosure();
 
   const importInFlight = useRef(false);
   const loadedInboxCapture = useRef<string | null>(null);
@@ -67,6 +67,8 @@ export default function PasteRecipeScreen() {
     if (entry?.capture.kind === 'text') {
       loadedInboxCapture.current = entry.id;
       setRecipeText(normalizePastedRecipeText(entry.capture.text));
+      setIsPublic(entry.preferences?.isPublic ?? false);
+      setSelectedLocation(entry.preferences?.location || 'Guam');
     }
   }, [params.inboxCaptureId, inbox.entries, inbox.ownerId]);
 
@@ -116,7 +118,7 @@ export default function PasteRecipeScreen() {
     if (isPublic) {
       const allowed = await requestPublishing();
       if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
-      if (!allowed) { importInFlight.current = false; setIsPublic(false); return; }
+      if (!allowed) { importInFlight.current = false; if (didChoosePrivate()) setIsPublic(false); return; }
     }
     if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
 

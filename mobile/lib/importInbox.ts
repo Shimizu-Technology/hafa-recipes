@@ -18,6 +18,7 @@ export type ImportInboxEntry = {
   jobId?: string;
   recipeId?: string;
   error?: string;
+  preferences?: { isPublic: boolean; location: string };
 };
 
 type Storage = Pick<typeof AsyncStorage, 'getItem' | 'setItem'>;

@@ -12,6 +12,7 @@ import { importInbox, getShareScopeOwner, type ImportCapture } from '@/lib/impor
 import { extractionJobKeys, useCurrentUserIdentity } from '@/hooks/useRecipes';
 import { useImportInboxProcessor } from './useImportInbox';
 import { useShareSession } from './useShareSession';
+import { useImportPreferences } from './useImportPreferences';
 
 export type NativeCaptureMetadata = {
   captureKey: string;
@@ -21,7 +22,7 @@ export type NativeCaptureMetadata = {
   recipeId?: string | null;
   submitted?: boolean;
   location?: string;
-  isPublic?: boolean;
+  requestedIsPublic?: boolean;
 };
 
 export function useHandleShareIntent() {
@@ -30,6 +31,7 @@ export function useHandleShareIntent() {
   const { isLoaded, isSignedIn } = useAuth();
   const identity = useCurrentUserIdentity(Boolean(isSignedIn));
   const ownerId = isSignedIn ? identity.data?.id ?? null : null;
+  const preferences = useImportPreferences(ownerId);
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
   const [isProcessing, setIsProcessing] = useState(false);
   const processingRef = useRef(false);
@@ -50,7 +52,7 @@ export function useHandleShareIntent() {
 
   useEffect(() => {
     if (!isLoaded || !hasShareIntent || !shareIntent || processingRef.current ||
-        (isSignedIn && !ownerId) || processedPayloads.current.has(shareIntent)) return;
+        (isSignedIn && (!ownerId || !preferences.ready)) || processedPayloads.current.has(shareIntent)) return;
     // Metadata and content are a single locked native snapshot. Reading the
     // queue head later can bind replayed payload A to the next capture B.
     let native: NativeCaptureMetadata | null = null;
@@ -104,15 +106,20 @@ export function useHandleShareIntent() {
         }
         const captureOwner = native ? (native.accountScopeId ? await getShareScopeOwner(native.accountScopeId) : null) : ownerId;
         const submitted = Boolean(native?.submitted && (native.jobId || native.recipeId));
+        // Missing metadata belongs to legacy private captures. New native
+        // captures explicitly snapshot public/private at share time.
+        const capturedPreferences = { isPublic: native ? native.requestedIsPublic === true : preferences.isPublic,
+          location: native?.location || preferences.location };
         await importInbox.add({
           id, ownerId: captureOwner, capture: action as ImportCapture,
           accountScopeId: native?.accountScopeId ?? undefined,
           createdAt: Date.now(),
           state: submitted ? 'accepted' : captureOwner && action.kind === 'url' ? 'ready' : 'waiting',
           jobId: native?.jobId ?? undefined, recipeId: native?.recipeId ?? undefined,
+          preferences: capturedPreferences,
           ...(action.kind === 'url' ? { request: {
-            url: action.url, location: native?.location || 'Guam', notes: '',
-            is_public: native?.isPublic ?? false,
+            url: action.url, location: capturedPreferences.location, notes: '',
+            is_public: capturedPreferences.isPublic,
           } } : {}),
         });
         if (submitted) void queryClient.invalidateQueries({ queryKey: extractionJobKeys.all });
@@ -144,7 +151,8 @@ export function useHandleShareIntent() {
         }
       }
     })();
-  }, [hasShareIntent, isLoaded, isSignedIn, ownerId, router, resetShareIntent, shareIntent, queryClient, workerVersion]);
+  }, [hasShareIntent, isLoaded, isSignedIn, ownerId, router, resetShareIntent, shareIntent, queryClient,
+    workerVersion, preferences.ready, preferences.isPublic, preferences.location]);
   return { hasShareIntent, isProcessing };
 }
 

@@ -90,7 +90,7 @@ export function ImportHelpPanel({ visible, onClose, onWebsiteSupport }: {
         ['For the best results', 'Videos work best when ingredients and instructions are spoken or written in the caption. You can also import recipe text or photos.'],
         ['While a recipe imports', 'You can add another recipe or leave the app. Unfinished imports stay on this page, and saved recipes go to your Library.'],
         ['AI-assisted recipe extraction', 'Extracted and saved automatically. Any uncertain details will be highlighted. Check those details against the source before cooking.'],
-        ['Sharing from another app', 'Choose Håfa Recipes in the share menu. Shared links import privately; you can publish them later.'],
+        ['Sharing from another app', 'Choose Håfa Recipes in the share menu. Links start importing when you’re signed in and connected. New imports use your public or private setting. Open Håfa to follow progress or finish imports saved for later.'],
       ].map(([title, description]) => (
         <View style={styles.section} key={title}>
           <Text style={styles.label}>{title}</Text>
