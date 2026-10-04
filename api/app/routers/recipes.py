@@ -469,6 +469,12 @@ class RecipeEdit(BaseModel):
                 path,
             ):
                 raise ValueError(f"invalid recipe review path: {path}")
+        # Empty JSON objects from older mobile clients represent absent values,
+        # not an all-null per-serving replacement ahead of valid dish totals.
+        for field in ("nutrition", "nutrition_total"):
+            value = getattr(self, field)
+            if value is not None and not any(item is not None for item in value.model_dump().values()):
+                setattr(self, field, None)
         if self.nutrition_recalculated and self.nutrition is None and self.nutrition_total is None:
             raise ValueError("nutrition is required when nutrition_recalculated is true")
         if self.nutrition_recalculated and (self.nutrition is not None or self.nutrition_total is not None):
@@ -609,6 +615,8 @@ def _build_edited_extracted(
             "assumptions": edit.nutrition_assumptions if edit.nutrition_recalculated else old_nutrition.get("assumptions") or [],
         },
     }
+    if not any(value is not None for value in new_extracted["nutrition"]["perServing"].values()):
+        new_extracted["nutrition"]["perServing"] = {}
     # Keep the publisher portion attached to unchanged nutrition, including
     # edits from older clients that do not send these optional provenance fields.
     unchanged_nutrition = (
@@ -2008,10 +2016,14 @@ async def refresh_recipe_nutrition(
     if request.expected_content_revision is not None and request.expected_content_revision != revision:
         raise HTTPException(status_code=409, detail="Recipe changed. Refresh it before recalculating nutrition.")
     snapshot = deepcopy(recipe.extracted or {})
+    snapshot_method = recipe.extraction_method
     fingerprint = nutrition_fingerprint(snapshot)
+    estimate_basis = deepcopy(snapshot)
+    if source_is_incomplete(snapshot, extraction_method=snapshot_method):
+        estimate_basis["sourceIncomplete"] = True
     await db.rollback()  # Do not hold a database transaction during provider work.
     try:
-        updated = await enrich_nutrition(snapshot, user_id=user.id, force=True,
+        updated = await enrich_nutrition(estimate_basis, user_id=user.id, force=True,
             preserve_source=preserve_source_nutrition, raise_on_failure=True)
     except NutritionUnavailable as exc:
         raise HTTPException(status_code=503, detail={"code": exc.code, "message": exc.reason}) from exc
@@ -2019,7 +2031,7 @@ async def refresh_recipe_nutrition(
                               .execution_options(populate_existing=True))).scalar_one_or_none()
     if recipe is None or recipe.user_id != user.id:
         raise HTTPException(status_code=404, detail="Recipe not found")
-    if int(recipe.content_revision or 1) != revision or nutrition_fingerprint(recipe.extracted or {}) != fingerprint or recipe.extracted != snapshot:
+    if int(recipe.content_revision or 1) != revision or nutrition_fingerprint(recipe.extracted or {}) != fingerprint or recipe.extracted != snapshot or recipe.extraction_method != snapshot_method:
         raise HTTPException(status_code=409, detail="Recipe changed while nutrition was calculated. Refresh and retry.")
     await create_recipe_version(db, recipe, "nutrition", user.id, change_summary="Recalculated nutrition")
     current = deepcopy(recipe.extracted or {})

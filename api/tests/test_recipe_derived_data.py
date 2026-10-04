@@ -129,7 +129,7 @@ def test_recipe_edit_clears_unsupported_nutrients_after_recalculation():
     ("nutrition", "message"),
     [
         (None, "nutrition is required"),
-        ({}, "calories, protein, carbs, and fat are required"),
+        ({}, "nutrition is required"),
         (
             {"calories": 200, "protein": 5, "carbs": 40},
             "calories, protein, carbs, and fat are required",

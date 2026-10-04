@@ -717,9 +717,15 @@ class WebsiteService:
             if yield_value is None:
                 continue
             text_yield = str(yield_value).strip()
-            match = re.search(r"\b(\d+)\s*(?:servings?|people|portions?)\b", text_yield, re.I)
-            if not match:
-                match = re.fullmatch(r"(\d+)", text_yield)
+            # Match one stated count, including common label-first forms. A
+            # full match avoids interpreting the upper endpoint of a range or
+            # a batch-unit yield as a precise number of recipe servings.
+            match = re.fullmatch(
+                r"(?:(?:serves?|servings?)\s*:?\s*)?(\d+)"
+                r"(?:\s*(?:servings?|people|portions?))?",
+                text_yield,
+                re.I,
+            )
             if match and 1 <= int(match.group(1)) <= 1_000:
                 servings = int(match.group(1))
                 break

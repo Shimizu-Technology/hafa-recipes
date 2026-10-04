@@ -16,6 +16,7 @@ from sqlalchemy import text
 
 from app.config import get_settings
 from app.db.database import engine as default_engine
+from app.recipe_estimates import source_is_incomplete
 from app.services.nutrition import (
     NUTRITION_VERSION,
     enrich_nutrition,
@@ -46,6 +47,7 @@ def state_fingerprint(row: Any) -> str:
             "extracted": row["extracted"],
             "revision": row["content_revision"],
             "owner": row["user_id"],
+            "extraction_method": row["extraction_method"],
         }
     )
 
@@ -68,7 +70,7 @@ async def build_plan(
             (
                 await connection.execute(
                     text("""
-            SELECT id, extracted, content_revision, user_id FROM recipes
+            SELECT id, extracted, content_revision, user_id, extraction_method FROM recipes
             WHERE (CAST(:after_id AS UUID) IS NULL OR id > CAST(:after_id AS UUID))
             ORDER BY id LIMIT :batch_size
         """),
@@ -89,7 +91,7 @@ async def build_plan(
             continue
         reason = (
             "incomplete_recipe"
-            if extracted.get("sourceIncomplete") is True
+            if source_is_incomplete(extracted, extraction_method=row["extraction_method"])
             else ("missing_ingredients" if not ingredients_for_nutrition(extracted) else None)
         )
         if reason:
@@ -321,7 +323,7 @@ async def run_backfill(
                         (
                             await connection.execute(
                                 text(
-                                    "SELECT id,extracted,content_revision,user_id FROM recipes WHERE id=CAST(:id AS UUID)"
+                                    "SELECT id,extracted,content_revision,user_id,extraction_method FROM recipes WHERE id=CAST(:id AS UUID)"
                                 ),
                                 {"id": recipe_id},
                             )
@@ -339,10 +341,13 @@ async def run_backfill(
                         break
                     await _event(connection, backfill_id, recipe_id, attempt, "started")
                     snapshot = deepcopy(row["extracted"] or {})
+                    estimate_basis = deepcopy(snapshot)
+                    if source_is_incomplete(snapshot, extraction_method=row["extraction_method"]):
+                        estimate_basis["sourceIncomplete"] = True
                     owner_id = row["user_id"]
                 calls += 1
                 updated = await calculator(
-                    snapshot,
+                    estimate_basis,
                     user_id=owner_id,
                     pinned_model=plan["model"],
                     allow_canary=False,
@@ -384,7 +389,7 @@ async def run_backfill(
                         (
                             await connection.execute(
                                 text(
-                                    "SELECT id,extracted,content_revision,user_id FROM recipes WHERE id=CAST(:id AS UUID) FOR UPDATE"
+                                    "SELECT id,extracted,content_revision,user_id,extraction_method FROM recipes WHERE id=CAST(:id AS UUID) FOR UPDATE"
                                 ),
                                 {"id": recipe_id},
                             )
@@ -417,6 +422,15 @@ async def run_backfill(
                         result_digest=digest(replacement["nutrition"]),
                     )
                     processed["succeeded"] = processed.get("succeeded", 0) + 1
+            # Exhausted items cannot resume within this run's attempt budget.
+            # Later recoverable failures or page budgeting must not hide that
+            # outcome; conflicts and model mismatches still stop immediately.
+            if processed.get("attempt_limit") and status in {
+                "completed",
+                "retryable_failures",
+                "budget_limited",
+            }:
+                status = "attempt_limit"
             return summary(
                 plan,
                 apply=True,

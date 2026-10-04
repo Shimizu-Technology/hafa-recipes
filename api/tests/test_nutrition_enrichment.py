@@ -314,7 +314,8 @@ async def test_provider_response_failures_leave_import_saved(monkeypatch, conten
 
 
 @pytest.mark.parametrize(
-    "action", ["save", "concurrent_edit", "failure", "not_owner", "revision_mismatch"]
+    "action",
+    ["save", "concurrent_edit", "concurrent_method", "failure", "not_owner", "revision_mismatch"],
 )
 async def test_owner_refresh_changes_nutrition_only_and_protects_current_content(
     monkeypatch, action
@@ -350,6 +351,8 @@ async def test_owner_refresh_changes_nutrition_only_and_protects_current_content
             raise service.NutritionUnavailable("provider_unavailable", "Try again")
         if action == "concurrent_edit":
             row.extracted = {**row.extracted, "notes": "New note"}
+        if action == "concurrent_method":
+            row.extraction_method = "website-jsonld"
         return {
             **extracted,
             "nutrition": {"perServing": {"calories": 200, "protein": 5.5, "carbs": 35, "fat": 3}},
@@ -371,9 +374,13 @@ async def test_owner_refresh_changes_nutrition_only_and_protects_current_content
             await recipes.refresh_recipe_nutrition(row.id, request, db, user)
         assert (
             caught.value.status_code
-            == {"not_owner": 403, "failure": 503, "concurrent_edit": 409, "revision_mismatch": 409}[
-                action
-            ]
+            == {
+                "not_owner": 403,
+                "failure": 503,
+                "concurrent_edit": 409,
+                "concurrent_method": 409,
+                "revision_mismatch": 409,
+            }[action]
         )
         db.commit.assert_not_awaited()
         version.assert_not_awaited()
@@ -477,13 +484,21 @@ async def test_manual_import_draft_preserves_publisher_portion_through_save(fake
     source = {"calories": 100, "protein": 1, "carbs": 15, "fat": 4}
     original = recipe()
     response = await recipes.create_manual_recipe(
-        recipe_data=json.dumps({"title": "Cookie draft", "servings": 8,
-                               "ingredients": original["components"][0]["ingredients"],
-                               "steps": original["components"][0]["steps"],
-                               "nutrition": source, "nutrition_serving_basis": "source",
-                               "nutrition_source_serving_size": "1 cookie",
-                               "nutrition_source_per_serving": source}),
-        image=None, db=db, user=_user(),
+        recipe_data=json.dumps(
+            {
+                "title": "Cookie draft",
+                "servings": 8,
+                "ingredients": original["components"][0]["ingredients"],
+                "steps": original["components"][0]["steps"],
+                "nutrition": source,
+                "nutrition_serving_basis": "source",
+                "nutrition_source_serving_size": "1 cookie",
+                "nutrition_source_per_serving": source,
+            }
+        ),
+        image=None,
+        db=db,
+        user=_user(),
     )
     assert response.extracted.nutrition.sourceServingSize == "1 cookie"
     assert response.extracted.nutrition.sourcePerServing.calories == 100
@@ -675,3 +690,170 @@ async def test_forced_refresh_cannot_overlay_prior_ai_totals_for_different_sourc
     assert result["nutrition"]["perServing"]["calories"] == 200
     assert result["nutrition"]["sourcePerServing"] == {"calories": 100, "protein": 1}
     assert len(fake_calculator) == 1
+
+
+@pytest.mark.parametrize(
+    "empty_nutrition", [{}, {"calories": None, "protein": None, "carbs": None, "fat": None}]
+)
+async def test_mobile_empty_per_serving_object_saves_whole_recipe_estimate(
+    monkeypatch, empty_nutrition
+):
+    import json
+    from unittest.mock import AsyncMock, Mock
+    from uuid import uuid4
+
+    from app.models.recipe import Recipe
+    from app.routers import recipes
+
+    # The mobile editor's actual whole-recipe response sends nutrition={} along
+    # with total values when no source serving count exists.
+    payload = {
+        "title": "Rice",
+        "servings": None,
+        "ingredients": [{"name": "rice", "quantity": "1", "unit": "cup"}],
+        "steps": ["Cook"],
+        "nutrition": empty_nutrition,
+        "nutrition_total": TOTAL,
+        "nutrition_recalculated": True,
+        "nutrition_serving_basis": "whole_recipe",
+        "nutrition_model": "test-model",
+    }
+    edit = recipes.RecipeEdit.model_validate_json(json.dumps(payload))
+    assert edit.nutrition is None
+    row = Recipe(
+        id=uuid4(),
+        user_id="owner",
+        extracted=recipe(None),
+        source_type="manual",
+        is_public=False,
+        content_revision=1,
+    )
+    db = AsyncMock()
+    db.add = Mock()
+    db.execute.return_value = SimpleNamespace(scalar_one_or_none=lambda: row)
+    monkeypatch.setattr(recipes, "create_recipe_version", AsyncMock())
+    monkeypatch.setattr(recipes, "recipe_to_detail_response", lambda row, user_id: row)
+    response = await recipes.edit_recipe(row.id, edit, db, SimpleNamespace(id="owner"))
+    db.commit.assert_awaited_once()
+    assert response.extracted["servings"] is None
+    assert response.extracted["nutrition"]["perServing"] == {}
+    assert response.extracted["nutrition"]["total"] == TOTAL
+    assert response.extracted["derivedData"]["nutrition"]["status"] == "current"
+
+
+def test_empty_nutrition_edit_never_persists_all_null_per_serving():
+    edit = RecipeEdit(title="Rice", nutrition={}, ingredients=[{"name": "rice"}], steps=["Cook"])
+    result = _build_edited_extracted(recipe(None), edit)
+    assert edit.nutrition is None
+    assert result["nutrition"]["perServing"] == {}
+
+
+@pytest.mark.parametrize(
+    "notes,method",
+    [
+        ("The description does not provide a full ingredient list.", "basic"),
+        ("The caption does not include the ingredients.", "ocr"),
+        ("The transcript provides only a dish description.", "whisper"),
+    ],
+)
+async def test_owner_refresh_blocks_inferred_legacy_incomplete_recipe_without_changing_snapshot(
+    monkeypatch, notes, method
+):
+    from unittest.mock import AsyncMock
+    from uuid import uuid4
+
+    from fastapi import HTTPException
+
+    from app.models.recipe import Recipe
+    from app.routers import recipes
+
+    original = {**recipe(), "notes": notes}
+    row = Recipe(
+        id=uuid4(),
+        user_id="owner",
+        content_revision=1,
+        extracted=deepcopy(original),
+        extraction_method=method,
+    )
+    db = AsyncMock()
+    db.execute.return_value = SimpleNamespace(scalar_one_or_none=lambda: row)
+    provider = AsyncMock()
+    monkeypatch.setattr(service, "AsyncOpenAI", provider)
+    with pytest.raises(HTTPException) as caught:
+        await recipes.refresh_recipe_nutrition(
+            row.id, recipes.NutritionRefreshRequest(), db, SimpleNamespace(id="owner")
+        )
+    assert caught.value.status_code == 503
+    assert caught.value.detail["code"] == "incomplete_recipe"
+    assert row.extracted == original
+    assert "sourceIncomplete" not in row.extracted
+    provider.assert_not_called()
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "yield_value,expected",
+    [
+        ("Serves 4", 4),
+        ("Serves: 4", 4),
+        ("Servings: 4", 4),
+        ("4 servings", 4),
+        ("4 people", 4),
+        ("4 portions", 4),
+        (4, 4),
+        ("4 to 6 servings", None),
+        ("Serves 4 to 6", None),
+        ("4-6 servings", None),
+        ("4–6 portions", None),
+        ("24 cookies", None),
+        ("Makes 24 cookies", None),
+        (["24 cookies", "Serves: 4"], 4),
+    ],
+)
+def test_website_yield_uses_precise_stated_count_without_inventing_range_endpoint(
+    yield_value, expected
+):
+    result = WebsiteService._convert_jsonld_to_recipe(
+        {
+            "name": "Rice",
+            "recipeIngredient": ["1 cup rice"],
+            "recipeInstructions": ["Cook"],
+            "recipeYield": yield_value,
+        },
+        "https://example.com/rice",
+        "Guam",
+        "",
+        None,
+    )
+    assert result["servings"] == expected
+
+
+async def test_owner_refresh_allows_manual_notes_and_preserves_snapshot_contract(
+    monkeypatch, fake_calculator
+):
+    from unittest.mock import AsyncMock
+    from uuid import uuid4
+
+    from app.models.recipe import Recipe
+    from app.routers import recipes
+
+    original = {**recipe(), "notes": "The description does not provide a full ingredient list."}
+    row = Recipe(
+        id=uuid4(),
+        user_id="owner",
+        content_revision=1,
+        extracted=deepcopy(original),
+        extraction_method="manual",
+    )
+    db = AsyncMock()
+    db.execute.return_value = SimpleNamespace(scalar_one_or_none=lambda: row)
+    monkeypatch.setattr(recipes, "create_recipe_version", AsyncMock())
+    monkeypatch.setattr(recipes, "recipe_to_detail_response", lambda row, user_id: row)
+    response = await recipes.refresh_recipe_nutrition(
+        row.id, recipes.NutritionRefreshRequest(), db, SimpleNamespace(id="owner")
+    )
+    assert "sourceIncomplete" not in response.extracted
+    assert response.extracted["notes"] == original["notes"]
+    assert response.extracted["derivedData"]["nutrition"]["status"] == "current"
+    assert fake_calculator == [original]
+    db.commit.assert_awaited_once()

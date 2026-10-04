@@ -37,7 +37,7 @@ async def database():
         await connection.execute(text("CREATE SCHEMA public"))
         await connection.execute(
             text(
-                "CREATE TABLE recipes(id UUID PRIMARY KEY,extracted JSONB NOT NULL,content_revision INTEGER NOT NULL DEFAULT 1,user_id TEXT)"
+                "CREATE TABLE recipes(id UUID PRIMARY KEY,extracted JSONB NOT NULL,content_revision INTEGER NOT NULL DEFAULT 1,user_id TEXT,extraction_method TEXT)"
             )
         )
         await import_module(
@@ -324,4 +324,173 @@ async def test_mismatched_calculation_model_is_audited_and_cannot_write(database
                 )
             )
             == 1
+        )
+
+
+@pytest.mark.parametrize("number_of_recipes", [2, 3])
+async def test_exhausted_attempts_remain_visible_after_later_failures_or_budget(
+    database, number_of_recipes
+):
+    for number in range(1, number_of_recipes + 1):
+        await seed(database, number=number)
+    plan = await run_backfill(engine=database, release_id="test-release")
+
+    async def fail(extracted, **kwargs):
+        return {
+            **extracted,
+            "derivedData": {
+                "nutrition": {"status": "unavailable", "errorCode": "provider_unavailable"}
+            },
+        }
+
+    kwargs = {**apply_args(plan), "max_estimates": 1, "max_attempts": 1}
+    await run_backfill(engine=database, calculator=fail, **kwargs)
+    resumed = await run_backfill(engine=database, calculator=fail, **kwargs)
+    assert resumed["status"] == "attempt_limit"
+    assert resumed["processed"] == {"attempt_limit": 1, "failed": 1}
+    assert resumed["provider_calls"] == 1
+    async with database.connect() as connection:
+        assert (
+            await connection.scalar(text("SELECT MAX(attempt) FROM nutrition_backfill_events")) == 1
+        )
+        assert (
+            await connection.scalar(
+                text("SELECT COUNT(*) FROM nutrition_backfill_events WHERE outcome='failed'")
+            )
+            == 2
+        )
+
+
+async def test_dry_plan_excludes_legacy_incomplete_source_but_not_manual_notes(database):
+    legacy_id, legacy = await seed(database)
+    manual_id, manual = await seed(database, number=2)
+    diagnostic = "The description does not provide a full ingredient list."
+    legacy["notes"] = diagnostic
+    manual["notes"] = diagnostic
+    async with database.begin() as connection:
+        for recipe_id, extracted, method in (
+            (legacy_id, legacy, "basic"),
+            (manual_id, manual, "manual"),
+        ):
+            await connection.execute(
+                text(
+                    "UPDATE recipes SET extracted=CAST(:extracted AS JSONB),extraction_method=:method WHERE id=:id"
+                ),
+                {"extracted": json.dumps(extracted), "method": method, "id": recipe_id},
+            )
+    plan = await run_backfill(engine=database, release_id="test-release")
+    assert plan["planned_items"] == 1
+    assert plan["ineligible"] == {"incomplete_recipe": 1}
+    result = await run_backfill(engine=database, calculator=fake_calculator, **apply_args(plan))
+    assert result["processed"] == {"succeeded": 1}
+    async with database.connect() as connection:
+        assert (
+            await connection.scalar(
+                text("SELECT extracted FROM recipes WHERE id=:id"), {"id": legacy_id}
+            )
+            == legacy
+        )
+        assert (
+            await connection.scalar(
+                text("SELECT COUNT(*) FROM nutrition_backfill_events WHERE recipe_id=:id"),
+                {"id": legacy_id},
+            )
+            == 0
+        )
+        assert (
+            await connection.scalar(
+                text("SELECT extracted->>'notes' FROM recipes WHERE id=:id"), {"id": manual_id}
+            )
+            == diagnostic
+        )
+
+
+async def test_resume_rejects_method_only_changes_without_changing_stored_snapshot(
+    database, monkeypatch
+):
+    from unittest.mock import Mock
+
+    from app.services import nutrition
+
+    recipe_id, original = await seed(database)
+    original["notes"] = "The caption does not include the ingredients."
+    async with database.begin() as connection:
+        await connection.execute(
+            text(
+                "UPDATE recipes SET extracted=CAST(:extracted AS JSONB),extraction_method='manual' WHERE id=:id"
+            ),
+            {"extracted": json.dumps(original), "id": recipe_id},
+        )
+    plan = await run_backfill(engine=database, release_id="test-release")
+
+    class Interruption(BaseException):
+        pass
+
+    async def interrupt(*args, **kwargs):
+        raise Interruption()
+
+    with pytest.raises(Interruption):
+        await run_backfill(engine=database, calculator=interrupt, **apply_args(plan))
+    async with database.begin() as connection:
+        await connection.execute(
+            text("UPDATE recipes SET extraction_method='ocr' WHERE id=:id"), {"id": recipe_id}
+        )
+    provider = Mock()
+    monkeypatch.setattr(nutrition, "AsyncOpenAI", provider)
+    basis_seen = []
+
+    async def calculate(extracted, **kwargs):
+        basis_seen.append(extracted)
+        return await nutrition.enrich_nutrition(extracted, **kwargs)
+
+    resumed = await run_backfill(engine=database, calculator=calculate, **apply_args(plan))
+    assert resumed["status"] == "blocked_conflict"
+    assert resumed["provider_calls"] == 0
+    assert basis_seen == []
+    provider.assert_not_called()
+    async with database.connect() as connection:
+        assert (
+            await connection.scalar(
+                text("SELECT extracted FROM recipes WHERE id=:id"), {"id": recipe_id}
+            )
+            == original
+        )
+        assert (
+            await connection.scalar(
+                text(
+                    "SELECT outcome FROM nutrition_backfill_events ORDER BY attempt DESC,created_at DESC LIMIT 1"
+                )
+            )
+            == "conflict"
+        )
+
+
+async def test_method_only_change_during_calculation_conflicts_before_nutrition_write(database):
+    recipe_id, original = await seed(database)
+    plan = await run_backfill(engine=database, release_id="test-release")
+
+    async def concurrent_method_change(extracted, **kwargs):
+        async with database.begin() as connection:
+            await connection.execute(
+                text("UPDATE recipes SET extraction_method='whisper' WHERE id=:id"),
+                {"id": recipe_id},
+            )
+        return await fake_calculator(extracted, **kwargs)
+
+    result = await run_backfill(
+        engine=database, calculator=concurrent_method_change, **apply_args(plan)
+    )
+    assert result["status"] == "blocked_conflict"
+    async with database.connect() as connection:
+        assert (
+            await connection.scalar(
+                text("SELECT extracted FROM recipes WHERE id=:id"), {"id": recipe_id}
+            )
+            == original
+        )
+        assert (
+            await connection.scalar(
+                text("SELECT COUNT(*) FROM nutrition_backfill_events WHERE outcome='succeeded'")
+            )
+            == 0
         )
