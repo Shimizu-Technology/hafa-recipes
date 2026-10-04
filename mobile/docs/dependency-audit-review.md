@@ -2,6 +2,8 @@
 
 Reviewed October 4, 2026; expires November 3, 2026 at 00:00 UTC. These exceptions do not patch the affected packages. `npm run audit:runtime` fails after expiry or if the reviewed dependency tree changes.
 
+Follow-up: [reassess the exceptions before November 3](https://github.com/Shimizu-Technology/hafa-recipes/issues/123). Expiry rejects the reviewed advisory when it is present; it does not reject an audit with no affected advisory.
+
 | Advisory | Locked package | Exposure |
 |---|---|---|
 | [CVE-2026-93687](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm), npm source 1240992 | braces 3.0.3 | Recursive pattern parsing can crash a Node process. In this tree, micromatch brings it into Metro file watchers and workspace discovery. Inputs come from repository/build configuration. |

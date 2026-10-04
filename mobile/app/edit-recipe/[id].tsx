@@ -515,7 +515,7 @@ export default function EditRecipeScreen() {
       const response = await api.estimateNutrition(ingredientStrings, servingsNum);
       if (latestNutritionInputs.current !== requestedInputs) return;
       
-      setEstimatedNutrition(response.nutrition);
+      setEstimatedNutrition(hasNutritionValues(response.nutrition) ? response.nutrition : null);
       setEstimatedNutritionTotal(response.total ?? null);
       setNutritionBasis(response.servingBasis ?? (servingsNum ? 'recipe_servings' : 'whole_recipe'));
       setNutritionAssumptions(response.assumptions ?? []);
