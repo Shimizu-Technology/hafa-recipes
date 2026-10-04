@@ -21,7 +21,10 @@ export function NutritionPanel({ nutrition, metadata, scaleFactor = 1, isLoading
   const [localBasisId, setLocalBasisId] = useState<NutritionBasisId>();
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const bases = nutritionBases(nutrition, scaleFactor);
-  const basis = selectNutritionBasis(bases, selectedBasisId ?? localBasisId);
+  // A controlled parent can reset to undefined after a recipe revision.
+  // Never let an earlier local choice override that default selection.
+  const requestedBasisId = onBasisChange ? selectedBasisId : selectedBasisId ?? localBasisId;
+  const basis = selectNutritionBasis(bases, requestedBasisId);
   const assumptions = nutritionAssumptions(nutrition, metadata);
   const statusMessage = nutritionStatusMessage(Boolean(basis), metadata);
   const provenance = nutritionProvenance(metadata);
@@ -57,7 +60,10 @@ export function NutritionPanel({ nutrition, metadata, scaleFactor = 1, isLoading
         {bases.map((option) => <TouchableOpacity key={option.id} style={[styles.basisButton,
           { borderColor: option.id === basis.id ? actionColor : colors.border,
             backgroundColor: option.id === basis.id ? colors.backgroundSecondary : 'transparent' }]}
-          onPress={() => { setLocalBasisId(option.id); onBasisChange?.(option.id); }}
+          onPress={() => {
+            if (onBasisChange) onBasisChange(option.id);
+            else setLocalBasisId(option.id);
+          }}
           accessibilityRole="tab" accessibilityLabel={option.label} accessibilityState={{ selected: option.id === basis.id }}>
           <Text style={[textStyles.body, { color: option.id === basis.id ? actionColor : colors.textSecondary,
             fontFamily: option.id === basis.id ? fontFamily.semibold : fontFamily.regular }]}>{option.label}</Text>
@@ -82,9 +88,9 @@ export function NutritionPanel({ nutrition, metadata, scaleFactor = 1, isLoading
     <Text style={[textStyles.body, { color: colors.textSecondary }]}>{provenance}</Text>
     {assumptions.length > 0 && <View style={[styles.details, { borderTopColor: colors.border }]}>
       <TouchableOpacity onPress={() => setDetailsExpanded(!detailsExpanded)} style={styles.detailsToggle}
-        accessibilityRole="button" accessibilityLabel={`How nutrition was estimated. ${assumptions.length} ${assumptions.length === 1 ? 'assumption' : 'assumptions'}`}
+        accessibilityRole="button" accessibilityLabel={`Calculation details. ${assumptions.length} ${assumptions.length === 1 ? 'assumption' : 'assumptions'}`}
         accessibilityState={{ expanded: detailsExpanded }}>
-        <Text style={[textStyles.body, styles.detailsTitle, { color: actionColor }]}>How this was estimated</Text>
+        <Text style={[textStyles.body, styles.detailsTitle, { color: actionColor }]}>Calculation details</Text>
         <Text style={[textStyles.body, { color: colors.textMuted }]}>{assumptions.length}</Text>
         <Ionicons name={detailsExpanded ? 'chevron-up' : 'chevron-down'} size={18} color={actionColor} />
       </TouchableOpacity>

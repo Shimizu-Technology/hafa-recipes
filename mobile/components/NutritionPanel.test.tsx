@@ -14,7 +14,7 @@ vi.mock('@/components/Themed', () => ({ Text: 'Text', useColors: () => ({
 }) }));
 vi.mock('@/hooks/useTextSize', () => ({ useTextSize: () => ({ scaleFontSize: (size: number) => Math.round(size * state.textScale) }) }));
 import { NutritionPanel } from './NutritionPanel';
-import { normalizeNutritionValues } from '@/lib/nutritionPresentation';
+import { formatNutritionAsText, normalizeNutritionValues } from '@/lib/nutritionPresentation';
 
 const nutrition = { servingBasis: 'recipe_servings' as const, servingsUsed: 4,
   perServing: normalizeNutritionValues({ calories: 100, protein: 0, fat: 1.25, fiber: 0.2 }),
@@ -53,7 +53,7 @@ describe('NutritionPanel', () => {
     try {
       await act(async () => panel.render());
       expect(panel.text()).not.toContain(nutrition.assumptions[0]);
-      const label = 'How nutrition was estimated. 2 assumptions';
+      const label = 'Calculation details. 2 assumptions';
       expect(panel.byLabel(label)[0].props.accessibilityState).toEqual({ expanded: false });
       await act(async () => panel.byLabel(label)[0].props.onPress());
       expect(panel.text()).toContain(nutrition.assumptions[0]);
@@ -81,6 +81,28 @@ describe('NutritionPanel', () => {
       expect(onBasisChange).toHaveBeenCalledWith('recipe_serving');
       // A controlled parent owns selection until it supplies the changed value.
       expect(panel.byLabel('Calories: 400 cal')).toHaveLength(1);
+    } finally { await act(async () => panel.renderer.unmount()); }
+  });
+  it('uses the parent default after a mounted controlled selection resets on a recipe revision', async () => {
+    const onBasisChange = vi.fn();
+    const props: Partial<React.ComponentProps<typeof NutritionPanel>> = { selectedBasisId: undefined, onBasisChange };
+    const panel = renderPanel(props);
+    try {
+      await act(async () => panel.render());
+      await act(async () => panel.byLabel('Whole recipe')[0].props.onPress());
+      expect(onBasisChange).toHaveBeenCalledWith('whole_recipe');
+      props.selectedBasisId = 'whole_recipe';
+      await act(async () => panel.render());
+      expect(panel.byLabel('Calories: 400 cal')).toHaveLength(1);
+      // The parent clears its recipe/revision-scoped selection without unmounting.
+      props.selectedBasisId = undefined;
+      await act(async () => panel.render());
+      expect(panel.byLabel('Calories: 100 cal')).toHaveLength(1);
+      expect(panel.byLabel('Calories: 400 cal')).toHaveLength(0);
+      const exported = formatNutritionAsText(nutrition, metadata, 1, props.selectedBasisId);
+      expect(exported).toContain('NUTRITION — Per serving');
+      expect(exported).toContain('Calories: 100 cal');
+      expect(exported).not.toContain('Calories: 400 cal');
     } finally { await act(async () => panel.renderer.unmount()); }
   });
   it('does not invent macros for partial or unavailable nutrition and keeps retry explicit', async () => {
