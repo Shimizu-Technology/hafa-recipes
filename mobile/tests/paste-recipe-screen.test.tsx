@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
+  ownerId: 'owner-a',
   clipboard: vi.fn(async () => 'Red Rice\r\n2 cups rice\r\nCook the rice.'),
   extract: vi.fn(async () => ({
     success: true,
@@ -100,10 +101,13 @@ vi.mock('@/lib/textCapture', () => ({
 }));
 vi.mock('@/lib/shareCapture', () => ({ consumePendingShareCapture: mocks.consume }));
 
+vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: mocks.ownerId, entries: [] }) }));
+vi.mock('@/lib/importInbox', () => ({ importInbox: { patch: vi.fn() } }));
 import PasteRecipeScreen from '../app/paste-recipe';
 
 describe('PasteRecipeScreen', () => {
   beforeEach(() => {
+    mocks.ownerId = 'owner-a';
     mocks.save.mockReset();
     mocks.save.mockResolvedValue({ id: 'recipe-1' });
     mocks.requestPublishing.mockReset();
@@ -175,14 +179,30 @@ describe('PasteRecipeScreen', () => {
       'Red Rice\n2 cups rice\nCook the rice.',
       'Guam',
     );
-    expect(mocks.save).toHaveBeenCalledWith({
+    expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({
       extracted: { title: 'Red Rice', components: [] },
       capture_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       source_type: 'text',
       is_public: false,
-    });
+      expected_owner_id: 'owner-a', requestGuard: expect.any(Function),
+    }));
     expect(mocks.requestPublishing).not.toHaveBeenCalled();
     expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
+  });
+
+  it('does not save A text under B after a delayed extraction', async () => {
+    let finish!: (value: { success: boolean; recipe: { title: string; components: never[] } }) => void;
+    mocks.extract.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<PasteRecipeScreen />); });
+    await act(async () => renderer.root.findByType('TextInput' as unknown as React.ComponentType).props.onChangeText('1 cup rice. Cook it.'));
+    let submit!: Promise<void>;
+    await act(async () => { submit = renderer.root.findByType('Button' as unknown as React.ComponentType).props.onPress(); });
+    mocks.ownerId = 'owner-b';
+    await act(async () => renderer.update(<PasteRecipeScreen />));
+    await act(async () => { finish({ success: true, recipe: { title: 'A recipe', components: [] } }); await submit; });
+    expect(mocks.save).not.toHaveBeenCalled(); expect(mocks.replace).not.toHaveBeenCalled();
+    await act(async () => renderer.unmount());
   });
 
   it('shows the extraction error and stays on the paste screen', async () => {
@@ -268,7 +288,7 @@ describe('PasteRecipeScreen', () => {
       params: {
         recipe: JSON.stringify({ title: 'Red Rice', components: [] }),
         location: 'Guam', isPublic: 'false', sourceType: 'text', saveFailed: 'true',
-        captureId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', saveErrorKind: 'retry', saveErrorMessage: 'Offline',
+        captureId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', captureOwnerId: 'owner-a', saveErrorKind: 'retry', saveErrorMessage: 'Offline',
       },
     });
   });

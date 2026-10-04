@@ -80,11 +80,121 @@ function hasReviewedStreamJsonPath(lockfile) {
     && declaringPackages[0] === 'node_modules/jayson';
 }
 
-export const reviewedAdvisoryCount = acceptedSimpleAdvisories.size + 1;
+// Temporary exceptions for two unpatched build-tool advisories. These are
+// not runtime vulnerability fixes; see ../docs/dependency-audit-review.md.
+// Any changed version, integrity, declaring parent/range, duplicate install,
+// or expired review fails closed and requires a fresh reachability assessment.
+const BUILD_TOOL_REVIEW_STARTED = Date.parse('2026-10-04T00:00:00Z');
+export const buildToolReviewExpiresAt = '2026-11-03T00:00:00Z';
+const BUILD_TOOL_REVIEW_EXPIRES = Date.parse(buildToolReviewExpiresAt);
+const reviewedBuildToolAdvisories = {
+  "braces:1240992": {
+    "packages": {
+      "node_modules/braces": {
+        "version": "3.0.3",
+        "integrity": "sha512-yQbXgO/OSZVD2IsiLlro+7Hf6Q18EJrKSEsdoMzKePKXct3gvD8oLcOQdIzGupr5Fj+EDe8gO/lxc1BzfMpxvA=="
+      },
+      "node_modules/micromatch": {
+        "version": "4.0.8",
+        "integrity": "sha512-PXwfBhYu0hBCPw8Dn0E+WDYb7af3dSLVWKi3HGv84IdF4TyFoC0ysxFd0Goxw7nSv4T/PzEJQxsYsEiFCKo2BA=="
+      },
+      "node_modules/@expo/metro-file-map": {
+        "version": "57.0.3",
+        "integrity": "sha512-1OXy+uPYY5uc7Tm4VBsd2NRn+3wHhqeqNuEO/Xo4kmYgv8FjYgUAc+bUXON9FpC2ikcLn4EVlGM9ce2exx9Mlg=="
+      },
+      "node_modules/metro-file-map": {
+        "version": "0.84.5",
+        "integrity": "sha512-mlm/JL8toSbSc2akpKIGmzvrVRSCgZ5vkbycI34oMLoOnLGuLyC8WTyVJ6P0hZG/usDaGwZSl/s9BCRriqjGJA=="
+      },
+      "node_modules/find-yarn-workspace-root": {
+        "version": "2.0.0",
+        "integrity": "sha512-1IMnbjt4KzsQfnhnzNd8wUEgXZ44IzZaZmnLYx7D5FZlaHt2gW20Cri8Q+E/t5tIj4+epTBub+2Zxu/vNILzqQ=="
+      }
+    },
+    "declarations": {
+      "braces": {
+        "node_modules/micromatch": {
+          "dependencies": "^3.0.3"
+        }
+      },
+      "micromatch": {
+        "node_modules/@expo/metro-file-map": {
+          "dependencies": "^4.0.4"
+        },
+        "node_modules/metro-file-map": {
+          "dependencies": "^4.0.4"
+        },
+        "node_modules/find-yarn-workspace-root": {
+          "dependencies": "^4.0.2"
+        }
+      }
+    }
+  },
+  "node-forge:1240912": {
+    "packages": {
+      "node_modules/node-forge": {
+        "version": "1.4.0",
+        "integrity": "sha512-LarFH0+6VfriEhqMMcLX2F7SwSXeWwnEAJEsYm5QKWchiVYVvJyV9v7UDvUv+w5HO23ZpQTXDv/GxdDdMyOuoQ=="
+      },
+      "node_modules/@expo/cli": {
+        "version": "57.0.27",
+        "integrity": "sha512-Jauk4chxmpVG5ElrMLTCwjFP20jbYU7PB4l3LYV8j+4e/3HU5jdl7qTQ4eVy1AaDUE9Ia2NCQ5A9kar2V1gaLg=="
+      },
+      "node_modules/@expo/code-signing-certificates": {
+        "version": "0.0.6",
+        "integrity": "sha512-iNe0puxwBNEcuua9gmTGzq+SuMDa0iATai1FlFTMHJ/vUmKvN/V//drXoLJkVb5i5H3iE/n/qIJxyoBnXouD0w=="
+      }
+    },
+    "declarations": {
+      "node-forge": {
+        "node_modules/@expo/cli": {
+          "dependencies": "^1.3.3"
+        },
+        "node_modules/@expo/code-signing-certificates": {
+          "dependencies": "^1.3.3"
+        }
+      }
+    }
+  }
+};
 
-export function isAcceptedAdvisory({ packageName, source, lockfile }) {
+function hasReviewedBuildToolPath(key, lockfile, now) {
+  const reviewed = reviewedBuildToolAdvisories[key];
+  const packages = lockfile?.packages;
+  if (!reviewed || !packages || !Number.isFinite(now)
+    || now < BUILD_TOOL_REVIEW_STARTED || now >= BUILD_TOOL_REVIEW_EXPIRES) return false;
+
+  for (const [packagePath, expected] of Object.entries(reviewed.packages)) {
+    const metadata = packages[packagePath];
+    if (metadata?.version !== expected.version || metadata?.integrity !== expected.integrity) return false;
+    // A nested duplicate is a new, unreviewed dependency path even when its
+    // tarball matches the hoisted package; do not accept it by package name.
+    const suffix = `/node_modules/${packagePath.slice('node_modules/'.length)}`;
+    if (Object.keys(packages).some((candidate) => candidate.endsWith(suffix))) return false;
+  }
+
+  const kinds = ['dependencies', 'optionalDependencies', 'peerDependencies', 'devDependencies'];
+  for (const [dependency, expectedParents] of Object.entries(reviewed.declarations)) {
+    const actualParents = Object.entries(packages).filter(([, metadata]) =>
+      kinds.some((kind) => typeof metadata?.[kind]?.[dependency] === 'string'));
+    if (actualParents.length !== Object.keys(expectedParents).length) return false;
+    for (const [parentPath, metadata] of actualParents) {
+      const expectedEdges = expectedParents[parentPath];
+      if (!expectedEdges) return false;
+      for (const kind of kinds) {
+        if (metadata?.[kind]?.[dependency] !== expectedEdges[kind]) return false;
+      }
+    }
+  }
+  return true;
+}
+
+export const reviewedAdvisoryCount = acceptedSimpleAdvisories.size + 1 + Object.keys(reviewedBuildToolAdvisories).length;
+
+export function isAcceptedAdvisory({ packageName, source, lockfile, now = Date.now() }) {
   const key = `${packageName}:${source}`;
   if (acceptedSimpleAdvisories.has(key)) return true;
+  if (Object.hasOwn(reviewedBuildToolAdvisories, key)) return hasReviewedBuildToolPath(key, lockfile, now);
   if (key !== STREAM_JSON_ADVISORY) return false;
 
   // Clerk bundles unused Solana wallet support in the native SDK. Håfa does

@@ -1,3 +1,5 @@
+import { importInbox } from '@/lib/importInbox';
+import { useImportInbox } from '@/hooks/useImportInbox';
 /**
  * Capture Review Screen
  * 
@@ -27,7 +29,7 @@ import { useSaveCapturedRecipe } from '@/hooks/useRecipes';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import { formatPublishDisclosure } from '@/lib/recipePublishing';
 import { getOcrPublishDisclosure } from '@/lib/ocrReview';
-import { captureSaveFailure } from '@/lib/captureSave';
+import { CaptureAccountChangedError, captureSaveFailure } from '@/lib/captureSave';
 
 export default function OCRReviewScreen() {
   const router = useRouter();
@@ -40,6 +42,7 @@ export default function OCRReviewScreen() {
     sourceType: sourceTypeParam,
     saveFailed,
     captureId: captureIdParam,
+    captureOwnerId,
     saveErrorKind,
     saveErrorMessage,
   } = useLocalSearchParams<{
@@ -49,9 +52,22 @@ export default function OCRReviewScreen() {
     sourceType?: 'photo' | 'text';
     saveFailed?: string;
     captureId?: string;
+    captureOwnerId?: string;
     saveErrorKind?: string;
     saveErrorMessage?: string;
   }>();
+  const inbox = useImportInbox();
+  const boundOwner = useRef<string | null>(captureOwnerId ?? inbox.ownerId);
+  if (!boundOwner.current && inbox.ownerId) boundOwner.current = inbox.ownerId;
+  const captureOwner = useRef({ ownerId: inbox.ownerId, mounted: true });
+  captureOwner.current.ownerId = inbox.ownerId;
+  useEffect(() => {
+    captureOwner.current.mounted = true;
+    return () => { captureOwner.current.mounted = false; };
+  }, []);
+  const guardOwner = () => {
+    if (!boundOwner.current || !captureOwner.current.mounted || captureOwner.current.ownerId !== boundOwner.current) throw new CaptureAccountChangedError();
+  };
   const sourceType = sourceTypeParam === 'text' ? 'text' : 'photo';
   const isTextCapture = sourceType === 'text';
 
@@ -103,6 +119,7 @@ export default function OCRReviewScreen() {
 
   const doSave = async () => {
     if (!recipe || !canRetry || saveInFlight.current || isCheckingDisclosure) return;
+    try { guardOwner(); } catch (error) { Alert.alert('Account Changed', (error as Error).message); return; }
     saveInFlight.current = true;
 
     if (isPublic) {
@@ -117,27 +134,37 @@ export default function OCRReviewScreen() {
     setIsSaving(true);
     attemptedSave.current = true;
     try {
+      guardOwner();
       const result = await saveCapturedRecipe.mutateAsync({
         extracted: recipe,
         source_type: sourceType,
         is_public: isPublic,
         capture_id: captureId,
+        expected_owner_id: boundOwner.current!, requestGuard: guardOwner,
       });
 
+      guardOwner();
       if (!result?.id) throw new Error('Save did not finish. Please retry.');
+      const matchingCapture = inbox.entries.find((entry) => entry.id === captureId && entry.ownerId === boundOwner.current);
+      if (matchingCapture) {
+        await importInbox.patch(captureId, { state: 'accepted', recipeId: result.id, error: undefined });
+        guardOwner();
+      }
       router.replace(`/recipe/${result.id}`);
     } catch (error: unknown) {
+      if (error instanceof CaptureAccountChangedError) return;
       const nextFailure = captureSaveFailure(error);
       setFailure(nextFailure);
       Alert.alert('Save failed', nextFailure.message);
     } finally {
       saveInFlight.current = false;
-      setIsSaving(false);
+      if (captureOwner.current.mounted && captureOwner.current.ownerId === boundOwner.current) setIsSaving(false);
     }
   };
   
   const handleEdit = () => {
     if (!canEdit || saveInFlight.current) return;
+    try { guardOwner(); } catch (error) { Alert.alert('Account Changed', (error as Error).message); return; }
     // Replace review with add-recipe screen, preserving the capture origin.
     // Using replace so user doesn't come back to this screen after saving
     router.replace({
@@ -146,6 +173,7 @@ export default function OCRReviewScreen() {
         initialData: JSON.stringify(recipe),
         isPublic: isPublic ? 'true' : 'false',
         captureSource: sourceType,
+        captureOwnerId: boundOwner.current!,
       },
     });
   };

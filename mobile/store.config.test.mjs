@@ -41,13 +41,13 @@ describe('App Store release metadata', () => {
     expect(info.privacyPolicyUrl).toBe('https://hafa-recipes.com/privacy');
     expect(info.supportUrl).toBe('https://hafa-recipes.com/support');
     expect(info.releaseNotes).toBe(RELEASE_NOTES);
-    expect(info.releaseNotes).toContain('personal pantry or share one');
-    expect(info.releaseNotes).toContain('What Can I Make');
-    expect(info.releaseNotes).toContain('compact floating message button above the tabs');
+    expect(info.releaseNotes).toContain('cleaner screen');
+    expect(info.releaseNotes).toContain('start importing directly');
+    expect(info.releaseNotes).toContain('whole-recipe totals');
     expect(config.apple.review.demoRequired).toBe(true);
     expect(config.apple.review.demoUsername).toBe(environment.APP_REVIEW_EMAIL);
     expect(config.apple.review.notes).toContain('does not provide persistent background audio');
-    expect(config.apple.review.notes).toContain('The extension intentionally does not auto-open the app');
+    expect(config.apple.review.notes).toContain('The share extension starts the import');
     expect(config.apple.advisory).toBeUndefined();
   });
 

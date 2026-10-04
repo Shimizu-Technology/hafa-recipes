@@ -20,7 +20,7 @@ import { Button, Chip, Text, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
 import { RecipeVisibilitySelector } from '@/components/RecipeVisibilitySelector';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
-import { saveCaptureOrRecover } from '@/lib/captureSave';
+import { CaptureAccountChangedError, saveCaptureOrRecover } from '@/lib/captureSave';
 import { useLocations, useSaveCapturedRecipe } from '@/hooks/useRecipes';
 import { api } from '@/lib/api';
 import {
@@ -29,6 +29,8 @@ import {
   normalizePastedRecipeText,
 } from '@/lib/textCapture';
 import { consumePendingShareCapture } from '@/lib/shareCapture';
+import { importInbox } from '@/lib/importInbox';
+import { useImportInbox } from '@/hooks/useImportInbox';
 
 export default function PasteRecipeScreen() {
   const router = useRouter();
@@ -38,16 +40,35 @@ export default function PasteRecipeScreen() {
     location?: string;
     isPublic?: string;
     captureToken?: string;
+    inboxCaptureId?: string;
   }>();
   const { data: locationsData } = useLocations();
   const saveCapturedRecipe = useSaveCapturedRecipe();
+  const inbox = useImportInbox();
+  const captureOwner = useRef({ ownerId: inbox.ownerId, mounted: true });
+  captureOwner.current.ownerId = inbox.ownerId;
+  useEffect(() => {
+    captureOwner.current.mounted = true;
+    return () => { captureOwner.current.mounted = false; };
+  }, []);
   const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
 
   const importInFlight = useRef(false);
+  const loadedInboxCapture = useRef<string | null>(null);
   const [recipeText, setRecipeText] = useState('');
-  const [isPublic, setIsPublic] = useState(params.isPublic !== 'false');
+  const [isPublic, setIsPublic] = useState(params.inboxCaptureId ? false : params.isPublic !== 'false');
   const [selectedLocation, setSelectedLocation] = useState(params.location || 'Guam');
   const [isExtracting, setIsExtracting] = useState(false);
+  useEffect(() => { setIsExtracting(false); importInFlight.current = false; }, [inbox.ownerId]);
+
+  useEffect(() => {
+    if (!params.inboxCaptureId || loadedInboxCapture.current === params.inboxCaptureId) return;
+    const entry = inbox.entries.find((item) => item.id === params.inboxCaptureId && item.ownerId === inbox.ownerId);
+    if (entry?.capture.kind === 'text') {
+      loadedInboxCapture.current = entry.id;
+      setRecipeText(normalizePastedRecipeText(entry.capture.text));
+    }
+  }, [params.inboxCaptureId, inbox.entries, inbox.ownerId]);
 
   useEffect(() => {
     if (!params.captureToken) return;
@@ -86,20 +107,28 @@ export default function PasteRecipeScreen() {
 
   const handleExtract = async () => {
     if (!canExtract || importInFlight.current) return;
+    const originalOwner = inbox.ownerId;
+    if (!originalOwner) { Alert.alert('Sign In to Import', 'Please sign in and wait for your recipe library to load.'); return; }
+    const guardOwner = () => {
+      if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) throw new CaptureAccountChangedError();
+    };
     importInFlight.current = true;
-    if (isPublic && !(await requestPublishing())) {
-      importInFlight.current = false;
-      setIsPublic(false);
-      return;
+    if (isPublic) {
+      const allowed = await requestPublishing();
+      if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
+      if (!allowed) { importInFlight.current = false; setIsPublic(false); return; }
     }
+    if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
 
     Keyboard.dismiss();
     setIsExtracting(true);
     try {
+      guardOwner();
       const result = await api.extractRecipeFromText(
         normalizedRecipeText,
         selectedLocation,
       );
+      guardOwner();
       if (!result.success || !result.recipe) {
         Alert.alert(
           'Could Not Build a Recipe',
@@ -112,16 +141,24 @@ export default function PasteRecipeScreen() {
         extracted: result.recipe,
         source_type: 'text',
         is_public: isPublic,
+        capture_id: params.inboxCaptureId,
+        expected_owner_id: originalOwner, requestGuard: guardOwner,
       }, selectedLocation, saveCapturedRecipe.mutateAsync);
+      guardOwner();
+      if (params.inboxCaptureId && typeof destination === 'string') {
+        await importInbox.patch(params.inboxCaptureId, { state: 'accepted', recipeId: destination.split('/').pop() });
+      }
+      guardOwner();
       router.replace(destination);
     } catch (error: any) {
+      if (error instanceof CaptureAccountChangedError || !captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
       const message = error?.response?.status === 413
         ? 'That text is too large. Shorten it to the recipe itself and try again.'
         : error?.response?.data?.detail || error?.message || 'Please try again.';
       Alert.alert('Import Failed', message);
     } finally {
-      importInFlight.current = false;
-      setIsExtracting(false);
+      if (captureOwner.current.ownerId === originalOwner) importInFlight.current = false;
+      if (captureOwner.current.mounted && captureOwner.current.ownerId === originalOwner) setIsExtracting(false);
     }
   };
 
@@ -188,7 +225,7 @@ export default function PasteRecipeScreen() {
 
           <RNView style={[styles.privacyNotice, { backgroundColor: colors.accentSoft, borderColor: colors.accent + '55' }]}>
             <Ionicons name="shield-checkmark-outline" size={20} color={colors.accent} />
-            <Text style={[styles.privacyText, { color: colors.textSecondary }]}>The text is sent to our AI provider to import your recipe. Håfa Recipes does not save the original pasted text.</Text>
+            <Text style={[styles.privacyText, { color: colors.textSecondary }]}>The text is sent to our AI provider to import your recipe. Pending shared text stays on this device until you import or remove it.</Text>
           </RNView>
 
           <RNView style={styles.section}>

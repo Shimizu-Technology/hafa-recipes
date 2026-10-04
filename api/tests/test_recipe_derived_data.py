@@ -21,7 +21,7 @@ def recipe(*, servings=4, ingredient="rice", nutrition=200, cost=5.0):
                 "steps": ["Cook"],
             }
         ],
-        "nutrition": {"perServing": {"calories": nutrition}, "total": {}},
+        "nutrition": {"perServing": {"calories": nutrition, "protein": 5, "carbs": 35, "fat": 4}, "total": {}},
         "totalEstimatedCost": cost,
         "tags": ["dinner"],
         "times": {"total": "20 min"},
@@ -129,7 +129,7 @@ def test_recipe_edit_clears_unsupported_nutrients_after_recalculation():
     ("nutrition", "message"),
     [
         (None, "nutrition is required"),
-        ({}, "calories, protein, carbs, and fat are required"),
+        ({}, "nutrition is required"),
         (
             {"calories": 200, "protein": 5, "carbs": 40},
             "calories, protein, carbs, and fat are required",

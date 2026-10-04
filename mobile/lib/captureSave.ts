@@ -1,3 +1,5 @@
+import { CaptureAccountChangedError } from './captureAccount';
+export { CaptureAccountChangedError } from './captureAccount';
 import { randomUUID } from 'expo-crypto';
 import { getApiErrorMessage } from './apiErrorMessage';
 
@@ -9,6 +11,8 @@ export interface CapturedRecipeSaveInput {
   source_type: 'photo' | 'text';
   is_public: boolean;
   capture_id?: string;
+  expected_owner_id?: string;
+  requestGuard?: () => void;
 }
 
 /** Only a rejected payload can safely be edited before reconciling the first save. */
@@ -35,6 +39,7 @@ export async function saveCaptureOrRecover(
     if (!result?.id) throw new Error('Recipe save did not return an ID');
     return `/recipe/${result.id}` as const;
   } catch (error) {
+    if (error instanceof CaptureAccountChangedError) throw error;
     const failure = captureSaveFailure(error);
     return {
       pathname: '/ocr-review' as const,
@@ -45,6 +50,7 @@ export async function saveCaptureOrRecover(
         sourceType: input.source_type,
         saveFailed: 'true',
         captureId: request.capture_id,
+        ...(input.expected_owner_id ? { captureOwnerId: input.expected_owner_id } : {}),
         saveErrorKind: failure.kind,
         saveErrorMessage: failure.message,
       },

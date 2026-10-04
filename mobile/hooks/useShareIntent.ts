@@ -1,81 +1,150 @@
-/**
- * Hook to handle recipe links, text, and images shared from other apps.
- * 
- * Routes links to URL extraction, text to the paste flow, and supported images
- * to the existing multi-image review flow.
- */
-
+/** Durable intake for recipe links, text, and images shared from another app. */
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Platform } from 'react-native';
 import { useAuth } from '@clerk/expo';
 import { useRouter } from 'expo-router';
 import { ShareIntentModule, useShareIntentContext } from 'expo-share-intent';
-import { resolveShareIntent, stagePendingShareCapture } from '@/lib/shareCapture';
+import * as Crypto from 'expo-crypto';
+import { useQueryClient } from '@tanstack/react-query';
+import * as ShareBridge from '@/modules/hafa-share-bridge/src';
+import { resolveShareIntent } from '@/lib/shareCapture';
+import { importInbox, getShareScopeOwner, type ImportCapture } from '@/lib/importInbox';
+import { extractionJobKeys, useCurrentUserIdentity } from '@/hooks/useRecipes';
+import { useImportInboxProcessor } from './useImportInbox';
+import { useShareSession } from './useShareSession';
 
-/**
- * Hook to handle incoming share intents.
- * 
- * Usage: Call this in your root layout to handle shares from anywhere in the app.
- */
+export type NativeCaptureMetadata = {
+  captureKey: string;
+  captureId: string;
+  accountScopeId?: string | null;
+  jobId?: string | null;
+  recipeId?: string | null;
+  submitted?: boolean;
+  location?: string;
+  isPublic?: boolean;
+};
+
 export function useHandleShareIntent() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { isLoaded, isSignedIn } = useAuth();
+  const identity = useCurrentUserIdentity(Boolean(isSignedIn));
+  const ownerId = isSignedIn ? identity.data?.id ?? null : null;
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
   const [isProcessing, setIsProcessing] = useState(false);
   const processingRef = useRef(false);
-  const awaitingSignInRef = useRef(false);
-  const previousSignInRef = useRef(isSignedIn);
+  const mountedRef = useRef(false);
+  const currentPayloadRef = useRef(shareIntent);
+  currentPayloadRef.current = shareIntent;
+  const processedPayloads = useRef(new WeakSet<object>());
+  const processedCaptureIds = useRef(new Set<string>());
+  const processedCaptureKeys = useRef(new Set<string>());
+  const [workerVersion, setWorkerVersion] = useState(0);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+  const payloadIds = useRef(new WeakMap<object, string>());
+  useImportInboxProcessor();
+  useShareSession();
 
   useEffect(() => {
-    if (previousSignInRef.current === false && isSignedIn === true) {
-      awaitingSignInRef.current = false;
-      if (Platform.OS === 'ios') void ShareIntentModule?.getShareIntent('');
+    if (!isLoaded || !hasShareIntent || !shareIntent || processingRef.current ||
+        (isSignedIn && !ownerId) || processedPayloads.current.has(shareIntent)) return;
+    // Metadata and content are a single locked native snapshot. Reading the
+    // queue head later can bind replayed payload A to the next capture B.
+    let native: NativeCaptureMetadata | null = null;
+    if (Platform.OS === 'ios') {
+      const snapshot = (shareIntent as typeof shareIntent & { _hafa?: unknown })._hafa;
+      try {
+        native = typeof snapshot === 'string' ? JSON.parse(snapshot) : snapshot as NativeCaptureMetadata | null;
+      } catch { native = null; }
+      if (native?.captureId && native.captureKey &&
+          (processedCaptureIds.current.has(native.captureId) || processedCaptureKeys.current.has(native.captureKey))) return;
     }
-    previousSignInRef.current = isSignedIn;
-  }, [isSignedIn]);
-
-  useEffect(() => {
-    if (isLoaded && hasShareIntent && shareIntent && !processingRef.current &&
-        (isSignedIn || !awaitingSignInRef.current)) {
-      processingRef.current = true;
-      setIsProcessing(true);
-
-      const action = resolveShareIntent(shareIntent, isSignedIn === true);
-      const navigationTimer = setTimeout(() => {
-        if (action.kind === 'url') {
-          router.replace({
-            pathname: '/',
-            params: { sharedUrl: action.url },
-          });
-        } else if (action.kind === 'text') {
-          const captureToken = stagePendingShareCapture({ kind: 'text', text: action.text });
-          router.replace({ pathname: '/paste-recipe', params: { captureToken } });
-        } else if (action.kind === 'images') {
-          const captureToken = stagePendingShareCapture({ kind: 'images', images: action.images });
-          router.replace({ pathname: '/', params: { captureToken } });
-        } else if (action.kind === 'sign-in-required') {
-          awaitingSignInRef.current = true;
-          Alert.alert(
-            'Sign In to Import',
-            'Sign in to Håfa Recipes to finish importing. Your share will stay ready.',
-          );
-          router.replace('/(auth)/sign-in');
-        } else {
-          Alert.alert('Could Not Import Share', action.message);
+    processingRef.current = true;
+    setIsProcessing(true);
+    let shouldDrain = false;
+    void (async () => {
+      try {
+        // Resolve content separately from authentication. Signed-out shares are
+        // durable, unassigned captures that require an explicit account choice.
+        const action = resolveShareIntent(shareIntent, true);
+        if (action.kind === 'sign-in-required') {
+          Alert.alert('Could Not Import Share', 'Please sign in to finish importing this recipe.');
+          // This is recoverable after authentication. Keep the native capture
+          // and its identity unprocessed so signing in can retry its intake.
+          if (currentPayloadRef.current === shareIntent) resetShareIntent(false);
+          return;
         }
-
-        resetShareIntent(action.kind !== 'sign-in-required');
+        if (Platform.OS === 'ios' && (!native?.captureKey || !native.captureId)) {
+          throw new Error('Could not confirm this shared recipe. It is still saved; please reopen Håfa to try again.');
+        }
+        if (action.kind === 'unsupported') {
+          // An unsupported capture cannot enter the recipe inbox. Reject only
+          // this exact native entry so it cannot block later supported shares.
+          // Failed acknowledgment leaves it unprocessed and safe to retry.
+          if (native && !(await ShareBridge.acknowledgeCapture(native.captureKey))) {
+            throw new Error(`${action.message} This share could not be dismissed yet. It is still saved; reopen Håfa to try again.`);
+          }
+          processedPayloads.current.add(shareIntent);
+          if (native) {
+            processedCaptureIds.current.add(native.captureId);
+            processedCaptureKeys.current.add(native.captureKey);
+          }
+          shouldDrain = Platform.OS === 'ios';
+          if (currentPayloadRef.current === shareIntent) resetShareIntent(Platform.OS !== 'ios');
+          if (mountedRef.current) Alert.alert('Could Not Import Share', action.message);
+          return;
+        }
+        let id = native?.captureId || payloadIds.current.get(shareIntent);
+        if (!id) {
+          id = Crypto.randomUUID();
+          payloadIds.current.set(shareIntent, id);
+        }
+        const captureOwner = native ? (native.accountScopeId ? await getShareScopeOwner(native.accountScopeId) : null) : ownerId;
+        const submitted = Boolean(native?.submitted && (native.jobId || native.recipeId));
+        await importInbox.add({
+          id, ownerId: captureOwner, capture: action as ImportCapture,
+          accountScopeId: native?.accountScopeId ?? undefined,
+          createdAt: Date.now(),
+          state: submitted ? 'accepted' : captureOwner && action.kind === 'url' ? 'ready' : 'waiting',
+          jobId: native?.jobId ?? undefined, recipeId: native?.recipeId ?? undefined,
+          ...(action.kind === 'url' ? { request: {
+            url: action.url, location: native?.location || 'Guam', notes: '',
+            is_public: native?.isPublic ?? false,
+          } } : {}),
+        });
+        if (submitted) void queryClient.invalidateQueries({ queryKey: extractionJobKeys.all });
+        if (native && !(await ShareBridge.acknowledgeCapture(native.captureKey))) {
+          throw new Error('Your import is saved. We could not confirm the share handoff; reopen Håfa to reconnect.');
+        }
+        // Clear only the JS payload. Native data was acknowledged by exact ID.
+        processedPayloads.current.add(shareIntent);
+        if (native) {
+          processedCaptureIds.current.add(native.captureId);
+          processedCaptureKeys.current.add(native.captureKey);
+        }
+        shouldDrain = Platform.OS === 'ios';
+        // A new onChange can arrive while A is persisting/acknowledging. Do
+        // not clear B's payload or navigate for A after B has taken its place.
+        if (currentPayloadRef.current === shareIntent) {
+          resetShareIntent(Platform.OS !== 'ios');
+          if (mountedRef.current) router.replace({ pathname: '/', params: { inboxCaptureId: id } });
+        }
+      } catch (error) {
+        if (mountedRef.current) Alert.alert('Shared Recipe Saved for Later', error instanceof Error
+          ? error.message : 'Please reopen Håfa to finish importing.');
+      } finally {
         processingRef.current = false;
-        setIsProcessing(false);
-      }, 300);
-
-      return () => {
-        clearTimeout(navigationTimer);
-        processingRef.current = false;
-      };
-    }
-  }, [hasShareIntent, isLoaded, isSignedIn, router, resetShareIntent, shareIntent]);
-
+        if (mountedRef.current) {
+          setIsProcessing(false);
+          if (shouldDrain || currentPayloadRef.current !== shareIntent) setWorkerVersion((version) => version + 1);
+          if (shouldDrain) setTimeout(() => { void ShareIntentModule?.getShareIntent(''); }, 0);
+        }
+      }
+    })();
+  }, [hasShareIntent, isLoaded, isSignedIn, ownerId, router, resetShareIntent, shareIntent, queryClient, workerVersion]);
   return { hasShareIntent, isProcessing };
 }
 

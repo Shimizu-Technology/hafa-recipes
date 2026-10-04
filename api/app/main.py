@@ -29,6 +29,7 @@ from app.routers import (
     meal_plans_router,
     pantry_router,
     recipes_router,
+    share_import_router,
     tts_router,
     users_router,
 )
@@ -95,6 +96,7 @@ app.include_router(extract_router)
 app.include_router(grocery_router)
 app.include_router(pantry_router)
 app.include_router(grocery_widget_router)
+app.include_router(share_import_router)
 app.include_router(chat_router)
 app.include_router(clerk_transition_router)
 app.include_router(cooking_chat_router)

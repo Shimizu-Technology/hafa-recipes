@@ -68,6 +68,32 @@ describe('recipe image multipart requests', () => {
     vi.stubGlobal('FormData', InspectableFormData);
   });
 
+  it.each(['capture', 'manual'] as const)('checks the capture owner after delayed auth token lookup for %s saves', async (kind) => {
+    let owner = 'owner-a';
+    let finishToken!: (token: string) => void;
+    api.setTokenGetter(() => new Promise<string>((resolve) => { finishToken = resolve; }));
+    const transport = vi.fn(async (_url: string, _body: unknown) => ({ data: { id: 'recipe-a' } }));
+    const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
+    const guard = () => { if (owner !== 'owner-a') throw new Error('Capture owner changed'); };
+    if (kind === 'capture') {
+      const requestInterceptor = mocks.client.interceptors.request.use.mock.calls[0][0];
+      mocks.post.mockImplementationOnce(async (url, body, config) => {
+        await requestInterceptor({ ...(config as object), url, headers: {} });
+        return transport(url, body);
+      });
+    }
+    try {
+      const request = kind === 'capture'
+        ? api.saveCapturedRecipe({ extracted: { title: 'A' }, source_type: 'text', requestGuard: guard })
+        : api.createManualRecipe({ title: 'A', ingredients: [], steps: [] }, null, guard);
+      void request.catch(() => undefined);
+      await Promise.resolve();
+      owner = 'owner-b'; finishToken('account-b-token');
+      await expect(request).rejects.toThrow('Capture owner changed');
+      expect(transport).not.toHaveBeenCalled(); expect(fetchMock).not.toHaveBeenCalled();
+    } finally { api.setTokenGetter(null); }
+  });
+
   it('sends the granular review contract on recipe edits without an image', async () => {
     mocks.client.patch.mockResolvedValueOnce({ data: { id: 'recipe-1' } });
     const edit = {

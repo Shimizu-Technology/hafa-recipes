@@ -41,6 +41,7 @@ from app.recipe_review import (
 from app.services import recipe_extractor, storage_service, video_service
 from app.services.extractor import ExtractionProgress
 from app.services.llm_client import ImageClassificationResult, llm_service
+from app.services.nutrition import enrich_nutrition
 from app.source_urls import canonicalize_source
 
 MAX_OCR_IMAGE_BYTES = 10 * 1024 * 1024
@@ -599,6 +600,8 @@ async def extract_recipe(
             "times",
             source="ai_extraction",
         )
+        extracted_recipe = await enrich_nutrition(extracted_recipe, user_id=user.id,
+            preserve_source=extraction_result.extraction_method == "website-jsonld")
         # Save to database
         new_recipe = Recipe(
             source_url=url,
@@ -672,6 +675,7 @@ async def extract_recipe(
             source="ai_extraction",
         )
     )
+    extracted_recipe = await enrich_nutrition(extracted_recipe, user_id=user.id)
     # Save to database with user_id and display name
     new_recipe = Recipe(
         source_url=url,
@@ -1044,6 +1048,13 @@ async def run_extraction_job(
                     "times",
                     source="ai_extraction",
                 )
+                extracted_data = await enrich_nutrition(extracted_data, user_id=user_id,
+                    preserve_source=result.extraction_method == "website-jsonld")
+                job = (await db.execute(select(ExtractionJob).where(
+                    ExtractionJob.id == job_id, ExtractionJob.lease_token == lease_token
+                ).execution_options(populate_existing=True))).scalar_one_or_none()
+                if not job or job.status == "cancelled":
+                    return
                 if platform != "website":
                     extracted_data = _without_external_thumbnail(extracted_data)
                 
@@ -1813,6 +1824,8 @@ async def run_re_extraction_job(
                     "times",
                     source="ai_reextraction",
                 )
+                final_extracted = await enrich_nutrition(final_extracted, user_id=user_id,
+                    preserve_source=result.extraction_method == "website-jsonld")
                 if result.low_confidence:
                     final_extracted['lowConfidence'] = True
                     final_extracted['confidenceWarning'] = result.confidence_warning

@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
+  startAsyncExtraction: vi.fn(),
   getExtractionJobs: vi.fn(),
   getCurrentUserIdentity: vi.fn(),
   getItem: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('../lib/api', () => ({
   api: {
+    startAsyncExtraction: mocks.startAsyncExtraction,
     getCurrentUserIdentity: mocks.getCurrentUserIdentity,
     getExtractionJobs: mocks.getExtractionJobs,
     getJobStatus: mocks.getJobStatus,
@@ -369,6 +371,119 @@ describe('durable extraction recovery', () => {
     await act(async () => renderer!.unmount());
     queryClient.clear();
   });
+
+  it.each(['initial', 'confirmed'] as const)('does not mutate B after A awaits its %s storage write', async (boundary) => {
+    mocks.getExtractionJobs.mockResolvedValue([]);
+    mocks.startAsyncExtraction.mockResolvedValue({ job_id: 'job-a', status: 'processing' });
+    let finishWrite!: () => void;
+    let writes = 0;
+    const persisted = new Map<string, string>();
+    mocks.setItem.mockImplementation(async (key: string, value: string) => {
+      writes += 1;
+      if (writes === (boundary === 'initial' ? 1 : 2)) {
+        await new Promise<void>((resolve) => { finishWrite = resolve; });
+      }
+      persisted.set(key, value);
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let controller!: Controller;
+    function Harness() { controller = useAsyncExtractionController(); return null; }
+    const tree = () => <QueryClientProvider client={queryClient}><Harness /></QueryClientProvider>;
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(tree()); });
+    for (let attempt = 0; attempt < 5; attempt += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+    let start!: Promise<unknown>;
+    await act(async () => {
+      start = controller.startExtraction({ url: 'https://example.com/a' }, 'capture-a');
+      void start.catch(() => undefined);
+    });
+    expect(finishWrite).toBeTypeOf('function');
+    mocks.getUserId.mockReturnValue('clerk-b');
+    mocks.getCurrentUserIdentity.mockResolvedValue({ id: 'app-b' });
+    await act(async () => renderer.update(tree()));
+    for (let attempt = 0; attempt < 5; attempt += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+    expect(controller).toMatchObject({ isReady: true, jobId: null, requestKey: null, isStarting: false });
+    await act(async () => finishWrite());
+    await expect(start).rejects.toThrow('account changed');
+    expect(controller).toMatchObject({ jobId: null, requestKey: null, isStarting: false, error: null });
+    expect(mocks.getJobStatus).not.toHaveBeenCalled();
+    expect(JSON.parse(persisted.get('active_extraction_job_v2:app-stable-user')!)).toMatchObject({ userId: 'app-stable-user', jobId: boundary === 'initial' ? null : 'job-a' });
+    expect(persisted.has('active_extraction_job_v2:app-b')).toBe(false);
+    expect(mocks.startAsyncExtraction).toHaveBeenCalledTimes(boundary === 'initial' ? 0 : 1);
+    await act(async () => renderer.unmount()); queryClient.clear();
+  });
+
+  it.each(['initial storage', 'authentication token', 'confirmed storage'] as const)(
+    'invalidates an unmounted A controller awaiting %s before B mounts',
+    async (boundary) => {
+      mocks.getExtractionJobs.mockResolvedValue([]);
+      const persisted = new Map<string, string>();
+      let releaseBoundary!: () => void;
+      let writes = 0;
+      let currentToken = 'token-a';
+      const dispatchRequest = vi.fn();
+      mocks.setItem.mockImplementation(async (key: string, value: string) => {
+        writes += 1;
+        if ((boundary === 'initial storage' && writes === 1) ||
+            (boundary === 'confirmed storage' && writes === 2)) {
+          await new Promise<void>((resolve) => { releaseBoundary = resolve; });
+        }
+        persisted.set(key, value);
+      });
+      mocks.startAsyncExtraction.mockImplementation(async (
+        request: { url: string }, _key: string, requestGuard: () => void,
+      ) => {
+        if (boundary === 'authentication token') {
+          await new Promise<void>((resolve) => { releaseBoundary = resolve; });
+        }
+        // The API checks the controller guard after obtaining its current token.
+        const token = currentToken;
+        requestGuard();
+        dispatchRequest({ url: request.url, token });
+        return { job_id: 'job-a', status: 'processing' };
+      });
+      const clientA = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const clientB = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      let controller!: Controller;
+      function Harness() { controller = useAsyncExtractionController(); return null; }
+      const tree = (client: QueryClient) => <QueryClientProvider client={client}><Harness /></QueryClientProvider>;
+      let renderer!: ReactTestRenderer;
+      await act(async () => { renderer = create(tree(clientA)); });
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+      }
+      let start!: Promise<unknown>;
+      await act(async () => {
+        start = controller.startExtraction({ url: 'https://example.com/a' }, 'capture-a');
+        void start.catch(() => undefined);
+      });
+      expect(releaseBoundary).toBeTypeOf('function');
+      await act(async () => renderer.unmount());
+      currentToken = 'token-b';
+      mocks.getUserId.mockReturnValue('clerk-b');
+      mocks.getCurrentUserIdentity.mockResolvedValue({ id: 'app-b' });
+      await act(async () => { renderer = create(tree(clientB)); });
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+      }
+      expect(controller).toMatchObject({ isReady: true, jobId: null, requestKey: null });
+      await act(async () => releaseBoundary());
+      await expect(start).rejects.toThrow('account changed');
+      expect(dispatchRequest).not.toHaveBeenCalledWith(expect.objectContaining({ token: 'token-b' }));
+      expect(dispatchRequest).toHaveBeenCalledTimes(boundary === 'confirmed storage' ? 1 : 0);
+      expect(mocks.getJobStatus).not.toHaveBeenCalled();
+      expect(JSON.parse(persisted.get('active_extraction_job_v2:app-stable-user')!)).toMatchObject({
+        userId: 'app-stable-user',
+        idempotencyKey: 'capture-a',
+        jobId: boundary === 'confirmed storage' ? 'job-a' : null,
+      });
+      expect(persisted.has('active_extraction_job_v2:app-b')).toBe(false);
+      expect(controller).toMatchObject({ jobId: null, requestKey: null, isStarting: false, error: null });
+      await act(async () => renderer.unmount());
+      clientA.clear();
+      clientB.clear();
+    },
+  );
 
   it('rediscovers and resumes an owner job when local storage has no pointer', async () => {
     const queryClient = new QueryClient({

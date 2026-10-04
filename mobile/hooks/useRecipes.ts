@@ -1,3 +1,5 @@
+import { CaptureAccountChangedError } from '@/lib/captureAccount';
+import type { CapturedRecipeSaveInput } from '@/lib/captureSave';
 /**
  * React Query hooks for recipe operations.
  */
@@ -125,7 +127,7 @@ const currentUserIdentityKey = (clerkUserId: string | null | undefined) =>
   ['currentUserIdentity', clerkUserId] as const;
 
 /** Resolve a replaceable auth subject to Håfa's durable application owner. */
-function useCurrentUserIdentity(enabled = true) {
+export function useCurrentUserIdentity(enabled = true) {
   const { isLoaded, userId: clerkUserId } = useAuth();
   return useQuery({
     queryKey: currentUserIdentityKey(clerkUserId),
@@ -379,6 +381,7 @@ export function useAsyncExtractionController() {
   const [terminalState, setTerminalState] = useState<'failed' | 'cancelled' | 'expired' | null>(null);
   const [canRetryStart, setCanRetryStart] = useState(false);
   const [jobKind, setJobKind] = useState<StoredExtractionRequest['kind']>('extract');
+  const [requestKey, setRequestKey] = useState<string | null>(null);
   const [hasHydratedStoredJob, setHasHydratedStoredJob] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -389,6 +392,11 @@ export function useAsyncExtractionController() {
   const currentJobIdRef = useRef<string | null>(null);
   const currentStartTimeRef = useRef<number | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const startingRef = useRef(false);
+  const controllerMountedRef = useRef(true);
+  const identityEpochRef = useRef(0);
+  const currentOwnerRef = useRef(durableUserId);
+  currentOwnerRef.current = durableUserId;
 
   const activeJobsQuery = useQuery({
     queryKey: extractionJobKeys.active(durableUserId),
@@ -409,6 +417,18 @@ export function useAsyncExtractionController() {
     timerIntervalRef.current = null;
     if (updateState) setIsPolling(false);
   }, []);
+
+  useEffect(() => {
+    controllerMountedRef.current = true;
+    return () => {
+      // Identity binding can unmount this controller before the API token getter
+      // changes accounts. Invalidate pending storage/token continuations, keeping
+      // their owner-scoped receipt available for the original account to recover.
+      controllerMountedRef.current = false;
+      identityEpochRef.current += 1;
+      stopPollingTimers(false);
+    };
+  }, [stopPollingTimers]);
 
   const clearActiveJob = useCallback(async () => {
     if (!durableUserId) return;
@@ -432,6 +452,9 @@ export function useAsyncExtractionController() {
   }, [queryClient]);
 
   const startPolling = useCallback((id: string, startedAt: number) => {
+    const identityEpoch = identityEpochRef.current;
+    const isCurrentOwner = () => controllerMountedRef.current && identityEpoch === identityEpochRef.current && currentOwnerRef.current === durableUserId;
+    if (!isCurrentOwner()) return;
     stopPollingTimers(false);
     const generation = pollingGenerationRef.current;
     currentJobIdRef.current = id;
@@ -460,7 +483,7 @@ export function useAsyncExtractionController() {
       pollInFlightRef.current = true;
       try {
         const status = await api.getJobStatus(id);
-        if (generation !== pollingGenerationRef.current) return;
+        if (generation !== pollingGenerationRef.current || !isCurrentOwner()) return;
 
         setJobStatus(status);
         if (durableUserId) {
@@ -476,6 +499,7 @@ export function useAsyncExtractionController() {
         if (status.status === 'completed') {
           stopPollingTimers();
           await clearActiveJob();
+          if (!isCurrentOwner()) return;
           invalidateCompletedRecipe(status.recipe_id);
           queryClient.invalidateQueries({ queryKey: extractionJobKeys.all });
           return;
@@ -484,6 +508,7 @@ export function useAsyncExtractionController() {
         if (status.status === 'failed' || status.status === 'cancelled' || status.status === 'expired') {
           stopPollingTimers();
           await clearActiveJob();
+          if (!isCurrentOwner()) return;
           queryClient.invalidateQueries({ queryKey: extractionJobKeys.all });
           setTerminalState(status.status);
           if (status.status === 'cancelled') {
@@ -498,12 +523,13 @@ export function useAsyncExtractionController() {
 
         scheduleNext(poll, serverAwarePollDelay(status), 0);
       } catch (pollError: any) {
-        if (generation !== pollingGenerationRef.current) return;
+        if (generation !== pollingGenerationRef.current || !isCurrentOwner()) return;
         const responseStatus = pollError?.response?.status;
 
         if (responseStatus === 404) {
           stopPollingTimers();
           await clearActiveJob();
+          if (!isCurrentOwner()) return;
           setTerminalState('failed');
           setError('We could not find this extraction. It may have expired; please start it again.');
           return;
@@ -558,8 +584,16 @@ export function useAsyncExtractionController() {
     }
   }, [startPolling, stopPollingTimers]);
 
-  const beginStoredRequest = useCallback(async (storedJob: StoredExtractionJob) => {
+  const beginStoredRequest = useCallback(async (storedJob: StoredExtractionJob, expectedEpoch = identityEpochRef.current) => {
+    const identityEpoch = expectedEpoch;
+    const isCurrentOwner = () => controllerMountedRef.current && identityEpoch === identityEpochRef.current && currentOwnerRef.current === storedJob.userId;
+    const assertCurrentOwner = () => {
+      if (!isCurrentOwner()) throw new Error('Your account changed. This import is still saved for its original account.');
+    };
+    assertCurrentOwner();
     setIsStarting(true);
+    setJobStatus(null);
+    setRequestKey(storedJob.idempotencyKey);
     setCanRetryStart(false);
     setError(null);
     setConnectionNotice(null);
@@ -568,16 +602,23 @@ export function useAsyncExtractionController() {
 
     try {
       const result = storedJob.request.kind === 'extract'
-        ? await api.startAsyncExtraction(storedJob.request.payload, storedJob.idempotencyKey)
+        ? await api.startAsyncExtraction(storedJob.request.payload, storedJob.idempotencyKey, assertCurrentOwner)
         : await api.startReExtraction(
             storedJob.request.recipeId,
             storedJob.request.location,
             storedJob.idempotencyKey,
+            assertCurrentOwner,
           );
+
+      if (!isCurrentOwner()) {
+        if (result.job_id) await saveActiveJob({ ...storedJob, jobId: result.job_id });
+        assertCurrentOwner();
+      }
 
       if (result.status === 'completed' && !result.job_id) {
         if (!result.recipe_id) throw new Error('The completed extraction did not include a recipe.');
         await clearActiveJob();
+        assertCurrentOwner();
         setIsStarting(false);
         invalidateCompletedRecipe(result.recipe_id);
         setJobStatus({
@@ -601,6 +642,7 @@ export function useAsyncExtractionController() {
 
       const confirmedJob = { ...storedJob, jobId: result.job_id };
       await saveActiveJob(confirmedJob);
+      assertCurrentOwner();
       setJobId(result.job_id);
       setStartTime(storedJob.startTime);
       startPolling(result.job_id, storedJob.startTime);
@@ -614,12 +656,14 @@ export function useAsyncExtractionController() {
         isExisting: Boolean(result.is_existing),
       };
     } catch (startError: any) {
+      if (!isCurrentOwner()) throw startError;
       setIsStarting(false);
       const responseStatus = startError?.response?.status as number | undefined;
       const definitivelyRejected = responseStatus !== undefined &&
         [400, 403, 404, 409, 422].includes(responseStatus);
       if (definitivelyRejected) {
         await clearActiveJob();
+        assertCurrentOwner();
       } else {
         setCanRetryStart(true);
       }
@@ -638,8 +682,11 @@ export function useAsyncExtractionController() {
 
   const retryPendingStart = useCallback(async () => {
     if (!durableUserId) return;
+    const identityEpoch = identityEpochRef.current;
+    const isCurrentOwner = () => controllerMountedRef.current && identityEpoch === identityEpochRef.current && currentOwnerRef.current === durableUserId;
     try {
       const raw = await AsyncStorage.getItem(activeJobKey(durableUserId));
+      if (!isCurrentOwner()) return;
       if (!raw) {
         setCanRetryStart(false);
         setError('The pending extraction is no longer available. Please start again.');
@@ -648,10 +695,10 @@ export function useAsyncExtractionController() {
       const storedJob = JSON.parse(raw) as StoredExtractionJob;
       if (storedJob.userId !== durableUserId || storedJob.jobId) {
         setCanRetryStart(false);
-        if (storedJob.jobId) startPolling(storedJob.jobId, storedJob.startTime);
+        if (storedJob.userId === durableUserId && storedJob.jobId) startPolling(storedJob.jobId, storedJob.startTime);
         return;
       }
-      await beginStoredRequest(storedJob);
+      await beginStoredRequest(storedJob, identityEpoch);
     } catch {
       // beginStoredRequest already preserves the pending key and friendly error.
     }
@@ -675,12 +722,16 @@ export function useAsyncExtractionController() {
   }, [startPolling, stopPollingTimers]);
 
   useEffect(() => {
+    identityEpochRef.current += 1;
+    startingRef.current = false;
     setHasHydratedStoredJob(false);
     stopPollingTimers();
     currentJobIdRef.current = null;
     currentStartTimeRef.current = null;
     setJobId(null);
     setJobStatus(null);
+    setRequestKey(null);
+    setIsStarting(false);
     setError(null);
     setConnectionNotice(null);
     setTerminalState(null);
@@ -734,6 +785,7 @@ export function useAsyncExtractionController() {
         }
 
         setJobKind(storedJob.request.kind);
+        setRequestKey(storedJob.idempotencyKey);
         if (storedJob.jobId) {
           startPolling(storedJob.jobId, storedJob.startTime);
         } else {
@@ -752,7 +804,7 @@ export function useAsyncExtractionController() {
 
     return () => {
       cancelled = true;
-      stopPollingTimers();
+      stopPollingTimers(false);
     };
   }, [clerkUserId, durableUserId, isAuthLoaded, startPolling, stopPollingTimers]);
 
@@ -762,7 +814,10 @@ export function useAsyncExtractionController() {
     if (activeJob) restoreJob(activeJob);
   }, [activeJobsQuery.data, hasHydratedStoredJob, isStarting, restoreJob]);
 
-  const startExtraction = async (request: ExtractRequest) => {
+  const startExtraction = async (request: ExtractRequest, idempotencyKey?: string) => {
+    if (!controllerMountedRef.current || currentOwnerRef.current !== durableUserId) {
+      throw new Error('Your account changed. Please reopen the import in its original account.');
+    }
     if (!durableUserId) {
       throw new Error(clerkUserId
         ? 'Please wait while we verify your recipe library, then try again.'
@@ -771,20 +826,29 @@ export function useAsyncExtractionController() {
     if (!hasHydratedStoredJob) {
       throw new Error('Please wait while we prepare your recent imports, then try again.');
     }
-    if (isPolling || isStarting) throw new Error('An extraction is already in progress.');
+    if (isPolling || isStarting || startingRef.current) throw new Error('An extraction is already in progress.');
+    startingRef.current = true;
+    const identityEpoch = identityEpochRef.current;
 
     const storedJob: StoredExtractionJob = {
       userId: durableUserId,
       jobId: null,
-      idempotencyKey: createIdempotencyKey('extract'),
+      idempotencyKey: idempotencyKey ?? createIdempotencyKey('extract'),
       startTime: Date.now(),
       request: { kind: 'extract', payload: request },
     };
-    await saveActiveJob(storedJob);
-    return beginStoredRequest(storedJob);
+    try {
+      await saveActiveJob(storedJob);
+      return await beginStoredRequest(storedJob, identityEpoch);
+    } finally {
+      if (identityEpoch === identityEpochRef.current && currentOwnerRef.current === storedJob.userId) startingRef.current = false;
+    }
   };
 
   const startReExtraction = async (recipeId: string, location = 'Guam') => {
+    if (!controllerMountedRef.current || currentOwnerRef.current !== durableUserId) {
+      throw new Error('Your account changed. Please reopen the import in its original account.');
+    }
     if (!durableUserId) {
       throw new Error(clerkUserId
         ? 'Please wait while we verify your recipe library, then try again.'
@@ -793,7 +857,9 @@ export function useAsyncExtractionController() {
     if (!hasHydratedStoredJob) {
       throw new Error('Please wait while we prepare your recent imports, then try again.');
     }
-    if (isPolling || isStarting) throw new Error('Another extraction is already in progress.');
+    if (isPolling || isStarting || startingRef.current) throw new Error('Another extraction is already in progress.');
+    startingRef.current = true;
+    const identityEpoch = identityEpochRef.current;
 
     const storedJob: StoredExtractionJob = {
       userId: durableUserId,
@@ -802,16 +868,22 @@ export function useAsyncExtractionController() {
       startTime: Date.now(),
       request: { kind: 'reextract', recipeId, location },
     };
-    await saveActiveJob(storedJob);
-    return beginStoredRequest(storedJob);
+    try {
+      await saveActiveJob(storedJob);
+      return await beginStoredRequest(storedJob, identityEpoch);
+    } finally {
+      if (identityEpoch === identityEpochRef.current && currentOwnerRef.current === storedJob.userId) startingRef.current = false;
+    }
   };
 
   const reset = async () => {
+    if (!controllerMountedRef.current || currentOwnerRef.current !== durableUserId) return;
     stopPollingTimers();
     currentJobIdRef.current = null;
     currentStartTimeRef.current = null;
     setJobId(null);
     setJobStatus(null);
+    setRequestKey(null);
     setIsStarting(false);
     setError(null);
     setConnectionNotice(null);
@@ -827,6 +899,8 @@ export function useAsyncExtractionController() {
   };
 
   const cancel = async () => {
+    const identityEpoch = identityEpochRef.current;
+    if (!controllerMountedRef.current || currentOwnerRef.current !== durableUserId) return;
     if (jobId) {
       try {
         await api.cancelJob(jobId);
@@ -834,17 +908,27 @@ export function useAsyncExtractionController() {
         if (cancelError?.response?.status !== 404) throw cancelError;
       }
     }
+    if (identityEpoch !== identityEpochRef.current || currentOwnerRef.current !== durableUserId) return;
     await reset();
   };
 
   const saveSourceDraft = async () => {
+    const identityEpoch = identityEpochRef.current;
+    const assertCurrentOwner = () => {
+      if (!controllerMountedRef.current || identityEpoch !== identityEpochRef.current || currentOwnerRef.current !== durableUserId) {
+        throw new Error('Your account changed. Please reopen the import in its original account.');
+      }
+    };
+    assertCurrentOwner();
     if (!jobId || !jobStatus?.can_save_draft) {
       throw new Error('This source is not available to save as a draft.');
     }
     try {
       const result = await api.saveFailedExtractionDraft(jobId);
+      assertCurrentOwner();
       invalidateCompletedRecipe(result.recipe_id);
       await clearActiveJob();
+      assertCurrentOwner();
       setError(null);
       setTerminalState(null);
       return result.recipe_id;
@@ -869,6 +953,7 @@ export function useAsyncExtractionController() {
     jobId,
     jobStatus,
     jobKind,
+    requestKey,
     isPolling,
     isStarting,
     isReady: Boolean(clerkUserId && identity.isSuccess && hasHydratedStoredJob),
@@ -1434,21 +1519,31 @@ export function useUnsaveRecipe() {
 
 export function useSaveCapturedRecipe() {
   const queryClient = useQueryClient();
-
+  const { userId: subject } = useAuth();
+  const identity = useCurrentUserIdentity();
+  const ownerId = identity.data?.id;
+  const current = useRef({ ownerId, subject, mounted: true });
+  current.current = { ...current.current, ownerId, subject };
+  useEffect(() => {
+    current.current.mounted = true;
+    return () => { current.current.mounted = false; };
+  }, []);
   return useMutation({
-    mutationFn: (params: {
-      extracted: any;
-      source_type: CaptureSourceType;
-      is_public?: boolean;
-      capture_id?: string;
-    }) => api.saveCapturedRecipe(params),
+    mutationFn: (params: Omit<CapturedRecipeSaveInput, 'is_public'> & { is_public?: boolean }) => {
+      const expectedOwner = params.expected_owner_id ?? ownerId;
+      const expectedSubject = subject;
+      const guard = () => {
+        if (!expectedOwner || !current.current.mounted || current.current.ownerId !== expectedOwner || current.current.subject !== expectedSubject) {
+          throw new CaptureAccountChangedError();
+        }
+        params.requestGuard?.();
+      };
+      guard();
+      return api.saveCapturedRecipe({ ...params, requestGuard: guard });
+    },
     onSuccess: (data) => {
       invalidateCreatedRecipeQueries(queryClient, data.id);
       queryClient.invalidateQueries({ queryKey: ['myRecipes'] });
-      console.log('Captured recipe saved successfully:', data.id);
-    },
-    onError: () => {
-      // Error handled by caller with Alert
     },
   });
 }

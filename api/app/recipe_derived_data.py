@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import datetime, timezone
 from typing import Any
 
@@ -51,8 +52,12 @@ def dependency_fingerprint(extracted: dict[str, Any], key: str = "nutrition") ->
 
 def _has_value(extracted: dict[str, Any], key: str) -> bool:
     if key == "nutrition":
-        values = (extracted.get("nutrition") or {}).get("perServing") or {}
-        return any(value is not None for value in values.values())
+        nutrition = extracted.get("nutrition") or {}
+        return any(all(isinstance(values.get(field), (int, float))
+                       and not isinstance(values.get(field), bool)
+                       and math.isfinite(values[field]) and values[field] >= 0
+                       for field in ("calories", "protein", "carbs", "fat"))
+                   for values in ((nutrition.get("perServing") or {}), (nutrition.get("total") or {})))
     if key == "cost":
         return extracted.get("totalEstimatedCost") is not None
     if key == "tags":
@@ -72,6 +77,8 @@ def ensure_derived_metadata(extracted: dict[str, Any]) -> dict[str, Any]:
         entry = dict(current) if isinstance(current, dict) else {}
         if not entry.get("status"):
             entry["status"] = "unverified" if _has_value(result, key) else "unavailable"
+        if key == "nutrition" and entry.get("status") == "current" and not _has_value(result, key):
+            entry["status"] = "unavailable"
         entry.setdefault("source", "unknown")
         entry.setdefault("dataVersion", DEPENDENCY_VERSION)
         entry.setdefault("dependencyFingerprint", dependency_fingerprint(result, key))

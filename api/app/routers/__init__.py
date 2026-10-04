@@ -11,6 +11,7 @@ from .health import router as health_router
 from .meal_plans import router as meal_plans_router
 from .pantry import router as pantry_router
 from .recipes import router as recipes_router
+from .share_import import router as share_import_router
 from .tts import router as tts_router
 from .users import router as users_router
 
@@ -30,4 +31,5 @@ __all__ = [
     "recipes_router",
     "tts_router",
     "users_router",
+    "share_import_router",
 ]
