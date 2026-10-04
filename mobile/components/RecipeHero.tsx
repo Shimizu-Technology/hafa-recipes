@@ -51,5 +51,5 @@ function RecipeHeroContent({ recipeTitle, sourceUrl, thumbnailUrl, onOpenSource 
 
 const styles = StyleSheet.create({
   container: { width: '100%', maxWidth: 800, alignSelf: 'center', paddingHorizontal: spacing.lg, paddingTop: spacing.md },
-  heroImage: { width: '100%', aspectRatio: 4 / 3, maxHeight: 340, borderRadius: radius.xl },
+  heroImage: { width: '100%', aspectRatio: 4 / 3, maxHeight: 340, maxWidth: (4 / 3) * 340, alignSelf: 'center', borderRadius: radius.xl },
 });

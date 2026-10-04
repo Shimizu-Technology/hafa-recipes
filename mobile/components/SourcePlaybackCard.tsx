@@ -59,6 +59,7 @@ export function SourcePlaybackCard({
   const isExternal = playback.mode === 'external' || !embeddedPlaybackEnabled;
   const actionLabel = previewAction(playback, isExternal);
   const hasPhoto = !compact && Boolean(thumbnailUrl?.trim());
+  const photoAspectRatio = playback.provider === 'youtube' ? 16 / 9 : 4 / 3;
 
   useEffect(() => {
     if (isPlayerVisible || !shouldOpenSource.current) return;
@@ -80,7 +81,12 @@ export function SourcePlaybackCard({
   };
 
   return (
-    <RNView style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+    <RNView style={[
+      styles.card,
+      { backgroundColor: colors.card, borderColor: colors.cardBorder },
+      // Cap the whole card so its source row stays aligned with the proportional photo.
+      hasPhoto && { maxWidth: photoAspectRatio * 340 + 2 },
+    ]}>
       <TouchableOpacity
         style={styles.preview}
         onPress={handlePreviewPress}
@@ -93,7 +99,7 @@ export function SourcePlaybackCard({
       >
         {hasPhoto && <RecipeThumbnail
           uri={thumbnailUrl}
-          style={[styles.previewImage, { aspectRatio: playback.provider === 'youtube' ? 16 / 9 : 4 / 3 }]}
+          style={[styles.previewImage, { aspectRatio: photoAspectRatio }]}
           accessible={false}
           priority="high"
           onError={onThumbnailError}
@@ -143,7 +149,7 @@ export function SourcePlaybackCard({
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: radius.xl, overflow: 'hidden' },
+  card: { width: '100%', alignSelf: 'center', borderWidth: 1, borderRadius: radius.xl, overflow: 'hidden' },
   preview: { width: '100%' },
   previewImage: { width: '100%', maxHeight: 340 },
   sourceAction: { minHeight: 80, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
