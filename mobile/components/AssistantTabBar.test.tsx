@@ -73,6 +73,20 @@ describe('AssistantTabBar', () => {
     }
   });
 
+  it('keeps Import free of the floating assistant while retaining navigation', async () => {
+    const renderer = createRoot();
+    try {
+      await act(async () => renderer.render(
+        <AssistantTabBar isSignedIn={true} state={{ index: 0, routes: [{ name: 'index' }] } as never}
+          navigation={{} as never} descriptors={{} as never} insets={{} as never} />,
+      ));
+      expect(renderer.container.queryAll((instance) => instance.type === 'AssistantFloatingButton')).toHaveLength(0);
+      expect(renderer.container.queryAll((instance) => instance.type === 'BottomTabBar')).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
   it('does not show a chat entry for signed-out users', async () => {
     const renderer = createRoot();
     try {

@@ -105,14 +105,16 @@ describe('ImportActivityCard', () => {
     const failed = job({ id: 'failed', status: 'failed', recipe_id: null });
     const screen = await render(
       <ImportActivityCard
-        jobs={[active, job(), failed, job({ id: 'cancelled', status: 'cancelled' })]}
+        jobs={[job(), job({ id: 'saved-2' }), job({ id: 'saved-3' }), job({ id: 'saved-4' }), active, failed, job({ id: 'cancelled', status: 'cancelled' })]}
         onOpenRecipe={onOpenRecipe}
         onRestore={onRestore}
       />,
     );
 
     await fireEvent.press(screen.getByLabelText('View progress YouTube import'));
-    await fireEvent.press(screen.getByLabelText('Open recipe YouTube import'));
+    expect(screen.queryByLabelText('Open recipe YouTube import')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('Recent imports'));
+    await fireEvent.press(screen.getAllByLabelText('Open recipe YouTube import')[0]);
     await fireEvent.press(screen.getByLabelText('View options YouTube import'));
 
     expect(onRestore).toHaveBeenCalledWith(active);

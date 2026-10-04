@@ -1,6 +1,7 @@
 import { legacyShareReceipts } from '@/lib/legacyShareReceipts';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as Crypto from 'expo-crypto';
+import * as Clipboard from 'expo-clipboard';
 import {
   StyleSheet,
   TouchableOpacity,
@@ -12,6 +13,7 @@ import {
   View as RNView,
   ActivityIndicator,
   Image,
+  Keyboard,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,8 +22,10 @@ import { useAuth } from '@clerk/expo';
 import * as ImagePicker from 'expo-image-picker';
 import { ShareIntentModule } from 'expo-share-intent';
 
-import { View, Text, Input, Button, Chip, useColors } from '@/components/Themed';
+import { Text, Input, Button, useColors } from '@/components/Themed';
 import ExtractionProgress from '@/components/ExtractionProgress';
+import { ImportSettingsPanel, ImportHelpPanel } from '@/components/ImportPanels';
+import RecipeChatModal from '@/components/RecipeChatModal';
 import { SignInBanner } from '@/components/SignInBanner';
 import { useExtractionJobs, useLocations, useCheckDuplicate, useSaveCapturedRecipe } from '@/hooks/useRecipes';
 import { useAsyncExtraction } from '@/contexts/ExtractionContext';
@@ -58,8 +62,22 @@ export default function ExtractScreen() {
   // All hooks must be called unconditionally
   const [url, setUrl] = useState('');
   const [notes, setNotes] = useState('');
-  const [showOptions, setShowOptions] = useState(false);
+  const [panel, setPanel] = useState<'settings' | 'help' | null>(null);
+  const [showChat, setShowChat] = useState(false);
+  const [hasOpenedChat, setHasOpenedChat] = useState(false);
+  useEffect(() => {
+    if (!isSignedIn) { setShowChat(false); setHasOpenedChat(false); }
+  }, [isSignedIn]);
   const [showProgressDetails, setShowProgressDetails] = useState(false);
+  const importScroll = useRef<ScrollView>(null);
+  const composerTop = useRef(0);
+  const linkFocused = useRef(false);
+  useEffect(() => {
+    const subscription = Keyboard.addListener('keyboardDidShow', () => {
+      if (linkFocused.current) importScroll.current?.scrollTo({ y: composerTop.current, animated: true });
+    });
+    return () => subscription.remove();
+  }, []);
   const inbox = useImportInbox();
   const captureOwner = useRef({ ownerId: inbox.ownerId, mounted: true });
   captureOwner.current.ownerId = inbox.ownerId;
@@ -641,11 +659,11 @@ export default function ExtractScreen() {
     <RNView style={[styles.container, { backgroundColor: colors.background }]}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={insets.top + 64}>
-        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: spacing.md }]}
+        <ScrollView ref={importScroll} contentContainerStyle={[styles.scrollContent, { paddingBottom: spacing.md }]}
           keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <RNView style={styles.importHeading}>
             <Text style={[styles.importTitle, { color: colors.text }]}>Import a recipe</Text>
-            <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>A cooking video or recipe link becomes a recipe you can cook.</Text>
+            <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>Save a recipe from a link, text, or photo.</Text>
           </RNView>
           {pendingShares > 0 && <RNView style={[styles.pendingShareNotice, { borderColor: colors.border }]}>
             <Text style={{ color: colors.text }}>{pendingShares} shared {pendingShares === 1 ? 'recipe' : 'recipes'} ready to sync</Text>
@@ -661,32 +679,51 @@ export default function ExtractScreen() {
               <Text style={{ color: colors.tint }}>Open next</Text>
             </TouchableOpacity>
           </RNView>}
-          <RNView style={styles.section}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>Recipe link</Text>
-            <Input value={url} onChangeText={setUrl}
-              placeholder="TikTok, Instagram, YouTube, or recipe website link" keyboardType="url"
-              autoCapitalize="none" autoCorrect={false} editable={!isLoading} />
+          <RNView onLayout={(event) => { composerTop.current = event.nativeEvent.layout.y; }}
+            style={[styles.linkComposer, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
+            <RNView style={styles.composerLabelRow}>
+              <Text style={[styles.composerLabel, { color: colors.text }]}>Recipe link</Text>
+              <TouchableOpacity style={styles.textAction} disabled={isLoading} accessibilityRole="button"
+                accessibilityLabel="Paste recipe link" onPress={() => {
+                  const draft = currentDraft.current;
+                  void Clipboard.getStringAsync().then((value) => {
+                    if (!captureOwner.current.mounted || currentDraft.current.ownerId !== draft.ownerId || currentDraft.current.url !== draft.url) return;
+                    if (value.trim()) setUrl(value.trim());
+                    else Alert.alert('Nothing to Paste', 'Copy a recipe link first, then paste it here.');
+                  }).catch(() => {
+                    if (captureOwner.current.mounted && currentDraft.current.ownerId === draft.ownerId)
+                      Alert.alert('Could Not Paste', 'Try pasting directly into the recipe link field.');
+                  });
+                }}>
+                <Ionicons name="clipboard-outline" size={16} color={colors.tint} />
+                <Text style={[styles.smallActionText, { color: colors.text }]}>Paste</Text>
+              </TouchableOpacity>
+            </RNView>
+            <Input accessibilityLabel="Recipe link" value={url} onChangeText={setUrl}
+              placeholder="Paste a recipe link" keyboardType="url" returnKeyType="done"
+              autoCapitalize="none" autoCorrect={false} editable={!isLoading}
+              onFocus={() => {
+                linkFocused.current = true;
+                if (Keyboard.isVisible()) importScroll.current?.scrollTo({ y: composerTop.current, animated: true });
+              }}
+              onBlur={() => { linkFocused.current = false; }}
+              style={{ backgroundColor: colors.background }} />
+            <Text style={[styles.supportedSources, { color: colors.textMuted }]}>TikTok, Instagram, YouTube & recipe websites</Text>
+            <TouchableOpacity style={styles.settingsSummary} onPress={() => { Keyboard.dismiss(); setPanel('settings'); }}
+              disabled={isLoading || isCheckingDisclosure} accessibilityRole="button" accessibilityLabel="Import settings"
+              accessibilityHint={`${isPublic ? 'Public in Discover. Anyone can find this recipe.' : 'Private. Only you can open this recipe.'} Cost estimates for ${selectedLocation}.${notes.trim() ? ' Personal notes added.' : ''}`}>
+              <Ionicons name={isPublic ? 'globe-outline' : 'lock-closed-outline'} size={20} color={colors.tint} />
+              <RNView style={styles.settingsCopy}>
+                <Text style={[styles.settingsTitle, { color: colors.text }]}>{isPublic ? 'Public in Discover' : 'Private recipe'}</Text>
+                <Text style={[styles.hint, { color: colors.textMuted }]}>{isPublic ? 'Visible to everyone' : 'Only you'} · {selectedLocation}{notes.trim() ? ' · Notes added' : ''}</Text>
+              </RNView>
+              <Ionicons name="options-outline" size={20} color={colors.textMuted} />
+            </TouchableOpacity>
+            <Button title={!isSignedIn ? 'Sign In to Import' : isPreparingImports ? 'Preparing Imports...' : isChecking ? 'Checking...' : extraction.isExtracting ? 'Add to Queue' : 'Import Recipe'}
+              onPress={!isSignedIn ? () => router.push('/(auth)/sign-in') : () => { Keyboard.dismiss(); return handleExtract(); }}
+              disabled={Boolean(isSignedIn) && (isPreparingImports || isLoading || isCheckingDisclosure || !url.trim())}
+              loading={isChecking} size="md" />
           </RNView>
-          <RecipeVisibilitySelector compact value={isPublic ? 'public' : 'private'}
-            onChange={(value) => setIsPublic(value === 'public')}
-            disabled={!isSignedIn || isLoading || isCheckingDisclosure} />
-
-          <TouchableOpacity style={styles.optionsToggle} onPress={() => setShowOptions(!showOptions)}
-            accessibilityRole="button" accessibilityState={{ expanded: showOptions }}>
-            <Ionicons name="options-outline" size={18} color={colors.tint} />
-            <Text style={{ color: colors.textSecondary }}>Options & help · {selectedLocation}</Text>
-            <Ionicons name={showOptions ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textMuted} />
-          </TouchableOpacity>
-          {showOptions && <RNView style={styles.section}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>Location for cost estimates</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.locationScroll}>
-              {locationsData?.locations.map((loc) => <Chip key={loc.code} label={loc.name}
-                selected={selectedLocation === loc.name} onPress={() => setSelectedLocation(loc.name)} />)}
-            </ScrollView>
-            <Input value={notes} onChangeText={setNotes} placeholder="Personal notes (optional)" />
-            <Text style={[styles.hint, { color: colors.textMuted }]}>Videos work best when the recipe is spoken or written in the caption. Extracted and saved automatically. Any uncertain details will be highlighted.</Text>
-            <Text style={[styles.hintLink, { color: colors.tint }]} onPress={handleWebsiteSupportPress}>Help with a recipe website</Text>
-          </RNView>}
 
           {(extraction.isExtracting || extraction.isComplete || extraction.isFailed) && (
             <RNView style={[styles.compactProgress, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
@@ -797,110 +834,66 @@ export default function ExtractScreen() {
             </RNView>)}
           </RNView>}
 
-          {isSignedIn && (
-            <ImportActivityCard
-              jobs={recentImports.data || []}
-              onOpenRecipe={(job) => {
-                if (job.recipe_id) router.push(`/recipe/${job.recipe_id}`);
-              }}
-              onRestore={extraction.restoreJob}
-            />
-          )}
-
-          {/* Divider */}
-          <RNView style={styles.dividerContainer}>
-            <RNView style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-            <Text style={[styles.dividerText, { color: colors.textMuted }]}>or add another way</Text>
-            <RNView style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+          {isSignedIn && <ImportActivityCard jobs={(recentImports.data || []).filter((job) => !(job.id === extraction.jobId && (extraction.isExtracting || extraction.isComplete || extraction.isFailed)))}
+            onOpenRecipe={(job) => { if (job.recipe_id) router.push(`/recipe/${job.recipe_id}`); }}
+            onRestore={extraction.restoreJob} />}
+          <Text style={[styles.otherWaysLabel, { color: colors.textMuted }]}>OTHER WAYS TO ADD</Text>
+          <RNView style={[styles.alternateMethods, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
+            {([
+              { title: 'Paste recipe text', icon: 'clipboard-outline', onPress: () => router.push({ pathname: '/paste-recipe', params: { location: selectedLocation, isPublic: isPublic ? 'true' : 'false' } }) },
+              { title: 'Scan photos or screenshots', icon: 'camera-outline', onPress: handleScanRecipe },
+              { title: 'Write your own recipe', icon: 'create-outline', onPress: () => router.push({ pathname: '/add-recipe', params: { isPublic: isPublic ? 'true' : 'false' } }) },
+            ] as const).map((method, index) => (
+              <TouchableOpacity key={method.title} accessibilityRole="button" accessibilityLabel={method.title}
+                onPress={method.onPress} disabled={!isSignedIn || isLoading} activeOpacity={0.7}
+                style={[styles.alternateRow, index > 0 && { borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth }]}>
+                <Ionicons name={method.icon} size={21} color={colors.tint} />
+                <Text style={[styles.alternateTitle, { color: colors.text }]}>{method.title}</Text>
+                <Ionicons name="chevron-forward" size={17} color={colors.textMuted} />
+              </TouchableOpacity>
+            ))}
           </RNView>
-
-          {/* Paste Recipe Text Button */}
-          <TouchableOpacity
-            style={[styles.scanButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
-            onPress={() => router.push({
-              pathname: '/paste-recipe',
-              params: { location: selectedLocation, isPublic: isPublic ? 'true' : 'false' },
-            })}
-            disabled={!isSignedIn || isLoading}
-            activeOpacity={0.7}
-          >
-            <RNView style={[styles.scanIconContainer, { backgroundColor: colors.accentSoft }]}>
-              <Ionicons name="clipboard-outline" size={28} color={colors.accent} />
-            </RNView>
-            <RNView style={styles.scanTextContainer}>
-              <Text style={[styles.scanTitle, { color: colors.text }]}>Paste Recipe Text</Text>
-              <Text style={[styles.scanSubtitle, { color: colors.textMuted }]}>Save a caption, message, or copied recipe</Text>
-            </RNView>
-            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-          </TouchableOpacity>
-
-          {/* Scan Recipe Button */}
-          <TouchableOpacity
-            style={[styles.scanButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
-            onPress={handleScanRecipe}
-            disabled={!isSignedIn || isLoading}
-            activeOpacity={0.7}
-          >
-            <RNView style={[styles.scanIconContainer, { backgroundColor: colors.tint + '20' }]}>
-              <Ionicons name="camera" size={28} color={colors.tint} />
-            </RNView>
-            <RNView style={styles.scanTextContainer}>
-              <Text style={[styles.scanTitle, { color: colors.text }]}>
-                Import Screenshots or Photos
-              </Text>
-              <Text style={[styles.scanSubtitle, { color: colors.textMuted }]}>
-                Extract a recipe from screenshots, cards, or cookbook pages
-              </Text>
-            </RNView>
-            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-          </TouchableOpacity>
-
-          {/* Add Manually Button */}
-          <TouchableOpacity
-            style={[styles.scanButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
-            onPress={() => router.push({ pathname: '/add-recipe', params: { isPublic: isPublic ? 'true' : 'false' } })}
-            disabled={!isSignedIn || isLoading}
-            activeOpacity={0.7}
-          >
-            <RNView style={[styles.scanIconContainer, { backgroundColor: colors.success + '20' }]}>
-              <Ionicons name="create-outline" size={28} color={colors.success} />
-            </RNView>
-            <RNView style={styles.scanTextContainer}>
-              <Text style={[styles.scanTitle, { color: colors.text }]}>
-                Add Manually
-              </Text>
-              <Text style={[styles.scanSubtitle, { color: colors.textMuted }]}>
-                Type in your own recipe from scratch
-              </Text>
-            </RNView>
-            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-          </TouchableOpacity>
-
-          {/* Footer */}
-          <RNView style={styles.footer}>
-            <Text style={[styles.footerText, { color: colors.textMuted }]}>
-              AI-assisted recipe extraction
-            </Text>
+          <RNView style={styles.helpActions}>
+            <TouchableOpacity style={styles.textAction} onPress={() => { Keyboard.dismiss(); setPanel('help'); }}
+              accessibilityRole="button" accessibilityLabel="Import help">
+              <Ionicons name="help-circle-outline" size={18} color={colors.textMuted} />
+              <Text style={[styles.smallActionText, { color: colors.textSecondary }]}>Import help</Text>
+            </TouchableOpacity>
+            {isSignedIn && <TouchableOpacity style={styles.textAction} accessibilityRole="button" accessibilityLabel="Ask Håfa"
+              onPress={() => { Keyboard.dismiss(); setHasOpenedChat(true); setShowChat(true); }}>
+              <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.tint} />
+              <Text style={[styles.smallActionText, { color: colors.text }]}>Ask Håfa</Text>
+            </TouchableOpacity>}
           </RNView>
         </ScrollView>
 
-        <RNView style={[styles.primaryBar, { backgroundColor: colors.background, borderTopColor: colors.border,
-          paddingBottom: spacing.sm }]}>
-          <Button title={!isSignedIn ? 'Sign In to Import' : isPreparingImports ? 'Preparing Imports...' : isChecking ? 'Checking...' : extraction.isExtracting ? 'Add to Queue' : 'Extract Recipe'}
-            onPress={!isSignedIn ? () => router.push('/(auth)/sign-in') : handleExtract}
-            disabled={Boolean(isSignedIn) && (isPreparingImports || isLoading || isCheckingDisclosure || !url.trim())}
-            loading={isChecking} size="lg" />
-          <Text style={[styles.hint, { color: colors.textMuted, textAlign: 'center' }]}>Shared links import privately. You can publish them later.</Text>
-        </RNView>
         {!isSignedIn && <SignInBanner message="Sign in to extract recipes" />}
       </KeyboardAvoidingView>
+      <ImportSettingsPanel visible={panel === 'settings'} onClose={() => setPanel(null)}
+        isPublic={isPublic} onVisibilityChange={setIsPublic} location={selectedLocation}
+        locations={locationsData?.locations || []} onLocationChange={setSelectedLocation}
+        notes={notes} onNotesChange={setNotes} disabled={isLoading || isCheckingDisclosure} />
+      <ImportHelpPanel visible={panel === 'help'} onClose={() => setPanel(null)} onWebsiteSupport={handleWebsiteSupportPress} />
+      {isSignedIn && hasOpenedChat && <RecipeChatModal isVisible={showChat} onClose={() => setShowChat(false)} />}
     </RNView>
   );
 }
 
 const styles = StyleSheet.create({
-  primaryBar: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, gap: spacing.xs },
-  optionsToggle: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md },
+  linkComposer: { padding: spacing.md, borderWidth: 1, borderRadius: radius.lg, marginBottom: spacing.lg, gap: spacing.sm },
+  composerLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  composerLabel: { fontSize: fontSize.md, fontFamily: fontFamily.semibold },
+  textAction: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 44, paddingHorizontal: spacing.xs },
+  smallActionText: { fontSize: fontSize.sm, fontFamily: fontFamily.medium },
+  supportedSources: { fontSize: fontSize.xs, lineHeight: 18 },
+  settingsSummary: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, minHeight: 56 },
+  settingsCopy: { flex: 1 },
+  settingsTitle: { fontSize: fontSize.sm, fontFamily: fontFamily.medium },
+  otherWaysLabel: { fontSize: fontSize.xs, fontFamily: fontFamily.semibold, letterSpacing: 1, marginBottom: spacing.sm },
+  alternateMethods: { borderWidth: 1, borderRadius: radius.lg, overflow: 'hidden', marginBottom: spacing.md },
+  alternateRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, minHeight: 56 },
+  alternateTitle: { flex: 1, fontSize: fontSize.md },
+  helpActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm },
   compactProgress: { padding: spacing.md, borderWidth: 1, borderRadius: radius.md, marginBottom: spacing.md, gap: spacing.sm },
   inboxRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center', paddingVertical: spacing.sm },
   pendingShareNotice: {
@@ -914,11 +907,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-  },
-  pendingShareText: {
-    flex: 1,
-    fontSize: fontSize.sm,
-    fontFamily: fontFamily.medium,
   },
   container: {
     flex: 1,
@@ -944,134 +932,17 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     lineHeight: 23,
   },
-  section: {
-    marginBottom: spacing.lg,
-  },
   label: {
     fontSize: fontSize.sm,
     fontFamily: fontFamily.semibold,
     marginBottom: spacing.sm,
   },
-  helpStack: {
-    gap: spacing.xs,
-    marginTop: spacing.sm,
-  },
-  helpRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.xs,
-  },
   hint: {
-    flex: 1,
     fontSize: fontSize.xs,
     lineHeight: 18,
-  },
-  hintLink: {
-    fontSize: fontSize.xs,
-    fontFamily: fontFamily.semibold,
-    textDecorationLine: 'underline',
-  },
-  aiNote: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-  },
-  aiNoteText: {
-    flex: 1,
-    fontSize: fontSize.xs,
-    lineHeight: 18,
-  },
-  locationScroll: {
-    gap: spacing.sm,
-    paddingRight: spacing.lg,
-  },
-  footer: {
-    alignItems: 'center',
-    paddingTop: spacing.xl,
-  },
-  footerText: {
-    fontSize: fontSize.xs,
   },
   buttonRow: {
     marginTop: spacing.md,
-  },
-  backgroundHint: {
-    fontSize: fontSize.sm,
-    textAlign: 'center',
-    marginTop: spacing.xl,
-    paddingHorizontal: spacing.lg,
-  },
-  shareToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: spacing.md,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    marginBottom: spacing.lg,
-  },
-  shareToggleContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    gap: spacing.md,
-  },
-  shareToggleText: {
-    flex: 1,
-  },
-  shareToggleTitle: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
-  },
-  shareToggleSubtitle: {
-    fontSize: fontSize.xs,
-    marginTop: 2,
-  },
-  // OCR/Scan styles
-  scanButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.md,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    marginBottom: spacing.lg,
-  },
-  scanIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
-  },
-  scanTextContainer: {
-    flex: 1,
-  },
-  scanTitle: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.semibold,
-  },
-  scanSubtitle: {
-    fontSize: fontSize.xs,
-    marginTop: 2,
-  },
-  dividerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-  },
-  dividerText: {
-    fontSize: fontSize.sm,
-    paddingHorizontal: spacing.md,
   },
   ocrProgressContainer: {
     flex: 1,
