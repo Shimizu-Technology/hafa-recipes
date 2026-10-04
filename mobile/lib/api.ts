@@ -2,7 +2,7 @@
  * API client for the Recipe Extractor FastAPI backend.
  */
 
-import type { QuantityEstimate } from '@/types/recipe';
+import type { QuantityEstimate, NutritionValues } from '@/types/recipe';
 import type { PantryMutationRequest, PantrySnapshot, PantryTransferLine } from '@/types/pantry';
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { captureError, captureMessage, addBreadcrumb } from './sentry';
@@ -58,6 +58,16 @@ export const AUTH_TOKEN_RETRY_DELAY_MS = 500;
 export const AUTH_TOKEN_TIMEOUT_MS = 5_000;
 export type RequestGuard = () => void;
 export type CaptureSourceType = 'photo' | 'text';
+export type NutritionEstimateValues = Partial<Record<keyof NutritionValues, number>>;
+export type NutritionEstimateResponse = {
+  nutrition: NutritionEstimateValues;
+  total: NutritionEstimateValues;
+  servingBasis: 'recipe_servings' | 'whole_recipe';
+  servingsUsed: number | null;
+  assumptions: string[];
+  model: string;
+  calculated_at: string;
+};
 export type RecipeImageUpload = {
   uri: string;
   fileName?: string;
@@ -469,12 +479,10 @@ class ApiClient {
       notes?: string | null;
       tags?: string[] | null;
       is_public?: boolean;
-      nutrition?: {
-        calories?: number;
-        protein?: number;
-        carbs?: number;
-        fat?: number;
-      } | null;
+      nutrition?: NutritionEstimateValues | null;
+      nutrition_total?: NutritionEstimateValues | null;
+      nutrition_serving_basis?: 'source' | 'recipe_servings' | 'whole_recipe';
+      nutrition_assumptions?: string[];
       source_type?: 'manual' | CaptureSourceType;
     },
     imageUri?: string | null
@@ -665,6 +673,7 @@ class ApiClient {
   async startAsyncExtraction(
     request: ExtractRequest,
     idempotencyKey?: string,
+    requestGuard?: RequestGuard,
   ): Promise<{
     job_id: string | null;
     status: string;
@@ -680,7 +689,7 @@ class ApiClient {
         notes: request.notes || '',
         is_public: request.is_public ?? false,
       },
-      idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined,
+      { requestGuard, ...(idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : {}) } as GuardedRequestConfig,
     );
     return data;
   }
@@ -1180,6 +1189,21 @@ class ApiClient {
     return data;
   }
 
+  async createShareCredential(input: { installation_id: string; location?: string; is_public?: boolean }, requestGuard?: RequestGuard): Promise<{
+    credential_id: string; token: string; account_scope_id: string;
+    expires_at: string; location: string; is_public: boolean;
+  }> {
+    const { data } = await this.client.post('/api/share/credentials', input, { requestGuard } as GuardedRequestConfig);
+    return data;
+  }
+
+  async refreshRecipeNutrition(recipeId: string, expectedContentRevision?: number): Promise<Recipe> {
+    const { data } = await this.client.post(`/api/recipes/${recipeId}/nutrition`, {
+      ...(expectedContentRevision !== undefined ? { expected_content_revision: expectedContentRevision } : {}),
+    });
+    return data;
+  }
+
   /** Delete exact app-owned image objects when their local conversation is cleared. */
   async deleteChatImages(imageUrls: string[]): Promise<{ deleted: number }> {
     let deleted = 0;
@@ -1202,12 +1226,8 @@ class ApiClient {
 
   async estimateNutrition(
     ingredients: string[],
-    servings: number = 4
-  ): Promise<{
-    nutrition: { calories: number; protein: number; carbs: number; fat: number };
-    model: string;
-    calculated_at: string;
-  }> {
+    servings: number | null = null,
+  ): Promise<NutritionEstimateResponse> {
     const { data } = await this.client.post('/api/recipes/ai/estimate-nutrition', {
       ingredients,
       servings,
@@ -1252,12 +1272,10 @@ class ApiClient {
       notes?: string | null;
       tags?: string[] | null;
       is_public?: boolean;
-      nutrition?: {
-        calories?: number;
-        protein?: number;
-        carbs?: number;
-        fat?: number;
-      } | null;
+      nutrition?: NutritionEstimateValues | null;
+      nutrition_total?: NutritionEstimateValues | null;
+      nutrition_serving_basis?: 'source' | 'recipe_servings' | 'whole_recipe';
+      nutrition_assumptions?: string[];
       nutrition_recalculated?: boolean;
       nutrition_model?: string | null;
       review_content_revision?: number;

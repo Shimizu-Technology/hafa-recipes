@@ -100,6 +100,8 @@ vi.mock('@/lib/textCapture', () => ({
 }));
 vi.mock('@/lib/shareCapture', () => ({ consumePendingShareCapture: mocks.consume }));
 
+vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: 'owner-a', entries: [] }) }));
+vi.mock('@/lib/importInbox', () => ({ importInbox: { patch: vi.fn() } }));
 import PasteRecipeScreen from '../app/paste-recipe';
 
 describe('PasteRecipeScreen', () => {

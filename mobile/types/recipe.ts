@@ -44,6 +44,10 @@ export interface NutritionValues {
 export interface Nutrition {
   perServing: NutritionValues;
   total: NutritionValues;
+  servingBasis?: 'source' | 'recipe_servings' | 'whole_recipe';
+  servingsUsed?: number | null;
+  assumptions?: string[];
+  sourceServingSize?: string;
 }
 
 export type DerivedValueStatus = 'current' | 'stale' | 'unverified' | 'unavailable';
@@ -55,6 +59,11 @@ export interface DerivedValueMetadata {
   dataVersion: string;
   calculatedAt?: string | null;
   dependencyFingerprint: string;
+  reason?: string;
+  errorCode?: string;
+  assumptions?: string[];
+  servingBasis?: 'source' | 'recipe_servings' | 'whole_recipe';
+  servingsUsed?: number | null;
 }
 
 export interface RecipeDerivedData {

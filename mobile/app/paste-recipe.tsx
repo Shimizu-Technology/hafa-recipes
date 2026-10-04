@@ -29,6 +29,8 @@ import {
   normalizePastedRecipeText,
 } from '@/lib/textCapture';
 import { consumePendingShareCapture } from '@/lib/shareCapture';
+import { importInbox } from '@/lib/importInbox';
+import { useImportInbox } from '@/hooks/useImportInbox';
 
 export default function PasteRecipeScreen() {
   const router = useRouter();
@@ -38,16 +40,28 @@ export default function PasteRecipeScreen() {
     location?: string;
     isPublic?: string;
     captureToken?: string;
+    inboxCaptureId?: string;
   }>();
   const { data: locationsData } = useLocations();
   const saveCapturedRecipe = useSaveCapturedRecipe();
+  const inbox = useImportInbox();
   const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
 
   const importInFlight = useRef(false);
+  const loadedInboxCapture = useRef<string | null>(null);
   const [recipeText, setRecipeText] = useState('');
-  const [isPublic, setIsPublic] = useState(params.isPublic !== 'false');
+  const [isPublic, setIsPublic] = useState(params.inboxCaptureId ? false : params.isPublic !== 'false');
   const [selectedLocation, setSelectedLocation] = useState(params.location || 'Guam');
   const [isExtracting, setIsExtracting] = useState(false);
+
+  useEffect(() => {
+    if (!params.inboxCaptureId || loadedInboxCapture.current === params.inboxCaptureId) return;
+    const entry = inbox.entries.find((item) => item.id === params.inboxCaptureId && item.ownerId === inbox.ownerId);
+    if (entry?.capture.kind === 'text') {
+      loadedInboxCapture.current = entry.id;
+      setRecipeText(normalizePastedRecipeText(entry.capture.text));
+    }
+  }, [params.inboxCaptureId, inbox.entries, inbox.ownerId]);
 
   useEffect(() => {
     if (!params.captureToken) return;
@@ -112,7 +126,11 @@ export default function PasteRecipeScreen() {
         extracted: result.recipe,
         source_type: 'text',
         is_public: isPublic,
+        capture_id: params.inboxCaptureId,
       }, selectedLocation, saveCapturedRecipe.mutateAsync);
+      if (params.inboxCaptureId && typeof destination === 'string') {
+        await importInbox.patch(params.inboxCaptureId, { state: 'accepted', recipeId: destination.split('/').pop() });
+      }
       router.replace(destination);
     } catch (error: any) {
       const message = error?.response?.status === 413
@@ -188,7 +206,7 @@ export default function PasteRecipeScreen() {
 
           <RNView style={[styles.privacyNotice, { backgroundColor: colors.accentSoft, borderColor: colors.accent + '55' }]}>
             <Ionicons name="shield-checkmark-outline" size={20} color={colors.accent} />
-            <Text style={[styles.privacyText, { color: colors.textSecondary }]}>The text is sent to our AI provider to import your recipe. Håfa Recipes does not save the original pasted text.</Text>
+            <Text style={[styles.privacyText, { color: colors.textSecondary }]}>The text is sent to our AI provider to import your recipe. Pending shared text stays on this device until you import or remove it.</Text>
           </RNView>
 
           <RNView style={styles.section}>

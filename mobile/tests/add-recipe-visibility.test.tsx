@@ -149,6 +149,7 @@ vi.mock('@/lib/recipePublishing', () => ({
   formatPublishDisclosure: vi.fn(() => 'Preview'),
 }));
 
+vi.mock('@/components/NutritionPanel', () => ({ NutritionPanel: () => null }));
 import AddRecipeScreen from '../app/add-recipe';
 
 /** Render a valid imported recipe so the test can focus on visibility behavior. */

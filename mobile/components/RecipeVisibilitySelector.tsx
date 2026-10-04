@@ -14,6 +14,7 @@ interface RecipeVisibilitySelectorProps {
   value: RecipeVisibility;
   onChange: (value: RecipeVisibility) => void | Promise<void>;
   disabled?: boolean;
+  compact?: boolean;
 }
 
 const options: Array<{
@@ -41,12 +42,13 @@ export function RecipeVisibilitySelector({
   value,
   onChange,
   disabled = false,
+  compact = false,
 }: RecipeVisibilitySelectorProps) {
   const colors = useColors();
 
   return (
     <RNView style={styles.container}>
-      <RNView style={styles.headingRow}>
+      {!compact && <RNView style={styles.headingRow}>
         <RNView style={[styles.headingIcon, { backgroundColor: colors.accentSoft }]}>
           <Ionicons name="eye-outline" size={18} color={colors.accent} />
         </RNView>
@@ -54,9 +56,9 @@ export function RecipeVisibilitySelector({
           <Text style={[styles.heading, { color: colors.text }]}>Who can see this recipe?</Text>
           <Text style={[styles.subheading, { color: colors.textMuted }]}>Choose before you save. You can change this later.</Text>
         </RNView>
-      </RNView>
+      </RNView>}
 
-      <RNView style={styles.options} accessibilityRole="radiogroup">
+      <RNView style={[styles.options, compact && { flexDirection: 'row', gap: spacing.sm }]} accessibilityRole="radiogroup">
         {options.map((option) => {
           const selected = value === option.value;
           const selectedColor = option.value === 'public' ? colors.tint : colors.textSecondary;
@@ -66,6 +68,7 @@ export function RecipeVisibilitySelector({
               key={option.value}
               style={[
                 styles.option,
+                compact && { flex: 1, padding: spacing.sm, minHeight: 48, gap: spacing.sm },
                 {
                   backgroundColor: selected
                     ? selectedColor + '12'
@@ -81,7 +84,7 @@ export function RecipeVisibilitySelector({
               accessibilityHint={option.description}
               accessibilityState={{ checked: selected, disabled }}
             >
-              <RNView
+              {!compact && <RNView
                 style={[
                   styles.optionIcon,
                   { backgroundColor: selected ? selectedColor + '18' : colors.backgroundSecondary },
@@ -92,7 +95,7 @@ export function RecipeVisibilitySelector({
                   size={20}
                   color={selected ? selectedColor : colors.textMuted}
                 />
-              </RNView>
+              </RNView>}
               <RNView style={styles.optionCopy}>
                 <Text
                   style={[
@@ -102,9 +105,9 @@ export function RecipeVisibilitySelector({
                 >
                   {option.title}
                 </Text>
-                <Text style={[styles.optionDescription, { color: colors.textMuted }]}>
+                {!compact && <Text style={[styles.optionDescription, { color: colors.textMuted }]}>
                   {option.description}
-                </Text>
+                </Text>}
               </RNView>
               <Ionicons
                 name={selected ? 'checkmark-circle' : 'ellipse-outline'}
@@ -115,6 +118,9 @@ export function RecipeVisibilitySelector({
           );
         })}
       </RNView>
+      {compact && <Text style={[styles.optionDescription, { color: colors.textMuted, marginTop: spacing.xs }]}>
+        {value === 'public' ? 'Anyone can find and open this recipe.' : 'Only you can open this recipe.'}
+      </Text>}
     </RNView>
   );
 }

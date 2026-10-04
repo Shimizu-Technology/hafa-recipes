@@ -1,4 +1,6 @@
 import { getIngredientAmount, getCookingNotes } from '@/lib/recipeTrust';
+import { NutritionPanel } from '@/components/NutritionPanel';
+import { api } from '@/lib/api';
 import { useState, useMemo } from 'react';
 import {
   StyleSheet,
@@ -132,6 +134,8 @@ export default function RecipeDetailScreen() {
   const insets = useSafeAreaInsets();
   const { scaleFontSize } = useTextSize();
   const [activeTab, setActiveTab] = useState<TabType>('ingredients');
+  const [isRefreshingNutrition, setIsRefreshingNutrition] = useState(false);
+  const [nutritionError, setNutritionError] = useState<string | null>(null);
   
   const { data: recipe, isLoading, error, refetch } = useRecipe(id);
   const deleteMutation = useDeleteRecipe();
@@ -256,14 +260,17 @@ export default function RecipeDetailScreen() {
     (component) => component.ingredients
   ) || [];
 
-  // Check if there's actual nutrition data (not just empty objects)
-  const hasNutritionData = recipe?.extracted.nutrition?.perServing && (
-    recipe.extracted.nutrition.perServing.calories ||
-    recipe.extracted.nutrition.perServing.protein ||
-    recipe.extracted.nutrition.perServing.carbs ||
-    recipe.extracted.nutrition.perServing.fat
-  );
-  const nutritionStatus = recipe?.extracted.derivedData?.nutrition?.status;
+  const refreshNutrition = async () => {
+    if (!recipe || isRefreshingNutrition) return;
+    setIsRefreshingNutrition(true);
+    setNutritionError(null);
+    try {
+      await api.refreshRecipeNutrition(recipe.id, recipe.content_revision ?? undefined);
+      await refetch();
+    } catch (error: any) {
+      setNutritionError(error?.response?.data?.detail || 'Nutrition could not be estimated. Check the ingredient amounts and try again.');
+    } finally { setIsRefreshingNutrition(false); }
+  };
   const costStatus = recipe?.extracted.derivedData?.cost?.status;
 
   const handleAddToGrocery = () => {
@@ -495,10 +502,10 @@ export default function RecipeDetailScreen() {
     if (extracted.nutrition?.perServing) {
       const n = extracted.nutrition.perServing;
       const nutritionParts: string[] = [];
-      if (n.calories) nutritionParts.push(`${n.calories} cal`);
-      if (n.protein) nutritionParts.push(`${n.protein}g protein`);
-      if (n.carbs) nutritionParts.push(`${n.carbs}g carbs`);
-      if (n.fat) nutritionParts.push(`${n.fat}g fat`);
+      if (typeof n.calories === 'number' && Number.isFinite(n.calories)) nutritionParts.push(`${n.calories} cal`);
+      if (typeof n.protein === 'number' && Number.isFinite(n.protein)) nutritionParts.push(`${n.protein}g protein`);
+      if (typeof n.carbs === 'number' && Number.isFinite(n.carbs)) nutritionParts.push(`${n.carbs}g carbs`);
+      if (typeof n.fat === 'number' && Number.isFinite(n.fat)) nutritionParts.push(`${n.fat}g fat`);
       
       if (nutritionParts.length > 0) {
         text += '\nNUTRITION (per serving)\n';
@@ -1221,144 +1228,9 @@ export default function RecipeDetailScreen() {
 
               {activeTab === 'nutrition' && (
                 <>
-                  {hasNutritionData && nutritionStatus && nutritionStatus !== 'current' && (
-                    <RNView style={[
-                      styles.estimateNotice,
-                      {
-                        backgroundColor: nutritionStatus === 'stale' ? colors.warning + '14' : colors.backgroundSecondary,
-                        borderColor: nutritionStatus === 'stale' ? colors.warning : colors.border,
-                      },
-                    ]}>
-                      <Ionicons
-                        name={nutritionStatus === 'stale' ? 'alert-circle-outline' : 'information-circle-outline'}
-                        size={20}
-                        color={nutritionStatus === 'stale' ? colors.warning : colors.textMuted}
-                      />
-                      <RNView style={styles.estimateNoticeCopy}>
-                        <Text style={[styles.estimateNoticeTitle, { color: colors.text }]}>Estimated nutrition</Text>
-                        <Text style={[styles.estimateNoticeText, { color: colors.textSecondary }]}>
-                          {nutritionStatus === 'stale'
-                            ? 'Ingredients or servings changed. Recalculate in Edit Recipe before relying on these values.'
-                            : 'This estimate predates freshness tracking. Recalculate it in Edit Recipe when accuracy matters.'}
-                        </Text>
-                      </RNView>
-                    </RNView>
-                  )}
-                  {/* Empty state for no nutrition data */}
-                  {!hasNutritionData && (
-                    <RNView style={styles.emptyNutritionState}>
-                      <Ionicons name="nutrition-outline" size={40} color={colors.textMuted} />
-                      <Text style={[styles.emptyNutritionTitle, { color: colors.text }]}>
-                        No Nutrition Data
-                      </Text>
-                      <Text style={[styles.emptyNutritionText, { color: colors.textMuted }]}>
-                        Nutrition information wasn't available for this recipe.
-                      </Text>
-                    </RNView>
-                  )}
-
-                  {/* Full Recipe Total - Show scaled total (like cost tab) */}
-                  {hasNutritionData && extracted.nutrition?.perServing && (
-                    <RNView style={styles.nutritionTotalCard}>
-                      <RNView style={[styles.nutritionTotalBox, { backgroundColor: colors.tint }]}>
-                        <Text style={styles.nutritionTotalLabel}>
-                          Estimated full recipe {isScaled ? `(${currentServings} servings)` : `(${originalServings} servings)`}
-                        </Text>
-                        <Text style={styles.nutritionTotalValue}>
-                          {Math.round((extracted.nutrition.perServing.calories || 0) * currentServings)} cal
-                        </Text>
-                        {isScaled && (
-                          <Text style={styles.nutritionScaledNote}>
-                            scaled from {originalServings} servings
-                          </Text>
-                        )}
-                      </RNView>
-                      
-                      <RNView style={styles.nutritionTotalMetaRow}>
-                        {extracted.nutrition.perServing.protein && (
-                          <RNView style={[styles.nutritionTotalMetaItem, { backgroundColor: colors.backgroundSecondary }]}>
-                            <Text style={[styles.nutritionTotalMetaValue, { color: colors.text }]}>
-                              {Math.round((extracted.nutrition.perServing.protein || 0) * currentServings)}g
-                            </Text>
-                            <Text style={[styles.nutritionTotalMetaLabel, { color: colors.textMuted }]}>
-                              Protein
-                            </Text>
-                          </RNView>
-                        )}
-                        {extracted.nutrition.perServing.carbs && (
-                          <RNView style={[styles.nutritionTotalMetaItem, { backgroundColor: colors.backgroundSecondary }]}>
-                            <Text style={[styles.nutritionTotalMetaValue, { color: colors.text }]}>
-                              {Math.round((extracted.nutrition.perServing.carbs || 0) * currentServings)}g
-                            </Text>
-                            <Text style={[styles.nutritionTotalMetaLabel, { color: colors.textMuted }]}>
-                              Carbs
-                            </Text>
-                          </RNView>
-                        )}
-                        {extracted.nutrition.perServing.fat && (
-                          <RNView style={[styles.nutritionTotalMetaItem, { backgroundColor: colors.backgroundSecondary }]}>
-                            <Text style={[styles.nutritionTotalMetaValue, { color: colors.text }]}>
-                              {Math.round((extracted.nutrition.perServing.fat || 0) * currentServings)}g
-                            </Text>
-                            <Text style={[styles.nutritionTotalMetaLabel, { color: colors.textMuted }]}>
-                              Fat
-                            </Text>
-                          </RNView>
-                        )}
-                      </RNView>
-                    </RNView>
-                  )}
-
-                  {/* Per Serving */}
-                  {hasNutritionData && extracted.nutrition?.perServing && (
-                    <RNView style={styles.nutritionSection}>
-                      <Text style={[styles.nutritionTitle, { color: colors.text }]}>
-                        Per Serving
-                      </Text>
-                      <RNView style={styles.nutritionGrid}>
-                        {extracted.nutrition.perServing.calories && (
-                          <RNView style={[styles.nutritionItem, { backgroundColor: colors.backgroundSecondary }]}>
-                            <Text style={[styles.nutritionValue, { color: colors.tint }]}>
-                              {extracted.nutrition.perServing.calories}
-                            </Text>
-                            <Text style={[styles.nutritionLabel, { color: colors.textMuted }]}>
-                              Calories
-                            </Text>
-                          </RNView>
-                        )}
-                        {extracted.nutrition.perServing.protein && (
-                          <RNView style={[styles.nutritionItem, { backgroundColor: colors.backgroundSecondary }]}>
-                            <Text style={[styles.nutritionValue, { color: colors.tint }]}>
-                              {extracted.nutrition.perServing.protein}g
-                            </Text>
-                            <Text style={[styles.nutritionLabel, { color: colors.textMuted }]}>
-                              Protein
-                            </Text>
-                          </RNView>
-                        )}
-                        {extracted.nutrition.perServing.carbs && (
-                          <RNView style={[styles.nutritionItem, { backgroundColor: colors.backgroundSecondary }]}>
-                            <Text style={[styles.nutritionValue, { color: colors.tint }]}>
-                              {extracted.nutrition.perServing.carbs}g
-                            </Text>
-                            <Text style={[styles.nutritionLabel, { color: colors.textMuted }]}>
-                              Carbs
-                            </Text>
-                          </RNView>
-                        )}
-                        {extracted.nutrition.perServing.fat && (
-                          <RNView style={[styles.nutritionItem, { backgroundColor: colors.backgroundSecondary }]}>
-                            <Text style={[styles.nutritionValue, { color: colors.tint }]}>
-                              {extracted.nutrition.perServing.fat}g
-                            </Text>
-                            <Text style={[styles.nutritionLabel, { color: colors.textMuted }]}>
-                              Fat
-                            </Text>
-                          </RNView>
-                        )}
-                      </RNView>
-                    </RNView>
-                  )}
+                  <NutritionPanel nutrition={extracted.nutrition} metadata={extracted.derivedData?.nutrition}
+                    scaleFactor={extracted.nutrition?.servingBasis === 'whole_recipe' ? 1 : scaleFactor}
+                    isLoading={isRefreshingNutrition} error={nutritionError} onRefresh={isOwner ? refreshNutrition : undefined} />
 
                   {/* Equipment */}
                   {extracted.equipment && extracted.equipment.length > 0 && (

@@ -1,3 +1,6 @@
+import { NutritionPanel } from '@/components/NutritionPanel';
+import { hasNutritionValues, normalizeNutritionValues } from '@/lib/nutritionPresentation';
+import type { NutritionEstimateValues } from '@/lib/api';
 /**
  * Edit Recipe Screen
  * 
@@ -6,7 +9,7 @@
  */
 
 import type { QuantityEstimate } from '@/types/recipe';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   ScrollView,
@@ -147,12 +150,13 @@ export default function EditRecipeScreen() {
   // AI feature states
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const [isEstimatingNutrition, setIsEstimatingNutrition] = useState(false);
-  const [estimatedNutrition, setEstimatedNutrition] = useState<{
-    calories?: number;
-    protein?: number;
-    carbs?: number;
-    fat?: number;
-  } | null>(null);
+  const [estimatedNutrition, setEstimatedNutrition] = useState<NutritionEstimateValues | null>(null);
+  const [estimatedNutritionTotal, setEstimatedNutritionTotal] = useState<NutritionEstimateValues | null>(null);
+  const [nutritionBasis, setNutritionBasis] = useState<'source' | 'recipe_servings' | 'whole_recipe'>('recipe_servings');
+  const [nutritionAssumptions, setNutritionAssumptions] = useState<string[]>([]);
+  const nutritionInputFingerprint = JSON.stringify({ servings, ingredients: ingredients.map(({ name, quantity, unit }) => ({ name, quantity, unit })) });
+  const latestNutritionInputs = useRef(nutritionInputFingerprint);
+  latestNutritionInputs.current = nutritionInputFingerprint;
 
   // Fetch existing recipe
   const { data: recipe, isLoading: isLoadingRecipe } = useQuery({
@@ -193,16 +197,15 @@ export default function EditRecipeScreen() {
           .filter(path => isRecipePathVerified(evidence, path)),
       ));
       
-      // Set nutrition if available
-      if (nutrition.calories || nutrition.protein || nutrition.carbs || nutrition.fat) {
-        setEstimatedNutrition({
-          calories: nutrition.calories ?? undefined,
-          protein: nutrition.protein ?? undefined,
-          carbs: nutrition.carbs ?? undefined,
-          fat: nutrition.fat ?? undefined,
-        });
-      }
-      
+      // Zero is a valid nutrient value. Preserve whole-recipe estimates too.
+      if (hasNutritionValues(nutrition)) {
+        setEstimatedNutrition(Object.fromEntries(Object.entries(nutrition).filter(([, value]) => typeof value === 'number')));
+      } else setEstimatedNutrition(null);
+      const whole = extracted.nutrition?.total;
+      setEstimatedNutritionTotal(whole ? Object.fromEntries(Object.entries(whole).filter(([, value]) => typeof value === 'number')) : null);
+      setNutritionBasis(extracted.nutrition?.servingBasis ?? 'recipe_servings');
+      setNutritionAssumptions(extracted.nutrition?.assumptions ?? []);
+
       // Normalize legacy flat recipes once, then keep component associations intact.
       const components = extracted.components?.length
         ? extracted.components
@@ -338,6 +341,9 @@ export default function EditRecipeScreen() {
       tags: tagList.length > 0 ? tagList : null,
       is_public: isPublic,
       nutrition: estimatedNutrition,
+      nutrition_total: estimatedNutritionTotal,
+      nutrition_serving_basis: nutritionBasis,
+      nutrition_assumptions: nutritionAssumptions,
       nutrition_recalculated: nutritionRecalculated,
       nutrition_model: nutritionModel,
     };
@@ -495,6 +501,7 @@ export default function EditRecipeScreen() {
       return;
     }
 
+    const requestedInputs = nutritionInputFingerprint;
     setIsEstimatingNutrition(true);
     try {
       const ingredientStrings = validIngredients.map(i => {
@@ -503,16 +510,15 @@ export default function EditRecipeScreen() {
         return `${qty}${unit}${i.name}`.trim();
       });
       
-      const servingsNum = servings ? parseInt(servings, 10) : 4;
+      const servingsNum = servings ? Number(servings) : null;
       
       const response = await api.estimateNutrition(ingredientStrings, servingsNum);
+      if (latestNutritionInputs.current !== requestedInputs) return;
       
-      setEstimatedNutrition({
-        calories: response.nutrition.calories,
-        protein: response.nutrition.protein,
-        carbs: response.nutrition.carbs,
-        fat: response.nutrition.fat,
-      });
+      setEstimatedNutrition(response.nutrition);
+      setEstimatedNutritionTotal(response.total ?? null);
+      setNutritionBasis(response.servingBasis ?? (servingsNum ? 'recipe_servings' : 'whole_recipe'));
+      setNutritionAssumptions(response.assumptions ?? []);
       setNutritionRecalculated(true);
       setNutritionModel(response.model);
       setEstimateInputsChanged(false);
@@ -1134,46 +1140,13 @@ export default function EditRecipeScreen() {
                 </RNView>
               )}
               
-              {estimatedNutrition ? (
-                <RNView style={[styles.nutritionCard, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
-                  <RNView style={styles.nutritionRow}>
-                    <RNView style={styles.nutritionItem}>
-                      <Text style={[styles.nutritionValue, { color: colors.tint }]}>
-                        {estimatedNutrition.calories}
-                      </Text>
-                      <Text style={[styles.nutritionLabel, { color: colors.textMuted }]}>cal</Text>
-                    </RNView>
-                    <RNView style={styles.nutritionItem}>
-                      <Text style={[styles.nutritionValue, { color: colors.tint }]}>
-                        {estimatedNutrition.protein}g
-                      </Text>
-                      <Text style={[styles.nutritionLabel, { color: colors.textMuted }]}>protein</Text>
-                    </RNView>
-                    <RNView style={styles.nutritionItem}>
-                      <Text style={[styles.nutritionValue, { color: colors.tint }]}>
-                        {estimatedNutrition.carbs}g
-                      </Text>
-                      <Text style={[styles.nutritionLabel, { color: colors.textMuted }]}>carbs</Text>
-                    </RNView>
-                    <RNView style={styles.nutritionItem}>
-                      <Text style={[styles.nutritionValue, { color: colors.tint }]}>
-                        {estimatedNutrition.fat}g
-                      </Text>
-                      <Text style={[styles.nutritionLabel, { color: colors.textMuted }]}>fat</Text>
-                    </RNView>
-                  </RNView>
-                  <Text style={[styles.nutritionDisclaimer, { color: colors.textMuted }]}>
-                    Per serving • AI estimate • Values are approximate
-                  </Text>
-                </RNView>
-              ) : (
-                <RNView style={[styles.nutritionPlaceholder, { borderColor: colors.border }]}>
-                  <Ionicons name="nutrition-outline" size={24} color={colors.textMuted} />
-                  <Text style={[styles.nutritionPlaceholderText, { color: colors.textMuted }]}>
-                    Tap "Estimate" for AI nutrition facts
-                  </Text>
-                </RNView>
-              )}
+              {(estimatedNutrition || estimatedNutritionTotal) ? (
+                <NutritionPanel nutrition={{
+                  perServing: normalizeNutritionValues(estimatedNutrition),
+                  total: normalizeNutritionValues(estimatedNutritionTotal),
+                  servingBasis: nutritionBasis, assumptions: nutritionAssumptions,
+                }} metadata={{ status: estimateInputsChanged ? 'stale' : nutritionRecalculated ? 'current' : recipe?.extracted.derivedData?.nutrition?.status }} isLoading={isEstimatingNutrition} />
+              ) : <Text style={[styles.nutritionPlaceholderText, { color: colors.textMuted }]}>Estimate nutrition from your ingredients. Without a serving count, estimates cover the whole recipe.</Text>}
             </RNView>
 
             {/* Notes */}

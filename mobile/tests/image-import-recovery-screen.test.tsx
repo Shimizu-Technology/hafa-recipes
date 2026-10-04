@@ -7,6 +7,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   focused: true,
+  inboxEntries: [] as any[],
+  addInbox: vi.fn(async () => undefined),
+  claimInbox: vi.fn(async () => undefined),
   pendingShareCount: 0,
   queueChanged: null as null | ((event: { pendingCount: number }) => void),
   getShareIntent: vi.fn(),
@@ -167,7 +170,9 @@ vi.mock('@/lib/api', () => ({
     extractRecipeFromMultipleImages: mocks.extractMultiple,
   },
 }));
-vi.mock('@/lib/shareCapture', () => ({ consumePendingShareCapture: () => null }));
+vi.mock('@/lib/shareCapture', () => ({ consumePendingShareCapture: () => null, stagePendingShareCapture: () => 'token' }));
+vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: 'owner-a', entries: mocks.inboxEntries, storageError: null }) }));
+vi.mock('@/lib/importInbox', () => ({ importInbox: { add: mocks.addInbox, claim: mocks.claimInbox, patch: vi.fn(), remove: vi.fn() } }));
 vi.mock('@/hooks/usePublishingDisclosure', () => ({
   usePublishingDisclosure: () => ({
     requestPublishing: mocks.requestPublishing,
@@ -243,12 +248,12 @@ describe('classified image recovery', () => {
       ).map(node => Array.isArray(node.props.children)
         ? node.props.children.join('')
         : node.props.children);
-      expect(waitingCopy()).toContain('2 more shared recipes waiting');
+      expect(waitingCopy()).toContain('2 shared recipes ready to sync');
       await act(async () => { vi.advanceTimersByTime(6_000); });
       expect(touchableWithText(renderer, 'Open next')!.props.disabled).toBe(true);
 
       await act(async () => { mocks.queueChanged?.({ pendingCount: 1 }); });
-      expect(waitingCopy()).toContain('1 more shared recipe waiting');
+      expect(waitingCopy()).toContain('1 shared recipe ready to sync');
       expect(touchableWithText(renderer, 'Open next')!.props.disabled).toBe(false);
     } finally {
       await act(async () => renderer?.unmount());
@@ -299,45 +304,47 @@ describe('classified image recovery', () => {
     ]);
   });
 
-  it.each([false, true])('opens a saved link import automatically, including uncertainty=%s', async (uncertain) => {
+  it.each([false, true])('keeps a completed import available without navigation, including uncertainty=%s', async (uncertain) => {
     mocks.extraction.isComplete = true;
     mocks.extraction.lowConfidence = uncertain;
     mocks.extraction.recipeId = 'completed-recipe';
     let renderer: ReactTestRenderer;
     await act(async () => { renderer = create(<ExtractScreen />); });
-    expect(mocks.push).toHaveBeenCalledExactlyOnceWith('/recipe/completed-recipe');
-    expect(mocks.extraction.reset).toHaveBeenCalledOnce();
-    // Another render of the completed job must not push a duplicate screen.
-    await act(async () => { renderer!.update(<ExtractScreen />); });
-    expect(mocks.push).toHaveBeenCalledOnce();
-    await act(async () => renderer!.unmount());
-  });
-
-  it('waits for Import focus when a background extraction completes', async () => {
-    mocks.focused = false;
-    mocks.extraction.isComplete = true;
-    mocks.extraction.recipeId = 'background-recipe';
-    let renderer: ReactTestRenderer;
-    await act(async () => { renderer = create(<ExtractScreen />); });
     expect(mocks.push).not.toHaveBeenCalled();
     expect(mocks.extraction.reset).not.toHaveBeenCalled();
-    mocks.focused = true;
-    await act(async () => { renderer!.update(<ExtractScreen />); });
-    expect(mocks.push).toHaveBeenCalledExactlyOnceWith('/recipe/background-recipe');
+    expect(renderer!.root.findAllByType('Button' as unknown as React.ComponentType).some(node => node.props.children === 'Open Recipe')).toBe(true);
     await act(async () => renderer!.unmount());
   });
 
-  it('still opens the saved recipe if local recovery cleanup fails', async () => {
-    mocks.extraction.isComplete = true;
-    mocks.extraction.recipeId = 'saved-recipe';
-    mocks.extraction.reset.mockRejectedValueOnce(new Error('Storage unavailable'));
-    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  it('keeps the next draft and waiting capture when the previous job completes', async () => {
+    mocks.extraction.isExtracting = true;
+    mocks.inboxEntries = [{ id: 'b', ownerId: 'owner-a', state: 'ready', capture: { kind: 'url', url: 'https://example.com/b' } }];
     let renderer: ReactTestRenderer;
     await act(async () => { renderer = create(<ExtractScreen />); });
-    expect(mocks.push).toHaveBeenCalledExactlyOnceWith('/recipe/saved-recipe');
-    expect(warning).toHaveBeenCalledOnce();
+    await act(async () => renderer!.root.findByProps({ placeholder: 'TikTok, Instagram, YouTube, or recipe website link' }).props.onChangeText('https://example.com/c'));
+    mocks.extraction.isExtracting = false;
+    mocks.extraction.isComplete = true;
+    mocks.extraction.recipeId = 'recipe-a';
+    await act(async () => renderer!.update(<ExtractScreen />));
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.extraction.reset).not.toHaveBeenCalled();
+    expect(renderer!.root.findByProps({ placeholder: 'TikTok, Instagram, YouTube, or recipe website link' }).props.value).toBe('https://example.com/c');
+    expect(mocks.inboxEntries[0].id).toBe('b');
     await act(async () => renderer!.unmount());
-    warning.mockRestore();
+    mocks.inboxEntries = [];
+  });
+
+  it('opens a completed recipe only after an explicit action and preserves the next draft', async () => {
+    mocks.extraction.isComplete = true;
+    mocks.extraction.recipeId = 'saved-recipe';
+    let renderer: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    await act(async () => renderer!.root.findByProps({ placeholder: 'TikTok, Instagram, YouTube, or recipe website link' }).props.onChangeText('https://example.com/next'));
+    expect(mocks.push).not.toHaveBeenCalled();
+    await act(async () => renderer!.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Open Recipe')!.props.onPress());
+    expect(mocks.push).toHaveBeenCalledWith('/recipe/saved-recipe');
+    expect(renderer!.root.findByProps({ placeholder: 'TikTok, Instagram, YouTube, or recipe website link' }).props.value).toBe('https://example.com/next');
+    await act(async () => renderer!.unmount());
   });
 
   it('does not redirect a recipe re-extraction from the import screen', async () => {
@@ -350,33 +357,15 @@ describe('classified image recovery', () => {
     await act(async () => renderer!.unmount());
   });
 
-  it('handles existing-recipe fast results once per attempt without a Back loop', async () => {
-    mocks.extraction.startExtraction.mockImplementation(async () => {
-      mocks.extraction.isComplete = true;
-      mocks.extraction.recipeId = 'existing-recipe';
-      return { isExisting: true, recipeId: 'existing-recipe' };
-    });
-    mocks.extraction.reset.mockImplementation(async () => {
-      mocks.extraction.isComplete = false;
-      mocks.extraction.recipeId = null;
-    });
+  it('queues another link while the current extraction is running', async () => {
+    mocks.extraction.isExtracting = true;
     let renderer: ReactTestRenderer;
     await act(async () => { renderer = create(<ExtractScreen />); });
-    for (const attempt of [1, 2]) {
-      await act(async () => renderer!.root.findByProps({
-        placeholder: 'TikTok, Instagram, YouTube, or recipe website link',
-      }).props.onChangeText('https://example.com/recipe'));
-      await act(async () => renderer!.root.findAllByType('Button' as unknown as React.ComponentType)
-        .find(node => node.props.children === 'Extract Recipe')!.props.onPress());
-      await act(async () => { renderer!.update(<ExtractScreen />); });
-      expect(mocks.push).toHaveBeenCalledTimes(attempt);
-      expect(mocks.push).toHaveBeenLastCalledWith('/recipe/existing-recipe');
-      mocks.focused = false;
-      await act(async () => { renderer!.update(<ExtractScreen />); });
-      mocks.focused = true;
-      await act(async () => { renderer!.update(<ExtractScreen />); });
-      expect(mocks.push).toHaveBeenCalledTimes(attempt);
-    }
+    await act(async () => renderer!.root.findByProps({ placeholder: 'TikTok, Instagram, YouTube, or recipe website link' }).props.onChangeText('https://example.com/b'));
+    await act(async () => renderer!.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Add to Queue')!.props.onPress());
+    expect(mocks.addInbox).toHaveBeenCalledWith(expect.objectContaining({ state: 'ready', capture: { kind: 'url', url: 'https://example.com/b' } }));
+    expect(mocks.extraction.reset).not.toHaveBeenCalled();
+    expect(mocks.extraction.startExtraction).not.toHaveBeenCalled();
     await act(async () => renderer!.unmount());
   });
 
@@ -394,63 +383,20 @@ describe('classified image recovery', () => {
     expect(preparingButton.props.disabled).toBe(true);
   });
 
-  it('restores the original link options when restarting a failed import', async () => {
+  it('retries the original failed import without overwriting the next draft', async () => {
     mocks.extraction.isFailed = true;
     mocks.extraction.error = 'Could not read the page';
     mocks.extraction.sourceUrl = 'https://example.com/recipe';
     mocks.extraction.sourceLocation = 'Hawaii';
     mocks.extraction.sourceNotes = 'Use the caption measurements';
     mocks.extraction.requestedIsPublic = true;
-    mocks.extraction.reset.mockImplementationOnce(async () => {
-      mocks.extraction.isFailed = false;
-      mocks.extraction.error = null;
-    });
-
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(<ExtractScreen />);
-    });
-    const startAgain = renderer!.root.findAllByType(
-      'Button' as unknown as React.ComponentType,
-    ).find(node => node.props.children === 'Start Again')!;
-    await act(async () => startAgain.props.onPress());
-
-    const linkInput = renderer!.root.findByProps({
-      placeholder: 'TikTok, Instagram, YouTube, or recipe website link',
-    });
-    expect(linkInput.props.value).toBe('https://example.com/recipe');
-    expect(renderer!.root.findByProps({ label: 'Hawaii' }).props.selected).toBe(true);
-    expect(renderer!.root.findByProps({
-      accessibilityLabel: 'Public in Discover',
-    }).props.accessibilityState.checked).toBe(true);
-
-    const extractButton = renderer!.root.findAllByType(
-      'Button' as unknown as React.ComponentType,
-    ).find(node => node.props.children === 'Extract Recipe')!;
-    await act(async () => extractButton.props.onPress());
-    expect(mocks.extraction.startExtraction).toHaveBeenCalledWith({
-      url: 'https://example.com/recipe',
-      location: 'Hawaii',
-      notes: 'Use the caption measurements',
-      is_public: true,
-    });
-  });
-  it.each([true, false])('automatically saves images with public=%s', async (isPublic) => {
-    const recipe = { title: 'Red Rice', components: [{ ingredients: [{ name: 'rice' }], steps: ['Cook rice.'] }], lowConfidence: true };
-    mocks.extractMultiple.mockResolvedValueOnce({ success: true, recipe } as any);
     let renderer: ReactTestRenderer;
     await act(async () => { renderer = create(<ExtractScreen />); });
-    await act(async () => touchableWithText(renderer!, 'Import Screenshots or Photos')!.props.onPress());
-    const choose = mocks.alert.mock.calls.at(-1)?.[2].find((action: { text: string }) => action.text === 'Choose Screenshots or Photos');
-    await act(async () => choose.onPress());
-    const options = renderer!.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType);
-    expect(options.find(node => node.props.accessibilityLabel === 'Public in Discover')!.props.accessibilityState.checked).toBe(true);
-    if (!isPublic) await act(async () => options.find(node => node.props.accessibilityLabel === 'Private')!.props.onPress());
-    await act(async () => renderer!.root.findAllByType('Button' as unknown as React.ComponentType)
-      .find(node => node.props.children === 'Import Recipe from 2 Images')!.props.onPress());
-    expect(mocks.save).toHaveBeenCalledWith({ extracted: recipe, source_type: 'photo', is_public: isPublic, capture_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
-    expect(mocks.requestPublishing).toHaveBeenCalledTimes(isPublic ? 1 : 0);
-    expect(mocks.push).toHaveBeenCalledWith('/recipe/captured-recipe');
+    await act(async () => renderer!.root.findByProps({ placeholder: 'TikTok, Instagram, YouTube, or recipe website link' }).props.onChangeText('https://example.com/next'));
+    await act(async () => renderer!.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Retry Import')!.props.onPress());
+    expect(mocks.addInbox).toHaveBeenCalledWith(expect.objectContaining({ request: { url: 'https://example.com/recipe', location: 'Hawaii', notes: 'Use the caption measurements', is_public: true } }));
+    expect(renderer!.root.findByProps({ placeholder: 'TikTok, Instagram, YouTube, or recipe website link' }).props.value).toBe('https://example.com/next');
+    await act(async () => renderer!.unmount());
   });
 
   it('keeps extracted images recoverable after a failed automatic save', async () => {
