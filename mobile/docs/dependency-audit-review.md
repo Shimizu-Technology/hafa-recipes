@@ -32,3 +32,11 @@ Two additional moderate advisories concern the already reviewed `stream-json` 1.
 - [Assembler prototype replacement, source 1241263](https://github.com/advisories/GHSA-mjw6-4jj6-33hc) concerns a primitive used by `StreamValues`. The vulnerable package is still present in the dependency tree; it is absent from the inspected native bundle. Jayson's streaming utility is used by its optional TCP/TLS clients and servers, under the unused Clerk → Solana wallet → web3 chain. Håfa exposes no Solana wallet or Jayson TCP/TLS interface and imports neither Jayson nor stream-json.
 
 The registry has no patched 1.x stream-json release. Published fixes are 3.6.0 or newer, whereas Jayson requires `^1.9.1`; overriding it across major versions would change its CommonJS entry-point contract. The three stream-json advisories therefore share an expiring exception for the exact reviewed native wallet chain, not a package-wide acceptance. The policy now pins all chain ranges/kinds as well as versions/integrities, rejects new declaring parents and nested copies, and expires November 3 without renewal. Tests cover each advisory's accepted provenance and fail-closed boundaries. Reassess or remove these exceptions before exposing any wallet/streaming path or changing the native bundle/dependency provenance.
+
+Final integrated source `1c517362c6e2f3bba9c9ae00aee7c5667c46b33e` was exported
+with the same production-mode settings after the multipart/playback fixes. Its
+2,958-source iOS map contains none of the eight packages listed above. Map
+SHA-256: `d21214340bca40e865eb1fe79d6ce94f67acab8e1f7b31c1c860dc29e4c816b0`.
+Bundle SHA-256: `79e303c61cc0593bf0689c734e8f40cc6d8f3a1edde836fbef8dccda5198f5b7`.
+These artifacts remain outside Git; native QA and EAS release evidence are
+recorded separately in `docs/RECIPE-COVER-SELECTION.md`.
