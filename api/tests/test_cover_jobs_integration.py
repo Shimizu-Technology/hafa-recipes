@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import io
+import json
 import os
 import threading
 from datetime import UTC, datetime, timedelta
@@ -12,7 +13,7 @@ from unittest.mock import AsyncMock
 import pytest
 import pytest_asyncio
 from PIL import Image, ImageDraw
-from sqlalchemy import delete, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app import cover_jobs, job_worker
@@ -304,6 +305,110 @@ async def test_expiry_discards_source_urls_without_rewriting_recipe(database):
         job = await db.get(ExtractionJob, job_id)
         assert job.status == "expired" and job.notes == "{}"
         assert (await db.get(Recipe, recipe_id)).content_revision == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("parent_status", ["processing", "cancelled", "completed"])
+async def test_cover_waits_for_original_import_and_cancellation_never_starts_media(
+    database, monkeypatch, parent_status
+):
+    recipe_id, job_id = await enqueue(database)
+    async with database() as db:
+        parent = ExtractionJob(
+            url="https://www.youtube.com/watch?v=coverqa1234",
+            user_id="cover_owner",
+            job_kind="extract",
+            status=parent_status,
+            recipe_id=recipe_id,
+        )
+        db.add(parent)
+        await db.flush()
+        job = await db.get(ExtractionJob, job_id)
+        payload = json.loads(job.notes)
+        payload["parentJob"] = str(parent.id)
+        job.notes = json.dumps(payload)
+        await db.commit()
+    monkeypatch.setattr(
+        cover_jobs.cover_selection_service,
+        "select",
+        AsyncMock(
+            side_effect=lambda candidates, *_: CoverSelectionResult(
+                candidates[0], {"status": "retained"}
+            )
+        ),
+    )
+    await run(database, job_id)
+    async with database() as db:
+        job = await db.get(ExtractionJob, job_id)
+        if parent_status == "processing":
+            assert job.status == "queued" and job.attempt_count == 0
+            assert job.next_attempt_at and job.next_attempt_at > datetime.now(UTC)
+        else:
+            assert job.status == "completed"
+        if parent_status != "completed":
+            cover_jobs.storage_service.fetch_thumbnail_source.assert_not_awaited()
+            cover_jobs.storage_service.store_prepared_thumbnail_variants_locked.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stale_cover_lease_recovers_without_creating_duplicate_jobs_or_recipes(
+    database, monkeypatch
+):
+    recipe_id, job_id = await enqueue(database)
+    async with database() as db:
+        job = await db.get(ExtractionJob, job_id)
+        job.status = "processing"
+        job.attempt_count = 1
+        job.lease_token = "dead_worker"
+        job.leased_until = datetime.now(UTC) - timedelta(seconds=1)
+        await db.commit()
+    monkeypatch.setattr(
+        cover_jobs.cover_selection_service,
+        "select",
+        AsyncMock(
+            side_effect=lambda candidates, *_: CoverSelectionResult(
+                candidates[0], {"status": "retained"}
+            )
+        ),
+    )
+    await run(database, job_id)
+    async with database() as db:
+        assert len((await db.scalars(select(Recipe))).all()) == 1
+        assert len((await db.scalars(select(ExtractionJob))).all()) == 1
+        job = await db.get(ExtractionJob, job_id)
+        assert job.status == "completed" and job.attempt_count == 2
+        assert (await db.get(Recipe, recipe_id)).thumbnail_url
+
+
+@pytest.mark.asyncio
+async def test_recipe_and_cover_queue_rollback_is_atomic(database):
+    async with database() as db:
+        db.add(AppUser(id="atomic_owner"))
+        item = Recipe(
+            source_url="https://www.youtube.com/watch?v=atomicqa123",
+            source_type="youtube",
+            user_id="atomic_owner",
+            content_revision=1,
+            extracted={
+                "title": "Rice",
+                "components": [
+                    {
+                        "name": "Main",
+                        "ingredients": [{"name": "rice", "quantity": "2"}],
+                        "steps": ["Cook rice."],
+                    }
+                ],
+            },
+        )
+        db.add(item)
+        await db.flush()
+        cover_jobs.enqueue_cover_job(
+            db, item, SimpleNamespace(thumbnail_url=None, cover_frames=None, cover_images=None)
+        )
+        await db.rollback()
+    async with database() as db:
+        assert not (await db.scalars(select(Recipe))).all()
+        assert not (await db.scalars(select(ExtractionJob))).all()
 
 
 @pytest.mark.asyncio

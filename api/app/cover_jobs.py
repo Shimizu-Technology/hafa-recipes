@@ -28,7 +28,12 @@ from app.job_worker import DurableJobWorker, apply_recovered_completion, unclaim
 from app.media_lifecycle import acquire_recipe_media_lock
 from app.models.recipe import ExtractionJob, Recipe
 from app.recipe_estimates import source_is_incomplete
-from app.services.cover_selection import CoverCandidate, cover_selection_service
+from app.services.cover_selection import (
+    MAX_IMAGE_BYTES,
+    MAX_TOTAL_BYTES,
+    CoverCandidate,
+    cover_selection_service,
+)
 from app.services.storage import storage_service
 from app.services.video import video_service
 
@@ -154,12 +159,19 @@ def enqueue_cover_job(
     )
     db.add(job)
     candidates = []
+    total_bytes = 0
     for index, frame in enumerate(getattr(extraction_result, "cover_frames", None) or []):
         try:
+            if len(frame.image_base64) > MAX_IMAGE_BYTES * 4 // 3 + 4:
+                continue
+            data = base64.b64decode(frame.image_base64, validate=True)
+            total_bytes += len(data)
+            if total_bytes > MAX_TOTAL_BYTES:
+                break
             candidates.append(
                 CoverCandidate(
                     f"frame-{index}",
-                    base64.b64decode(frame.image_base64, validate=True),
+                    data,
                     "video_frame",
                     timestamp_seconds=frame.timestamp_seconds,
                 )
@@ -168,10 +180,16 @@ def enqueue_cover_job(
             continue
     for index, encoded in enumerate(getattr(extraction_result, "cover_images", None) or []):
         try:
+            if len(encoded) > MAX_IMAGE_BYTES * 4 // 3 + 4:
+                continue
+            data = base64.b64decode(encoded, validate=True)
+            total_bytes += len(data)
+            if total_bytes > MAX_TOTAL_BYTES:
+                break
             candidates.append(
                 CoverCandidate(
                     f"slide-{index}",
-                    base64.b64decode(encoded, validate=True),
+                    data,
                     "slideshow",
                     slide_index=index,
                 )
