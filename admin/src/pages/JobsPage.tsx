@@ -81,7 +81,7 @@ export function JobsPage() {
                     <td>{formatDate(job.updated_at)}</td>
                     <td className="action-cell">
                       <div className="inline-actions">
-                        {['failed', 'expired'].includes(job.status) ? (
+                        {job.job_kind !== 'cover' && ['failed', 'expired'].includes(job.status) ? (
                           <button className="button button-small button-primary" type="button" onClick={() => setSelection({ job, action: 'retry' })}>Retry</button>
                         ) : null}
                         {cancellable.has(job.status) ? (

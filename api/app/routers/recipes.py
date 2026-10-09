@@ -75,6 +75,7 @@ from app.services.nutrition import (
     sanitized_nutrition,
 )
 from app.services.storage import storage_service
+from app.services.video import video_service
 from app.source_urls import canonicalize_source
 
 MAX_RECIPE_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -2881,7 +2882,8 @@ async def re_extract_recipe(
             )
 
         uploaded_thumbnail_url = None
-        if extraction_result.thumbnail_url:
+        keep_video_cover = bool(recipe.thumbnail_url and video_service.detect_platform(recipe.source_url) in video_service.SUPPORTED_PLATFORMS)
+        if extraction_result.thumbnail_url and not keep_video_cover:
             uploaded_thumbnail_url = await storage_service.upload_thumbnail_from_url(
                 extraction_result.thumbnail_url,
                 str(recipe.id),
@@ -2923,10 +2925,8 @@ async def re_extract_recipe(
         recipe.has_audio_transcript = extraction_result.has_audio_transcript
         apply_recipe_review(recipe, new_extracted, increment_revision=True)
 
-        if uploaded_thumbnail_url:
-            recipe.thumbnail_url = uploaded_thumbnail_url
-            if recipe.extracted and "media" in recipe.extracted:
-                recipe.extracted["media"]["thumbnail"] = uploaded_thumbnail_url
+        recipe.thumbnail_url = uploaded_thumbnail_url or recipe.thumbnail_url
+        recipe.extracted = preserve_current_thumbnail(recipe.extracted, recipe.thumbnail_url)
 
         await db.commit()
         await db.refresh(recipe)

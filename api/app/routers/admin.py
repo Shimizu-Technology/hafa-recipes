@@ -1,5 +1,6 @@
 """Focused administrator APIs for moderation and operational recovery."""
 
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 from urllib.parse import urlparse
@@ -13,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import ClerkUser
 from app.config import get_settings
+from app.cover_jobs import cover_job_worker
 from app.db import get_db
 from app.deletion_cleanup import deletion_cleanup_worker
 from app.job_worker import ACTIVE_JOB_STATUSES, job_worker
@@ -607,6 +609,8 @@ async def retry_job(
     )
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
+    if job.job_kind == "cover":
+        raise HTTPException(status_code=409, detail="Photo enhancement retries automatically within five minutes. A finished photo job cannot be replayed; the saved recipe and current photo are preserved.")
     if job.status not in ("failed", "expired"):
         raise HTTPException(status_code=409, detail="Only failed or expired jobs can be retried")
     if not job.user_id:
@@ -680,6 +684,14 @@ async def cancel_job(
     job.lease_token = None
     job.leased_until = None
     job.updated_at = now
+    if job.job_kind == "cover":
+        # Discard source image URLs atomically with cancellation, even if the
+        # process stops before the bounded pending marker is cleared.
+        try:
+            revision = json.loads(job.notes).get("revision")
+        except (TypeError, ValueError):
+            revision = None
+        job.notes = json.dumps({"revision": revision}) if type(revision) is int else "{}"
     after = {"status": job.status, "attempt_count": job.attempt_count}
     _add_audit(
         db,
@@ -693,6 +705,8 @@ async def cancel_job(
     )
     await db.commit()
     await db.refresh(job)
+    if job.job_kind == "cover":
+        await cover_job_worker.finalize_cancelled_job(job.id)
     return _job_response(job)
 
 

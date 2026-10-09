@@ -537,5 +537,9 @@ class CoverJobWorker(DurableJobWorker):
             job.notes = "{}"
             await db.commit()
 
+    async def finalize_cancelled_job(self, job_id: UUID) -> None:
+        """Clear owner-visible pending state after an audited cancellation."""
+        await self._clear_terminal_pending(job_id)
+
 
 cover_job_worker = CoverJobWorker()

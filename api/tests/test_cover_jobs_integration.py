@@ -412,6 +412,130 @@ async def test_recipe_and_cover_queue_rollback_is_atomic(database):
 
 
 @pytest.mark.asyncio
+async def test_admin_cover_cancel_scrubs_urls_and_terminal_retry_is_rejected(database, monkeypatch):
+    from fastapi import HTTPException
+
+    from app.routers import admin
+
+    recipe_id, job_id = await enqueue(database)
+    actor = ClerkUser(
+        id="cover_owner",
+        clerk_user_id="clerk_cover",
+        clerk_issuer="https://example.test",
+        clerk_environment="test",
+        role="admin",
+    )
+    monkeypatch.setattr(admin, "cover_job_worker", cover_jobs.CoverJobWorker())
+    async with database() as db:
+        await admin.cancel_job(
+            job_id, admin.AdminReason(reason="Cancel owned photo QA fixture"), db, actor
+        )
+    async with database() as db:
+        job = await db.get(ExtractionJob, job_id)
+        assert job.status == "cancelled" and job.notes == "{}"
+        assert cover_jobs.cover_pending_until(await db.get(Recipe, recipe_id)) is None
+        job.status = "failed"
+        await db.commit()
+        with pytest.raises(HTTPException) as refused:
+            await admin.retry_job(
+                job_id,
+                admin.AdminReason(reason="Verify scrubbed photo replay is refused"),
+                db,
+                actor,
+            )
+        assert refused.value.status_code == 409
+        assert job.status == "failed" and job.expires_at < datetime.now(UTC) + timedelta(minutes=6)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("route", ["async", "legacy"])
+@pytest.mark.parametrize("photo_kind", ["selected", "user"])
+async def test_reextraction_keeps_current_video_cover_and_synchronizes_media(
+    database, monkeypatch, route, photo_kind
+):
+    from uuid import uuid4
+
+    from app.routers import extract, recipes
+    from app.services import recipe_extractor
+    from app.services.extractor import FullExtractionResult
+
+    recipe_id, _ = await enqueue(database)
+    cover_url = f"https://owned.test/{photo_kind}.webp"
+    async with database() as db:
+        item = await db.get(Recipe, recipe_id)
+        item.thumbnail_url = cover_url
+        item.extracted = {**item.extracted, "media": {"thumbnail": cover_url}}
+        updated = {
+            **item.extracted,
+            "title": "Updated Rice",
+            "media": {"thumbnail": "https://source.test/platform.jpg"},
+        }
+        job_id = uuid4()
+        db.add(
+            ExtractionJob(
+                id=job_id,
+                url=item.source_url,
+                user_id=item.user_id,
+                job_kind="reextract",
+                status="processing",
+                target_recipe_id=recipe_id,
+                lease_token="owned_reextract",
+                max_attempts=3,
+            )
+        )
+        await db.commit()
+    import app.db.database as database_module
+
+    monkeypatch.setattr(database_module, "AsyncSessionLocal", database)
+    monkeypatch.setattr(
+        recipe_extractor,
+        "extract",
+        AsyncMock(
+            return_value=FullExtractionResult(
+                success=True,
+                recipe=updated,
+                thumbnail_url="https://source.test/platform.jpg",
+                extraction_method="whisper",
+                extraction_quality="high",
+                has_audio_transcript=True,
+            )
+        ),
+    )
+    monkeypatch.setattr(extract, "enrich_nutrition", AsyncMock(side_effect=lambda data, **_: data))
+    ordinary_upload, locked_upload = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(cover_jobs.storage_service, "upload_thumbnail_from_url", ordinary_upload)
+    monkeypatch.setattr(
+        cover_jobs.storage_service, "upload_thumbnail_from_url_locked", locked_upload
+    )
+    if route == "async":
+        await extract.run_re_extraction_job(
+            str(job_id),
+            str(recipe_id),
+            "https://www.youtube.com/watch?v=coverqa1234",
+            "Guam",
+            "cover_owner",
+            "owned_reextract",
+        )
+    else:
+        actor = ClerkUser(
+            id="cover_owner",
+            clerk_user_id="clerk_cover",
+            clerk_issuer="https://example.test",
+            clerk_environment="test",
+        )
+        async with database() as db:
+            await recipes.re_extract_recipe(
+                recipe_id, recipes.ReExtractRequest(location="Guam"), db, actor
+            )
+    async with database() as db:
+        item = await db.get(Recipe, recipe_id)
+        assert item.thumbnail_url == item.extracted["media"]["thumbnail"] == cover_url
+        assert item.extracted["title"] == "Updated Rice" and item.content_revision == 2
+    ordinary_upload.assert_not_awaited()
+    locked_upload.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_cancelled_s3_thread_holds_media_lock_until_deletion_can_clean(database, monkeypatch):
     recipe_id, job_id = await enqueue(database)
     worker = cover_jobs.CoverJobWorker()

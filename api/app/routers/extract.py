@@ -1915,7 +1915,8 @@ async def run_re_extraction_job(
                     return
 
                 uploaded_thumbnail_url = None
-                if result.thumbnail_url:
+                keep_video_cover = bool(recipe.thumbnail_url and platform in video_service.SUPPORTED_PLATFORMS)
+                if result.thumbnail_url and not keep_video_cover:
                     s3_url = await storage_service.upload_thumbnail_from_url_locked(
                         result.thumbnail_url,
                         str(recipe.id),
@@ -1951,6 +1952,9 @@ async def run_re_extraction_job(
                 )
                 db.add(version)
                 final_thumbnail_url = uploaded_thumbnail_url or recipe.thumbnail_url
+                # Re-extract recipe facts without reverting a selected/user
+                # cover to the platform thumbnail or an expiring source URL.
+                final_extracted = _with_thumbnail(final_extracted, final_thumbnail_url) if final_thumbnail_url else _without_external_thumbnail(final_extracted)
 
                 # Now apply ALL changes to the recipe object at once
                 print(f"🔵 Final extracted has lowConfidence = {final_extracted.get('lowConfidence')}")
