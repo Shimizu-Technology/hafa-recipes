@@ -670,3 +670,108 @@ async def test_legacy_reextraction_preserves_cover_that_arrives_during_upload(
         assert item.thumbnail_url == item.extracted["media"]["thumbnail"] == cover_url
         assert item.extracted["title"] == "Updated Rice"
         assert item.content_revision == (3 if photo_kind == "user" else 2)
+
+
+@pytest.mark.asyncio
+async def test_legacy_reextraction_row_lock_serializes_cover_after_refresh(database, monkeypatch):
+    """A cover worker waits through refreshed legacy re-extraction and is fenced."""
+    from app.routers import recipes
+    from app.services import recipe_extractor
+    from app.services.extractor import FullExtractionResult
+
+    recipe_id, job_id = await enqueue(database)
+    worker = cover_jobs.CoverJobWorker()
+    assert await worker.claim_next_job() == job_id
+    async with database() as db:
+        job = await db.get(ExtractionJob, job_id)
+        job.status = "processing"
+        token = job.lease_token
+        item = await db.get(Recipe, recipe_id)
+        updated = {**item.extracted, "title": "Updated Rice"}
+        await db.commit()
+    monkeypatch.setattr(recipe_extractor, "extract", AsyncMock(return_value=FullExtractionResult(
+        success=True, recipe=updated, thumbnail_url="https://source.test/platform.jpg",
+        extraction_method="whisper", extraction_quality="high", has_audio_transcript=True,
+    )))
+    platform_url = "https://owned.test/platform.webp"
+    monkeypatch.setattr(
+        cover_jobs.storage_service, "upload_thumbnail_from_url", AsyncMock(return_value=platform_url)
+    )
+    actor = ClerkUser(
+        id="cover_owner", clerk_user_id="clerk_cover",
+        clerk_issuer="https://example.test", clerk_environment="test",
+    )
+    refreshed, finish_reextraction, worker_has_media_lock = (
+        asyncio.Event(), asyncio.Event(), asyncio.Event()
+    )
+    backend_pids = {}
+    real_media_lock = cover_jobs.acquire_recipe_media_lock
+
+    async def observe_media_lock(db, identifier):
+        await real_media_lock(db, identifier)
+        backend_pids["worker"] = await db.scalar(text("SELECT pg_backend_pid()"))
+        worker_has_media_lock.set()
+
+    monkeypatch.setattr(cover_jobs, "acquire_recipe_media_lock", observe_media_lock)
+
+    async def reextract():
+        async with database() as db:
+            backend_pids["reextract"] = await db.scalar(text("SELECT pg_backend_pid()"))
+            real_refresh = db.refresh
+            refresh_count = 0
+
+            async def pause_after_refresh(instance, *args, **kwargs):
+                nonlocal refresh_count
+                await real_refresh(instance, *args, **kwargs)
+                refresh_count += 1
+                if refresh_count == 1:
+                    refreshed.set()
+                    await asyncio.wait_for(finish_reextraction.wait(), 5)
+
+            monkeypatch.setattr(db, "refresh", pause_after_refresh)
+            return await recipes.re_extract_recipe(
+                recipe_id, recipes.ReExtractRequest(location="Guam"), db, actor
+            )
+
+    reextraction = asyncio.create_task(reextract())
+    cover_write = None
+    try:
+        await asyncio.wait_for(refreshed.wait(), 3)
+        cover_write = asyncio.create_task(worker._store_candidate(
+            job_id, token, CoverCandidate("late-cover", photo("red"), "video_frame"),
+            1, expected_thumbnail=None,
+        ))
+        await asyncio.wait_for(worker_has_media_lock.wait(), 3)
+
+        # Observe PostgreSQL's actual blocker rather than inferring a lock from
+        # a timeout or task state. The version allocator holds the row lock.
+        async def wait_for_row_block():
+            while True:
+                async with database() as db:
+                    blockers = await db.scalar(
+                        text("SELECT pg_blocking_pids(:pid)"), {"pid": backend_pids["worker"]}
+                    )
+                if backend_pids["reextract"] in blockers:
+                    return
+                await asyncio.sleep(0.01)
+
+        await asyncio.wait_for(wait_for_row_block(), 3)
+        assert not cover_write.done()
+        cover_jobs.storage_service.store_prepared_thumbnail_variants_locked.assert_not_awaited()
+        finish_reextraction.set()
+        await asyncio.wait_for(reextraction, 3)
+        assert await asyncio.wait_for(cover_write, 3) is None
+    finally:
+        finish_reextraction.set()
+        tasks = [task for task in (reextraction, cover_write) if task is not None]
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    cover_jobs.storage_service.store_prepared_thumbnail_variants_locked.assert_not_awaited()
+    async with database() as db:
+        item = await db.get(Recipe, recipe_id)
+        assert item.content_revision == 2
+        assert item.extracted["title"] == "Updated Rice"
+        assert item.thumbnail_url == item.extracted["media"]["thumbnail"] == platform_url
