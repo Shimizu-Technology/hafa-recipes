@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 import boto3
 import httpx
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from app.config import get_settings
@@ -81,6 +82,7 @@ class StorageService:
                     aws_access_key_id=settings.aws_access_key_id,
                     aws_secret_access_key=settings.aws_secret_access_key,
                     region_name=settings.aws_region,
+                    config=Config(connect_timeout=5, read_timeout=15, retries={"max_attempts": 2}),
                 )
         return self._client
     
@@ -277,6 +279,8 @@ class StorageService:
         self,
         image_url: str,
         recipe_id: str | UUID,
+        *,
+        referer: str | None = None,
     ) -> ValidatedImage:
         """Download and validate one owned or external thumbnail without writes."""
         owned_key = self._owned_storage_key(image_url)
@@ -291,7 +295,7 @@ class StorageService:
             parsed = self._safe_urlparse(image_url)
             if parsed and parsed.hostname in self._owned_storage_hosts():
                 raise ValueError("Owned thumbnail URL is not canonical")
-            image_data, content_type = await self._download_public_url(image_url)
+            image_data, content_type = await self._download_public_url(image_url, referer=referer)
         return validate_image_bytes(
             image_data,
             max_bytes=MAX_THUMBNAIL_BYTES,
@@ -368,7 +372,22 @@ class StorageService:
                 )
 
         async def upload() -> None:
-            await asyncio.to_thread(put_objects)
+            # Cancellation cannot stop a boto thread. Keep the caller's media
+            # lock until writes settle so deletion cannot race a late upload.
+            write = asyncio.create_task(asyncio.to_thread(put_objects))
+            try:
+                await asyncio.shield(write)
+            except asyncio.CancelledError:
+                while not write.done():
+                    try:
+                        await asyncio.shield(write)
+                    except asyncio.CancelledError:
+                        continue
+                    except Exception:
+                        break
+                if write.done() and not write.cancelled():
+                    write.exception()  # Consume a failure without masking cancellation.
+                raise
 
         if media_lock_held:
             await upload()
@@ -380,11 +399,12 @@ class StorageService:
 
         return self.canonical_thumbnail_url(keys["hero"])
     
-    async def _download_public_url(self, image_url: str) -> tuple[bytes, str]:
+    async def _download_public_url(self, image_url: str, *, referer: str | None = None) -> tuple[bytes, str]:
         """Download a public HTTP(S) URL, validating every redirect target."""
         current_url = image_url
 
-        async with httpx.AsyncClient(timeout=30.0, transport=PublicHTTPTransport()) as client:
+        headers = {"Referer": referer} if referer else None
+        async with httpx.AsyncClient(timeout=30.0, transport=PublicHTTPTransport(), headers=headers) as client:
             for _ in range(6):
                 async with client.stream("GET", current_url, follow_redirects=False) as response:
                     if response.is_redirect:

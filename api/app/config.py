@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     recipe_extraction_fallback_model: str = "gpt-5.6-terra"
     ocr_model: str = "gpt-5.6-luna"
     ocr_fallback_model: str = "gpt-5.6-terra"
+    recipe_cover_model: str = "gpt-5.6-luna"
     recipe_chat_model: str = "gpt-5.6-luna"
     cooking_chat_model: str = "gpt-5.6-luna"
     enrichment_model: str = "gpt-5.6-luna"
@@ -156,6 +157,11 @@ class Settings(BaseSettings):
         le=100 * 1024 * 1024,
     )
     video_frame_max_count: int = Field(default=8, ge=6, le=12)
+    recipe_cover_selection_enabled: bool = True
+    recipe_cover_max_candidates: int = Field(default=8, ge=2, le=8)
+    recipe_cover_frame_max_count: int = Field(default=12, ge=6, le=12)
+    recipe_cover_rank_timeout_seconds: float = Field(default=25, ge=5, le=60)
+    recipe_cover_job_timeout_seconds: float = Field(default=240, ge=30, le=300)
     image_input_classification_enabled: bool = False
     video_max_concurrency: int = Field(default=2, ge=1, le=4)
     video_queue_timeout_seconds: int = Field(default=5, ge=1, le=60)
@@ -203,6 +209,7 @@ class Settings(BaseSettings):
             "recipe_extraction_fallback": self.recipe_extraction_fallback_model,
             "ocr": self.ocr_model,
             "ocr_fallback": self.ocr_fallback_model,
+            "cover_selection": self.recipe_cover_model,
             "recipe_chat": self.recipe_chat_model,
             "cooking_chat": self.cooking_chat_model,
             "enrichment": self.enrichment_model,
@@ -221,6 +228,7 @@ class Settings(BaseSettings):
         supported_canary_capabilities = {
             "recipe_extraction",
             "ocr",
+            "cover_selection",
             "recipe_chat",
             "cooking_chat",
             "enrichment",

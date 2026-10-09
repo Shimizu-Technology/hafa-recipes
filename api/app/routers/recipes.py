@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import ClerkUser, get_current_user, get_optional_user
 from app.config import get_settings
+from app.cover_jobs import cover_pending_until
 from app.database_invariants import next_recipe_version_number
 from app.db import get_db
 from app.deletion_cleanup import deletion_cleanup_worker
@@ -722,6 +723,9 @@ def recipe_to_detail_response(
         recipe.thumbnail_url,
         variant="hero",
     )
+    pending_until = cover_pending_until(recipe)
+    response_data["thumbnail_pending"] = pending_until is not None
+    response_data["thumbnail_pending_until"] = pending_until
     # Legacy rows can predate the column default and contain NULL. Keep the
     # public detail contract aligned with list responses instead of turning an
     # otherwise valid recipe into a response-validation 500.

@@ -1,0 +1,365 @@
+"""Real PostgreSQL fencing/recovery; source/provider/S3 transports are controlled."""
+
+import asyncio
+import base64
+import io
+import os
+import threading
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+import pytest_asyncio
+from PIL import Image, ImageDraw
+from sqlalchemy import delete, text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from app import cover_jobs, job_worker
+from app.auth import ClerkUser
+from app.db.database import Base
+from app.image_validation import validate_image_bytes
+from app.media_lifecycle import acquire_recipe_media_lock
+from app.models import ai, deletion, grocery, identity, meal_plan, moderation  # noqa: F401
+from app.models.identity import AppUser
+from app.models.recipe import ExtractionJob, Recipe
+from app.routers.extract import get_job_status, list_extraction_jobs
+from app.services.cover_selection import CoverCandidate, CoverSelectionResult
+from app.services.storage import StorageService
+from app.services.video import VideoFrame, VideoFrameExtractionResult, VideoMetadata
+from tests.database_safety import require_disposable_test_database
+
+DATABASE = os.environ.get("TEST_DATABASE_URL")
+pytestmark = pytest.mark.skipif(not DATABASE, reason="Disposable PostgreSQL required")
+
+
+def photo(color="orange"):
+    image = Image.new("RGB", (320, 240), "white")
+    ImageDraw.Draw(image).ellipse((40, 30, 280, 210), fill=color, outline="black", width=5)
+    output = io.BytesIO()
+    image.save(output, format="JPEG")
+    return output.getvalue()
+
+
+@pytest_asyncio.fixture
+async def database(monkeypatch):
+    require_disposable_test_database(DATABASE)
+    engine = create_async_engine(DATABASE)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as connection:
+        await connection.execute(text("DROP SCHEMA public CASCADE"))
+        await connection.execute(text("CREATE SCHEMA public"))
+        await connection.run_sync(Base.metadata.create_all)
+    monkeypatch.setattr(cover_jobs, "AsyncSessionLocal", sessions)
+    monkeypatch.setattr(job_worker, "AsyncSessionLocal", sessions)
+    monkeypatch.setattr(cover_jobs, "candidate_cache", cover_jobs.CandidateCache())
+    monkeypatch.setattr(cover_jobs.settings, "recipe_cover_selection_enabled", True)
+    monkeypatch.setattr(cover_jobs.settings, "job_worker_enabled", True)
+    monkeypatch.setattr(StorageService, "is_enabled", property(lambda _: True))
+    image = validate_image_bytes(photo(), max_bytes=100000)
+    monkeypatch.setattr(
+        cover_jobs.storage_service, "fetch_thumbnail_source", AsyncMock(return_value=image)
+    )
+    monkeypatch.setattr(
+        cover_jobs.storage_service,
+        "store_prepared_thumbnail_variants_locked",
+        AsyncMock(side_effect=["https://owned.test/original.webp", "https://owned.test/best.webp"]),
+    )
+    monkeypatch.setattr(
+        cover_jobs.video_service,
+        "get_video_metadata_ytdlp",
+        AsyncMock(return_value=VideoMetadata()),
+    )
+    monkeypatch.setattr(
+        cover_jobs.video_service,
+        "extract_cover_frames",
+        AsyncMock(
+            return_value=VideoFrameExtractionResult(
+                success=True, frames=[VideoFrame(90, base64.b64encode(photo("red")).decode())]
+            )
+        ),
+    )
+    try:
+        yield sessions
+    finally:
+        await engine.dispose()
+
+
+async def enqueue(sessions, *, preloaded=True):
+    async with sessions() as db:
+        db.add(AppUser(id="cover_owner"))
+        recipe = Recipe(
+            source_url="https://www.youtube.com/watch?v=coverqa1234",
+            source_type="youtube",
+            user_id="cover_owner",
+            content_revision=1,
+            extracted={
+                "title": "Rice",
+                "sourceUrl": "https://www.youtube.com/watch?v=coverqa1234",
+                "lowConfidence": True,
+                "confidenceWarning": "Check the salt.",
+                "components": [
+                    {
+                        "name": "Main",
+                        "ingredients": [{"name": "rice", "quantity": "2", "unit": "cups"}],
+                        "steps": ["Cook the rice."],
+                    }
+                ],
+                "media": {"thumbnail": None},
+            },
+            is_public=False,
+        )
+        db.add(recipe)
+        await db.flush()
+        result = SimpleNamespace(
+            thumbnail_url="https://source.test/thumb.jpg",
+            cover_images=None,
+            cover_frames=[VideoFrame(90, base64.b64encode(photo("red")).decode())]
+            if preloaded
+            else None,
+        )
+        job = cover_jobs.enqueue_cover_job(db, recipe, result)
+        await db.commit()
+        return recipe.id, job.id
+
+
+async def run(sessions, job_id):
+    worker = cover_jobs.CoverJobWorker()
+    assert await worker.claim_next_job() == job_id
+    await worker.execute_claimed_job(job_id)
+
+
+@pytest.mark.asyncio
+async def test_durable_selection_preserves_recipe_and_reuses_acquired_frames(database, monkeypatch):
+    recipe_id, job_id = await enqueue(database)
+
+    async def select_cover(candidates, *_):
+        return CoverSelectionResult(
+            next(c for c in candidates if c.source_kind == "video_frame"),
+            {"status": "selected", "timestampSeconds": 90},
+        )
+
+    monkeypatch.setattr(
+        cover_jobs.cover_selection_service, "select", AsyncMock(side_effect=select_cover)
+    )
+    await run(database, job_id)
+    async with database() as db:
+        recipe, job = await db.get(Recipe, recipe_id), await db.get(ExtractionJob, job_id)
+        assert recipe.thumbnail_url == "https://owned.test/best.webp"
+        assert recipe.extracted["media"]["thumbnail"] == recipe.thumbnail_url
+        assert recipe.extracted["confidenceWarning"] == "Check the salt."
+        assert recipe.extracted["components"][0]["ingredients"][0]["quantity"] == "2"
+        assert (
+            recipe.content_revision == 1
+            and recipe.user_id == "cover_owner"
+            and not recipe.is_public
+        )
+        assert job.status == "completed" and job.notes == "{}"
+        assert cover_jobs.cover_pending_until(recipe) is None
+    cover_jobs.video_service.extract_cover_frames.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_restart_reacquires_media_and_job_kind_partition_excludes_consumer_inbox(
+    database, monkeypatch
+):
+    recipe_id, job_id = await enqueue(database)
+    cover_jobs.candidate_cache.take(job_id)  # Simulate process restart/cross-replica claim.
+    assert await job_worker.DurableJobWorker().claim_next_job() is None
+    monkeypatch.setattr(
+        cover_jobs.cover_selection_service,
+        "select",
+        AsyncMock(
+            side_effect=lambda candidates, *_: CoverSelectionResult(
+                candidates[0], {"status": "retained"}
+            )
+        ),
+    )
+    await run(database, job_id)
+    user = ClerkUser(
+        id="cover_owner",
+        clerk_user_id="clerk_cover",
+        clerk_issuer="https://example.test",
+        clerk_environment="test",
+    )
+    async with database() as db:
+        assert (
+            await list_extraction_jobs(
+                db=db, user=user, limit=8, active_only=False, include_cancelled=True, job_kind=None
+            )
+            == []
+        )
+        with pytest.raises(Exception) as denied:
+            await get_job_status(job_id=job_id, db=db, user=user)
+        assert denied.value.status_code == 404
+        assert (await db.get(Recipe, recipe_id)).thumbnail_url
+    cover_jobs.video_service.extract_cover_frames.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["revision", "photo", "owner", "delete", "lease"])
+async def test_late_selection_cannot_overwrite_newer_work_or_deleted_recipe(
+    database, monkeypatch, change
+):
+    recipe_id, job_id = await enqueue(database)
+
+    async def intervene(candidates, *_):
+        async with database() as db:
+            recipe = await db.get(Recipe, recipe_id)
+            if change == "revision":
+                recipe.content_revision = 2
+            elif change == "photo":
+                recipe.thumbnail_url = "https://owned.test/user.webp"
+            elif change == "owner":
+                db.add(AppUser(id="another_owner"))
+                await db.flush()
+                recipe.user_id = "another_owner"
+            elif change == "delete":
+                await db.execute(delete(ExtractionJob).where(ExtractionJob.id == job_id))
+                await db.delete(recipe)
+            else:
+                job = await db.get(ExtractionJob, job_id)
+                job.lease_token = "new_worker_lease"
+            await db.commit()
+        return CoverSelectionResult(
+            next(c for c in candidates if c.source_kind == "video_frame"), {"status": "selected"}
+        )
+
+    monkeypatch.setattr(
+        cover_jobs.cover_selection_service, "select", AsyncMock(side_effect=intervene)
+    )
+    await run(database, job_id)
+    async with database() as db:
+        recipe = await db.get(Recipe, recipe_id)
+        if change == "delete":
+            assert recipe is None
+        else:
+            assert recipe.thumbnail_url != "https://owned.test/best.webp"
+        assert cover_jobs.storage_service.store_prepared_thumbnail_variants_locked.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_grading_failure_retries_but_preserves_original_then_ends_pending(
+    database, monkeypatch
+):
+    recipe_id, job_id = await enqueue(database)
+    monkeypatch.setattr(
+        cover_jobs.cover_selection_service,
+        "select",
+        AsyncMock(
+            side_effect=lambda candidates, *_: CoverSelectionResult(
+                candidates[0], {"status": "fallback"}, "timeout"
+            )
+        ),
+    )
+    await run(database, job_id)
+    async with database() as db:
+        assert (await db.get(Recipe, recipe_id)).thumbnail_url == "https://owned.test/original.webp"
+        job = await db.get(ExtractionJob, job_id)
+        assert job.status == "queued" and job.attempt_count == 1
+        job.next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)
+        await db.commit()
+    await run(database, job_id)
+    async with database() as db:
+        recipe, job = await db.get(Recipe, recipe_id), await db.get(ExtractionJob, job_id)
+        assert recipe.thumbnail_url == "https://owned.test/original.webp"
+        assert cover_jobs.cover_pending_until(recipe) is None
+        assert job.status == "failed" and job.notes == "{}"
+
+
+@pytest.mark.asyncio
+async def test_unreachable_thumbnail_and_disabled_grading_keep_frame_fallback(
+    database, monkeypatch
+):
+    recipe_id, job_id = await enqueue(database, preloaded=False)
+    monkeypatch.setattr(
+        cover_jobs.storage_service,
+        "fetch_thumbnail_source",
+        AsyncMock(side_effect=ValueError("expired")),
+    )
+    monkeypatch.setattr(
+        cover_jobs.cover_selection_service,
+        "select",
+        AsyncMock(
+            side_effect=lambda candidates, *_: CoverSelectionResult(
+                candidates[0], {"status": "disabled"}
+            )
+        ),
+    )
+    await run(database, job_id)
+    async with database() as db:
+        assert (await db.get(Recipe, recipe_id)).thumbnail_url == "https://owned.test/original.webp"
+        assert (await db.get(ExtractionJob, job_id)).status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_expiry_discards_source_urls_without_rewriting_recipe(database):
+    recipe_id, job_id = await enqueue(database)
+    async with database() as db:
+        job = await db.get(ExtractionJob, job_id)
+        job.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        await db.commit()
+    assert await cover_jobs.CoverJobWorker().claim_next_job() is None
+    async with database() as db:
+        job = await db.get(ExtractionJob, job_id)
+        assert job.status == "expired" and job.notes == "{}"
+        assert (await db.get(Recipe, recipe_id)).content_revision == 1
+
+
+@pytest.mark.asyncio
+async def test_cancelled_s3_thread_holds_media_lock_until_deletion_can_clean(database, monkeypatch):
+    recipe_id, job_id = await enqueue(database)
+    worker = cover_jobs.CoverJobWorker()
+    await worker.claim_next_job()
+    async with database() as db:
+        job = await db.get(ExtractionJob, job_id)
+        job.status = "processing"
+        token = job.lease_token
+        await db.commit()
+    started, release = threading.Event(), threading.Event()
+    objects = {}
+
+    def put(**kwargs):
+        started.set()
+        assert release.wait(10)
+        objects[kwargs["Key"]] = kwargs["Body"]
+
+    service = StorageService()
+    monkeypatch.setattr(
+        StorageService, "client", property(lambda _: SimpleNamespace(put_object=put))
+    )
+    monkeypatch.setattr(
+        cover_jobs.storage_service,
+        "store_prepared_thumbnail_variants_locked",
+        service.store_prepared_thumbnail_variants_locked,
+    )
+    task = asyncio.create_task(
+        worker._store_candidate(
+            job_id,
+            token,
+            CoverCandidate("frame", photo(), "video_frame"),
+            1,
+            expected_thumbnail=None,
+        )
+    )
+    assert await asyncio.to_thread(started.wait, 3)
+    task.cancel()
+    deleted = asyncio.Event()
+
+    async def delete_after_lock():
+        async with database() as db:
+            await acquire_recipe_media_lock(db, recipe_id)
+            await db.execute(delete(ExtractionJob).where(ExtractionJob.recipe_id == recipe_id))
+            await db.execute(delete(Recipe).where(Recipe.id == recipe_id))
+            objects.clear()
+            await db.commit()
+            deleted.set()
+
+    deletion_task = asyncio.create_task(delete_after_lock())
+    await asyncio.sleep(0.05)
+    assert not deleted.is_set()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.wait_for(deletion_task, 3)
+    assert not objects
