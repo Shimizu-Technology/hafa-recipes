@@ -98,6 +98,7 @@ export function SourcePlaybackCard({
           : `Loading this player connects to ${playback.providerLabel}; its privacy terms apply`}
       >
         {hasPhoto && <RecipeThumbnail
+          key={thumbnailUrl}
           uri={thumbnailUrl}
           style={[styles.previewImage, { aspectRatio: photoAspectRatio }]}
           accessible={false}

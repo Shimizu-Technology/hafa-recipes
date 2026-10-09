@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { StyleSheet, View as RNView } from 'react-native';
 
 import { Text, useColors } from './Themed';
@@ -16,19 +16,26 @@ type RecipeHeroProps = {
   onOpenSource: () => void;
 };
 
-/** Changing the image/source remounts its state, isolating late image failures and open players. */
+/** A new source closes its player; photo updates preserve the current playback. */
 export function RecipeHero(props: RecipeHeroProps) {
   const thumbnailUrl = props.thumbnailUrl?.trim() || null;
-  return <RecipeHeroContent key={JSON.stringify([props.sourceUrl, thumbnailUrl])}
+  return <RecipeHeroContent key={props.sourceUrl}
     {...props} thumbnailUrl={thumbnailUrl} />;
 }
 
 /** Give the food the lead; keep source access when a photo is missing or fails. */
 function RecipeHeroContent({ recipeTitle, sourceUrl, thumbnailUrl, thumbnailPending = false, onOpenSource }: RecipeHeroProps) {
-  const [imageError, setImageError] = useState(false);
+  const currentImage = useRef({ uri: thumbnailUrl });
+  if (currentImage.current.uri !== thumbnailUrl) currentImage.current = { uri: thumbnailUrl };
+  const imageIdentity = currentImage.current;
+  const [failedImage, setFailedImage] = useState<typeof imageIdentity | null>(null);
   const colors = useColors();
-  const playback = getSourcePlayback(sourceUrl);
-  const usableThumbnailUrl = imageError ? null : thumbnailUrl;
+  const playback = useMemo(() => getSourcePlayback(sourceUrl), [sourceUrl]);
+  const usableThumbnailUrl = failedImage === imageIdentity ? null : thumbnailUrl;
+  const handleImageError = () => {
+    // Ignore callbacks from replaced images, including a later reuse of the same URI.
+    if (currentImage.current === imageIdentity) setFailedImage(imageIdentity);
+  };
 
   if (!playback && !usableThumbnailUrl && !thumbnailPending) return null;
 
@@ -42,13 +49,14 @@ function RecipeHeroContent({ recipeTitle, sourceUrl, thumbnailUrl, thumbnailPend
         playback={playback}
         recipeTitle={recipeTitle}
         thumbnailUrl={usableThumbnailUrl}
-        onThumbnailError={() => setImageError(true)}
+        onThumbnailError={handleImageError}
         onOpenSource={onOpenSource}
         embeddedPlaybackEnabled={getSourcePlaybackMode() === 'embedded'}
       /> : usableThumbnailUrl ? <RecipeThumbnail
+        key={usableThumbnailUrl}
         uri={usableThumbnailUrl}
         style={styles.heroImage}
-        onError={() => setImageError(true)}
+        onError={handleImageError}
         accessibilityLabel={`${recipeTitle} recipe`}
         priority="high"
       /> : null}

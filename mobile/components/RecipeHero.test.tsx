@@ -117,10 +117,12 @@ describe('RecipeHero', () => {
     try {
       await act(async () => renderer.render(React.createElement(RecipeHero, props)));
       const oldCard = renderer.container.queryAll((instance) => instance.type === 'SourcePlaybackCard')[0];
-      await act(async () => oldCard.props.onThumbnailError());
+      // Keep the original callback: the source card deliberately stays mounted now.
+      const onOldThumbnailError = oldCard.props.onThumbnailError;
+      await act(async () => onOldThumbnailError());
       expect(renderer.container.queryAll((instance) => instance.type === 'SourcePlaybackCard')[0].props.thumbnailUrl).toBeNull();
       await act(async () => renderer.render(React.createElement(RecipeHero, { ...props, thumbnailUrl: 'https://example.com/new.jpg' })));
-      await act(async () => oldCard.props.onThumbnailError());
+      await act(async () => onOldThumbnailError());
       expect(renderer.container.queryAll((instance) => instance.type === 'SourcePlaybackCard')[0].props.thumbnailUrl).toBe('https://example.com/new.jpg');
     } finally { await act(async () => renderer.unmount()); }
   });
