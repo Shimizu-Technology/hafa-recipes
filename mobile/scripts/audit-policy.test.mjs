@@ -48,7 +48,7 @@ describe('mobile runtime audit policy', () => {
   });
 });
 
-const reviewedAt = Date.parse('2026-10-04T12:00:00Z');
+const reviewedAt = Date.parse('2026-10-09T12:00:00Z');
 const buildToolAdvisories = [
   { packageName: 'braces', source: 1240992, parent: 'node_modules/micromatch' },
   { packageName: 'node-forge', source: 1240912, parent: 'node_modules/@expo/cli' },
@@ -59,7 +59,7 @@ describe.each(buildToolAdvisories)('$packageName temporary build-tool review', (
     return isAcceptedAdvisory({ ...advisory, source, lockfile: changedLockfile, now });
   }
 
-  it('accepts only the reviewed tree during its 30-day window', () => {
+  it('accepts only the reviewed tree before its existing expiry', () => {
     expect(accepted()).toBe(true);
     expect(accepted(lockfile, Date.parse('2026-11-02T23:59:59.999Z'))).toBe(true);
   });
@@ -121,4 +121,41 @@ it('rejects a newly declared micromatch runtime path for the braces exception', 
   const changed = structuredClone(lockfile);
   changed.packages[''].dependencies.micromatch = '^4.0.8';
   expect(isAcceptedAdvisory({ packageName: 'braces', source: 1240992, lockfile: changed, now: reviewedAt })).toBe(false);
+});
+
+
+describe.each([1164823, 1241262, 1241263])('stream-json advisory %s constrained review', (source) => {
+  const now = Date.parse('2026-10-09T12:00:00Z');
+  const accepted = (candidate = lockfile, clock = now) => isAcceptedAdvisory({ packageName: 'stream-json', source, lockfile: candidate, now: clock });
+
+  it('accepts the exact reviewed native wallet path and expires without renewal', () => {
+    expect(accepted()).toBe(true);
+    expect(accepted(lockfile, Date.parse('2026-11-03T00:00:00Z'))).toBe(false);
+    expect(accepted(lockfile, Date.parse('2026-10-08T23:59:59Z'))).toBe(false);
+    expect(accepted(lockfile, NaN)).toBe(false);
+  });
+
+  it.each(['version', 'integrity'])('rejects changed package or parent %s', (field) => {
+    for (const path of ['node_modules/stream-json', 'node_modules/jayson', 'node_modules/@clerk/expo']) {
+      const changed = structuredClone(lockfile);
+      changed.packages[path][field] += '-changed';
+      expect(accepted(changed)).toBe(false);
+    }
+  });
+
+  it('rejects changed ranges, kinds, new input paths, and nested copies', () => {
+    const changedRange = structuredClone(lockfile);
+    changedRange.packages[''].dependencies['@clerk/expo'] = '*';
+    expect(accepted(changedRange)).toBe(false);
+    const changedKind = structuredClone(lockfile);
+    changedKind.packages['node_modules/jayson'].optionalDependencies = { 'stream-json': '^1.9.1' };
+    delete changedKind.packages['node_modules/jayson'].dependencies['stream-json'];
+    expect(accepted(changedKind)).toBe(false);
+    const newPath = structuredClone(lockfile);
+    newPath.packages[''].dependencies['stream-json'] = '^1.9.1';
+    expect(accepted(newPath)).toBe(false);
+    const duplicate = structuredClone(lockfile);
+    duplicate.packages['node_modules/new-parent/node_modules/stream-json'] = structuredClone(duplicate.packages['node_modules/stream-json']);
+    expect(accepted(duplicate)).toBe(false);
+  });
 });

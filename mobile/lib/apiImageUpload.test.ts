@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+// Coupled intentionally to the installed Expo converter; recheck on SDK upgrades.
+import { convertFormDataAsync } from '../node_modules/expo/src/winter/fetch/convertFormData';
 
 const mocks = vi.hoisted(() => {
   const addBreadcrumb = vi.fn();
@@ -28,6 +30,12 @@ const mocks = vi.hoisted(() => {
   };
 });
 
+vi.mock('react-native', () => ({ Platform: { OS: 'ios' } }));
+vi.mock('expo-file-system', () => ({ File: class {
+  constructor(public uri: string) {}
+  async bytes() { return new Uint8Array([1, 2, 3]); }
+} }));
+
 vi.mock('axios', () => ({
   default: { create: () => mocks.client },
 }));
@@ -43,6 +51,9 @@ class InspectableFormData {
 
   append(name: string, value: unknown) {
     this.fields.push({ name, value });
+  }
+  *entries() {
+    for (const { name, value } of this.fields) yield [name, value];
   }
 }
 
@@ -91,6 +102,24 @@ describe('recipe image multipart requests', () => {
       owner = 'owner-b'; finishToken('account-b-token');
       await expect(request).rejects.toThrow('Capture owner changed');
       expect(transport).not.toHaveBeenCalled(); expect(fetchMock).not.toHaveBeenCalled();
+    } finally { api.setTokenGetter(null); }
+  });
+
+  it('sends a native manual photo through Expo multipart conversion without a fixed boundary header', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'recipe-manual' }) });
+    vi.stubGlobal('fetch', fetchMock);
+    api.setTokenGetter(async () => 'owner-token');
+    try {
+      await api.createManualRecipe({ title: 'Kelaguen', ingredients: [], steps: [] }, 'file:///dish.JPG');
+      const request = fetchMock.mock.calls[0][1];
+      expect(request.headers).toEqual({ Authorization: 'Bearer owner-token' });
+      const encoded = await convertFormDataAsync(request.body, 'native-boundary');
+      const body = new TextDecoder().decode(encoded.body);
+      expect(body).toContain('filename="dish.JPG"');
+      expect(body).toContain('content-type: image/jpeg');
+      expect(body).toContain('Kelaguen');
+      const payloadOffset = body.indexOf('content-type: image/jpeg\r\n\r\n') + 'content-type: image/jpeg\r\n\r\n'.length;
+      expect(Array.from(encoded.body.slice(payloadOffset, payloadOffset + 3))).toEqual([1, 2, 3]);
     } finally { api.setTokenGetter(null); }
   });
 
@@ -152,14 +181,14 @@ describe('recipe image multipart requests', () => {
     expect(mocks.post).toHaveBeenCalledOnce();
     const [endpoint, formData, config] = mocks.post.mock.calls[0];
     expect(endpoint).toBe('/api/extract/ocr');
-    expect(uploadedFiles(formData, 'image')).toEqual([{
+    expect(uploadedFiles(formData, 'image')).toMatchObject([{
       uri: 'file:///private/shared-image',
       name: 'shared-recipe.webp',
       type: 'image/webp',
     }]);
     expect((formData as InspectableFormData).fields).toContainEqual({ name: 'location', value: 'Guam' });
     expect(config).toMatchObject({
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: { 'Content-Type': false },
       timeout: 90_000,
     });
   });
@@ -178,7 +207,7 @@ describe('recipe image multipart requests', () => {
 
     expect(mocks.post).toHaveBeenCalledTimes(cases.length);
     expect(mocks.post.mock.calls.map(([, formData]) => uploadedFiles(formData, 'image')[0]))
-      .toEqual([
+      .toMatchObject([
         { uri: 'file:///recipes/front.png', name: 'front.png', type: 'image/png' },
         { uri: 'file:///recipes/steps.GIF', name: 'steps.GIF', type: 'image/gif' },
         { uri: 'file:///recipes/card.webp?cache=1', name: 'card.webp', type: 'image/webp' },
@@ -197,7 +226,7 @@ describe('recipe image multipart requests', () => {
     expect(mocks.post).toHaveBeenCalledOnce();
     const [endpoint, formData, config] = mocks.post.mock.calls[0];
     expect(endpoint).toBe('/api/extract/ocr/multi');
-    expect(uploadedFiles(formData, 'images')).toEqual([
+    expect(uploadedFiles(formData, 'images')).toMatchObject([
       { uri: 'file:///recipes/front.PNG?cache=1', name: 'front.PNG', type: 'image/png' },
       { uri: 'file:///recipes/steps.gif', name: 'steps.gif', type: 'image/gif' },
       { uri: 'file:///recipes/card.webp', name: 'card.webp', type: 'image/webp' },
@@ -205,7 +234,7 @@ describe('recipe image multipart requests', () => {
     ]);
     expect((formData as InspectableFormData).fields).toContainEqual({ name: 'location', value: 'Saipan' });
     expect(config).toMatchObject({
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: { 'Content-Type': false },
       timeout: 180_000,
     });
   });
@@ -224,7 +253,7 @@ describe('recipe image multipart requests', () => {
     ]);
 
     const [, formData] = mocks.post.mock.calls[0];
-    expect(uploadedFiles(formData, 'images')).toEqual([
+    expect(uploadedFiles(formData, 'images')).toMatchObject([
       { uri: 'file:///private/no-extension', name: 'shared-card.png', type: 'image/png' },
       { uri: 'file:///private/opaque-image', name: 'shared-steps.webp', type: 'image/webp' },
     ]);

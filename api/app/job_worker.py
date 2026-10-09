@@ -121,11 +121,12 @@ def apply_recovered_completion(job: ExtractionJob, now: datetime) -> None:
     job.updated_at = now
 
 
-def claimable_job_query(now: datetime):
+def claimable_job_query(now: datetime, job_kinds: tuple[str, ...] = ("extract", "reextract")):
     """Build the locking query shared by workers across API replicas."""
     return (
         select(ExtractionJob)
         .where(
+            ExtractionJob.job_kind.in_(job_kinds),
             or_(
                 and_(
                     ExtractionJob.status == "queued",
@@ -148,11 +149,12 @@ def claimable_job_query(now: datetime):
     )
 
 
-def unclaimable_job_query(now: datetime):
+def unclaimable_job_query(now: datetime, job_kinds: tuple[str, ...] = ("extract", "reextract")):
     """Select jobs that cannot run without interrupting a healthy final lease."""
     return (
         select(ExtractionJob)
         .where(
+            ExtractionJob.job_kind.in_(job_kinds),
             ExtractionJob.status.in_(tuple(ACTIVE_JOB_STATUSES)),
             or_(
                 ExtractionJob.expires_at <= now,
@@ -173,7 +175,8 @@ def unclaimable_job_query(now: datetime):
 class DurableJobWorker:
     """Claim and execute persisted jobs safely across deploys and API replicas."""
 
-    def __init__(self):
+    def __init__(self, *, job_kinds: tuple[str, ...] = ("extract", "reextract")):
+        self.job_kinds = job_kinds
         self._task: asyncio.Task | None = None
         self._wake_event = asyncio.Event()
         self._last_cleanup_at: datetime | None = None
@@ -182,7 +185,7 @@ class DurableJobWorker:
         if not settings.job_worker_enabled or (self._task and not self._task.done()):
             return
         await self.verify_schema()
-        self._task = asyncio.create_task(self._run(), name="durable-extraction-worker")
+        self._task = asyncio.create_task(self._run(), name=f"durable-{'-'.join(self.job_kinds)}-worker")
 
     async def verify_schema(self) -> None:
         """Fail deployment before serving if migration 018 was not applied."""
@@ -250,7 +253,7 @@ class DurableJobWorker:
             async with db.begin():
                 if cleanup_due:
                     await self._expire_unclaimable_jobs(db, now)
-                result = await db.execute(claimable_job_query(now))
+                result = await db.execute(claimable_job_query(now, self.job_kinds))
                 job = result.scalar_one_or_none()
                 if job:
                     apply_claim(job, now)
@@ -261,7 +264,7 @@ class DurableJobWorker:
         return claimed_job_id
 
     async def _expire_unclaimable_jobs(self, db, now: datetime) -> None:
-        result = await db.execute(unclaimable_job_query(now))
+        result = await db.execute(unclaimable_job_query(now, self.job_kinds))
         for job in result.scalars().all():
             if job.expires_at and job.expires_at <= now:
                 job.status = "expired"

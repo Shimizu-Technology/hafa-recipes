@@ -1016,6 +1016,57 @@ class VideoService:
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    async def extract_cover_frames(self, url: str) -> VideoFrameExtractionResult:
+        """Acquire bounded cover candidates with early and late dish coverage.
+
+        Cover sampling is separate from recipe evidence: every candidate is
+        perceptually deduplicated, and scene sampling also seeks into the end
+        of the video rather than consuming its budget on early preparation.
+        """
+
+        temp_dir = tempfile.mkdtemp(prefix="recipe-cover-frames-")
+        try:
+            async with self._media_slot():
+                video_path, duration = await self._download_video_for_frames(url, temp_dir)
+                frames = await self._extract_cover_candidate_frames(
+                    video_path, temp_dir, duration,
+                )
+            if not frames:
+                return VideoFrameExtractionResult(
+                    success=False,
+                    error="No useful cover frames were found",
+                    error_code="NO_VIDEO_FRAMES",
+                )
+            return VideoFrameExtractionResult(success=True, frames=frames)
+        except MediaCapacityExceeded:
+            return VideoFrameExtractionResult(
+                success=False,
+                error="Media process capacity unavailable",
+                error_code="MEDIA_BUSY",
+            )
+        except asyncio.CancelledError:
+            raise
+        except asyncio.TimeoutError:
+            return VideoFrameExtractionResult(
+                success=False,
+                error="Cover frame extraction timed out",
+                error_code="TIMEOUT",
+            )
+        except FileNotFoundError as error:
+            return VideoFrameExtractionResult(
+                success=False,
+                error=_redact_sensitive_values(str(error)),
+                error_code="SYSTEM_ERROR",
+            )
+        except Exception as error:
+            return VideoFrameExtractionResult(
+                success=False,
+                error=_redact_sensitive_values(str(error)),
+                error_code="COVER_FRAME_EXTRACTION_FAILED",
+            )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     async def extract_thumbnail_frame(self, url: str) -> VideoThumbnailResult:
         """Recover one representative JPEG when a platform thumbnail is unreachable."""
 
@@ -1192,6 +1243,78 @@ class VideoService:
         frames.sort(key=lambda frame: frame.timestamp_seconds)
         return frames
 
+    async def _extract_cover_candidate_frames(
+        self,
+        video_path: str,
+        temp_dir: str,
+        duration: float,
+    ) -> list[VideoFrame]:
+        """Sample at most twelve source frames; dedupe every kind of candidate."""
+
+        # Limit work as well as returned images. Reserve three scene candidates
+        # only when the budget leaves enough anchors to cover the whole video.
+        max_count = min(12, max(1, getattr(settings, "recipe_cover_frame_max_count", 12)))
+        scene_budget = 3 if max_count >= 9 and duration >= 1 else 0
+        anchor_count = max_count - scene_budget
+        candidates: list[tuple[float, str]] = []
+        anchors = self._cover_frame_timestamps(duration)[:anchor_count]
+        for index, timestamp in enumerate(anchors):
+            output_path = os.path.join(temp_dir, f"cover-anchor-{index:02d}.jpg")
+            if await self._write_frame(video_path, output_path, timestamp):
+                candidates.append((timestamp, output_path))
+
+        if scene_budget:
+            candidates.extend(await self._write_scene_change_frames(
+                video_path, temp_dir,
+                frame_limit=1, output_prefix="cover-scene-opening",
+            ))
+            candidates.extend(await self._write_scene_change_frames(
+                video_path, temp_dir,
+                start_seconds=duration * 0.7,
+                frame_limit=2, output_prefix="cover-scene-closing",
+            ))
+
+        frames: list[VideoFrame] = []
+        fingerprints: list[int] = []
+        for timestamp, path in candidates:
+            try:
+                image_data = Path(path).read_bytes()
+                if len(image_data) > 10 * 1024 * 1024:
+                    continue
+                fingerprint = self._image_fingerprint(image_data)
+            except (OSError, ValueError):
+                continue
+            if any((fingerprint ^ prior).bit_count() <= 5 for prior in fingerprints):
+                continue
+            frames.append(VideoFrame(
+                timestamp_seconds=round(timestamp, 2),
+                image_base64=base64.b64encode(image_data).decode("ascii"),
+            ))
+            fingerprints.append(fingerprint)
+            if len(frames) >= max_count:
+                break
+        frames.sort(key=lambda frame: frame.timestamp_seconds)
+        return frames
+
+    @staticmethod
+    def _cover_frame_timestamps(duration: float) -> list[float]:
+        """Prioritize opening reveals, late plating, then middle coverage."""
+
+        final_timestamp = max(0.0, duration - 0.25)
+        priorities = (
+            min(0.5, final_timestamp),
+            final_timestamp * 0.9,
+            final_timestamp * 0.05,
+            final_timestamp * 0.96,
+            final_timestamp * 0.35,
+            final_timestamp * 0.75,
+            final_timestamp * 0.15,
+            final_timestamp * 0.55,
+            final_timestamp,
+        )
+        # Preserve priority order so a smaller budget still spans the video.
+        return list(dict.fromkeys(round(value, 3) for value in priorities))
+
     @staticmethod
     def _periodic_frame_timestamps(duration: float) -> list[float]:
         """Cover the opening, closing, and evenly spaced points in a video."""
@@ -1247,16 +1370,26 @@ class VideoService:
         self,
         video_path: str,
         temp_dir: str,
+        *,
+        start_seconds: float = 0.0,
+        frame_limit: int = 4,
+        output_prefix: str = "scene",
     ) -> list[tuple[float, str]]:
-        """Capture a capped set of strong scene changes and parse their timestamps."""
+        """Capture capped scene changes, retaining absolute source timestamps.
+
+        Default arguments preserve recipe-evidence sampling. Cover selection
+        uses a separate late-video seek and distinct output filenames.
+        """
 
         process: Optional[asyncio.subprocess.Process] = None
-        output_pattern = os.path.join(temp_dir, "scene-%02d.jpg")
+        output_pattern = os.path.join(temp_dir, f"{output_prefix}-%02d.jpg")
+        seek_args = ["-ss", f"{start_seconds:.3f}"] if start_seconds > 0 else []
         try:
             process = await asyncio.create_subprocess_exec(
                 "ffmpeg",
                 "-loglevel",
                 "info",
+                *seek_args,
                 "-i",
                 video_path,
                 "-vf",
@@ -1264,7 +1397,7 @@ class VideoService:
                 "-fps_mode",
                 "vfr",
                 "-frames:v",
-                "4",
+                str(frame_limit),
                 "-q:v",
                 "3",
                 "-y",
@@ -1280,13 +1413,13 @@ class VideoService:
             if process.returncode != 0:
                 return []
             timestamps = [
-                float(value)
+                float(value) + start_seconds
                 for value in re.findall(
                     rb"pts_time:([0-9]+(?:\.[0-9]+)?)",
                     stderr or b"",
                 )
             ]
-            paths = sorted(Path(temp_dir).glob("scene-*.jpg"))
+            paths = sorted(Path(temp_dir).glob(f"{output_prefix}-*.jpg"))
             return [
                 (timestamps[index], str(path))
                 for index, path in enumerate(paths)

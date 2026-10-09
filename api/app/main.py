@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.ai_governance import ai_request_context, verify_ai_governance_schema
 from app.config import get_settings
+from app.cover_jobs import cover_job_worker
 from app.database_invariants import verify_database_invariants
 from app.deletion_cleanup import deletion_cleanup_worker
 from app.grocery_sync import verify_grocery_sync_schema
@@ -135,12 +136,14 @@ async def startup():
     await verify_widget_credential_schema()
     print("Grocery widget credential schema ready")
     await job_worker.start()
+    await cover_job_worker.start()
     await deletion_cleanup_worker.start()
 
 
 @app.on_event("shutdown")
 async def shutdown():
     """Run on application shutdown."""
+    await cover_job_worker.stop()
     await deletion_cleanup_worker.stop()
     await job_worker.stop()
     print("👋 Shutting down Recipe Extractor API")

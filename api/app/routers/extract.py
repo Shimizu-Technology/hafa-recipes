@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -16,6 +16,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.ai_governance import ai_request_context
 from app.auth import ClerkUser, get_current_user
 from app.config import get_settings
+from app.cover_jobs import cover_job_worker, enqueue_cover_job
 from app.database_invariants import next_recipe_version_number
 from app.db import get_db
 from app.image_validation import ImageValidationError, validate_image_bytes
@@ -79,13 +80,19 @@ def _normalized_idempotency_key(value: str | None) -> str | None:
 async def _commit_external_recipe(
     db: AsyncSession,
     recipe: Recipe,
+    *,
+    cover_result=None,
 ) -> tuple[Recipe, bool]:
     """Commit one external recipe or return the winner of a concurrent insert."""
 
     db.add(recipe)
     try:
+        if cover_result is not None:
+            await db.flush()
+            enqueue_cover_job(db, recipe, cover_result)
         await db.commit()
         await db.refresh(recipe)
+        cover_job_worker.wake()
         return recipe, False
     except IntegrityError:
         await db.rollback()
@@ -701,7 +708,7 @@ async def extract_recipe(
         require_recipe_publishable(new_recipe)
         await require_current_publishing_disclosure(db, user.id)
     
-    new_recipe, raced_existing = await _commit_external_recipe(db, new_recipe)
+    new_recipe, raced_existing = await _commit_external_recipe(db, new_recipe, cover_result=extraction_result)
     if raced_existing:
         return ExtractResponse(
             id=new_recipe.id,
@@ -710,6 +717,8 @@ async def extract_recipe(
         )
     
     # Only app-owned URLs are durable enough to save as recipe images.
+    if (new_recipe.extracted.get("media") or {}).get("coverSelection"):
+        return ExtractResponse(id=new_recipe.id, recipe=new_recipe.extracted, is_existing=False)
     s3_url = await _upload_video_thumbnail(
         source_url=url,
         candidate_url=extraction_result.thumbnail_url,
@@ -1126,7 +1135,9 @@ async def run_extraction_job(
                 # process exits afterward, stale recovery completes this job
                 # instead of creating a duplicate recipe.
                 job.recipe_id = new_recipe.id
+                cover_job = enqueue_cover_job(db, new_recipe, result, parent_job_id=job.id)
                 await db.commit()
+                cover_job_worker.wake()
                 await db.refresh(new_recipe)
                 
                 # Check AGAIN after commit - if cancelled during save, delete the recipe
@@ -1138,6 +1149,7 @@ async def run_extraction_job(
                 job = post_save_job_result.scalar_one_or_none()
                 if job and job.status == "cancelled":
                     print(f"🚫 Job {job_id} was cancelled during save - deleting recipe {new_recipe.id}")
+                    await db.execute(delete(ExtractionJob).where(ExtractionJob.job_kind == "cover", ExtractionJob.target_recipe_id == new_recipe.id))
                     await db.delete(new_recipe)
                     job.recipe_id = None
                     await db.commit()
@@ -1149,7 +1161,7 @@ async def run_extraction_job(
                 
                 # Upload thumbnail to S3 for permanent storage. Video platform
                 # URLs are never retained because their CDN signatures expire.
-                if result.thumbnail_url or platform != "website":
+                if cover_job is None and (result.thumbnail_url or platform != "website"):
                     await update_progress(ExtractionProgress(
                         step="saving",
                         progress=85,
@@ -1248,6 +1260,7 @@ async def run_extraction_job(
                 cancelled_job.recipe_id = None
                 await db.flush()
                 if cancelled_recipe:
+                    await db.execute(delete(ExtractionJob).where(ExtractionJob.job_kind == "cover", ExtractionJob.target_recipe_id == cancelled_recipe.id))
                     await db.delete(cancelled_recipe)
                 await db.commit()
         except PublishingDisclosureRequired:
@@ -1317,7 +1330,7 @@ async def list_extraction_jobs(
 ):
     """List the signed-in user's newest jobs for recovery and recent activity."""
 
-    filters = [ExtractionJob.user_id == user.id]
+    filters = [ExtractionJob.user_id == user.id, ExtractionJob.job_kind.in_(("extract", "reextract"))]
     if active_only:
         filters.append(ExtractionJob.status.in_(ACTIVE_JOB_STATUSES))
     elif not include_cancelled:
@@ -1346,7 +1359,7 @@ async def get_job_status(
 ):
     """Get the status of an extraction job."""
     result = await db.execute(
-        select(ExtractionJob).where(ExtractionJob.id == job_id)
+        select(ExtractionJob).where(ExtractionJob.id == job_id, ExtractionJob.job_kind.in_(("extract", "reextract")))
     )
     job = result.scalar_one_or_none()
 
@@ -1482,7 +1495,7 @@ async def cancel_job(
     """
     result = await db.execute(
         select(ExtractionJob)
-        .where(ExtractionJob.id == job_id)
+        .where(ExtractionJob.id == job_id, ExtractionJob.job_kind.in_(("extract", "reextract")))
         .with_for_update()
     )
     job = result.scalar_one_or_none()
@@ -1902,7 +1915,8 @@ async def run_re_extraction_job(
                     return
 
                 uploaded_thumbnail_url = None
-                if result.thumbnail_url:
+                keep_video_cover = bool(recipe.thumbnail_url and platform in video_service.SUPPORTED_PLATFORMS)
+                if result.thumbnail_url and not keep_video_cover:
                     s3_url = await storage_service.upload_thumbnail_from_url_locked(
                         result.thumbnail_url,
                         str(recipe.id),
@@ -1938,6 +1952,9 @@ async def run_re_extraction_job(
                 )
                 db.add(version)
                 final_thumbnail_url = uploaded_thumbnail_url or recipe.thumbnail_url
+                # Re-extract recipe facts without reverting a selected/user
+                # cover to the platform thumbnail or an expiring source URL.
+                final_extracted = _with_thumbnail(final_extracted, final_thumbnail_url) if final_thumbnail_url else _without_external_thumbnail(final_extracted)
 
                 # Now apply ALL changes to the recipe object at once
                 print(f"🔵 Final extracted has lowConfidence = {final_extracted.get('lowConfidence')}")

@@ -10,7 +10,7 @@ from app.config import get_settings
 from app.recipe_review import is_missing_quantity
 from app.services.llm_client import llm_service
 from app.services.openai_client import openai_service  # Used for transcription
-from app.services.video import VideoMetadata, VideoService, video_service
+from app.services.video import VideoFrame, VideoMetadata, VideoService, video_service
 
 settings = get_settings()
 
@@ -39,6 +39,8 @@ class FullExtractionResult:
     low_confidence: bool = False  # True if extraction quality is uncertain
     confidence_warning: Optional[str] = None  # Warning message for low confidence
     source_evidence: Optional[dict] = None  # Privacy-safe modality/timestamp provenance
+    cover_frames: Optional[list[VideoFrame]] = None  # Transient; never serialized or persisted
+    cover_images: Optional[list[str]] = None  # Transient slideshow bytes for cover comparison
 
 
 def _check_extraction_confidence(
@@ -743,6 +745,7 @@ class RecipeExtractor:
                 ],
                 "sourceArtifactsRetained": False,
             },
+            cover_frames=frames,
         )
     
     async def _extract_from_tiktok_photo(
@@ -884,7 +887,8 @@ class RecipeExtractor:
                 extraction_quality="good",
                 has_audio_transcript=False,
                 low_confidence=low_confidence,
-                confidence_warning=confidence_warning
+                confidence_warning=confidence_warning,
+                cover_images=base64_images,
             )
             
         except Exception as e:

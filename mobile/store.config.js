@@ -45,15 +45,13 @@ DISCOVER AND ORGANIZE
 AI can make mistakes. Review extracted ingredients, directions, allergens, temperatures, and food-safety guidance before cooking.
 
 Made in Guam by Shimizu Technology.`;
-const RELEASE_NOTES = `This update makes importing and cooking from saved recipes easier.
+const RELEASE_NOTES = `Better photos for imported recipes.
 
-• Share recipe links to Håfa and start an import in the background. Queue another recipe while one is processing.
-• Use a cleaner import page with clearer progress, optional details, and a simpler saved-recipe view.
-• New imports default to Public in Discover after the publishing notice. Choose Private when you prefer, and your choice is remembered.
-• See nutrition estimates when the source leaves them out, with clearer portions and expandable assumptions.
-• Enjoy larger recipe photos, tidier recipe details, and equipment listed with the ingredients.
+• Håfa compares available images and video frames to choose a clearer photo of your recipe.
+• Recipe photos refresh as selection finishes, with a small status message when a photo is still being chosen.
+• Keep using the original source while your photo is prepared, and replace the photo yourself whenever you prefer.
 
-Includes fixes for import recovery, privacy choices, and recipe display.`;
+Includes improvements to recipe-photo recovery and reliability.`;
 
 function requiredEnvironmentValue(environment, name) {
   const value = String(environment[name] ?? '').trim();

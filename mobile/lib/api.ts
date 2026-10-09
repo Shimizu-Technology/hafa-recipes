@@ -5,6 +5,7 @@
 import type { QuantityEstimate, NutritionValues } from '@/types/recipe';
 import type { PantryMutationRequest, PantrySnapshot, PantryTransferLine } from '@/types/pantry';
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import { appendRecipeImage } from './imageMultipart';
 import { captureError, captureMessage, addBreadcrumb } from './sentry';
 import { API_BASE_URL } from './apiConfig';
 import {
@@ -88,14 +89,6 @@ export type OCRExtractionResult = {
   model_used?: string;
   latency_seconds?: number;
 };
-
-function inferImageMimeType(fileName: string): string {
-  const extension = fileName.split('?')[0].split('.').pop()?.toLowerCase();
-  if (extension === 'png') return 'image/png';
-  if (extension === 'gif') return 'image/gif';
-  if (extension === 'webp') return 'image/webp';
-  return 'image/jpeg';
-}
 
 type GuardedRequestConfig = AxiosRequestConfig & {
   requestGuard?: RequestGuard;
@@ -333,8 +326,8 @@ class ApiClient {
     return data;
   }
 
-  async getRecipe(id: string): Promise<Recipe> {
-    const { data } = await this.client.get(`/api/recipes/${id}`);
+  async getRecipe(id: string, signal?: AbortSignal, requestGuard?: RequestGuard): Promise<Recipe> {
+    const { data } = await this.client.get(`/api/recipes/${id}`, { signal, requestGuard } as GuardedRequestConfig);
     return data;
   }
 
@@ -494,19 +487,8 @@ class ApiClient {
     const formData = new FormData();
     formData.append('recipe_data', JSON.stringify(recipeData));
     
-    // Add image if provided
-    if (imageUri) {
-      const filename = imageUri.split('/').pop() || 'photo.jpg';
-      const match = /\.(\w+)$/.exec(filename);
-      const type = match ? `image/${match[1]}` : 'image/jpeg';
-      
-      formData.append('image', {
-        uri: imageUri,
-        name: filename,
-        type,
-      } as any);
-    }
-    
+    if (imageUri) await appendRecipeImage(formData, 'image', imageUri);
+
     // Use fetch for multipart form data (axios has issues with FormData in React Native)
     const token = await this.getAuthTokenWithRetry('/api/recipes/manual');
     requestGuard?.();
@@ -709,28 +691,14 @@ class ApiClient {
     // Create form data with the image
     const formData = new FormData();
     
-    // Get the file name and type from the URI
-    const imageUri = typeof image === 'string' ? image : image.uri;
-    const uriFileName = imageUri.split('/').pop()?.split('?')[0] || 'photo.jpg';
-    const fileName = typeof image === 'string'
-      ? uriFileName
-      : image.fileName || uriFileName;
-    const fileType = typeof image === 'string'
-      ? inferImageMimeType(fileName)
-      : image.mimeType || inferImageMimeType(fileName);
-    
-    // Append the image as a file
-    formData.append('image', {
-      uri: imageUri,
-      name: fileName,
-      type: fileType,
-    } as any);
-    
+    await appendRecipeImage(formData, 'image', image);
+
     formData.append('location', location);
     
     const { data } = await this.client.post('/api/extract/ocr', formData, {
       headers: {
-        'Content-Type': 'multipart/form-data',
+        // Disable the client's JSON default; the transport supplies the multipart boundary.
+        'Content-Type': false,
       },
       timeout: 90000, // 90 seconds for OCR
     });
@@ -749,22 +717,10 @@ class ApiClient {
     // Create form data with all images
     const formData = new FormData();
     
-    // Append each image
-    images.forEach((image, index) => {
-      const uri = typeof image === 'string' ? image : image.uri;
-      const fileName = uri.split('/').pop()?.split('?')[0] || `photo_${index}.jpg`;
-      const uploadName = typeof image === 'string' ? fileName : image.fileName || fileName;
-      const fileType = typeof image === 'string'
-        ? inferImageMimeType(uploadName)
-        : image.mimeType || inferImageMimeType(uploadName);
-      
-      formData.append('images', {
-        uri: uri,
-        name: uploadName,
-        type: fileType,
-      } as any);
-    });
-    
+    for (const [index, image] of images.entries()) {
+      await appendRecipeImage(formData, 'images', image, `photo_${index}.jpg`);
+    }
+
     formData.append('location', location);
     
     // Increase timeout for multiple images (90s base + 30s per additional image)
@@ -772,7 +728,8 @@ class ApiClient {
     
     const { data } = await this.client.post('/api/extract/ocr/multi', formData, {
       headers: {
-        'Content-Type': 'multipart/form-data',
+        // Disable the client's JSON default; the transport supplies the multipart boundary.
+        'Content-Type': false,
       },
       timeout,
     });
@@ -1299,16 +1256,8 @@ class ApiClient {
     const formData = new FormData();
     formData.append('recipe_data', JSON.stringify(editData));
     
-    const filename = imageUri.split('/').pop() || 'photo.jpg';
-    const match = /\.(\w+)$/.exec(filename);
-    const type = match ? `image/${match[1]}` : 'image/jpeg';
-    
-    formData.append('image', {
-      uri: imageUri,
-      name: filename,
-      type,
-    } as any);
-    
+    await appendRecipeImage(formData, 'image', imageUri);
+
     const token = this.getTokenFn ? await this.getTokenFn() : null;
     
     const response = await fetch(`${API_BASE_URL}/api/recipes/${recipeId}/edit`, {

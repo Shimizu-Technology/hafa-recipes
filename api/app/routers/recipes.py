@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import ClerkUser, get_current_user, get_optional_user
 from app.config import get_settings
+from app.cover_jobs import cover_pending_until
 from app.database_invariants import next_recipe_version_number
 from app.db import get_db
 from app.deletion_cleanup import deletion_cleanup_worker
@@ -74,6 +75,7 @@ from app.services.nutrition import (
     sanitized_nutrition,
 )
 from app.services.storage import storage_service
+from app.services.video import video_service
 from app.source_urls import canonicalize_source
 
 MAX_RECIPE_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -722,6 +724,9 @@ def recipe_to_detail_response(
         recipe.thumbnail_url,
         variant="hero",
     )
+    pending_until = cover_pending_until(recipe)
+    response_data["thumbnail_pending"] = pending_until is not None
+    response_data["thumbnail_pending_until"] = pending_until
     # Legacy rows can predate the column default and contain NULL. Keep the
     # public detail contract aligned with list responses instead of turning an
     # otherwise valid recipe into a response-validation 500.
@@ -2877,7 +2882,8 @@ async def re_extract_recipe(
             )
 
         uploaded_thumbnail_url = None
-        if extraction_result.thumbnail_url:
+        keep_video_cover = bool(recipe.thumbnail_url and video_service.detect_platform(recipe.source_url) in video_service.SUPPORTED_PLATFORMS)
+        if extraction_result.thumbnail_url and not keep_video_cover:
             uploaded_thumbnail_url = await storage_service.upload_thumbnail_from_url(
                 extraction_result.thumbnail_url,
                 str(recipe.id),
@@ -2919,10 +2925,15 @@ async def re_extract_recipe(
         recipe.has_audio_transcript = extraction_result.has_audio_transcript
         apply_recipe_review(recipe, new_extracted, increment_revision=True)
 
-        if uploaded_thumbnail_url:
-            recipe.thumbnail_url = uploaded_thumbnail_url
-            if recipe.extracted and "media" in recipe.extracted:
-                recipe.extracted["media"]["thumbnail"] = uploaded_thumbnail_url
+        # Decide from the refreshed, locked row: photo selection or a manual
+        # replacement may have finished while extraction/upload was running.
+        current_video_cover = (
+            recipe.thumbnail_url
+            if video_service.detect_platform(recipe.source_url) in video_service.SUPPORTED_PLATFORMS
+            else None
+        )
+        recipe.thumbnail_url = current_video_cover or uploaded_thumbnail_url or recipe.thumbnail_url
+        recipe.extracted = preserve_current_thumbnail(recipe.extracted, recipe.thumbnail_url)
 
         await db.commit()
         await db.refresh(recipe)

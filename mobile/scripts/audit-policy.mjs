@@ -12,15 +12,23 @@ const acceptedSimpleAdvisories = new Set([
   'uuid:1119441',
 ]);
 
-const STREAM_JSON_ADVISORY = 'stream-json:1164823';
+// All three are constrained to the reviewed, unused native Clerk wallet tree.
+const STREAM_JSON_ADVISORIES = new Set([
+  'stream-json:1164823',
+  'stream-json:1241262',
+  'stream-json:1241263',
+]);
+const STREAM_JSON_REVIEW_STARTED = Date.parse('2026-10-09T00:00:00Z');
+export const streamJsonReviewExpiresAt = '2026-11-03T00:00:00Z';
+const STREAM_JSON_REVIEW_EXPIRES = Date.parse(streamJsonReviewExpiresAt);
 
 const reviewedStreamJsonChain = [
-  ['', 'dependencies', '@clerk/expo'],
-  ['node_modules/@clerk/expo', 'dependencies', '@clerk/clerk-js'],
-  ['node_modules/@clerk/clerk-js', 'dependencies', '@solana/wallet-adapter-base'],
-  ['node_modules/@solana/wallet-adapter-base', 'peerDependencies', '@solana/web3.js'],
-  ['node_modules/@solana/web3.js', 'dependencies', 'jayson'],
-  ['node_modules/jayson', 'dependencies', 'stream-json'],
+  ['', 'dependencies', '@clerk/expo', '^4.5.2'],
+  ['node_modules/@clerk/expo', 'dependencies', '@clerk/clerk-js', '^6.29.3'],
+  ['node_modules/@clerk/clerk-js', 'dependencies', '@solana/wallet-adapter-base', '0.9.27'],
+  ['node_modules/@solana/wallet-adapter-base', 'peerDependencies', '@solana/web3.js', '^1.98.0'],
+  ['node_modules/@solana/web3.js', 'dependencies', 'jayson', '^4.1.1'],
+  ['node_modules/jayson', 'dependencies', 'stream-json', '^1.9.1'],
 ];
 
 const reviewedStreamJsonPackages = {
@@ -50,20 +58,24 @@ const reviewedStreamJsonPackages = {
   },
 };
 
-function hasReviewedStreamJsonPath(lockfile) {
+function hasReviewedStreamJsonPath(lockfile, now) {
   const packages = lockfile?.packages;
-  if (!packages) return false;
+  if (!packages || !Number.isFinite(now) || now < STREAM_JSON_REVIEW_STARTED
+    || now >= STREAM_JSON_REVIEW_EXPIRES) return false;
 
   const metadataMatches = Object.entries(reviewedStreamJsonPackages).every(
     ([packagePath, expected]) =>
       packages[packagePath]?.version === expected.version
-      && packages[packagePath]?.integrity === expected.integrity,
+      && packages[packagePath]?.integrity === expected.integrity
+      && !Object.keys(packages).some((candidate) =>
+        candidate.endsWith(`/node_modules/${packagePath.slice('node_modules/'.length)}`)),
   );
   if (!metadataMatches) return false;
 
   const chainExists = reviewedStreamJsonChain.every(
-    ([packagePath, dependencyKind, dependencyName]) =>
-      typeof packages[packagePath]?.[dependencyKind]?.[dependencyName] === 'string',
+    ([packagePath, dependencyKind, dependencyName, range]) =>
+      ['dependencies', 'optionalDependencies', 'peerDependencies', 'devDependencies'].every(
+        (kind) => packages[packagePath]?.[kind]?.[dependencyName] === (kind === dependencyKind ? range : undefined)),
   );
   if (!chainExists) return false;
 
@@ -71,7 +83,7 @@ function hasReviewedStreamJsonPath(lockfile) {
   // reviewed Clerk/Solana chain is its sole declaration in the production tree.
   const declaringPackages = Object.entries(packages)
     .filter(([, metadata]) =>
-      ['dependencies', 'optionalDependencies', 'peerDependencies'].some(
+      ['dependencies', 'optionalDependencies', 'peerDependencies', 'devDependencies'].some(
         (kind) => typeof metadata?.[kind]?.['stream-json'] === 'string',
       ))
     .map(([packagePath]) => packagePath);
@@ -84,7 +96,7 @@ function hasReviewedStreamJsonPath(lockfile) {
 // not runtime vulnerability fixes; see ../docs/dependency-audit-review.md.
 // Any changed version, integrity, declaring parent/range, duplicate install,
 // or expired review fails closed and requires a fresh reachability assessment.
-const BUILD_TOOL_REVIEW_STARTED = Date.parse('2026-10-04T00:00:00Z');
+const BUILD_TOOL_REVIEW_STARTED = Date.parse('2026-10-09T00:00:00Z');
 export const buildToolReviewExpiresAt = '2026-11-03T00:00:00Z';
 const BUILD_TOOL_REVIEW_EXPIRES = Date.parse(buildToolReviewExpiresAt);
 const reviewedBuildToolAdvisories = {
@@ -99,8 +111,8 @@ const reviewedBuildToolAdvisories = {
         "integrity": "sha512-PXwfBhYu0hBCPw8Dn0E+WDYb7af3dSLVWKi3HGv84IdF4TyFoC0ysxFd0Goxw7nSv4T/PzEJQxsYsEiFCKo2BA=="
       },
       "node_modules/@expo/metro-file-map": {
-        "version": "57.0.3",
-        "integrity": "sha512-1OXy+uPYY5uc7Tm4VBsd2NRn+3wHhqeqNuEO/Xo4kmYgv8FjYgUAc+bUXON9FpC2ikcLn4EVlGM9ce2exx9Mlg=="
+        "version": "57.0.4",
+        "integrity": "sha512-gLABIbU3SlxRVVCe56ZfYFbxjhdpAKomQYr6LIeDYf7rca8Pfvzv8FS39hH0+IcdpEHly2Jy0X2nd4/obd8Kig=="
       },
       "node_modules/metro-file-map": {
         "version": "0.84.5",
@@ -118,9 +130,6 @@ const reviewedBuildToolAdvisories = {
         }
       },
       "micromatch": {
-        "node_modules/@expo/metro-file-map": {
-          "dependencies": "^4.0.4"
-        },
         "node_modules/metro-file-map": {
           "dependencies": "^4.0.4"
         },
@@ -137,8 +146,8 @@ const reviewedBuildToolAdvisories = {
         "integrity": "sha512-LarFH0+6VfriEhqMMcLX2F7SwSXeWwnEAJEsYm5QKWchiVYVvJyV9v7UDvUv+w5HO23ZpQTXDv/GxdDdMyOuoQ=="
       },
       "node_modules/@expo/cli": {
-        "version": "57.0.27",
-        "integrity": "sha512-Jauk4chxmpVG5ElrMLTCwjFP20jbYU7PB4l3LYV8j+4e/3HU5jdl7qTQ4eVy1AaDUE9Ia2NCQ5A9kar2V1gaLg=="
+        "version": "57.0.28",
+        "integrity": "sha512-4969gk/B2JyP3kAv2ftpwU1f9dLG2j9TsQuYCTTjfnyRx0O49Jwu1O1mie2c3HmKXbwfNA6QTS+3i3sNetMTag=="
       },
       "node_modules/@expo/code-signing-certificates": {
         "version": "0.0.6",
@@ -189,15 +198,15 @@ function hasReviewedBuildToolPath(key, lockfile, now) {
   return true;
 }
 
-export const reviewedAdvisoryCount = acceptedSimpleAdvisories.size + 1 + Object.keys(reviewedBuildToolAdvisories).length;
+export const reviewedAdvisoryCount = acceptedSimpleAdvisories.size + STREAM_JSON_ADVISORIES.size + Object.keys(reviewedBuildToolAdvisories).length;
 
 export function isAcceptedAdvisory({ packageName, source, lockfile, now = Date.now() }) {
   const key = `${packageName}:${source}`;
   if (acceptedSimpleAdvisories.has(key)) return true;
   if (Object.hasOwn(reviewedBuildToolAdvisories, key)) return hasReviewedBuildToolPath(key, lockfile, now);
-  if (key !== STREAM_JSON_ADVISORY) return false;
+  if (!STREAM_JSON_ADVISORIES.has(key)) return false;
 
   // Clerk bundles unused Solana wallet support in the native SDK. Håfa does
   // not expose that path, and its JSON filter receives no app or user input.
-  return hasReviewedStreamJsonPath(lockfile);
+  return hasReviewedStreamJsonPath(lockfile, now);
 }

@@ -167,6 +167,8 @@ class RecipeResponse(BaseModel):
     raw_text: Optional[str] = None
     extracted: RecipeExtracted
     thumbnail_url: Optional[str] = None
+    thumbnail_pending: bool = False
+    thumbnail_pending_until: Optional[datetime] = None
     extraction_method: Optional[str] = None
     extraction_quality: Optional[str] = None
     has_audio_transcript: bool = False
