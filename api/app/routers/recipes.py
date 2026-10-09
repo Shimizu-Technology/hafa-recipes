@@ -2925,7 +2925,14 @@ async def re_extract_recipe(
         recipe.has_audio_transcript = extraction_result.has_audio_transcript
         apply_recipe_review(recipe, new_extracted, increment_revision=True)
 
-        recipe.thumbnail_url = uploaded_thumbnail_url or recipe.thumbnail_url
+        # Decide from the refreshed, locked row: photo selection or a manual
+        # replacement may have finished while extraction/upload was running.
+        current_video_cover = (
+            recipe.thumbnail_url
+            if video_service.detect_platform(recipe.source_url) in video_service.SUPPORTED_PLATFORMS
+            else None
+        )
+        recipe.thumbnail_url = current_video_cover or uploaded_thumbnail_url or recipe.thumbnail_url
         recipe.extracted = preserve_current_thumbnail(recipe.extracted, recipe.thumbnail_url)
 
         await db.commit()

@@ -6,6 +6,7 @@ import io
 import json
 import os
 import threading
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -592,3 +593,80 @@ async def test_cancelled_s3_thread_holds_media_lock_until_deletion_can_clean(dat
         await task
     await asyncio.wait_for(deletion_task, 3)
     assert not objects
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("photo_kind", ["selected", "user"])
+async def test_legacy_reextraction_preserves_cover_that_arrives_during_upload(
+    database, monkeypatch, photo_kind
+):
+    """A source-thumbnail upload cannot revert a newly committed recipe photo."""
+    from app.routers import recipes
+    from app.services import recipe_extractor
+    from app.services.extractor import FullExtractionResult
+
+    recipe_id, _ = await enqueue(database)
+    async with database() as db:
+        item = await db.get(Recipe, recipe_id)
+        assert item.thumbnail_url is None
+        updated = {**item.extracted, "title": "Updated Rice"}
+    monkeypatch.setattr(
+        recipe_extractor, "extract",
+        AsyncMock(return_value=FullExtractionResult(
+            success=True, recipe=updated,
+            thumbnail_url="https://source.test/platform.jpg",
+            extraction_method="whisper", extraction_quality="high",
+            has_audio_transcript=True,
+        )),
+    )
+    upload_started, cover_committed = asyncio.Event(), asyncio.Event()
+    platform_url = "https://owned.test/platform.webp"
+    cover_url = f"https://owned.test/{photo_kind}.webp"
+
+    async def upload_source(*_args, **_kwargs):
+        upload_started.set()
+        await asyncio.wait_for(cover_committed.wait(), 3)
+        return platform_url
+
+    source_upload = AsyncMock(side_effect=upload_source)
+    monkeypatch.setattr(cover_jobs.storage_service, "upload_thumbnail_from_url", source_upload)
+    actor = ClerkUser(
+        id="cover_owner", clerk_user_id="clerk_cover",
+        clerk_issuer="https://example.test", clerk_environment="test",
+    )
+
+    async def reextract():
+        async with database() as db:
+            return await recipes.re_extract_recipe(
+                recipe_id, recipes.ReExtractRequest(location="Guam"), db, actor
+            )
+
+    reextraction = asyncio.create_task(reextract())
+    try:
+        await asyncio.wait_for(upload_started.wait(), 3)
+        # Separate transaction mimics cover-worker/manual-photo commitment
+        # after the route's initial read and before its final row lock/refresh.
+        async with database() as db:
+            await acquire_recipe_media_lock(db, recipe_id)
+            item = await db.scalar(select(Recipe).where(Recipe.id == recipe_id).with_for_update())
+            item.thumbnail_url = cover_url
+            item.extracted = {**item.extracted, "media": {"thumbnail": cover_url}}
+            if photo_kind == "user":
+                item.content_revision += 1
+            await db.commit()
+        cover_committed.set()
+        response = await asyncio.wait_for(reextraction, 3)
+    finally:
+        cover_committed.set()
+        if not reextraction.done():
+            reextraction.cancel()
+        with suppress(asyncio.CancelledError):
+            await reextraction
+
+    source_upload.assert_awaited_once()
+    assert response.extracted.media.thumbnail == cover_url
+    async with database() as db:
+        item = await db.get(Recipe, recipe_id)
+        assert item.thumbnail_url == item.extracted["media"]["thumbnail"] == cover_url
+        assert item.extracted["title"] == "Updated Rice"
+        assert item.content_revision == (3 if photo_kind == "user" else 2)
