@@ -333,8 +333,8 @@ class ApiClient {
     return data;
   }
 
-  async getRecipe(id: string): Promise<Recipe> {
-    const { data } = await this.client.get(`/api/recipes/${id}`);
+  async getRecipe(id: string, signal?: AbortSignal, requestGuard?: RequestGuard): Promise<Recipe> {
+    const { data } = await this.client.get(`/api/recipes/${id}`, { signal, requestGuard } as GuardedRequestConfig);
     return data;
   }
 

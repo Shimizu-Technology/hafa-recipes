@@ -141,7 +141,7 @@ export default function RecipeDetailScreen() {
   const [showRelated, setShowRelated] = useState(false);
   const [cookDockHeight, setCookDockHeight] = useState(0);
   
-  const { data: recipe, isLoading, isFetching, error, refetch } = useRecipe(id);
+  const { data: recipe, isLoading, isFetching, error, refetch, thumbnailPending } = useRecipe(id);
   const deleteMutation = useDeleteRecipe();
   const toggleSharingMutation = useToggleRecipeSharing();
   const addToGroceryMutation = useAddFromRecipe();
@@ -783,6 +783,7 @@ export default function RecipeDetailScreen() {
             recipeTitle={extracted.title}
             sourceUrl={recipe.source_url}
             thumbnailUrl={recipe.thumbnail_url}
+            thumbnailPending={thumbnailPending}
             onOpenSource={handleOpenSource}
           />
 

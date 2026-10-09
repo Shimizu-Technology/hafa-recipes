@@ -13,7 +13,8 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('@/components/Themed', () => ({
-  useColors: () => ({ tint: '#155C52' }),
+  Text: 'Text',
+  useColors: () => ({ tint: '#155C52', textSecondary: '#666666' }),
 }));
 const playbackPolicy = vi.hoisted(() => ({ mode: 'embedded' }));
 vi.mock('../lib/sourcePlaybackConfig', () => ({
@@ -147,6 +148,28 @@ describe('RecipeHero', () => {
     } finally {
       await act(async () => renderer.unmount());
     }
+  });
+
+  it('shows bounded pending feedback while keeping source access and replaces it with the photo', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    const props = { ...commonProps, sourceUrl: 'https://www.instagram.com/reel/Example_42/', thumbnailUrl: null, thumbnailPending: true };
+    try {
+      await act(async () => renderer.render(React.createElement(RecipeHero, props)));
+      expect(renderer.container.queryAll((instance) => instance.props.accessibilityLiveRegion === 'polite')[0].props.children).toBe('Choosing recipe photo…');
+      expect(renderer.container.queryAll((instance) => instance.type === 'SourcePlaybackCard')[0].props.onOpenSource).toBe(commonProps.onOpenSource);
+      await act(async () => renderer.render(React.createElement(RecipeHero, { ...props, thumbnailUrl: 'https://images/food.webp', thumbnailPending: false })));
+      expect(renderer.container.queryAll((instance) => instance.props.accessibilityLiveRegion === 'polite')).toHaveLength(0);
+      expect(renderer.container.queryAll((instance) => instance.type === 'SourcePlaybackCard')[0].props.thumbnailUrl).toBe('https://images/food.webp');
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('keeps an existing photo unobstructed while its replacement is selected', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(React.createElement(RecipeHero, { ...commonProps, sourceUrl: 'manual://recipe', thumbnailUrl: 'https://images/food.webp', thumbnailPending: true })));
+      expect(renderer.container.queryAll((instance) => instance.props.accessibilityLiveRegion === 'polite')).toHaveLength(0);
+      expect(renderer.container.queryAll((instance) => instance.type === 'ExpoImage')).toHaveLength(1);
+    } finally { await act(async () => renderer.unmount()); }
   });
 
   it('omits an empty photo area when no image is available', async () => {

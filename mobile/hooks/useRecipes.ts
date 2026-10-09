@@ -20,7 +20,7 @@ import {
   hasDiscoverSearchRequestFilters,
   normalizeDiscoverSearchQuery,
 } from '../lib/discoverResults';
-import { ExtractRequest, JobStatus, RecipeListItem, PaginatedRecipes } from '../types/recipe';
+import { ExtractRequest, JobStatus, RecipeListItem, PaginatedRecipes, Recipe } from '../types/recipe';
 
 // Page size for infinite scroll
 const PAGE_SIZE = 20;
@@ -231,15 +231,120 @@ export function useRecentRecipes(limit = 10) {
   });
 }
 
-/**
- * Fetch a single recipe by ID
- */
+const COVER_POLL_INTERVAL_MS = 3_000;
+const MAX_COVER_WAIT_MS = 5 * 60_000;
+
+/** Poll only while a bounded cover job is pending and this account is visible online. */
 export function useRecipe(id: string, enabled = true) {
-  return useQuery({
+  const queryClient = useQueryClient();
+  const { userId, isLoaded } = useAuth();
+  const [foreground, setForeground] = useState(AppState.currentState === 'active');
+  const [connected, setConnected] = useState<boolean | null>(null);
+  const [, updateClock] = useState(0);
+  const requestScope = useRef({ userId, foreground, connected });
+  requestScope.current = { userId, foreground, connected };
+  const coverWindow = useRef<{ key: string; deadline: number } | null>(null);
+  const previousPhoto = useRef<{ id: string; userId: typeof userId; url: string | null } | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    let unsubscribe: (() => void) | undefined;
+    const appState = AppState.addEventListener('change', (state) => {
+      if (!mounted) return;
+      requestScope.current.foreground = state === 'active';
+      setForeground(state === 'active');
+    });
+    // Load the native subscription only for mounted details, without extra API probes.
+    void import('@react-native-community/netinfo').then(({ default: netInfo }) => {
+      if (!mounted) return;
+      unsubscribe = netInfo.addEventListener((state) => {
+        if (!mounted) return;
+        const online = state.isConnected === true && state.isInternetReachable !== false;
+        requestScope.current.connected = online;
+        setConnected(online);
+      });
+    }).catch(() => {
+      // Keep cached detail available and avoid an indefinite initial loading state.
+      if (mounted) setConnected(false);
+    });
+    return () => {
+      mounted = false;
+      appState.remove();
+      unsubscribe?.();
+    };
+  }, []);
+
+  const pendingDeadline = (recipe?: Recipe) => {
+    if (!recipe?.thumbnail_pending || !recipe.thumbnail_pending_until) return 0;
+    const serverDeadline = Date.parse(recipe.thumbnail_pending_until);
+    if (!Number.isFinite(serverDeadline)) return 0;
+    const key = JSON.stringify([id, userId, recipe.content_revision, recipe.thumbnail_pending_until]);
+    if (coverWindow.current?.key !== key) {
+      coverWindow.current = { key, deadline: Math.min(serverDeadline, Date.now() + MAX_COVER_WAIT_MS) };
+    }
+    return coverWindow.current.deadline;
+  };
+
+  const query = useQuery({
     queryKey: recipeKeys.detail(id),
-    queryFn: () => api.getRecipe(id),
-    enabled: enabled && !!id,
+    queryFn: async ({ signal }) => {
+      const requestUser = userId;
+      const assertCurrent = () => {
+        const scope = requestScope.current;
+        if (signal.aborted || scope.userId !== requestUser) {
+          throw new CaptureAccountChangedError();
+        }
+      };
+      const assertCanRequest = () => {
+        assertCurrent();
+        const scope = requestScope.current;
+        if (!scope.foreground || !scope.connected) throw new Error('Recipe refresh paused');
+      };
+      assertCanRequest();
+      const recipe = await api.getRecipe(id, signal, assertCanRequest);
+      assertCurrent();
+      return recipe;
+    },
+    enabled: enabled && !!id && isLoaded && foreground && connected === true,
+    retry: (failureCount, error) => !(error instanceof CaptureAccountChangedError) && failureCount < 1,
+    refetchInterval: (currentQuery) => {
+      if (!foreground || !connected || currentQuery.state.status === 'error') return false;
+      const remaining = pendingDeadline(currentQuery.state.data) - Date.now();
+      return remaining > COVER_POLL_INTERVAL_MS ? COVER_POLL_INTERVAL_MS : false;
+    },
+    refetchIntervalInBackground: false,
   });
+  const deadline = pendingDeadline(query.data);
+  const thumbnailPending = deadline > Date.now();
+
+  // Expire the visible status even if requests are paused, failed, or the last poll hangs.
+  useEffect(() => {
+    if (!thumbnailPending) return;
+    const timer = setTimeout(() => updateClock((value) => value + 1), deadline - Date.now());
+    return () => clearTimeout(timer);
+  }, [deadline, thumbnailPending]);
+
+  useEffect(() => {
+    if (!query.data || !foreground || !connected) return;
+    const url = query.data.thumbnail_url?.trim() || null;
+    const previous = previousPhoto.current;
+    previousPhoto.current = { id, userId, url };
+    if (!previous || previous.id !== id || previous.userId !== userId || previous.url === url || !url) return;
+    // Cover changes affect all card feeds, but must never refetch this detail recursively.
+    void queryClient.invalidateQueries({ predicate: (cached) => {
+      const root = cached.queryKey[0];
+      const feed = cached.queryKey[1];
+      return (root === 'recipes' && ['list', 'infinite', 'recent', 'search', 'infiniteSearch', 'byIngredients'].includes(String(feed)))
+        || root === 'savedRecipes'
+        || (root === 'discover' && ['list', 'infinite', 'search', 'infiniteSearch'].includes(String(feed)));
+    } }, { cancelRefetch: false });
+  }, [query.data, id, userId, queryClient, foreground, connected]);
+
+  return {
+    ...query,
+    isLoading: query.isLoading || (query.isPending && connected === null && enabled && foreground && !!id),
+    thumbnailPending,
+  };
 }
 
 /**

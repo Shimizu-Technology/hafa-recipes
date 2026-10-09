@@ -108,6 +108,8 @@ export interface Recipe {
   raw_text?: string | null;
   extracted: RecipeExtracted;
   thumbnail_url: string | null;
+  thumbnail_pending?: boolean;
+  thumbnail_pending_until?: string | null;
   extraction_method: string | null;
   extraction_quality: string | null;
   has_audio_transcript: boolean;
