@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+// Exercise the installed Expo converter directly to catch native protocol drift.
+// Review these private import paths during SDK upgrades and retain native upload QA.
 import { convertFormDataAsync } from '../node_modules/expo/src/winter/fetch/convertFormData';
 import { installFormDataPatch } from '../node_modules/expo/src/winter/FormData';
 import { appendRecipeImage } from './imageMultipart';
@@ -56,21 +58,29 @@ describe('SDK 57 image multipart compatibility', () => {
     await expect(convertFormDataAsync(form)).rejects.toThrow('Selected image no longer exists');
   });
 
-  it('uses a browser Blob and filename without loading native file APIs on web', async () => {
+  it.each([
+    { image: 'blob:opaque-id', blobType: 'image/png', expected: 'image/png', expectedName: 'blob:opaque-id' },
+    { image: { uri: 'blob:photo', fileName: 'dish.jpg' }, blobType: 'image/png', expected: 'image/png', expectedName: 'dish.jpg' },
+    { image: { uri: 'blob:photo', fileName: 'photo.png', mimeType: 'image/webp' }, blobType: 'image/png', expected: 'image/webp', expectedName: 'photo.png' },
+    { image: { uri: 'blob:photo', fileName: 'photo.png' }, blobType: 'application/octet-stream', expected: 'image/png', expectedName: 'photo.png' },
+  ])('preserves web MIME priority and binary content ($expected)', async ({ image, blobType, expected, expectedName }) => {
     mocks.platform = 'web';
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(['web photo'], { type: 'application/octet-stream' }) });
+    const payload = new Uint8Array([1, 2, 3]);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob([payload], { type: blobType }) });
     vi.stubGlobal('fetch', fetchMock);
     try {
       const form = new BrowserFormData();
-      await appendRecipeImage(form, 'image', { uri: 'blob:photo', fileName: 'photo.png', mimeType: 'image/png' });
+      await appendRecipeImage(form, 'image', image);
       const part = form.get('image') as File;
-      expect(part.name).toBe('photo.png');
-      expect(part.type).toBe('image/png');
-      expect(await part.text()).toBe('web photo');
+      expect(part.name).toBe(expectedName);
+      expect(part.type).toBe(expected);
+      expect(new Uint8Array(await part.arrayBuffer())).toEqual(payload);
       expect(mocks.constructors).not.toHaveBeenCalled();
       const encoded = await convertFormDataAsync(form);
-      expect(decode(encoded.body)).toContain('filename="photo.png"');
-      expect(decode(encoded.body)).toContain('web photo');
+      expect(decode(encoded.body)).toContain(`filename="${encodeURIComponent(expectedName)}"`);
+      expect(decode(encoded.body)).toContain(`content-type: ${expected}`);
+      expect(decode(encoded.body)).toContain('\r\n\r\n\u0001\u0002\u0003\r\n');
     } finally { vi.unstubAllGlobals(); }
   });
+
 });

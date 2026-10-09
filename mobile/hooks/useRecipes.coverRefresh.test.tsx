@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => {
   return {
     getRecipe: vi.fn(),
     userId: 'account-a' as string | null,
+    isLoaded: true,
     appState: 'active',
     initiallyConnected: true,
     appListener: null as null | ((state: string) => void),
@@ -18,7 +19,7 @@ const mocks = vi.hoisted(() => {
   };
 });
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isLoaded: true, userId: mocks.userId }) }));
+vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isLoaded: mocks.isLoaded, userId: mocks.userId }) }));
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
 vi.mock('../lib/api', () => ({ api: { getRecipe: mocks.getRecipe } }));
 vi.mock('react-native', () => ({ AppState: {
@@ -63,6 +64,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-10-09T00:00:00Z'));
   mocks.getRecipe.mockReset();
   mocks.userId = 'account-a';
+  mocks.isLoaded = true;
   mocks.appState = 'active';
   mocks.initiallyConnected = true;
   mocks.appListener = null;
@@ -146,6 +148,31 @@ describe('recipe cover refresh', () => {
     await mount();
     await flush(9_000);
     expect(mocks.getRecipe).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])('waits for cold-start auth without hiding the known offline state (connected=%s)', async (connected) => {
+    mocks.isLoaded = false;
+    mocks.userId = null;
+    mocks.initiallyConnected = connected;
+    mocks.getRecipe.mockResolvedValue(base);
+    await mount();
+    expect(mocks.getRecipe).not.toHaveBeenCalled();
+    expect(result.isLoading).toBe(connected);
+    await flush(9_000);
+    expect(mocks.getRecipe).not.toHaveBeenCalled();
+    mocks.isLoaded = true;
+    mocks.userId = 'account-a';
+    await act(async () => renderer!.update(tree()));
+    await flush();
+    if (!connected) {
+      expect(result.isLoading).toBe(false);
+      expect(mocks.getRecipe).not.toHaveBeenCalled();
+      await act(async () => mocks.networkListener?.({ isConnected: true, isInternetReachable: true }));
+      await flush();
+    }
+    expect(mocks.getRecipe).toHaveBeenCalledTimes(1);
+    expect(result.data?.id).toBe('recipe-a');
+    expect(result.isLoading).toBe(false);
   });
 
   it('stops after repeated transport failures and leaves the cached recipe visible', async () => {

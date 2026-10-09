@@ -342,7 +342,8 @@ export function useRecipe(id: string, enabled = true) {
 
   return {
     ...query,
-    isLoading: query.isLoading || (query.isPending && connected === null && enabled && foreground && !!id),
+    isLoading: query.isLoading || (query.isPending && enabled && foreground && !!id
+      && (connected === null || (!isLoaded && connected !== false))),
     thumbnailPending,
   };
 }

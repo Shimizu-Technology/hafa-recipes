@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+// Coupled intentionally to the installed Expo converter; recheck on SDK upgrades.
 import { convertFormDataAsync } from '../node_modules/expo/src/winter/fetch/convertFormData';
 
 const mocks = vi.hoisted(() => {
@@ -117,6 +118,8 @@ describe('recipe image multipart requests', () => {
       expect(body).toContain('filename="dish.JPG"');
       expect(body).toContain('content-type: image/jpeg');
       expect(body).toContain('Kelaguen');
+      const payloadOffset = body.indexOf('content-type: image/jpeg\r\n\r\n') + 'content-type: image/jpeg\r\n\r\n'.length;
+      expect(Array.from(encoded.body.slice(payloadOffset, payloadOffset + 3))).toEqual([1, 2, 3]);
     } finally { api.setTokenGetter(null); }
   });
 

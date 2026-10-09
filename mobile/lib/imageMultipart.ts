@@ -17,12 +17,14 @@ export async function appendRecipeImage(formData: FormData, field: string, image
   const uri = typeof image === 'string' ? image : image.uri;
   const uriName = uri.split('/').pop()?.split(/[?#]/)[0] || fallbackName;
   const name = typeof image === 'string' ? uriName : image.fileName || uriName;
-  const type = (typeof image === 'string' ? undefined : image.mimeType) || imageMimeType(name);
+  const explicitType = typeof image === 'string' ? undefined : image.mimeType;
+  const fallbackType = imageMimeType(name);
 
   if (Platform.OS === 'web') {
     const response = await fetch(uri);
     if (!response.ok) throw new Error('Could not read the selected image');
     const blob = await response.blob();
+    const type = explicitType || (blob.type.startsWith('image/') ? blob.type : undefined) || fallbackType;
     formData.append(field, blob.type === type ? blob : new Blob([blob], { type }), name);
     return;
   }
@@ -32,6 +34,6 @@ export async function appendRecipeImage(formData: FormData, field: string, image
   // Expo's converter accepts File/ExpoBlob's bytes() interface, while native XHR
   // accepts uri. Keep both without eagerly reading/copying the whole image.
   // Preserve explicit MIME/name even when a shared URI has no extension.
-  const part = { uri, name, type, bytes: () => file.bytes() };
+  const part = { uri, name, type: explicitType || fallbackType, bytes: () => file.bytes() };
   formData.append(field, part as unknown as Blob);
 }
