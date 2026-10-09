@@ -2,7 +2,7 @@
 
 All eight planned provider cases passed with eight actual grading calls. This is a small acceptance check of the provider boundary, not a ranking-quality benchmark or a complete native import journey.
 
-Håfa Recipes helps recipe collectors recognize and retrieve saved dishes as part of capture → save → organize → plan → shop → cook. This evaluation checks whether cover grading chooses the correct finished dish, replaces a visibly inferior cover, preserves a good incumbent, and declines unsuitable candidates. Context: [product overview](PRODUCT-AND-SYSTEM.md), the cover selector, and Leon's recorded household-recipe origin in Brain Dump's `work/shimizu-tech/company-positioning-and-project-review-2026-10-04.md`.
+Håfa Recipes helps recipe collectors recognize and retrieve saved dishes as part of capture → save → organize → plan → shop → cook. This evaluation checks whether cover grading chooses the correct finished dish, replaces a visibly inferior cover, preserves a good incumbent, and declines unsuitable candidates. Context: [product overview](PRODUCT-AND-SYSTEM.md) and the cover selector.
 
 ## Tested version and environment
 

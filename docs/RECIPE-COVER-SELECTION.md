@@ -87,13 +87,14 @@ platform acquisition are evaluated separately with public/permissioned media.
 
 ## Release record
 
-Not yet merged or delivered. Record the PR, final reviewed head, merge SHA,
+PR #130 is open; merge and delivery follow final review. Record the final reviewed head, merge SHA,
 local gate, scenario outcomes, Render deployment, EAS build source/version,
 Apple processing, tester availability, and exact resource cleanup here.
 
 ### Execution evidence — October 9, 2026
 
-The combined local gate at `f47583e` passed: 881 API tests, 34 documented
+The earlier combined local gate at `f47583e` passed (superseded by the
+`1c51736` gate below): 881 API tests, 34 documented
 skips, 783 mobile tests, 13 admin tests, Expo Doctor 21/21, types, lint, builds
 and dependency audit policy. Native checks used an owned iPhone 17 Pro on
 iOS 26.5, current 2.6.11 JavaScript, and a compatible development shell
