@@ -1,0 +1,34 @@
+{
+  "version": "recipe-cover-public-v1",
+  "licenseVerifiedDate": "2026-10-09",
+  "assets": {
+    "pizza": {
+      "sourcePage": "https://wordpress.org/photos/photo/752620fc4a/",
+      "downloadUrl": "https://pd.w.org/2022/02/752620fc4a66b7e46.58720790-768x576.jpg",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "author": "Topher",
+      "description": "New York pepperoni and sausage pizza on metal tray",
+      "sha256": "bae25232ea6b778f198188cd87ec5f102b6c2e34fb3161106cf4990aef6d3cb7"
+    },
+    "burger": {
+      "sourcePage": "https://wordpress.org/photos/photo/71469d9234/",
+      "downloadUrl": "https://pd.w.org/2026/04/71469d9234eb1d477.20437502-768x576.jpg",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "author": "Mohammed Kateregga",
+      "description": "Sesame bun burger with cheese, vegetables, and fries",
+      "sha256": "eb4aeeb0c2fe509d748334cef9bc1a015b24d98a37dd0a8f9efa5689f7d4a4b3"
+    }
+  },
+  "cases": [
+    {"id":"E01","title":"Pepperoni and sausage pizza","ingredients":["pizza dough","tomato sauce","mozzarella","pepperoni","sausage"],"platform":"tiktok","candidates":[{"id":"c1","asset":"burger","kind":"video_frame"},{"id":"c2","asset":"pizza","kind":"video_frame"}],"expected":"c2","purpose":"Correct pizza against a different finished dish"},
+    {"id":"E02","title":"Cheeseburger","ingredients":["beef patty","sesame bun","cheese","lettuce"],"platform":"youtube","candidates":[{"id":"c1","asset":"pizza","kind":"video_frame"},{"id":"c2","asset":"burger","kind":"video_frame"}],"expected":"c2","purpose":"Correct burger under YouTube hero crop"},
+    {"id":"E03","title":"Pepperoni and sausage pizza","ingredients":["pizza dough","mozzarella","pepperoni","sausage"],"platform":"tiktok","candidates":[{"id":"c1","asset":"pizza","transform":"blur14","kind":"thumbnail"},{"id":"c2","asset":"pizza","kind":"video_frame"}],"expected":"c2","purpose":"Sharper same-scene image replaces blurry incumbent"},
+    {"id":"E04","title":"Pepperoni and sausage pizza","ingredients":["pizza dough","mozzarella","pepperoni","sausage"],"platform":"instagram","candidates":[{"id":"c1","asset":"pizza","kind":"thumbnail"},{"id":"c2","asset":"burger","kind":"video_frame"},{"id":"c3","asset":"pizza","transform":"blur14","kind":"video_frame"}],"expected":"c1","purpose":"Good incumbent survives wrong-dish and blurry challengers"},
+    {"id":"E05","title":"Tomato soup","ingredients":["tomatoes","vegetable stock","onion","cream"],"platform":"tiktok","candidates":[{"id":"c1","asset":"pizza","kind":"video_frame"},{"id":"c2","asset":"burger","kind":"video_frame"}],"expected":null,"purpose":"Abstain when all food photos show unrelated dishes"},
+    {"id":"E06","title":"Pepperoni pizza","ingredients":["pizza dough","tomato sauce","mozzarella","pepperoni"],"platform":"tiktok","candidates":[{"id":"c1","asset":"text_recipe","kind":"slideshow"},{"id":"c2","asset":"text_injection","kind":"slideshow"}],"expected":null,"purpose":"Text-only recipe and prompt-injection cards are not finished food"},
+    {"id":"E07","title":"Cheeseburger","ingredients":["beef patty","sesame bun","cheese","lettuce"],"platform":"tiktok","candidates":[{"id":"c1","asset":"burger","kind":"thumbnail"},{"id":"c2","asset":"burger","kind":"video_frame"}],"expected":"c1","purpose":"Identical duplicate keeps incumbent"},
+    {"id":"E08","title":"Pepperoni and sausage pizza","ingredients":["pizza dough","mozzarella","pepperoni","sausage"],"platform":"instagram","candidates":[{"id":"c1","asset":"pizza","transform":"blur14","kind":"slideshow"},{"id":"c2","asset":"pizza","kind":"slideshow"}],"expected":"c2","purpose":"Choose sharp slideshow image over same-scene blur"}
+  ]
+}
