@@ -390,3 +390,28 @@ def test_malformed_context_is_bounded_and_does_not_break_ranking():
         ]
         == []
     )
+
+
+def test_sharper_same_scene_survives_dedupe_against_blurry_incumbent():
+    """Perceptual identity must not discard the quality improvement being sought."""
+    from PIL import ImageDraw, ImageFilter
+
+    image = Image.new("RGB", (384, 384), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((50, 50, 330, 330), fill="#ba6a2a")
+    for index in range(55, 325, 6):
+        draw.line((index, 70, index, 310), fill="#d59b65", width=2)
+    data = io.BytesIO()
+    image.save(data, format="JPEG")
+    blurred = io.BytesIO()
+    image.filter(ImageFilter.GaussianBlur(5)).save(blurred, format="JPEG")
+    old = covers.CoverCandidate("incumbent", blurred.getvalue(), "thumbnail")
+    sharper = covers.CoverCandidate("clear", data.getvalue(), "video_frame")
+    prepared = covers._prepare([old, sharper], "tiktok", 8)
+    assert [item.candidate for item in prepared] == [old, sharper]
+    assert (prepared[0].fingerprint ^ prepared[1].fingerprint).bit_count() <= 2
+    assert max(abs(a - b) for a, b in zip(prepared[0].mean, prepared[1].mean)) < 8
+    # When the sharp frame is already incumbent, discard its blurry duplicate.
+    good = covers.CoverCandidate("good", data.getvalue(), "thumbnail")
+    poor = covers.CoverCandidate("poor", blurred.getvalue(), "video_frame")
+    assert [item.candidate for item in covers._prepare([good, poor], "tiktok", 8)] == [good]

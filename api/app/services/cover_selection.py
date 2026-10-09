@@ -67,6 +67,7 @@ class _Prepared:
     images: tuple[str, str]
     fingerprint: int
     mean: tuple[float, ...]
+    sharpness: float
 
 
 def _incumbent(candidates: list[CoverCandidate]) -> CoverCandidate | None:
@@ -113,15 +114,10 @@ def _prepare(candidates: list[CoverCandidate], platform: str, maximum: int) -> l
             gray = image.convert("L")
             stats = ImageStat.Stat(gray)
             # Only reject near-solid/blank and extreme blur; model judges borderline food photos.
-            if (
-                stats.stddev[0] < 2
-                or ImageStat.Stat(
-                    gray.filter(ImageFilter.FIND_EDGES).crop(
-                        (2, 2, gray.width - 2, gray.height - 2)
-                    )
-                ).mean[0]
-                < 0.3
-            ):
+            sharpness = ImageStat.Stat(
+                gray.filter(ImageFilter.FIND_EDGES).crop((2, 2, gray.width - 2, gray.height - 2))
+            ).mean[0]
+            if stats.stddev[0] < 2 or sharpness < 0.3:
                 continue
             pixels = list(gray.resize((9, 8), Image.Resampling.LANCZOS).get_flattened_data())
             fingerprint = sum(
@@ -134,6 +130,9 @@ def _prepare(candidates: list[CoverCandidate], platform: str, maximum: int) -> l
             if any(
                 (fingerprint ^ prior.fingerprint).bit_count() <= 2
                 and max(abs(a - b) for a, b in zip(mean, prior.mean)) < 8
+                # A sharper capture of the same dish remains a meaningful
+                # challenger, especially when the incumbent is blurry.
+                and not (sharpness > prior.sharpness * 1.5 and sharpness - prior.sharpness > 1)
                 for prior in prepared
             ):
                 continue
@@ -146,7 +145,7 @@ def _prepare(candidates: list[CoverCandidate], platform: str, maximum: int) -> l
                 crops.append(
                     "data:image/jpeg;base64," + base64.b64encode(output.getvalue()).decode("ascii")
                 )
-            prepared.append(_Prepared(candidate, tuple(crops), fingerprint, mean))
+            prepared.append(_Prepared(candidate, tuple(crops), fingerprint, mean, sharpness))
         except (OSError, ValueError, SyntaxError, Image.DecompressionBombError):
             continue
     # Spread the shortlist over the source rather than spending every slot on early frames.
