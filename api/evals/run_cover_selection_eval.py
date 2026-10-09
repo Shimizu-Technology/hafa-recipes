@@ -27,6 +27,8 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 API_ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = API_ROOT / "evals/fixtures/cover_selection_public_v1.json"
 MAX_CALLS = 10
+MAX_FIXTURE_BYTES = 5 * 1024 * 1024
+FIXTURE_READ_CHUNK_BYTES = 64 * 1024
 
 
 def load_images(manifest: dict, directory: Path) -> dict[str, bytes]:
@@ -34,20 +36,29 @@ def load_images(manifest: dict, directory: Path) -> dict[str, bytes]:
     images = {}
     for asset_id, metadata in manifest["assets"].items():
         path = directory / f"{asset_id}.jpg"
-        if path.exists():
-            data = path.read_bytes()
-        else:
-            with httpx.Client(timeout=25, follow_redirects=False) as client:
-                response = client.get(metadata["downloadUrl"])
-                response.raise_for_status()
-                data = response.content
-            if len(data) > 5 * 1024 * 1024:
+        cached = path.exists()
+        if cached:
+            # Bound reads even when a cache file is corrupt or unexpectedly large.
+            with path.open("rb") as cached_file:
+                data = cached_file.read(MAX_FIXTURE_BYTES + 1)
+            if len(data) > MAX_FIXTURE_BYTES:
                 raise ValueError("fixture exceeds size limit")
-            path.write_bytes(data)
+        else:
+            downloaded = bytearray()
+            with httpx.Client(timeout=25, follow_redirects=False) as client:
+                with client.stream("GET", metadata["downloadUrl"]) as response:
+                    response.raise_for_status()
+                    for chunk in response.iter_bytes(chunk_size=FIXTURE_READ_CHUNK_BYTES):
+                        if len(downloaded) + len(chunk) > MAX_FIXTURE_BYTES:
+                            raise ValueError("fixture exceeds size limit")
+                        downloaded.extend(chunk)
+            data = bytes(downloaded)
         if hashlib.sha256(data).hexdigest() != metadata["sha256"]:
             raise ValueError("fixture content hash changed; reverify image and license")
         with Image.open(io.BytesIO(data)) as image:
             image.verify()
+        if not cached:
+            path.write_bytes(data)
         images[asset_id] = data
     for asset_id, text in {
         "text_recipe": "PIZZA INGREDIENTS\nFlour, water, salt\nTomato sauce, cheese\nMix and bake",
@@ -167,29 +178,34 @@ def main() -> int:
             )
         )
         return 0
-    completed = subprocess.run(
-        [
-            "ssh",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "UpdateHostKeys=no",
-            "-o",
-            "ConnectTimeout=15",
-            "-o",
-            "ServerAliveInterval=10",
-            "-o",
-            "ServerAliveCountMax=2",
-            "-T",
-            args.remote_host,
-            "cd /opt/render/project/src/api && python -",
-        ],
-        input=remote_program(source, cases, images),
-        text=True,
-        capture_output=True,
-        timeout=60 + len(cases) * 30,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            [
+                "ssh",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "UpdateHostKeys=no",
+                "-o",
+                "ConnectTimeout=15",
+                "-o",
+                "ServerAliveInterval=10",
+                "-o",
+                "ServerAliveCountMax=2",
+                "-T",
+                args.remote_host,
+                "cd /opt/render/project/src/api && python -",
+            ],
+            input=remote_program(source, cases, images),
+            text=True,
+            capture_output=True,
+            timeout=60 + len(cases) * 30,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        # The exception can contain captured provider/SSH output. Do not emit it.
+        print(json.dumps({"status": "blocked", "reason": "remote_timeout"}))
+        return 2
     results = []
     for line in completed.stdout.splitlines():
         if line.startswith("COVER_EVAL "):
