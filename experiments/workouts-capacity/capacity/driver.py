@@ -1,0 +1,724 @@
+"""Separate-container socket workloads. Reports metadata, never bodies or tokens."""
+
+import argparse
+import asyncio
+import base64
+import json
+import time
+from datetime import datetime
+from pathlib import Path
+from uuid import uuid4
+from zoneinfo import ZoneInfo
+
+import httpx
+
+from capacity.safety import OWNERS
+from capacity.transport import TEXT
+
+BASE = "http://127.0.0.1:18047"
+PREFIX = "/api/v1/workouts"
+
+
+def headers(owner):
+    return {
+        "X-Capacity-User": owner,
+        "X-Hafa-Account-ID": owner,
+        "X-Workouts-Generation": "1",
+    }
+
+
+def percentile(values, fraction):
+    return (
+        sorted(values)[min(len(values) - 1, int((len(values) - 1) * fraction))]
+        if values
+        else None
+    )
+
+
+class Driver:
+    def __init__(self, directory):
+        self.directory = Path(directory)
+        self.results = []
+        self.jobs = []
+        self.recipe_jobs = []
+        self.snapshots = []
+        self.outcomes = {"workouts": {}, "recipes": {}, "accepted": set()}
+        self.client = httpx.AsyncClient(
+            base_url=BASE, timeout=150, limits=httpx.Limits(max_connections=32)
+        )
+
+    async def request(
+        self,
+        method,
+        path,
+        owner=OWNERS[0],
+        *,
+        label=None,
+        expected=(200,),
+        authenticated=True,
+        **kwargs,
+    ):
+        started = time.monotonic()
+        try:
+            response = await self.client.request(
+                method, path, headers=headers(owner) if authenticated else {}, **kwargs
+            )
+            self.results.append(
+                {
+                    "route": label or path,
+                    "milliseconds": (time.monotonic() - started) * 1000,
+                    "status": response.status_code,
+                    "expected": response.status_code in expected,
+                    "bytes": len(response.content),
+                }
+            )
+            return response
+        except httpx.HTTPError:
+            self.results.append(
+                {
+                    "route": label or path,
+                    "milliseconds": (time.monotonic() - started) * 1000,
+                    "status": 0,
+                    "expected": False,
+                    "bytes": 0,
+                }
+            )
+            raise
+
+    async def prepare(self):
+        for owner in OWNERS:
+            await self.request(
+                "POST",
+                PREFIX + "/enrollment",
+                owner,
+                json={
+                    "adult_confirmed": True,
+                    "shared_account_deletion_acknowledged": True,
+                    "disclosure_version": 1,
+                },
+            )
+            current = await self.request("GET", PREFIX + "/profile", owner)
+            profile = current.json()
+            if profile is None:
+                saved = await self.client.put(
+                    PREFIX + "/profile",
+                    headers={
+                        **headers(owner),
+                        "If-Match": current.headers.get("X-Workouts-Revision", "0"),
+                    },
+                    json={
+                        "adult_confirmed": True,
+                        "equipment": [],
+                        "available_days": [0, 2, 4],
+                        "session_minutes": 30,
+                        "timezone": "Pacific/Guam",
+                        "readiness": "ready",
+                    },
+                )
+                if saved.status_code != 200:
+                    raise RuntimeError("Synthetic profile preparation failed")
+            consent = await self.request(
+                "PUT",
+                PREFIX + "/ai-consent",
+                owner,
+                json={"accepted": True, "disclosure_version": 1},
+            )
+            if consent.status_code != 200:
+                raise RuntimeError("Synthetic consent preparation failed")
+
+    async def lightweight(self, index, mixed):
+        owner = OWNERS[index % 22]
+        await self.request("GET", "/up")
+        listing = await self.request(
+            "GET", "/api/recipes/?limit=20", owner, label="recipes/list"
+        )
+        await self.request(
+            "GET", "/api/recipes/search?q=rice&limit=20", owner, label="recipes/search"
+        )
+        recipes = (
+            listing.json().get("recipes", []) if listing.status_code == 200 else []
+        )
+        if recipes:
+            await self.request(
+                "GET", "/api/recipes/" + recipes[0]["id"], owner, label="recipes/detail"
+            )
+        if mixed:
+            await self.request(
+                "GET", PREFIX + "/library?limit=20", owner, label="workouts/library"
+            )
+            await self.request(
+                "GET",
+                PREFIX + "/activity-log?limit=50",
+                owner,
+                label="workouts/activity-list",
+            )
+        return recipes
+
+    async def media_and_chat(self, index, mixed):
+        owner = OWNERS[index % 22]
+        await self.request(
+            "POST",
+            "/api/extract/text",
+            owner,
+            label="recipes/text",
+            json={"text": "Cook one cup of rice with two cups of water. Serves two."},
+        )
+        with (self.directory / "normal.jpg").open("rb") as image:
+            await self.request(
+                "POST",
+                "/api/extract/ocr",
+                owner,
+                label="recipes/ocr",
+                files={"image": ("fixture.jpg", image, "image/jpeg")},
+            )
+        from capacity.transport import recipe
+
+        await self.request(
+            "POST",
+            "/api/recipes/manual",
+            owner,
+            label="recipes/manual-write",
+            data={"recipe_data": json.dumps(recipe())},
+        )
+        job = await self.request(
+            "POST",
+            "/api/extract/async",
+            owner,
+            label="recipes/video-submit",
+            expected=(200, 202),
+            json={
+                "url": f"https://www.youtube.com/watch?v=capacity{index % 100:03d}",
+                "location": "Guam",
+                "is_public": False,
+            },
+        )
+        if job.status_code in (200, 202):
+            self.recipe_jobs.append((owner, job.json().get("job_id")))
+        listing = await self.request(
+            "GET", "/api/recipes/?limit=1", owner, label="recipes/chat-context"
+        )
+        if listing.status_code == 200 and listing.json().get("recipes"):
+            identifier = listing.json()["recipes"][0]["id"]
+            await self.request(
+                "POST",
+                f"/api/recipes/{identifier}/chat",
+                owner,
+                label="recipes/chat",
+                json={"message": "How can I prepare this?"},
+            )
+        if not mixed:
+            return
+        today = datetime.now(ZoneInfo("Pacific/Guam")).date().isoformat()
+        await self.request(
+            "POST",
+            PREFIX + "/activity-log",
+            owner,
+            label="workouts/activity-write",
+            expected=(201,),
+            json={
+                "request_id": str(uuid4()),
+                "kind": "walk",
+                "date": today,
+                "duration_minutes": 20,
+                "strenuous": False,
+            },
+        )
+        await self.request(
+            "POST",
+            PREFIX + "/coach/messages",
+            owner,
+            label="workouts/coach",
+            json={
+                "request_id": str(uuid4()),
+                "message": "Help me understand my saved training.",
+            },
+        )
+        source = {"kind": "text", "text": TEXT, "ai_consent": True}
+        if index % 3 == 1:
+            source = {
+                "kind": "images",
+                "images": [
+                    {
+                        "base64_data": base64.b64encode(
+                            (self.directory / "image-limit.jpg").read_bytes()
+                        ).decode(),
+                        "mime_type": "image/jpeg",
+                    }
+                ],
+                "text": TEXT,
+                "ai_consent": True,
+            }
+        elif index % 3 == 2:
+            source = {
+                "kind": "document",
+                "document_base64": base64.b64encode(
+                    (self.directory / "source-30.pdf").read_bytes()
+                ).decode(),
+                "document_mime": "application/pdf",
+                "ai_consent": True,
+            }
+        from capacity.transport import workout
+
+        template = workout()
+        template["provenance"] = "user"
+        saved = await self.request(
+            "POST",
+            PREFIX + "/library",
+            owner,
+            label="workouts/manual-workout",
+            expected=(201,),
+            json=template,
+        )
+        if saved.status_code == 201:
+            from datetime import timedelta, timezone
+
+            finished = datetime.now(timezone.utc)
+            actual = {
+                "client_session_id": str(uuid4()),
+                "workout_id": saved.json()["id"],
+                "workout_revision": saved.json()["revision"],
+                "started_at": (finished - timedelta(seconds=10)).isoformat(),
+                "finished_at": finished.isoformat(),
+                "activity_type": "general_fitness",
+                "active_seconds": 10,
+                "status": "completed",
+                "actuals": [
+                    {
+                        "block_id": "main",
+                        "exercise_index": 0,
+                        "round_index": 1,
+                        "set_index": n,
+                        "side": None,
+                        "completed": True,
+                        "reps": 12,
+                        "difficulty": "manageable",
+                        "pain_reported": False,
+                    }
+                    for n in range(1, 4)
+                ],
+                "notes": "Explicit synthetic capacity actuals; not real exercise.",
+            }
+            first_actual = await self.request(
+                "POST",
+                PREFIX + "/sessions",
+                owner,
+                label="workouts/session-write",
+                expected=(200, 201),
+                json=actual,
+            )
+            replayed_actual = await self.request(
+                "POST",
+                PREFIX + "/sessions",
+                owner,
+                label="workouts/session-replay",
+                expected=(200,),
+                json=actual,
+            )
+            if (
+                first_actual.status_code in (200, 201)
+                and replayed_actual.status_code == 200
+                and first_actual.json()["id"] != replayed_actual.json()["id"]
+            ):
+                raise RuntimeError("Synthetic session replay duplicated its record")
+        request_id = str(uuid4())
+        created = await self.request(
+            "POST",
+            PREFIX + "/imports",
+            owner,
+            label="workouts/import-submit",
+            expected=(202, 429),
+            json={"request_id": request_id, "source": source},
+        )
+        if created.status_code == 202:
+            self.jobs.append((owner, created.json()["id"], request_id))
+        snapshot = await self.request(
+            "POST",
+            PREFIX + "/export/snapshots",
+            OWNERS[22],
+            label="workouts/export-build",
+            expected=(201, 429),
+        )
+        if snapshot.status_code == 201:
+            manifest = snapshot.json()
+            for page in range(manifest["page_count"]):
+                response = await self.request(
+                    "GET",
+                    f"{PREFIX}/export/snapshots/{manifest['id']}/pages/{page}",
+                    OWNERS[22],
+                    label="workouts/export-page",
+                    expected=(200, 429),
+                )
+                if response.status_code != 200:
+                    break
+            await self.request(
+                "DELETE",
+                f"{PREFIX}/export/snapshots/{manifest['id']}",
+                OWNERS[22],
+                label="workouts/export-remove",
+                expected=(204,),
+            )
+
+    async def poll(self):
+        for owner, identifier, _ in self.jobs:
+            job = await self.request(
+                "GET",
+                PREFIX + "/imports/" + identifier,
+                owner,
+                label="workouts/import-poll",
+            )
+            if job.status_code != 200:
+                continue
+            self.outcomes["workouts"][identifier] = job.json()["status"]
+            if job.json()["status"] in {"ready", "incomplete"} and job.json().get(
+                "result", {}
+            ).get("workout"):
+                accepted = await self.request(
+                    "POST",
+                    PREFIX + "/imports/" + identifier + "/accept",
+                    owner,
+                    label="workouts/import-accept",
+                    json={"acknowledge_warnings": True},
+                )
+                if accepted.status_code == 200:
+                    self.outcomes["accepted"].add(accepted.json()["id"])
+        for owner, identifier in self.recipe_jobs:
+            if identifier:
+                current = await self.request(
+                    "GET", "/api/jobs/" + identifier, owner, label="recipes/job-poll"
+                )
+                if current.status_code == 200:
+                    self.outcomes["recipes"][identifier] = current.json()["status"]
+
+    async def boundaries(self, concurrency=8):
+        raw = (self.directory / "near-body.json").read_text()
+        body = json.loads(raw)
+
+        async def upload(index):
+            value = json.dumps({"request_id": str(uuid4()), **body}).encode()
+            value += b" " * (3 * 1024 * 1024 - 128 - len(value))
+            return await self.request(
+                "POST",
+                PREFIX + "/imports",
+                OWNERS[index % 22],
+                label="workouts/bulk-boundary",
+                expected=(202, 429),
+                content=value,
+            )
+
+        await asyncio.gather(*(upload(index) for index in range(concurrency)))
+        await self.request(
+            "POST",
+            PREFIX + "/imports",
+            label="workouts/oversized",
+            expected=(413,),
+            content=b"x" * (3 * 1024 * 1024 + 1),
+        )
+
+        async def chunked():
+            value = json.dumps({"request_id": str(uuid4()), **body}).encode()
+            value += b" " * (3 * 1024 * 1024 - 128 - len(value))
+            for offset in range(0, len(value), 65536):
+                yield value[offset : offset + 65536]
+                await asyncio.sleep(0)
+
+        await self.request(
+            "POST",
+            PREFIX + "/imports",
+            label="workouts/chunked-boundary",
+            expected=(202, 429),
+            content=chunked(),
+        )
+        await self.request(
+            "POST",
+            PREFIX + "/imports",
+            label="workouts/unauthenticated-boundary",
+            expected=(401, 429),
+            authenticated=False,
+            content=json.dumps({"request_id": str(uuid4()), **body}).encode(),
+        )
+        await self.request(
+            "POST",
+            PREFIX + "/export/snapshots",
+            OWNERS[23],
+            label="workouts/export-oversized",
+            expected=(413, 429),
+        )
+
+    async def restart_prepare(self, state_file):
+        owner = OWNERS[0]
+        payload = {
+            "request_id": str(uuid4()),
+            "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+        }
+        response = await self.request(
+            "POST",
+            PREFIX + "/imports",
+            owner,
+            label="workouts/restart-submit",
+            expected=(202,),
+            json=payload,
+        )
+        if response.status_code != 202:
+            raise RuntimeError("Restart fixture could not be admitted")
+        identifier = response.json()["id"]
+        for _ in range(100):
+            current = await self.request(
+                "GET",
+                PREFIX + "/imports/" + identifier,
+                owner,
+                label="workouts/restart-poll",
+            )
+            if current.json()["status"] == "processing":
+                Path(state_file).write_text(
+                    json.dumps(
+                        {
+                            "owner": owner,
+                            "generation": 1,
+                            "id": identifier,
+                            "payload": payload,
+                            "synthetic": True,
+                        }
+                    )
+                )
+                return
+            if current.json()["status"] in {"ready", "incomplete", "failed"}:
+                raise RuntimeError(
+                    "Job finished before fault; rerun with provider delay10s"
+                )
+            await asyncio.sleep(0.1)
+        raise RuntimeError("Worker never reached processing")
+
+    async def restart_check(self, state_file):
+        state = json.loads(Path(state_file).read_text())
+        if (
+            state.get("synthetic") is not True
+            or state["owner"] not in OWNERS
+            or state["generation"] != 1
+        ):
+            raise RuntimeError("Invalid owned restart state")
+        response = await self.request(
+            "POST",
+            PREFIX + "/imports",
+            state["owner"],
+            label="workouts/restart-replay",
+            expected=(202,),
+            json=state["payload"],
+        )
+        if response.json()["id"] != state["id"]:
+            raise RuntimeError("Restart replay created a duplicate job")
+        deadline = time.monotonic() + 360
+        while time.monotonic() < deadline:
+            current = await self.request(
+                "GET",
+                PREFIX + "/imports/" + state["id"],
+                state["owner"],
+                label="workouts/restart-poll",
+            )
+            value = current.json()
+            if value["status"] in {"ready", "incomplete"} and value.get(
+                "result", {}
+            ).get("workout"):
+                accepted = await self.request(
+                    "POST",
+                    PREFIX + "/imports/" + state["id"] + "/accept",
+                    state["owner"],
+                    label="workouts/restart-accept",
+                    json={"acknowledge_warnings": True},
+                )
+                replay = await self.request(
+                    "POST",
+                    PREFIX + "/imports/" + state["id"] + "/accept",
+                    state["owner"],
+                    label="workouts/restart-accept-replay",
+                    json={"acknowledge_warnings": True},
+                )
+                if accepted.json()["id"] != replay.json()["id"]:
+                    raise RuntimeError("Restart acceptance duplicated the result")
+                return
+            if value["status"] in {"failed", "expired", "cancelled"}:
+                raise RuntimeError("Interrupted source did not recover successfully")
+            await asyncio.sleep(5)
+        raise RuntimeError("Default300s lease did not recover inside360s")
+
+    async def backpressure(self):
+        owner = OWNERS[22]
+        snapshot = await self.request(
+            "POST",
+            PREFIX + "/export/snapshots",
+            owner,
+            label="workouts/backpressure-build",
+            expected=(201,),
+        )
+        if snapshot.status_code != 201:
+            raise RuntimeError("Backpressure export could not be built")
+        identifier = snapshot.json()["id"]
+        import socket
+
+        sock = socket.socket()
+        sock.setblocking(False)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8192)
+        await asyncio.get_running_loop().sock_connect(sock, ("127.0.0.1", 18047))
+        reader, writer = await asyncio.open_connection(sock=sock, limit=8192)
+        try:
+            path = f"{PREFIX}/export/snapshots/{identifier}/pages/0"
+            header_lines = "".join(
+                f"{key}: {value}\r\n" for key, value in headers(owner).items()
+            )
+            writer.write(
+                f"GET {path} HTTP/1.1\r\nHost: localhost\r\n{header_lines}Connection: close\r\n\r\n".encode()
+            )
+            await writer.drain()
+            head = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), 5)
+            if not head.startswith(b"HTTP/1.1 200"):
+                raise RuntimeError("Throttled page was not admitted")
+            # StreamReader and SO_RCVBUF are small; leave the page unread while
+            # checking the actual cross-replica response slot through sockets.
+            secondary = await self.request(
+                "GET",
+                f"{PREFIX}/export/snapshots/{identifier}",
+                owner,
+                label="workouts/backpressure-denial",
+                expected=(429,),
+            )
+            if secondary.status_code != 429:
+                raise RuntimeError(
+                    "Response already drained; fixture did not create backpressure"
+                )
+            await asyncio.sleep(
+                32
+            )  # Production response deadline30s, no altered clock.
+        finally:
+            writer.close()
+            await writer.wait_closed()
+        recovered = await self.request(
+            "GET",
+            f"{PREFIX}/export/snapshots/{identifier}",
+            owner,
+            label="workouts/backpressure-recovery",
+        )
+        if recovered.status_code != 200:
+            raise RuntimeError("Response slot did not recover after stalled client")
+        await self.request(
+            "DELETE",
+            f"{PREFIX}/export/snapshots/{identifier}",
+            owner,
+            label="workouts/export-remove",
+            expected=(204,),
+        )
+
+    def report(self):
+        grouped = {}
+        for row in self.results:
+            grouped.setdefault(row["route"], []).append(row)
+        return {
+            "synthetic_providers": True,
+            "auth_whitelist": True,
+            "r04_closed": False,
+            "saved_outcomes": {
+                "accepted_workout_count": len(self.outcomes["accepted"]),
+                **{
+                    kind + "_states": {
+                        state: list(self.outcomes[kind].values()).count(state)
+                        for state in set(self.outcomes[kind].values())
+                    }
+                    for kind in ["workouts", "recipes"]
+                },
+            },
+            "routes": {
+                route: {
+                    "count": len(rows),
+                    "p50_ms": percentile([r["milliseconds"] for r in rows], 0.5),
+                    "p95_ms": percentile([r["milliseconds"] for r in rows], 0.95),
+                    "p99_ms": percentile([r["milliseconds"] for r in rows], 0.99),
+                    "unexpected": sum(not r["expected"] for r in rows),
+                    "statuses": {
+                        str(status): sum(r["status"] == status for r in rows)
+                        for status in {r["status"] for r in rows}
+                    },
+                }
+                for route, rows in grouped.items()
+            },
+        }
+
+
+async def run(args):
+    driver = Driver(args.fixtures)
+    try:
+        if args.profile != "recipes-baseline":
+            await driver.prepare()
+        if args.profile == "upload-boundaries":
+            await driver.boundaries(args.concurrency)
+        elif args.profile == "restart-prepare":
+            await driver.restart_prepare(args.state)
+        elif args.profile == "restart-check":
+            await driver.restart_check(args.state)
+        elif args.profile == "export-backpressure":
+            await driver.backpressure()
+        else:
+            deadline = time.monotonic() + args.seconds
+            mixed = args.profile == "mixed"
+            driver.results.clear()  # Setup is recorded separately, not protected-route latency.
+
+            async def reader(index):
+                while time.monotonic() < deadline:
+                    started = time.monotonic()
+                    await driver.lightweight(index, mixed)
+                    # Eight readers, 4 or 6 HTTP calls/turn: approximately 2 req/s.
+                    await asyncio.sleep(
+                        max(0, (24 if mixed else 16) - (time.monotonic() - started))
+                    )
+
+            async def heavy():
+                index = 0
+                while time.monotonic() < deadline:
+                    started = time.monotonic()
+                    await driver.media_and_chat(index, mixed)
+                    index += 1
+                    await asyncio.sleep(max(0, 60 - (time.monotonic() - started)))
+
+            async def polling():
+                while time.monotonic() < deadline:
+                    await driver.poll()
+                    await asyncio.sleep(5)
+
+            await asyncio.gather(*(reader(n) for n in range(8)), heavy(), polling())
+            await driver.poll()
+        report = driver.report()
+        Path(args.output).write_text(json.dumps(report, indent=2))
+        print(
+            json.dumps(
+                {
+                    "report_written": True,
+                    "unexpected": sum(
+                        r["unexpected"] for r in report["routes"].values()
+                    ),
+                }
+            )
+        )
+    finally:
+        await driver.client.aclose()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--profile",
+        choices=[
+            "recipes-baseline",
+            "mixed",
+            "upload-boundaries",
+            "restart-prepare",
+            "restart-check",
+            "export-backpressure",
+        ],
+        required=True,
+    )
+    parser.add_argument("--seconds", type=int, default=300)
+    parser.add_argument("--concurrency", type=int, choices=[4, 8, 16], default=8)
+    parser.add_argument("--state", default="/results/restart-state.json")
+    parser.add_argument("--fixtures", default="/fixtures")
+    parser.add_argument("--output", default="/results/latency.json")
+    args = parser.parse_args()
+    if not 1 <= args.seconds <= 3600:
+        raise SystemExit("Use a bounded1–3600second workload duration")
+    asyncio.run(run(args))
