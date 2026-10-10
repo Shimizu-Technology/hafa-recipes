@@ -35,7 +35,7 @@ THUMBNAIL_VARIANT_SPECS = {
     "list": ThumbnailVariantSpec(max_dimension=640, max_bytes=200 * 1024),
     "hero": ThumbnailVariantSpec(max_dimension=1_280, max_bytes=500 * 1024),
 }
-THUMBNAIL_TRANSFORM_VERSION = "webp-v1-list640-200k-hero1280-500k-q82"
+THUMBNAIL_TRANSFORM_VERSION = "webp-v2-draft-list640-200k-hero1280-500k-q82"
 _VERSIONED_THUMBNAIL_KEY = re.compile(
     r"^(thumbnails/[^/]+/[0-9a-f]{64})/(?:list|hero)\.webp$"
 )
@@ -115,8 +115,8 @@ class StorageService:
                 quality=STORED_THUMBNAIL_QUALITY,
             )
 
-        # A valid source may decode to roughly 160 MB. A dedicated two-worker
-        # pool bounds memory without occupying asyncio's shared default executor.
+        # JPEGs draft before decode/copies; other codecs still need their source
+        # decode. Bound concurrent work without occupying the shared executor.
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(_thumbnail_executor, prepare)
 

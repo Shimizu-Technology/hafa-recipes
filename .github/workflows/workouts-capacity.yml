@@ -1,0 +1,97 @@
+name: Workouts capacity (native x86, synthetic)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - experiments/workouts-capacity/**
+      - .github/workflows/workouts-capacity.yml
+      - api/app/**
+      - api/migrations/**
+      - api/requirements.txt
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workouts-capacity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native-x86:
+    # Fork code and PR-target events never obtain this experiment's execution.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out exact public source without stored credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Run isolated native experiment
+        env:
+          PYTHONPATH: experiments/workouts-capacity
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: >-
+          python3 -m capacity.ci_run
+          --repository "$GITHUB_WORKSPACE"
+          --work "$RUNNER_TEMP/hafa-capacity-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          --receipt "$RUNNER_TEMP/hafa-capacity-receipt.json"
+      - name: Always clean exact experiment resources
+        if: always()
+        env:
+          PYTHONPATH: experiments/workouts-capacity
+        run: >-
+          python3 -m capacity.ci_run
+          --cleanup-only
+          --repository "$GITHUB_WORKSPACE"
+          --work "$RUNNER_TEMP/hafa-capacity-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          --receipt "$RUNNER_TEMP/hafa-capacity-receipt.json"
+      - name: Upload only the bounded numeric receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: capacity-numeric-receipt
+          path: ${{ runner.temp }}/hafa-capacity-receipt.json
+          if-no-files-found: error
+          retention-days: 1
+
+  legal-image-boundary:
+    # Fork code and PR-target events never obtain this experiment's execution.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out exact public source without stored credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Run separate legal-image matrix
+        env:
+          PYTHONPATH: experiments/workouts-capacity
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: >-
+          python3 -m capacity.ci_run --legal-matrix
+          --repository "$GITHUB_WORKSPACE"
+          --work "$RUNNER_TEMP/hafa-legal-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          --receipt "$RUNNER_TEMP/hafa-legal-receipt.json"
+      - name: Always clean exact experiment resources
+        if: always()
+        env:
+          PYTHONPATH: experiments/workouts-capacity
+        run: >-
+          python3 -m capacity.ci_run --legal-matrix
+          --cleanup-only
+          --repository "$GITHUB_WORKSPACE"
+          --work "$RUNNER_TEMP/hafa-legal-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          --receipt "$RUNNER_TEMP/hafa-legal-receipt.json"
+      - name: Upload only the bounded numeric receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: legal-image-numeric-receipt
+          path: ${{ runner.temp }}/hafa-legal-receipt.json
+          if-no-files-found: error
+          retention-days: 1

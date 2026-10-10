@@ -417,6 +417,17 @@ def test_backfill_contract_fingerprint_covers_every_destination_input(monkeypatc
     assert contract()["destination_fingerprint"] != baseline
 
 
+def test_new_transform_retains_old_v2_url_classification_and_variant_delivery(monkeypatch):
+    monkeypatch.setattr(storage, "get_settings", lambda: SimpleNamespace(
+        s3_bucket_name="recipe-images", aws_region="us-west-2", recipe_media_base_url=None,
+    ))
+    service = StorageService()
+    old = "https://recipe-images.s3.us-west-2.amazonaws.com/thumbnails/v2/" + "a" * 64 + "/hero.webp"
+    assert is_versioned_thumbnail_url(old)
+    assert service.thumbnail_delivery_url(old, variant="list") == old.replace("/hero.webp", "/list.webp")
+    assert storage.THUMBNAIL_TRANSFORM_VERSION == "webp-v2-draft-list640-200k-hero1280-500k-q82"
+
+
 def test_backfill_contract_uses_configured_release_fallback_in_production(monkeypatch):
     monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
     monkeypatch.setattr(

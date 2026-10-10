@@ -1,0 +1,15 @@
+# Diagnostic only. Does not run API, auth, providers or databases.
+ARG PYTHON_BASE=python@sha256:739ba32ae445e8d58f3d90feb85f83bebc8346f8dd280fa1eb5848f4ff1ed163
+FROM ${PYTHON_BASE}
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/api:/harness
+WORKDIR /api
+COPY pdf-native.requirements.txt /tmp/pdf-native.requirements.txt
+RUN pip install --no-cache-dir --no-deps -r /tmp/pdf-native.requirements.txt && pip check
+COPY api/app/__init__.py app/__init__.py
+COPY api/app/domains/workouts/pdf_text.py app/domains/workouts/pdf_text.py
+COPY capacity/native_pdf.py /harness/capacity/native_pdf.py
+RUN useradd --create-home --uid 10001 capacity
+USER capacity
+ARG SOURCE_COMMIT
+LABEL org.opencontainers.image.revision=${SOURCE_COMMIT} hafa.capacity.test-only=true hafa.capacity.native-pdf-diagnostic=true
+CMD ["python", "/harness/capacity/native_pdf.py"]
