@@ -19,6 +19,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.config import get_settings
 from app.db.database import AsyncSessionLocal
 from app.domains.workouts.export_context import SnapshotSourceContext, source_context
+from app.domains.workouts.export_job_execution import (
+    ExportJobExecution,
+    require_execution,
+    require_job_snapshot_ready,
+)
 from app.domains.workouts.export_models import (
     EXPORT_TABLES,
     WorkoutsExportEpoch,
@@ -175,6 +180,9 @@ async def invalidate_export_snapshots(db, owner, generation):
     await db.execute(
         delete(WorkoutsExportSnapshot).where(WorkoutsExportSnapshot.app_user_id == owner)
     )
+    from app.domains.workouts.export_job_lifecycle import invalidate_export_jobs
+
+    await invalidate_export_jobs(db, owner, generation)
 
 
 async def erase_export_epochs_after_product_deletion(db, owner):
@@ -189,6 +197,9 @@ async def erase_export_epochs_after_product_deletion(db, owner):
         await db.execute(
             delete(WorkoutsExportEpoch).where(WorkoutsExportEpoch.app_user_id == owner)
         )
+        from app.domains.workouts.export_job_lifecycle import erase_export_jobs
+
+        await erase_export_jobs(db, owner)
 
 
 async def cleanup_expired_exports(db, *, limit=100):
@@ -283,6 +294,14 @@ class PrivateExportService:
         self.settings = settings
         self._builtin_page_source = page_source is None or page_source is approved_export_page
         self.page_source = approved_export_page if page_source is None else page_source
+        self._job_coordinator = None
+
+    def job_coordinator(self):
+        if self._job_coordinator is None:
+            from app.domains.workouts.export_job_service import ExportJobCoordinator
+
+            self._job_coordinator = ExportJobCoordinator(self.sessions, settings=self.settings)
+        return self._job_coordinator
 
     def authorize(self, user, generation):
         configured = self.settings or get_settings()
@@ -315,7 +334,7 @@ class PrivateExportService:
                 )
             )
 
-    async def _write_page(self, user, generation, snapshot, key, page, ciphertext):
+    async def _write_page(self, user, generation, snapshot, key, page, ciphertext, execution=None):
         # The readonly source transaction MUST NOT insert pages: its FK locks
         # would otherwise block privacy deletion for the entire 120-second build.
         async with self.sessions.begin() as db:
@@ -323,6 +342,8 @@ class PrivateExportService:
             await db.execute(text("SET LOCAL statement_timeout='5s'"))
             await db.execute(text("SET LOCAL lock_timeout='1s'"))
             await membership_for(db, user.id, generation=generation, write=True)
+            if execution is not None:
+                await require_execution(db, execution, user.id, generation)
             current = await db.get(WorkoutsExportSnapshot, snapshot.id)
             clock = await db.scalar(select(func.clock_timestamp()))
             if (
@@ -338,12 +359,28 @@ class PrivateExportService:
             # Commit releases both the owner lock and page FK key-share lock.
 
     @redacted
-    async def create(self, user, generation):
+    async def create(self, user, generation, *, execution: ExportJobExecution | None = None):
         key = self.authorize(user, generation)
-        snapshot_id = uuid4()
+        if execution is None:
+            # Installed045 continues fencing legacy builders even when the new
+            # async route switch is OFF. Older034/043 installations stay intact.
+            coordinator = self.job_coordinator()
+            if await coordinator.installed():
+                from app.domains.workouts.export_job_worker import run_compatibility_export
+
+                return await run_compatibility_export(self, coordinator, user, generation)
+        snapshot_id = execution.snapshot_id if execution is not None else uuid4()
         reserved = False
         try:
-            async with asyncio.timeout(BUILD_SECONDS):
+            seconds = BUILD_SECONDS
+            if execution is not None:
+                async with self.sessions.begin() as db:
+                    await self._fresh(db)
+                    await membership_for(db, user.id, generation=generation, write=True)
+                    await require_execution(db, execution, user.id, generation)
+                    clock = await db.scalar(select(func.clock_timestamp()))
+                    seconds = max(0, (execution.deadline_at - clock).total_seconds())
+            async with asyncio.timeout(seconds):
                 async with self.sessions() as source:
                     await source.connection(
                         execution_options={"isolation_level": "REPEATABLE READ"}
@@ -357,6 +394,8 @@ class PrivateExportService:
                     async with self.sessions.begin() as db:
                         await self._fresh(db)
                         await membership_for(db, user.id, generation=generation, write=True)
+                        if execution is not None:
+                            await require_execution(db, execution, user.id, generation)
                         await cleanup_expired_exports(db)
                         await db.execute(
                             delete(WorkoutsExportSnapshot).where(
@@ -364,14 +403,19 @@ class PrivateExportService:
                             )
                         )
                         created = await db.scalar(select(func.clock_timestamp()))
+                        permissions = await privacy_digest(db, user.id, generation, key)
+                        if execution is not None and not hmac.compare_digest(
+                            execution.permission_digest, permissions
+                        ):
+                            raise error("export_job_privacy_changed")
                         snapshot = WorkoutsExportSnapshot(
                             id=snapshot_id,
                             app_user_id=user.id,
                             generation=generation,
                             created_at=created,
-                            expires_at=created + timedelta(seconds=TTL_SECONDS),
+                            expires_at=execution.expires_at if execution is not None else created + timedelta(seconds=TTL_SECONDS),
                             status="building",
-                            permission_digest=await privacy_digest(db, user.id, generation, key),
+                            permission_digest=permissions,
                             page_count=0,
                             byte_count=0,
                         )
@@ -414,7 +458,8 @@ class PrivateExportService:
                             finished = not any(projected.has_more.values())
                             ciphertext = seal(key, snapshot, page, content)
                             await self._write_page(
-                                user, generation, snapshot, key, page, ciphertext
+                                user, generation, snapshot, key, page, ciphertext,
+                                **({"execution": execution} if execution is not None else {}),
                             )
                             # Do not retain the previous page while the next query waits.
                             projected = content = ciphertext = None
@@ -431,6 +476,10 @@ class PrivateExportService:
             async with self.sessions.begin() as db:
                 await self._fresh(db)
                 await membership_for(db, user.id, generation=generation, write=True)
+                job = (
+                    await require_execution(db, execution, user.id, generation)
+                    if execution is not None else None
+                )
                 current = await db.get(WorkoutsExportSnapshot, snapshot_id)
                 clock = await db.scalar(select(func.clock_timestamp()))
                 if (
@@ -446,6 +495,11 @@ class PrivateExportService:
                 current.byte_count = total_bytes
                 current.status = "ready"
                 manifest = self._manifest(current, totals)
+                if job is not None:
+                    # Same owner-locked commit publishes both handles. Source
+                    # JSON/context and BUILD_LOCK have already been retired.
+                    job.manifest = manifest.model_dump(mode="json")
+                    job.status = "ready"
             return manifest
         except BaseException:
             # Source context has already released its global transaction lock.
@@ -475,6 +529,7 @@ class PrivateExportService:
             page is not None and (type(page) is not int or not 0 <= page < MAX_PAGES)
         ):
             raise error("Invalid export page", 422)
+        jobs_installed = await self.job_coordinator().installed()
         failure = None
         async with self.sessions.begin() as db:
             await self._fresh(db)
@@ -502,6 +557,8 @@ class PrivateExportService:
             elif page is not None and page >= snapshot.page_count:
                 raise error("Invalid export page", 422)
             else:
+                if jobs_installed:
+                    await require_job_snapshot_ready(db, snapshot)
                 number = 0 if page is None else page
                 stored = await db.get(WorkoutsExportPage, (snapshot.id, number))
                 if stored is None:

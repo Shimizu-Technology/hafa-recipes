@@ -320,5 +320,8 @@ async def delete_account(
 
     workout_coach.cancel_owner(user_id)
     workout_import_worker.cancel_owner(user_id)
+    from app.domains.workouts.export_job_worker import export_job_worker
+
+    export_job_worker.cancel_owner(user_id)
     deletion_cleanup_worker.wake()
     return _account_cleanup_response(cleanup_job, len(recipe_ids))

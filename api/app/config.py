@@ -224,6 +224,7 @@ class Settings(BaseSettings):
     workouts_imports_enabled: bool = False
     workouts_ai_enabled: bool = False
     workouts_health_sync_enabled: bool = False
+    workouts_export_jobs_enabled: bool = False
     workouts_tester_user_ids: str = ""
     workout_extraction_model: str = "gpt-5.6-luna"
     workout_extraction_fallback_model: str = "gpt-5.6-terra"
@@ -238,6 +239,7 @@ class Settings(BaseSettings):
             self.workouts_imports_enabled = False
             self.workouts_ai_enabled = False
             self.workouts_health_sync_enabled = False
+            self.workouts_export_jobs_enabled = False
         return self
 
     @property
