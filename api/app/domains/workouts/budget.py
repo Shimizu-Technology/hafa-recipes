@@ -8,14 +8,15 @@ from decimal import ROUND_CEILING, Decimal, InvalidOperation
 from typing import Literal, Mapping
 from uuid import uuid4
 
-from sqlalchemy import func, select, text
+from pydantic import SecretStr
+from sqlalchemy import and_, func, not_, or_, select, text
 
-from app.db.database import AsyncSessionLocal
 from app.domains.workouts.budget_models import WorkoutsAIAdmission
 
 logger = logging.getLogger("hafa.workouts.budget")
 LOCK_ID = 7340040
 WINDOW = timedelta(hours=24)
+AUTHORIZED_CAP_MICROUSD = 5_000_000
 CAPABILITIES = frozenset({"workout_extraction", "workout_coach", "workout_transcription"})
 MAX_MONEY = 9_000_000_000_000_000
 # Official exact snapshot/model and standard pricing/vision docs checked2026-10-10.
@@ -33,6 +34,7 @@ FAILURE_CODES = (
     "workouts_ai_budget_disabled",
     "workouts_ai_budget_configuration_invalid",
     "workouts_ai_budget_unconfigured",
+    "workouts_ai_budget_authority_unconfigured",
     "workouts_ai_capability_unsupported",
     "workouts_ai_model_unpriced",
     "workouts_ai_envelope_unsupported",
@@ -66,6 +68,7 @@ class BudgetPolicy:
     budget_24h_microusd: int = 0
     max_attempt_microusd: int = 5_000_000
     model_pricing: Mapping = field(default_factory=dict)
+    authority_url: SecretStr | None = field(default=None, repr=False)
 
     @classmethod
     def from_settings(cls, settings):
@@ -74,6 +77,7 @@ class BudgetPolicy:
             budget_24h_microusd=getattr(settings, "workouts_ai_budget_24h_microusd", 0),
             max_attempt_microusd=getattr(settings, "workouts_ai_max_attempt_microusd", 5_000_000),
             model_pricing=getattr(settings, "ai_model_pricing", {}),
+            authority_url=getattr(settings, "workouts_ai_budget_database_url", None),
         )
 
 
@@ -104,14 +108,14 @@ def validate_policy(policy):
         raise BudgetError("workouts_ai_budget_disabled")
     if (
         type(policy.budget_24h_microusd) is not int
-        or not 0 <= policy.budget_24h_microusd <= MAX_MONEY
+        or not 0 <= policy.budget_24h_microusd <= AUTHORIZED_CAP_MICROUSD
     ):
         raise BudgetError("workouts_ai_budget_configuration_invalid")
     if policy.budget_24h_microusd == 0:
         raise BudgetError("workouts_ai_budget_unconfigured")
     if (
         type(policy.max_attempt_microusd) is not int
-        or not 1 <= policy.max_attempt_microusd <= MAX_MONEY
+        or not 1 <= policy.max_attempt_microusd <= AUTHORIZED_CAP_MICROUSD
     ):
         raise BudgetError("workouts_ai_budget_configuration_invalid")
 
@@ -218,10 +222,41 @@ async def database_time(db):
     return await db.scalar(text("SELECT clock_timestamp()"))
 
 
+def confirmed_admission():
+    # A local exception/cancellation is not evidence the provider stopped billing.
+    return and_(
+        WorkoutsAIAdmission.outcome == "success", WorkoutsAIAdmission.finished_at.is_not(None)
+    )
+
+
+def confirmation_time():
+    return func.greatest(WorkoutsAIAdmission.admitted_at, WorkoutsAIAdmission.finished_at)
+
+
+def charged_admission(current):
+    return or_(not_(confirmed_admission()), confirmation_time() > current - WINDOW)
+
+
 class BudgetGuard:
-    def __init__(self, policy, *, session_factory=AsyncSessionLocal):
+    def __init__(self, policy, *, session_factory=None):
         self.policy = policy
         self.session_factory = session_factory
+
+    def sessions(self):
+        if self.session_factory is not None:
+            return self.session_factory  # Trusted, explicit synthetic test injection only.
+        if self.policy.authority_url is None:
+            raise BudgetError("workouts_ai_budget_authority_unconfigured")
+        from app.domains.workouts.budget_authority import authority_sessions
+
+        return authority_sessions(self.policy.authority_url)
+
+    async def diagnostics(self, *, limit=50):
+        validate_policy(self.policy)
+        async with self.sessions()() as db:
+            if self.session_factory is None:
+                await verify_budget_connection(db)
+            return await budget_diagnostics(db, self.policy, limit=limit)
 
     def attempt(self, *, capability, model, envelope):
         return BudgetAttempt(self, capability, model, envelope)
@@ -229,43 +264,45 @@ class BudgetGuard:
     async def reserve(self, capability, model, envelope):
         amount = admission_upper_bound(capability, model, envelope, self.policy)
         try:
-            async with self.session_factory() as db:
+            async with self.sessions()() as db:
                 async with db.begin():
                     # Refresh the view after a waiting lock even if the injected
                     # engine defaults to REPEATABLE READ. This transaction is
                     # independent and has not performed any prior query.
                     await db.execute(text("SET TRANSACTION ISOLATION LEVEL READ COMMITTED"))
                     await db.execute(text("SELECT pg_advisory_xact_lock(:lock)"), {"lock": LOCK_ID})
+                    if self.session_factory is None:
+                        await verify_budget_connection(db)
                     current = await database_time(db)
                     total = await db.scalar(
                         select(
                             func.coalesce(func.sum(WorkoutsAIAdmission.admitted_microusd), 0)
-                        ).where(WorkoutsAIAdmission.admitted_at > current - WINDOW)
+                        ).where(charged_admission(current))
                     )
                     if total + amount > self.policy.budget_24h_microusd:
                         releases = (
                             select(
-                                WorkoutsAIAdmission.admitted_at,
+                                confirmation_time().label("confirmed_at"),
                                 func.sum(WorkoutsAIAdmission.admitted_microusd)
                                 .over(
                                     order_by=(
-                                        WorkoutsAIAdmission.admitted_at,
+                                        confirmation_time(),
                                         WorkoutsAIAdmission.attempt_id,
                                     ),
                                     rows=(None, 0),
                                 )
                                 .label("released"),
                             )
-                            .where(WorkoutsAIAdmission.admitted_at > current - WINDOW)
+                            .where(confirmed_admission(), confirmation_time() > current - WINDOW)
                             .subquery()
                         )
                         sufficient = await db.scalar(
-                            select(releases.c.admitted_at)
+                            select(releases.c.confirmed_at)
                             .where(
                                 releases.c.released
                                 >= total + amount - self.policy.budget_24h_microusd
                             )
-                            .order_by(releases.c.admitted_at)
+                            .order_by(releases.c.confirmed_at)
                             .limit(1)
                         )
                         retry = (
@@ -277,7 +314,7 @@ class BudgetGuard:
                                 ),
                             )
                             if sufficient
-                            else 86400
+                            else None
                         )
                         raise BudgetError("workouts_ai_budget_exceeded", retry_after_seconds=retry)
                     identifier = uuid4()
@@ -301,7 +338,7 @@ class BudgetGuard:
 
     async def finish(self, identifier, outcome, estimated_cost):
         try:
-            async with self.session_factory() as db:
+            async with self.sessions()() as db:
                 async with db.begin():
                     row = await db.scalar(
                         select(WorkoutsAIAdmission)
@@ -367,7 +404,7 @@ async def budget_diagnostics(db, policy, *, limit=50):
     if not 1 <= limit <= 50:
         raise BudgetError("workouts_ai_diagnostics_invalid")
     current = await database_time(db)
-    active = WorkoutsAIAdmission.admitted_at > current - WINDOW
+    active = charged_admission(current)
     totals = (
         await db.execute(
             select(
@@ -415,6 +452,11 @@ async def budget_diagnostics(db, policy, *, limit=50):
     ).all()
     return {
         "window_hours": 24,
+        "window_starts_at": "verified_success_finish_or_admission_whichever_is_later",
+        "unresolved_hold_indefinite": True,
+        "unresolved_attempts": await db.scalar(
+            select(func.count()).select_from(WorkoutsAIAdmission).where(not_(confirmed_admission()))
+        ),
         "generated_at": current,
         "configured": policy.budget_24h_microusd > 0,
         "budget_24h_microusd": policy.budget_24h_microusd,
@@ -436,36 +478,40 @@ async def verify_budget_schema(engine, settings):
     if not settings.workouts_api_enabled:
         return
     async with engine.connect() as connection:
-        if not await connection.scalar(
-            text("SELECT to_regclass('public.workouts_schema_migrations') IS NOT NULL")
-        ) or not await connection.scalar(
-            text("SELECT EXISTS(SELECT 1 FROM workouts_schema_migrations WHERE version=40)")
-        ):
-            raise RuntimeError("Workouts AI admission migration040 is required")
-        columns = set(
-            (
-                await connection.execute(
-                    text(
-                        "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='workouts_ai_admissions'"
-                    )
+        await verify_budget_connection(connection)
+
+
+async def verify_budget_connection(connection):
+    if not await connection.scalar(
+        text("SELECT to_regclass('public.workouts_schema_migrations') IS NOT NULL")
+    ) or not await connection.scalar(
+        text("SELECT EXISTS(SELECT 1 FROM public.workouts_schema_migrations WHERE version=40)")
+    ):
+        raise RuntimeError("Workouts AI admission migration040 is required")
+    columns = set(
+        (
+            await connection.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='workouts_ai_admissions'"
                 )
-            ).scalars()
+            )
+        ).scalars()
+    )
+    if columns != set(WorkoutsAIAdmission.__table__.columns.keys()):
+        raise RuntimeError(
+            "Workouts AI admission schema is incomplete or contains unexpected fields"
         )
-        if columns != set(WorkoutsAIAdmission.__table__.columns.keys()):
-            raise RuntimeError(
-                "Workouts AI admission schema is incomplete or contains unexpected fields"
-            )
-        if await connection.scalar(
-            text(
-                "SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='public.workouts_ai_admissions'::regclass AND contype='f')"
-            )
-        ):
-            raise RuntimeError("Anonymous Workouts AI admissions must not reference account tables")
-        if not await connection.scalar(
-            text("""SELECT EXISTS(SELECT 1 FROM pg_trigger
-            WHERE tgrelid='public.workouts_ai_admissions'::regclass
-            AND tgname='immutable_workouts_ai_admission'
-            AND tgfoid='public.protect_workouts_ai_admission'::regproc
-            AND tgenabled IN ('O','A') AND NOT tgisinternal)""")
-        ):
-            raise RuntimeError("Workouts AI admission immutability trigger is missing")
+    if await connection.scalar(
+        text(
+            "SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='public.workouts_ai_admissions'::regclass AND contype='f')"
+        )
+    ):
+        raise RuntimeError("Anonymous Workouts AI admissions must not reference account tables")
+    if not await connection.scalar(
+        text("""SELECT EXISTS(SELECT 1 FROM pg_trigger
+        WHERE tgrelid='public.workouts_ai_admissions'::regclass
+        AND tgname='immutable_workouts_ai_admission'
+        AND tgfoid='public.protect_workouts_ai_admission'::regproc
+        AND tgenabled IN ('O','A') AND NOT tgisinternal)""")
+    ):
+        raise RuntimeError("Workouts AI admission immutability trigger is missing")
