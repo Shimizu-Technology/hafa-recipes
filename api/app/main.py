@@ -1,4 +1,4 @@
-"""Recipe Extractor API - FastAPI Application."""
+"""Håfa API - shared FastAPI platform with compatible Recipes surfaces."""
 
 import logging
 import re
@@ -197,4 +197,4 @@ async def shutdown():
     await cover_job_worker.stop()
     await deletion_cleanup_worker.stop()
     await job_worker.stop()
-    print("👋 Shutting down Recipe Extractor API")
+    print("👋 Shutting down Håfa API")

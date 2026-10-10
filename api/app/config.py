@@ -210,7 +210,7 @@ class Settings(BaseSettings):
     enable_sentry_debug: bool = False
 
     # API Settings
-    api_title: str = "Recipe Extractor API"
+    api_title: str = "Håfa API"
     api_version: str = "1.0.0"
 
     # Workouts is an independently controlled product. All capabilities stay

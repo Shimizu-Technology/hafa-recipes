@@ -1,7 +1,7 @@
 [project]
-name = "recipe-api"
+name = "hafa-api"
 version = "1.0.0"
-description = "Recipe Extractor API - Transform cooking videos into structured recipes"
+description = "Hafa API - Shared platform for Hafa Recipes and Hafa Workouts"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
