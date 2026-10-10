@@ -56,7 +56,8 @@ export function measurementErrors(
     );
   if (kind === "weight" ? !["kg", "lb"].includes(unit) : !["cm", "in"].includes(unit))
     errors.push("Choose a unit for this measurement.");
-  if (!recorded_at || !parseRecordedTime(recorded_at) || Date.parse(recorded_at) > Date.now() + 60000)
+  const parsedTime = recorded_at ? parseRecordedTime(recorded_at) : null;
+  if (!parsedTime || Date.parse(parsedTime) > Date.now() + 60000)
     errors.push("Choose the date and time when you took this measurement, up to now.");
   return errors;
 }
@@ -64,7 +65,7 @@ export function measurementDisplay(record: Measurement) {
   return record.value == null || !record.unit ? "Removed measurement" : `${record.value} ${record.unit}`;
 }
 export function parseRecordedTime(value: string): string | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?$/.exec(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})?$/.exec(value);
   if (!match) return null;
   const year = Number(match[1]),
     month = Number(match[2]),
@@ -85,7 +86,9 @@ export function parseRecordedTime(value: string): string | null {
     second > 59
   )
     return null;
-  const date = new Date(value);
+  // The API emits Python/Postgres microseconds. Validate with portable JS
+  // milliseconds; callers retain the untouched timestamp in the saved command.
+  const date = new Date(value.replace(/(\.\d{3})\d+(?=Z|[+-]\d{2}:\d{2}|$)/, "$1"));
   if (!Number.isFinite(date.getTime())) return null;
   if (
     !match[7] &&
@@ -107,7 +110,8 @@ export function profileMeasurementErrors(profile: TrainingProfile, baseline?: Tr
     const value = profile[key];
     if (value == null || !Number.isFinite(value) || value === baseline?.[key]) continue;
     const date = profile[dateKey];
-    if (!date || !parseRecordedTime(date) || Date.parse(date) > Date.now() + 60000)
+    const parsedTime = date ? parseRecordedTime(date) : null;
+    if (!parsedTime || Date.parse(parsedTime) > Date.now() + 60000)
       errors.push(`Choose when you measured the changed ${kind}.`);
   }
   return errors;
