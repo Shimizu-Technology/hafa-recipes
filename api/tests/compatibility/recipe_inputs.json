@@ -1,0 +1,25 @@
+{
+  "legacy_flat": {
+    "title": "Synthetic rice fixture",
+    "sourceUrl": "https://example.test/recipe",
+    "ingredients": [{"name": "Rice", "quantity": 2, "unit": "cups"}],
+    "steps": ["Cook rice."],
+    "times": {"prep": null, "cook": "20 minutes", "total": "20 minutes"},
+    "media": {"thumbnail": null},
+    "nutrition": {}
+  },
+  "component_recipe": {
+    "title": "Synthetic rice fixture",
+    "sourceUrl": "https://example.test/recipe",
+    "servings": 4,
+    "components": [{"name": "Main", "ingredients": [{"name": "Rice", "quantity": "2", "unit": "cups"}], "steps": ["Cook rice."]}],
+    "ingredients": [{"name": "Rice", "quantity": "2", "unit": "cups"}],
+    "steps": ["Cook rice."],
+    "times": {"prep": "5 minutes", "cook": "20 minutes", "total": "25 minutes"},
+    "media": {"thumbnail": null},
+    "tags": ["rice"],
+    "nutrition": {"perServing": {"calories": 200}, "total": {"calories": 800}},
+    "totalEstimatedCost": 4,
+    "costLocation": "Guam"
+  }
+}

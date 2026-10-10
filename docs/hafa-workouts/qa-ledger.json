@@ -1,0 +1,640 @@
+{
+  "scope": "Complete HafaWorkouts release and existing Recipes compatibility",
+  "planning_base": "37e64e2886506cc40d65d45657c630b43c0f97d4",
+  "planning_date": "2026-10-10",
+  "execution_owner": "agent; physical/provider operations only with available authorized devices/fixtures",
+  "executed": 0,
+  "next_case": null,
+  "resource_status": "No runtime resources started during planning",
+  "cases": [
+    {
+      "id": "C01",
+      "fixture_and_actions": "U1/C1: share supported links from source apps, leave during processing, reopen activity",
+      "expected_outcome": "Capture persists before work; appropriate extracted facts/evidence and attribution save; return context survives",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "C02",
+      "fixture_and_actions": "U1: submit annotated text, image/document and manual variants; edit and reload",
+      "expected_outcome": "All advertised input modes save the independently expected structure; draft edits persist",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "C03",
+      "fixture_and_actions": "U1/C2: inspect missing sets/rest and ambiguous movement; save draft; accept a separate suggestion",
+      "expected_outcome": "Missing facts remain visible; no inferred value becomes extracted fact; accepted adaptation has its own version",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "C04",
+      "fixture_and_actions": "U1/C3: import private/deleted/unsupported/oversized/hostile source, then retry/manual completion",
+      "expected_outcome": "Bounded actionable failure; retained private source draft; no internal-network access or secret leakage",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "C05",
+      "fixture_and_actions": "Repeat native share/retry; terminate worker during claim; replay/cancel/delete race",
+      "expected_outcome": "One intended saved result; restart recovery; bounded retries; cancelled/deleted work cannot resurrect",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "C06",
+      "fixture_and_actions": "U1/W1\u2013W3: search/filter/collect/edit; open source/exercise and return",
+      "expected_outcome": "Correct private records/version; filters/drafts preserved; catalog change does not alter history",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "C07",
+      "fixture_and_actions": "U1/F1: preview share, recipient opens/copies, sender revokes",
+      "expected_outcome": "Only intended prescription/source fields exposed; no profile/chat/history; revoke blocks grant access; retained-copy semantics honest",
+      "coverage": "N, W, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "C08",
+      "fixture_and_actions": "Decline/revoke extraction AI consent; capture each content class and use manual/local draft; inspect provider transport",
+      "expected_outcome": "No third-party AI transmission without consent; useful manual/draft operation; server upload only under its separately disclosed allowed use",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "T01",
+      "fixture_and_actions": "U1 new/existing identity: enroll as adult, skip optional fields, sign out/in, recover",
+      "expected_outcome": "Same stable owner; useful manual start; no duplicate account or implicit data/AI grant",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "T02",
+      "fixture_and_actions": "U1 profile: change goals/equipment/units/timezone; add temporary feedback; expire/remove it",
+      "expected_outcome": "Updated context is inspectable; temporary status expires; removed data stops informing new proposals",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "T03",
+      "fixture_and_actions": "U1/P1: create/import/manual program across all five goal families and beginner/home fixture; inspect and accept",
+      "expected_outcome": "Each promised family fits its independently reviewed availability/equipment/rules; purposes/assumptions visible; persists consistently",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "T04",
+      "fixture_and_actions": "U1/P2: missed days, new basketball/run activity, pause, shortened session and return",
+      "expected_outcome": "Reviewable future changes; no automatic missed-session stacking; completed history/rest preserved",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "T05",
+      "fixture_and_actions": "U1/W1\u2013W2: adapt unavailable equipment/time and user-declared restriction; reject/edit proposal",
+      "expected_outcome": "Reviewed substitutes with rationale; uncertainty/limitations honored; source and personal versions remain distinct",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "T06",
+      "fixture_and_actions": "U1: request direct move then broad plan replacement; change plan while proposal is pending",
+      "expected_outcome": "Domain authorization/revision checks; low-impact receipt/undo; broad preview; stale proposal cannot overwrite changes",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "T07",
+      "fixture_and_actions": "C2/P2 safety suite: incomplete source, hostile prompt text, unsupported medical request, conflicting goals",
+      "expected_outcome": "No source instruction overrides policy/tools; uncertainty preserved; no medical clearance/treatment claim; reviewed rubric passes",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "T08",
+      "fixture_and_actions": "Disable AI/decline consent during planning/training; retry provider failure within bounded budget",
+      "expected_outcome": "Manual profile/plan/workout/logging remain usable; clear finite failure and safe retry, no fabricated success",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "S01",
+      "fixture_and_actions": "U1/W1: start, log ranges/unilateral/timed/distance/grouped work, substitute and finish",
+      "expected_outcome": "Exact actual results save; intended block meaning and prior performance are clear",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "S02",
+      "fixture_and_actions": "S1: lose network, background/terminate/reboot, reopen and reconnect",
+      "expected_outcome": "Same unfinished session resumes; replay saves once; no time-inferred completion; sync state honest",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "S03",
+      "fixture_and_actions": "S1: rapid double-tap, undo after sync, concurrent-device edit and post-delete replay",
+      "expected_outcome": "Idempotency/correction history; explicit conflict; no overwritten or resurrected session",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "S04",
+      "fixture_and_actions": "Controlled clocks: timer pause/resume, notifications declined, timezone/day boundary, mixed units",
+      "expected_outcome": "Accurate timer/date/unit outcomes; no stale notification after stop; accessible in-app behavior without permission",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "S05",
+      "fixture_and_actions": "Complete/partially complete P1, correct actual result, edit later template, inspect progress",
+      "expected_outcome": "History/progress reconcile; comparability/provenance honest; template changes never rewrite prior actual work",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "H01",
+      "fixture_and_actions": "H1/iPhone: connect minimal Health types, partial/no visible data, app relaunch; refresh",
+      "expected_outcome": "Actual eligible records/freshness; no false denial/inactivity claim; app works without data",
+      "coverage": "I, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "H02",
+      "fixture_and_actions": "H1/Android: permissions/feature/history/background variants; refresh, pagination and cursor reset",
+      "expected_outcome": "Capability-aware bounded sync and deduplication; limits displayed; unavailable features retain manual use",
+      "coverage": "A, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "H03",
+      "fixture_and_actions": "H1: separately allow server/AI use; revoke one while retaining another",
+      "expected_outcome": "Only eligible minimized context transmitted; grant revocation invalidates memory/use; Recipes sees no health data",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "H04",
+      "fixture_and_actions": "S1/H1: write completed/partial workout, retry, reimport, correct/remove H\u00e5fa-owned write",
+      "expected_outcome": "Actual supported fields only; one canonical session; no feedback loop or deletion of another app's records",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "H05",
+      "fixture_and_actions": "H1: overlapping device/source activity, upstream correction/deletion, restricted-origin sample",
+      "expected_outcome": "Reconcile with provenance; no duplicate training load; restricted/unknown samples excluded from AI until reviewed",
+      "coverage": "N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "F01",
+      "fixture_and_actions": "U1/U2: cross-user IDs, account switch, signed-out deep links, removed grants and private images",
+      "expected_outcome": "Backend isolation and bounded safe projections; no cache leak; sign-in restores exact authorized destination",
+      "coverage": "N, W, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "F02",
+      "fixture_and_actions": "U1/F1: H\u00e5fa apps entry with other app installed/absent; opt in/out of Recipes context",
+      "expected_outcome": "Relationship understandable; correct app/store fallback; only granted direction/categories used; revocation effective",
+      "coverage": "N, W, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "F03",
+      "fixture_and_actions": "U3/F1: export, product-data removal, approved global deletion, pending jobs/health sync/cleanup failure",
+      "expected_outcome": "Correct scoped erasure/export; no late recreation; external cleanup retried; legacy semantics reviewed and executed",
+      "coverage": "N, L, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "F04",
+      "fixture_and_actions": "Public signup/free-beta states, operational quota/provider outage, admin job retry and privacy inspection",
+      "expected_outcome": "Open adult access; no active paywall; disclosed bounded limits; audited authorized admin actions without private health browsing",
+      "coverage": "N, W, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "F05",
+      "fixture_and_actions": "Long content, large text, VoiceOver/TalkBack, numeric keyboard, reduced motion, slow network",
+      "expected_outcome": "Required controls remain discoverable/reachable; no covered inputs/lost drafts/indefinite spinner",
+      "coverage": "N, W",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "R01",
+      "fixture_and_actions": "Supported L clients/U1: Apple/Google/email/recovery/relay, session refresh, same account on old/new clients",
+      "expected_outcome": "Existing identity and ownership intact; issuer/redirect rules preserved; no mandatory new app to retain access",
+      "coverage": "L, N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "R02",
+      "fixture_and_actions": "L/U1: Recipes capture/import/cover/source playback, saves/collections, edits/chat, meal plan/groceries/widget",
+      "expected_outcome": "Existing visible and saved results match pre-change expectations; recently shipped media behavior preserved",
+      "coverage": "L, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "R03",
+      "fixture_and_actions": "Old/new clients/F1: grocery sharing and legacy account deletion with approved shared-account design",
+      "expected_outcome": "Existing privacy/sharing preserved; deletion meaning and actual cleanup agree with reviewed disclosure/design",
+      "coverage": "L, N, X",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "R04",
+      "fixture_and_actions": "Mixed workload: recipe+workout imports/cover/chat/session logs; replicas, deployment and compatible rollback",
+      "expected_outcome": "No starvation/duplicate jobs; service meets agreed latency/resource budgets; rollback preserves post-deploy data",
+      "coverage": "X; N/L smoke",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "R05",
+      "fixture_and_actions": "Exact store/TestFlight/Play artifacts: privacy/health declarations, reviewer flows, release/download",
+      "expected_outcome": "Real provider/device acceptance and actual public availability mapped to exact source; no claim from upload alone",
+      "coverage": "I, A, W",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    },
+    {
+      "id": "R06",
+      "fixture_and_actions": "Synthetic owned data: replay additive migrations, start old/new API releases, capture legacy responses, disable capabilities and roll back code",
+      "expected_outcome": "Stable ownership and new records retained; strict old-client contracts/startup checks compatible; booted `/up` makes no dependency query",
+      "coverage": "X; L contract",
+      "status": "not_run",
+      "execution": {
+        "commit": null,
+        "build": null,
+        "environment": null,
+        "date": null,
+        "device_results": {},
+        "actual": null,
+        "evidence": [],
+        "retests": []
+      }
+    }
+  ]
+}

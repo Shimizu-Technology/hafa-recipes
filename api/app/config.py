@@ -199,6 +199,30 @@ class Settings(BaseSettings):
     api_title: str = "Recipe Extractor API"
     api_version: str = "1.0.0"
 
+    # Workouts is an independently controlled product. All capabilities stay
+    # dormant on existing Recipes deployments until their rollout is verified.
+    workouts_api_enabled: bool = False
+    workouts_public_access_enabled: bool = False
+    workouts_imports_enabled: bool = False
+    workouts_ai_enabled: bool = False
+    workouts_health_sync_enabled: bool = False
+    workouts_tester_user_ids: str = ""
+
+    @model_validator(mode="after")
+    def validate_workouts_rollout(self) -> "Settings":
+        # The master switch must be safe to turn off by itself during recovery.
+        # Stale child switches cannot prevent the existing Recipes API booting.
+        if not self.workouts_api_enabled:
+            self.workouts_public_access_enabled = False
+            self.workouts_imports_enabled = False
+            self.workouts_ai_enabled = False
+            self.workouts_health_sync_enabled = False
+        return self
+
+    @property
+    def workouts_testers(self) -> frozenset[str]:
+        return frozenset(item.strip() for item in self.workouts_tester_user_ids.split(",") if item.strip())
+
     @model_validator(mode="after")
     def validate_ai_registry(self) -> "Settings":
         """Reject missing, retired, or unsafe active model configuration."""
