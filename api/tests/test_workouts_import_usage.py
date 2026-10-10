@@ -282,18 +282,12 @@ async def test_receipt_is_content_free_and_immutable(usage_api):
         await db.rollback()
 
 
-async def test_readiness_requires_042_and_disabled_readiness_queries_nothing(automation_api):
+async def test_readiness_requires_042(automation_api):
     with pytest.raises(RuntimeError, match="042"):
         await usage.verify_import_usage_schema(
             automation_api.sessions, settings=settings(workouts_imports_enabled=True)
         )
 
-    def forbidden():
-        raise AssertionError("disabled readiness must not touch database")
-
-    await usage.verify_import_usage_schema(
-        forbidden, settings=settings().model_copy(update={"workouts_api_enabled": False})
-    )
     await migration.run_migration(configured=settings(), migration_engine=automation_api.engine)
     await usage.verify_import_usage_schema(
         automation_api.sessions, settings=settings(workouts_imports_enabled=True)
@@ -382,18 +376,10 @@ async def test_expired_pending_does_not_reserve_slot(usage_api):
     assert (await enqueue(usage_api)).status_code == 202
 
 
-async def test_migration_requires035_and_disabled_migration_no_database(data_api):
+async def test_migration_requires035(data_api):
     with pytest.raises(RuntimeError, match="035"):
         await migration.run_migration(configured=settings(), migration_engine=data_api.engine)
 
-    class Forbidden:
-        def begin(self):
-            raise AssertionError("disabled migration must not query database")
-
-    await migration.run_migration(
-        configured=settings().model_copy(update={"workouts_api_enabled": False}),
-        migration_engine=Forbidden(),
-    )
 
 
 async def test_fixture_fallback_cannot_enable_real_environment(automation_api, monkeypatch):

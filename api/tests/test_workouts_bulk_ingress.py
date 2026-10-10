@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from starlette.requests import ClientDisconnect
 
 from app.domains.workouts import security
 
@@ -246,7 +247,7 @@ async def test_disconnected_receive_releases_without_queuing_a_handler(fixture):
     async def disconnected():
         return {"type": "http.disconnect"}
 
-    with pytest.raises(Exception):
+    with pytest.raises(ClientDisconnect):
         await call(fixture.app, disconnected)
     assert fixture.calls == [] and not fixture.gate.locked()
     assert status(await call(fixture.app)) == 200
