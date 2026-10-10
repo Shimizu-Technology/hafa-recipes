@@ -238,7 +238,8 @@ def _run(profile: TrainingProfile) -> tuple[WorkoutContent | None, list[str]]:
         run, walk, rounds = RUNNING_STAGES[stage]
         rounds = min(rounds, ((profile.session_minutes or 0) * 60 - 600) // (run + walk))
         if rounds < 1:
-            return None, ["At least 12 minutes are needed for the introductory run/walk structure."]
+            needed = math.ceil((600 + run + walk) / 60)
+            return None, [f"At least {needed} minutes are needed for this run/walk stage structure."]
         if rounds < RUNNING_STAGES[stage][2]:
             warnings.append(
                 "Fewer intervals fit the time cap; no warmup or recovery was compressed."

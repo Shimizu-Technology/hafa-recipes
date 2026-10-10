@@ -103,7 +103,7 @@ class TrainingProfile(DomainModel):
     experience: Literal["new", "returning", "regular"] = "new"
     equipment: list[str] | None = Field(default=None, max_length=100)
     available_days: list[int] = Field(default_factory=list, max_length=7)
-    timezone: str = "Pacific/Guam"
+    timezone: str = Field(default="Pacific/Guam", min_length=1, max_length=64)
     session_minutes: int | None = Field(default=None, ge=5, le=180)
     age_years: int | None = Field(default=None, ge=18, le=120)
     weight_kg: float | None = Field(default=None, gt=0, le=500)
@@ -129,7 +129,7 @@ class TrainingProfile(DomainModel):
             raise ValueError("available loads must be positive and at most 2000 kg")
         try:
             ZoneInfo(self.timezone)
-        except (ZoneInfoNotFoundError, ValueError) as exc:
+        except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
             raise ValueError("timezone must be an IANA timezone") from exc
         return self
 

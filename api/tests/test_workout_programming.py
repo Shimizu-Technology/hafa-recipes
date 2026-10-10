@@ -577,3 +577,26 @@ def test_missing_dose_requires_question_without_invention():
         ],
     )
     assert adapt_workout(content, profile()).status == "needs_information"
+
+
+@pytest.mark.parametrize("timezone", ["America", "a" * 300, ""])
+def test_directory_and_oversized_timezone_are_validation_errors(timezone):
+    with pytest.raises(ValidationError):
+        profile(timezone=timezone)
+
+
+@pytest.mark.parametrize("stage,minutes", [(0, 12), (5, 15), (7, 22), (8, 30)])
+def test_running_conflict_reports_current_stage_minimum(stage, minutes):
+    result = build_program(
+        profile(
+            primary_goal="running",
+            session_minutes=minutes - 1,
+            running_baseline=RunningBaseline(
+                novice_start_confirmed=True, comfortable_walk_minutes=20, accepted_stage=stage
+            ),
+        ),
+        START,
+        1,
+    )
+    assert result.status == "conflicts"
+    assert any(f"At least {minutes} minutes" in warning for warning in result.warnings)
