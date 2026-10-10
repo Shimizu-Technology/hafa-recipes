@@ -1,5 +1,5 @@
 import { SourceImage } from "@/components/source-image";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Image, View } from "react-native";
 import { router } from "expo-router";
 import * as Crypto from "expo-crypto";
@@ -7,11 +7,23 @@ import { useQuery } from "@tanstack/react-query";
 import { Button, Card, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
 import { useTraining } from "@/lib/context";
 import { captureErrors, type CaptureDraft, type CaptureKind, type CaptureFile } from "@/lib/capture";
+import { createPrivateDraftSlot, type PrivateDraftSnapshot } from "@/lib/private-form";
 import { pickImages, pickDocument, sourceFor, cleanupCaptureFiles } from "@/lib/capture-io";
 export default function Capture() {
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const generation = enrollment?.generation ?? 0;
   const scope = `capture:${generation}`;
+  const slot = useMemo(
+    () => createPrivateDraftSlot<CaptureDraft>(storage, owner, scope, Crypto.randomUUID),
+    [storage, owner, scope]
+  );
+  const saved = useRef<PrivateDraftSnapshot<CaptureDraft>>({ value: null, revision: null });
+  const writes = useRef<Promise<unknown>>(Promise.resolve());
+  const pendingWrites = useRef(0);
+  const readyRef = useRef(false);
+  const view = useRef(0);
+  const renderedView = view.current;
+  const [stale, setStale] = useState(false);
   const [draft, setDraft] = useState<CaptureDraft>(() => ({
     request_id: Crypto.randomUUID(),
     generation,
@@ -48,7 +60,7 @@ export default function Capture() {
       mounted.current = false;
     };
   }, []);
-  function current() {
+  function currentScope() {
     if (
       !mounted.current ||
       !isCurrentAccount() ||
@@ -59,6 +71,33 @@ export default function Capture() {
     )
       throw Error("The account, enrollment or capture screen changed. This source was not moved to another draft.");
   }
+  function current() {
+    currentScope();
+    if (view.current !== renderedView) throw Error("This source view changed. Use the loaded source before editing.");
+    slot.assertCurrent(saved.current.revision);
+  }
+  function changed() {
+    if (!readyRef.current || pendingWrites.current) return;
+    try {
+      currentScope();
+      slot.assertCurrent(saved.current.revision);
+    } catch {
+      if (mounted.current) setStale(true);
+    }
+  }
+  useEffect(() => slot.subscribe(changed), [slot]);
+  function enqueue<R>(work: () => Promise<R>) {
+    pendingWrites.current++;
+    const next = writes.current.catch(() => undefined).then(work);
+    writes.current = next;
+    void next
+      .finally(() => {
+        pendingWrites.current--;
+        changed();
+      })
+      .catch(() => undefined);
+    return next;
+  }
   const capabilities = useQuery({
     queryKey: [owner, "capabilities", generation],
     queryFn: api.capabilities,
@@ -66,70 +105,134 @@ export default function Capture() {
   });
   useEffect(() => {
     let active = true;
-    void localDrafts
-      .load<CaptureDraft>(owner, scope)
+    readyRef.current = false;
+    setReady(false);
+    setStale(false);
+    void slot
+      .load(currentScope)
       .then((value) => {
-        if (active) {
-          if (value?.generation === generation) setDraft(value);
-          else
-            setDraft((old) =>
-              old.generation === 0
-                ? { ...old, generation, request_id: Crypto.randomUUID() }
-                : {
-                    request_id: Crypto.randomUUID(),
-                    generation,
-                    kind: "url",
-                    text: "",
-                    source_url: "",
-                    files: [],
-                    created_at: new Date().toISOString()
-                  }
-            );
-          setReady(true);
-        }
+        if (!active) return;
+        saved.current = value;
+        const next =
+          value.value?.generation === generation
+            ? value.value
+            : {
+                request_id: Crypto.randomUUID(),
+                generation,
+                kind: "url" as const,
+                text: "",
+                source_url: "",
+                files: [],
+                created_at: new Date().toISOString()
+              };
+        draftRef.current = next;
+        setDraft(next);
+        readyRef.current = true;
+        setReady(true);
       })
       .catch(() => {
-        if (active) {
-          setReady(true);
-          setError("Could not restore your source draft. You can choose the source again.");
-        }
+        if (active) setError("Could not restore your source. Retry loading it before editing.");
       });
     return () => {
       active = false;
     };
-  }, [owner, scope, generation]);
-  function update(value: CaptureDraft) {
-    if (guard.current || draftRef.current.pending_import) return;
+  }, [slot, generation]);
+  function update(patch: Partial<Pick<CaptureDraft, "text" | "source_url">>) {
+    if (guard.current || draftRef.current.pending_import || !readyRef.current || stale) return;
     try {
       current();
-    } catch {
+    } catch (e) {
+      setStale(true);
+      setError((e as Error).message);
       return;
     }
+    if (patch.source_url !== undefined && draftRef.current.kind !== "url") return;
+    const value = { ...draftRef.current, ...patch, request_id: Crypto.randomUUID(), job_id: undefined };
+    draftRef.current = value;
     setDraft(value);
-    void localDrafts
-      .save(owner, scope, value)
-      .catch(() => setError("Could not keep this source draft locally. Stay here until it is saved."));
+    void enqueue(async () => {
+      const next = await slot.save(saved.current.revision, value, currentScope);
+      saved.current = next;
+      current();
+    }).catch((e) => {
+      if (mounted.current) setError(e.message);
+    });
   }
-  async function persist(value: CaptureDraft) {
+  async function persist(value: CaptureDraft, registered?: () => void) {
+    return enqueue(async () => {
+      currentScope();
+      let next: PrivateDraftSnapshot<CaptureDraft>;
+      try {
+        next = await slot.save(saved.current.revision, value, currentScope);
+      } catch (error) {
+        if ((error as { captureRegistrationUncertain?: boolean }).captureRegistrationUncertain) registered?.();
+        throw error;
+      }
+      registered?.();
+      saved.current = next;
+      current();
+      draftRef.current = next.value!;
+      setDraft(next.value!);
+      return next.value!;
+    });
+  }
+  async function flush() {
+    try {
+      await writes.current;
+    } catch {
+      current();
+      await persist(draftRef.current);
+    }
     current();
-    await localDrafts.save(owner, scope, value);
-    current();
-    setDraft(value);
   }
   async function replace(value: CaptureDraft) {
-    // Keep old exact assets discoverable by erasure until their cleanup succeeds.
-    const next = { ...value, cleanup_files: [...(draft.cleanup_files ?? []), ...draft.files] };
-    await persist(next);
+    await flush();
+    const prior = saved.current.value;
+    const next = { ...value, cleanup_files: [...(prior?.cleanup_files ?? []), ...(prior?.files ?? [])] };
+    const registered = await persist(next);
     await cleanupCaptureFiles(next.cleanup_files, true);
-    await persist({ ...next, cleanup_files: [] });
+    await persist({ ...registered, cleanup_files: [] });
+  }
+  async function reloadSaved() {
+    if (guard.current) return;
+    guard.current = true;
+    setBusy(true);
+    try {
+      await writes.current.catch(() => undefined);
+      currentScope();
+      const next = await slot.load(currentScope);
+      saved.current = next;
+      current();
+      const value = next.value ?? {
+        request_id: Crypto.randomUUID(),
+        generation,
+        kind: "url" as const,
+        text: "",
+        source_url: "",
+        files: [],
+        created_at: new Date().toISOString()
+      };
+      view.current++;
+      draftRef.current = value;
+      setDraft(value);
+      readyRef.current = true;
+      setReady(true);
+      setStale(false);
+      setError("");
+    } catch (e) {
+      if (mounted.current) setError((e as Error).message);
+    } finally {
+      guard.current = false;
+      if (mounted.current) setBusy(false);
+    }
   }
   async function choose(kind: CaptureKind) {
-    if (guard.current || draftRef.current.pending_import || kind === draft.kind) return;
+    if (guard.current || !readyRef.current || stale || draftRef.current.pending_import || kind === draft.kind) return;
     guard.current = true;
     setBusy(true);
     setError("");
     try {
-      await replace({ ...draft, request_id: Crypto.randomUUID(), kind, files: [], job_id: undefined });
+      await replace({ ...draftRef.current, request_id: Crypto.randomUUID(), kind, files: [], job_id: undefined });
     } catch (e) {
       if (mounted.current) setError((e as Error).message);
     } finally {
@@ -138,28 +241,36 @@ export default function Capture() {
     }
   }
   async function pick(kind: "images" | "document", camera = false) {
-    if (guard.current || draftRef.current.pending_import) return;
+    if (guard.current || !readyRef.current || stale || draftRef.current.pending_import) return;
     guard.current = true;
     setBusy(true);
     setError("");
     let files: CaptureFile[] = [];
     let registered = false;
     try {
-      files = kind === "images" ? await pickImages(camera, current, owner) : await pickDocument(current, owner);
+      await flush();
+      const original = saved.current;
+      const pickerCurrent = () => {
+        currentScope();
+        slot.assertCurrent(original.revision);
+      };
+      files =
+        kind === "images" ? await pickImages(camera, pickerCurrent, owner) : await pickDocument(pickerCurrent, owner);
       if (files.length) {
         current();
         const next = {
-          ...draft,
+          ...draftRef.current,
           request_id: Crypto.randomUUID(),
           kind,
           files,
           job_id: undefined,
-          cleanup_files: [...(draft.cleanup_files ?? []), ...draft.files]
+          cleanup_files: [...(saved.current.value?.cleanup_files ?? []), ...(saved.current.value?.files ?? [])]
         };
-        await persist(next);
-        registered = true;
+        const registeredDraft = await persist(next, () => {
+          registered = true;
+        });
         await cleanupCaptureFiles(next.cleanup_files, true);
-        await persist({ ...next, cleanup_files: [] });
+        await persist({ ...registeredDraft, cleanup_files: [] });
       }
     } catch (e) {
       let active = true;
@@ -169,7 +280,13 @@ export default function Capture() {
         active = false;
       }
       let problem = e;
-      if (!registered || !active) {
+      if (
+        !registered ||
+        !storage.isCurrent() ||
+        !isCurrentAccount() ||
+        live.current.owner !== owner ||
+        live.current.generation !== generation
+      ) {
         try {
           await cleanupCaptureFiles(files, true);
         } catch (cleanup) {
@@ -183,8 +300,8 @@ export default function Capture() {
     }
   }
   async function submit() {
-    if (guard.current) return;
-    const errors = captureErrors(draft);
+    if (guard.current || !readyRef.current || stale) return;
+    const errors = captureErrors(draftRef.current);
     if (!consent) errors.push("Choose AI extraction consent, or use manual entry.");
     if (!enrollment?.enrolled || generation < 1) errors.push("Set up your Workouts account first.");
     if (errors.length) {
@@ -195,14 +312,16 @@ export default function Capture() {
     setBusy(true);
     setError("");
     try {
-      const pending = { ...draft, pending_import: true };
+      await flush();
+      const original = draftRef.current;
+      const pending = { ...original, pending_import: true };
       // Persist original UUID/fields before any transport; retries stay frozen.
-      await persist(pending);
-      const source = await sourceFor(pending, current);
+      const frozen = await persist(pending);
+      const source = await sourceFor(frozen, current);
       await api.setAiConsent(true, generation);
       current();
-      const job = await api.startImport(draft.request_id, source, draft.generation);
-      await persist({ ...pending, job_id: job.id });
+      const job = await api.startImport(frozen.request_id, source, frozen.generation);
+      await persist({ ...frozen, job_id: job.id });
       const prior =
         (await localDrafts.load<Array<{ id: string; generation: number; label: string; created_at: string }>>(
           owner,
@@ -231,7 +350,7 @@ export default function Capture() {
       if (mounted.current) setBusy(false);
     }
   }
-  const locked = busy || !!draft.pending_import;
+  const locked = busy || stale || !ready || !!draft.pending_import;
   return (
     <Screen back title="Keep the inspiration." subtitle="Share a source, review the workout, then make it yours.">
       <Button
@@ -240,6 +359,17 @@ export default function Capture() {
         icon="create-outline"
         onPress={() => router.push("/add-workout")}
       />
+      {stale && <Notice>A newer source is saved. Load it before changing this draft.</Notice>}
+      {(stale || !ready) && (
+        <Button
+          title="Load saved source"
+          secondary
+          busy={busy}
+          onPress={() => {
+            void reloadSaved();
+          }}
+        />
+      )}
       {!enrollment?.enrolled && <Button title="Set up my training" onPress={() => router.push("/onboarding")} />}
       {capabilities.error && <Notice error>{capabilities.error.message}</Notice>}
       {capabilities.data && !capabilities.data.imports && (
@@ -269,9 +399,7 @@ export default function Capture() {
           disabled={locked}
           label="Source link"
           value={draft.source_url}
-          onChange={(source_url) =>
-            update({ ...draft, source_url, request_id: Crypto.randomUUID(), job_id: undefined })
-          }
+          onChange={(source_url) => update({ source_url })}
           placeholder="https://…"
         />
       )}
@@ -300,7 +428,7 @@ export default function Capture() {
           optional
           multiline
           value={draft.text}
-          onChange={(text) => update({ ...draft, text, request_id: Crypto.randomUUID(), job_id: undefined })}
+          onChange={(text) => update({ text })}
         />
       )}
       {draft.kind === "text" && (
@@ -309,7 +437,7 @@ export default function Capture() {
           label="Workout text"
           multiline
           value={draft.text}
-          onChange={(text) => update({ ...draft, text, request_id: Crypto.randomUUID(), job_id: undefined })}
+          onChange={(text) => update({ text })}
           placeholder="Paste the creator’s instructions, including rounds, reps and equipment."
         />
       )}
@@ -319,7 +447,7 @@ export default function Capture() {
             title="Choose up to four images"
             secondary
             busy={busy}
-            disabled={!!draft.pending_import}
+            disabled={locked}
             onPress={() => {
               void pick("images");
             }}
@@ -350,7 +478,7 @@ export default function Capture() {
             title="Choose PDF or text document"
             secondary
             busy={busy}
-            disabled={!!draft.pending_import}
+            disabled={locked}
             onPress={() => {
               void pick("document");
             }}
@@ -469,7 +597,7 @@ export default function Capture() {
       <Button
         title={draft.pending_import ? "Retry extracting this source" : "Extract workout"}
         busy={busy}
-        disabled={!ready || !capabilities.data?.imports || !enrollment?.enrolled || !!draft.job_id}
+        disabled={stale || !ready || !capabilities.data?.imports || !enrollment?.enrolled || !!draft.job_id}
         onPress={() => {
           void submit();
         }}

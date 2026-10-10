@@ -1,4 +1,4 @@
-import { createElement, type ComponentType } from "react";
+import { createElement, Fragment, useLayoutEffect, type ComponentType } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -12,6 +12,11 @@ const fixture = vi.hoisted(() => ({
   params: {} as { id?: string },
   revision: 1,
   saveWorkout: vi.fn(),
+  persist: vi.fn(),
+  push: vi.fn(),
+  replace: vi.fn(),
+  importJob: vi.fn(),
+  cancelImport: vi.fn(),
   saveProfile: vi.fn(),
   updateWorkout: vi.fn(),
   removeMeasurement: vi.fn(),
@@ -38,10 +43,13 @@ const fixture = vi.hoisted(() => ({
 vi.mock("@/lib/context", () => {
   const storage = {
     isCurrent: () => fixture.current,
+    removeItem: async (key: string) => {
+      fixture.map.delete(key);
+    },
     getItem: async (key: string) => fixture.map.get(key) ?? null,
     setItem: async (key: string, value: string) => {
       if (fixture.writeFailure) throw Error("device write failed");
-      fixture.map.set(key, value);
+      await fixture.persist(key, value);
     }
   };
   const localDrafts = {
@@ -61,6 +69,8 @@ vi.mock("@/lib/context", () => {
     startImport: fixture.startImport,
     setAiConsent: fixture.setAiConsent,
     saveWorkout: fixture.saveWorkout,
+    importJob: fixture.importJob,
+    cancelImport: fixture.cancelImport,
     saveProfile: fixture.saveProfile,
     saveProfileSnapshot: async (...args: unknown[]) => {
       const returnedRevision = fixture.revision + 1;
@@ -87,7 +97,13 @@ vi.mock("@/lib/context", () => {
     })
   };
 });
-vi.mock("react-native", () => ({ View: "View", Image: "Image", Alert: { alert: fixture.alert } }));
+vi.mock("react-native", () => ({
+  View: "View",
+  Image: "Image",
+  Alert: { alert: fixture.alert },
+  AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
+  Linking: { openURL: vi.fn() }
+}));
 vi.mock("@/components/source-image", () => ({ SourceImage: "SourceImage" }));
 vi.mock("@/lib/capture-io", () => ({
   normalizeImages: fixture.normalizeImages,
@@ -97,7 +113,8 @@ vi.mock("@/lib/capture-io", () => ({
   sourceFor: fixture.sourceFor
 }));
 vi.mock("expo-router", () => ({
-  router: { push: vi.fn(), replace: vi.fn() },
+  router: { push: fixture.push, replace: fixture.replace },
+  useFocusEffect() {},
   useLocalSearchParams: () => fixture.params
 }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => `command-${++fixture.next}` }));
@@ -123,6 +140,7 @@ vi.mock("expo-share-intent", () => ({
   })
 }));
 import { ShareCapture } from "../components/share-capture";
+import ImportReview from "../app/import/[id]";
 import Capture from "../app/capture";
 import AddWorkout from "../app/add-workout";
 import Profile from "../app/profile";
@@ -210,6 +228,10 @@ beforeEach(() => {
   fixture.share = false;
   fixture.intent = { webUrl: "", text: "", files: [] };
   for (const value of Object.values(fixture)) if (typeof value === "function") value.mockReset();
+  fixture.persist.mockImplementation(async (key: string, value: string) => {
+    fixture.map.set(key, value);
+  });
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "processing" });
   fixture.profile.mockResolvedValue(profile);
   fixture.profileSnapshot.mockImplementation(async () => {
     const returnedRevision = fixture.revision;
@@ -228,6 +250,266 @@ beforeEach(() => {
 afterEach(async () => {
   if (renderer) await unmount();
   cache.clear();
+});
+
+const overlappingCapture = () => createElement(Fragment, null, createElement(Capture), createElement(ShareCapture));
+const rerender = async (component: ComponentType) => {
+  await act(async () => {
+    renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(component)));
+  });
+  await settle();
+};
+it("mounted Capture and ShareCapture keep the shared source when an older same-account picker finishes later", async () => {
+  const prior = {
+    uri: "file:///cache/hafa-workouts-capture/prior-A.jpg",
+    name: "Prior",
+    mime_type: "image/jpeg",
+    owned: true
+  };
+  fixture.map.set(
+    draftKey(fixture.owner, "capture:1"),
+    JSON.stringify({
+      generation: 1,
+      request_id: "source-A",
+      kind: "images",
+      text: "A caption",
+      source_url: "",
+      files: [prior]
+    })
+  );
+  await mount(overlappingCapture);
+  const picker = deferred<import("./capture").CaptureFile[]>();
+  fixture.pickImages.mockReturnValueOnce(picker.promise);
+  await click("Choose up to four images");
+  const b = {
+    uri: "file:///cache/hafa-workouts-capture/source-B.jpg",
+    name: "B",
+    mime_type: "image/jpeg",
+    owned: true
+  };
+  fixture.normalizeImages.mockResolvedValueOnce([b]);
+  fixture.share = true;
+  fixture.intent = {
+    webUrl: "",
+    text: "B caption",
+    files: [{ path: "file:///user/B-original.jpg", mimeType: "image/jpeg", fileName: "B" }]
+  };
+  await rerender(overlappingCapture);
+  await act(async () => fixture.alert.mock.calls[0][2][1].onPress());
+  await settle();
+  const accepted = fixture.map.get(draftKey(fixture.owner, "capture:1"))!;
+  expect(JSON.parse(accepted)).toMatchObject({ text: "B caption", files: [b] });
+  expect(JSON.parse(accepted).cleanup_files ?? []).toEqual([]);
+  expect(fixture.push).toHaveBeenCalledWith("/capture");
+  const late = {
+    uri: "file:///cache/hafa-workouts-capture/late-A.jpg",
+    name: "Late A",
+    mime_type: "image/jpeg",
+    owned: true
+  };
+  await act(async () => picker.resolve([late]));
+  await settle();
+  expect(fixture.map.get(draftKey(fixture.owner, "capture:1"))).toBe(accepted);
+  expect(fixture.cleanup).toHaveBeenCalledWith([late], true);
+  expect(fixture.cleanup.mock.calls.flatMap((call) => call[0]).some((file) => file.uri === b.uri)).toBe(false);
+  expect(fixture.cleanup).toHaveBeenCalledWith([prior], true);
+  expect(button("Load saved source")).toBeDefined();
+  await click("Load saved source");
+  expect(nodes("SourceImage")[0].props.uri).toBe(b.uri);
+});
+
+it("mounted share checks the newly rendered fingerprint before the old passive effect cleanup", async () => {
+  fixture.share = true;
+  fixture.intent = {
+    webUrl: "",
+    text: "",
+    files: [{ path: "file:///user/A.jpg", mimeType: "image/jpeg", fileName: "A" }]
+  };
+  const normalized = deferred<import("./capture").CaptureFile[]>();
+  fixture.normalizeImages.mockReturnValueOnce(normalized.promise);
+  let oldGuard: (() => void) | undefined,
+    inspected = false;
+  function Harness() {
+    const fingerprint = fixture.intent.text;
+    useLayoutEffect(() => {
+      if (fingerprint === "New source" && oldGuard) {
+        inspected = true;
+        expect(oldGuard).toThrow("shared source or account changed");
+      }
+    }, [fingerprint]);
+    return createElement(ShareCapture);
+  }
+  await mount(Harness);
+  oldGuard = fixture.normalizeImages.mock.calls[0][1];
+  fixture.intent = { webUrl: "", text: "New source", files: [] };
+  await rerender(Harness);
+  expect(inspected).toBe(true);
+  const accepted = fixture.map.get(draftKey(fixture.owner, "capture:1"));
+  const late = [
+    { uri: "file:///cache/hafa-workouts-capture/old-render.jpg", mime_type: "image/jpeg", name: "Old", owned: true }
+  ];
+  await act(async () => normalized.resolve(late));
+  await settle();
+  expect(fixture.map.get(draftKey(fixture.owner, "capture:1"))).toBe(accepted);
+  expect(fixture.cleanup).toHaveBeenCalledWith(late, true);
+});
+
+it("same-slot compare/save stays serialized through delayed storage and an intentional shared replacement", async () => {
+  await mount(overlappingCapture);
+  const entered = deferred<void>(),
+    held = deferred<void>();
+  fixture.persist.mockImplementation(async (key: string, value: string) => {
+    if (JSON.parse(value).source_url === "https://example.test/delayed-A") {
+      entered.resolve();
+      await held.promise;
+    }
+    fixture.map.set(key, value);
+  });
+  await act(async () => nodes("Field")[0].props.onChange("https://example.test/delayed-A"));
+  await entered.promise;
+  fixture.share = true;
+  fixture.intent = { webUrl: "https://example.test/B", text: "", files: [] };
+  await rerender(overlappingCapture);
+  expect(fixture.alert).not.toHaveBeenCalled(); // Share cannot read/commit inside A's conditional write.
+  await act(async () => held.resolve());
+  await settle();
+  await act(async () => fixture.alert.mock.calls[0][2][1].onPress());
+  await settle();
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!).source_url).toBe("https://example.test/B");
+  expect(fixture.push).toHaveBeenCalledWith("/capture");
+});
+
+it("a changed share intent during an acknowledged storage write never deletes its still-registered source", async () => {
+  fixture.share = true;
+  fixture.intent = {
+    webUrl: "",
+    text: "",
+    files: [{ path: "file:///user/B.jpg", mimeType: "image/jpeg", fileName: "B" }]
+  };
+  const b = {
+    uri: "file:///cache/hafa-workouts-capture/registered-B.jpg",
+    name: "B",
+    mime_type: "image/jpeg",
+    owned: true
+  };
+  fixture.normalizeImages.mockResolvedValueOnce([b]);
+  const entered = deferred<void>(),
+    held = deferred<void>();
+  fixture.persist.mockImplementation(async (key: string, value: string) => {
+    fixture.map.set(key, value);
+    if (JSON.parse(value).files?.some((file: { uri: string }) => file.uri === b.uri)) {
+      entered.resolve();
+      await held.promise;
+    }
+  });
+  await mount(ShareCapture);
+  await entered.promise;
+  fixture.intent = {
+    webUrl: "",
+    text: "",
+    files: [{ path: "file:///user/unsupported.pdf", mimeType: "application/pdf", fileName: "New" }]
+  };
+  await rerender(ShareCapture);
+  await act(async () => held.resolve());
+  await settle();
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!).files).toEqual([b]);
+  expect(fixture.cleanup.mock.calls.flatMap((call) => call[0]).some((file) => file.uri === b.uri)).toBe(false);
+});
+
+it("a committed capture-slot write with a lost local acknowledgement preserves registered assets and completes the shared replacement", async () => {
+  fixture.share = true;
+  fixture.intent = {
+    webUrl: "",
+    text: "",
+    files: [{ path: "file:///user/B.jpg", mimeType: "image/jpeg", fileName: "B" }]
+  };
+  const b = {
+    uri: "file:///cache/hafa-workouts-capture/acknowledged-B.jpg",
+    name: "B",
+    mime_type: "image/jpeg",
+    owned: true
+  };
+  fixture.normalizeImages.mockResolvedValueOnce([b]);
+  let dropped = false;
+  fixture.persist.mockImplementation(async (key: string, value: string) => {
+    fixture.map.set(key, value);
+    if (JSON.parse(value).files?.some((file: { uri: string }) => file.uri === b.uri) && !dropped) {
+      dropped = true;
+      throw Error("local acknowledgement lost after commit");
+    }
+  });
+  await mount(ShareCapture);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!).files).toEqual([b]);
+  expect(fixture.cleanup.mock.calls.flatMap((call) => call[0]).some((file) => file.uri === b.uri)).toBe(false);
+  expect(fixture.push).toHaveBeenCalledWith("/capture");
+});
+
+it("old import cancellation conditionally retires its source without removing a newer same-slot shared draft", async () => {
+  fixture.params = { id: "job-A" };
+  fixture.map.set(
+    draftKey(fixture.owner, "capture:1"),
+    JSON.stringify({
+      generation: 1,
+      request_id: "A",
+      job_id: "job-A",
+      pending_import: true,
+      kind: "text",
+      text: "A",
+      source_url: "",
+      files: []
+    })
+  );
+  const importAndShare = () => createElement(Fragment, null, createElement(ImportReview), createElement(ShareCapture));
+  await mount(importAndShare);
+  const cancel = deferred<void>();
+  fixture.cancelImport.mockReturnValueOnce(cancel.promise);
+  await click("Cancel import and clear source upload");
+  fixture.share = true;
+  fixture.intent = { webUrl: "", text: "B source", files: [] };
+  await rerender(importAndShare);
+  const accepted = fixture.map.get(draftKey(fixture.owner, "capture:1"));
+  expect(JSON.parse(accepted!).text).toBe("B source");
+  await act(async () => cancel.resolve());
+  await settle();
+  expect(fixture.map.get(draftKey(fixture.owner, "capture:1"))).toBe(accepted);
+});
+
+it("import retirement keeps exact cleanup references until deletion succeeds and transfers them to an intentional newer source", async () => {
+  fixture.params = { id: "job-A" };
+  const old = {
+    uri: "file:///cache/hafa-workouts-capture/import-A.jpg",
+    name: "A",
+    mime_type: "image/jpeg",
+    owned: true
+  };
+  fixture.map.set(
+    draftKey(fixture.owner, "capture:1"),
+    JSON.stringify({
+      generation: 1,
+      request_id: "A",
+      job_id: "job-A",
+      pending_import: true,
+      kind: "images",
+      text: "",
+      source_url: "",
+      files: [old]
+    })
+  );
+  const importAndShare = () => createElement(Fragment, null, createElement(ImportReview), createElement(ShareCapture));
+  await mount(importAndShare);
+  fixture.cancelImport.mockResolvedValue(undefined);
+  fixture.cleanup.mockRejectedValueOnce(Error("file deletion needs retry"));
+  await click("Cancel import and clear source upload");
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!)).toMatchObject({
+    files: [],
+    cleanup_files: [old]
+  });
+  fixture.share = true;
+  fixture.intent = { webUrl: "", text: "New B", files: [] };
+  await rerender(importAndShare);
+  expect(fixture.cleanup).toHaveBeenLastCalledWith([old], true);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!).text).toBe("New B");
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!).cleanup_files ?? []).toEqual([]);
 });
 
 it("mounted share replacement callback after retirement cleans its operation only and leaves newer shared intent untouched", async () => {
@@ -263,7 +545,7 @@ it("mounted share replacement callback after retirement cleans its operation onl
   await act(async () => useShared());
   await settle();
   expect(fixture.cleanup).toHaveBeenCalledWith(files, true);
-  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!)).toEqual(prior);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!)).toMatchObject(prior);
   expect(fixture.resetIntent).not.toHaveBeenCalled();
 });
 
@@ -803,4 +1085,37 @@ it("conflicted removal inspection seals an existing tombstone before failed devi
   fixture.writeFailure = false;
   await click("Retry removed measurement device cleanup");
   expect(JSON.parse(fixture.map.get(key)!)).toMatchObject({ removed: true, input: null, command: null });
+});
+
+it("capture slot revisions survive a fresh JS realm and refuse an obsolete source write or removal", async () => {
+  const { createPrivateDraftSlot } = await import("./private-form");
+  const guard = () => undefined;
+  const key = draftKey("capture-cold-reload", "capture:1");
+  const raw = {
+    getItem: async (k: string) => fixture.map.get(k) ?? null,
+    setItem: async (k: string, v: string) => {
+      fixture.map.set(k, v);
+    },
+    removeItem: async (k: string) => {
+      fixture.map.delete(k);
+    }
+  };
+  const initial = { files: [{ uri: "file:///cache/hafa-workouts-capture/A.jpg" }], text: "A" };
+  fixture.map.set(key, JSON.stringify(initial));
+  const oldSlot = createPrivateDraftSlot(raw, "capture-cold-reload", "capture:1", () => "legacy-token");
+  const old = await oldSlot.load(guard);
+  const freshSlot = createPrivateDraftSlot(raw, "capture-cold-reload", "capture:1", () => "new-source-token");
+  const next = await freshSlot.save(
+    old.revision,
+    { files: [{ uri: "file:///cache/hafa-workouts-capture/B.jpg" }], text: "B" },
+    guard
+  );
+  vi.resetModules();
+  const { createPrivateDraftSlot: restarted } = await import("./private-form");
+  const slot = restarted(raw, "capture-cold-reload", "capture:1", () => "restart-token");
+  expect(await slot.load(guard)).toEqual(next);
+  await expect(slot.save(old.revision, initial, guard)).rejects.toMatchObject({ captureDraftConflict: true });
+  expect(await slot.remove(old.revision, guard)).toBeNull();
+  expect(JSON.parse(fixture.map.get(key)!)).toEqual(next.value);
+  expect(JSON.parse(fixture.map.get(key)!).files[0].uri).toContain("B.jpg");
 });

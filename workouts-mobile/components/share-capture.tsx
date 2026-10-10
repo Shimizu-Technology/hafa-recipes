@@ -1,18 +1,24 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Alert } from "react-native";
 import { router } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useShareIntentContext } from "expo-share-intent";
 import { useTraining } from "@/lib/context";
 import type { CaptureDraft } from "@/lib/capture";
+import { createPrivateDraftSlot } from "@/lib/private-form";
 import { normalizeImages, cleanupCaptureFiles } from "@/lib/capture-io";
 export function ShareCapture() {
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
-  const { localDrafts, owner, enrollment, storage, isCurrentAccount } = useTraining();
-  const live = useRef({ owner, generation: enrollment?.generation, storage });
-  live.current = { owner, generation: enrollment?.generation, storage };
-  const handling = useRef<string | null>(null);
+  const { owner, enrollment, storage, isCurrentAccount } = useTraining();
   const fingerprint = JSON.stringify([shareIntent.webUrl, shareIntent.text, shareIntent.files?.map((f) => f.path)]);
+  const live = useRef({ owner, generation: enrollment?.generation, storage, fingerprint, hasShareIntent });
+  live.current = { owner, generation: enrollment?.generation, storage, fingerprint, hasShareIntent };
+  const handling = useRef<string | null>(null);
+  const scope = `capture:${enrollment?.generation ?? 0}`;
+  const slot = useMemo(
+    () => createPrivateDraftSlot<CaptureDraft>(storage, owner, scope, Crypto.randomUUID),
+    [storage, owner, scope]
+  );
   useEffect(() => {
     if (!hasShareIntent) {
       handling.current = null;
@@ -31,11 +37,12 @@ export function ShareCapture() {
           !isCurrentAccount() ||
           live.current.owner !== owner ||
           live.current.generation !== generation ||
-          live.current.storage !== storage
+          live.current.storage !== storage ||
+          live.current.fingerprint !== fingerprint ||
+          !live.current.hasShareIntent
         )
-          throw Error("The original capture account or enrollment changed. The shared source was stopped.");
+          throw Error("The shared source or account changed. Open Capture to choose the source again.");
       }
-      const scope = `capture:${generation}`;
       let registered = false;
       let draft: CaptureDraft = {
         request_id: Crypto.randomUUID(),
@@ -68,7 +75,8 @@ export function ShareCapture() {
           };
         }
         guard();
-        const prior = await localDrafts.load<CaptureDraft>(owner, scope);
+        const saved = await slot.load(guard);
+        const prior = saved.value;
         guard();
         if (prior?.pending_import && !prior.job_id)
           throw Error("Resolve the original pending import in Capture before replacing its source.");
@@ -94,15 +102,16 @@ export function ShareCapture() {
         }
         guard();
         const retained = [...(prior?.cleanup_files ?? []), ...(prior?.files ?? [])];
-        await localDrafts.save(owner, scope, { ...draft, cleanup_files: retained });
+        const registeredDraft = await slot.save(saved.revision, { ...draft, cleanup_files: retained }, guard);
         registered = true;
         guard();
         await cleanupCaptureFiles(retained, true);
-        await localDrafts.save(owner, scope, draft);
+        await slot.save(registeredDraft.revision, draft, guard);
         guard();
         resetShareIntent();
         if (mounted) router.push("/capture");
       } catch (e) {
+        if ((e as { captureRegistrationUncertain?: boolean }).captureRegistrationUncertain) registered = true;
         let current = true;
         try {
           guard();
@@ -110,7 +119,13 @@ export function ShareCapture() {
           current = false;
         }
         let problem = e;
-        if (!registered || !current) {
+        if (
+          !registered ||
+          !storage.isCurrent() ||
+          !isCurrentAccount() ||
+          live.current.owner !== owner ||
+          live.current.generation !== generation
+        ) {
           try {
             await cleanupCaptureFiles(draft.files, true);
           } catch (cleanup) {
@@ -128,6 +143,6 @@ export function ShareCapture() {
     return () => {
       mounted = false;
     };
-  }, [hasShareIntent, fingerprint, owner, enrollment?.generation, enrollment?.enrolled]);
+  }, [hasShareIntent, fingerprint, owner, enrollment?.generation, enrollment?.enrolled, slot]);
   return null;
 }

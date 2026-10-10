@@ -1,6 +1,6 @@
 import { workoutErrors } from "@/lib/library";
 import { SourceImage } from "@/components/source-image";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { AppState, Image, Linking } from "react-native";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,15 +10,25 @@ import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
 import { importIsTerminal, type CaptureDraft } from "@/lib/capture";
 import { cleanupCaptureFiles } from "@/lib/capture-io";
+import * as Crypto from "expo-crypto";
+import { createPrivateDraftSlot, type PrivateDraftSnapshot } from "@/lib/private-form";
 import type { AuthoredWorkout } from "@/lib/models";
 export default function ImportReview() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { localDrafts, api, owner, enrollment } = useTraining();
+  const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const generation = enrollment?.generation;
+  const slot = useMemo(
+    () => createPrivateDraftSlot<CaptureDraft>(storage, owner, `capture:${generation}`, Crypto.randomUUID),
+    [storage, owner, generation]
+  );
+  function current() {
+    if (!storage.isCurrent() || !isCurrentAccount())
+      throw Error("Your account changed. This source cleanup was stopped.");
+  }
   const cache = useQueryClient();
   const [visible, setVisible] = useState(false);
   const [active, setActive] = useState(AppState.currentState === "active");
-  const [original, setOriginal] = useState<CaptureDraft | null>(null);
+  const [original, setOriginal] = useState<PrivateDraftSnapshot<CaptureDraft> | null>(null);
   const [edited, setEdited] = useState<AuthoredWorkout | null>(null);
   const [editing, setEditing] = useState(false);
   const [reviewed, setReviewed] = useState(false);
@@ -39,26 +49,61 @@ export default function ImportReview() {
     queryFn: () => api.importJob(id),
     enabled: !!enrollment?.enrolled,
     refetchInterval: (query) =>
-      visible && active && query.state.data && !importIsTerminal(query.state.data.status) ? 2500 : false,
+      visible && active && query.state.data && !importIsTerminal(query.state.data.status) ? 2500 : false
   });
   useEffect(() => {
     let valid = true;
-    void localDrafts.load<CaptureDraft>(owner, `capture:${generation}`).then((d) => {
-      if (valid && d?.job_id === id) setOriginal(d);
-    });
+    void slot
+      .load(current)
+      .then((saved) => {
+        if (valid && saved.value?.job_id === id) setOriginal(saved);
+      })
+      .catch(() => {
+        if (valid) setError("Could not restore the original source for cleanup.");
+      });
     void localDrafts.load<AuthoredWorkout>(owner, `import-edit:${generation}:${id}`).then((value) => {
       if (valid && value) setEdited(value);
     });
     return () => {
       valid = false;
     };
-  }, [owner, id, generation]);
+  }, [owner, id, generation, slot]);
   function update(value: AuthoredWorkout) {
     setEdited(value);
     setReviewed(false);
     void localDrafts
       .save(owner, `import-edit:${generation}:${id}`, value)
       .catch(() => setError("Could not keep your corrections on this device. Stay here until saved."));
+  }
+  async function retireOriginalSource() {
+    if (!original?.value) return;
+    const retained = [...(original.value.files ?? []), ...(original.value.cleanup_files ?? [])];
+    let retirement: PrivateDraftSnapshot<CaptureDraft>;
+    try {
+      retirement = await slot.save(
+        original.revision,
+        {
+          request_id: Crypto.randomUUID(),
+          generation: original.value.generation,
+          kind: "url",
+          source_url: "",
+          text: "",
+          files: [],
+          created_at: new Date().toISOString(),
+          cleanup_files: retained
+        },
+        current
+      );
+    } catch (error) {
+      // Another source owns this slot now; never clear or clean its assets.
+      if ((error as { captureDraftConflict?: boolean }).captureDraftConflict) return;
+      throw error;
+    }
+    setOriginal(retirement);
+    // Keep exact old references durable until deletion succeeds. A newer source
+    // can inherit them, so final removal is conditional on our retirement receipt.
+    await cleanupCaptureFiles(retained, true);
+    await slot.remove(retirement.revision, current);
   }
   async function accept() {
     if (!q.data?.result?.workout || !reviewed) return;
@@ -80,10 +125,7 @@ export default function ImportReview() {
         `imports:${generation}`,
         imports.filter((item) => item.id !== id)
       );
-      if (original) {
-        await cleanupCaptureFiles(original.files);
-        await localDrafts.remove(owner, `capture:${generation}`);
-      }
+      await retireOriginalSource();
       router.replace({ pathname: "/workout/[id]", params: { id: saved.id } });
     } catch (e) {
       setError((e as Error).message);
@@ -96,10 +138,7 @@ export default function ImportReview() {
     setBusy(true);
     try {
       await api.cancelImport(id, q.data.generation);
-      if (original) {
-        await cleanupCaptureFiles(original.files);
-        await localDrafts.remove(owner, `capture:${generation}`);
-      }
+      await retireOriginalSource();
       cache.removeQueries({ queryKey: [owner, "import-source", id] });
       await q.refetch();
     } catch (e) {
@@ -112,7 +151,7 @@ export default function ImportReview() {
     queryKey: [owner, "import-source", id, generation],
     queryFn: () => api.importSource(id),
     enabled: !!q.data && ["ready", "incomplete", "failed"].includes(q.data.status) && !q.data.accepted_workout_id,
-    staleTime: 60000,
+    staleTime: 60000
   });
   const result = q.data?.result;
   const workout = edited ?? result?.workout;
@@ -174,9 +213,9 @@ export default function ImportReview() {
                   }}
                 />
               )}
-              {original?.kind === "text" && <Copy>{original.text}</Copy>}
+              {original?.value?.kind === "text" && <Copy>{original.value!.text}</Copy>}
               {!source.data?.images?.length &&
-                original?.files
+                original?.value?.files
                   .filter((f) => f.mime_type.startsWith("image/"))
                   .map((file) => (
                     <SourceImage key={file.uri} uri={file.uri} label={`Original source image: ${file.name}`} />
@@ -188,7 +227,7 @@ export default function ImportReview() {
                   label={`Original source image ${index + 1}`}
                 />
               ))}
-              {!!(!original?.text && source.data?.text) && <Copy>{source.data.text}</Copy>}
+              {!!(!original?.value?.text && source.data?.text) && <Copy>{source.data.text}</Copy>}
               {source.error && (
                 <Notice error>
                   The original upload is no longer available here. Check the source yourself before accepting this
