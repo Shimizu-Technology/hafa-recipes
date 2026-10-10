@@ -84,11 +84,12 @@ def test_receipt_no_threshold_relaxation_and_no_partial_success():
     }
     report = {
         "completed": True,
+        "percentile_method": "nearest_rank",
         "routes": routes,
         "cases": {case: passed(case) for case in CASES},
     }
     samples = [{"memory_peak": 410 * 2**20, "memory_current": 100}]
-    baseline = {"routes": routes}
+    baseline = {"routes": routes, "percentile_method": "nearest_rank"}
     assert receipt(report, samples, baseline)["passed"]
     assert not receipt(
         report, [{"memory_peak": 410 * 2**20 + 1, "memory_current": 100}], baseline

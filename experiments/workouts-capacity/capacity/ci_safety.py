@@ -6,6 +6,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from capacity.statistics import nearest_rank
+
 OWNER = "capacity_ci"
 REPOSITORY = "Shimizu-Technology/hafa-recipes"
 HEX_ID = re.compile(r"[0-9a-f]{64}")
@@ -353,6 +355,10 @@ def phase_receipt(report, samples, phase, baseline=None):
     if phase == "mixed":
         required |= EXTRA_READS | EXTRA_WRITES
     routes, failures = {}, []
+    if report.get("percentile_method") != "nearest_rank" or (
+        baseline is not None and baseline.get("percentile_method") != "nearest_rank"
+    ):
+        failures.append("unknown_or_mismatched_percentile_method")
     for route in sorted(required):
         row = report.get("routes", {}).get(route, {})
         statuses = row.get("statuses", {})
@@ -448,6 +454,7 @@ def public_receipt(summary):
         "native_x86",
         "legal_nonjpeg_boundary_tested",
         "longer_repetitions_tested",
+        "percentile_nearest_rank",
     ):
         result[key] = summary.get(key) is True
     result["real_provider_calls"] = number(summary.get("real_provider_calls", 0))
@@ -630,14 +637,19 @@ def partial_trace_report(path):
         routes[route] = {
             "count": len(rows),
             "unexpected": sum(status >= 400 or status == 0 for _, status in rows),
-            "p95_ms": ordered[int((len(rows) - 1) * 0.95)],
-            "p99_ms": ordered[int((len(rows) - 1) * 0.99)],
+            "p95_ms": nearest_rank(ordered, 0.95),
+            "p99_ms": nearest_rank(ordered, 0.99),
             "statuses": {
                 str(status): sum(value == status for _, value in rows)
                 for status in {value for _, value in rows}
             },
         }
-    return {"completed": False, "failure_type": "Interrupted", "routes": routes}
+    return {
+        "completed": False,
+        "failure_type": "Interrupted",
+        "percentile_method": "nearest_rank",
+        "routes": routes,
+    }
 
 
 def numeric_timeline(samples, trace_path):

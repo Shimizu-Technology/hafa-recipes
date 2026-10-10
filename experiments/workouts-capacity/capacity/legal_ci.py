@@ -20,7 +20,10 @@ from capacity.legal_contract import CASES, case_passed
 
 
 def receipt(report, samples, baseline):
-    failures = 0
+    failures = int(
+        report.get("percentile_method") != "nearest_rank"
+        or baseline.get("percentile_method") != "nearest_rank"
+    )
     routes = {}
     for route in READS:
         row = report.get("routes", {}).get(route, {})

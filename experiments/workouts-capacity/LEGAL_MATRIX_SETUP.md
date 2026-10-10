@@ -128,3 +128,18 @@ and the numeric-only receipt. Independent source review found and repaired the
 reader-rate, separate-maxima overlap and interrupted-report flaws. Runtime,
 physical Render/Neon/provider behavior, longer/repeated traffic, every codec,
 restart/rollback and complete R04 acceptance remain NOT_RUN.
+
+Latency statistics use empirical nearest rank `ceil(N × q)` (one-based), shared
+with complete and interrupted core reports. Five observations select their
+maximum for both p95 and p99. The legal and baseline reports must declare that
+same definition before relative gates can pass. Old receipts remain unchanged;
+a new comparison requires fresh matching reports, not an old lower-rank baseline.
+
+Matrix completion stops new protected-reader turns, then drains outstanding
+turns for at most 30 seconds inside the existing 300-second load deadline. The
+final atomic snapshot is written only after readers settle. A drain/load timeout
+or interruption cancels pending requests, records their unexpected status 0 and
+flushed trace failure, and saves `completed=false`. A held late `/up` request
+cannot disappear from the final passing receipt. This settlement behavior is
+covered with the real Driver request bookkeeping and a controlled HTTP transport;
+those tests start no sockets or capacity resources.

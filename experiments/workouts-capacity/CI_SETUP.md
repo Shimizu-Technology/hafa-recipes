@@ -68,7 +68,7 @@ phase evidence and resetting cleanup-deadline flaws. Those were fixed with
 regressions. The source gates include the real schema/grounding/handler checks,
 foreign-owner refusal, lost-create recovery, exact API recreation, old export/up
 SLO failures, receipt filtering, interrupted evidence and finalization bounds.
-The latest full gate passed 49 tests in 10.44 seconds; the export-priority timeline regression and
+The gate at source `89a2ed9` passed 49 tests in 10.44 seconds; the export-priority timeline regression and
 focused CI suite passed 13 tests. Ruff/diff and workflow structure checks passed.
 Actual hosted execution, end-to-end coordinator behavior and the additional
 legal boundary matrix are NOT_RUN; passing source tests does not claim those
@@ -77,3 +77,19 @@ journeys passed.
 No workflow was dispatched, no PR/push was made, and no new capacity traffic was
 started. Owned resources are clean. Root's API 8088/Metro 8089/simulator, borrowed
 PG and protected shared services remain untouched.
+
+Future reports use one documented percentile definition: empirical nearest rank,
+selecting sorted observation `ceil(N × q)` with one-based ranks. With five
+observations `[100, 100, 100, 100, 6800]`, p95 and p99 are both 6,800 ms, so the
+1,000 ms write gate fails. Complete reports and interrupted trace recovery call
+the same helper. Both baseline and comparison reports must declare that method;
+old or unknown definitions cannot enter a new passing comparison. Small samples
+remain small samples; nearest rank does not imply statistical confidence.
+Historical receipts retain their original values and estimator. They are not
+rewritten or substituted for a fresh matching baseline. The numeric public
+receipt declares `percentile_nearest_rank` for this future coordinator.
+
+The subsequent review fixes passed 94 source tests in 20.98 seconds. They cover the
+five-observation write outlier, separate relative read p95/p99 gates, matching
+complete/partial estimates, and a late held `/up` reader across drain, load
+deadline and cancellation. Runtime execution remains NOT_RUN.

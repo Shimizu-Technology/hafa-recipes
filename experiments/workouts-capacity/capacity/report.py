@@ -16,6 +16,13 @@ WRITES = {
 
 def evaluate(baseline, mixed, samples):
     failures, blocked = [], []
+    if (
+        baseline.get("percentile_method") != "nearest_rank"
+        or mixed.get("percentile_method") != "nearest_rank"
+    ):
+        blocked.append(
+            "Unknown or mismatched percentile method; fresh matching reports required"
+        )
     if not samples:
         blocked.append("No API cgroup samples; resource acceptance unavailable")
     peaks = [

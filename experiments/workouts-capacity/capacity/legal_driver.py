@@ -10,6 +10,12 @@ from pathlib import Path
 from capacity.driver import Driver
 from capacity.legal_contract import CASES
 
+LOAD_SECONDS = 300
+DRAIN_SECONDS = 30
+READER_COUNT = 8
+READER_STAGGER_SECONDS = 2
+READER_PERIOD_SECONDS = 16
+
 
 def write_snapshot(output, value):
     temporary = Path(str(output) + ".tmp")
@@ -25,6 +31,7 @@ async def run(directory, output):
     completed = False
     readers = []
     failure = False
+    stop_turns = asyncio.Event()
 
     def save():
         write_snapshot(
@@ -37,18 +44,31 @@ async def run(directory, output):
             },
         )
 
+    async def pause_or_stop(seconds):
+        try:
+            await asyncio.wait_for(stop_turns.wait(), timeout=seconds)
+            return True
+        except asyncio.TimeoutError:
+            return False
+
     async def read(index):
         # Match all eight baseline readers: four calls/turn, 16-second period.
-        await asyncio.sleep(index * 2)
-        while True:
+        if await pause_or_stop(index * READER_STAGGER_SECONDS):
+            return
+        while not stop_turns.is_set():
             started = time.monotonic()
             await driver.lightweight(index, False)
             save()
-            await asyncio.sleep(max(0, 16 - (time.monotonic() - started)))
+            if await pause_or_stop(
+                max(0, READER_PERIOD_SECONDS - (time.monotonic() - started))
+            ):
+                return
 
     try:
-        async with asyncio.timeout(300):
-            readers = [asyncio.create_task(read(index)) for index in range(8)]
+        async with asyncio.timeout(LOAD_SECONDS):
+            readers = [
+                asyncio.create_task(read(index)) for index in range(READER_COUNT)
+            ]
             for case in CASES:
                 response = await driver.request(
                     "POST",
@@ -62,19 +82,23 @@ async def run(directory, output):
                     raise RuntimeError("legal_protected_reader_failed")
                 results[case] = response.json()
                 save()
+            stop_turns.set()
+            await asyncio.wait_for(asyncio.gather(*readers), timeout=DRAIN_SECONDS)
             completed = True
-            save()
     except BaseException:
         failure = True
-        save()
         raise
     finally:
+        stop_turns.set()
         for task in readers:
             task.cancel()
         await asyncio.gather(*readers, return_exceptions=True)
-        if driver.trace_stream:
-            driver.trace_stream.close()
-        await driver.client.aclose()
+        try:
+            save()  # Only after request cancellation/drain has recorded its outcomes.
+        finally:
+            if driver.trace_stream:
+                driver.trace_stream.close()
+            await driver.client.aclose()
 
 
 if __name__ == "__main__":

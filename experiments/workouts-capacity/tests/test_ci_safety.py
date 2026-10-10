@@ -179,6 +179,7 @@ def healthy_report(phase="mixed"):
         labels |= EXTRA_READS | EXTRA_WRITES
     return {
         "completed": True,
+        "percentile_method": "nearest_rank",
         "failure_type": None,
         "routes": {
             label: {

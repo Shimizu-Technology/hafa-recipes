@@ -15,6 +15,7 @@ import httpx
 from capacity.events import STAGES
 from capacity.media_identity import video_url
 from capacity.safety import OWNERS
+from capacity.statistics import nearest_rank
 from capacity.transport import TEXT
 
 BASE = "http://127.0.0.1:18047"
@@ -96,11 +97,7 @@ def headers(owner):
 
 
 def percentile(values, fraction):
-    return (
-        sorted(values)[min(len(values) - 1, int((len(values) - 1) * fraction))]
-        if values
-        else None
-    )
+    return nearest_rank(values, fraction)
 
 
 class Driver:
@@ -777,6 +774,7 @@ class Driver:
         for row in self.results:
             grouped.setdefault(row["route"], []).append(row)
         return {
+            "percentile_method": "nearest_rank",
             "synthetic_providers": True,
             "auth_whitelist": True,
             "r04_closed": False,

@@ -169,7 +169,10 @@ def test_report_never_turns_missing_samples_or_baseline_into_pass():
     from capacity.report import READS, evaluate
 
     route = {"p95_ms": 100, "p99_ms": 150, "unexpected": 0}
-    ordinary = {"routes": {label: dict(route) for label in READS}}
+    ordinary = {
+        "percentile_method": "nearest_rank",
+        "routes": {label: dict(route) for label in READS},
+    }
     assert evaluate(ordinary, ordinary, [])["local_gate"] == "blocked"
     samples = [{"memory_peak": 400 * 1024 * 1024, "stop_required": False, "oom": 0}]
     assert evaluate(ordinary, ordinary, samples)["local_gate"] == "passed"
@@ -177,7 +180,10 @@ def test_report_never_turns_missing_samples_or_baseline_into_pass():
         ordinary, ordinary, [{"memory_peak": 470 * 1024 * 1024, "stop_required": True}]
     )
     assert unsafe["local_gate"] == "failed" and unsafe["r04_closed"] is False
-    slow = {"routes": {label: {**route, "p95_ms": 130} for label in READS}}
+    slow = {
+        "percentile_method": "nearest_rank",
+        "routes": {label: {**route, "p95_ms": 130} for label in READS},
+    }
     assert evaluate(ordinary, slow, samples)["local_gate"] == "failed"
 
 

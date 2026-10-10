@@ -53,6 +53,7 @@ class Coordinator:
             "native_x86": False,
             "legal_nonjpeg_boundary_tested": False,
             "longer_repetitions_tested": False,
+            "percentile_nearest_rank": True,
             "phases": {},
             "provenance": {},
         }
