@@ -68,3 +68,11 @@ while an isolated fresh optional-peer expansion reproduces Arborist edgesOut;
 no blind dependency upgrade was made. Temporary fixtures were removed. Browser
 CUA, HMR/CORS happy path, physical devices, deployment and provider-log controls
 remain root acceptance gates and were not executed here.
+
+## Agent-executed local browser checks — October 10, 2026
+
+Integrated website source was checked at 390×844 and 1280×900 with the actual local API, synthetic development identity, and a reviewed synthetic sharing fixture. Home navigation, support FAQ expansion, scoped deletion instructions, privacy route, missing-link recovery, public sets/reps/rest projection, absent private notes, valid-to-unavailable-to-valid fragment navigation, and revoked-link reload passed. Both widths had no horizontal overflow. Keyboard skip navigation focuses the main content while preserving a share token.
+
+The initial same-document token switch left the previous workout displayed. The fix clears the prior snapshot/actions/pagination and aborts its request before loading the current link. It was retested through the browser. Local Vite initially served a stale transformed module after a file change; restarting the exact owned server and verifying the updated module preceded final QA. The complete website check passes 38 tests, types, client/SSR builds, and prerendering; installed dependencies audit clean.
+
+Browser screenshots remain in local private QA evidence. The task-owned browser tab/server were closed and the temporary viewport reset. Hosted CSP/CORS/redirect/cache/robots behavior, physical screen-reader coverage, app-open transport, and actual beta download links remain release checks. This receipt does not complete all dimensions of the product acceptance plan.

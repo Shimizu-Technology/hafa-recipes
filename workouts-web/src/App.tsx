@@ -32,7 +32,14 @@ function Mark() {
 function Shell({ children, route }: { children: ReactNode; route: string }) {
   return (
     <>
-      <a className="skip" href="#main">
+      <a
+        className="skip"
+        href="#main"
+        onClick={route.startsWith("/shared") ? (event) => {
+          event.preventDefault();
+          document.getElementById("main")?.focus();
+        } : undefined}
+      >
         Skip to content
       </a>
       <header className="header">
@@ -674,7 +681,27 @@ function Share() {
   const [attempt, setAttempt] = useState(0);
   const [page, setPage] = useState(0);
   const [copy, setCopy] = useState("");
+  const [locationVersion, setLocationVersion] = useState(0);
   useEffect(() => {
+    function changedLink() {
+      setSnapshot(null);
+      setToken(null);
+      setCopy("");
+      setPage(0);
+      setLocationVersion((version) => version + 1);
+    }
+    window.addEventListener("hashchange", changedLink);
+    window.addEventListener("popstate", changedLink);
+    return () => {
+      window.removeEventListener("hashchange", changedLink);
+      window.removeEventListener("popstate", changedLink);
+    };
+  }, []);
+  useEffect(() => {
+    setSnapshot(null);
+    setToken(null);
+    setPage(0);
+    setCopy("");
     const value = shareToken(location.pathname, location.hash, location.search);
     if (!value) {
       setError("invalid");
@@ -707,7 +734,7 @@ function Share() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [attempt]);
+  }, [attempt, locationVersion]);
   useEffect(() => {
     if (!snapshot) return;
     let timer: ReturnType<typeof setTimeout>;
