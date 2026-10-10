@@ -1,5 +1,10 @@
 """Health persistence requires fresh membership, granular grants and owner locks."""
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.domains.workouts.export_context import SnapshotSourceContext
+
 import hashlib
 import json
 from datetime import UTC, datetime
@@ -124,48 +129,74 @@ async def erase_health_product_data(db, user_id, generation):
         )
 
 
-async def export_health_page(db, user_id, generation, *, limit=50, offset=0):
+async def export_health_page(
+    db,
+    user_id,
+    generation,
+    *,
+    limit=50,
+    offset=0,
+    source_context: "SnapshotSourceContext | None" = None,
+):
     """Root includes this private page in product export; no credentials/receipts."""
     if not 1 <= limit <= 100 or offset < 0:
         raise HTTPException(422, "Invalid health export pagination")
-    await membership_for(db, user_id, generation=generation)
-    connections = list(
-        (
-            await db.scalars(
-                select(HealthConnection).where(
-                    HealthConnection.app_user_id == user_id,
-                    HealthConnection.generation == generation,
+    if source_context is not None:
+        source_context.require_guard(db, user_id, generation, limit, offset)
+    else:
+        await membership_for(db, user_id, generation=generation)
+    connections = (
+        []
+        if source_context is not None
+        and not source_context.should_fetch("health_connections", offset)
+        else list(
+            (
+                await db.scalars(
+                    select(HealthConnection).where(
+                        HealthConnection.app_user_id == user_id,
+                        HealthConnection.generation == generation,
+                    )
                 )
-            )
-        ).all()
+            ).all()
+        )
     )
-    observations = list(
-        (
-            await db.scalars(
-                select(HealthObservation)
-                .where(
-                    HealthObservation.app_user_id == user_id,
-                    HealthObservation.generation == generation,
+    observations = (
+        []
+        if source_context is not None
+        and not source_context.should_fetch("health_observations", offset)
+        else list(
+            (
+                await db.scalars(
+                    select(HealthObservation)
+                    .where(
+                        HealthObservation.app_user_id == user_id,
+                        HealthObservation.generation == generation,
+                    )
+                    .order_by(HealthObservation.created_at, HealthObservation.id)
+                    .limit(limit)
+                    .offset(offset)
                 )
-                .order_by(HealthObservation.created_at, HealthObservation.id)
-                .limit(limit)
-                .offset(offset)
-            )
-        ).all()
+            ).all()
+        )
     )
-    intents = list(
-        (
-            await db.scalars(
-                select(HealthExportIntent)
-                .where(
-                    HealthExportIntent.app_user_id == user_id,
-                    HealthExportIntent.generation == generation,
+    intents = (
+        []
+        if source_context is not None
+        and not source_context.should_fetch("health_owned_writes", offset)
+        else list(
+            (
+                await db.scalars(
+                    select(HealthExportIntent)
+                    .where(
+                        HealthExportIntent.app_user_id == user_id,
+                        HealthExportIntent.generation == generation,
+                    )
+                    .order_by(HealthExportIntent.created_at, HealthExportIntent.id)
+                    .limit(limit)
+                    .offset(offset)
                 )
-                .order_by(HealthExportIntent.created_at, HealthExportIntent.id)
-                .limit(limit)
-                .offset(offset)
-            )
-        ).all()
+            ).all()
+        )
     )
     return {
         "connections": [
