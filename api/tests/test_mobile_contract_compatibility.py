@@ -79,7 +79,8 @@ def test_frozen_mobile_route_remains_registered(contract_app, contract):
         "rather than move a released Recipes endpoint"
     )
     operation = matches[0]
-    assert set(contract["success_statuses"]) <= set(operation["responses"])
+    declared_success = {code for code in operation["responses"] if code.startswith("2")}
+    assert declared_success == set(contract["success_statuses"])
     required_parameters = {
         (parameter["in"], parameter["name"])
         for parameter in operation.get("parameters", [])
@@ -137,7 +138,11 @@ def test_paginated_library_keeps_flat_client_contract():
     decoded = Page264.model_validate(wire)
     assert decoded.items[0].title == "Synthetic rice fixture"
     assert decoded.total == 2 and decoded.has_more is True
-    assert wire["items"][0]["is_saved"] is True
+
+
+def test_library_projection_retains_saved_status():
+    item = recipes.recipe_to_list_item(_recipe(), OWNER, is_saved=True)
+    assert item.model_dump(mode="json")["is_saved"] is True
 
 
 @pytest.mark.parametrize("viewer", [None, "synthetic-other-account"])

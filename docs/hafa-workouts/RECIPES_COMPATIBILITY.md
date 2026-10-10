@@ -128,10 +128,8 @@ and existing public/sharing/identity/job/widget tests plus PostgreSQL widget,
 identity, and deletion integrations. All passed. Ruff and `git diff --check`
 passed for the changed files.
 
-The integration database was root-owned, dedicated, disposable PostgreSQL at
-`127.0.0.1:55482/hafa_recipes_compatibility_test`; it was separate from the root
-agent's test database. Existing test fixtures reset their tables. No production
-database, customer data, provider API, or native device was used.
+Integration tests require a dedicated disposable PostgreSQL database. Existing
+fixtures reset their tables. They must not use production data or provider APIs.
 
 Run the offline harness from the repository root:
 
@@ -141,13 +139,9 @@ PYTHONPATH=api uv run --project api pytest api/tests/test_mobile_contract_compat
 
 Run the existing targeted integrations with an explicitly disposable
 `TEST_DATABASE_URL`. Never point them at an application or production database.
-The root integration/PR must run the complete repository gate against its final
-head. This slice did not execute mobile/web/admin gates, computer-use QA, mixed
-workload tests, App Store binaries, or Workouts journeys.
-
-No persistent runtime resources were started by this slice. The isolated worktree
-and clean commit remain available for root integration; the temporary Python
-environment is ignored build tooling.
+Every integration PR must run the complete repository gate against its final
+head. The harness does not replace mobile/web/admin gates, computer-use QA,
+mixed-workload tests, App Store binary acceptance, or Workouts journeys.
 
 ## Maintaining the baseline
 

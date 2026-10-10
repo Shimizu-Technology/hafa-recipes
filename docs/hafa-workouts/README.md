@@ -1,6 +1,6 @@
 # Håfa Workouts product and platform plan
 
-Planning date: October 10, 2026. Status: reviewable specification; implementation has not started.
+Planning date: October 10, 2026. Status: compatible backend foundation implemented; full Workouts implementation is ongoing. TestFlight delivery remains pending. See [implementation status](IMPLEMENTATION_STATUS.md) for verified coverage.
 
 Håfa Workouts turns saved workout sources into personal training plans, guided sessions, and durable training history. The complete release includes general fitness, strength, body composition, running programs, general athletic conditioning for goals such as basketball, and optional Apple Health/Android Health Connect integrations. The product belongs to the same visibly connected Håfa family as Recipes.
 
