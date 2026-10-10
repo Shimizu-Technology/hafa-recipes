@@ -1,12 +1,19 @@
 """Gate the optional product before authentication, parsing, or database work."""
 
+import asyncio
+import threading
+
 from fastapi import Depends, HTTPException, Request
 from fastapi.routing import APIRoute
+from starlette.responses import JSONResponse
 
 from app.auth import ClerkUser, get_current_user
 from app.config import get_settings
 
 MAX_BODY_BYTES = 256 * 1024
+# Shared by all bulk routes in this process, not by replicas. No waiting bodies.
+_import_ingress = threading.Lock()
+IMPORT_INGRESS_SECONDS = 60
 
 
 class WorkoutsRoute(APIRoute):
@@ -61,3 +68,46 @@ class WorkoutsImportRoute(WorkoutsRoute):
     # Native capture resizes images before transmission. Other private endpoints
     # retain their smaller account/content cap; imports admit bounded image/PDF data.
     max_body_bytes = 3 * 1024 * 1024
+
+    async def handle(self, scope, receive, send):
+        if (
+            scope.get("method") not in {"POST", "PUT", "PATCH", "DELETE"}
+            or not get_settings().workouts_api_enabled
+        ):
+            # Preserve disabled404 before parsing/auth/DB, even while another upload runs.
+            return await super().handle(scope, receive, send)
+        if not _import_ingress.acquire(blocking=False):
+            await JSONResponse(
+                {"detail": "workouts_import_busy"},
+                status_code=429,
+                headers={"Retry-After": "2", "Cache-Control": "no-store"},
+            )(scope, receive, send)
+            return
+        started = False
+
+        async def tracked_send(message):
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            # Include final ASGI send: do not admit another body while the current
+            # request/JSON graph is retained behind handler or response backpressure.
+            deadline = asyncio.timeout(IMPORT_INGRESS_SECONDS)
+            try:
+                async with deadline:
+                    await super().handle(scope, receive, tracked_send)
+            except TimeoutError:
+                if not deadline.expired():
+                    raise  # An unrelated handler timeout keeps its original meaning.
+                if started:
+                    # Abort partial response; never append another JSON/status to it.
+                    raise
+                await JSONResponse(
+                    {"detail": "workouts_import_timeout"},
+                    status_code=408,
+                    headers={"Retry-After": "2", "Cache-Control": "no-store"},
+                )(scope, receive, send)
+        finally:
+            _import_ingress.release()
