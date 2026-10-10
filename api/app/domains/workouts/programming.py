@@ -239,7 +239,9 @@ def _run(profile: TrainingProfile) -> tuple[WorkoutContent | None, list[str]]:
         rounds = min(rounds, ((profile.session_minutes or 0) * 60 - 600) // (run + walk))
         if rounds < 1:
             needed = math.ceil((600 + run + walk) / 60)
-            return None, [f"At least {needed} minutes are needed for this run/walk stage structure."]
+            return None, [
+                f"At least {needed} minutes are needed for this run/walk stage structure."
+            ]
         if rounds < RUNNING_STAGES[stage][2]:
             warnings.append(
                 "Fewer intervals fit the time cap; no warmup or recovery was compressed."
@@ -263,8 +265,8 @@ def _run(profile: TrainingProfile) -> tuple[WorkoutContent | None, list[str]]:
                 ),
                 WorkoutBlock(
                     id="intervals",
-                    label="Easy run and recovery walk",
-                    grouping="interval",
+                    label="Easy run and recovery walk" if walk else "Continuous easy run",
+                    grouping="interval" if walk else "sequential",
                     rounds=rounds,
                     exercises=[
                         ExercisePrescription(
@@ -274,13 +276,19 @@ def _run(profile: TrainingProfile) -> tuple[WorkoutContent | None, list[str]]:
                             provenance="suggestion",
                             effort="Comfortable, controlled running; no target pace.",
                         ),
-                        ExercisePrescription(
-                            exercise_id="walk",
-                            name="Recovery walk",
-                            duration_seconds=walk,
-                            provenance="suggestion",
-                        ),
-                    ],
+                    ]
+                    + (
+                        [
+                            ExercisePrescription(
+                                exercise_id="walk",
+                                name="Recovery walk",
+                                duration_seconds=walk,
+                                provenance="suggestion",
+                            )
+                        ]
+                        if walk
+                        else []
+                    ),
                 ),
                 WorkoutBlock(
                     id="cooldown",

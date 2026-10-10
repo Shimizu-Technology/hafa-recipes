@@ -600,3 +600,37 @@ def test_running_conflict_reports_current_stage_minimum(stage, minutes):
     )
     assert result.status == "conflicts"
     assert any(f"At least {minutes} minutes" in warning for warning in result.warnings)
+
+
+@pytest.mark.parametrize("stage", range(9))
+def test_all_accepted_running_stages_build_valid_positive_prescriptions(stage):
+    result = build_program(
+        profile(
+            primary_goal="running",
+            session_minutes=60,
+            running_baseline=RunningBaseline(
+                novice_start_confirmed=True, comfortable_walk_minutes=20, accepted_stage=stage
+            ),
+        ),
+        START,
+        1,
+    )
+    assert result.status == "ready"
+    runs = [
+        session
+        for session in result.sessions
+        if session.workout.kind == "session"
+        and any(block.id == "intervals" for block in session.workout.blocks)
+    ]
+    assert runs
+    for session in runs:
+        assert all(
+            ex.duration_seconds is None or ex.duration_seconds > 0
+            for block in session.workout.blocks
+            for ex in block.exercises
+        )
+        if stage == 8:
+            block = next(block for block in session.workout.blocks if block.id == "intervals")
+            assert len(block.exercises) == 1
+            assert block.exercises[0].duration_seconds == 1200
+            assert block.grouping == "sequential"
