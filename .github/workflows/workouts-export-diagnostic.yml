@@ -1,0 +1,55 @@
+name: Workouts export attribution (native x86, synthetic)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - experiments/workouts-capacity/**
+      - .github/workflows/workouts-export-diagnostic.yml
+      - .github/workflows/workouts-capacity.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workouts-export-diagnostic-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  attribution:
+    if: (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && (github.head_ref == 'codex/workouts-export-diagnostic' || github.ref_name == 'codex/workouts-export-diagnostic')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out exact public source without stored credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Run one isolated export diagnostic
+        env:
+          PYTHONPATH: experiments/workouts-capacity
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: >-
+          python3 -m capacity.export_diagnostic_ci
+          --repository "$GITHUB_WORKSPACE"
+          --work "$RUNNER_TEMP/hafa-export-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          --receipt "$RUNNER_TEMP/hafa-export-receipt.json"
+      - name: Always clean exact diagnostic resources
+        if: always()
+        env:
+          PYTHONPATH: experiments/workouts-capacity
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: >-
+          python3 -m capacity.export_diagnostic_ci --cleanup-only
+          --repository "$GITHUB_WORKSPACE"
+          --work "$RUNNER_TEMP/hafa-export-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          --receipt "$RUNNER_TEMP/hafa-export-receipt.json"
+      - name: Upload only bounded numeric attribution
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: export-diagnostic-numeric-receipt
+          path: ${{ runner.temp }}/hafa-export-receipt.json
+          if-no-files-found: error
+          retention-days: 1

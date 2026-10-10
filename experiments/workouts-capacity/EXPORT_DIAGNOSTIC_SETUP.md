@@ -1,0 +1,46 @@
+# One export attribution diagnostic
+
+This is source-only preparation from capacity source `c44f13861244fb2cfcd6f322bec1610067b14386`, in the isolated `codex/workouts-export-diagnostic` branch. Root must inspect the final source, context hashes and independent review before authorizing a push or hosted run. No Docker build, local runtime, workflow execution or production action has occurred for this slice.
+
+The latest hosted mixed workload failed export-build latency and three relative Recipes read gates. Its five export service builds took 9.984–14.413 seconds. The public receipt did not preserve individual list/detail/search/chat spans; later media/GC events were truncated. This diagnostic gathers attribution evidence before choosing a production optimization. Prior failures and the original 410/460 MiB, 500/1000 ms and relative 1.25×/2× gates remain intact. It cannot close R04, legal-image safety, real-provider quality, Render/Neon parity or sustained mixed-workload acceptance.
+
+## Exact workload
+
+The new, separate workflow only admits the exact diagnostic branch, same-repository pull requests or explicit workflow dispatch. Both jobs in the existing capacity workflow explicitly skip this branch, including manual dispatch on it. No pull-request-target event, fork execution, environment, secret access, stored checkout credentials, image publishing, paid runner or deployment is enabled. The standard Ubuntu 24.04 runner must prove native x86 host and Docker architecture before traffic.
+
+The original pinned Python 3.12.15 / FFmpeg 5.1.9 / 81-distribution production requirements graph and filtered tracked build context are reused. Each hosted run builds and verifies a new immutable image with the exact public source SHA. The original `requirements.txt` is unchanged. Pinned base and PostgreSQL digests are inherited from `capacity.plan`; no mutable image substitution is allowed.
+
+An owned internal network, no-port tmpfs PostgreSQL and the original synthetic seed create 1,000 private Recipes, 190 large Workouts library records and their 190 full versions for the export owner. The fixture is unchanged: 40 independently generated 4,000-character notes per workout, duplicated in its immutable version. Other seeded owners remain present but are not exported. Actual migrations run only in this fresh owned fixture database. Both the main database and financial-authority URI bind that exact loopback database; keys are strict fake values. No provider, Neon or production request is permitted.
+
+Only the seed preparation step executes; media generation and source-provider checks are omitted because this workload has no media/import work. The API remains 512 MiB with equal memory-plus-swap and 0.5 CPU. Job workers, import maintenance/processing, cover scenarios and deletion maintenance are explicitly disabled through existing settings. Production methods, queue algorithms, input caps and route contracts are unchanged.
+
+Traffic begins on the fresh API without warming the chat provider request shape:
+
+- Eight protected readers retain the original Recipes baseline schedule: four sequential `/up`, list, search and private-detail requests every 16 seconds, staggered by 2 seconds. New turns stop after 160 seconds; in-flight requests and scheduled sleeps remain inside the 180-second load deadline.
+- Five deliberate recipe-chat requests use the same private synthetic recipe at offsets 0, 32, 56, 96 and 128 seconds. The 56-second probe attempts overlap with the export, but actual spans decide whether overlap happened.
+- Exactly one full export starts at 48 seconds. The real snapshot endpoint must return exactly 19 pages, 190 workouts and 190 immutable versions. The client reads all 19 pages through the real endpoint, then deliberately removes the snapshot. No media, imports, coach messages, new activity or session writes are submitted.
+- A separate host observer runs for 210 seconds; phase supervision ends at 230 seconds. The inherited whole-work 1,900-second budget, single durably persisted 120-second finalization budget and hard 35-minute job remain. There are no retries or budget resets.
+
+The host sampler validates exact owned IDs, labels, image/config, no ports and 512 MiB/equal-swap. It stops at 460 MiB, OOM, repeated protected 5xx or untrusted/lost observation. A measured peak above 410 MiB remains a failed memory gate. No GC trimming, sampler subtraction or limit waiver is used.
+
+## Measurement semantics
+
+All instrumentation is installed by the separate test-only app entry point after strict fake-environment validation. Production `api/**` imports none of it. The original session factory, connection objects, transaction isolation, SQL, parameters, await ordering, encryption, commit and privacy checks remain in place. The existing export singleton's captured page callback is wrapped, not replaced with a different projection.
+
+Fixed stages are `build_total`, `size_guard`, `source_fetch_decode`, `projection`, `json_encode`, `aes_encrypt`, `page_writer_commit` and `finalization`. Their counts and wall durations are **inclusive**. A projection includes its SQL awaits and validation; a writer includes its own privacy checks and commit. SQLAlchemy cursor events count each statement within the active export context. Parent stages include nested query counts. Never add nested stage durations or query counts to derive a total.
+
+`source_fetch_decode` awaits the original source-session `execute`, `scalar` or `get`; nested method delegation is suppressed. Its duration includes driver fetch/JSON decode and ORM result construction before the original method returns, plus any scheduling wait. It does not pretend to distinguish database CPU from wire wait or decoding CPU. Unrelated requests retain a separate context and do not contribute export query counts.
+
+`json_encode` times the original Pydantic `model_dump_json` JSON serialization. The unchanged adjacent UTF-8 `str.encode()` copy remains untimed glue; no alternate codec, extra encoding or copied private payload is introduced for measurement. AES measures the original encryption and counts actual returned ciphertext bytes. Only synchronous stages report thread CPU time. Thread/process CPU across awaits would include unrelated work and is deliberately not attributed to one async stage.
+
+Finalization begins at the explicit original source-session rollback after the last page and ends when the original create call returns, including its separate ready-publication transaction and commit. Failed builds retain failed stage status and cannot be retried into a successful second build in this process.
+
+The origin checkpoint is saved atomically before traffic and a fixed numeric request trace is flushed as requests start/end. SIGTERM cancels the main task so its tracked readers settle; the final atomic report is saved afterward. Abrupt kill recovery preserves completed spans and explicitly counts unfinished requests, tolerating only a truncated final trace line. Interrupted observer-summary publication remains unknown and cannot pass safety; available stage/request attribution is retained. Fixed safe route spans preserve actual offsets, duration and HTTP status, including interrupted requests as status 0. Stage and request spans share the driver-relative time origin in the final receipt. Aggregate CPU usage/throttling, loop lag/GC, memory and queue counts supplement them. Unknown OOM/drain information stays unknown. Safety acceptance requires final OOM inspection to be explicitly false. No request/account/resource IDs, URL tokens, SQL/parameters, payloads, fixtures, raw logs, keys or exports enter the public artifact.
+
+## Outcome and execution
+
+A completed diagnostic requires all 19 pages, one build/remove, all five chat probes, exactly 80 expected-status calls per protected category, complete uncapped measurements and observation, no unexpected provider/media/import work, no active jobs and no remaining private export. Completion is distinct from performance success: a slow export or chat still fails the unchanged absolute latency gate. No relative-capacity acceptance is claimed from this shorter diagnostic. The original 100-versus-150 mixed protected-read coverage caveat remains attached to the historical run.
+
+The new workflow executes `python3 -m capacity.export_diagnostic_ci --repository "$GITHUB_WORKSPACE" --work "$RUNNER_TEMP/hafa-export-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --receipt "$RUNNER_TEMP/hafa-export-receipt.json"`. Always-clean invokes the same command with `--cleanup-only`. It reuses the reviewed ownership ledger, exact-ID removal, exception sanitation, durable finalization deadline and safe failed-receipt fallback. Only the fixed numeric receipt, bounded to 100 KiB and one-day retention, is uploaded. Source/image/requirements hashes and architecture/runtime versions bind the evidence to its public code; no OCI artifact is published.
+
+Local acceptance for preparation: meaningful source tests, standard-library host import, Ruff, workflow guards, tracked-context hashes and independent source review. Hosted setup, actual pinned graph, native traffic, saved outcomes and capacity attribution remain **NOT_RUN** until root explicitly authorizes the reviewed pin. No production optimization is included.
