@@ -104,6 +104,19 @@ async def test_legacy_root_and_liveness_remain_unchanged():
     assert up.json() == {"status": "ok"}
 
 
+async def test_shared_openapi_metadata_preserves_legacy_discovery_contract():
+    from app.main import app
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        schema = await client.get("/openapi.json")
+        root = await client.get("/")
+    assert schema.status_code == root.status_code == 200
+    assert schema.json()["info"]["title"] == "Håfa API"
+    assert root.json()["name"] == "Recipe Extractor API"
+
+
 async def test_master_disable_preserves_recipes_surfaces_with_stale_enabled_children(monkeypatch):
     import app.main as main
 

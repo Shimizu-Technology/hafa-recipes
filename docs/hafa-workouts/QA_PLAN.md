@@ -100,3 +100,20 @@ These are partial dimension checks. They do not close an entire required case or
 The first web/simulator/emulator runtime phase was cleaned: task-owned API/Metro servers stopped, own simulator/emulator shut down, own web tab closed. Shared services and other sessions' simulators stayed available. The isolated PostgreSQL container remains owned for active agent test databases, and later phases must claim/clean their own new runtime delta.
 
 Private evidence is under `.codex/reports/hafa-workouts-2026-10-10` and named `/tmp/hafa-workouts-*` logs on this machine. Cold-route failure evidence is retained. No customer health data, real paid model call or production optional Workouts migration was used in these receipts.
+
+## Backend services partition
+
+The services review base ends its optional chain at 042. It includes source/import,
+coach, Health/Recipes connection, sharing, organization, measurement and admission
+engineering scenarios, with all existing tests retained. The dependent private
+export/activity slice adds 043–044 and must retain the six export erasure
+regressions and response/backpressure tests. The first base must pass its own
+complete repository gate; the assembled final-head gate is not evidence for a
+different intermediate tree. After integration, recheck the combined tree and
+affected scenarios against the actual target branch.
+
+The services base keeps Workouts disabled and budget 0 by default. Its automated
+fixtures and fake transports do not close physical/provider/native acceptance,
+D03 domain review, released-binary smoke or mixed-workload/capacity. Capability
+activation and the dependent feature's acceptance remain separate from a dormant
+backend merge. Exact base/gate evidence belongs in IMPLEMENTATION_STATUS.md.

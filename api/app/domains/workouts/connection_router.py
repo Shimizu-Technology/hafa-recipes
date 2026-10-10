@@ -227,7 +227,7 @@ def owner_response(row):
         revoked_at=row.revoked_at,
         api_path=f"/api/v1/workouts/shared/{token}",
         app_path=f"hafaworkouts://shared/{token}",
-        website_path=f"/shared/{token}",
+        website_path=f"/shared#{token}",
     )
 
 

@@ -77,6 +77,21 @@ async def consent(api, accepted=True):
     assert r.status_code == 200, r.text
 
 
+@pytest.mark.parametrize("budget", [0, 5_000_000])
+async def test_operational_capabilities_hide_ai_when_budget_is_zero(
+    automation_api, monkeypatch, budget
+):
+    configured = settings(workouts_imports_enabled=True, workouts_ai_enabled=True).model_copy(
+        update={"workouts_ai_budget_24h_microusd": budget}
+    )
+    monkeypatch.setattr(automation_router, "get_settings", lambda: configured)
+    response = await automation_api.client.get("/api/v1/workouts/capabilities")
+    assert response.status_code == 200, response.text
+    assert response.json()["imports"] is (budget > 0)
+    assert response.json()["coach"] is (budget > 0)
+    assert response.json()["billing_active"] is False
+
+
 async def enqueue(api, request_id=None, text=TEXT):
     return await api.client.post(
         "/api/v1/workouts/imports",

@@ -385,6 +385,9 @@ async def test_shared_preview_never_exposes_private_context_or_record_identity(a
 
 async def test_confirmation_is_explicit_and_returns_same_encrypted_link_on_retry(api):
     _, preview, share = await create_share(api)
+    token = share["api_path"].rsplit("/", 1)[-1]
+    assert share["website_path"] == f"/shared#{token}"
+    assert share["app_path"] == f"hafaworkouts://shared/{token}"
     response = await api.client.post(
         f"/api/v1/workouts/sharing/previews/{preview['id']}/confirm",
         json={
