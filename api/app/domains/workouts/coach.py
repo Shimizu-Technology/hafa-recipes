@@ -462,6 +462,17 @@ class WorkoutCoach:
                 existing.assistant_message = "This request timed out. Send a new message to retry."
                 await db.commit()
             return message_response(existing)
+        already_processed = await db.scalar(
+            select(AIInvocation.id)
+            .where(
+                AIInvocation.user_id == user_id,
+                AIInvocation.capability == "workout_coach",
+                AIInvocation.request_id == str(request.request_id),
+            )
+            .limit(1)
+        )
+        if already_processed:
+            raise HTTPException(410, "This request was previously processed; send a new request ID")
         # Content-free invocation audit survives per-product erasure; both Responses
         # turns count as one request, and clear/erase cannot reset paid-call limits.
         quota_requests = (

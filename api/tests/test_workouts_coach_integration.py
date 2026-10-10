@@ -631,6 +631,29 @@ async def test_invocation_quota_survives_product_history_erasure(coach_api):
     assert not api.provider.sent
 
 
+async def test_audit_only_uuid_cannot_be_reused_to_bypass_erasure_quota(coach_api):
+    api = coach_api
+    identifier = uuid4()
+    async with api.sessions() as db:
+        db.add(
+            AIInvocation(
+                id=uuid4(),
+                request_id=str(identifier),
+                user_id="owner",
+                job_id=None,
+                capability="workout_coach",
+                model="synthetic",
+                prompt_version="test",
+                status="success",
+                latency_ms=1,
+            )
+        )
+        await db.commit()
+    assert (await send(api, request_id=identifier)).status_code == 410
+    assert not api.provider.sent
+    assert (await send(api, request_id=uuid4())).status_code == 200
+
+
 async def test_cancellation_marks_receipt_failed_without_proposals(coach_api):
     api = coach_api
     entered = asyncio.Event()
