@@ -43,10 +43,15 @@ class WorkoutsRoute(APIRoute):
         return bounded_handler
 
 
-async def require_workouts_user(user: ClerkUser = Depends(get_current_user)) -> ClerkUser:
+async def require_workouts_user(
+    request: Request, user: ClerkUser = Depends(get_current_user)
+) -> ClerkUser:
     settings = get_settings()
     if not settings.workouts_api_enabled:
         raise HTTPException(404, "Not found")
+    expected_owner = request.headers.get("X-Hafa-Account-ID")
+    if expected_owner is not None and expected_owner != user.id:
+        raise HTTPException(409, "Hafa account changed; refresh before using this request")
     if not settings.workouts_public_access_enabled and user.id not in settings.workouts_testers:
         raise HTTPException(403, "Workouts testing is not enabled for this account")
     return user

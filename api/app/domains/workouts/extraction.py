@@ -645,6 +645,8 @@ def ground_workout(
     workout.version = 1
     workout.parent_version_id = None
     workout.source_url = source.metadata.url
+    workout.source_creator = source.metadata.creator
+    workout.source_title = source.metadata.title
     workout.provenance = "source"
     workout.estimated_minutes = None  # A model estimate is not an extracted fact.
     workout.notes = []  # No independent top-level notes evidence in this schema.

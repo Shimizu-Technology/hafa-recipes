@@ -4,7 +4,7 @@ from datetime import date
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 Goal = Literal[
     "general_fitness", "strength", "body_composition", "running", "athletic_conditioning"
@@ -72,6 +72,8 @@ class WorkoutContent(DomainModel):
     blocks: list[WorkoutBlock] = Field(default_factory=list, max_length=100)
     source_url: str | None = Field(default=None, max_length=2000)
     capture_kind: Literal["url", "text", "images", "document"] | None = None
+    source_creator: str | None = Field(default=None, max_length=200)
+    source_title: str | None = Field(default=None, max_length=200)
     equipment_required: list[str] = Field(default_factory=list, max_length=100)
     equipment_optional: list[str] = Field(default_factory=list, max_length=100)
     estimated_minutes: int | None = Field(default=None, ge=1, le=1440)
@@ -97,18 +99,37 @@ class ActivityContext(DomainModel):
     origin_id: str | None = Field(default=None, max_length=200)
 
 
+class EquipmentLocation(DomainModel):
+    id: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=80)
+    equipment: list[str] = Field(default_factory=list, max_length=100)
+    available_loads_kg: list[float] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def valid_location(self):
+        if not self.name.strip() or any(not item.strip() for item in self.equipment):
+            raise ValueError("Equipment location names and equipment cannot be blank")
+        if any(load <= 0 or load > 2000 for load in self.available_loads_kg):
+            raise ValueError("Location loads must be positive and at most2000kg")
+        return self
+
+
 class TrainingProfile(DomainModel):
     adult_confirmed: bool = False
     primary_goal: Goal = "general_fitness"
     secondary_goals: list[Goal] = Field(default_factory=list, max_length=5)
     experience: Literal["new", "returning", "regular"] = "new"
     equipment: list[str] | None = Field(default=None, max_length=100)
+    equipment_locations: list[EquipmentLocation] = Field(default_factory=list, max_length=10)
+    active_equipment_location_id: str | None = Field(default=None, max_length=100)
     available_days: list[int] = Field(default_factory=list, max_length=7)
     timezone: str = Field(default="Pacific/Guam", min_length=1, max_length=64)
     session_minutes: int | None = Field(default=None, ge=5, le=180)
     age_years: int | None = Field(default=None, ge=18, le=120)
     weight_kg: float | None = Field(default=None, gt=0, le=500)
     height_cm: float | None = Field(default=None, gt=0, le=300)
+    weight_recorded_at: AwareDatetime | None = None
+    height_recorded_at: AwareDatetime | None = None
     readiness: Literal["ready", "unknown", "limited"] = "unknown"
     movement_exclusions: list[str] = Field(default_factory=list, max_length=100)
     limitations: list[str] = Field(default_factory=list, max_length=100)
@@ -122,6 +143,29 @@ class TrainingProfile(DomainModel):
 
     @model_validator(mode="after")
     def validate_profile(self):
+        if len({location.id for location in self.equipment_locations}) != len(
+            self.equipment_locations
+        ):
+            raise ValueError("Equipment location identifiers must be unique")
+        if self.equipment_locations:
+            selected = next(
+                (
+                    location
+                    for location in self.equipment_locations
+                    if location.id == self.active_equipment_location_id
+                ),
+                None,
+            )
+            if selected is None:
+                raise ValueError("Choose the current equipment location")
+            self.equipment = selected.equipment
+            self.available_loads_kg = selected.available_loads_kg
+        elif self.active_equipment_location_id is not None:
+            raise ValueError("Current equipment location does not exist")
+        if self.weight_recorded_at is not None and self.weight_kg is None:
+            raise ValueError("A weight timestamp requires a weight value")
+        if self.height_recorded_at is not None and self.height_cm is None:
+            raise ValueError("A height timestamp requires a height value")
         if any(day < 0 or day > 6 for day in self.available_days):
             raise ValueError("available_days must use Monday=0 through Sunday=6")
         if len(set(self.available_days)) != len(self.available_days):

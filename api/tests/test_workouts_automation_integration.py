@@ -408,3 +408,201 @@ async def test_export_contains_owner_automation_but_never_raw_capture(automation
     assert r.json()["totals"]["imports"] == 1
     assert "payload" not in r.json()["datasets"]["imports"][0]
     assert TEXT not in r.text
+
+
+async def test_library_based_plan_uses_selected_session_and_pins_revision(automation_api):
+    api = automation_api
+    await ready_profile(api)
+    content = {
+        "title": "My selected session",
+        "blocks": [
+            {
+                "id": "main",
+                "label": "Main",
+                "exercises": [
+                    {
+                        "name": "Bodyweight squat",
+                        "exercise_id": "bodyweight_squat",
+                        "sets": 2,
+                        "reps_min": 8,
+                        "reps_max": 10,
+                    }
+                ],
+            }
+        ],
+    }
+    saved = await api.client.post("/api/v1/workouts/library", headers=GENERATION, json=content)
+    assert saved.status_code == 201, saved.text
+    identifier = saved.json()["id"]
+    response = await api.client.post(
+        "/api/v1/workouts/program-proposals",
+        headers=GENERATION,
+        json={
+            "start_date": "2026-10-12",
+            "weeks": 1,
+            "profile_revision": 1,
+            "source_workout_ids": [identifier],
+            "source_minutes": {identifier: 20},
+            "source_mode": "mixed",
+        },
+    )
+    assert response.status_code == 200, response.text
+    proposal = response.json()
+    assert proposal["proposal"]["status"] == "ready", proposal
+    assert any(
+        session["workout"]["title"] == "My selected session"
+        for session in proposal["proposal"]["sessions"]
+    )
+    edit = await api.client.put(
+        f"/api/v1/workouts/library/{identifier}?expected_revision=1",
+        headers=GENERATION,
+        json=content | {"title": "New source version"},
+    )
+    assert edit.status_code == 200
+    accept = await api.client.post(
+        f"/api/v1/workouts/program-proposals/{proposal['id']}/accept",
+        headers=GENERATION,
+        json={"title": "Selected plan"},
+    )
+    assert accept.status_code == 409
+
+
+async def test_logged_manual_game_is_used_when_generating_athletic_plan(automation_api):
+    api = automation_api
+    await ready_profile(api)
+    current = (await api.client.get("/api/v1/workouts/profile")).json()
+    current["primary_goal"] = "athletic_conditioning"
+    assert (
+        await api.client.put(
+            "/api/v1/workouts/profile", headers=GENERATION | {"If-Match": "1"}, json=current
+        )
+    ).status_code == 200
+    assert (
+        await api.client.post(
+            "/api/v1/workouts/activities",
+            headers=GENERATION,
+            json={"date": "2026-10-14", "name": "Basketball game", "strenuous": True},
+        )
+    ).status_code == 201
+    response = await api.client.post(
+        "/api/v1/workouts/program-proposals",
+        headers=GENERATION,
+        json={"start_date": "2026-10-12", "weeks": 1, "profile_revision": 2},
+    )
+    assert response.status_code == 200, response.text
+    assert all(
+        session["date"] != "2026-10-14" for session in response.json()["proposal"]["sessions"]
+    )
+
+
+async def test_program_source_requires_explicit_day_assignment(automation_api):
+    api = automation_api
+    await ready_profile(api)
+    saved = await api.client.post(
+        "/api/v1/workouts/library",
+        headers=GENERATION,
+        json={
+            "title": "Two day program",
+            "kind": "program",
+            "blocks": [
+                {
+                    "id": "day-a",
+                    "label": "Day A",
+                    "exercises": [
+                        {
+                            "name": "Bodyweight squat",
+                            "exercise_id": "bodyweight_squat",
+                            "sets": 2,
+                            "reps_min": 8,
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    assert saved.status_code == 201, saved.text
+    r = await api.client.post(
+        "/api/v1/workouts/program-proposals/from-source",
+        headers=GENERATION,
+        json={
+            "workout_id": saved.json()["id"],
+            "workout_revision": 1,
+            "profile_revision": 1,
+            "start_date": "2026-10-12",
+            "days": [
+                {
+                    "day_offset": 0,
+                    "block_ids": ["day-a"],
+                    "label": "Monday routine",
+                    "duration_minutes": 20,
+                },
+                {
+                    "day_offset": 2,
+                    "block_ids": ["day-a"],
+                    "label": "Wednesday routine",
+                    "duration_minutes": 20,
+                },
+            ],
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["proposal"]["status"] == "ready"
+    assert [s["date"] for s in r.json()["proposal"]["sessions"]] == ["2026-10-12", "2026-10-14"]
+
+
+async def test_original_owner_header_prevents_cross_account_profile_mutation(automation_api):
+    api = automation_api
+    await enroll(api, other=True)
+    r = await api.client.put(
+        "/api/v1/workouts/profile",
+        headers=GENERATION
+        | {"If-Match": "0", "X-Test-User": "other", "X-Hafa-Account-ID": "owner"},
+        json={"adult_confirmed": True, "weight_kg": 80},
+    )
+    assert r.status_code == 409
+    other = await api.client.get("/api/v1/workouts/profile", headers={"X-Test-User": "other"})
+    assert other.json() is None
+
+
+@pytest.mark.parametrize(
+    "intervals,active",
+    [
+        (
+            [
+                {
+                    "started_at": "2026-10-10T10:00:00+10:00",
+                    "ended_at": "2026-10-10T10:05:00+10:00",
+                },
+                {
+                    "started_at": "2026-10-10T10:04:00+10:00",
+                    "ended_at": "2026-10-10T10:10:00+10:00",
+                },
+            ],
+            660,
+        ),
+        (
+            [{"started_at": "2026-10-10T09:59:00+10:00", "ended_at": "2026-10-10T10:05:00+10:00"}],
+            360,
+        ),
+        (
+            [{"started_at": "2026-10-10T10:00:00+10:00", "ended_at": "2026-10-10T10:05:00+10:00"}],
+            600,
+        ),
+    ],
+)
+def test_invalid_active_intervals_cannot_misrepresent_actual_duration(intervals, active):
+    from pydantic import ValidationError
+
+    from app.domains.workouts.router import SessionRequest
+
+    with pytest.raises(ValidationError):
+        SessionRequest(
+            client_session_id=uuid4(),
+            workout_id=uuid4(),
+            workout_revision=1,
+            started_at="2026-10-10T10:00:00+10:00",
+            finished_at="2026-10-10T10:20:00+10:00",
+            status="partial",
+            active_seconds=active,
+            active_intervals=intervals,
+        )

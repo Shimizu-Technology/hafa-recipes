@@ -1,11 +1,11 @@
 """Source review and deterministic proposals share the same private data domain."""
 
 from datetime import date, datetime, timedelta
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException
-from pydantic import Field, StrictBool
+from pydantic import Field, StrictBool, model_validator
 from sqlalchemy import select
 
 from app.config import get_settings
@@ -22,7 +22,7 @@ from app.domains.workouts.models import (
     WorkoutsSession,
     WorkoutVersion,
 )
-from app.domains.workouts.programming import adapt_workout, build_program
+from app.domains.workouts.programming import adapt_workout
 from app.domains.workouts.router import (
     Database,
     Generation,
@@ -33,8 +33,14 @@ from app.domains.workouts.router import (
     record_response,
     validated_workout,
 )
-from app.domains.workouts.schemas import DomainModel, TrainingProfile, WorkoutContent
+from app.domains.workouts.schemas import (
+    ActivityContext,
+    DomainModel,
+    TrainingProfile,
+    WorkoutContent,
+)
 from app.domains.workouts.security import WorkoutsImportRoute, WorkoutsRoute
+from app.domains.workouts.source_planning import compose_library_program, convert_program_source
 
 router = APIRouter(prefix="/api/v1/workouts", tags=["workouts"], route_class=WorkoutsRoute)
 imports_router = APIRouter(
@@ -313,13 +319,53 @@ async def effective_profile(db, user_id, generation, expected_revision=None):
         if readiness and readiness.generation == generation and readiness.expires_at > now()
         else "unknown"
     )
-    return profile.model_copy(update={"readiness": state}), row.revision
+    # Only deliberate manual activity enters this general profile. Imported
+    # health rows and indirectly derived upstream records require their own
+    # provenance/consent review and must not become AI context through this path.
+    activities = [activity for activity in profile.other_activities if activity.origin_id is None]
+    manual = (
+        await db.scalars(
+            select(WorkoutsActivity)
+            .where(
+                WorkoutsActivity.app_user_id == user_id,
+                WorkoutsActivity.generation == generation,
+                WorkoutsActivity.content["origin_id"].as_string().is_(None),
+            )
+            .order_by(WorkoutsActivity.created_at.desc())
+            .limit(50)
+        )
+    ).all()
+    activities = [ActivityContext.model_validate(record.content) for record in manual] + activities
+    seen = set()
+    unique = []
+    for activity in activities:
+        key = (activity.date, activity.name, activity.duration_minutes)
+        if key not in seen:
+            seen.add(key)
+            unique.append(activity)
+    return profile.model_copy(
+        update={"readiness": state, "other_activities": unique[:500]}
+    ), row.revision
 
 
 class ProgramProposalRequest(DomainModel):
     start_date: date
     weeks: int = Field(default=4, strict=True, ge=1, le=12)
     profile_revision: int = Field(strict=True, ge=1)
+    source_workout_ids: list[UUID] = Field(default_factory=list, max_length=10)
+    source_mode: Literal["mixed", "selected"] = "mixed"
+    reviewed_custom_routines: StrictBool = False
+    source_minutes: dict[str, Annotated[int, Field(strict=True, ge=5, le=180)]] = Field(
+        default_factory=dict, max_length=10
+    )
+
+    @model_validator(mode="after")
+    def validate_sources(self):
+        if len(set(self.source_workout_ids)) != len(self.source_workout_ids):
+            raise ValueError("Selected source workouts must be unique")
+        if not set(self.source_minutes) <= {str(value) for value in self.source_workout_ids}:
+            raise ValueError("Source durations must refer to selected workouts")
+        return self
 
 
 class AdaptRequest(DomainModel):
@@ -364,6 +410,10 @@ async def proposal_context_hash(db, user_id, generation):
 
 async def validate_proposal_context(db, row, user_id, generation):
     profile, _ = await effective_profile(db, user_id, generation, row.profile_revision)
+    for pinned in row.source_versions or []:
+        source = await owned_record(db, WorkoutRecord, UUID(pinned["id"]), user_id, generation)
+        if source.revision != pinned["revision"]:
+            raise HTTPException(409, "A selected source workout changed; prepare a fresh proposal")
     if profile.readiness != "ready" or row.context_hash != await proposal_context_hash(
         db, user_id, generation
     ):
@@ -396,10 +446,25 @@ async def propose_program(
 ):
     await membership_for(db, user.id, generation=generation, write=True)
     profile, revision = await effective_profile(db, user.id, generation, request.profile_revision)
-    proposal = build_program(profile, request.start_date, request.weeks)
+    sources = [
+        await owned_record(db, WorkoutRecord, identifier, user.id, generation)
+        for identifier in request.source_workout_ids
+    ]
+    proposal = compose_library_program(
+        profile,
+        request.start_date,
+        request.weeks,
+        [(row.id, WorkoutContent.model_validate(row.content)) for row in sources],
+        mode=request.source_mode,
+        reviewed_custom=request.reviewed_custom_routines,
+        declared_minutes=request.source_minutes,
+    )
     row = await persist_proposal(
         db, user.id, generation, "program", revision, proposal.model_dump(mode="json")
     )
+    row.source_versions = [
+        {"id": str(source.id), "revision": source.revision} for source in sources
+    ]
     await db.commit()
     return proposal_response(row)
 
@@ -426,6 +491,55 @@ async def propose_adaptation(
         target_id=source.id,
         target_revision=source.revision,
     )
+    await db.commit()
+    return proposal_response(row)
+
+
+class SourceProgramDay(DomainModel):
+    day_offset: int = Field(strict=True, ge=0, le=365)
+    block_ids: list[str] = Field(min_length=1, max_length=100)
+    label: str = Field(min_length=1, max_length=200)
+    duration_minutes: int = Field(strict=True, ge=5, le=180)
+
+    @model_validator(mode="after")
+    def unique_blocks(self):
+        if len(set(self.block_ids)) != len(self.block_ids):
+            raise ValueError("A source block can occur once in each planned session")
+        return self
+
+
+class SourceProgramRequest(DomainModel):
+    workout_id: UUID
+    workout_revision: int = Field(strict=True, ge=1)
+    profile_revision: int = Field(strict=True, ge=1)
+    start_date: date
+    days: list[SourceProgramDay] = Field(min_length=1, max_length=366)
+    reviewed_custom_routines: StrictBool = False
+
+
+@router.post("/program-proposals/from-source")
+async def propose_source_program(
+    request: SourceProgramRequest, user: User, db: Database, generation: Generation
+):
+    await membership_for(db, user.id, generation=generation, write=True)
+    profile, revision = await effective_profile(db, user.id, generation, request.profile_revision)
+    source = await owned_record(db, WorkoutRecord, request.workout_id, user.id, generation)
+    if source.revision != request.workout_revision:
+        raise HTTPException(409, "Source program changed; refresh before assigning days")
+    workout = WorkoutContent.model_validate(source.content)
+    if workout.kind != "program":
+        raise HTTPException(422, "Choose an imported program for explicit day assignment")
+    result = convert_program_source(
+        profile,
+        request.start_date,
+        workout,
+        request.days,
+        reviewed_custom=request.reviewed_custom_routines,
+    )
+    row = await persist_proposal(
+        db, user.id, generation, "program", revision, result.model_dump(mode="json")
+    )
+    row.source_versions = [{"id": str(source.id), "revision": source.revision}]
     await db.commit()
     return proposal_response(row)
 

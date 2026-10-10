@@ -629,6 +629,17 @@ class ActualSet(DomainModel):
         return self
 
 
+class ActiveInterval(DomainModel):
+    started_at: AwareDatetime
+    ended_at: AwareDatetime
+
+    @model_validator(mode="after")
+    def positive_duration(self):
+        if self.ended_at <= self.started_at:
+            raise ValueError("Active intervals must have a positive duration")
+        return self
+
+
 class SessionRequest(DomainModel):
     client_session_id: UUID
     workout_id: UUID | None = None
@@ -640,6 +651,7 @@ class SessionRequest(DomainModel):
     finished_at: AwareDatetime
     status: Literal["completed", "partial"]
     active_seconds: int | None = Field(default=None, strict=True, ge=0, le=86400)
+    active_intervals: list[ActiveInterval] = Field(default_factory=list, max_length=100)
     activity_type: (
         Literal["strength_training", "running", "walking", "basketball", "general_fitness"] | None
     ) = None
@@ -656,6 +668,20 @@ class SessionRequest(DomainModel):
             and self.active_seconds > (self.finished_at - self.started_at).total_seconds()
         ):
             raise ValueError("Recorded active time cannot exceed the session interval")
+        if self.active_intervals:
+            if self.active_seconds is None:
+                raise ValueError("Active intervals require a recorded active duration")
+            previous_end = self.started_at
+            duration = 0
+            for interval in self.active_intervals:
+                if interval.started_at < previous_end or interval.ended_at > self.finished_at:
+                    raise ValueError(
+                        "Active intervals must be ordered, non-overlapping and inside the session"
+                    )
+                duration += (interval.ended_at - interval.started_at).total_seconds()
+                previous_end = interval.ended_at
+            if abs(duration - self.active_seconds) > 1:
+                raise ValueError("Active intervals must match the recorded active duration")
         if bool(self.workout_id) == bool(self.program_id):
             raise ValueError("Select exactly one owned workout or program session")
         if self.workout_id and (
@@ -1009,6 +1035,7 @@ async def export_data(
             for row in records
         ]
     from app.domains.workouts.automation_export import export_automation_page
+
     automation_data, automation_totals = await export_automation_page(
         db, user.id, membership.generation, limit, offset
     )

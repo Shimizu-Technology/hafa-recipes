@@ -47,6 +47,7 @@ class WorkoutProposal(Base):
     kind = Column(String(24), nullable=False)
     profile_revision = Column(Integer, nullable=False)
     context_hash = Column(String(64), nullable=False)
+    source_versions = Column(JSONB, nullable=False, default=list)
     target_id = Column(UUID(as_uuid=True))
     target_revision = Column(Integer)
     content = Column(JSONB, nullable=False)

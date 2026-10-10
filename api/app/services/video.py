@@ -762,6 +762,8 @@ class VideoService:
         write it to a caller-owned temporary file. Existing configured paths are
         never deleted by the application.
         """
+        if (current_ai_context().route or "").startswith("/api/v1/workouts"):
+            return None  # Workouts does not inherit an operator's private Instagram session.
         cookies = settings.instagram_cookies
         if not cookies:
             return None
