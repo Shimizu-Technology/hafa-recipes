@@ -2,9 +2,10 @@
 
 This directory is an experiment harness, not deployed application code. Render
 uses native Python, a single Uvicorn process and `api/requirements.txt`; the
-experiment Dockerfile is not a production Dockerfile. No image build/pull,
-container, server, network or capacity database has been started for this slice.
-R04 remains open. Root must inspect this concrete setup before runtime execution.
+experiment Dockerfile is not a production Dockerfile. The authorized pinned-image
+and loopback socket preflight is recorded in [INVENTORY.md](INVENTORY.md). No
+capacity API, workload, network or PostgreSQL container has started. R04 remains
+open. Root must inspect this concrete setup before runtime execution.
 
 The source ingress fix is separate commit `71d49d0`. It protects the 3 MiB import
 body before auth/JSON using one nonblocking process permit and a 60-second total
@@ -177,27 +178,28 @@ for root review. No runtime experiment has been executed in this implementation.
 
 ## Implementation verification handoff
 
-Nine source tests pass: strict fake environment, filtered/no-secret context,
+Ten source tests pass: strict fake environment, filtered/no-secret context,
 synthetic provider payload and blocked unexpected egress, deterministic real
 PDF/image fixtures and caps, numeric cgroup stop data, content bounds, conservative
 report gates, original driver account/generation headers and metadata-only output,
 and actual wrapper import with socket connect/bind/listen/DNS operations forbidden.
 The import test confirms no worker started and no synthetic provider attempt ran.
 Ruff, Python compilation and CLI help checks pass. These use the development
-Python environment; the pinned Docker runtime has not been built or executed.
+Python environment; pinned image and finite version inventory passed separately.
 
 | Case | Required evidence | Status |
 | --- | --- | --- |
 | IC01 | Busy/master-off bodies unread; final-send/error/cancellation/deadline recovery | 14 ASGI tests passed; actual persisted-import/usage bundle 69 passed |
-| IC02 | Real socket Expect: 100-continue, disconnect, normal recovery | not_run; explicitly opt-in after root setup inspection |
-| CP01 | Pinned image, exact source/dependency/binary/CPU/architecture inventory, real startup/migrations | not_run |
+| IC02 | Real socket Expect: 100-continue, disconnect, normal recovery | passed; final 15-test ingress suite with middleware composition |
+| CP01 | Pinned image, exact source/dependency/binary/CPU/architecture inventory, real startup/migrations | image inventory passed; capacity startup/migrations not_run |
 | CP02 | Three baseline/mixed repetitions, cgroup peak/RSS/latency/queues and saved outcomes | not_run |
 | CP03 | Upload4/8/16, PDF/image rejection, export backpressure and timeout recovery | not_run |
 | CP04 | Real lease restart, one result/receipt, Recipes cover/fallback and snapshot cleanup | not_run |
 | CP05 | Compatible deployed Recipes image rollback plus retained additive data | not_run; operator-owned source inventory required |
 
-Only the earlier finite ingress PostgreSQL tests used the borrowed local container.
-Their dedicated `hafa_workouts_ingress_test` database was dropped and absence was
-verified. No Docker image/network/container, server, real provider or production
-operation was started by this implementation. Root owns runtime authorization,
+Finite ingress/socket PostgreSQL tests used the borrowed local container. Their
+dedicated databases were dropped and absence verified. Image pulls/builds, a finite
+network-none inventory container and loopback socket fixture were authorized and
+cleaned. No capacity network/API/PostgreSQL/load container, real provider or
+production operation started. Root owns the next runtime authorization,
 resource claims, exact experiment execution, further fixes and capacity acceptance.
