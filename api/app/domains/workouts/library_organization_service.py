@@ -4,7 +4,7 @@ import hashlib
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import delete, exists, select
+from sqlalchemy import delete, exists, select, text
 
 from app.domains.workouts.library_organization_models import (
     ORGANIZATION_TABLES,
@@ -83,6 +83,14 @@ async def refresh_source_metadata(db, row):
         db.add(organization)
     organization.source_key = source_key(row.content.get("source_url"))
     return organization
+
+
+async def refresh_optional_source_metadata(db, row):
+    """Keep migration034-only compatibility for existing private-data fixtures."""
+    if await db.scalar(
+        text("SELECT to_regclass('public.workouts_library_organization') IS NOT NULL")
+    ):
+        await refresh_source_metadata(db, row)
 
 
 async def overlay_organizations(db, rows):

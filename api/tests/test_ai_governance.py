@@ -235,9 +235,43 @@ def test_recipe_fallback_gate_is_deterministic(recipe, expected):
 
 def test_explicit_none_clears_recipe_job_when_entering_workouts_context():
     from app.ai_governance import ai_request_context, current_ai_context
+
     with ai_request_context(job_id="recipe-job"):
         with ai_request_context(route="/api/v1/workouts/imports", job_id=None):
             assert current_ai_context().job_id is None
         assert current_ai_context().job_id == "recipe-job"
         with ai_request_context(route="recipe-chat"):
             assert current_ai_context().job_id == "recipe-job"
+
+
+def test_responses_usage_preserves_cached_and_reasoning_tokens():
+    response = {
+        "usage": {
+            "input_tokens": 120,
+            "output_tokens": 40,
+            "input_tokens_details": {"cached_tokens": 12},
+            "output_tokens_details": {"reasoning_tokens": 5},
+        }
+    }
+    assert extract_token_usage(response) == {
+        "input_tokens": 120,
+        "cached_input_tokens": 12,
+        "output_tokens": 40,
+        "reasoning_tokens": 5,
+    }
+
+
+def test_chat_zero_usage_is_not_replaced_by_responses_fallback():
+    assert (
+        extract_token_usage(
+            {
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "input_tokens": 3,
+                    "output_tokens": 4,
+                }
+            }
+        )["input_tokens"]
+        == 0
+    )

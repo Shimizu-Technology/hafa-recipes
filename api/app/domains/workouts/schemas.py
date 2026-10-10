@@ -126,8 +126,8 @@ class TrainingProfile(DomainModel):
     timezone: str = Field(default="Pacific/Guam", min_length=1, max_length=64)
     session_minutes: int | None = Field(default=None, ge=5, le=180)
     age_years: int | None = Field(default=None, ge=18, le=120)
-    weight_kg: float | None = Field(default=None, gt=0, le=500)
-    height_cm: float | None = Field(default=None, gt=0, le=300)
+    weight_kg: float | None = Field(default=None, strict=True, gt=0, le=500)
+    height_cm: float | None = Field(default=None, strict=True, gt=0, le=300)
     weight_recorded_at: AwareDatetime | None = None
     height_recorded_at: AwareDatetime | None = None
     readiness: Literal["ready", "unknown", "limited"] = "unknown"

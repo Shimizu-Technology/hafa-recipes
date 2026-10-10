@@ -267,6 +267,9 @@ async def accept_import(
     row.payload = None
     row.accepted_workout_id = saved.id
     row.accepted_content_hash = digest
+    from app.domains.workouts.library_organization_service import refresh_optional_source_metadata
+
+    await refresh_optional_source_metadata(db, saved)
     await db.commit()
     return record_response(saved)
 
@@ -693,5 +696,8 @@ async def accept_adaptation(proposal_id: UUID, user: User, db: Database, generat
     )
     row.accepted_record_id = saved.id
     row.accepted_at = now()
+    from app.domains.workouts.library_organization_service import refresh_optional_source_metadata
+
+    await refresh_optional_source_metadata(db, saved)
     await db.commit()
     return record_response(saved)

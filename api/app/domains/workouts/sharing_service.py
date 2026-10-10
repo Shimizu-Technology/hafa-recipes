@@ -398,11 +398,22 @@ async def copy_share(db, user_id, generation, token, request):
         if request.start_date is not None:
             raise HTTPException(422, "A single workout does not take a program start date")
         content.update(id=str(identifier), version=1, parent_version_id=None)
+        # These are the sender's prescriptions, never the recipient's declared
+        # baseline. Keep their exact values and identify their source honestly.
+        content["provenance"] = "source"
+        for block in content["blocks"]:
+            for exercise in block["exercises"]:
+                exercise["provenance"] = "source"
         row = WorkoutRecord(
             id=identifier, app_user_id=user_id, generation=generation, revision=1, content=content
         )
         db.add(row)
         await db.flush()
+        from app.domains.workouts.library_organization_service import (
+            refresh_optional_source_metadata,
+        )
+
+        await refresh_optional_source_metadata(db, row)
         db.add(
             WorkoutVersion(
                 app_user_id=user_id,
@@ -421,7 +432,7 @@ async def copy_share(db, user_id, generation, token, request):
                     id=str(uuid4()),
                     date=request.start_date + timedelta(days=item["day_offset"]),
                     purpose="Shared session requiring personal review",
-                    workout=WorkoutContent.model_validate(item["workout"]),
+                    workout=WorkoutContent.model_validate(item["workout"]).model_copy(deep=True),
                 )
                 for item in content["sessions"]
             ]
@@ -429,6 +440,11 @@ async def copy_share(db, user_id, generation, token, request):
             raise HTTPException(
                 422, "Choose a start date that can accommodate the full program"
             ) from None
+        for session in sessions:
+            session.workout.provenance = "source"
+            for block in session.workout.blocks:
+                for exercise in block.exercises:
+                    exercise.provenance = "source"
         proposal = ProgramProposal(
             status="needs_information",
             rule_version=RULE_VERSION,

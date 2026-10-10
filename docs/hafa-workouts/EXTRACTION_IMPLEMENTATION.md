@@ -116,7 +116,7 @@ reliably supported from these tests. Do not store/rehost creator videos by defau
 
 Bounds: 30,000 combined source characters; caption allocation up to 12,000 and
 transcript up to 18,000; eight images, 4 MiB per original image, 12 MiB aggregate;
-16 million image pixels; normalized stills at at most 1600 pixels per dimension;
+4 million image pixels; normalized stills at at most 1600 pixels per dimension;
 HTML 2 MiB; text documents 128 KiB and 30,000 decoded characters. Shared video
 settings retain their duration, media byte/process concurrency and subprocess
 cleanup limits. Image decoding/media bursts still require mixed-workload tests

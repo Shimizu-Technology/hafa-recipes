@@ -123,15 +123,21 @@ def _value(value: Any, key: str) -> Any:
 
 
 def extract_token_usage(response: Any) -> dict[str, int | None]:
-    """Normalize Chat Completions SDK or HTTP usage without response content."""
+    """Normalize Chat Completions or Responses usage without response content."""
 
     usage = _value(response, "usage")
-    prompt_details = _value(usage, "prompt_tokens_details")
-    completion_details = _value(usage, "completion_tokens_details")
+    prompt_details = _value(usage, "prompt_tokens_details") or _value(usage, "input_tokens_details")
+    completion_details = _value(usage, "completion_tokens_details") or _value(
+        usage, "output_tokens_details"
+    )
+    input_tokens = _value(usage, "prompt_tokens")
+    output_tokens = _value(usage, "completion_tokens")
     return {
-        "input_tokens": _value(usage, "prompt_tokens"),
+        "input_tokens": input_tokens if input_tokens is not None else _value(usage, "input_tokens"),
         "cached_input_tokens": _value(prompt_details, "cached_tokens"),
-        "output_tokens": _value(usage, "completion_tokens"),
+        "output_tokens": output_tokens
+        if output_tokens is not None
+        else _value(usage, "output_tokens"),
         "reasoning_tokens": _value(completion_details, "reasoning_tokens"),
     }
 
