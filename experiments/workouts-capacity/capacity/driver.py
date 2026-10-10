@@ -20,6 +20,7 @@ from capacity.transport import TEXT
 BASE = "http://127.0.0.1:18047"
 PREFIX = "/api/v1/workouts"
 REQUEST_LABELS = {
+    "capacity/legal-operation",
     "/up",
     "recipes/list",
     "recipes/search",

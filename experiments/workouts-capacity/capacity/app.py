@@ -199,3 +199,9 @@ async def capacity_status():
         "auth": "fixture whitelist",
         "workouts_enabled": get_settings().workouts_api_enabled,
     }
+
+
+# Explicit opt-in, experiment-only route. Absent from the production app.
+from capacity.legal_ops import install as install_legal_operations
+
+install_legal_operations(app, identity, storage_service, video_service)

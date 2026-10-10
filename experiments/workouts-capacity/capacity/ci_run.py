@@ -282,7 +282,7 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
             )
         )
 
-    def phase(self, phase):
+    def phase(self, phase, *, retain_api=False):
         self.active_phase = phase
         before_counts = self.saved_counts()
         self.start_api(phase)
@@ -430,11 +430,12 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
         if phase == "baseline":
             self.baseline = report
         self.ledger.remove_container("load")
-        self.ledger.remove_container("api")
+        if not retain_api:
+            self.ledger.remove_container("api")
         if not receipt["passed"]:
             raise SafetyError("phase_acceptance_failed")
 
-    def run(self):
+    def prepare(self):
         if platform.system() != "Linux":
             raise SafetyError("linux_host_required")
         commit = self.command(["git", "rev-parse", "HEAD"])
@@ -520,6 +521,9 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
             )
             argv = [self.image if word == tag else word for word in argv]
             self.finite_container(role, argv, deadline)
+
+    def run(self):
+        self.prepare()
         self.phase("baseline")
         before = self.pg
         self.ledger.inspect(before)
@@ -623,6 +627,7 @@ def main():
     parser.add_argument("--work", required=True)
     parser.add_argument("--receipt", required=True)
     parser.add_argument("--cleanup-only", action="store_true")
+    parser.add_argument("--legal-matrix", action="store_true")
     args = parser.parse_args()
     if (
         platform.system() != "Linux"
@@ -630,7 +635,12 @@ def main():
         or os.environ.get("GITHUB_REPOSITORY") != "Shimizu-Technology/hafa-recipes"
     ):
         raise SafetyError("trusted_linux_ci_required")
-    coordinator = Coordinator(args.repository, args.work, args.receipt)
+    if args.legal_matrix:
+        from capacity.legal_ci import LegalCoordinator
+
+        coordinator = LegalCoordinator(args.repository, args.work, args.receipt)
+    else:
+        coordinator = Coordinator(args.repository, args.work, args.receipt)
 
     def cancelled(signum, frame):
         raise KeyboardInterrupt

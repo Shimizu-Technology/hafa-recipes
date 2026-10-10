@@ -15,6 +15,7 @@ HEX_ID = re.compile(r"[0-9a-f]{64}")
 RUN_ID = re.compile(r"[a-z0-9-]{1,40}")
 PHASES = {"baseline", "mixed", "boundaries", "diagnostic"}
 STAGES = {
+    "legal_case",
     "thumbnail_normalize",
     "cover_compare",
     "cover_frames",
@@ -371,7 +372,7 @@ class HostMonitor:
                     "event": event["event"],
                     "timestamp": numeric(event["timestamp"]),
                 }
-                for key in ("duration_ms", "input_bytes", "pixels"):
+                for key in ("duration_ms", "input_bytes", "pixels", "case_index"):
                     if key in event:
                         filtered[key] = numeric(event[key])
                 events.append(filtered)

@@ -494,7 +494,7 @@ def public_receipt(summary):
         if key in provenance:
             result["provenance"][key] = number(provenance[key])
     result["phases"] = {}
-    for phase in ("baseline", "mixed"):
+    for phase in ("baseline", "mixed", "legal"):
         if phase not in summary.get("phases", {}):
             continue
         row = summary["phases"][phase]
@@ -562,11 +562,18 @@ def public_receipt(summary):
         }
         for event in timeline.get("stages", [])[:320]:
             if event.get("stage") not in STAGE_KEYS | {
-                "thumbnail_normalize"
+                "thumbnail_normalize",
+                "legal_case",
             } or event.get("event") not in {"start", "end", "failed"}:
                 continue
             clean = {"stage": event["stage"], "event": event["event"]}
-            for key in ("offset_seconds", "duration_ms", "input_bytes", "pixels"):
+            for key in (
+                "offset_seconds",
+                "duration_ms",
+                "input_bytes",
+                "pixels",
+                "case_index",
+            ):
                 if key in event:
                     clean[key] = number(event[key])
             output["timeline"]["stages"].append(clean)
@@ -574,6 +581,20 @@ def public_receipt(summary):
             output["timeline"]["slow_liveness"].append(
                 {key: number(event[key]) for key in ("offset_seconds", "duration_ms")}
             )
+        if phase == "legal":
+            from capacity.legal_contract import BOOLEANS, CASES, NUMBERS
+
+            output["cases"] = {}
+            for case in CASES:
+                if case not in row.get("cases", {}):
+                    continue
+                raw = row["cases"][case]
+                output["cases"][case] = {
+                    key: number(raw[key]) for key in NUMBERS if key in raw
+                }
+                output["cases"][case].update(
+                    {key: raw.get(key) is True for key in BOOLEANS}
+                )
         result["phases"][phase] = output
     if not result["cleaned_owned_resources"]:
         result["passed"] = False
@@ -628,7 +649,8 @@ def numeric_timeline(samples, trace_path):
     for sample in samples:
         for event in sample.get("stages", []):
             if event.get("stage") not in STAGE_KEYS | {
-                "thumbnail_normalize"
+                "thumbnail_normalize",
+                "legal_case",
             } or event.get("event") not in {"start", "end", "failed"}:
                 continue
             stage_total += 1
@@ -640,10 +662,10 @@ def numeric_timeline(samples, trace_path):
                         max(0, event.get("timestamp", origin) - origin)
                     ),
                 }
-                for key in ("duration_ms", "input_bytes", "pixels"):
+                for key in ("duration_ms", "input_bytes", "pixels", "case_index"):
                     if key in event:
                         value[key] = number(event[key])
-                if event["stage"] in {"export_build", "export_read"}:
+                if event["stage"] in {"export_build", "export_read", "legal_case"}:
                     if len(exports) < 256:
                         exports.append(value)
                 elif len(other_stages) < 64:

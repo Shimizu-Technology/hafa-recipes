@@ -7,6 +7,7 @@ import time
 
 PHASES = {"baseline", "mixed", "boundaries", "diagnostic"}
 STAGES = {
+    "legal_case",
     "thumbnail_normalize",
     "cover_compare",
     "cover_frames",
@@ -42,7 +43,7 @@ def emit(stage, phase, event, **numbers):
     }
     for key, value in numbers.items():
         if (
-            key not in {"duration_ms", "input_bytes", "pixels"}
+            key not in {"duration_ms", "input_bytes", "pixels", "case_index"}
             or isinstance(value, bool)
             or not isinstance(value, (int, float))
             or not 0 <= value <= 1e18
