@@ -1,6 +1,6 @@
 # Håfa Workouts execution and production protection plan
 
-Leon has approved the full product scope and shared-account deletion policy. This plan translates the specification into ordered engineering slices and separate readiness/release checks. Application implementation and execution remain unstarted.
+Leon has approved the full product scope and shared-account deletion policy. This plan translates the specification into ordered engineering slices and separate readiness/release checks. Implementation is underway; verified completed slices and pending acceptance are recorded in [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
 
 ## What is delivered
 
