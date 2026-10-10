@@ -167,6 +167,15 @@ async def test_actual_original_create_retains_19_pages_encryption_finalization_a
 
     monkeypatch.setattr(DB, "rollback", rollback_call(rollback))
     service = svc.PrivateExportService(factory)
+    presence_checks = []
+
+    async def absent_045():
+        # This pure fake-session fixture represents the pre045 compatible
+        # builder. Installed045 and real worker dispatch have separate DB tests.
+        presence_checks.append(True)
+        return False
+
+    monkeypatch.setattr(service.job_coordinator(), "installed", absent_045)
     # Production instrumentation wraps a constructed builtin singleton. A
     # wrapper must not silently turn off its source inventory optimization.
     if wrap_singleton:
@@ -176,6 +185,7 @@ async def test_actual_original_create_retains_19_pages_encryption_finalization_a
         assert service._builtin_page_source is True
     try:
         manifest = await service.create(SimpleNamespace(id="synthetic"), 1)
+        assert presence_checks == [True]
         assert manifest.page_count == 19
         measured = instrument.snapshot()
         assert measured["complete"] and measured["pages"] == 19
