@@ -47,7 +47,7 @@ admission; higher configured rates increase it. Discounts are not assumed.
 Whisper's verified0.006USD/min uses conservative whole-minute rounding, only for
 server-probed, validated audio duration up to1800seconds. No duration proof means
 no audio admission. Unknown models or unavailable pricing fail closed.
-Whisper is scheduled for retirement2027-02-26 per official documentation; a new
+Whisper is [scheduled for retirement2027-02-26](https://developers.openai.com/api/docs/deprecations#2026-08-26-transcription-models); a new
 transcription model needs independently verified registry/pricing support.
 
 Supported envelopes select the exact provider endpoint and explicit output cap.
