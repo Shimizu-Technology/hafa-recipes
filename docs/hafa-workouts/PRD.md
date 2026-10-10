@@ -46,7 +46,7 @@ P14 — Håfa relationship. Shared branding/account language is visible on marke
 
 P15 — Free beta and future payment. All agreed product capabilities are free during beta, like Recipes. Reasonable operational limits may protect cost/availability; show them before a request and distinguish retryable failure from a consumed allowance. Record privacy-bounded per-product usage/cost and support configurable entitlements for future plans. Do not enable billing or choose a price without a separate product decision. Users retain access/export to their training records if commercial terms later change.
 
-P16 — Support and account control. Provide help, issue reporting, profile correction, export, health/source disconnection, product-data controls and clearly scoped account deletion. Operators receive bounded job/cost/failure diagnostics and audited recovery tools, without unrestricted private-content browsing. Deletion/connection revocation must cover stored context and derived AI memory. Legacy Recipes identity deletion is a release gate under D02.
+P16 — Support and account control. Provide help, issue reporting, profile correction, export, health/source disconnection, product-data controls and clearly scoped account deletion. Leon approved “Delete Håfa account” erasing both products and separate per-product data-removal controls that preserve the other product and login. Existing Recipes account deletion keeps its whole-account meaning; Workouts enrollment explains that this affects both products before creating a dataset. Operators receive bounded job/cost/failure diagnostics and audited recovery tools, without unrestricted private-content browsing. Deletion/connection revocation must cover stored context and derived AI memory. Technical legacy deletion compatibility is a release gate under D02.
 
 ## Canonical connected objects
 
@@ -74,6 +74,6 @@ Platform marketing claims do not authorize acquisition. Preserve attribution and
 
 ## Completion and measurement
 
-The complete release requires P01–P16 and all required [QA scenarios](QA_PLAN.md), including physical-device health integrations and old/new Recipes compatibility. Necessary provider/store approval remains a gate; a mocked integration is not a delivered integration.
+The complete release requires P01–P16 and all required [QA scenarios](QA_PLAN.md), including physical-device health integrations and old/new Recipes compatibility. Pre-release acceptance must pass before submission/release; R05's actual public availability is verified after release and remains pending until then. Necessary provider/store approval remains a gate; a mocked integration is not a delivered integration.
 
 Measure source-specific usable import/correction rates, time to first performed session, planned-versus-completed sessions, continuation, rescheduling success, and cost per active user. Avoid content, health values and full source URLs in general analytics. Import volume and chat messages alone do not prove useful training.

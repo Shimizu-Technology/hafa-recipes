@@ -12,6 +12,7 @@ Leon has asked for the complete product, delivered through engineering milestone
 | --- | --- |
 | Platforms | iPhone, Android, and marketing/support website. |
 | Account | One Håfa account, separate product data, explicit opt-in connections. |
+| Deletion | Leon approved whole-Håfa account deletion across both apps, with separate controls for removing only one product's data. Shared-account enrollment explains that older Recipes account deletion also affects Workouts. |
 | Brand relationship | People can recognize and navigate between the two Håfa products. |
 | Content | Private libraries and intentional sharing; public workout Discover is not part of the agreed release. |
 | Coaching | Adults; general fitness and self-reported limitations, without medical diagnosis or prescribed rehabilitation. |
@@ -26,6 +27,7 @@ Leon has asked for the complete product, delivered through engineering milestone
 - [Experience specification](EXPERIENCE.md): navigation, screen states, app relationships, and defining journeys.
 - [Platform architecture](ARCHITECTURE.md): boundaries, identity, data, jobs, health integrations, and compatible deployment.
 - [Build plan](BUILD_PLAN.md): dependency-ordered milestones with exit conditions.
+- [Execution and production protection plan](EXECUTION_PLAN.md): ordered engineering slices, exact rollout sequence, and readiness/delivery gates.
 - [QA plan](QA_PLAN.md): required scenarios, fixtures, device coverage, and execution ledger contract.
 - [QA ledger](qa-ledger.json): per-case execution records, initially all `not_run`.
 
@@ -34,7 +36,7 @@ Leon has asked for the complete product, delivered through engineering milestone
 | ID | Decision | Proposed position / gate |
 | --- | --- | --- |
 | D01 | Training scope — resolved | Leon clarified a general app for running, workouts, and possibly basketball. Use flexible goals and general athletic conditioning, with running programming and basketball-related examples. Do not impose a volleyball or exhaustive sport-specific catalog. |
-| D02 | Shared-account deletion with old Recipes clients | Explicit whole-Håfa account deletion plus separate product-data controls in modern clients proposed. A focused question is pending. Existing Recipes deletion currently removes the identity; exact legacy behavior and enrollment disclosure must be reviewed before shared-account enrollment goes live. |
+| D02 | Shared-account deletion — policy resolved | Leon approved whole-account deletion plus per-product data controls and disclosure of older Recipes deletion behavior. Technical cleanup, late-write prevention, and actual-client acceptance remain gates before shared-account enrollment goes live. |
 | D03 | Domain-reviewed programming rules and content | Establish sourced templates, exercise substitutions, progression and interruption rules; record review and unresolved limits before releasing automated programming. |
 | D04 | Hosting topology | Decide from isolated mixed-workload tests and current billing/capacity, not from the small database alone. |
 | D05 | Distribution/device coverage | Verify minimum supported OS versions, native dependencies, exact store builds, provider declarations, and physical test devices. New Workouts requirements do not force a Recipes upgrade. |
@@ -52,3 +54,5 @@ The Recipes source at this commit presents public App Store access and all featu
 Apple's public US lookup on October 10 reported Recipes version **2.6.4**, minimum iOS **17.0**, released September 20 UTC. Current source declares **2.6.11 / iOS build 88**; that declaration does not establish App Store availability. Older installed versions also require an explicit inventory. [Public lookup](https://itunes.apple.com/lookup?id=6755892896&country=us).
 
 Source research and implementation evidence are linked next to relevant requirements. No live user content, credentials, or medical details are included in this plan.
+
+The API/GitHub commit and US App Store 2.6.4 baseline were rechecked after Leon accepted D02; no deployment or listing change was made by this planning task.

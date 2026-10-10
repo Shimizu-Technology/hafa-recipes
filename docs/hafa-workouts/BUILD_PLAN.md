@@ -12,7 +12,7 @@ The [PRD](PRD.md) provides P01–P16 requirements; [experience specification](EX
 
 - [ ] Confirm detailed profile, workout, program and session schemas, with source/prescription/actual separation.
 - [ ] Inventory published Recipes 2.6.4 and supported historical/TestFlight artifacts, actual redirects/issuers and independent deployment bindings.
-- [ ] Review D02 deletion semantics with a concrete old-client/shared-account journey; choose and record the implementation before enabling enrollment.
+- [ ] Implement Leon's approved D02 policy in a concrete old-client/shared-account design; verify enrollment disclosure, whole-account cleanup and per-product removal before enabling enrollment.
 - [ ] Establish reviewed programming templates/rules for general training, running and basketball-related conditioning; define source evidence and evaluation rubrics.
 - [ ] Specify health data types, optional permissions, server/AI consent and origin eligibility; verify native dependency and store requirements.
 - [ ] Create usable screen prototypes from the experience brief, including real long content and failure/recovery states.
@@ -39,27 +39,27 @@ Exit: platform/invariants and applicable isolated R01–R03/R06 compatibility sc
 - [ ] Complete private organization/search/editing, incomplete drafts, reprocessing, uncertainty, and sharing projections/grants.
 - [ ] Evaluate annotated source fixtures and account/privacy/restart races.
 
-Exit: a person can capture, recover, correct, organize and intentionally share usable workouts on iPhone and Android; source claims and AI suggestions remain distinguishable. P03–P06/P13 and affected C-series cases pass.
+Exit: a person can capture, recover, correct, organize and intentionally share usable workouts on iPhone and Android; source claims and suggestions remain distinguishable. P03–P05/P13, P06's original-versus-personal version foundation and affected C-series cases pass. Full profile-aware P06 adaptation completes in M4/slice 10; M2 does not claim it is finished.
 
-## M3 — Profile, coach and continuing programs
+## M3 — Profile and continuing programs
 
 - [ ] Implement editable/time-stamped profiles, equipment locations, goals and temporary feedback.
 - [ ] Build structured programs, scheduling, versioned adjustment and retained completed-session semantics.
-- [ ] Implement eligible context retrieval, source-linked explanations and validated coach action tools.
 - [ ] Add general-fitness/strength/body-composition/running/athletic templates and goal/conflict reasoning; complete domain evaluation before auto-programming rollout.
-- [ ] Extend existing AI consent to specific coaching context, and complete outage/manual paths, stale proposals, undo and action receipts.
 
-Exit: a person can create, understand and revise a coherent multiweek program from imported/app/manual workouts, with explicit assumptions and actual app actions. P01/P02/P07/P08/P11 and affected T-series cases pass.
+Exit: a person can create, understand and revise a coherent multiweek program from imported/app/manual workouts, with explicit assumptions and structured schedule actions. P01/P02/P07/P08 and applicable T01–T04 cases pass. Full conversational coaching and personal adaptation complete after actual-session/history support in M4/slice 10.
 
-## M4 — Train, persist and measure
+## M4 — Training, progress and actionable coaching
 
 - [ ] Implement native execution for sets, grouped work, timed/distance sessions, rest, instructions and substitutions.
 - [ ] Add account-scoped local persistence, outbox, idempotent replay, session conflict handling and restart/background recovery.
 - [ ] Build history, traceable corrections, comparable performance/progress and optional measurement trends.
 - [ ] Make interrupted and partial sessions first-class; preserve context across chat/instructions/source navigation.
 - [ ] Verify notifications/timers/accessibility and timezone/unit behavior on relevant real devices.
+- [ ] Implement eligible profile/plan/history context retrieval, source-linked explanations, validated coach tools and full personal workout adaptation.
+- [ ] Extend existing AI consent to coaching context; complete provider/manual paths, stale proposals, undo, safety evaluation and action receipts.
 
-Exit: training remains usable without network/AI, actual work saves once, and history informs future decisions without silent rewrites. P09/P10 and affected S-series cases pass.
+Exit: training remains usable without network/AI, actual work saves once, and history informs actual coach/adaptation actions without silent rewrites. P06/P09/P10/P11, affected S-series cases and T05–T08 pass.
 
 ## M5 — Health connections, Håfa relationship and public free beta
 
@@ -73,7 +73,7 @@ Exit: both health integrations work on physical devices, neither is required for
 
 ## M6 — Combined system acceptance and release
 
-- [ ] Run complete automated gates and required comprehensive QA against exact integrated commits/native builds.
+- [ ] Run complete automated gates and isolated/native deployment-readiness QA against exact integrated commits/builds. Keep production-dependent actual-binary dimensions pending until dormant API deployment, and R05 public delivery pending until release.
 - [ ] Test source/model/program evaluations, failed dependencies, concurrent users, cancellation/deletion, restart and old/new client combinations.
 - [ ] Perform isolated realistic mixed workload under candidate memory limits; select safe topology and measure cost without assuming extra infrastructure is free.
 - [ ] Establish production restore point, rollout order, stop/rollback thresholds, current provider bindings and capability defaults.
@@ -83,6 +83,8 @@ Exit: both health integrations work on physical devices, neither is required for
 - [ ] Observe representative production for 24–48 hours before right-sizing; record actual invoices/usage separately from estimates.
 
 Exit: all required cases pass, material review findings are resolved, integrated head/build/release sources are verified, actual store availability is confirmed, and owned runtime resources are cleaned or exactly handed off. Blocked physical/provider/store coverage is not waived by green CI.
+
+This is the end-of-delivery exit, not a circular condition for initiating deployment/release. First pass isolated deployment-readiness checks, deploy the dormant compatible API, then complete actual distributed Recipes binary smoke and remaining production-dependent dimensions. Before submission, all 36 other cases and R05's pre-submission reviewer/build/privacy checkpoints must pass. Provider/store approval precedes public release. R05 only receives final `passed` status after the exact production download and availability are verified. The detailed dependencies and rollout are in [the execution plan](EXECUTION_PLAN.md).
 
 ## Planning artifact disposition
 
