@@ -1,10 +1,10 @@
 # Durable Workouts AI admission budget
 
-This slice starts at `4e1065b` and changes only new budget modules, migration 040,
-tests, and this document. It does not integrate provider calls, tracker behavior,
-configuration, startup, or Recipe capabilities. Those remain root-owned.
+The original ledger slice started at `4e1065b`. Provider integration followed;
+the October 11 hardening adds explicit authority configuration, conservative
+carryover and shutdown cleanup. Recipes paid-provider controls remain unchanged.
 
-The global rolling 24-hour guard reserves a verified conservative amount before
+The shared-authority guard reserves a conservative amount before
 one Workouts provider attempt. All workers sharing the database serialize
 admission with PostgreSQL transaction advisory lock 7340040. The independent
 reservation transaction explicitly uses READ COMMITTED, including with an
@@ -12,11 +12,16 @@ injected REPEATABLE READ factory: a waiting snapshot must observe the previous
 lock holder's committed reservation. Database time, not a process/device clock,
 defines the window. The row commits before any provider body can execute.
 
-Reservations remain consumed for the whole window after success, failure,
-cancellation, missing usage or worker crash. There is no optimistic refund. Each
+A validated success retains the full reservation for 24 hours after the later of
+admission and its durable finish. Every nonsuccess outcome (unknown, failed,
+cancelled), missing finish acknowledgement, worker crash and outcome-write failure
+remains charged indefinitely. A local timeout or cancellation does not prove that
+the provider stopped billing. There is no optimistic refund. Each
 fallback, retry or paid tool round needs a new attempt. Per-attempt upper bound is
 model/envelope specific; it must fit both the configured attempt cap and remaining
-global admission capacity. All workers must use the same verified configuration;
+shared admission capacity. Daily and per-attempt limits cannot exceed the
+authorized combined 5,000,000 microUSD ceiling. All workers must use the same
+verified configuration;
 a deployment changing limits must pause/drain old workers before activation.
 
 ## Verified pricing/envelopes
@@ -111,8 +116,9 @@ that remains visible rather than being silently clipped. Never persist this
 random budget attempt UUID on an owner/job/request record or expose it to users.
 
 BudgetError provides a closed privacy-safe `code`, `status_code` and optional
-`retry_after_seconds`. Exceeded rolling capacity yields 429 with the first expiry
-that frees sufficient capacity; configuration, unsupported envelope/model,
+`retry_after_seconds`. Exceeded rolling capacity yields 429 with the first confirmed-success expiry
+that frees sufficient capacity; unresolved rows have no automatic expiry. If
+confirmed releases cannot free enough capacity, retry_after is null; configuration, unsupported envelope/model,
 attempt cap or database failures yield 503. If the single bound exceeds the daily
 budget, waiting cannot fix configuration and retry_after is null. Root adapters
 must propagate these bounded failures before provider/fallback invocation; do not
@@ -151,3 +157,67 @@ No paid call, new provider, production data, server, browser, simulator or owned
 container is used. Exact committed combined test results and test database
 cleanup accompany delivery. Root provider integration/enforcement and actual
 release acceptance remain required before paid activation.
+
+## Explicit authority and safe activation (October 11 hardening)
+
+`WORKOUTS_AI_BUDGET_DATABASE_URL` is a SecretStr used only for the anonymous
+ledger. It never defaults to the application database. A positive budget without
+this binding denies admission before provider dispatch. Zero/default-off does
+not create an authority connection. Admin budget diagnostics read this same
+authority, never the application's separate ledger. A tiny lazy pool has one
+connection, no overflow, bounded connection/pool/statement waits, hidden SQL
+parameters, a pinned `public` search path and verified TLS for remote endpoints.
+Client settings cannot supply SQL/search-path options. Each default admission and
+diagnostic read independently verifies authority migration 040, the exact
+anonymous columns, absence of foreign keys and the enabled immutability trigger.
+A valid application schema cannot substitute for this authority check.
+Application shutdown disposes
+the pool. Explicit constructor session-factory injection is for trusted synthetic
+tests only; it is not a deployment bypass.
+
+Initial policy: ONE durable authority/ledger is shared across testing and beta.
+Both environments may send paid requests only after an operator verifies that
+each binding resolves to the SAME existing endpoint, database and
+public.workouts_ai_admissions table. Unverified environments and independent
+ledgers keep budget zero and paid capabilities off. Every configured caller is
+capped at $5 and atomically compares its reservation against the shared total.
+Source code
+cannot discover different deployments' URLs and cannot prove that inventory.
+Do not use a disposable fixture database as a paid authority or reset/delete
+admission rows. Never configure independent $5 ledgers. Static allocations summing
+to $5 are insufficient during same-day transfers. Preserve the ledger across
+restart/redeploy. Transfer or replacement remains blocked until dispatched work
+is verified drained and a full 24-hour carryover after the latest verified completion
+has elapsed; unresolved requests remain charged and block unsafe transfer.
+
+An additional role on the existing operator-selected Neon database can provide
+local development a budget-only credential: schema USAGE and SELECT/INSERT/UPDATE
+on the anonymous ledger, with NO DELETE/TRUNCATE/DDL, table ownership, inheritance
+from customer-data roles or customer-table privileges. Existing installation of
+migration 040 and its immutability trigger belongs to the authority owner, not
+this credential. The reader also requires SELECT on the `version` column of
+`workouts_schema_migrations` plus ordinary PostgreSQL catalog visibility for its
+read-only verification; customer tables and other migration columns are excluded. No endpoint, key, role, production grants or DDL is
+provisioned by this slice. No production URL is invented.
+
+Success is the only currently supported proof of completed dispatch; failures and
+cancellations remain permanently charged. There is no automated reconciliation
+or privileged release endpoint. Reclaiming unresolved cost would require a
+separately reviewed proof-based reconciliation design that preserves receipt
+immutability; deleting receipts is not an acceptable reset. Provider billing
+reconciliation and current price/model/project processing verification remain
+activation gates. These reservations still do not guarantee invoices: Recipes
+and calls outside these adapters are excluded. Any Workouts evaluation harness
+must use the same guarded adapters/authority rather than a standalone SDK call.
+
+Hardening verification: the affected PostgreSQL/provider/automation gate passed
+112 tests. It covers old unfinished/failed/cancelled holds, late successful
+completion, insufficient confirmed releases, restart/concurrent workers, zero
+HTTP calls without authority, six malformed separate-authority schemas despite a
+valid application schema, and a role-default shadow schema that cannot redirect
+public admission or diagnostics. The complete canonical gate passed 1,757 API
+tests (35 skipped, 16 existing warnings), 790 Recipes mobile tests, Doctor 21/21,
+13 admin tests, types and web/admin builds. Runtime audits reported zero
+unexpected advisories; web/admin production audits reported zero vulnerabilities.
+All transports were synthetic. No real provider call, credential/grant change,
+production migration, device journey or invoice reconciliation was executed.

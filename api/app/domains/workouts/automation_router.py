@@ -62,10 +62,12 @@ async def capabilities(user: User, db: Database):
         "public_beta": configured.workouts_public_access_enabled,
         "imports": configured.workouts_imports_enabled
         and configured.workouts_ai_budget_24h_microusd > 0
+        and bool(configured.workouts_ai_budget_database_url)
         and configured.workouts_ai_enabled
         and configured.is_ai_capability_enabled("workout_extraction"),
         "coach": configured.workouts_ai_enabled
         and configured.workouts_ai_budget_24h_microusd > 0
+        and bool(configured.workouts_ai_budget_database_url)
         and configured.is_ai_capability_enabled("workout_coach"),
         "health_sync": configured.workouts_health_sync_enabled,
         "limits": {
