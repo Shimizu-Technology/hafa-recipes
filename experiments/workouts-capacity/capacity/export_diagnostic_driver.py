@@ -27,6 +27,7 @@ CHAT_OFFSETS_SECONDS = (0, 32, 48.25, 96, 128)
 
 
 class Probe(Driver):
+    routes = ROUTES
     def __init__(self):
         super().__init__("/fixtures")
         self.origin = time.time()
@@ -34,7 +35,7 @@ class Probe(Driver):
         self.dropped = 0
 
     def trace(self, number, event, label, **values):
-        if label not in ROUTES:
+        if label not in self.routes:
             return
         super().trace(number, event, label, **values)
         if event == "start":

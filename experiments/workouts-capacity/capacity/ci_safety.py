@@ -649,9 +649,13 @@ def public_receipt(summary):
     return result
 
 
-def partial_trace_report(path):
+def partial_trace_report(path, allowed=None):
     """Recover numeric completed requests after abrupt stop; never mark complete."""
-    allowed = READS | EXTRA_READS | BASE_WRITES | EXTRA_WRITES | {"recipes/job-poll"}
+    allowed = (
+        allowed
+        if allowed is not None
+        else READS | EXTRA_READS | BASE_WRITES | EXTRA_WRITES | {"recipes/job-poll"}
+    )
     grouped = {}
     if Path(path).exists():
         lines = Path(path).read_text().splitlines()

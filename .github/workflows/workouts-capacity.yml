@@ -20,7 +20,7 @@ concurrency:
 jobs:
   native-x86:
     # Fork code and PR-target events never obtain this experiment's execution.
-    if: (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && github.head_ref != 'codex/workouts-export-diagnostic' && github.ref_name != 'codex/workouts-export-diagnostic'
+    if: (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && github.head_ref != 'codex/workouts-export-diagnostic' && github.ref_name != 'codex/workouts-export-diagnostic' && github.head_ref != 'codex/workouts-export-jobs-diagnostic' && github.ref_name != 'codex/workouts-export-jobs-diagnostic'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -59,7 +59,7 @@ jobs:
 
   legal-image-boundary:
     # Fork code and PR-target events never obtain this experiment's execution.
-    if: (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && github.head_ref != 'codex/workouts-export-diagnostic' && github.ref_name != 'codex/workouts-export-diagnostic'
+    if: (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && github.head_ref != 'codex/workouts-export-diagnostic' && github.ref_name != 'codex/workouts-export-diagnostic' && github.head_ref != 'codex/workouts-export-jobs-diagnostic' && github.ref_name != 'codex/workouts-export-jobs-diagnostic'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:

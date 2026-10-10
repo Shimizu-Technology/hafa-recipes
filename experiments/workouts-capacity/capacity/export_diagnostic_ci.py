@@ -19,6 +19,14 @@ BRANCH = "codex/workouts-export-diagnostic"
 
 
 class ExportCoordinator(Coordinator):
+    output_name = "export-diagnostic.json"
+    measurements_path = "/capacity/export-diagnostic"
+    app_module = "capacity.export_diagnostic_app:app"
+    driver_module = "capacity.export_diagnostic_driver"
+    summarize = staticmethod(diagnostic)
+    format_receipt = staticmethod(receipt)
+    recover_report = staticmethod(recover)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.data = {}
@@ -52,7 +60,7 @@ class ExportCoordinator(Coordinator):
             "python",
             "-m",
             "uvicorn",
-            "capacity.export_diagnostic_app:app",
+            self.app_module,
             "--host",
             "127.0.0.1",
             "--port",
@@ -61,13 +69,13 @@ class ExportCoordinator(Coordinator):
 
     def collect(self, completed=False):
         root = self.plan_root / "results"
-        path = root / "export-diagnostic.json"
+        path = root / self.output_name
         try:
             report = json.loads(path.read_text()) if path.exists() else {}
         except (ValueError, OSError):
             report = {}
         if not report.get("completed"):
-            report.update(recover(path))
+            report.update(self.recover_report(path))
         if not report.get("metrics") and getattr(self, "api", None):
             try:
                 report["metrics"] = json.loads(
@@ -79,7 +87,7 @@ class ExportCoordinator(Coordinator):
                             "wget",
                             "-qO-",
                             "--header=X-Capacity-User: capacity-22",
-                            "http://127.0.0.1:18047/capacity/export-diagnostic",
+                            "http://127.0.0.1:18047" + self.measurements_path,
                         ],
                         timeout=5,
                     )
@@ -126,7 +134,7 @@ class ExportCoordinator(Coordinator):
                 pass
         if not completed:
             report["completed"] = False
-        self.data = diagnostic(report, samples, observation, counts, oom)
+        self.data = self.summarize(report, samples, observation, counts, oom)
 
     def run(self):
         self.prepare()
@@ -179,9 +187,9 @@ class ExportCoordinator(Coordinator):
                     self.image,
                     "python",
                     "-m",
-                    "capacity.export_diagnostic_driver",
+                    self.driver_module,
                     "--output",
-                    "/results/export-diagnostic.json",
+                    "/results/" + self.output_name,
                 ],
             )
             until = time.monotonic() + 230
@@ -212,7 +220,9 @@ class ExportCoordinator(Coordinator):
     def write_receipt(self):
         self.receipt.parent.mkdir(parents=True, exist_ok=True)
         encoded = (
-            json.dumps(receipt(self.summary, self.data), allow_nan=False, indent=2)
+            json.dumps(
+                self.format_receipt(self.summary, self.data), allow_nan=False, indent=2
+            )
             + "\n"
         )
         if len(encoded.encode()) > 100 * 1024:
