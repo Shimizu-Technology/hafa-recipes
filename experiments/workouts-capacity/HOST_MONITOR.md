@@ -36,7 +36,7 @@ The separate load container flushes fixed request-category timing events, with
 numeric request counters/status/duration/bytes and no raw URLs or error messages.
 The repaired actual `items` Recipes envelope and partial-error reports remain.
 
-Verification: 22 source tests passed, including actual bound production storage/
+Verification: 23 source tests passed, including actual bound production storage/
 cover wrapper signatures without network/startup, the backend pagination schema,
 cancelled/failed reporting, exact target selection, foreign-owner refusal,
 current/peak/OOM stops before auxiliary probes, protected 5xx, malformed/nonfinite

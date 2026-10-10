@@ -359,6 +359,9 @@ def run_monitor(monitor, output, seconds, interval, sleeper=time.sleep):
     if not 1 <= seconds <= 7200 or not 0.5 <= interval <= 10:
         raise MonitorError("invalid_duration")
     output = Path(output)
+    summary_output = output.with_suffix(output.suffix + ".summary.json")
+    if summary_output.exists():
+        raise FileExistsError("Historical monitor summary cannot be replaced")
     summary = {
         "completed": False,
         "phase": monitor.phase,
@@ -411,9 +414,7 @@ def run_monitor(monitor, output, seconds, interval, sleeper=time.sleep):
                 if summary["completed"]
                 else "blocked"
             )
-            output.with_suffix(output.suffix + ".summary.json").write_text(
-                json.dumps(summary, indent=2) + "\n"
-            )
+            summary_output.write_text(json.dumps(summary, indent=2) + "\n")
 
 
 if __name__ == "__main__":

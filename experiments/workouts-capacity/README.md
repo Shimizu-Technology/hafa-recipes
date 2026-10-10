@@ -196,7 +196,7 @@ for root review. The first authorized smoke and its stop are recorded in SMOKE.m
 
 ## Implementation verification handoff
 
-Twenty-two source tests pass: strict fake environment, filtered/no-secret context,
+Twenty-three source tests pass: strict fake environment, filtered/no-secret context,
 synthetic provider payload and blocked unexpected egress, deterministic real
 PDF/image fixtures and caps, numeric cgroup stop data, content bounds, conservative
 report gates, original driver account/generation headers and metadata-only output,

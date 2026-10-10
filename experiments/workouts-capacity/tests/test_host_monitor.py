@@ -190,6 +190,17 @@ def test_invalid_cgroup_and_nonfinite_queue_metadata_fail_closed():
         )
 
 
+def test_orphaned_historical_summary_is_never_replaced_or_target_probed(tmp_path):
+    docker = Docker()
+    output = tmp_path / "phase.jsonl"
+    summary = tmp_path / "phase.jsonl.summary.json"
+    summary.write_text("preserve")
+    with pytest.raises(FileExistsError):
+        module.run_monitor(monitor(docker), output, 1, 0.5)
+    assert summary.read_text() == "preserve"
+    assert not output.exists() and not docker.calls
+
+
 def test_repeated_protected_5xx_stop_ignores_private_access_urls():
     docker = Docker()
 
