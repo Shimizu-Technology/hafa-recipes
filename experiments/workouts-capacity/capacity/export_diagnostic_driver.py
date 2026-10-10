@@ -28,6 +28,7 @@ CHAT_OFFSETS_SECONDS = (0, 32, 48.25, 96, 128)
 
 class Probe(Driver):
     routes = ROUTES
+
     def __init__(self):
         super().__init__("/fixtures")
         self.origin = time.time()

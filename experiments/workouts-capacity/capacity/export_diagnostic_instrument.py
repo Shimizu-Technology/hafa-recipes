@@ -68,7 +68,9 @@ def install(patch=setattr, *, wrap_singleton=True):
         async_stage("size_guard", service.guard_projection_memory),
     )
     patch(
-        service, "build_export_page", async_stage("projection", service.build_export_page)
+        service,
+        "build_export_page",
+        async_stage("projection", service.build_export_page),
     )
     original_prepare = SnapshotSourceContext.prepare.__func__
 
