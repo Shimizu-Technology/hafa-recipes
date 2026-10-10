@@ -66,7 +66,7 @@ it("requires deliberate preparation and a separate Save, then honestly labels th
   await press("Prepare private Workouts export"); expect(f.save).not.toHaveBeenCalled(); expect(f.page).not.toHaveBeenCalled();
   expect(button("Save complete private export")).toBeDefined();
   await press("Save complete private export");
-  expect(f.save).toHaveBeenCalledTimes(1); expect(f.cancel).toHaveBeenCalledWith("screen-job", 3);
+  expect(f.save).toHaveBeenCalledTimes(1); expect(f.cancel).toHaveBeenCalledWith("screen-job", 3, expect.any(AbortSignal));
   expect(JSON.stringify(renderer!.toJSON())).toContain("cannot tell whether you saved");
   expect(button("Start a fresh private export")).toBeDefined();
 });
@@ -83,6 +83,17 @@ it("shows uncertain cleanup without offering another Save or claiming the file w
   expect(button("Retry cancellation and cleanup")).toBeDefined(); expect(button("Save complete private export")).toBeUndefined();
   expect(JSON.stringify(renderer!.toJSON())).toContain("cleanup has not been acknowledged");
   expect(JSON.stringify(renderer!.toJSON())).toContain("cannot tell whether you saved");
+});
+it("shows the original save failure and pending cleanup when both attempts fail", async () => {
+  await render(); await press("Prepare private Workouts export");
+  f.save.mockRejectedValue(Error("Save options unavailable"));
+  f.cancel.mockRejectedValue(Error("Cleanup offline"));
+  await press("Save complete private export");
+  expect(JSON.stringify(renderer!.toJSON())).toContain("Save options unavailable");
+  expect(JSON.stringify(renderer!.toJSON())).toContain("cleanup has not been acknowledged");
+  expect(button("Save complete private export")).toBeUndefined();
+  expect(button("Retry cancellation and cleanup")).toBeDefined();
+  expect(f.save).toHaveBeenCalledTimes(1); expect(f.createJob).toHaveBeenCalledTimes(1);
 });
 it("does not select legacy fallback when a retained job exists but the capability later turns off", async () => {
   await render(); await press("Prepare private Workouts export");

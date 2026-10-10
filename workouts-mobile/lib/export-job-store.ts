@@ -27,9 +27,11 @@ export function createExportJobStore(storage: Storage, scope: ExportScope, guard
     guard();
     const raw = await storage.getItem(key);
     guard();
-    if (!raw) return null;
-    const value = JSON.parse(raw) as ExportCommand;
-    if (value.schema_version !== 1 || value.owner !== scope.owner || value.generation !== scope.generation ||
+    if (raw === null) return null;
+    let value: ExportCommand | null = null;
+    try { value = JSON.parse(raw) as ExportCommand; } catch { /* Preserve the original invalid handle. */ }
+    if (!value || typeof value !== "object" || Array.isArray(value) ||
+      value.schema_version !== 1 || value.owner !== scope.owner || value.generation !== scope.generation ||
       value.backend !== scope.backend || value.binding !== scope.binding || !safeId(value.request_id) ||
       !(value.job_id === null || safeId(value.job_id)) ||
       typeof value.cancel_requested !== "boolean" || typeof value.retired !== "boolean")

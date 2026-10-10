@@ -201,15 +201,28 @@ export function createExportController(options: {
       // Persist cleanup intent before presenting the OS sheet. Cold restart never opens it again automatically.
       const cleanupCommand = await store.requestCancel(command.request_id); guard();
       publish({ phase: "saving", command: cleanupCommand });
+      let saveFailed = false;
+      let saveError: unknown;
       try {
         await options.save(data, command.owner, guard); guard();
         publish({ message: "The export file was opened for saving. The app cannot tell whether you saved it or closed the save options. Keep any copy private." });
-      } finally {
-        // Always try the original scoped cleanup after a share attempt; account/epoch retirement prevents new-owner writes.
-        scopeGuard();
-        const receipt = await options.api.cancelExportJob(job.id, command.generation);
-        guard(); await receive(receipt, cleanupCommand, guard);
+      } catch (error) {
+        saveFailed = true;
+        saveError = error;
       }
+      let cleanupFailed = false;
+      let cleanupError: unknown;
+      try {
+        // Scope retirement prevents new-owner writes; pause aborts this same request.
+        scopeGuard();
+        const receipt = await options.api.cancelExportJob(job.id, command.generation, signal);
+        guard(); await receive(receipt, cleanupCommand, guard);
+      } catch (error) {
+        cleanupFailed = true;
+        cleanupError = error;
+      }
+      if (saveFailed) throw saveError;
+      if (cleanupFailed) throw cleanupError;
     }),
   };
 }

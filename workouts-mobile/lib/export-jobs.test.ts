@@ -49,6 +49,17 @@ function deferred<T>() {
   return { promise, resolve };
 }
 describe("durable private export commands", () => {
+  it.each(["", "null", "[]", "true", '{"schema_version":', '"private corrupt content"'])(
+    "keeps malformed recovery data private and never replaces it: %s", async (raw) => {
+      const s = setup(); await s.store.begin("request-one");
+      const key = [...s.map.keys()][0]; s.map.set(key, raw);
+      const c = s.make(); await c.restore(); await c.start();
+      expect(c.state().error).toBe("This export recovery handle is invalid. Contact support before creating another export.");
+      expect(s.api.createExportJob).not.toHaveBeenCalled();
+      expect(s.api.exportJobByRequest).not.toHaveBeenCalled();
+      expect(s.map.get(key)).toBe(raw);
+    }
+  );
   it("does not admit a job if its durable UUID cannot be stored", async () => {
     const s = setup(); s.raw.setItem = async () => { throw Error("Device storage unavailable"); };
     const c = s.make(); await c.start();
@@ -105,7 +116,7 @@ describe("durable private export commands", () => {
     expect(s.save).toHaveBeenCalledTimes(1);
     expect(s.save.mock.calls[0][0].datasets.workouts).toHaveLength(11);
     expect(s.api.createExportJob).toHaveBeenCalledTimes(1);
-    expect(s.api.cancelExportJob).toHaveBeenCalledWith("job-one", 2);
+    expect(s.api.cancelExportJob).toHaveBeenCalledWith("job-one", 2, expect.any(AbortSignal));
     expect(c.state().message).toContain("cannot tell whether you saved");
   });
   it("fences a revoked page and requires deliberate cleanup before a new request", async () => {
@@ -126,7 +137,7 @@ describe("durable private export commands", () => {
       throw Error("Save options unavailable");
     });
     const c = s.make(); await c.start(); await c.save();
-    expect(s.api.cancelExportJob).toHaveBeenCalledWith("job-one", 2);
+    expect(s.api.cancelExportJob).toHaveBeenCalledWith("job-one", 2, expect.any(AbortSignal));
     expect(c.state().job?.status).toBe("cancelled");
     expect(c.state().error).toBe("Save options unavailable");
   });
@@ -139,6 +150,32 @@ describe("durable private export commands", () => {
     expect(s.save).toHaveBeenCalledTimes(1); expect(s.api.createExportJob).toHaveBeenCalledTimes(1);
     s.api.cancelExportJob.mockResolvedValue(job("cancelled")); await restored.cancel();
     expect(restored.state().job?.status).toBe("cancelled");
+  });
+  it("preserves a failed save when cleanup also fails and retains the original cleanup intent", async () => {
+    const s = setup(); s.api.createExportJob.mockResolvedValue(job("ready")); s.api.exportJob.mockResolvedValue(job("ready"));
+    s.save.mockRejectedValue(Error("Save options unavailable"));
+    s.api.cancelExportJob.mockRejectedValue(Error("Cleanup offline"));
+    const c = s.make(); await c.start(); await c.save();
+    expect(c.state().error).toBe("Save options unavailable");
+    expect(c.state().command?.cancel_requested).toBe(true);
+    expect((await s.store.load())?.request_id).toBe("request-one");
+    c.dispose(); const restored = s.make(); await restored.restore();
+    expect(restored.state().phase).toBe("cancelling");
+    expect(s.save).toHaveBeenCalledTimes(1); expect(s.api.createExportJob).toHaveBeenCalledTimes(1);
+  });
+  it("aborts paused cleanup without losing the original intent or opening another save sheet", async () => {
+    const s = setup(); s.api.createExportJob.mockResolvedValue(job("ready")); s.api.exportJob.mockResolvedValue(job("ready"));
+    s.api.cancelExportJob.mockImplementation(async (_id, _generation, signal) => new Promise<ExportJob>((_resolve, reject) => {
+      signal!.addEventListener("abort", () => reject(Error("Cleanup paused")), { once: true });
+    }));
+    const c = s.make(); await c.start(); const pending = c.save();
+    await vi.waitFor(() => expect(s.api.cancelExportJob).toHaveBeenCalledTimes(1));
+    c.pause(); await pending;
+    expect(s.api.cancelExportJob.mock.calls[0][2]?.aborted).toBe(true);
+    expect((await s.store.load())?.cancel_requested).toBe(true);
+    c.dispose(); const restored = s.make(); await restored.restore();
+    expect(restored.state().phase).toBe("cancelling");
+    expect(s.save).toHaveBeenCalledTimes(1); expect(s.api.createExportJob).toHaveBeenCalledTimes(1);
   });
   it("does not invent cleanup completion or a new request while an interrupted worker still owns the slot", async () => {
     const s = setup(); s.api.createExportJob.mockResolvedValue(job("failed", { failure_code: "interrupted", cleanup_pending: true }));
