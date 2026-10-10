@@ -14,7 +14,7 @@ transport = install_provider_transport(
     float(os.environ.get("CAPACITY_PROVIDER_DELAY", "0.25"))
 )
 
-from app.auth import ClerkUser, get_current_user
+from app.auth import ClerkUser, get_current_user, get_optional_user
 from app.config import get_settings
 from app.domains.workouts import coach, imports
 from app.domains.workouts.extraction import (
@@ -49,6 +49,15 @@ async def identity(request: Request):
 
 
 app.dependency_overrides[get_current_user] = identity
+
+
+async def optional_identity(request: Request):
+    if request.headers.get("X-Capacity-User") not in OWNERS:
+        return None
+    return await identity(request)
+
+
+app.dependency_overrides[get_optional_user] = optional_identity
 
 
 class ExtractionProvider(ProductionExtractionProvider):

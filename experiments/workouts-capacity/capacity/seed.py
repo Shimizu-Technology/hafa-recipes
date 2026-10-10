@@ -25,6 +25,7 @@ from app.models import (  # noqa: F401
 )
 from app.models.identity import AppUser, ClerkIdentity
 from app.models.recipe import Recipe
+from app.models.schemas import RecipeExtracted
 from app.publishing import PUBLISHING_DISCLOSURE_VERSION
 from migrations.run import run_migrations
 from sqlalchemy import text
@@ -57,7 +58,11 @@ async def seed():
             )
         for index in range(1000):
             content = recipe()
+            # Match the real manual-save schema; guessed JSON silently passed
+            # list shaping but would fail an authenticated private detail read.
+            content["sourceUrl"] = ""
             content["notes"] = padding(12000, index)
+            RecipeExtracted.model_validate(content)
             db.add(
                 Recipe(
                     user_id=OWNERS[index % 22],

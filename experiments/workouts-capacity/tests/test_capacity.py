@@ -364,3 +364,86 @@ asyncio.run(main())
         timeout=30,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_protected_acceptance_rejects_private_detail_404_and_missing_categories():
+    from capacity.driver import PROTECTED, protected_acceptance
+
+    good = {
+        "routes": {
+            label: {"count": 2, "unexpected": 0, "statuses": {"200": 2}}
+            for label in PROTECTED
+        }
+    }
+    assert protected_acceptance(good)["passed"]
+    good["routes"]["recipes/detail"] = {
+        "count": 152,
+        "unexpected": 152,
+        "statuses": {"404": 152},
+    }
+    result = protected_acceptance(good)
+    assert not result["passed"] and "recipes/detail" in result["failed_categories"]
+    assert result["categories"]["recipes/detail"]["count"] == 152
+    del good["routes"]["recipes/detail"]
+    assert not protected_acceptance(good)["passed"]
+
+
+def test_actual_mounted_private_recipe_resolves_optional_synthetic_owner_only():
+    import subprocess
+    import sys
+
+    env = plan.environment()
+    env["PYTHONPATH"] = "api:experiments/workouts-capacity"
+    env["PATH"] = "/usr/bin:/bin"
+    code = """
+import asyncio,socket
+from datetime import datetime,timezone
+from types import SimpleNamespace
+from uuid import uuid4
+import httpx
+from starlette.requests import Request
+
+def denied(*a,**kw): raise AssertionError('Real network forbidden')
+socket.socket.connect=denied
+socket.getaddrinfo=denied
+import capacity.app as candidate
+from capacity.safety import OWNERS
+from capacity.transport import recipe
+from app.auth import get_current_user,get_optional_user
+from app.db.database import get_db
+from app.models.recipe import Recipe
+identifier=uuid4()
+row=Recipe(id=identifier,user_id=OWNERS[0],source_url='manual://fixture',source_type='manual',extracted={**recipe(),'sourceUrl':''},is_public=False,has_audio_transcript=False,created_at=datetime.now(timezone.utc),content_revision=1,moderation_status='active',review_state='ready')
+class DB:
+ async def execute(self,*args,**kw): return SimpleNamespace(scalar_one_or_none=lambda:row)
+async def db(): yield DB()
+candidate.app.dependency_overrides[get_db]=db
+assert candidate.app.dependency_overrides[get_current_user] is candidate.identity
+assert candidate.app.dependency_overrides[get_optional_user] is candidate.optional_identity
+async def main():
+ # The experiment intercepts every SDK AsyncClient at construction. This test
+ # installs the ASGI transport afterward solely for its actual mounted route.
+ async with httpx.AsyncClient(base_url='http://test') as client:
+  client._transport=httpx.ASGITransport(app=candidate.app)
+  owner=await client.get('/api/recipes/'+str(identifier),headers={'X-Capacity-User':OWNERS[0]})
+  assert owner.status_code==200,owner.text
+  assert owner.json()['is_owner'] is True
+  for headers in [{},{'X-Capacity-User':'foreign-invalid'},{'X-Capacity-User':OWNERS[1]}]:
+   denied_response=await client.get('/api/recipes/'+str(identifier),headers=headers)
+   assert denied_response.status_code==404,denied_response.text
+  required=await client.get('/api/recipes/',headers={'X-Capacity-User':'foreign-invalid'})
+  assert required.status_code==401
+  scope={'type':'http','headers':[]}
+  assert await candidate.optional_identity(Request(scope)) is None
+asyncio.run(main())
+assert sum(candidate.transport.calls.values())==0
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr

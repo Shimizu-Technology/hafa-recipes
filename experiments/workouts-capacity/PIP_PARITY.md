@@ -1,8 +1,9 @@
 # Memory-fixed candidate and production-pip test derivative
 
-Root authorized setup/build only. No new baseline, mixed traffic, API, network,
-PostgreSQL or regression-test container has started. Root must inspect the final
-candidate, images and command plan before runtime execution.
+Root authorized the exact `c9d23b1` pip regressions and corrected baseline.
+Executed results are recorded below. All runtime resources were cleaned; a new
+harness-only auth/fixture repair now requires root's image/plan inspection before
+another baseline. Mixed traffic remains not authorized.
 
 Candidate ancestry retains backend `990cc56`, monitor harness `772ecf4` and the
 reviewed memory source `475dffbdb84b44d47ed7475f71eb200b59d66e31`, cherry-picked
@@ -52,9 +53,53 @@ for pytest/fixtures/subprocess tests only, not a Render/capacity upsize or memor
 acceptance claim. The separate capacity plan retains 512 MiB/no extra swap/0.5 CPU.
 All exact IDs must be claimed immediately and cleaned after the authorized phase.
 
-Runtime test outcomes are NOT_RUN until root approves the concrete images and
-plan. Passing the source/setup tests alone does not establish production-pip
-regression success, capacity, native behavior, provider quality or R04 closure.
+The actual production-pip regression results are below. They establish only the
+selected tests on that graph, not capacity, native/provider quality or R04 closure.
+
+## Executed c9d23b1 receipts — 2026-10-11
+
+Exact capacity image: `eb5e1a7443b84171a5cc65ae7a66da38797ccacd49cd0eda8002ae0929c4ba74`.
+Test-only derivative: `96e13537cfb3f0aaf5ada9c39fd41bce2643a8ab1633330803be0ae97d39cc9a`.
+The immutable requirements hash stayed
+`9002549c41b56eb84eda74b5e53875daf8899759ec183b532649a973343b5996`.
+
+The first production-pip run was **failed**: 364 passed, 2 failed, 1 skipped in
+123.99 seconds. The synthetic test environment unnecessarily enabled Workouts
+and supplied an export encryption key, polluting default-off/unconfigured cases.
+That result and environment hash are retained. Removing only those two fields
+and rerunning the same source/image/packages on a fresh owned PG namespace gave
+**366 passed, 1 explicit socket skip** in 131.09 seconds. The package graph was
+verified unchanged before pytest. Both parity phases were cleaned completely.
+
+The corrected 300-second baseline then completed, with 218 host samples over the
+450-second observer window: peak **309.73 MiB**, final current roughly 219.84 MiB,
+zero OOM/5xx and all five extraction/cover pairs drained. Saved counts: 1,010
+Recipes, 5 completed extraction jobs, 5 completed cover jobs, zero queued/processing
+jobs, 30 synthetic AI provenance records. All original image/video fixture hashes
+matched the earlier failed run exactly.
+
+This baseline is **not accepted**: all 152 private-detail requests returned 404.
+The synthetic wrapper overrode required auth but omitted optional auth used by
+the private-detail route. Lists/search/manual/chat returned 200; chat had five
+requests. Protected p95: liveness 98.84 ms, list 489.41 ms, search 234.82 ms,
+manual write 40.94 ms, chat 424.29 ms. The 404 detail latency is not valid success
+coverage. No mixed/burst/ten-minute-drain/native-Render acceptance follows.
+
+The experiment-only repair now applies the same whitelist to optional auth,
+returns guest for absent/invalid synthetic headers, and retains production owner/
+foreign visibility rules. An actual mounted private-detail regression proves
+owner access and guest/foreign refusal. That regression also exposed incomplete
+seeded recipe JSON: it lacked required `sourceUrl`. The seed now matches the
+manual-save shape and validates each record with the real `RecipeExtracted`
+schema. All protected categories must exist and return 200; the driver now exits
+with `AcceptanceFailure` and per-category counts if any fail. No production route,
+request expectation, dependency or memory threshold changed. Twenty-nine source
+tests passed; actual runtime retry of this repair awaits root inspection.
+
+Private evidence roots: `/tmp/hafa-parity-plan-c9d23b1/results`,
+`/tmp/hafa-parity-plan-c9d23b1-retry/results`, and
+`/tmp/hafa-capacity-plan-c9d23b1-fixed/results`. All exact owned containers/networks
+and host controllers were removed/released; borrowed root PG was untouched.
 
 ## Memory-fix receipts and remaining image boundary
 

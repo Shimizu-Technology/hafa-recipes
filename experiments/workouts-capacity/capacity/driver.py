@@ -47,6 +47,40 @@ REQUEST_LABELS = {
     "workouts/oversized",
     "workouts/unauthenticated-boundary",
 }
+PROTECTED = {
+    "/up",
+    "recipes/list",
+    "recipes/search",
+    "recipes/detail",
+    "recipes/chat",
+    "recipes/manual-write",
+}
+
+
+class AcceptanceFailure(RuntimeError):
+    pass
+
+
+def protected_acceptance(report):
+    routes = report["routes"]
+    categories = {
+        label: {
+            "count": routes.get(label, {}).get("count", 0),
+            "unexpected": routes.get(label, {}).get("unexpected", 0),
+            "statuses": routes.get(label, {}).get("statuses", {}),
+        }
+        for label in sorted(PROTECTED)
+    }
+    failures = [
+        label
+        for label, row in categories.items()
+        if row["count"] == 0 or row["unexpected"] or set(row["statuses"]) != {"200"}
+    ]
+    return {
+        "passed": not failures,
+        "failed_categories": failures,
+        "categories": categories,
+    }
 
 
 def headers(owner):
@@ -766,6 +800,11 @@ async def run(args):
             await asyncio.gather(*(reader(n) for n in range(8)), heavy(), polling())
             await driver.poll()
         completed = True
+        if (
+            args.profile in {"recipes-baseline", "mixed"}
+            and not protected_acceptance(driver.report())["passed"]
+        ):
+            raise AcceptanceFailure("Protected category missing or non-200 response")
     except BaseException as exc:
         # Preserve cancellation/transport failure while retaining partial numeric
         # evidence. Never serialize provider messages, source payloads or URLs.
@@ -775,6 +814,8 @@ async def run(args):
         try:
             report = driver.report()
             report.update(completed=completed, failure_type=failure_type)
+            if args.profile in {"recipes-baseline", "mixed"}:
+                report["protected_acceptance"] = protected_acceptance(report)
             Path(args.output).write_text(json.dumps(report, indent=2))
             print(
                 json.dumps(
