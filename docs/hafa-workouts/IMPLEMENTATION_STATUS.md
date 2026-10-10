@@ -69,3 +69,14 @@ is registered separately. App Store Connect's user session expired. Leon is away
 and cannot log in now; creation of the app record remains pending while other work
 continues. No credentials are requested in chat, and existing Recipes identities
 and app records are preserved.
+
+
+## Current unmerged assembly
+
+Backend work now includes jobs/extraction, source/copy review, continuous coach actions, foreground exercise-summary health adapters, scoped Recipes connections, library organization, measurements, durable allowance receipts and anonymous AI admission accounting. The service/package metadata is Håfa API while legacy Recipes routing/address/imports remain compatible. Root follow-up regressions cover revoked consent acceptance, actual source/copy recovery calendars and empty capture drafts. Encrypted fixed-snapshot export is being integrated with privacy invalidation and bounded processing/response concurrency; completed activity logging and the separate website are in isolated slices.
+
+Native training, capture, health, organization, coach, account controls, reminders and running/activity profile context are assembled. Current root static gate:129tests/typecheck/Doctor21/21/all-platform export/native source-map audit pass. Both platform development compilations succeed; this does not prove actual journeys, physical health acceptance or TestFlight signing. Initial browser cold-route and scalar-text defects were fixed. Native email/onboarding save and comprehensive recovery flows remain to execute.
+
+Leon approved up to$5perday of Workouts AI operating cost for evaluation/beta. The committed default budget remains0 and production flags remainoff. Only the explicit environment(s) used for authorized evaluation/beta may receive allocations, whose combined daily ceiling must not exceed$5. A separate development key is required for local real-model evaluation; no real paid calls have been made. Apple App Store Connect sign-in remains unavailable while Leon is away. The Workouts app record and exact TestFlight upload/availability are pending; existing Recipes app identities are preserved.
+
+The comprehensive QA ledger has0fullyacceptedcases across every required dimension. Backend tests, static exports and compiler success are recorded as separate evidence. Full final-head review/gates, source model evaluation, mixed workload/capacity, qualified programming review, physical/provider acceptance and exact release availability remain open.

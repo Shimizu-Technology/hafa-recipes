@@ -255,6 +255,9 @@ async def change_activity_log(db, owner, generation, identifier, payload, *, rem
     if not remove:
         _, _, today = await activity_calendar(db, owner, generation)
         validate_completed_date(payload.date, today)
+    from app.domains.workouts.export_service import invalidate_export_snapshots
+
+    await invalidate_export_snapshots(db, owner, generation)
     if entry is None:
         entry = WorkoutsActivityLog(
             id=projection.id,

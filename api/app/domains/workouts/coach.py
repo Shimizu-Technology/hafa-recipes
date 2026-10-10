@@ -97,7 +97,7 @@ class ProductionCoachProvider:
         environment_allowed = settings.environment == "production" or (
             settings.environment == "development"
             and settings.allow_paid_ai_in_development
-            and bool(self.development_api_key)
+            and bool(self.key(settings))
         )
         return bool(
             environment_allowed
@@ -108,11 +108,10 @@ class ProductionCoachProvider:
         )
 
     def key(self, settings):
-        return (
-            self.development_api_key
-            if settings.environment == "development"
-            else settings.openai_api_key
-        )
+        if settings.environment != "development":
+            return settings.openai_api_key
+        configured = getattr(settings, "workouts_development_ai_api_key", None)
+        return self.development_api_key or (configured.get_secret_value() if configured else None)
 
     async def respond(self, items, *, tools):
         if not self.enabled:
@@ -443,6 +442,9 @@ def message_response(row):
 async def clear_conversation(db, user_id, generation):
     """Retain content-free UUID/quota tombstones to fence in-flight sends and retries."""
     await membership_for(db, user_id, generation=generation, write=True)
+    from app.domains.workouts.export_service import invalidate_export_snapshots
+
+    await invalidate_export_snapshots(db, user_id, generation)
     associated = (
         select(WorkoutCoachMessage.id)
         .where(

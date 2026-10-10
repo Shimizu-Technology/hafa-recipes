@@ -253,7 +253,7 @@ async def test_ai_consent_revocation_invalidates(snapshots):
         headers=GENERATION,
         json={"accepted": False, "disclosure_version": 1},
     )
-    await assert_error(api.exports.read(user(), 1, manifest.id), 410)
+    await assert_error(api.exports.read(user(), 1, manifest.id), 404)
 
 
 async def test_privacy_invalidation_epoch_no_aba_or_other_owner_loss(snapshots):
@@ -409,11 +409,15 @@ async def test_fresh_publication_observes_revocation_without_erase_hook(snapshot
     service = PrivateExportService(api.sessions, settings=settings(), page_source=source)
     pending = asyncio.create_task(service.create(user(), 1))
     await asyncio.wait_for(acquired.wait(), 5)
-    await api.client.put(
-        PREFIX + "/ai-consent",
-        headers=GENERATION,
-        json={"accepted": False, "disclosure_version": 1},
-    )
+    from app.domains.workouts.models import WorkoutsConsent
+
+    # Exercise the fresh permission fingerprint independently of the parent
+    # HTTP revocation hook, which now also deletes private materializations.
+    async with api.sessions() as db:
+        await membership_for(db, "owner", generation=1, write=True)
+        row = await db.get(WorkoutsConsent, "owner")
+        row.accepted_at = None
+        await db.commit()
     resume.set()
     await assert_error(asyncio.wait_for(pending, 5), 410)
     async with api.sessions() as db:

@@ -83,6 +83,9 @@ async def connection_for(
 
 
 async def purge_imported(db, user_id, generation, provider=None):
+    from app.domains.workouts.export_service import invalidate_export_snapshots
+
+    await invalidate_export_snapshots(db, user_id, generation)
     query = select(HealthObservation).where(
         HealthObservation.app_user_id == user_id, HealthObservation.generation == generation
     )
@@ -198,6 +201,9 @@ async def invalidate_health_access(db, user_id, generation, removed_scopes):
     removed = set(removed_scopes)
     if not removed & {READ_SCOPE, WRITE_SCOPE, AI_SCOPE}:
         return
+    from app.domains.workouts.export_service import invalidate_export_snapshots
+
+    await invalidate_export_snapshots(db, user_id, generation)
     rows = list(
         (
             await db.scalars(

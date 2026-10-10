@@ -86,6 +86,9 @@ async def reset_measurement_context(db, owner, generation):
     Call under the owner lock. Advancing profile revision fences in-flight calls.
     The optional 035 tables may be absent in a supported migration-only test.
     """
+    from app.domains.workouts.export_service import invalidate_export_snapshots
+
+    await invalidate_export_snapshots(db, owner, generation)
     if await db.scalar(text("SELECT to_regclass('public.workouts_coach_messages') IS NOT NULL")):
         from app.domains.workouts.automation_models import WorkoutCoachMessage, WorkoutProposal
 

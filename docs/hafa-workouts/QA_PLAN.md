@@ -2,7 +2,7 @@
 
 Depth: comprehensive for the named full-product and Recipes compatibility journeys. Executor: agent for available authorized local/simulator/browser/native operations; exact physical-device/provider actions require real available hardware and secure fixtures, with Leon/operator participation only when the agent cannot execute them. A required unavailable dimension remains blocked or not run.
 
-Current execution status: **0 of 37 cases executed; all cases below are `not_run`.** Planning review is not application acceptance. No app/server/health connection was launched to create this plan.
+Current acceptance status: **0 of 37 cases fully accepted across all required dimensions.** Backend integration and partial browser/simulator journeys have executed; the receipts below distinguish these from complete native, physical-device and provider acceptance.
 
 ## Preflight and fixtures
 
@@ -83,3 +83,20 @@ Before each runtime phase use lifecycle session baseline/claims, clean only owne
 Run affected cases again after material review/integration fixes and preserve original failure evidence. Report automated gates, review coverage, executed scenario acceptance and actual release delivery separately. Full completion requires all 37 case outcomes and required dimensions, D02/D03 review, and the supported-client/provider/device inventory to be closed without material blockers.
 
 Separate deployment readiness, store-submission readiness and final delivery. Isolated/native pre-deployment checks pass before the dormant compatible API is deployed. Actual distributed Recipes binary smoke and remaining production-dependent dimensions follow that deployment. All 36 cases other than R05, plus R05's build/reviewer/privacy/provider checkpoints, must pass before store submission; final public-download/availability checkpoints occur only after approval/release. R05 remains incomplete until those real results exist. These distinct gates avoid pretending deployment/public delivery was already tested.
+
+
+## Current agent execution receipts — October10
+
+These are partial dimension checks. They do not close an entire required case or substitute for actual model/physical-health quality.
+
+| Journey or gate | Tested source/environment | Observed outcome | Remaining dimension |
+| --- | --- | --- | --- |
+| F01 sign-in and cold navigation | Workouts development web, synthetic Clerk development account, local API | Email trust verification completed; identity endpoint200. Cold root initially opened an invalid shared link; corrected root index reaches Today and onboarding. | Native email/OAuth/recovery/enrollment save, supported physical devices |
+| F05 native first launch | Own iPhone17Pro/iOS26.5 simulator, signed development app | Unsigned launch failed Clerk Keychain; ad-hoc signed simulator app reaches sign-in. Apple sign-in recovery displays a generic error and email fallback when simulator has no Apple account. | Form/keyboard/scroll and saved native flows; actual Apple/Google account transport |
+| R06 additive compatibility | Backend85e0b79, synthetic PostgreSQL; later6e06901 focused assembly | Full API1423passed/34skipped before follow-ups; later247 migration/admission/scoped-grant/frozen-client cases passed. Optional migrations replay without modifying legacy columns. | Final combined gate, exact installed Recipes binary smoke, rollback/mixed load |
+| C04/C05/F03 consent/calendar/import limits | Backend58f5c80 focused root follow-ups |100cases passed, including revoked coach acceptance bypass rejection and actual-prescription recovery spacing. Later78import/provider cases pass after correcting an initial PostgreSQL JSONPATH binding error; bookmark-only drafts do not charge allowance. | Final combined review, actual native interruption/recovery and source-provider quality |
+| Native compiler/static gates | Native232021e plus separately recorded profile/account commits; explicitNode22.22.3 |129tests/types, Doctor21/21, all-platform source maps and reviewed runtime audit pass. Android updated build succeeds4m40s; iOS updated ad-hoc simulator build succeeds. Native maps select Clerk native/Router fork; reviewed build/socket packages absent. | Actual application journeys after final assembly, physical OS/provider acceptance, store signing/upload |
+
+The first web/simulator/emulator runtime phase was cleaned: task-owned API/Metro servers stopped, own simulator/emulator shut down, own web tab closed. Shared services and other sessions' simulators stayed available. The isolated PostgreSQL container remains owned for active agent test databases, and later phases must claim/clean their own new runtime delta.
+
+Private evidence is under `.codex/reports/hafa-workouts-2026-10-10` and named `/tmp/hafa-workouts-*` logs on this machine. Cold-route failure evidence is retained. No customer health data, real paid model call or production optional Workouts migration was used in these receipts.

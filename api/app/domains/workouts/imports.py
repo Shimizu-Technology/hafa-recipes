@@ -306,6 +306,18 @@ class WorkoutImportWorker:
             await db.execute(delete(WorkoutImport).where(WorkoutImport.expires_at < now()))
             await purge_import_usage(db)
             await db.commit()
+        from app.domains.workouts.export_service import cleanup_expired_exports
+        from app.domains.workouts.lifecycle import optional_table_exists
+
+        # Each batch commits independently. Limit one sweep's work; subsequent
+        # maintenance ticks finish any backlog without monopolizing Recipes.
+        for _ in range(5):
+            async with self.sessions.begin() as db:
+                if not await optional_table_exists(db, "workouts_export_snapshots"):
+                    break
+                count = await cleanup_expired_exports(db, limit=100)
+            if count < 100:
+                break
 
 
 workout_import_worker = WorkoutImportWorker()

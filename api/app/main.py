@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.cover_jobs import cover_job_worker
 from app.database_invariants import verify_database_invariants
 from app.deletion_cleanup import deletion_cleanup_worker
+from app.domains.workouts.activity_log_router import router as workouts_activity_log_router
 from app.domains.workouts.automation_router import imports_router as workouts_imports_router
 from app.domains.workouts.automation_router import router as workouts_automation_router
 from app.domains.workouts.automation_runtime import verify_automation_schema
@@ -22,6 +23,8 @@ from app.domains.workouts.coach_router import router as workouts_coach_router
 from app.domains.workouts.coach_router import send_router as workouts_coach_send_router
 from app.domains.workouts.connection_router import router as workouts_connections_router
 from app.domains.workouts.connection_runtime import verify_connections_schema
+from app.domains.workouts.export_router import read_router as workouts_export_read_router
+from app.domains.workouts.export_router import router as workouts_export_router
 from app.domains.workouts.health_router import router as workouts_health_router
 from app.domains.workouts.import_usage_service import verify_import_usage_schema
 from app.domains.workouts.imports import workout_import_worker
@@ -134,6 +137,9 @@ app.include_router(workouts_health_router)
 app.include_router(workouts_coach_router)
 app.include_router(workouts_coach_send_router)
 app.include_router(workouts_budget_router)
+app.include_router(workouts_export_router)
+app.include_router(workouts_export_read_router)
+app.include_router(workouts_activity_log_router)
 workout_coach.compose_library_program = compose_coach_sources
 app.include_router(admin_router)
 app.include_router(recipes_router)

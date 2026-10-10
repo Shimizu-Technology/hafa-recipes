@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 UNSUPPORTED_ASYNCPG_QUERY_PARAMS = frozenset({"sslmode", "channel_binding"})
@@ -199,6 +199,8 @@ class Settings(BaseSettings):
     migration_040_restore_point: str | None = None
     migration_041_restore_point: str | None = None
     migration_042_restore_point: str | None = None
+    migration_043_restore_point: str | None = None
+    migration_044_restore_point: str | None = None
     workouts_ai_budget_24h_microusd: int = Field(
         default=0, ge=0, le=9_000_000_000_000_000
     )
@@ -206,6 +208,7 @@ class Settings(BaseSettings):
         default=5_000_000, ge=1, le=9_000_000_000_000_000
     )
     workouts_share_encryption_key: str | None = None
+    workouts_development_ai_api_key: SecretStr | None = None
     cors_origins: str = ""
     enable_sentry_debug: bool = False
 
