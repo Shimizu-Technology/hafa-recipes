@@ -1,0 +1,28 @@
+name: Workouts website
+on:
+  pull_request:
+    paths: ['workouts-web/**', '.github/workflows/workouts-web.yml']
+  push:
+    paths: ['workouts-web/**', '.github/workflows/workouts-web.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workouts-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.3'
+          cache: npm
+          cache-dependency-path: workouts-web/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workouts-website
+          path: workouts-web/dist
+          retention-days: 7
