@@ -1,4 +1,5 @@
 import { it, expect, vi } from "vitest";
+import { productionApiOrigin, developmentApiOrigin } from "./api-origin";
 import { renderToStaticMarkup } from "react-dom/server";
 import { App, WorkoutView } from "./App";
 import { repsLabel } from "./public-share";
@@ -104,8 +105,8 @@ it("rejects dangerous source destinations and fails closed on unselected API con
     expect(safeSourceURL(source)).toBeNull();
   expect(safeSourceURL("https://example.com/workout")).toBe("https://example.com/workout");
   expect(() => publicApiBase("")).toThrow();
-  expect(() => publicApiBase("http://localhost:8080")).toThrow();
-  expect(publicApiBase("http://localhost:8080", true)).toBe("http://localhost:8080");
+  expect(() => productionApiOrigin("http://localhost:8080")).toThrow();
+  expect(developmentApiOrigin("http://localhost:8080")).toBe("http://localhost:8080");
 });
 it("fetches no credentials/referrer and does not expose raw revoked/provider responses", async () => {
   const transport = vi.fn(

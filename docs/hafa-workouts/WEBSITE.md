@@ -30,7 +30,7 @@ The explicit `VITE_WORKOUTS_PUBLIC_API_BASE` must be a verified HTTPS origin in 
 
 `workouts-web/netlify.toml` is for a separate Workouts site and leaves Recipes configuration intact. Base/publish/build values, static policy routes and legacy shared fallback are ready for review. Nothing was deployed/provisioned. The header generation must be verified on an actual Deploy Preview before production; local Vite does not apply Netlify headers. Optional platform logging/HTTPS/custom-domain/install links, final privacy owner review, and actual released source remain root gates.
 
-Exact active dependency pairs: Vite 8.2.1, plugin-react 6.1.2 (peer Vite 8), React/react-dom 19.2.3, TypeScript 6.0.3, Vitest 4.1.11. npm 10's optional Vite devtools peer expansion failed inside Arborist (`edgesOut`); project `.npmrc` disables unused optional peer resolution via legacy-peer-deps. Active pairs are explicitly compatible and source/build gates pass. Vitest 4.1.11 closes GHSA-82fw-gwwq-j7x9 found in 4.1.10. Runtime dependencies are only React/react-dom; no server is deployed. DM Sans is copied from the native font package with its OFL license.
+Exact active dependency pairs: Vite 8.2.1, plugin-react 6.1.2 (peer Vite 8), React/react-dom 19.2.3, TypeScript 6.0.3, Vitest 4.1.11. npm 10's fresh optional Vite devtools peer expansion failed inside Arborist (`edgesOut`); project `.npmrc` retains the legacy-peer-deps workaround, which ignores all peer resolution. The checked-in lock also installs with strict peer validation on Node22.22.3/npm10.9.8. Active pairs are explicitly compatible and source/build gates pass; see the README follow-up receipt for the reproduced distinction between locked install and fresh resolution. Vitest 4.1.11 closes GHSA-82fw-gwwq-j7x9 found in 4.1.10. Runtime dependencies are only React/react-dom; no server is deployed. DM Sans is copied from the native font package with its OFL license.
 
 ## Source gates and execution ownership
 
@@ -50,3 +50,21 @@ Parent/root executes the following affected website QA cases with owned non-prod
 | WW08 | Delete-account help shows Workouts-only vs both products, legacy Recipes behavior, 48 hour content-free allowance and external copy/Health controls | phone/desktop, owner content review | not_run |
 
 Required acceptance remains open. Root will capture real screenshots and fix observed layout/recovery problems before calling this site release ready.
+
+
+## Local origin/CSP follow-up
+
+The isolated follow-up starts from website `9e24831`, branch
+`codex/workouts-web-local-preview`. Scope is only website origin/configuration,
+tests and docs; native/backend/shared CI and dependency pins are untouched.
+Strict dev loopback spellings are localhost, 127.0.0.1 and [::1]; source links
+still retain their independent HTTPS/nonlocal restrictions. Vite serve uses
+exact-origin dev CSP with an exact selected HMR socket and dev-only inline
+Refresh/style allowance. Build-time gating keeps every built release HTTPS-only
+even if build mode/NODE_ENV says development; production generated CSP is
+unchanged. 38 tests, typecheck and production/prerender gates passed; compiled
+SSR and generated HTTPS CSP checks also passed. Strict locked npm ci succeeds,
+while an isolated fresh optional-peer expansion reproduces Arborist edgesOut;
+no blind dependency upgrade was made. Temporary fixtures were removed. Browser
+CUA, HMR/CORS happy path, physical devices, deployment and provider-log controls
+remain root acceptance gates and were not executed here.

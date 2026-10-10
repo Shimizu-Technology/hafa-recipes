@@ -1,3 +1,7 @@
+import { developmentApiOrigin, productionApiOrigin } from "./api-origin";
+
+declare const __WORKOUTS_DEV_LOOPBACK__: boolean;
+
 export type PublicExercise = {
   name: string;
   provenance: string | null;
@@ -182,14 +186,13 @@ export function shareToken(path: string, hash: string, query: string) {
     path === "/shared" || path === "/shared/" ? hash.slice(1) : path.startsWith("/shared/") ? path.slice(8) : "";
   return /^[A-Za-z0-9_-]{43}$/.test(raw) ? raw : null;
 }
-export function publicApiBase(raw: string, development = false) {
+export function publicApiBase(raw: string) {
   try {
-    const url = new URL(raw);
-    if (url.username || url.password || url.search || url.hash || url.pathname !== "/") throw new Error();
-    if (url.protocol === "https:") return url.origin;
-    if (development && url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname)) return url.origin;
-  } catch {}
-  throw new ShareError("configuration");
+    if (import.meta.env.DEV && __WORKOUTS_DEV_LOOPBACK__) return developmentApiOrigin(raw);
+    return productionApiOrigin(raw);
+  } catch {
+    throw new ShareError("configuration");
+  }
 }
 export async function fetchSnapshot(base: string, token: string, signal: AbortSignal, transport: typeof fetch = fetch) {
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new ShareError("invalid");

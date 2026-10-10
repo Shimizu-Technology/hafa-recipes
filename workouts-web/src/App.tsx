@@ -691,7 +691,7 @@ function Share() {
     setSnapshot(null);
     void (async () => {
       try {
-        const base = publicApiBase(import.meta.env.VITE_WORKOUTS_PUBLIC_API_BASE ?? "", import.meta.env.DEV);
+        const base = publicApiBase(import.meta.env.VITE_WORKOUTS_PUBLIC_API_BASE ?? "");
         const result = await fetchSnapshot(base, value, controller.signal);
         if (!controller.signal.aborted) {
           if (Date.parse(result.expires_at) <= Date.now()) throw new ShareError("unavailable");
