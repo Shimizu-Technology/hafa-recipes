@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -16,7 +17,13 @@ from capacity.export_jobs_diagnostic_driver import (
     checked_job,
     ready_proof,
 )
+from capacity.export_jobs_diagnostic_prescriptions import (
+    PrescriptionProof,
+    expected_content,
+    expected_prescriptions,
+)
 from capacity.export_jobs_diagnostic_receipt import receipt, summarize
+from capacity.plan import build_plan
 from test_export_diagnostic import observations, report_fixture
 
 
@@ -37,6 +44,7 @@ def checks(status=5):
         "worker_active_execution_count": 0,
         "worker_pending_ack_count": 0,
         "worker_heartbeat_task_count": 0,
+        "worker_retirement_task_count": 0,
         "source_frames_retired": True,
         "global_slot_idle": True,
     }
@@ -113,6 +121,7 @@ def test_positive_receipt_requires_actual_ack_and_keeps_sync_failure_separate():
         ("source_frames_retired", False),
         ("worker_active_task_count", 1),
         ("worker_heartbeat_task_count", 1),
+        ("worker_retirement_task_count", 1),
         ("worker_pending_ack_count", 1),
         ("snapshot_count", 1),
         ("page_count", 19),
@@ -180,8 +189,9 @@ def test_ready_proof_allows_only_scalar_postcommit_ack_metadata_until_final_drai
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("corruption", [None, "notes", "reps"])
 async def test_driver_actual_http_adapter_reads_complete_history_then_cancels_same_handle(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, corruption
 ):
     from capacity import export_jobs_diagnostic_driver as module
 
@@ -232,30 +242,53 @@ async def test_driver_actual_http_adapter_reads_complete_history_then_cancels_sa
         if request.url.path == "/capacity/export-jobs-diagnostic":
             return httpx.Response(200, json={"job_checks": checks(4)})
         page = int(request.url.path.rsplit("/", 1)[1])
-        return httpx.Response(
-            200,
-            json={
-                "snapshot_id": snapshot,
-                "page": page,
-                "page_count": 19,
-                "export": {
-                    "offset": page * 10,
-                    "limit": 10,
-                    "schema_version": 1,
-                    "enrollment": {"generation": 1},
-                    "profile_revision": 0,
-                    "profile": None,
-                    "grants": [],
-                    "ai_consent": None,
-                    "totals": {"workouts": 190, "workout_versions": 190},
-                    "has_more": {"workouts": page < 18, "workout_versions": page < 18},
-                    "datasets": {
-                        name: [{"id": f"{name}-{page * 10 + row}"} for row in range(10)]
-                        for name in ("workouts", "workout_versions")
-                    },
+        body = {
+            "snapshot_id": snapshot,
+            "page": page,
+            "page_count": 19,
+            "export": {
+                "offset": page * 10,
+                "limit": 10,
+                "schema_version": 1,
+                "enrollment": {"generation": 1},
+                "profile_revision": 0,
+                "profile": None,
+                "grants": [],
+                "ai_consent": None,
+                "totals": {"workouts": 190, "workout_versions": 190},
+                "has_more": {"workouts": page < 18, "workout_versions": page < 18},
+                "datasets": {
+                    name: [
+                        {
+                            "id": f"{name}-{index}",
+                            "workout_id": f"workouts-{index}"
+                            if name == "workout_versions"
+                            else None,
+                            "revision": 1,
+                            "content": {
+                                **expected_content(index),
+                                "id": f"workouts-{index}",
+                            },
+                        }
+                        for index in range(page * 10, (page + 1) * 10)
+                    ]
+                    for name in ("workouts", "workout_versions")
                 },
             },
-        )
+        }
+        if page == 0 and corruption:
+            target = "workouts" if corruption == "notes" else "workout_versions"
+            assert len(body["export"]["datasets"][target]) == 10
+            content = body["export"]["datasets"][target][0]["content"]
+            if corruption == "notes":
+                content["notes"][0] = content["notes"][0][:-1]
+            else:
+                content["blocks"][0]["exercises"][0]["reps_min"] += 1
+            assert body["export"]["totals"] == {
+                "workouts": 190,
+                "workout_versions": 190,
+            }
+        return httpx.Response(200, json=body)
 
     monkeypatch.setattr(module.asyncio, "sleep", sleep)
     probe = JobsProbe()
@@ -265,6 +298,12 @@ async def test_driver_actual_http_adapter_reads_complete_history_then_cancels_sa
     )
     probe.begin_trace(tmp_path / "private.json")
     try:
+        if corruption:
+            with pytest.raises(JobProbeFailure, match="pages_failed"):
+                await probe.export()
+            assert not probe.outcome.get("prescriptions_matched")
+            assert not any(path.endswith("/cancel") for _, path in requests)
+            return
         await probe.export()
         assert sleeps == [48, 4]
         assert (
@@ -284,6 +323,7 @@ async def test_driver_actual_http_adapter_reads_complete_history_then_cancels_sa
         assert (
             probe.outcome["all_totals_matched"] and probe.outcome["same_job_cancelled"]
         )
+        assert probe.outcome["prescriptions_matched"]
         assert len(probe.spans) == 22 and not probe.pending
     finally:
         probe.trace_stream.close()
@@ -318,6 +358,52 @@ def test_identity_and_original_deadline_parser_refuse_refreshed_or_foreign_handl
             {**value, "deadline_at": (now + timedelta(seconds=121)).isoformat()},
             "original",
         )
+    refreshed = {
+        **value,
+        **{
+            key: (
+                datetime.fromisoformat(value[key]) + timedelta(seconds=10)
+            ).isoformat()
+            for key in ("admitted_at", "deadline_at", "expires_at")
+        },
+    }
+    with pytest.raises(JobProbeFailure, match="deadline"):
+        checked_job(refreshed, "original", value["id"], original=value)
+
+
+def test_independent_prescription_relationship_and_coverage_are_not_replaced_by_counts():
+    expected = expected_prescriptions()
+    proof = PrescriptionProof(expected)
+    content = {**expected_content(0), "id": "workout-zero"}
+    proof.page(
+        {"workouts": [{"id": "workout-zero", "revision": 1, "content": content}]}
+    )
+    assert not proof.complete()
+    with pytest.raises(ValueError, match="relationship"):
+        proof.page(
+            {
+                "workout_versions": [
+                    {
+                        "id": "version-zero",
+                        "workout_id": "foreign-workout",
+                        "revision": 1,
+                        "content": content,
+                    }
+                ]
+            }
+        )
+    with pytest.raises(ValueError, match="history"):
+        proof.page(
+            {
+                "workouts": [
+                    {
+                        "id": "different-workout",
+                        "revision": 1,
+                        "content": {**content, "id": "different-workout"},
+                    }
+                ]
+            }
+        )
 
 
 def test_new_coordinator_and_workflow_are_separate_and_inherit_owned_cleanup(tmp_path):
@@ -343,6 +429,89 @@ def test_new_coordinator_and_workflow_are_separate_and_inherit_owned_cleanup(tmp
     capacity = (root / ".github/workflows/workouts-capacity.yml").read_text()
     assert capacity.count("github.head_ref != '" + BRANCH + "'") == 2
     assert capacity.count("github.ref_name != '" + BRANCH + "'") == 2
+
+
+def test_actual_preparation_seed_command_enables045_without_changing_default_plan(
+    tmp_path,
+):
+    repository = tmp_path / "repository"
+    for relative in (
+        "api/app",
+        "api/migrations",
+        "experiments/workouts-capacity/capacity",
+    ):
+        (repository / relative).mkdir(parents=True)
+    (repository / "api/app/example.py").write_text("# synthetic source\n")
+    (repository / "api/requirements.txt").write_text(
+        "# synthetic requirement fixture\n"
+    )
+    subprocess.run(
+        ["git", "init", "-q", str(repository)], check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "-C", str(repository), "add", "."], check=True, capture_output=True
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository),
+            "-c",
+            "user.name=Capacity fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-qm",
+            "synthetic fixture",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    coordinator = ExportJobsCoordinator(
+        repository, tmp_path / "work", tmp_path / "receipt"
+    )
+    coordinator.plan_root, coordinator.run_id = tmp_path / "jobs-plan", "jobs-seed-test"
+    plan = coordinator.preparation_plan()
+    seed = next(
+        row["argv"]
+        for row in plan["commands"]
+        if row["step"] == "seed_actual_migrations_once_empty_owned_db"
+    )
+    env_file = Path(seed[seed.index("--env-file") + 1])
+    effective = dict(line.split("=", 1) for line in env_file.read_text().splitlines())
+    assert effective["WORKOUTS_EXPORT_JOBS_ENABLED"] == "true"
+    assert (
+        effective["WORKOUTS_API_ENABLED"] == "true"
+        and effective["JOB_WORKER_ENABLED"] == "true"
+    )
+    assert effective["DATABASE_URL"] == effective["WORKOUTS_AI_BUDGET_DATABASE_URL"]
+    original = build_plan(
+        repository,
+        tmp_path / "original-plan",
+        "original-seed-test",
+        0.5,
+        owner="capacity_ci",
+    )
+    original_seed = next(
+        row["argv"]
+        for row in original["commands"]
+        if row["step"] == "seed_actual_migrations_once_empty_owned_db"
+    )
+    assert (
+        "WORKOUTS_EXPORT_JOBS_ENABLED"
+        not in Path(original_seed[original_seed.index("--env-file") + 1]).read_text()
+    )
+    with pytest.raises(ValueError, match="fixed"):
+        build_plan(
+            repository,
+            tmp_path / "invalid-plan",
+            "invalid-seed-test",
+            0.5,
+            owner="capacity_ci",
+            fixture_overrides={"DATABASE_URL": "postgresql://external.invalid/private"},
+        )
 
 
 @pytest.mark.asyncio

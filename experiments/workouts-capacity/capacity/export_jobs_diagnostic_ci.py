@@ -11,6 +11,7 @@ from capacity.ci_safety import SafetyError
 from capacity.export_diagnostic_ci import ExportCoordinator
 from capacity.export_diagnostic_trace import recover
 from capacity.export_jobs_diagnostic_contract import ROUTES
+from capacity.export_jobs_diagnostic_plan import build_jobs_plan
 from capacity.export_jobs_diagnostic_receipt import receipt, summarize
 
 BRANCH = "codex/workouts-export-jobs-diagnostic"
@@ -28,6 +29,11 @@ class ExportJobsCoordinator(ExportCoordinator):
     summarize = staticmethod(summarize)
     format_receipt = staticmethod(receipt)
     recover_report = staticmethod(recover_report)
+
+    def preparation_plan(self):
+        from capacity.ci_safety import OWNER
+
+        return build_jobs_plan(self.repo, self.plan_root, self.run_id, owner=OWNER)
 
     def runtime_argv(self, name, **kwargs):
         argv = super().runtime_argv(name, **kwargs)

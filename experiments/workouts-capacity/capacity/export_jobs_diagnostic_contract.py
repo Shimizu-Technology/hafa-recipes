@@ -43,6 +43,7 @@ OUTCOME_BOOLEANS = {
     "unique_rows",
     "ready_actual_end_verified",
     "same_job_cancelled",
+    "prescriptions_matched",
 }
 JOB_NUMBERS = {
     "job_count",
@@ -60,5 +61,6 @@ JOB_NUMBERS = {
     "worker_active_execution_count",
     "worker_pending_ack_count",
     "worker_heartbeat_task_count",
+    "worker_retirement_task_count",
 }
 JOB_BOOLEANS = {"source_frames_retired", "global_slot_idle"}

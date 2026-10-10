@@ -11,6 +11,10 @@ from uuid import UUID, uuid4
 from capacity.driver import PREFIX
 from capacity.export_diagnostic_driver import EXPORT_START_SECONDS, Probe, save
 from capacity.export_jobs_diagnostic_contract import ROUTES, STATUS_CODES
+from capacity.export_jobs_diagnostic_prescriptions import (
+    PrescriptionProof,
+    expected_prescriptions,
+)
 from capacity.safety import OWNERS
 
 
@@ -28,7 +32,7 @@ def instant(value):
         raise JobProbeFailure("export_job_identity_failed") from None
 
 
-def checked_job(value, request_id, identifier=None):
+def checked_job(value, request_id, identifier=None, *, original=None):
     if (
         not isinstance(value, dict)
         or type(value.get("schema_version")) is not int
@@ -51,6 +55,11 @@ def checked_job(value, request_id, identifier=None):
         instant(value.get("expires_at")) - admitted
     ).total_seconds() != 600:
         raise JobProbeFailure("export_job_deadline_failed")
+    if original is not None and any(
+        instant(value.get(key)) != instant(original.get(key))
+        for key in ("admitted_at", "deadline_at", "expires_at")
+    ):
+        raise JobProbeFailure("export_job_deadline_failed")
     if value["status"] != "ready" and value.get("manifest") is not None:
         raise JobProbeFailure("export_job_identity_failed")
     return value
@@ -69,6 +78,7 @@ def ready_proof(value):
         and value.get("worker_active_task_count") == 0
         and value.get("worker_active_execution_count") == 0
         and value.get("worker_heartbeat_task_count") == 0
+        and value.get("worker_retirement_task_count") == 0
         and type(value.get("ack_completion_ms")) in (int, float)
         and 0 <= value["ack_completion_ms"] <= 120000
     )
@@ -94,6 +104,9 @@ class JobsProbe(Probe):
     routes = ROUTES
 
     def __init__(self):
+        # Independent190 expected payload hashes are prepared outside all timed
+        # traffic, before Probe captures its trace origin and reader/chat clock.
+        self.prescriptions = PrescriptionProof(expected_prescriptions())
         super().__init__()
         self.outcome = {}
 
@@ -121,6 +134,7 @@ class JobsProbe(Probe):
             raise JobProbeFailure("export_job_identity_failed")
         self.outcome["admission_ms"] = (time.monotonic() - started) * 1000
         job = checked_job(response.json(), request_id)
+        original = job
         identifier, admitted = job["id"], instant(job["admitted_at"])
         deadline = instant(job["deadline_at"]).timestamp()
         polls = 0
@@ -141,7 +155,9 @@ class JobsProbe(Probe):
             )
             response.raise_for_status()
             polls += 1
-            job = checked_job(response.json(), request_id, identifier)
+            job = checked_job(
+                response.json(), request_id, identifier, original=original
+            )
         self.outcome.update(
             poll_count=polls,
             original_identity_preserved=True,
@@ -172,7 +188,7 @@ class JobsProbe(Probe):
                 label="workouts/export-page",
             )
             response.raise_for_status()
-            value = response.json()
+            value = await asyncio.to_thread(response.json)
             data = value.get("export", {})
             if (
                 value.get("snapshot_id") != manifest["id"]
@@ -194,6 +210,10 @@ class JobsProbe(Probe):
             if static is not None and current != static:
                 raise JobProbeFailure("export_job_pages_failed")
             static = current
+            try:
+                await asyncio.to_thread(self.prescriptions.page, data["datasets"])
+            except (ValueError, TypeError):
+                raise JobProbeFailure("export_job_pages_failed") from None
             for name, rows in data["datasets"].items():
                 identities.setdefault(name, set())
                 for row in rows:
@@ -204,10 +224,11 @@ class JobsProbe(Probe):
                 collected[name] = collected.get(name, 0) + len(rows)
             wire += len(response.content)
             self.outcome["pages_read"] = page + 1
-        if collected != totals:
+        if collected != totals or not self.prescriptions.complete():
             raise JobProbeFailure("export_job_pages_failed")
         self.outcome.update(
             all_totals_matched=True,
+            prescriptions_matched=True,
             unique_rows=True,
             workouts_rows=collected["workouts"],
             versions_rows=collected["workout_versions"],
@@ -222,7 +243,9 @@ class JobsProbe(Probe):
             label="workouts/export-cancel",
         )
         response.raise_for_status()
-        cancelled = checked_job(response.json(), request_id, identifier)
+        cancelled = checked_job(
+            response.json(), request_id, identifier, original=original
+        )
         if (
             cancelled["status"] != "cancelled"
             or cancelled["cleanup_pending"]

@@ -106,6 +106,7 @@ def build_plan(
     cpus,
     target_platform="linux/amd64",
     owner="native_health_preflight",
+    fixture_overrides=None,
 ):
     if owner not in {"native_health_preflight", "capacity_ci"}:
         raise ValueError("Known lifecycle owner required")
@@ -132,8 +133,13 @@ def build_plan(
         # the enclosing host output stays private0700 and env stays0600.
         directory.chmod(0o777)
     env_file = output / "fixture.env"
+    # A closed override opts only the owned job-diagnostic seed into045; URI,
+    # authority and fake keys cannot be replaced through this preparation hook.
+    if fixture_overrides not in (None, {"WORKOUTS_EXPORT_JOBS_ENABLED": "true"}):
+        raise ValueError("Only the fixed background-export seed override is allowed")
+    fixture_environment = {**environment(), **(fixture_overrides or {})}
     env_file.write_text(
-        "".join(f"{key}={value}\n" for key, value in environment().items())
+        "".join(f"{key}={value}\n" for key, value in fixture_environment.items())
     )
     env_file.chmod(0o600)
     network, postgres, api = [

@@ -71,6 +71,7 @@ def summarize(report, samples, observation, counts, oom=None):
                 "worker_active_execution_count",
                 "worker_pending_ack_count",
                 "worker_heartbeat_task_count",
+                "worker_retirement_task_count",
             )
         )
         and jobs.get("deadline_window_ms") == 120000

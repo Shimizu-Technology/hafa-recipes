@@ -494,7 +494,7 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
         self.summary["provenance"]["source_commit"] = commit
         self.ledger = Ledger(self.work / "resources.json", self.run_id, self.command)
         self.plan_root = self.work / "plan"
-        plan = build_plan(self.repo, self.plan_root, self.run_id, 0.5, owner=OWNER)
+        plan = self.preparation_plan()
         tag = f"hafa-capacity:{commit[:12]}"
         # Native build from exact public source; never publish the image.
         # Build argv comes directly from the inspected preparation plan.
@@ -566,6 +566,9 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
             ),
             ("seed", "seed_actual_migrations_once_empty_owned_db", 180),
         ]
+
+    def preparation_plan(self):
+        return build_plan(self.repo, self.plan_root, self.run_id, 0.5, owner=OWNER)
 
     def run(self):
         self.prepare()

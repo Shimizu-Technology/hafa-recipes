@@ -89,6 +89,7 @@ async def job_checks(sessions=AsyncSessionLocal, worker=export_job_worker):
             and worker.active_task is None
             and worker.active_execution is None
             and worker.heartbeat_task is None
+            and worker.retirement_task is None
         )
         idle = len(slots) == 1 and slots[0].active_job_id is None
         return {
@@ -116,6 +117,7 @@ async def job_checks(sessions=AsyncSessionLocal, worker=export_job_worker):
             "worker_active_execution_count": int(worker.active_execution is not None),
             "worker_pending_ack_count": int(worker.pending_ack is not None),
             "worker_heartbeat_task_count": int(worker.heartbeat_task is not None),
+            "worker_retirement_task_count": int(worker.retirement_task is not None),
             "source_frames_retired": retired,
             "global_slot_idle": idle,
         }
