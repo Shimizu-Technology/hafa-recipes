@@ -68,7 +68,9 @@ def prepare(repository, folder, run_id):
         shutil.copyfile(repository / source, target)
         hashes[destination] = hashlib.sha256(target.read_bytes()).hexdigest()
     fixture_dir = folder / "fixtures"
-    fixture_dir.mkdir(mode=0o700)
+    fixture_dir.mkdir(
+        mode=0o755
+    )  # Parent0700 is private; container UID10001 reads synthetic files.
     name = f"capacity-native-pdf-{run_id}"
     image = f"hafa-native-pdf:{commit[:12]}"
     plan = {
