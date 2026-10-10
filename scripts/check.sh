@@ -48,3 +48,8 @@ repository_root="$(cd "$(dirname "$0")/.." && pwd)"
       npm run build
   '
 )
+
+(
+  cd "$repository_root/workouts-mobile"
+  npx -y -p node@22.22.2 -c 'npm test && npm run typecheck && npm run doctor && npm run audit:runtime && npm run export:all && npm run check:native-bundles'
+)
