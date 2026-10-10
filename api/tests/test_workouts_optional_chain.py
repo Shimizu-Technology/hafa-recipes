@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import text
 
+from app.domains.workouts import import_usage_service as usage
 from app.domains.workouts.automation_runtime import verify_automation_schema
 from app.domains.workouts.connection_runtime import verify_connections_schema
 from app.domains.workouts.optional_runtime import verify_optional_workouts_schema
@@ -68,4 +69,24 @@ async def test_disabled_optional_readiness_never_opens_database():
 
     await verify_optional_workouts_schema(
         configured=SimpleNamespace(workouts_api_enabled=False), target_engine=ForbiddenEngine()
+    )
+
+
+async def test_disabled_import_usage_readiness_never_opens_database():
+    def forbidden():
+        raise AssertionError("disabled readiness must not touch database")
+
+    await usage.verify_import_usage_schema(
+        forbidden, settings=settings().model_copy(update={"workouts_api_enabled": False})
+    )
+
+
+async def test_disabled_import_usage_migration_never_opens_database():
+    class Forbidden:
+        def begin(self):
+            raise AssertionError("disabled migration must not query database")
+
+    await importlib.import_module("migrations.042_add_workouts_import_usage").run_migration(
+        configured=settings().model_copy(update={"workouts_api_enabled": False}),
+        migration_engine=Forbidden(),
     )

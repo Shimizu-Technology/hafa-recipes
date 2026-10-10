@@ -240,3 +240,29 @@ blocked. Ruff and diff whitespace checks passed. The local synthetic
 `hafa_workouts_exports_slots_test` database was removed; the root-owned container
 was left unchanged. No servers, browsers, physical-device traffic or production
 resources were started or changed. The clean worktree remains for integration.
+
+## Shared middleware and capture projection correction
+
+Final integration review on `ac13e9d7` reproduced a gap in the response bound:
+the shared request-context `BaseHTTPMiddleware` relayed the route's body through
+an intermediate channel. The export route released its slot while the outer
+network send still retained the body, allowing another private handler to run.
+The shared app now uses pure ASGI request-context middleware, preserving request
+ID validation, AI context, CORS, handled error headers and Workouts no-store
+behavior while retaining the route's original send chain. Composed middleware
+tests cover blocked outer sends, busy rejection, completion, cancellation,
+deadline/send failure and successful retry. Bulk upload tests use that same
+composition so their ingress permit also covers the outer body send.
+
+Automation export queries now select only the existing approved export columns.
+They no longer decode retained raw captures, request hashes or unused ORM fields
+before discarding them from the response. A real PostgreSQL fixture with a
+near-3-MiB capture verifies that neither snapshot nor legacy private export
+selects the payload/hash and that their exported import projections still match.
+
+On the isolated correction worktree, focused middleware/export/header/error
+checks passed **69 tests**, with the optional socket-server test intentionally
+skipped. Existing snapshot/privacy checks and frozen Recipes contracts passed
+**201 tests**. These are synthetic PostgreSQL and in-process ASGI results; they
+do not establish physical-network, Render RSS, provider or native acceptance.
+The integrated repository gate and independent final review remain required.

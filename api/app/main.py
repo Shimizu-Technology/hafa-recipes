@@ -1,14 +1,12 @@
 """Håfa API - shared FastAPI platform with compatible Recipes surfaces."""
 
 import logging
-import re
-from uuid import uuid4
 
 import sentry_sdk
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.ai_governance import ai_request_context, verify_ai_governance_schema
+from app.ai_governance import verify_ai_governance_schema
 from app.config import get_settings
 from app.cover_jobs import cover_job_worker
 from app.database_invariants import verify_database_invariants
@@ -42,6 +40,7 @@ from app.domains.workouts.source_planning import compose_coach_sources
 from app.grocery_sync import verify_grocery_sync_schema
 from app.job_worker import job_worker
 from app.moderation import verify_moderation_schema
+from app.request_context import RequestContextMiddleware
 from app.request_limits import PastedTextBodyLimitMiddleware
 from app.routers import (
     admin_router,
@@ -107,21 +106,7 @@ app.add_middleware(
 )
 app.add_middleware(PastedTextBodyLimitMiddleware)
 
-SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-
-
-@app.middleware("http")
-async def attach_request_context(request: Request, call_next):
-    """Trace requests without trusting or logging arbitrary header content."""
-
-    supplied = request.headers.get("x-request-id", "")
-    request_id = supplied if SAFE_REQUEST_ID.fullmatch(supplied) else uuid4().hex
-    with ai_request_context(request_id=request_id, route=request.url.path):
-        response = await call_next(request)
-    if request.url.path.startswith("/api/v1/workouts"):
-        response.headers["Cache-Control"] = "no-store"
-    response.headers["X-Request-ID"] = request_id
-    return response
+app.add_middleware(RequestContextMiddleware)
 
 
 # Include routers
