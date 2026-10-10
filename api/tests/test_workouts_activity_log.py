@@ -116,7 +116,9 @@ async def test_kinds_save_reload_explicit_optional_fields(activity_api, kind):
     if kind in {"run", "walk"}:
         payload["distance_km"] = 3.5
     entry = await create(activity_api, payload)
-    response = await activity_api.client.get("/api/v1/workouts/activity-log/" + entry["id"])
+    response = await activity_api.client.get(
+        "/api/v1/workouts/activity-log/" + entry["id"], headers=GENERATION
+    )
     assert response.status_code == 200
     assert response.json()["content"]["kind"] == kind
     assert response.json()["content"]["name"] == "Evening activity"
@@ -152,7 +154,9 @@ async def test_remove_scrubs_content_prevents_aba_and_replays_delete(activity_ap
     assert (await remove(activity_api, corrected, request_id=identifier)).json() == deleted.json()
     assert (await correct(activity_api, entry)).status_code == 410
     assert (await post(activity_api, payload)).status_code == 410
-    assert (await activity_api.client.get("/api/v1/workouts/activity-log")).json()["items"] == []
+    assert (
+        await activity_api.client.get("/api/v1/workouts/activity-log", headers=GENERATION)
+    ).json()["items"] == []
     async with activity_api.sessions() as db:
         assert await db.get(WorkoutsActivity, UUID(entry["id"])) is None
         tombstone = await db.get(WorkoutsActivityLog, UUID(entry["id"]))
@@ -192,7 +196,11 @@ async def test_imported_origins_are_read_only(activity_api, origin):
     async with activity_api.sessions() as db:
         db.add(WorkoutsActivity(id=identifier, app_user_id="owner", generation=1, content=content))
         await db.commit()
-    row = (await activity_api.client.get("/api/v1/workouts/activity-log/" + str(identifier))).json()
+    row = (
+        await activity_api.client.get(
+            "/api/v1/workouts/activity-log/" + str(identifier), headers=GENERATION
+        )
+    ).json()
     assert row["read_only"] and row["source"] == "external"
     assert (await correct(activity_api, row)).status_code == 403
     assert (await remove(activity_api, row)).status_code == 403
@@ -212,7 +220,9 @@ async def test_legacy_manual_review_adoption_and_future_exclusion(activity_api):
         },
     )
     entry = (
-        await activity_api.client.get("/api/v1/workouts/activity-log/" + response.json()["id"])
+        await activity_api.client.get(
+            "/api/v1/workouts/activity-log/" + response.json()["id"], headers=GENERATION
+        )
     ).json()
     assert entry["legacy"] and entry["completed_confirmed"] is None and entry["revision"] == 1
     corrected = await correct(activity_api, entry, name="Basketball")
@@ -225,7 +235,9 @@ async def test_legacy_manual_review_adoption_and_future_exclusion(activity_api):
         headers=GENERATION,
         json={"date": future, "name": "Upcoming game"},
     )
-    page = (await activity_api.client.get("/api/v1/workouts/activity-log")).json()
+    page = (
+        await activity_api.client.get("/api/v1/workouts/activity-log", headers=GENERATION)
+    ).json()
     assert len(page["items"]) == 1
 
 
@@ -239,14 +251,19 @@ async def test_timezone_and_completed_history_bounds(activity_api, monkeypatch):
         profile.content = {**profile.content, "timezone": "America/Los_Angeles"}
         await db.commit()
     assert (await post(activity_api, body(date="2026-10-11"))).status_code == 422
-    page = (await activity_api.client.get("/api/v1/workouts/activity-log")).json()
+    page = (
+        await activity_api.client.get("/api/v1/workouts/activity-log", headers=GENERATION)
+    ).json()
     assert page["today"] == "2026-10-10" and page["timezone"] == "America/Los_Angeles"
     assert (
-        await activity_api.client.get("/api/v1/workouts/activity-log?from_date=1900-01-01")
+        await activity_api.client.get(
+            "/api/v1/workouts/activity-log?from_date=1900-01-01", headers=GENERATION
+        )
     ).status_code == 422
     assert (
         await activity_api.client.get(
-            "/api/v1/workouts/activity-log?from_date=2026-10-10&to_date=2026-10-09"
+            "/api/v1/workouts/activity-log?from_date=2026-10-10&to_date=2026-10-09",
+            headers=GENERATION,
         )
     ).status_code == 422
 
@@ -355,9 +372,13 @@ async def test_generation_erasure_hook_and_owner_cascade(activity_api):
 async def test_pagination_export_and_immutable_operation(activity_api):
     for minutes in range(1, 4):
         await create(activity_api, body(duration_minutes=minutes))
-    first = (await activity_api.client.get("/api/v1/workouts/activity-log?limit=2")).json()
+    first = (
+        await activity_api.client.get("/api/v1/workouts/activity-log?limit=2", headers=GENERATION)
+    ).json()
     second = (
-        await activity_api.client.get("/api/v1/workouts/activity-log?limit=2&offset=2")
+        await activity_api.client.get(
+            "/api/v1/workouts/activity-log?limit=2&offset=2", headers=GENERATION
+        )
     ).json()
     assert first["has_more"] and not second["has_more"]
     assert len({r["id"] for r in first["items"] + second["items"]}) == 3
@@ -400,7 +421,11 @@ async def test_provenance_change_to_imported_blocks_correction_and_removal(activ
         projection = await db.get(WorkoutsActivity, UUID(entry["id"]))
         projection.content = {**projection.content, "origin_id": "health:synthetic-upstream"}
         await db.commit()
-    current = (await activity_api.client.get("/api/v1/workouts/activity-log/" + entry["id"])).json()
+    current = (
+        await activity_api.client.get(
+            "/api/v1/workouts/activity-log/" + entry["id"], headers=GENERATION
+        )
+    ).json()
     assert current["read_only"] and current["source"] == "external"
     assert (await correct(activity_api, entry)).status_code == 403
     assert (await remove(activity_api, entry)).status_code == 403
@@ -452,3 +477,28 @@ async def test_capture_identity_is_immutable_and_readiness_rejects_missing_guard
         )
     with pytest.raises(RuntimeError, match="identity"):
         await service.verify_activity_log_schema(activity_api.engine, settings())
+
+
+async def test_reads_require_original_generation_even_for_empty_reenrolled_history(activity_api):
+    entry = await create(activity_api)
+    assert (
+        await activity_api.client.delete("/api/v1/workouts/data", headers=GENERATION)
+    ).status_code == 200
+    await enroll(activity_api, generation=2)
+    detail = "/api/v1/workouts/activity-log/" + entry["id"]
+    for path in ("/api/v1/workouts/activity-log", detail):
+        assert (await activity_api.client.get(path, headers=GENERATION)).status_code == 409
+        assert (await activity_api.client.get(path)).status_code == 422
+    current = {next(iter(GENERATION)): "2"}
+    page = await activity_api.client.get("/api/v1/workouts/activity-log", headers=current)
+    assert page.status_code == 200 and page.json()["items"] == []
+    assert (await activity_api.client.get(detail, headers=current)).status_code == 404
+
+
+async def test_reads_reject_changed_original_account(activity_api):
+    entry = await create(activity_api)
+    for path in ("/api/v1/workouts/activity-log", "/api/v1/workouts/activity-log/" + entry["id"]):
+        response = await activity_api.client.get(
+            path, headers=GENERATION | {"X-Hafa-Account-ID": "different-owner"}
+        )
+        assert response.status_code == 409

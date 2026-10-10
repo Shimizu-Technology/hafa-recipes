@@ -8,7 +8,7 @@ Dates are explicit YYYY-MM-DD values through today in the current profile timezo
 
 ## API contract
 
-All writes use the original `X-Workouts-Generation` header. `WorkoutsRoute` retains master-disable-before-auth/body/database gating, bounded JSON and no-store responses.
+All new activity-log requests, including GET list/detail, require the original `X-Workouts-Generation` header. Reads hold the shared owner lock and validate that generation before querying details, empty history or the current calendar. A missing header returns422 and a stale enrollment generation returns409; it cannot become an empty200 after deletion and re-enrollment. The older `/activities` endpoint remains unchanged. `WorkoutsRoute` retains master-disable-before-auth/body/database gating, bounded JSON and no-store responses.
 
 | Endpoint | Request | Result |
 |---|---|---|
@@ -45,3 +45,5 @@ Root integration still required:
 Final local gate: `uv run pytest tests/test_workouts_activity_log.py tests/test_workouts_automation_integration.py tests/test_workouts_data_integration.py -q --tb=short` passed116 cases, including35 new activity-log cases. Ruff and Git whitespace checks passed. Tests cover creation/HTTP replay, races, strict fields, partial/unknown activity information, timezone/history bounds, manual legacy adoption, imported provenance, removal/ABA, current proposal fencing, unchanged actual snapshots, operation/identity protection, readiness/migration guards, export/paging, whole-owner cascade and a waiting write fenced by product erasure.
 
 Product-erasure tests explicitly invoke the new erase helper before the existing root endpoint; that verifies the integration contract without claiming root assembly already invokes it. Tests used the exact disposable `hafa_workouts_activity_log_test` database, which was dropped afterward. The borrowed PostgreSQL container remained running. No provider, production, device Health or persistent runtime resources were started. Full root integration, native interaction and physical-device acceptance remain pending.
+
+Read-generation follow-up gate: all37 activity-log cases passed on the exact disposable database, including stale/omitted generation headers and original-account mismatch. Ruff and whitespace checks passed. No provider calls or root runtime/database changes were made; the owned test database was dropped again.

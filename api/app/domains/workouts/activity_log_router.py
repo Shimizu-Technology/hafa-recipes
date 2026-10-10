@@ -111,20 +111,23 @@ class ActivityLogPage(DomainModel):
 async def list_completed_activity(
     user: User,
     db: Database,
+    generation: Generation,
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
     offset: Annotated[int, Query(ge=0, le=10000)] = 0,
     from_date: date | None = None,
     to_date: date | None = None,
 ):
-    membership = await membership_for(db, user.id)
+    membership = await membership_for(db, user.id, generation=generation, write=True)
     return await activity_log_page(
         db, user.id, membership.generation, limit, offset, from_date=from_date, to_date=to_date
     )
 
 
 @router.get("/activity-log/{activity_id}", response_model=ActivityLogResponse)
-async def get_completed_activity(activity_id: UUID, user: User, db: Database):
-    membership = await membership_for(db, user.id)
+async def get_completed_activity(
+    activity_id: UUID, user: User, db: Database, generation: Generation
+):
+    membership = await membership_for(db, user.id, generation=generation, write=True)
     entry, projection = await owned_activity(db, user.id, membership.generation, activity_id)
     return activity_response(entry, projection)
 
