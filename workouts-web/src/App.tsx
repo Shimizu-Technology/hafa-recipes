@@ -345,7 +345,7 @@ function Support() {
       <details>
         <summary>How do I export or remove data?</summary>
         <p>
-          In Workouts, open Profile → Account data and deletion. Choose a private export, Workouts-only removal, or
+          In Workouts, open Account → Account data and deletion. Choose a private export, Workouts-only removal, or
           whole-Håfa-account deletion. <a href="/delete-account">Read the scope and request help without the app</a>.
         </p>
       </details>
@@ -366,7 +366,7 @@ function DeleteAccount() {
       </p>
       <h2>Remove only Workouts data</h2>
       <p>
-        In Workouts, open Profile → Account data and deletion → Review Workouts-only removal. Review the scope and
+        In Workouts, open Account → Account data and deletion → Review Workouts-only removal. Review the scope and
         confirm. Local private drafts, pending commands, temporary capture/export files, and reminders are erased before
         saved server data is requested for deletion. If the network request fails, local drafts remain erased; retry
         saved-data deletion.
