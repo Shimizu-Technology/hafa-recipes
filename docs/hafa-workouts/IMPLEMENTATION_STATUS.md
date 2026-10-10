@@ -114,7 +114,7 @@ actions. The website share path carries its token in `/shared#...`; native and
 API paths retain their existing forms.
 
 Every Workouts capability remains disabled by default and the committed admission
-budget remains0. This partition does not turn on production, apply optional
+budget remains 0. This partition does not turn on production, apply optional
 production migrations, issue a credential, spend provider funds or alter a
 Recipes identity/app record. D03 qualified programming review, real-provider
 quality, physical Health integrations, exact released Recipes binary smoke,

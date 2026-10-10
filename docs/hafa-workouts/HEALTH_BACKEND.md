@@ -143,11 +143,18 @@ to invalidate delayed consent updates and accurately display consent state.
 
 ## Actual-workout export
 
-Root must add recorded active_seconds and explicit activity_type to the actual
-session request/snapshot. Existing rows without active duration return unsupported;
-elapsed interval is not invented active time. The current adapters also return
-unsupported for pauses that cannot be faithfully represented. This limitation
-remains open until pause events/segments are implemented.
+Actual session requests/snapshots now carry recorded `active_seconds`, explicit
+`activity_type` and optional `active_intervals` containing aware `started_at` /
+`ended_at` instants. At most 100 positive, ordered, non-overlapping intervals must
+fit inside the session and sum to its recorded active duration within one second.
+The backend preserves coherent recorded pauses in the prepared native export.
+Incoherent intervals/durations return 422 and create no export intent.
+
+Existing rows without active duration remain unsupported. When active duration
+differs from the outer elapsed interval but recorded intervals are absent, export
+also remains unsupported: elapsed time cannot replace active time. Backend
+preparation does not prove an OS write; actual native pause-event/segment behavior
+and physical device acceptance remain separate requirements.
 
 Only an owned current correction can prepare an export. Canonical identity follows
 the original client_session_id across bounded correction history; revision is
@@ -170,5 +177,5 @@ Health record or native permission was accessed.
 
 Ruff and diff checks apply to owned files. Root must run its full integration gate,
 actual 035 chain, native DTO transport and erasure/AI hooks after cherry-picking.
-Native health permission/device/provider, public rationale UI, paused export and
+Native health permission/device/provider, public rationale UI and
 physical H01–H05 acceptance remain open; this is not complete health acceptance.

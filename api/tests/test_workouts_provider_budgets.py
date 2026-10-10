@@ -23,7 +23,7 @@ from app.domains.workouts.extraction import (
 from app.services.video import video_service
 from tests.test_workout_extraction import TEXT, complete_workout
 from tests.test_workouts_ai_budget import budget_api, policy  # noqa: F401
-from tests.test_workouts_data_integration import data_api, settings  # noqa: F401
+from tests.test_workouts_data_integration import DATABASE_URL, data_api, settings  # noqa: F401
 from tests.workouts_provider_fakes import FakeBudget
 
 
@@ -432,6 +432,7 @@ async def test_default_unconfigured_guard_prevents_http_without_database(
     assert calls == []
 
 
+@pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
 async def test_durable_reservation_exists_before_transport_and_denies_next_call(
     budget_api, provider_environment, monkeypatch
 ):
@@ -454,6 +455,7 @@ async def test_durable_reservation_exists_before_transport_and_denies_next_call(
         assert row.outcome == "success"
 
 
+@pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
 async def test_unknown_canary_model_and_hosted_tools_fail_before_provider(
     budget_api, provider_environment, monkeypatch
 ):

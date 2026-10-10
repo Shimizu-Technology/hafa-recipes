@@ -44,7 +44,7 @@ All paths below are relative to `/api/v1/workouts`:
 
 | Operation | Contract |
 |---|---|
-| `POST /sharing/previews` | `{kind:workout|program, workout_id OR program_id, expected_revision, display_name?, title?, include_source_url:false, allow_incomplete:false, expires_in_days:7}` plus generation header. Maximum expiry 30 days. |
+| `POST /sharing/previews` | `{kind:workout\|program, workout_id OR program_id, expected_revision, display_name?, title?, include_source_url:false, allow_incomplete:false, expires_in_days:7}` plus generation header. Maximum expiry 30 days. |
 | Preview result | `{id,generation,preview_digest,expires_at,link_expires_at,kind,content,attribution,review_required}`. Preview expires after 10 minutes. |
 | `POST /sharing/previews/{id}/confirm` | `{preview_digest,confirm_public_snapshot:true,disclosure_version:1}` plus generation. Confirm means the creator reviewed this exact public snapshot and understands prior deliberate copies survive revocation. |
 | Owner share result | `{id,generation,expires_at,revoked_at,snapshot_digest,kind,content,attribution,review_required,api_path,app_path,website_path}`. Paths are relative except the explicit `hafaworkouts://` app path; no marketing domain is guessed. |
@@ -75,6 +75,11 @@ assumptions, notes, health/profile context, and raw warnings. The default public
 title is generic unless explicitly chosen. Original session order/gaps remain;
 maximum 366 sessions spanning one year. Non-ready/question-bearing programs,
 unknown rule provenance, and explicitly health-derived metadata are rejected.
+
+Owned workout copies and every session inside a program copy retain honest
+`source` provenance with `capture_kind:"shared"`. The marker describes the shared
+snapshot; it does not invent an original source URL or personalize the content.
+An original URL is retained only when the sender explicitly included it.
 
 A recipient's program copy preserves those gaps from their chosen start date,
 assigns new private IDs, and enters `needs_information` with a review question.
