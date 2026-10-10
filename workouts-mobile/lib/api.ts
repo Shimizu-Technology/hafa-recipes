@@ -7,6 +7,7 @@ import {
 } from "./activity-log";
 import type { RecipeGrants, RecipeContext } from "./connections";
 import type { ExportPage, ExportManifest, SnapshotPage } from "./account";
+import type { ExportJob } from "./export-jobs";
 import type { CoachFocus, CoachHistory, CoachMessage, CoachAction, CoachResult } from "./coach";
 import type { ProgramReceipt, SourceChoices, SourceProgramDay } from "./plans";
 import type {
@@ -297,8 +298,20 @@ export function createWorkoutsApi(
       return (await request<ExportManifest>("/export/snapshots", "POST", undefined, { generation, timeout_ms: 120000 }))
         .data;
     },
-    async exportSnapshotPage(id: string, page: number, generation: number) {
-      return (await request<SnapshotPage>(`/export/snapshots/${id}/pages/${page}`, "GET", undefined, { generation }))
+    async createExportJob(requestId: string, generation: number, signal?: AbortSignal) {
+      return (await request<ExportJob>("/export/jobs", "POST", { request_id: requestId }, { generation, signal })).data;
+    },
+    async exportJob(id: string, generation: number, signal?: AbortSignal) {
+      return (await request<ExportJob>(`/export/jobs/${encodeURIComponent(id)}`, "GET", undefined, { generation, signal })).data;
+    },
+    async exportJobByRequest(requestId: string, generation: number, signal?: AbortSignal) {
+      return (await request<ExportJob>(`/export/jobs/by-request/${encodeURIComponent(requestId)}`, "GET", undefined, { generation, signal })).data;
+    },
+    async cancelExportJob(id: string, generation: number, signal?: AbortSignal) {
+      return (await request<ExportJob>(`/export/jobs/${encodeURIComponent(id)}/cancel`, "POST", undefined, { generation, signal })).data;
+    },
+    async exportSnapshotPage(id: string, page: number, generation: number, signal?: AbortSignal) {
+      return (await request<SnapshotPage>(`/export/snapshots/${id}/pages/${page}`, "GET", undefined, { generation, signal }))
         .data;
     },
     async deleteExportSnapshot(id: string, generation: number) {

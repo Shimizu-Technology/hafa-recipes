@@ -15,6 +15,12 @@ vi.mock("@clerk/expo", () => ({ useAuth: () => ({ userId: "subject-A", sessionId
 vi.mock("@/lib/context", () => ({ useTraining: () => screenContext }));
 vi.mock("@/lib/logout-recovery-native", () => ({ get logoutRecovery() { return controller; } }));
 vi.mock("@/lib/export-file", () => ({ savePrivateExport: vi.fn() }));
+// Deletion recovery owns its fixture; the real focused export hook is exercised in export-job-screen.test.ts.
+vi.mock("@/lib/use-export-job", () => ({ useExportJob: () => ({
+  view: { phase: "idle", command: null, job: null, busy: false, error: "", message: "", pages: 0, invalidated: false },
+  enabled: true, useJobs: false, knownLegacy: true, pollStopped: false, controller: null,
+  capability: { isError: false }, check() {},
+}) }));
 vi.mock("@/components/reminders-provider", () => ({ useReminders: () => ({ controller: { cleanupOwned: async () => {} } }) }));
 vi.mock("@/components/ui", () => ({
   Screen: ({ children }: React.PropsWithChildren) => React.createElement("screen", null, children),
