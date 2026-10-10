@@ -367,6 +367,7 @@ async def apply_sync(db, user_id, generation, provider, request):
             raise HTTPException(409, "Conflicting observations of one source need reconciliation")
         by_id[observation.source_id] = observation
     accepted = ignored = removed = 0
+    privacy_changed = False
     for source_id in deleted:
         if not source_id.startswith(provider + ":"):
             raise HTTPException(422, "Deletion provider does not match the connection")
@@ -389,6 +390,7 @@ async def apply_sync(db, user_id, generation, provider, request):
                 )
             await db.delete(row)
             removed += 1
+            privacy_changed = True
     for source_id, observation in by_id.items():
         if source_id in deleted or observation.origin_id == APP_ID:
             ignored += 1
@@ -416,6 +418,8 @@ async def apply_sync(db, user_id, generation, provider, request):
         if row and row.content_hash == content_hash:
             ignored += 1
             continue
+        if row is not None:
+            privacy_changed = True
         projection = await projection_content(db, user_id, generation, observation)
         activity = (
             await db.get(WorkoutsActivity, row.activity_id) if row and row.activity_id else None
@@ -442,6 +446,10 @@ async def apply_sync(db, user_id, generation, provider, request):
         row.source_updated_at = observation.updated_at
         row.updated_at = now()
         accepted += 1
+    if privacy_changed:
+        from app.domains.workouts.export_service import invalidate_export_snapshots
+
+        await invalidate_export_snapshots(db, user_id, generation)
     if request.next_cursor is not None:
         connection.cursor = request.next_cursor.model_dump(mode="json")
     connection.last_sync_at = now()
@@ -550,6 +558,10 @@ async def reconcile_snapshot(db, user_id, generation, provider, request):
                 )
             await db.delete(row)
             removed += 1
+    if removed:
+        from app.domains.workouts.export_service import invalidate_export_snapshots
+
+        await invalidate_export_snapshots(db, user_id, generation)
     await db.flush()
     return {"deleted": removed, "outside_window_preserved": True}
 

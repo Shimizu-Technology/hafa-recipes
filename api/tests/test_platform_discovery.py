@@ -29,7 +29,9 @@ def settings(**values):
 def test_master_off_makes_stale_capability_switches_dormant_without_breaking_recipes(flag):
     configured = settings(**{flag: True})
     assert not getattr(configured, flag)
-    assert configured.api_title == "Recipe Extractor API"
+    assert (
+        configured.api_title == "Håfa API"
+    )  # OpenAPI metadata; legacy root contract remains separately frozen.
 
 
 def test_all_workouts_capabilities_are_dormant_by_default():

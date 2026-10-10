@@ -162,7 +162,9 @@ app.include_router(tts_router)
 async def root():
     """Root endpoint with API info."""
     return {
-        "name": settings.api_title,
+        # This legacy discovery field is consumed by released clients. Shared
+        # branding lives in OpenAPI and the versioned platform registry.
+        "name": "Recipe Extractor API",
         "version": settings.api_version,
         "docs": "/docs",
         "health": "/up",

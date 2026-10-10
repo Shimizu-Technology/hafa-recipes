@@ -998,6 +998,9 @@ async def undo_action(db, user_id, generation, proposal_id):
             )
             if derived or referenced:
                 raise HTTPException(409, "A plan uses this workout; edit the plan first")
+        from app.domains.workouts.export_service import invalidate_export_snapshots
+
+        await invalidate_export_snapshots(db, user_id, generation)
         await db.delete(saved)
     receipt["state"] = "undone"
     message.proposals = metadata

@@ -249,6 +249,9 @@ async def remove_collection(
         )
         .values(revision=WorkoutLibraryOrganization.revision + 1, updated_at=now())
     )
+    from app.domains.workouts.export_service import invalidate_export_snapshots
+
+    await invalidate_export_snapshots(db, user.id, generation)
     await db.delete(row)
     await db.commit()
     return Response(status_code=204)

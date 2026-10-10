@@ -302,10 +302,47 @@ class WorkoutImportWorker:
                 await db.commit()
 
     async def purge_expired(self):
+        from app.domains.workouts.export_service import invalidate_export_snapshots
+        from app.models.identity import AppUser
+
+        current = now()
         async with self.sessions() as db:
-            await db.execute(delete(WorkoutImport).where(WorkoutImport.expires_at < now()))
+            owners = (
+                await db.scalars(
+                    select(WorkoutImport.app_user_id)
+                    .where(WorkoutImport.expires_at < current)
+                    .distinct()
+                    .order_by(WorkoutImport.app_user_id)
+                    .limit(100)
+                )
+            ).all()
+        # Each owner commits separately; never hold a hundred account locks
+        # while processing the rest of a maintenance batch.
+        for owner in owners:
+            async with self.sessions.begin() as db:
+                if (
+                    await db.scalar(select(AppUser.id).where(AppUser.id == owner).with_for_update())
+                    is None
+                ):
+                    continue
+                generations = (
+                    await db.scalars(
+                        select(WorkoutImport.generation)
+                        .where(
+                            WorkoutImport.app_user_id == owner, WorkoutImport.expires_at < current
+                        )
+                        .distinct()
+                    )
+                ).all()
+                for generation in generations:
+                    await invalidate_export_snapshots(db, owner, generation)
+                await db.execute(
+                    delete(WorkoutImport).where(
+                        WorkoutImport.app_user_id == owner, WorkoutImport.expires_at < current
+                    )
+                )
+        async with self.sessions.begin() as db:
             await purge_import_usage(db)
-            await db.commit()
         from app.domains.workouts.export_service import cleanup_expired_exports
         from app.domains.workouts.lifecycle import optional_table_exists
 
