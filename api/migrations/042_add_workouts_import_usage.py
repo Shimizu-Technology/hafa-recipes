@@ -45,8 +45,8 @@ async def run_migration(*, configured=None, migration_engine=None):
         await connection.execute(
             text("""INSERT INTO workouts_import_usage(app_user_id,request_id,charged_at)
             SELECT app_user_id,request_id,CURRENT_TIMESTAMP FROM workouts_import_jobs
-            WHERE (status IN ('ready','incomplete') AND result->>'workout' IS NOT NULL)
-                OR accepted_workout_id IS NOT NULL
+            WHERE status IN ('ready','incomplete') AND result->>'workout' IS NOT NULL
+                AND jsonb_path_exists(result, '$.workout.blocks[*].exercises[*]')
             ON CONFLICT(app_user_id,request_id) DO NOTHING""")
         )
         await connection.execute(

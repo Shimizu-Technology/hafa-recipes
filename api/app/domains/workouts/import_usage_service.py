@@ -3,8 +3,8 @@
 from datetime import timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import delete, func, select, text, union
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import cast, delete, func, select, text, union
+from sqlalchemy.dialects.postgresql import JSONPATH, insert
 
 from app.config import get_settings
 from app.db.database import AsyncSessionLocal
@@ -28,9 +28,13 @@ async def usage_schema_present(db):
 
 
 def usable_job_predicate():
-    return WorkoutImport.status.in_(["ready", "incomplete"]) & WorkoutImport.result[
-        "workout"
-    ].astext.is_not(None)
+    return (
+        WorkoutImport.status.in_(["ready", "incomplete"])
+        & WorkoutImport.result["workout"].astext.is_not(None)
+        & func.jsonb_path_exists(
+            WorkoutImport.result, cast("$.workout.blocks[*].exercises[*]", JSONPATH)
+        )
+    )
 
 
 async def enforce_import_allowance(db, owner, generation, request_id, *, limit=15):
@@ -74,7 +78,11 @@ async def charge_usable_import(db, job, result):
     Never commits. Rechecks generation under the owner lock. Failed, cancelled,
     timed-out or incomplete captures without a workout carry no success charge.
     """
-    if result.status not in {"ready", "incomplete"} or result.workout is None:
+    if (
+        result.status not in {"ready", "incomplete"}
+        or result.workout is None
+        or not any(block.exercises for block in result.workout.blocks)
+    ):
         return False
     await membership_for(db, job.app_user_id, generation=job.generation, write=True)
     if not await usage_schema_present(db):

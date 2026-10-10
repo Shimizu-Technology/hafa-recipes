@@ -403,3 +403,42 @@ async def test_fixture_fallback_cannot_enable_real_environment(automation_api, m
             await usage.usage_schema_present(db)
         assert caught.value.status_code == 503
         await db.rollback()
+
+
+async def test_bookmark_only_incomplete_draft_is_refundable(usage_api):
+    from app.domains.workouts.schemas import WorkoutContent
+
+    api = usage_api
+    await seed_receipts(api, 14)
+    response = await enqueue(api)
+    assert response.status_code == 202
+
+    async def draft(_):
+        return WorkoutExtractionResult(
+            status="incomplete",
+            workout=WorkoutContent(title="Source unavailable", blocks=[]),
+            warnings=["No exercises were captured"],
+        )
+
+    api.worker.extractor.extract = draft
+    assert await api.worker.tick()
+    assert await count_receipts(api) == 14
+    assert (await enqueue(api)).status_code == 202
+
+
+async def test_migration_does_not_charge_bookmark_only_draft(automation_api):
+    from app.domains.workouts.schemas import WorkoutContent
+
+    api = automation_api
+    await consent(api)
+
+    async def draft(_):
+        return WorkoutExtractionResult(
+            status="incomplete", workout=WorkoutContent(title="Unknown source", blocks=[])
+        )
+
+    api.worker.extractor.extract = draft
+    assert (await enqueue(api)).status_code == 202
+    assert await api.worker.tick()
+    await migration.run_migration(configured=settings(), migration_engine=api.engine)
+    assert await count_receipts(api) == 0
