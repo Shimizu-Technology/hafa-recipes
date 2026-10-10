@@ -276,3 +276,55 @@ async def test_shutdown_retires_heartbeat_before_actual_end_ack():
     await entered.wait()
     assert await dispatcher.stop()
     assert coordinator.acks == ["interrupted"] and dispatcher.heartbeat_task is None
+
+
+async def test_shutdown_bounds_cancellation_resistant_dispatcher():
+    coordinator = Coordinator()
+    dispatcher = worker.ExportJobWorker(coordinator, Builder(coordinator))
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def held():
+        entered.set()
+        try:
+            await release.wait()
+        except asyncio.CancelledError:
+            await release.wait()
+
+    dispatcher.task = asyncio.create_task(held())
+    await entered.wait()
+    clock = asyncio.get_running_loop().time()
+    assert not await dispatcher.stop()
+    assert asyncio.get_running_loop().time() - clock < 6
+    assert dispatcher.task is not None and not dispatcher.task.done() and coordinator.acks == []
+    release.set()
+    await asyncio.wait({dispatcher.task})
+    assert await dispatcher.stop()
+
+
+async def test_claim_factory_failure_keeps_unknown_capsule_without_ack(monkeypatch):
+    coordinator = Coordinator()
+    coordinator.configured = SimpleNamespace(
+        workouts_api_enabled=True, workouts_export_jobs_enabled=True, job_worker_enabled=True
+    )
+
+    async def claim(*, capsule):
+        coordinator.capsule = capsule
+        capsule.execution = coordinator.execution
+        return coordinator.execution
+
+    coordinator.claim = claim
+    dispatcher = worker.ExportJobWorker(coordinator, Builder(coordinator))
+
+    def failed_factory(coro, **kwargs):
+        assert coordinator.capsule.source_created
+        coro.close()
+        raise RuntimeError("synthetic custom factory failed")
+
+    monkeypatch.setattr(worker.asyncio, "create_task", failed_factory)
+    with pytest.raises(Exception) as caught:
+        await dispatcher.tick()
+    assert caught.value.status_code == 503
+    assert dispatcher.claim_capsule is coordinator.capsule and coordinator.acks == []
+    assert dispatcher.active_task is None
+    assert not await dispatcher.stop()

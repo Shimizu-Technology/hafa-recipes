@@ -40,6 +40,15 @@ class LegacyAdmissionCapsule:
     source_created: bool = False
 
 
+@dataclass
+class ClaimExecutionCapsule:
+    """Worker-owned no-source proof captured before a claim commit can lose ACK."""
+
+    nonce: UUID = field(default_factory=uuid4)
+    execution: ExportJobExecution | None = None
+    source_created: bool = False
+
+
 async def require_execution(db, execution, owner, generation):
     """Caller already holds owner lock. Never acquire the global slot here."""
     if execution.owner != owner or execution.generation != generation:

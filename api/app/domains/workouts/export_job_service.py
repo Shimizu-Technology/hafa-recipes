@@ -11,7 +11,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
 from app.db.database import AsyncSessionLocal
-from app.domains.workouts.export_job_execution import ExportJobExecution, LegacyAdmissionCapsule
+from app.domains.workouts.export_job_execution import (
+    ClaimExecutionCapsule,
+    ExportJobExecution,
+    LegacyAdmissionCapsule,
+)
 from app.domains.workouts.export_job_identity import (
     OperatorDeathVerifier,
     current_worker_identity,
@@ -211,7 +215,14 @@ class ExportJobCoordinator:
             bytes(row.permission_digest),
         )
 
-    async def claim(self, identifier=None):
+    async def claim(self, identifier=None, *, capsule=None):
+        capsule = capsule or ClaimExecutionCapsule()
+        if (
+            type(capsule) is not ClaimExecutionCapsule
+            or capsule.execution is not None
+            or capsule.source_created
+        ):
+            raise stopped("Invalid internal export claim", 503)
         if not await self.installed():
             return None
         async with self.sessions.begin() as db:
@@ -244,8 +255,9 @@ class ExportJobCoordinator:
                 )
                 row.finished_at = clock
                 return None
-            self._start(row, slot, clock)
-            return self.execution(row)
+            self._start(row, slot, clock, token=capsule.nonce)
+            capsule.execution = self.execution(row)  # Synchronous, before commit ACK.
+            return capsule.execution
 
     async def legacy_execution(self, user, generation, identifier):
         async with self.sessions.begin() as db:

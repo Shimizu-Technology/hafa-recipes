@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from fastapi import HTTPException
 
-from app.domains.workouts.export_job_execution import LegacyAdmissionCapsule
+from app.domains.workouts.export_job_execution import ClaimExecutionCapsule, LegacyAdmissionCapsule
 from app.domains.workouts.export_job_service import ExportJobCoordinator
 from app.domains.workouts.export_service import PrivateExportService
 
@@ -259,6 +259,8 @@ class ExportJobWorker:
         self.active_execution = None
         self.heartbeat_task = None
         self.pending_ack = None
+        self.claim_capsule = None
+        self.stopping = False
         self.wake = asyncio.Event()
 
     async def start(self):
@@ -267,6 +269,7 @@ class ExportJobWorker:
             and await self.coordinator.installed()
             and self.task is None
         ):
+            self.stopping = False
             self.task = asyncio.create_task(self.run(), name="workouts-export-dispatch")
 
     def notify(self):
@@ -350,20 +353,47 @@ class ExportJobWorker:
         if (
             self.active_task is None
             and self.pending_ack is None
+            and self.claim_capsule is None
+            and not self.stopping
             and configured.workouts_export_jobs_enabled
             and configured.job_worker_enabled
         ):
-            execution = await self.coordinator.claim()
-            if execution is not None:
-                self.active_execution = execution
-                self.active_task = asyncio.create_task(
-                    safe_build(self.builder, execution), name="workouts-export-build"
-                )
-                register(self.coordinator, execution, self.active_task)
-                self.heartbeat_task = asyncio.create_task(
-                    pulse(self.coordinator, execution, self.active_task),
-                    name="workouts-export-lease",
-                )
+            capsule = ClaimExecutionCapsule()
+            self.claim_capsule = capsule
+            try:
+                execution = await self.coordinator.claim(capsule=capsule)
+                if execution is not None and not self.stopping:
+                    if execution != capsule.execution:
+                        raise HTTPException(503, "export_jobs_unavailable")
+                    self.active_execution = execution
+                    # An eager/custom factory may start source before returning.
+                    capsule.source_created = True
+                    self.active_task = asyncio.create_task(
+                        safe_build(self.builder, execution), name="workouts-export-build"
+                    )
+                    register(self.coordinator, execution, self.active_task)
+                    self.heartbeat_task = asyncio.create_task(
+                        pulse(self.coordinator, execution, self.active_task),
+                        name="workouts-export-lease",
+                    )
+            except BaseException as error:
+                cancelled = isinstance(error, asyncio.CancelledError)
+                clear_exception(error)
+                if cancelled:
+                    raise asyncio.CancelledError() from None
+                raise HTTPException(503, "export_jobs_unavailable") from None
+            finally:
+                if not capsule.source_created:
+                    # All claim frames have returned/been consumed. This exact
+                    # capsule proves that this worker created no source task.
+                    self.claim_capsule = None
+                    if capsule.execution is not None:
+                        self.pending_ack = (capsule.execution, "interrupted")
+                        await self._ack()
+                elif self.active_task is not None:
+                    self.claim_capsule = None
+                # A factory that returned no task leaves unknown source proof:
+                # keep capsule and durable slot, never infer end from registry.
 
     async def run(self):
         while self.coordinator.configured.workouts_api_enabled:
@@ -381,9 +411,21 @@ class ExportJobWorker:
                 pass
 
     async def stop(self):
+        self.stopping = True
+        # Signal sources/heartbeat even if a dispatcher is resisting cancellation.
+        if self.heartbeat_task is not None:
+            self.heartbeat_task.cancel()
+        if self.active_task is not None:
+            self.active_task.cancel()
         if self.task is not None:
             self.task.cancel()
-            await asyncio.gather(self.task, return_exceptions=True)
+            await asyncio.wait({self.task}, timeout=5)
+            if not self.task.done():
+                return False  # Retain dispatcher/capsule/slot; no invented proof.
+            try:
+                self.task.result()
+            except BaseException as error:
+                clear_exception(error)
             self.task = None
         # Shutdown stops lease renewal immediately. An unfinished source still
         # retains its task and durable slot; a stopped heartbeat is not proof.
@@ -414,7 +456,9 @@ class ExportJobWorker:
         # An unfinished task/ACK remains referenced and the durable slot held.
         # Shutdown is not proof that any still-running native process has ended.
         return (
-            self.active_task is None
+            self.task is None
+            and self.claim_capsule is None
+            and self.active_task is None
             and self.pending_ack is None
             and not any(engine == key for engine, _ in _running)
             and not any(engine == key for engine, _ in _pending_legacy_ack)

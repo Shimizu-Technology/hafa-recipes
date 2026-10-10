@@ -564,3 +564,58 @@ async def test_erasure_before_legacy_admission_returns_releases_captured_slot(jo
         assert await db.scalar(select(func.count()).select_from(WorkoutsExportJob)) == 0
         assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 0
     await api.coordinator.admit(user("other"), 1, uuid4())
+
+
+@pytest.mark.parametrize("failure", ["cancelled", "database"])
+async def test_claim_postcommit_pre_source_fault_releases_captured_nonce(
+    jobs, monkeypatch, failure
+):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    receipt = await admit(jobs)
+    original = jobs.coordinator.claim
+
+    async def failed(*args, **kwargs):
+        execution = await original(*args, **kwargs)
+        assert kwargs["capsule"].execution == execution
+        if failure == "cancelled":
+            raise asyncio.CancelledError()
+        raise SQLAlchemyError("synthetic claim commit-ACK fault")
+
+    monkeypatch.setattr(jobs.coordinator, "claim", failed)
+    if failure == "cancelled":
+        with pytest.raises(asyncio.CancelledError):
+            await jobs.worker.tick()
+    else:
+        await assert_error(jobs.worker.tick(), 503, "export_jobs_unavailable")
+    assert jobs.worker.active_task is jobs.worker.claim_capsule is jobs.worker.pending_ack is None
+    async with jobs.sessions() as db:
+        assert (await db.get(WorkoutsExportJobSlot, 1)).active_job_id is None
+        row = await db.get(WorkoutsExportJob, receipt.id)
+        assert row.status == "failed" and row.failure_code == "interrupted"
+        assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 0
+        assert await db.scalar(select(func.count()).select_from(WorkoutsExportPage)) == 0
+    await admit(jobs)
+
+
+async def test_stop_during_claim_releases_proven_never_started_source(jobs, monkeypatch):
+    receipt = await admit(jobs)
+    original = jobs.coordinator.claim
+    entered = asyncio.Event()
+
+    async def held(*args, **kwargs):
+        execution = await original(*args, **kwargs)
+        entered.set()
+        await asyncio.Event().wait()
+        return execution
+
+    monkeypatch.setattr(jobs.coordinator, "claim", held)
+    jobs.worker.task = asyncio.create_task(jobs.worker.tick())
+    await asyncio.wait_for(entered.wait(), 5)
+    assert jobs.worker.claim_capsule.execution is not None and jobs.worker.active_task is None
+    assert await jobs.worker.stop()
+    async with jobs.sessions() as db:
+        assert (await db.get(WorkoutsExportJobSlot, 1)).active_job_id is None
+        assert (await db.get(WorkoutsExportJob, receipt.id)).status == "failed"
+        assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 0
+    await admit(jobs)
