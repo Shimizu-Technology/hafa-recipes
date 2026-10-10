@@ -230,12 +230,22 @@ async def guard_projection_memory(db, owner, generation, limit, offset):
     ):
         if not await optional_table_exists(db, table_name):
             continue
+        direction = (
+            "ASC"
+            if table_name
+            in ("workouts_health_observations", "workouts_shares", "workouts_copy_receipts")
+            else "DESC"
+        )
         expression = " + ".join(f"COALESCE(octet_length({field}::text),0)" for field in fields)
         size += await db.scalar(
-            text(f"""SELECT COALESCE(SUM(size),0) FROM
-            (SELECT {expression} AS size FROM {table_name}
+            # Materialize only the bounded page before rendering JSONB as text.
+            # A projected size below Sort/Limit can otherwise render every
+            # matching owner's record, including rows skipped by pagination.
+            text(f"""WITH selected AS MATERIALIZED
+            (SELECT {','.join(fields)} FROM {table_name}
              WHERE app_user_id=:owner AND generation=:generation
-             ORDER BY created_at DESC,id DESC LIMIT :limit OFFSET :offset) selected"""),
+             ORDER BY created_at {direction},id {direction} LIMIT :limit OFFSET :offset)
+             SELECT COALESCE(SUM({expression}),0) FROM selected"""),
             {"owner": owner, "generation": generation, "limit": limit, "offset": offset},
         )
         if size > MAX_PAGE_BYTES // 2:
