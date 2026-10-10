@@ -7,7 +7,9 @@ from uuid import uuid4
 
 import httpx
 
-TEXT = "Squat: 3 sets of 8-12 reps. Rest 90 seconds."
+from capacity.source_facts import TEXT_FACTS, prescription, source_response
+
+TEXT = TEXT_FACTS["text"]
 SCORES = ("same_dish", "finished_dish", "clarity", "crop", "unobstructed", "lighting")
 
 
@@ -28,39 +30,7 @@ def recipe():
 
 
 def workout(location="provided_text"):
-    evidence = [
-        {"field": field, "wording": quote, "location": location}
-        for field, quote in [
-            ("name", "Squat"),
-            ("sets", "3 sets"),
-            ("reps_min", "8-12 reps"),
-            ("reps_max", "8-12 reps"),
-            ("rest_seconds", "90 seconds"),
-        ]
-    ]
-    return {
-        "title": "Capacity squat",
-        "kind": "session",
-        "estimated_minutes": 20,
-        "equipment_required": [],
-        "blocks": [
-            {
-                "id": "main",
-                "label": "Strength",
-                "grouping": "sequential",
-                "exercises": [
-                    {
-                        "name": "Squat",
-                        "sets": 3,
-                        "reps_min": 8,
-                        "reps_max": 12,
-                        "rest_seconds": 90,
-                        "evidence": evidence,
-                    }
-                ],
-            }
-        ],
-    }
+    return prescription(location)
 
 
 class FixtureBudget:
@@ -140,22 +110,7 @@ class ProviderTransport(httpx.AsyncBaseTransport):
             }
         elif "You extract workout prescriptions" in prompt:
             self.calls["extraction"] += 1
-            text = " ".join(
-                part.get("text", "")
-                for part in messages[1].get("content", [])
-                if part.get("type") == "text"
-            )
-            location = (
-                "document_page:1"
-                if "document_page:" in text
-                else "image:1"
-                if any(
-                    part.get("type") == "image_url"
-                    for part in messages[1].get("content", [])
-                )
-                else "provided_text"
-            )
-            result = workout(location)
+            result = source_response(messages[1].get("content", []))
         elif "Classify image evidence" in prompt:
             result = {
                 "classification": "recipe",

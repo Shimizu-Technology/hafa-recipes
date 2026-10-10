@@ -14,7 +14,16 @@ STOP_BYTES = 460 * 1024 * 1024
 HEX_ID = re.compile(r"[0-9a-f]{64}")
 RUN_ID = re.compile(r"[a-z0-9-]{1,40}")
 PHASES = {"baseline", "mixed", "boundaries", "diagnostic"}
-STAGES = {"thumbnail_normalize", "cover_compare", "cover_frames", "evidence_frames"}
+STAGES = {
+    "thumbnail_normalize",
+    "cover_compare",
+    "cover_frames",
+    "evidence_frames",
+    "export_build",
+    "export_read",
+    "loop_lag",
+    "gc_pause",
+}
 STEPS = {
     "queued",
     "initializing",
@@ -98,15 +107,32 @@ def cgroup(raw):
     if len(lines) < 4 or not all(v.isdecimal() for v in lines[:2]):
         raise MonitorError("invalid_cgroup_metadata")
     events = {}
+    cpu = {}
     for line in lines[2:]:
         fields = line.split()
         if len(fields) != 2 or not fields[1].isdecimal():
             raise MonitorError("invalid_cgroup_metadata")
+        if fields[0] in {
+            "usage_usec",
+            "user_usec",
+            "system_usec",
+            "nr_periods",
+            "nr_throttled",
+            "throttled_usec",
+        }:
+            cpu[fields[0]] = int(fields[1])
         if fields[0] in {"oom", "oom_kill", "high", "max"}:
             events[fields[0]] = int(fields[1])
     if not {"oom", "oom_kill"} <= events.keys():
         raise MonitorError("missing_oom_events")
-    return {"memory_current": int(lines[0]), "memory_peak": int(lines[1]), **events}
+    if not {"usage_usec", "nr_periods", "nr_throttled", "throttled_usec"} <= cpu.keys():
+        raise MonitorError("missing_cpu_stat")
+    return {
+        "memory_current": int(lines[0]),
+        "memory_peak": int(lines[1]),
+        **events,
+        "cpu_stat": cpu,
+    }
 
 
 def processes(raw):
@@ -239,6 +265,7 @@ class HostMonitor:
                     "/sys/fs/cgroup/memory.current",
                     "/sys/fs/cgroup/memory.peak",
                     "/sys/fs/cgroup/memory.events",
+                    "/sys/fs/cgroup/cpu.stat",
                 ]
             )
         )

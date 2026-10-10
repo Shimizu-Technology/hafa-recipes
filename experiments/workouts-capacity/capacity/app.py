@@ -5,7 +5,8 @@ import os
 import shutil
 from pathlib import Path
 
-from capacity.events import PHASES, traced
+from capacity.events import PHASES, stage_counts, traced
+from capacity.media_identity import is_fixture_url
 from capacity.safety import OWNERS, ensure
 from capacity.transport import TEXT, FixtureBudget, install_provider_transport
 
@@ -115,7 +116,7 @@ async def metadata(*_, **__):
 
 
 async def download_frames(url, temp_dir):
-    if not url.startswith("https://www.youtube.com/watch?v=capacity"):
+    if not is_fixture_url(url):
         raise RuntimeError("Only synthetic media is permitted")
     await asyncio.sleep(0.05)
     target = Path(temp_dir) / "source.mp4"
@@ -128,7 +129,7 @@ async def download_frames(url, temp_dir):
 
 
 async def download_audio(url):
-    if not url.startswith("https://www.youtube.com/watch?v=capacity"):
+    if not is_fixture_url(url):
         raise RuntimeError("Only synthetic audio is permitted")
     import tempfile
 
@@ -174,11 +175,26 @@ VideoService.extract_video_frames = traced(
 )
 
 
+# Experiment-only metadata wrappers preserve the real export methods/limits.
+from app.domains.workouts.export_service import PrivateExportService
+
+PrivateExportService.create = traced("export_build", phase, PrivateExportService.create)
+PrivateExportService.read = traced("export_read", phase, PrivateExportService.read)
+
+
+from capacity.diagnostics import Diagnostics
+
+diagnostics = Diagnostics(phase)
+diagnostics.install(app)
+
+
 @app.get("/capacity/status")
 async def capacity_status():
     return {
         "synthetic": True,
         "provider_attempts": transport.calls,
+        "stage_counts": stage_counts(),
+        "diagnostics": diagnostics.snapshot(),
         "financial_guard": "synthetic throughput only",
         "auth": "fixture whitelist",
         "workouts_enabled": get_settings().workouts_api_enabled,

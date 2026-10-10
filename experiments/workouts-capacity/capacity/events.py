@@ -6,8 +6,24 @@ import json
 import time
 
 PHASES = {"baseline", "mixed", "boundaries", "diagnostic"}
-STAGES = {"thumbnail_normalize", "cover_compare", "cover_frames", "evidence_frames"}
+STAGES = {
+    "thumbnail_normalize",
+    "cover_compare",
+    "cover_frames",
+    "evidence_frames",
+    "export_build",
+    "export_read",
+    "loop_lag",
+    "gc_pause",
+}
 _sequence = itertools.count(1)
+_counts = {
+    stage: {event: 0 for event in ("start", "end", "failed")} for stage in STAGES
+}
+
+
+def stage_counts():
+    return {stage: dict(counts) for stage, counts in _counts.items()}
 
 
 def emit(stage, phase, event, **numbers):
@@ -33,6 +49,7 @@ def emit(stage, phase, event, **numbers):
         ):
             raise ValueError("Only bounded numeric stage metadata is allowed")
         result[key] = value
+    _counts[stage][event] += 1
     print("CAPACITY_STAGE " + json.dumps(result), flush=True)
 
 

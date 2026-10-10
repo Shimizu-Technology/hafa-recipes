@@ -12,6 +12,8 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from capacity.events import STAGES
+from capacity.media_identity import video_url
 from capacity.safety import OWNERS
 from capacity.transport import TEXT
 
@@ -29,6 +31,7 @@ REQUEST_LABELS = {
     "recipes/chat-context",
     "recipes/chat",
     "recipes/job-poll",
+    "capacity/checkpoint",
     "workouts/library",
     "workouts/activity-list",
     "workouts/activity-write",
@@ -102,6 +105,10 @@ def percentile(values, fraction):
 class Driver:
     def __init__(self, directory):
         self.directory = Path(directory)
+        self.phase = "diagnostic"
+        self.recipe_submission_ids = set()
+        self.recipe_saved_links = set()
+        self.checkpoints = {}
         self.results = []
         self.jobs = []
         self.recipe_jobs = []
@@ -186,6 +193,49 @@ class Driver:
                 milliseconds=(time.monotonic() - started) * 1000,
             )
             raise
+
+    async def checkpoint(self, name):
+        response = await self.request(
+            "GET", "/capacity/status", label="capacity/checkpoint"
+        )
+        if response.status_code != 200:
+            raise AcceptanceFailure("Synthetic metadata checkpoint unavailable")
+        value = response.json()
+        stages = value.get("stage_counts", {})
+        counters = value.get("provider_attempts", {})
+        counts = list(counters.values()) + [
+            n for stage in stages.values() for n in stage.values()
+        ]
+        if (
+            not value.get("synthetic")
+            or set(counters) != {"extraction", "cover", "chat"}
+            or set(stages) != STAGES
+            or any(
+                set(events) != {"start", "end", "failed"} for events in stages.values()
+            )
+            or any(type(n) is not int or not 0 <= n <= 1_000_000_000 for n in counts)
+        ):
+            raise AcceptanceFailure("Invalid synthetic metadata checkpoint")
+        diagnostic = value.get("diagnostics", {})
+        allowed = {
+            "loop_samples",
+            "loop_max_ms",
+            "loop_over100ms",
+            "gc_collections",
+            "gc_total_ms",
+            "gc_max_ms",
+            "interval_ms",
+        }
+        if set(diagnostic) != allowed or any(
+            type(n) not in (int, float) or not 0 <= n <= 1e12
+            for n in diagnostic.values()
+        ):
+            raise AcceptanceFailure("Invalid numeric diagnostic metadata")
+        self.checkpoints[name] = {
+            "stage_counts": stages,
+            "provider_attempts": counters,
+            "diagnostics": diagnostic,
+        }
 
     async def prepare(self):
         for owner in OWNERS:
@@ -287,13 +337,19 @@ class Driver:
             label="recipes/video-submit",
             expected=(200, 202),
             json={
-                "url": f"https://www.youtube.com/watch?v=capacity{index % 100:03d}",
+                "url": video_url(self.phase, index),
                 "location": "Guam",
                 "is_public": False,
             },
         )
         if job.status_code in (200, 202):
-            self.recipe_jobs.append((owner, job.json().get("job_id")))
+            identifier = job.json().get("job_id")
+            if not identifier or identifier in self.recipe_submission_ids:
+                raise AcceptanceFailure(
+                    "Cold synthetic media did not create a distinct job"
+                )
+            self.recipe_submission_ids.add(identifier)
+            self.recipe_jobs.append((owner, identifier))
         listing = await self.request(
             "GET", "/api/recipes/?limit=1", owner, label="recipes/chat-context"
         )
@@ -340,12 +396,11 @@ class Driver:
                 "images": [
                     {
                         "base64_data": base64.b64encode(
-                            (self.directory / "image-limit.jpg").read_bytes()
+                            (self.directory / "workout-image.jpg").read_bytes()
                         ).decode(),
                         "mime_type": "image/jpeg",
                     }
                 ],
-                "text": TEXT,
                 "ai_consent": True,
             }
         elif index % 3 == 2:
@@ -479,8 +534,11 @@ class Driver:
                     label="workouts/import-accept",
                     json={"acknowledge_warnings": True},
                 )
-                if accepted.status_code == 200:
-                    self.outcomes["accepted"].add(accepted.json()["id"])
+                if accepted.status_code != 200:
+                    raise AcceptanceFailure(
+                        "Reviewed source could not be accepted; stop repeated retries"
+                    )
+                self.outcomes["accepted"].add(accepted.json()["id"])
         for owner, identifier in self.recipe_jobs:
             if identifier:
                 current = await self.request(
@@ -488,6 +546,13 @@ class Driver:
                 )
                 if current.status_code == 200:
                     self.outcomes["recipes"][identifier] = current.json()["status"]
+                    if current.json()["status"] == "completed":
+                        saved_id = current.json().get("recipe_id")
+                        if not saved_id:
+                            raise AcceptanceFailure(
+                                "Completed cold media job has no saved recipe link"
+                            )
+                        self.recipe_saved_links.add(saved_id)
 
     async def boundaries(self, concurrency=8):
         raw = (self.directory / "near-body.json").read_text()
@@ -716,6 +781,9 @@ class Driver:
             "r04_closed": False,
             "saved_outcomes": {
                 "accepted_workout_count": len(self.outcomes["accepted"]),
+                "distinct_recipe_jobs_submitted": len(self.recipe_submission_ids),
+                "distinct_saved_recipe_links": len(self.recipe_saved_links),
+                "stage_checkpoints": self.checkpoints,
                 **{
                     kind + "_states": {
                         state: list(self.outcomes[kind].values()).count(state)
@@ -760,6 +828,8 @@ async def run(args):
             else "diagnostic"
         )
         driver.begin_trace(args.output)
+        if args.profile in {"recipes-baseline", "mixed"}:
+            await driver.checkpoint("before")
         if args.profile != "recipes-baseline":
             await driver.prepare()
         if args.profile == "upload-boundaries":
@@ -776,6 +846,7 @@ async def run(args):
             driver.results.clear()  # Setup is recorded separately, not protected-route latency.
 
             async def reader(index):
+                await asyncio.sleep(index * (3 if mixed else 2))
                 while time.monotonic() < deadline:
                     started = time.monotonic()
                     await driver.lightweight(index, mixed)
@@ -799,6 +870,30 @@ async def run(args):
 
             await asyncio.gather(*(reader(n) for n in range(8)), heavy(), polling())
             await driver.poll()
+        if args.profile in {"recipes-baseline", "mixed"}:
+            await driver.checkpoint("after")
+            report = driver.report()
+            if any(row["unexpected"] for row in report["routes"].values()):
+                raise AcceptanceFailure("Unexpected status in mixed/baseline workload")
+            stages = driver.checkpoints["after"]["stage_counts"]
+            before = driver.checkpoints["before"]["stage_counts"]
+            for stage in ("evidence_frames", "cover_frames", "cover_compare"):
+                if stages.get(stage, {}).get("end", 0) <= before.get(stage, {}).get(
+                    "end", 0
+                ):
+                    raise AcceptanceFailure(
+                        "Cold media frame/cover work was not observed"
+                    )
+            if not driver.recipe_submission_ids or len(
+                driver.outcomes["recipes"]
+            ) != len(driver.recipe_submission_ids):
+                raise AcceptanceFailure("Cold media saved outcomes are missing")
+            if len(driver.recipe_saved_links) != len(driver.recipe_submission_ids):
+                raise AcceptanceFailure("Cold media saved links are not distinct")
+            if any(
+                state != "completed" for state in driver.outcomes["recipes"].values()
+            ):
+                raise AcceptanceFailure("Cold media jobs have not drained")
         completed = True
         if (
             args.profile in {"recipes-baseline", "mixed"}

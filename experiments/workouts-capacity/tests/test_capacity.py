@@ -101,7 +101,12 @@ async def test_synthetic_http_keeps_workout_payload_path_and_blocks_unknown_egre
                     },
                     {
                         "role": "user",
-                        "content": [{"type": "text", "text": "provided_text"}],
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": 'Untrusted source JSON:\n{"parts":[{"location":"provided_text","text":"Squat: 3 sets of 8-12 reps. Rest 90 seconds."}]}',
+                            }
+                        ],
                     },
                 ],
             },
@@ -124,7 +129,10 @@ def test_real_fixture_pdf_images_and_near_body_are_bounded_deterministic(tmp_pat
     assert first == second
     assert first["near-body.json"]["bytes"] < 3 * 1024 * 1024
     assert len(PdfReader(tmp_path / "one/source-30.pdf").pages) == 30
-    assert "Squat" in PdfReader(tmp_path / "one/source-1.pdf").pages[0].extract_text()
+    assert (
+        "Reverse lunge"
+        in PdfReader(tmp_path / "one/source-1.pdf").pages[0].extract_text()
+    )
     with Image.open(tmp_path / "one/image-limit.jpg") as image:
         assert image.width * image.height == 4_000_000
     with Image.open(tmp_path / "one/cover.jpg") as image:
@@ -305,6 +313,7 @@ async def test_interrupted_driver_persists_partial_metadata_and_preserves_error(
     async def idle(*_):
         return None
 
+    monkeypatch.setattr(driver, "checkpoint", idle)
     monkeypatch.setattr(driver, "lightweight", request_failure)
     monkeypatch.setattr(driver, "media_and_chat", idle)
     monkeypatch.setattr(driver, "poll", idle)

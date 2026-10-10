@@ -232,6 +232,24 @@ def build_plan(repository, output, run_id, cpus, target_platform="linux/amd64"):
             ],
         },
         {
+            "step": "verify_real_source_pipeline_BEFORE_any_workouts_load",
+            "argv": [
+                "docker",
+                "run",
+                "--rm",
+                "--name",
+                f"capacity-source-check-{run_id}",
+                *common,
+                "-v",
+                f"{output / 'fixtures'}:/fixtures:ro",
+                image,
+                "python",
+                "-m",
+                "capacity.source_check",
+                "/fixtures",
+            ],
+        },
+        {
             "step": "seed_actual_migrations_once_empty_owned_db",
             "argv": [
                 "docker",
@@ -323,6 +341,11 @@ def build_plan(repository, output, run_id, cpus, target_platform="linux/amd64"):
         "emulation_is_not_render_latency_acceptance": True,
         "production_dependencies": "api/requirements.txt",
         "mocked_provider": True,
+        "cold_media": {
+            "phase_distinct_canonical_ids": True,
+            "fresh_job_and_frame_checkpoints_required": True,
+        },
+        "source_preflight": "Must pass all grounded fixture facts before load; PDF blocked under current amd64 emulation. No parser-limit bypass.",
         "financial_guard": "synthetic throughput only; separate real-guard denial tests required",
         "r04_closed": False,
         "thresholds": {

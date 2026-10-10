@@ -40,7 +40,7 @@ class Docker:
             self.running = False
             return API
         if args[1:4] == ["exec", API, "cat"]:
-            return f"{self.current}\n{self.peak}\nlow 0\nhigh 0\nmax 0\noom {self.oom}\noom_kill 0\n"
+            return f"{self.current}\n{self.peak}\nlow 0\nhigh 0\nmax 0\noom {self.oom}\noom_kill 0\nusage_usec 10000\nnr_periods 100\nnr_throttled 10\nthrottled_usec 1000\n"
         if args[1] == "top":
             return "PID PPID RSS COMMAND\n24 0 200000 python\n25 24 96000 ffmpeg\n26 24 12 private-name\n"
         if args[1] == "stats":

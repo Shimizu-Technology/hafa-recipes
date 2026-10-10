@@ -9,10 +9,11 @@ import string
 import subprocess
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
+from capacity.source_facts import IMAGE_FACTS, PDF_FACTS, TEXT_FACTS
 from capacity.transport import TEXT
 
 
@@ -42,6 +43,29 @@ def generate(folder, *, media=True):
         )
         draw.text((30, 30), TEXT, fill="black")
         image.save(folder / name, format="JPEG", quality=85)
+    # Distinct, annotated source: a Recipe cover never stands in for a workout.
+    with Image.new("RGB", (2000, 2000), "white") as image:
+        draw = ImageDraw.Draw(image)
+        font = ImageFont.load_default(size=70)
+        draw.multiline_text(
+            (90, 120),
+            "SYNTHETIC TEST WORKOUT\n\nPush-up\n4 sets of 6-10 reps\nRest 75 seconds\nNo equipment required",
+            fill="black",
+            font=font,
+            spacing=35,
+        )
+        image.save(folder / "workout-image.jpg", format="JPEG", quality=85)
+    (folder / "source-facts.json").write_text(
+        json.dumps(
+            {
+                "synthetic": True,
+                "text": TEXT_FACTS,
+                "image": IMAGE_FACTS,
+                "pdf": PDF_FACTS,
+            },
+            indent=2,
+        )
+    )
     for count in [1, 30, 31]:
         writer = PdfWriter()
         font = DictionaryObject(
@@ -58,7 +82,9 @@ def generate(folder, *, media=True):
                 {NameObject("/Font"): DictionaryObject({NameObject("/F1"): reference})}
             )
             stream = DecodedStreamObject()
-            stream.set_data(f"BT /F1 12 Tf 30 750 Td ({TEXT}) Tj ET".encode())
+            stream.set_data(
+                f"BT /F1 10 Tf 30 750 Td ({PDF_FACTS['text']}) Tj ET".encode()
+            )
             page[NameObject("/Contents")] = writer._add_object(stream)
         with (folder / f"source-{count}.pdf").open("wb") as out:
             writer.write(out)
@@ -69,12 +95,11 @@ def generate(folder, *, media=True):
             "images": [
                 {
                     "base64_data": base64.b64encode(
-                        (folder / "image-limit.jpg").read_bytes()
+                        (folder / "workout-image.jpg").read_bytes()
                     ).decode(),
                     "mime_type": "image/jpeg",
                 }
             ],
-            "text": TEXT,
             "ai_consent": True,
         }
     }

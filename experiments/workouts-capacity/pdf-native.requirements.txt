@@ -1,0 +1,5 @@
+# Relevant parser graph, pinned to unchanged api/requirements.txt; diagnostic only.
+pypdf==6.20.0
+cryptography==46.0.3
+cffi==2.0.0
+pycparser==2.23
