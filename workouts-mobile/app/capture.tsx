@@ -6,10 +6,10 @@ import * as Crypto from "expo-crypto";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Card, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
 import { useTraining } from "@/lib/context";
-import { captureErrors, type CaptureDraft, type CaptureKind } from "@/lib/capture";
+import { captureErrors, type CaptureDraft, type CaptureKind, type CaptureFile } from "@/lib/capture";
 import { pickImages, pickDocument, sourceFor, cleanupCaptureFiles } from "@/lib/capture-io";
 export default function Capture() {
-  const { localDrafts, api, owner, enrollment } = useTraining();
+  const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const generation = enrollment?.generation ?? 0;
   const scope = `capture:${generation}`;
   const [draft, setDraft] = useState<CaptureDraft>(() => ({
@@ -19,8 +19,10 @@ export default function Capture() {
     text: "",
     source_url: "",
     files: [],
-    created_at: new Date().toISOString(),
+    created_at: new Date().toISOString()
   }));
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const [ready, setReady] = useState(false);
   const [duplicateUrl, setDuplicateUrl] = useState("");
   useEffect(() => {
@@ -30,16 +32,37 @@ export default function Capture() {
   const duplicateHint = useQuery({
     queryKey: [owner, "duplicate-sources", generation, duplicateUrl],
     queryFn: () => api.duplicateSources(duplicateUrl, undefined, generation),
-    enabled: !!enrollment?.enrolled && /^https?:\/\//i.test(duplicateUrl) && duplicateUrl.length <= 2000,
+    enabled: !!enrollment?.enrolled && /^https?:\/\//i.test(duplicateUrl) && duplicateUrl.length <= 2000
   });
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState("");
+  const [abandon, setAbandon] = useState(false);
   const [busy, setBusy] = useState(false);
   const guard = useRef(false);
+  const mounted = useRef(true);
+  const live = useRef({ owner, generation, storage });
+  live.current = { owner, generation, storage };
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  function current() {
+    if (
+      !mounted.current ||
+      !isCurrentAccount() ||
+      !storage.isCurrent() ||
+      live.current.owner !== owner ||
+      live.current.generation !== generation ||
+      live.current.storage !== storage
+    )
+      throw Error("The account, enrollment or capture screen changed. This source was not moved to another draft.");
+  }
   const capabilities = useQuery({
     queryKey: [owner, "capabilities", generation],
     queryFn: api.capabilities,
-    enabled: !!enrollment?.enrolled,
+    enabled: !!enrollment?.enrolled
   });
   useEffect(() => {
     let active = true;
@@ -59,7 +82,7 @@ export default function Capture() {
                     text: "",
                     source_url: "",
                     files: [],
-                    created_at: new Date().toISOString(),
+                    created_at: new Date().toISOString()
                   }
             );
           setReady(true);
@@ -76,34 +99,87 @@ export default function Capture() {
     };
   }, [owner, scope, generation]);
   function update(value: CaptureDraft) {
+    if (guard.current || draftRef.current.pending_import) return;
+    try {
+      current();
+    } catch {
+      return;
+    }
     setDraft(value);
     void localDrafts
       .save(owner, scope, value)
       .catch(() => setError("Could not keep this source draft locally. Stay here until it is saved."));
   }
-  async function choose(kind: CaptureKind) {
-    setError("");
-    if (kind !== draft.kind) {
-      await cleanupCaptureFiles(draft.files);
-      update({ ...draft, request_id: Crypto.randomUUID(), kind, files: [], job_id: undefined });
-    }
+  async function persist(value: CaptureDraft) {
+    current();
+    await localDrafts.save(owner, scope, value);
+    current();
+    setDraft(value);
   }
-  async function pick(kind: "images" | "document", camera = false) {
-    if (guard.current) return;
+  async function replace(value: CaptureDraft) {
+    // Keep old exact assets discoverable by erasure until their cleanup succeeds.
+    const next = { ...value, cleanup_files: [...(draft.cleanup_files ?? []), ...draft.files] };
+    await persist(next);
+    await cleanupCaptureFiles(next.cleanup_files, true);
+    await persist({ ...next, cleanup_files: [] });
+  }
+  async function choose(kind: CaptureKind) {
+    if (guard.current || draftRef.current.pending_import || kind === draft.kind) return;
     guard.current = true;
     setBusy(true);
     setError("");
     try {
-      const files = kind === "images" ? await pickImages(camera) : await pickDocument();
-      if (files.length) {
-        await cleanupCaptureFiles(draft.files);
-        update({ ...draft, request_id: Crypto.randomUUID(), kind, files, job_id: undefined });
-      }
+      await replace({ ...draft, request_id: Crypto.randomUUID(), kind, files: [], job_id: undefined });
     } catch (e) {
-      setError((e as Error).message);
+      if (mounted.current) setError((e as Error).message);
     } finally {
       guard.current = false;
-      setBusy(false);
+      if (mounted.current) setBusy(false);
+    }
+  }
+  async function pick(kind: "images" | "document", camera = false) {
+    if (guard.current || draftRef.current.pending_import) return;
+    guard.current = true;
+    setBusy(true);
+    setError("");
+    let files: CaptureFile[] = [];
+    let registered = false;
+    try {
+      files = kind === "images" ? await pickImages(camera, current, owner) : await pickDocument(current, owner);
+      if (files.length) {
+        current();
+        const next = {
+          ...draft,
+          request_id: Crypto.randomUUID(),
+          kind,
+          files,
+          job_id: undefined,
+          cleanup_files: [...(draft.cleanup_files ?? []), ...draft.files]
+        };
+        await persist(next);
+        registered = true;
+        await cleanupCaptureFiles(next.cleanup_files, true);
+        await persist({ ...next, cleanup_files: [] });
+      }
+    } catch (e) {
+      let active = true;
+      try {
+        current();
+      } catch {
+        active = false;
+      }
+      let problem = e;
+      if (!registered || !active) {
+        try {
+          await cleanupCaptureFiles(files, true);
+        } catch (cleanup) {
+          problem = cleanup;
+        }
+      }
+      if (active) setError((problem as Error).message);
+    } finally {
+      guard.current = false;
+      if (mounted.current) setBusy(false);
     }
   }
   async function submit() {
@@ -119,11 +195,14 @@ export default function Capture() {
     setBusy(true);
     setError("");
     try {
-      const source = await sourceFor(draft);
-      await localDrafts.save(owner, scope, draft);
+      const pending = { ...draft, pending_import: true };
+      // Persist original UUID/fields before any transport; retries stay frozen.
+      await persist(pending);
+      const source = await sourceFor(pending, current);
       await api.setAiConsent(true, generation);
+      current();
       const job = await api.startImport(draft.request_id, source, draft.generation);
-      update({ ...draft, job_id: job.id });
+      await persist({ ...pending, job_id: job.id });
       const prior =
         (await localDrafts.load<Array<{ id: string; generation: number; label: string; created_at: string }>>(
           owner,
@@ -139,18 +218,20 @@ export default function Capture() {
               : draft.kind === "text"
                 ? "Pasted workout"
                 : draft.files.map((f) => f.name).join(", "),
-          created_at: new Date().toISOString(),
+          created_at: new Date().toISOString()
         },
-        ...prior.filter((item) => item.id !== job.id),
+        ...prior.filter((item) => item.id !== job.id)
       ]);
+      current();
       router.push({ pathname: "/import/[id]", params: { id: job.id } });
     } catch (e) {
-      setError((e as Error).message);
+      if (mounted.current) setError((e as Error).message);
     } finally {
       guard.current = false;
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
+  const locked = busy || !!draft.pending_import;
   return (
     <Screen back title="Keep the inspiration." subtitle="Share a source, review the workout, then make it yours.">
       <Button
@@ -173,9 +254,10 @@ export default function Capture() {
               url: "A link",
               text: "Pasted workout text",
               images: "Photos or screenshots",
-              document: "A PDF or text document",
+              document: "A PDF or text document"
             }[kind]
           }
+          disabled={locked}
           selected={draft.kind === kind}
           onPress={() => {
             void choose(kind);
@@ -184,6 +266,7 @@ export default function Capture() {
       ))}
       {draft.kind === "url" && (
         <Field
+          disabled={locked}
           label="Source link"
           value={draft.source_url}
           onChange={(source_url) =>
@@ -212,6 +295,7 @@ export default function Capture() {
       )}
       {draft.kind !== "text" && (
         <Field
+          disabled={locked}
           label="Caption or extra source instructions"
           optional
           multiline
@@ -221,6 +305,7 @@ export default function Capture() {
       )}
       {draft.kind === "text" && (
         <Field
+          disabled={locked}
           label="Workout text"
           multiline
           value={draft.text}
@@ -234,6 +319,7 @@ export default function Capture() {
             title="Choose up to four images"
             secondary
             busy={busy}
+            disabled={!!draft.pending_import}
             onPress={() => {
               void pick("images");
             }}
@@ -241,7 +327,7 @@ export default function Capture() {
           <Button
             title="Take a photo"
             secondary
-            disabled={busy}
+            disabled={locked}
             onPress={() => {
               void pick("images", true);
             }}
@@ -264,6 +350,7 @@ export default function Capture() {
             title="Choose PDF or text document"
             secondary
             busy={busy}
+            disabled={!!draft.pending_import}
             onPress={() => {
               void pick("document");
             }}
@@ -282,6 +369,7 @@ export default function Capture() {
         needs separate permission.
       </Notice>
       <Choice
+        disabled={busy}
         label="Use AI to extract this source"
         detail="You can use manual entry if you prefer not to send the source."
         selected={consent}
@@ -301,10 +389,87 @@ export default function Capture() {
           onPress={() => router.push({ pathname: "/import/[id]", params: { id: draft.job_id! } })}
         />
       )}
+      {draft.pending_import && !draft.job_id && (
+        <Notice>
+          This source is saved on your device. Retry sends the same source to recover the earlier import. You can also
+          enter the workout manually.
+        </Notice>
+      )}
+      {draft.pending_import && !draft.job_id && (
+        <Button title="Start another source" secondary disabled={busy} onPress={() => setAbandon(true)} />
+      )}
+      {abandon && (
+        <Card>
+          <Notice>
+            This source may already be processing. Retry first to recover it. Starting another source discards this
+            device draft and may create another import. An earlier import keeps processing.
+          </Notice>
+          <Button title="Keep this source" secondary disabled={busy} onPress={() => setAbandon(false)} />
+          <Button
+            title="Start a separate source and discard this draft"
+            secondary
+            disabled={busy}
+            onPress={() => {
+              if (guard.current) return;
+              guard.current = true;
+              setBusy(true);
+              void replace({
+                request_id: Crypto.randomUUID(),
+                generation,
+                kind: "url",
+                text: "",
+                source_url: "",
+                files: [],
+                created_at: new Date().toISOString()
+              })
+                .then(() => {
+                  current();
+                  setAbandon(false);
+                  setError("");
+                })
+                .catch((e) => {
+                  if (mounted.current) setError(e.message);
+                })
+                .finally(() => {
+                  guard.current = false;
+                  if (mounted.current) setBusy(false);
+                });
+            }}
+          />
+        </Card>
+      )}
+      {draft.job_id && (
+        <Button
+          title="Start another source draft"
+          secondary
+          disabled={busy}
+          onPress={() => {
+            if (guard.current) return;
+            guard.current = true;
+            setBusy(true);
+            void replace({
+              request_id: Crypto.randomUUID(),
+              generation,
+              kind: "url",
+              text: "",
+              source_url: "",
+              files: [],
+              created_at: new Date().toISOString()
+            })
+              .catch((e) => {
+                if (mounted.current) setError(e.message);
+              })
+              .finally(() => {
+                guard.current = false;
+                if (mounted.current) setBusy(false);
+              });
+          }}
+        />
+      )}
       <Button
-        title="Extract workout"
+        title={draft.pending_import ? "Retry extracting this source" : "Extract workout"}
         busy={busy}
-        disabled={!ready || !capabilities.data?.imports || !enrollment?.enrolled}
+        disabled={!ready || !capabilities.data?.imports || !enrollment?.enrolled || !!draft.job_id}
         onPress={() => {
           void submit();
         }}

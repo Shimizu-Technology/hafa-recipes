@@ -1,30 +1,61 @@
 import * as Crypto from "expo-crypto";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { router } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Copy, Field, Notice, Screen } from "@/components/ui";
 import { useTraining } from "@/lib/context";
+import { createPrivateForm } from "@/lib/private-form";
+import type { AuthoredWorkout } from "@/lib/models";
 import { blankWorkout, manualWorkout, type WorkoutDraft } from "@/lib/manual";
+interface Command {
+  key: string;
+  generation: number;
+  workout: AuthoredWorkout;
+}
 export default function AddWorkout() {
-  const { localDrafts, api, owner, enrollment } = useTraining();
+  const { storage, api, owner, enrollment, isCurrentAccount } = useTraining();
   const cache = useQueryClient();
   const guard = useRef(false);
   const draftScope = `manual-workout:${enrollment?.generation ?? "none"}`;
+  const form = useMemo(
+    () => createPrivateForm<WorkoutDraft, Command>(storage, owner, draftScope),
+    [storage, owner, draftScope]
+  );
   const creationKey = useRef(Crypto.randomUUID());
+  const [command, setCommand] = useState<Command | null>(null);
+  const [resolved, setResolved] = useState(false);
+  const sealed = useRef(false);
+  sealed.current = !!command || resolved;
+  const [abandon, setAbandon] = useState(false);
+  const [savedId, setSavedId] = useState<string | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  function current() {
+    if (!mounted.current || !storage.isCurrent() || !isCurrentAccount())
+      throw Error("Your account or training setup changed. This workout save was stopped.");
+  }
   const [draft, setDraft] = useState(blankWorkout);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    void localDrafts
-      .load<WorkoutDraft>(owner, draftScope)
-      .then((value) => {
+    void form
+      .load()
+      .then((box) => {
         if (active) {
-          if (value) {
-            setDraft(value);
-            if (value.creation_key) creationKey.current = value.creation_key;
+          if (box.input) {
+            setDraft(box.input);
+            if (box.input.creation_key) creationKey.current = box.input.creation_key;
           }
+          setCommand(box.command);
+          setResolved(box.terminal);
+          setSavedId(box.saved_id ?? null);
           setLoaded(true);
         }
       })
@@ -37,18 +68,24 @@ export default function AddWorkout() {
     return () => {
       active = false;
     };
-  }, [owner, draftScope]);
+  }, [form]);
   function update(value: WorkoutDraft) {
+    if (guard.current || sealed.current) return;
+    try {
+      current();
+    } catch {
+      return;
+    }
     setDraft(value);
-    void localDrafts
-      .save(owner, draftScope, { ...value, creation_key: creationKey.current, generation: enrollment?.generation })
+    void form
+      .save({ ...value, creation_key: creationKey.current, generation: enrollment?.generation ?? undefined })
       .catch(() => setError("Could not keep this draft locally. Stay here until saved."));
   }
   async function save() {
-    if (guard.current) return;
+    if (guard.current || !loaded || resolved) return;
     let workout;
     try {
-      workout = manualWorkout(draft);
+      workout = command?.workout ?? manualWorkout(draft);
     } catch (e) {
       setError((e as Error).message);
       return;
@@ -57,9 +94,19 @@ export default function AddWorkout() {
     setBusy(true);
     setError("");
     try {
-      const saved = await api.saveWorkout(workout, creationKey.current, enrollment?.generation ?? undefined);
-      await localDrafts.remove(owner, draftScope);
+      current();
+      const pending = command ?? { key: creationKey.current, generation: enrollment?.generation ?? 0, workout };
+      const frozen = await form.begin(draft, pending);
+      current();
+      setCommand(frozen);
+      const saved = await api.saveWorkout(frozen.workout, frozen.key, frozen.generation);
+      current();
+      await form.complete(frozen, saved.id);
+      setResolved(true);
+      setCommand(null);
+      setSavedId(saved.id);
       await cache.invalidateQueries({ queryKey: [owner, "library"] });
+      current();
       router.replace({ pathname: "/workout/[id]", params: { id: saved.id } });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save the workout. Your local draft is safe.");
@@ -75,15 +122,19 @@ export default function AddWorkout() {
       </Notice>
       {!loaded ? (
         <Copy>Loading your draft…</Copy>
+      ) : resolved ? (
+        <Notice>Your workout was saved. Open it or start another draft.</Notice>
       ) : (
         <>
           <Field
+            disabled={busy || !!command}
             label="Workout name"
             value={draft.title}
             onChange={(title) => update({ ...draft, title })}
             placeholder="My full-body session"
           />
           <Field
+            disabled={busy || !!command}
             label="Equipment"
             optional
             value={draft.equipment}
@@ -94,6 +145,7 @@ export default function AddWorkout() {
             <Card key={index}>
               <Copy kind="label">EXERCISE {index + 1}</Copy>
               <Field
+                disabled={busy || !!command}
                 label="Exercise name"
                 value={exercise.name}
                 onChange={(name) =>
@@ -102,6 +154,7 @@ export default function AddWorkout() {
                 placeholder="Goblet squat"
               />
               <Field
+                disabled={busy || !!command}
                 label="Sets"
                 optional
                 numeric
@@ -111,6 +164,7 @@ export default function AddWorkout() {
                 }
               />
               <Field
+                disabled={busy || !!command}
                 label="Reps per set"
                 optional
                 numeric
@@ -121,6 +175,7 @@ export default function AddWorkout() {
               />
               {draft.exercises.length > 1 && (
                 <Button
+                  disabled={busy || !!command}
                   title={`Remove exercise ${index + 1}`}
                   secondary
                   onPress={() => update({ ...draft, exercises: draft.exercises.filter((_, i) => i !== index) })}
@@ -129,6 +184,7 @@ export default function AddWorkout() {
             </Card>
           ))}
           <Button
+            disabled={busy || !!command}
             title="Add another exercise"
             secondary
             icon="add"
@@ -137,10 +193,64 @@ export default function AddWorkout() {
         </>
       )}
       {!!error && <Notice error>{error}</Notice>}
+      {command && (
+        <Notice>
+          These workout details are saved on this device. Retry sends the same details to avoid a duplicate.
+        </Notice>
+      )}
+      {savedId && (
+        <Button
+          title="Open saved workout"
+          secondary
+          onPress={() => router.push({ pathname: "/workout/[id]", params: { id: savedId } })}
+        />
+      )}
+      {(command || resolved) && (
+        <Button title="Start another workout" secondary disabled={busy} onPress={() => setAbandon(true)} />
+      )}
+      {abandon && (
+        <Card>
+          <Notice>
+            This workout may already be in your library. Check there first if you did not receive a save confirmation.
+            Starting another workout discards this device draft and does not remove any saved workout.
+          </Notice>
+          <Button title="Open my library" secondary disabled={busy} onPress={() => router.push("/(tabs)/library")} />
+          <Button
+            title="Start another workout and discard this draft"
+            secondary
+            disabled={busy}
+            onPress={() => {
+              if (guard.current) return;
+              guard.current = true;
+              setBusy(true);
+              void (async () => {
+                current();
+                await form.reset();
+                current();
+                creationKey.current = Crypto.randomUUID();
+                setDraft(blankWorkout());
+                setCommand(null);
+                setResolved(false);
+                setSavedId(null);
+                setError("");
+                setAbandon(false);
+              })()
+                .catch((e) => {
+                  if (mounted.current) setError(e.message);
+                })
+                .finally(() => {
+                  guard.current = false;
+                  if (mounted.current) setBusy(false);
+                });
+            }}
+          />
+          <Button title="Keep this draft" secondary disabled={busy} onPress={() => setAbandon(false)} />
+        </Card>
+      )}
       <Button
-        title="Save to my library"
+        title={command ? "Retry saving workout" : "Save to my library"}
         busy={busy}
-        disabled={!loaded}
+        disabled={!loaded || resolved}
         onPress={() => {
           void save();
         }}

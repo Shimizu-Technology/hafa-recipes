@@ -5,9 +5,11 @@ export function OptionalNumber({
   label,
   value,
   onChange,
+  disabled = false,
   toDisplay = (n) => n,
-  toCanonical = (n) => n,
+  toCanonical = (n) => n
 }: {
+  disabled?: boolean;
   label: string;
   value: number | null | undefined;
   onChange(value: number | null): void;
@@ -29,11 +31,13 @@ export function OptionalNumber({
   }, [value, toDisplay, toCanonical]);
   return (
     <Field
+      disabled={disabled}
       optional
       numeric
       label={label}
       value={text}
       onChange={(input) => {
+        if (disabled) return;
         setText(input);
         const number = optionalNumber(input);
         onChange(number == null ? null : toCanonical(number));

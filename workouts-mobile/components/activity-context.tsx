@@ -7,7 +7,9 @@ export function ActivityContext({
   activities,
   timezone,
   onChange,
+  disabled = false
 }: {
+  disabled?: boolean;
   activities: DeclaredActivity[];
   timezone: string;
   onChange(value: DeclaredActivity[]): void;
@@ -55,17 +57,20 @@ export function ActivityContext({
             ) : (
               <>
                 <Field
+                  disabled={disabled}
                   label={`Activity ${index + 1} name`}
                   value={activity.name}
                   onChange={(name) => update(index, { name })}
                   placeholder="Basketball practice"
                 />
                 <CalendarDate
+                  disabled={disabled}
                   label={`Activity ${index + 1} date`}
                   value={activity.date}
                   onChange={(date) => update(index, { date: date ?? "" })}
                 />
                 <OptionalNumber
+                  disabled={disabled}
                   label={`Activity ${index + 1} duration · minutes`}
                   value={activity.duration_minutes}
                   onChange={(duration_minutes) => update(index, { duration_minutes })}
@@ -75,17 +80,23 @@ export function ActivityContext({
                   [
                     { value: null, label: "Not sure yet" },
                     { value: false, label: "Light / easy" },
-                    { value: true, label: "Strenuous" },
+                    { value: true, label: "Strenuous" }
                   ] as const
                 ).map((choice) => (
                   <Choice
+                    disabled={disabled}
                     key={choice.label}
                     label={`Activity ${index + 1} · ${choice.label}`}
                     selected={(activity.strenuous ?? null) === choice.value}
                     onPress={() => update(index, { strenuous: choice.value })}
                   />
                 ))}
-                <Button title={`Remove activity ${index + 1} declaration`} secondary onPress={() => setRemove(index)} />
+                <Button
+                  title={`Remove activity ${index + 1} declaration`}
+                  secondary
+                  onPress={() => setRemove(index)}
+                  disabled={disabled}
+                />
                 {remove === index && (
                   <>
                     <Notice>
@@ -99,8 +110,9 @@ export function ActivityContext({
                         onChange(activities.filter((_, i) => i !== index));
                         setRemove(null);
                       }}
+                      disabled={disabled}
                     />
-                    <Button title="Keep declaration" secondary onPress={() => setRemove(null)} />
+                    <Button title="Keep declaration" secondary onPress={() => setRemove(null)} disabled={disabled} />
                   </>
                 )}
               </>
@@ -116,6 +128,7 @@ export function ActivityContext({
             setPage(Math.max(0, page - 1));
             setRemove(null);
           }}
+          disabled={disabled}
         />
       )}
       {offset + 10 < activities.length && (
@@ -126,9 +139,15 @@ export function ActivityContext({
             setPage(page + 1);
             setRemove(null);
           }}
+          disabled={disabled}
         />
       )}
-      <Button title="Add activity declaration" secondary disabled={activities.length >= 500} onPress={add} />
+      <Button
+        title="Add activity declaration"
+        secondary
+        disabled={disabled || activities.length >= 500}
+        onPress={add}
+      />
     </>
   );
 }

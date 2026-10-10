@@ -8,7 +8,9 @@ import type { TrainingProfile } from "@/lib/models";
 export function EquipmentLocations({
   value,
   update,
+  disabled = false
 }: {
+  disabled?: boolean;
   value: TrainingProfile;
   update(value: TrainingProfile): void;
 }) {
@@ -34,7 +36,7 @@ export function EquipmentLocations({
       id: Crypto.randomUUID(),
       name: title,
       equipment: [...value.equipment],
-      available_loads_kg: [...loads],
+      available_loads_kg: [...loads]
     };
     update({ ...value, equipment_locations: [...locations, location], active_equipment_location_id: location.id });
     setName("");
@@ -77,6 +79,7 @@ export function EquipmentLocations({
         <Copy>Locations stay separate. The selected location supplies the equipment and loads for your next plan.</Copy>
         {locations.map((location) => (
           <Choice
+            disabled={disabled}
             key={location.id}
             label={location.name}
             detail={location.equipment.length ? location.equipment.join(" · ") : "Bodyweight / no equipment"}
@@ -90,6 +93,7 @@ export function EquipmentLocations({
         {active && (
           <>
             <Field
+              disabled={disabled}
               label="Selected location name"
               value={active.name}
               onChange={(name) =>
@@ -97,7 +101,7 @@ export function EquipmentLocations({
                   ...value,
                   equipment_locations: locations.map((location) =>
                     location.id === active.id ? { ...location, name } : location
-                  ),
+                  )
                 })
               }
             />
@@ -105,10 +109,17 @@ export function EquipmentLocations({
               title={`Remove ${active.name} location`}
               secondary
               onPress={() => update(removeEquipmentLocation(value, active.id))}
+              disabled={disabled}
             />
           </>
         )}
-        <Field label="New location name" value={name} onChange={setName} placeholder="Home, Gym, Outdoors…" />
+        <Field
+          disabled={disabled}
+          label="New location name"
+          value={name}
+          onChange={setName}
+          placeholder="Home, Gym, Outdoors…"
+        />
         <Copy kind="small">
           A new location starts with the equipment selected below. Choose Bodyweight or your available equipment first,
           then save the profile.
@@ -116,20 +127,26 @@ export function EquipmentLocations({
         <Button
           title="Add equipment location"
           secondary
-          disabled={locations.length >= 10 || !name.trim() || value.equipment == null}
+          disabled={disabled || locations.length >= 10 || !name.trim() || value.equipment == null}
           onPress={create}
         />
       </Card>
       <Card>
         <Copy kind="heading">{active ? `${active.name} inventory` : "Your available equipment"}</Copy>
         <Field
+          disabled={disabled}
           label="Other equipment item"
           value={custom}
           onChange={setCustom}
           optional
           placeholder="Resistance machine, medicine ball…"
         />
-        <Button title="Add this equipment item" secondary disabled={!custom.trim()} onPress={addEquipment} />
+        <Button
+          title="Add this equipment item"
+          secondary
+          disabled={disabled || !custom.trim()}
+          onPress={addEquipment}
+        />
         {value.equipment
           ?.filter(
             (item) =>
@@ -143,9 +160,11 @@ export function EquipmentLocations({
               onPress={() =>
                 update(changeEquipment(value, { equipment: value.equipment!.filter((value) => value !== item) }))
               }
+              disabled={disabled}
             />
           ))}
         <Field
+          disabled={disabled}
           label={`Available load · ${units === "imperial" ? "lb" : "kg"}`}
           value={load}
           onChange={setLoad}
@@ -155,7 +174,7 @@ export function EquipmentLocations({
         <Copy kind="small">
           Add only loads you can actually use. These are equipment options, not an assigned training load.
         </Copy>
-        <Button title="Add available load" secondary disabled={!load.trim()} onPress={addLoad} />
+        <Button title="Add available load" secondary disabled={disabled || !load.trim()} onPress={addLoad} />
         {loads.map((kg) => (
           <Button
             key={kg}
@@ -164,6 +183,7 @@ export function EquipmentLocations({
             onPress={() =>
               update(changeEquipment(value, { available_loads_kg: loads.filter((value) => value !== kg) }))
             }
+            disabled={disabled}
           />
         ))}
       </Card>

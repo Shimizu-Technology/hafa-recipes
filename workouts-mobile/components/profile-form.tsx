@@ -18,7 +18,9 @@ export function ProfileForm({
   update,
   section,
   baseline,
+  disabled = false
 }: {
+  disabled?: boolean;
   value: TrainingProfile;
   update(value: TrainingProfile): void;
   section?: number;
@@ -26,6 +28,7 @@ export function ProfileForm({
 }) {
   const { units, setUnits } = useTraining();
   const set = (change: Partial<TrainingProfile>) => {
+    if (disabled) return;
     const merged = { ...value, ...change };
     update(
       change.equipment !== undefined || change.available_loads_kg !== undefined
@@ -44,13 +47,14 @@ export function ProfileForm({
           <Copy kind="heading">What matters most to you?</Copy>
           {(Object.entries(goalLabels) as Array<[Goal, string]>).map(([goal, label]) => (
             <Choice
+              disabled={disabled}
               key={goal}
               label={label}
               selected={value.primary_goal === goal}
               onPress={() =>
                 set({
                   primary_goal: goal,
-                  secondary_goals: (value.secondary_goals ?? []).filter((item) => item !== goal),
+                  secondary_goals: (value.secondary_goals ?? []).filter((item) => item !== goal)
                 })
               }
             />
@@ -61,6 +65,7 @@ export function ProfileForm({
             .filter(([goal]) => goal !== value.primary_goal)
             .map(([goal, label]) => (
               <Choice
+                disabled={disabled}
                 key={`secondary:${goal}`}
                 label={`Also: ${label}`}
                 selected={!!value.secondary_goals?.includes(goal)}
@@ -68,18 +73,24 @@ export function ProfileForm({
                   set({
                     secondary_goals: value.secondary_goals?.includes(goal)
                       ? value.secondary_goals.filter((item) => item !== goal)
-                      : [...(value.secondary_goals ?? []), goal],
+                      : [...(value.secondary_goals ?? []), goal]
                   })
                 }
               />
             ))}
           {!!value.secondary_goals?.length && (
-            <Button title="Clear secondary goals" secondary onPress={() => set({ secondary_goals: [] })} />
+            <Button
+              disabled={disabled}
+              title="Clear secondary goals"
+              secondary
+              onPress={() => set({ secondary_goals: [] })}
+            />
           )}
           {(value.primary_goal === "strength" || value.secondary_goals?.includes("strength")) && (
             <>
               {(["strength", "muscle", "both"] as const).map((priority, index) => (
                 <Choice
+                  disabled={disabled}
                   key={priority}
                   label={["Focus on strength", "Focus on muscle", "A balance of both"][index]}
                   selected={value.strength_priority === priority}
@@ -92,6 +103,7 @@ export function ProfileForm({
             <>
               {(["maintain", "fat_loss", "muscle_gain"] as const).map((priority, index) => (
                 <Choice
+                  disabled={disabled}
                   key={priority}
                   label={["Maintain my current composition", "Work toward fat loss", "Work toward muscle gain"][index]}
                   selected={value.body_composition_priority === priority}
@@ -103,6 +115,7 @@ export function ProfileForm({
           {(value.primary_goal === "athletic_conditioning" ||
             value.secondary_goals?.includes("athletic_conditioning")) && (
             <Field
+              disabled={disabled}
               label="Activities you train for"
               value={value.activity_focus ?? ""}
               onChange={(activity_focus) => set({ activity_focus })}
@@ -116,12 +129,14 @@ export function ProfileForm({
               <Copy kind="label">Your running starting point</Copy>
               {value.running_baseline != null && (
                 <Button
+                  disabled={disabled}
                   title="Clear my optional running context"
                   secondary
                   onPress={() => set({ running_baseline: null })}
                 />
               )}
               <OptionalNumber
+                disabled={disabled}
                 label="Comfortable walking time · minutes"
                 value={value.running_baseline?.comfortable_walk_minutes}
                 onChange={(comfortable_walk_minutes) =>
@@ -130,12 +145,13 @@ export function ProfileForm({
                       novice_start_confirmed: false,
                       accepted_stage: 0,
                       ...value.running_baseline,
-                      comfortable_walk_minutes,
-                    },
+                      comfortable_walk_minutes
+                    }
                   })
                 }
               />
               <OptionalNumber
+                disabled={disabled}
                 label="Comfortable running time · minutes"
                 value={value.running_baseline?.comfortable_run_minutes}
                 onChange={(comfortable_run_minutes) =>
@@ -144,12 +160,13 @@ export function ProfileForm({
                       novice_start_confirmed: false,
                       accepted_stage: 0,
                       ...value.running_baseline,
-                      comfortable_run_minutes,
-                    },
+                      comfortable_run_minutes
+                    }
                   })
                 }
               />
               <OptionalNumber
+                disabled={disabled}
                 label="Recent running volume · minutes per week"
                 value={value.running_baseline?.recent_weekly_minutes}
                 onChange={(recent_weekly_minutes) =>
@@ -158,12 +175,13 @@ export function ProfileForm({
                       novice_start_confirmed: false,
                       accepted_stage: 0,
                       ...value.running_baseline,
-                      recent_weekly_minutes,
-                    },
+                      recent_weekly_minutes
+                    }
                   })
                 }
               />
               <OptionalNumber
+                disabled={disabled}
                 label="Recent runs per week"
                 value={value.running_baseline?.recent_runs_per_week}
                 onChange={(recent_runs_per_week) =>
@@ -172,8 +190,8 @@ export function ProfileForm({
                       novice_start_confirmed: false,
                       accepted_stage: 0,
                       ...value.running_baseline,
-                      recent_runs_per_week,
-                    },
+                      recent_runs_per_week
+                    }
                   })
                 }
               />
@@ -182,6 +200,7 @@ export function ProfileForm({
                 values unspecified.
               </Copy>
               <OptionalNumber
+                disabled={disabled}
                 label={`Optional event distance · ${units === "imperial" ? "miles" : "km"}`}
                 value={value.running_baseline?.event_distance_km}
                 toDisplay={(km) => displayedDistance(km, units === "imperial")}
@@ -192,12 +211,13 @@ export function ProfileForm({
                       novice_start_confirmed: false,
                       accepted_stage: 0,
                       ...value.running_baseline,
-                      event_distance_km,
-                    },
+                      event_distance_km
+                    }
                   })
                 }
               />
               <CalendarDate
+                disabled={disabled}
                 optional
                 label="Target event date"
                 value={value.running_baseline?.event_date}
@@ -207,8 +227,8 @@ export function ProfileForm({
                       novice_start_confirmed: false,
                       accepted_stage: 0,
                       ...value.running_baseline,
-                      event_date,
-                    },
+                      event_date
+                    }
                   })
                 }
               />
@@ -217,6 +237,7 @@ export function ProfileForm({
                 before accepting.
               </Copy>
               <Choice
+                disabled={disabled}
                 label="Use a conservative walking / running progression"
                 detail={`Use this for a conservative starting routine. Saved stage ${(value.running_baseline?.accepted_stage ?? 0) + 1} advances only through a reviewed progression.`}
                 selected={value.running_baseline?.novice_start_confirmed ?? false}
@@ -225,8 +246,8 @@ export function ProfileForm({
                     running_baseline: {
                       accepted_stage: 0,
                       ...value.running_baseline,
-                      novice_start_confirmed: !value.running_baseline?.novice_start_confirmed,
-                    },
+                      novice_start_confirmed: !value.running_baseline?.novice_start_confirmed
+                    }
                   })
                 }
               />
@@ -235,6 +256,7 @@ export function ProfileForm({
           <Copy kind="heading">Your training experience</Copy>
           {(["new", "returning", "regular"] as const).map((experience, index) => (
             <Choice
+              disabled={disabled}
               key={experience}
               label={["Getting started", "Coming back to training", "Training regularly"][index]}
               selected={value.experience === experience}
@@ -245,18 +267,25 @@ export function ProfileForm({
       )}
       {(section == null || section === 1) && (
         <>
-          <EquipmentLocations value={value} update={update} />
+          <EquipmentLocations disabled={disabled} value={value} update={update} />
           <Copy kind="heading">What can you train with?</Copy>
           <Choice
+            disabled={disabled}
             label="Bodyweight / no equipment"
             selected={value.equipment?.length === 0}
             onPress={() => set({ equipment: [] })}
           />
           {!value.equipment_locations?.length && (
-            <Choice label="Decide later" selected={value.equipment === null} onPress={() => set({ equipment: null })} />
+            <Choice
+              disabled={disabled}
+              label="Decide later"
+              selected={value.equipment === null}
+              onPress={() => set({ equipment: null })}
+            />
           )}
           {equipment.map((item) => (
             <Choice
+              disabled={disabled}
               key={item}
               label={item.replaceAll("_", " ")}
               selected={!!value.equipment?.includes(item)}
@@ -266,6 +295,7 @@ export function ProfileForm({
           <Copy kind="heading">Days you can usually train</Copy>
           {dayLabels.map((label, day) => (
             <Choice
+              disabled={disabled}
               key={label}
               label={label}
               selected={value.available_days.includes(day)}
@@ -273,19 +303,26 @@ export function ProfileForm({
                 set({
                   available_days: value.available_days.includes(day)
                     ? value.available_days.filter((x) => x !== day)
-                    : [...value.available_days, day].sort(),
+                    : [...value.available_days, day].sort()
                 })
               }
             />
           ))}
           <Field
+            disabled={disabled}
             label="Session length · minutes"
             numeric
             value={String(value.session_minutes)}
             onChange={(text) => set({ session_minutes: text === "" ? 0 : Number(text) })}
           />
-          <Field label="Timezone" value={value.timezone} onChange={(timezone) => set({ timezone })} />
+          <Field
+            disabled={disabled}
+            label="Timezone"
+            value={value.timezone}
+            onChange={(timezone) => set({ timezone })}
+          />
           <ActivityContext
+            disabled={disabled}
             activities={value.other_activities ?? []}
             timezone={value.timezone}
             onChange={(other_activities) => set({ other_activities })}
@@ -297,6 +334,7 @@ export function ProfileForm({
           <Copy kind="heading">Personal context</Copy>
           <Copy>These details are optional. Your profile stays private and you can remove information later.</Copy>
           <Field
+            disabled={disabled}
             label="Age · years"
             optional
             numeric
@@ -305,6 +343,7 @@ export function ProfileForm({
           />
           <Copy kind="label">Display units</Copy>
           <Choice
+            disabled={disabled}
             label="lb / inches / miles"
             selected={units === "imperial"}
             onPress={() => {
@@ -312,6 +351,7 @@ export function ProfileForm({
             }}
           />
           <Choice
+            disabled={disabled}
             label="kg / cm / metres"
             selected={units === "metric"}
             onPress={() => {
@@ -319,6 +359,7 @@ export function ProfileForm({
             }}
           />
           <MeasurementField
+            disabled={disabled}
             kind="weight"
             units={units}
             value={value.weight_kg ?? null}
@@ -327,14 +368,14 @@ export function ProfileForm({
                 weight_kg,
                 ...(weight_kg !== value.weight_kg
                   ? { weight_recorded_at: weight_kg == null ? null : new Date().toISOString() }
-                  : {}),
+                  : {})
               })
             }
           />
           {value.weight_kg != null && (
             <RecordedTime
               label="Weight measurement date and time"
-              disabled={value.weight_kg === baseline?.weight_kg}
+              disabled={disabled || value.weight_kg === baseline?.weight_kg}
               value={value.weight_recorded_at ?? null}
               onChange={(weight_recorded_at) => set({ weight_recorded_at })}
             />
@@ -343,6 +384,7 @@ export function ProfileForm({
             <Copy>To correct only the date of this saved weight, use Measurement history.</Copy>
           )}
           <MeasurementField
+            disabled={disabled}
             kind="height"
             units={units}
             value={value.height_cm ?? null}
@@ -351,14 +393,14 @@ export function ProfileForm({
                 height_cm,
                 ...(height_cm !== value.height_cm
                   ? { height_recorded_at: height_cm == null ? null : new Date().toISOString() }
-                  : {}),
+                  : {})
               })
             }
           />
           {value.height_cm != null && (
             <RecordedTime
               label="Height measurement date and time"
-              disabled={value.height_cm === baseline?.height_cm}
+              disabled={disabled || value.height_cm === baseline?.height_cm}
               value={value.height_recorded_at ?? null}
               onChange={(height_recorded_at) => set({ height_recorded_at })}
             />
@@ -367,6 +409,7 @@ export function ProfileForm({
             <Copy>To correct only the date of this saved height, use Measurement history.</Copy>
           )}
           <Field
+            disabled={disabled}
             label="Limitations or instructions you follow"
             optional
             multiline
@@ -375,6 +418,7 @@ export function ProfileForm({
             placeholder="One per line. Keep any professional instructions in your own words."
           />
           <Field
+            disabled={disabled}
             label="Movements to avoid"
             optional
             multiline
@@ -382,6 +426,7 @@ export function ProfileForm({
             onChange={(text) => set({ movement_exclusions: text.split("\n") })}
           />
           <Choice
+            disabled={disabled}
             label="My comfortable training baseline is uncertain after a break"
             detail="Keep this selected until you have reviewed your current baseline. A paused-plan return also requires its own explicit confirmation."
             selected={value.interrupted ?? false}
@@ -390,6 +435,7 @@ export function ProfileForm({
           <Copy kind="heading">How are you feeling today?</Copy>
           {(["unknown", "ready", "limited"] as const).map((readiness, index) => (
             <Choice
+              disabled={disabled}
               key={readiness}
               label={["Prefer not to say", "Ready to train", "Need to take it easier"][index]}
               selected={value.readiness === readiness}
@@ -407,7 +453,9 @@ function MeasurementField({
   units,
   value,
   onChange,
+  disabled
 }: {
+  disabled?: boolean;
   kind: "weight" | "height";
   units: UnitSystem;
   value: number | null;
@@ -425,11 +473,13 @@ function MeasurementField({
   }, [value, units]);
   return (
     <Field
+      disabled={disabled}
       label={`${kind === "weight" ? "Weight" : "Height"} · ${kind === "weight" ? (units === "imperial" ? "lb" : "kg") : units === "imperial" ? "inches" : "cm"}`}
       optional
       numeric
       value={text}
       onChange={(input) => {
+        if (disabled) return;
         setText(input);
         onChange(input.trim() === "" ? null : canonical(Number(input), units));
       }}
