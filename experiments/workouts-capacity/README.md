@@ -175,7 +175,7 @@ At completion capture metrics before removing containers, stop/remove only exact
 owned IDs, remove only the owned network ID and verify absence. Temporary PG data
 belongs solely to this experiment; no Docker prune, routine volume/image removal,
 shared-container shutdown or provider mutation. Retain the named worktree/results
-for root review. No runtime experiment has been executed in this implementation.
+for root review. The first authorized smoke and its stop are recorded in SMOKE.md.
 
 ## Implementation verification handoff
 

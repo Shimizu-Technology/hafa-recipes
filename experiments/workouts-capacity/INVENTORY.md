@@ -1,5 +1,8 @@
 # Capacity image and socket preflight — 2026-10-10
 
+This records the preflight checkpoint. The subsequent authorized runtime smoke
+and failed baseline are recorded in [SMOKE.md](SMOKE.md).
+
 The pinned image and loopback ingress preflight passed. No capacity API, workload,
 network or PostgreSQL container has started. R04 remains open. Root must inspect
 the plan and authorize the next runtime phase.
