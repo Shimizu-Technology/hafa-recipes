@@ -1,6 +1,6 @@
 import { workoutErrors } from "@/lib/library";
 import { SourceImage } from "@/components/source-image";
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { AppState, Image, Linking } from "react-native";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -21,9 +21,33 @@ export default function ImportReview() {
     () => createPrivateDraftSlot<CaptureDraft>(storage, owner, `capture:${generation}`, Crypto.randomUUID),
     [storage, owner, generation]
   );
+  const live = useRef({ owner, id, generation, storage, epoch: 0 });
+  if (
+    live.current.owner !== owner ||
+    live.current.id !== id ||
+    live.current.generation !== generation ||
+    live.current.storage !== storage
+  )
+    live.current = { owner, id, generation, storage, epoch: live.current.epoch + 1 };
+  const epoch = live.current.epoch;
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   function current() {
-    if (!storage.isCurrent() || !isCurrentAccount())
-      throw Error("Your account changed. This source cleanup was stopped.");
+    if (!mounted.current || live.current.epoch !== epoch || !storage.isCurrent() || !isCurrentAccount())
+      throw Error("This import or account changed. Open the current import before continuing.");
+  }
+  function isCurrent() {
+    try {
+      current();
+      return true;
+    } catch {
+      return false;
+    }
   }
   const cache = useQueryClient();
   const [visible, setVisible] = useState(false);
@@ -34,6 +58,10 @@ export default function ImportReview() {
   const [reviewed, setReviewed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [stateEpoch, setStateEpoch] = useState(epoch);
+  const routeReady = stateEpoch === epoch;
+  const originalSource =
+    routeReady && original?.value?.job_id === id && original.value.generation === generation ? original.value : null;
   useFocusEffect(
     useCallback(() => {
       setVisible(true);
@@ -53,30 +81,45 @@ export default function ImportReview() {
   });
   useEffect(() => {
     let valid = true;
+    setStateEpoch(epoch);
+    setOriginal(null);
+    setEdited(null);
+    setEditing(false);
+    setReviewed(false);
+    setBusy(false);
+    setError("");
     void slot
       .load(current)
       .then((saved) => {
-        if (valid && saved.value?.job_id === id) setOriginal(saved);
+        if (valid && isCurrent() && saved.value?.job_id === id && saved.value.generation === generation)
+          setOriginal(saved);
       })
       .catch(() => {
-        if (valid) setError("Could not restore the original source for cleanup.");
+        if (valid && isCurrent()) setError("Could not restore the original source for cleanup.");
       });
-    void localDrafts.load<AuthoredWorkout>(owner, `import-edit:${generation}:${id}`).then((value) => {
-      if (valid && value) setEdited(value);
-    });
+    void localDrafts
+      .load<AuthoredWorkout>(owner, `import-edit:${generation}:${id}`)
+      .then((value) => {
+        if (valid && isCurrent()) setEdited(value);
+      })
+      .catch(() => {
+        if (valid && isCurrent()) setError("Could not restore your corrections for this import.");
+      });
     return () => {
       valid = false;
     };
-  }, [owner, id, generation, slot]);
+  }, [owner, id, generation, slot, epoch]);
   function update(value: AuthoredWorkout) {
+    if (!routeReady || !isCurrent()) return;
     setEdited(value);
     setReviewed(false);
-    void localDrafts
-      .save(owner, `import-edit:${generation}:${id}`, value)
-      .catch(() => setError("Could not keep your corrections on this device. Stay here until saved."));
+    void localDrafts.save(owner, `import-edit:${generation}:${id}`, value).catch(() => {
+      if (isCurrent()) setError("Could not keep your corrections on this device. Stay here until saved.");
+    });
   }
   async function retireOriginalSource() {
-    if (!original?.value) return;
+    current();
+    if (!original?.value || original.value.job_id !== id || original.value.generation !== generation) return;
     const retained = [...(original.value.files ?? []), ...(original.value.cleanup_files ?? [])];
     let retirement: PrivateDraftSnapshot<CaptureDraft>;
     try {
@@ -85,6 +128,7 @@ export default function ImportReview() {
         {
           request_id: Crypto.randomUUID(),
           generation: original.value.generation,
+          job_id: id,
           kind: "url",
           source_url: "",
           text: "",
@@ -99,6 +143,7 @@ export default function ImportReview() {
       if ((error as { captureDraftConflict?: boolean }).captureDraftConflict) return;
       throw error;
     }
+    current();
     setOriginal(retirement);
     // Keep exact old references durable until deletion succeeds. A newer source
     // can inherit them, so final removal is conditional on our retirement receipt.
@@ -106,7 +151,7 @@ export default function ImportReview() {
     await slot.remove(retirement.revision, current);
   }
   async function accept() {
-    if (!q.data?.result?.workout || !reviewed) return;
+    if (!routeReady || !isCurrent() || !q.data?.result?.workout || !reviewed) return;
     const errors = workoutErrors(edited ?? q.data.result.workout);
     if (errors.length) {
       setError(errors.join(" "));
@@ -115,36 +160,45 @@ export default function ImportReview() {
     setBusy(true);
     setError("");
     try {
+      current();
       const saved = await api.acceptImport(id, edited ?? q.data.result.workout, q.data.generation);
+      current();
       await cache.invalidateQueries({ queryKey: [owner, "library"] });
+      current();
       cache.removeQueries({ queryKey: [owner, "import-source", id] });
       await localDrafts.remove(owner, `import-edit:${generation}:${id}`);
+      current();
       const imports = (await localDrafts.load<Array<{ id: string }>>(owner, `imports:${generation}`)) ?? [];
+      current();
       await localDrafts.save(
         owner,
         `imports:${generation}`,
         imports.filter((item) => item.id !== id)
       );
       await retireOriginalSource();
+      current();
       router.replace({ pathname: "/workout/[id]", params: { id: saved.id } });
     } catch (e) {
-      setError((e as Error).message);
+      if (isCurrent()) setError((e as Error).message);
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   }
   async function cancel() {
-    if (!q.data) return;
+    if (!routeReady || !isCurrent() || !q.data) return;
     setBusy(true);
     try {
+      current();
       await api.cancelImport(id, q.data.generation);
+      current();
       await retireOriginalSource();
+      current();
       cache.removeQueries({ queryKey: [owner, "import-source", id] });
       await q.refetch();
     } catch (e) {
-      setError((e as Error).message);
+      if (isCurrent()) setError((e as Error).message);
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   }
   const source = useQuery({
@@ -154,7 +208,7 @@ export default function ImportReview() {
     staleTime: 60000
   });
   const result = q.data?.result;
-  const workout = edited ?? result?.workout;
+  const workout = (routeReady ? edited : null) ?? result?.workout;
   return (
     <Screen back title="Review the workout." subtitle="Keep source facts, missing details, and your corrections clear.">
       <Notice>
@@ -213,9 +267,9 @@ export default function ImportReview() {
                   }}
                 />
               )}
-              {original?.value?.kind === "text" && <Copy>{original.value!.text}</Copy>}
+              {originalSource?.kind === "text" && <Copy>{originalSource.text}</Copy>}
               {!source.data?.images?.length &&
-                original?.value?.files
+                originalSource?.files
                   .filter((f) => f.mime_type.startsWith("image/"))
                   .map((file) => (
                     <SourceImage key={file.uri} uri={file.uri} label={`Original source image: ${file.name}`} />
@@ -227,7 +281,7 @@ export default function ImportReview() {
                   label={`Original source image ${index + 1}`}
                 />
               ))}
-              {!!(!original?.value?.text && source.data?.text) && <Copy>{source.data.text}</Copy>}
+              {!!(!originalSource?.text && source.data?.text) && <Copy>{source.data.text}</Copy>}
               {source.error && (
                 <Notice error>
                   The original upload is no longer available here. Check the source yourself before accepting this
@@ -254,7 +308,7 @@ export default function ImportReview() {
             )}
             {workout && (
               <>
-                {editing ? (
+                {routeReady && editing ? (
                   <WorkoutEditor value={workout} onChange={update} />
                 ) : (
                   <>
@@ -279,20 +333,24 @@ export default function ImportReview() {
                   </>
                 )}
                 <Button
-                  title={editing ? "Show workout summary" : "Correct workout details"}
+                  title={routeReady && editing ? "Show workout summary" : "Correct workout details"}
                   secondary
                   disabled={busy}
-                  onPress={() => setEditing(!editing)}
+                  onPress={() => {
+                    if (routeReady && isCurrent()) setEditing(!editing);
+                  }}
                 />
                 <Choice
                   label="I reviewed the source, missing details and warnings"
-                  selected={reviewed}
-                  onPress={() => setReviewed(!reviewed)}
+                  selected={routeReady && reviewed}
+                  onPress={() => {
+                    if (routeReady && isCurrent()) setReviewed(!reviewed);
+                  }}
                 />
                 <Button
                   title="Save privately to my library"
                   busy={busy}
-                  disabled={!reviewed || !!q.data?.accepted_workout_id}
+                  disabled={!routeReady || !reviewed || !!q.data?.accepted_workout_id}
                   onPress={() => {
                     void accept();
                   }}

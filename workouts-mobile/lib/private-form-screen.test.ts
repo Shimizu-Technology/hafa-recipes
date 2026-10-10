@@ -17,6 +17,8 @@ const fixture = vi.hoisted(() => ({
   replace: vi.fn(),
   importJob: vi.fn(),
   cancelImport: vi.fn(),
+  acceptImport: vi.fn(),
+  importSource: vi.fn(),
   saveProfile: vi.fn(),
   updateWorkout: vi.fn(),
   removeMeasurement: vi.fn(),
@@ -57,6 +59,7 @@ vi.mock("@/lib/context", () => {
       const raw = await storage.getItem(`hafa-workouts:v1:${encodeURIComponent(owner)}:${encodeURIComponent(scope)}`);
       return raw ? JSON.parse(raw) : null;
     },
+    remove: async (owner: string, scope: string) => storage.removeItem(draftKey(owner, scope)),
     save: async (owner: string, scope: string, value: unknown) =>
       storage.setItem(
         `hafa-workouts:v1:${encodeURIComponent(owner)}:${encodeURIComponent(scope)}`,
@@ -71,6 +74,8 @@ vi.mock("@/lib/context", () => {
     saveWorkout: fixture.saveWorkout,
     importJob: fixture.importJob,
     cancelImport: fixture.cancelImport,
+    acceptImport: fixture.acceptImport,
+    importSource: fixture.importSource,
     saveProfile: fixture.saveProfile,
     saveProfileSnapshot: async (...args: unknown[]) => {
       const returnedRevision = fixture.revision + 1;
@@ -472,6 +477,175 @@ it("old import cancellation conditionally retires its source without removing a 
   await act(async () => cancel.resolve());
   await settle();
   expect(fixture.map.get(draftKey(fixture.owner, "capture:1"))).toBe(accepted);
+});
+
+it("reused ImportReview route B never retires capture A when the same slot nonce still matches", async () => {
+  fixture.params = { id: "job-A" };
+  const key = draftKey(fixture.owner, "capture:1");
+  const file = {
+    uri: "file:///cache/hafa-workouts-capture/route-A.jpg",
+    name: "A",
+    mime_type: "image/jpeg",
+    owned: true
+  };
+  fixture.map.set(
+    key,
+    JSON.stringify({
+      generation: 1,
+      request_id: "A",
+      job_id: "job-A",
+      kind: "images",
+      text: "A",
+      source_url: "",
+      files: [file]
+    })
+  );
+  fixture.importJob.mockImplementation(async (id) => ({ id, generation: 1, status: "processing" }));
+  fixture.cancelImport.mockResolvedValue(undefined);
+  await mount(ImportReview);
+  const sameSource = fixture.map.get(key);
+  fixture.params = { id: "job-B" };
+  await rerender(ImportReview);
+  await click("Cancel import and clear source upload");
+  expect(fixture.cancelImport).toHaveBeenCalledWith("job-B", 1);
+  expect(fixture.cleanup).not.toHaveBeenCalled();
+  expect(fixture.map.get(key)).toBe(sameSource);
+});
+
+it("reused ImportReview route clears A source, corrections and review state before accepting B", async () => {
+  fixture.params = { id: "job-A" };
+  const key = draftKey(fixture.owner, "capture:1");
+  const file = {
+    uri: "file:///cache/hafa-workouts-capture/accept-A.jpg",
+    name: "A",
+    mime_type: "image/jpeg",
+    owned: true
+  };
+  fixture.map.set(
+    key,
+    JSON.stringify({
+      generation: 1,
+      request_id: "A",
+      job_id: "job-A",
+      kind: "images",
+      text: "A",
+      source_url: "",
+      files: [file]
+    })
+  );
+  const bWorkout = { ...workout, title: "B original" };
+  fixture.importJob.mockImplementation(async (id) => ({
+    id,
+    generation: 1,
+    status: "ready",
+    result: {
+      workout: id === "job-A" ? workout : bWorkout,
+      source: { platform: "unknown", channels: [], coverage_notes: [] },
+      warnings: [],
+      evidence: []
+    }
+  }));
+  fixture.importSource.mockResolvedValue({ images: [], text: "" });
+  fixture.acceptImport.mockResolvedValue({ id: "saved-B" });
+  await mount(ImportReview);
+  const sameSource = fixture.map.get(key);
+  await click("Correct workout details");
+  await act(async () => find("WorkoutEditor").props.onChange({ ...workout, title: "A private correction" }));
+  await act(async () =>
+    nodes("Choice")
+      .find((n) => n.props.label === "I reviewed the source, missing details and warnings")!
+      .props.onPress()
+  );
+  fixture.params = { id: "job-B" };
+  await rerender(ImportReview);
+  expect(nodes("SourceImage")).toHaveLength(0);
+  expect(nodes("WorkoutEditor")).toHaveLength(0);
+  expect(button("Save privately to my library").props.disabled).toBe(true);
+  await act(async () =>
+    nodes("Choice")
+      .find((n) => n.props.label === "I reviewed the source, missing details and warnings")!
+      .props.onPress()
+  );
+  await click("Save privately to my library");
+  expect(fixture.acceptImport).toHaveBeenCalledWith("job-B", bWorkout, 1);
+  expect(fixture.cleanup).not.toHaveBeenCalled();
+  expect(fixture.map.get(key)).toBe(sameSource);
+  expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "saved-B" } });
+});
+
+it("a held import cancellation cannot retire its source after route A to B to A reuse", async () => {
+  fixture.params = { id: "job-A" };
+  const key = draftKey(fixture.owner, "capture:1");
+  fixture.map.set(
+    key,
+    JSON.stringify({
+      generation: 1,
+      request_id: "A",
+      job_id: "job-A",
+      kind: "text",
+      text: "A",
+      source_url: "",
+      files: []
+    })
+  );
+  fixture.importJob.mockImplementation(async (id) => ({ id, generation: 1, status: "processing" }));
+  const response = deferred<void>();
+  fixture.cancelImport.mockReturnValue(response.promise);
+  await mount(ImportReview);
+  const sameSource = fixture.map.get(key);
+  const oldCancel = button("Cancel import and clear source upload").props.onPress;
+  await click("Cancel import and clear source upload");
+  fixture.params = { id: "job-B" };
+  await rerender(ImportReview);
+  fixture.params = { id: "job-A" };
+  await rerender(ImportReview);
+  await act(async () => oldCancel());
+  expect(fixture.cancelImport).toHaveBeenCalledTimes(1);
+  await act(async () => response.resolve());
+  await settle();
+  expect(fixture.cleanup).not.toHaveBeenCalled();
+  expect(fixture.map.get(key)).toBe(sameSource);
+});
+
+it("matching import identity preserves cleanup retry while a different source generation cannot be retired", async () => {
+  fixture.params = { id: "job-A" };
+  const key = draftKey(fixture.owner, "capture:1");
+  const file = {
+    uri: "file:///cache/hafa-workouts-capture/retry-A.jpg",
+    name: "A",
+    mime_type: "image/jpeg",
+    owned: true
+  };
+  const draft = {
+    generation: 2,
+    request_id: "A",
+    job_id: "job-A",
+    kind: "images",
+    text: "A",
+    source_url: "",
+    files: [file]
+  };
+  fixture.map.set(key, JSON.stringify(draft));
+  fixture.cancelImport.mockResolvedValue(undefined);
+  await mount(ImportReview);
+  const wrongGeneration = fixture.map.get(key);
+  await click("Cancel import and clear source upload");
+  expect(fixture.cleanup).not.toHaveBeenCalled();
+  expect(fixture.map.get(key)).toBe(wrongGeneration);
+  await unmount();
+  fixture.map.set(key, JSON.stringify({ ...draft, generation: 1 }));
+  await mount(ImportReview);
+  fixture.cleanup.mockRejectedValueOnce(Error("retry exact file deletion"));
+  await click("Cancel import and clear source upload");
+  expect(JSON.parse(fixture.map.get(key)!)).toMatchObject({
+    job_id: "job-A",
+    generation: 1,
+    files: [],
+    cleanup_files: [file]
+  });
+  await click("Cancel import and clear source upload");
+  expect(fixture.cleanup).toHaveBeenLastCalledWith([file], true);
+  expect(fixture.map.has(key)).toBe(false);
 });
 
 it("import retirement keeps exact cleanup references until deletion succeeds and transfers them to an intentional newer source", async () => {
