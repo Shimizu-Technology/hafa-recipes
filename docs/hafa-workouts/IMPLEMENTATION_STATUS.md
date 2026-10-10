@@ -65,9 +65,9 @@ TestFlight delivery remain pending. Source-informed rules do not close D03.
 
 Independent Expo project `c520b94d-aac7-49a2-be2b-838a6b992001` is verified under
 `@shimizutechnology/hafa-workouts`; Apple bundle `com.shimizutechnology.hafaworkouts`
-is registered separately. App Store Connect's user session expired. Leon is away
-and cannot log in now; creation of the app record remains pending while other work
-continues. No credentials are requested in chat, and existing Recipes identities
+is registered separately. Creating the App Store Connect app record requires renewed
+interactive Apple authentication; it remains pending while implementation and
+independent testing continue. No credentials are requested in chat, and existing Recipes identities
 and app records are preserved.
 
 ## Coherent backend services review base
