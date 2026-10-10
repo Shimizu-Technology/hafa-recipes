@@ -1,5 +1,6 @@
-"""Recipe Extractor API - FastAPI Application."""
+"""Håfa API - shared FastAPI platform with compatible Recipes surfaces."""
 
+import logging
 import re
 from uuid import uuid4
 
@@ -12,9 +13,29 @@ from app.config import get_settings
 from app.cover_jobs import cover_job_worker
 from app.database_invariants import verify_database_invariants
 from app.deletion_cleanup import deletion_cleanup_worker
-from app.domains.workouts.privacy import redact_workouts_event, redact_workouts_transaction
+from app.domains.workouts.automation_router import imports_router as workouts_imports_router
+from app.domains.workouts.automation_router import router as workouts_automation_router
+from app.domains.workouts.automation_runtime import verify_automation_schema
+from app.domains.workouts.budget_router import router as workouts_budget_router
+from app.domains.workouts.coach import workout_coach
+from app.domains.workouts.coach_router import router as workouts_coach_router
+from app.domains.workouts.coach_router import send_router as workouts_coach_send_router
+from app.domains.workouts.connection_router import router as workouts_connections_router
+from app.domains.workouts.connection_runtime import verify_connections_schema
+from app.domains.workouts.health_router import router as workouts_health_router
+from app.domains.workouts.import_usage_service import verify_import_usage_schema
+from app.domains.workouts.imports import workout_import_worker
+from app.domains.workouts.library_organization_router import router as workouts_library_router
+from app.domains.workouts.measurement_router import router as workouts_measurements_router
+from app.domains.workouts.optional_runtime import verify_optional_workouts_schema
+from app.domains.workouts.privacy import (
+    WorkoutsAccessLogFilter,
+    redact_workouts_event,
+    redact_workouts_transaction,
+)
 from app.domains.workouts.router import router as workouts_router
 from app.domains.workouts.runtime import verify_workouts_schema
+from app.domains.workouts.source_planning import compose_coach_sources
 from app.grocery_sync import verify_grocery_sync_schema
 from app.job_worker import job_worker
 from app.moderation import verify_moderation_schema
@@ -41,6 +62,7 @@ from app.routers.platform import router as platform_router
 from app.widget_credentials import verify_widget_credential_schema
 
 settings = get_settings()
+logging.getLogger("uvicorn.access").addFilter(WorkoutsAccessLogFilter())
 
 # Initialize Sentry for error monitoring
 if settings.sentry_dsn:
@@ -98,10 +120,21 @@ async def attach_request_context(request: Request, call_next):
     response.headers["X-Request-ID"] = request_id
     return response
 
+
 # Include routers
 app.include_router(health_router)
 app.include_router(platform_router)
+app.include_router(workouts_library_router)
+app.include_router(workouts_measurements_router)
 app.include_router(workouts_router)
+app.include_router(workouts_automation_router)
+app.include_router(workouts_imports_router)
+app.include_router(workouts_connections_router)
+app.include_router(workouts_health_router)
+app.include_router(workouts_coach_router)
+app.include_router(workouts_coach_send_router)
+app.include_router(workouts_budget_router)
+workout_coach.compose_library_program = compose_coach_sources
 app.include_router(admin_router)
 app.include_router(recipes_router)
 app.include_router(extract_router)
@@ -123,7 +156,9 @@ app.include_router(tts_router)
 async def root():
     """Root endpoint with API info."""
     return {
-        "name": settings.api_title,
+        # This legacy discovery field is consumed by released clients. Shared
+        # branding lives in OpenAPI and the versioned platform registry.
+        "name": "Recipe Extractor API",
         "version": settings.api_version,
         "docs": "/docs",
         "health": "/up",
@@ -147,7 +182,12 @@ async def startup():
     await verify_widget_credential_schema()
     print("Grocery widget credential schema ready")
     await verify_workouts_schema()
+    await verify_automation_schema()
+    await verify_connections_schema()
+    await verify_optional_workouts_schema()
+    await verify_import_usage_schema()
     await job_worker.start()
+    await workout_import_worker.start()
     await cover_job_worker.start()
     await deletion_cleanup_worker.start()
 
@@ -155,7 +195,8 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     """Run on application shutdown."""
+    await workout_import_worker.stop()
     await cover_job_worker.stop()
     await deletion_cleanup_worker.stop()
     await job_worker.stop()
-    print("👋 Shutting down Recipe Extractor API")
+    print("👋 Shutting down Håfa API")

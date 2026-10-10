@@ -83,3 +83,20 @@ Before each runtime phase use lifecycle session baseline/claims, clean only owne
 Run affected cases again after material review/integration fixes and preserve original failure evidence. Report automated gates, review coverage, executed scenario acceptance and actual release delivery separately. Full completion requires all 37 case outcomes and required dimensions, D02/D03 review, and the supported-client/provider/device inventory to be closed without material blockers.
 
 Separate deployment readiness, store-submission readiness and final delivery. Isolated/native pre-deployment checks pass before the dormant compatible API is deployed. Actual distributed Recipes binary smoke and remaining production-dependent dimensions follow that deployment. All 36 cases other than R05, plus R05's build/reviewer/privacy/provider checkpoints, must pass before store submission; final public-download/availability checkpoints occur only after approval/release. R05 remains incomplete until those real results exist. These distinct gates avoid pretending deployment/public delivery was already tested.
+
+## Backend services partition
+
+The services review base ends its optional chain at 042. It includes source/import,
+coach, Health/Recipes connection, sharing, organization, measurement and admission
+engineering scenarios, with all existing tests retained. The dependent private
+export/activity slice adds 043–044 and must retain the six export erasure
+regressions and response/backpressure tests. The first base must pass its own
+complete repository gate; the assembled final-head gate is not evidence for a
+different intermediate tree. After integration, recheck the combined tree and
+affected scenarios against the actual target branch.
+
+The services base keeps Workouts disabled and budget 0 by default. Its automated
+fixtures and fake transports do not close physical/provider/native acceptance,
+D03 domain review, released-binary smoke or mixed-workload/capacity. Capability
+activation and the dependent feature's acceptance remain separate from a dormant
+backend merge. Exact base/gate evidence belongs in IMPLEMENTATION_STATUS.md.

@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 
 from fastapi import HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 
 from app.domains.workouts.models import (
     WorkoutRecord,
@@ -47,11 +47,61 @@ async def membership_for(db, app_user_id: str, *, generation=None, write=False, 
     return membership
 
 
+async def optional_table_exists(db, table_name):
+    """Request-local schema check supports 034-only and installed optional slices.
+
+    Only server constants reach this helper; never cache across database/schema
+    deployments or imply that missing enabled migrations are release-ready.
+    """
+    tables = db.info.setdefault("workouts_optional_tables", {})
+    if table_name not in tables:
+        tables[table_name] = bool(
+            await db.scalar(
+                text("SELECT to_regclass(:name) IS NOT NULL"), {"name": "public." + table_name}
+            )
+        )
+    return tables[table_name]
+
+
 async def erase_product_data(db, membership, requested_generation: int):
     if membership.status == "deleted" and requested_generation == membership.generation - 1:
         return membership  # Retry of the already-completed deletion.
     if requested_generation != membership.generation or membership.status != "active":
         raise HTTPException(409, "Workouts data generation changed; refresh before deleting")
+    owner = membership.app_user_id
+    if await optional_table_exists(db, "workouts_health_connections"):
+        from app.domains.workouts.health_models import HEALTH_TABLES
+        from app.domains.workouts.health_service import erase_health_product_data
+
+        await erase_health_product_data(db, owner, membership.generation)
+        # Full product erasure also removes any orphan from an older generation.
+        for table in HEALTH_TABLES:
+            await db.execute(delete(table).where(table.c.app_user_id == owner))
+    if await optional_table_exists(db, "workouts_shares"):
+        from app.domains.workouts.connection_lifecycle import erase_connections_data
+
+        await erase_connections_data(db, owner)
+    if await optional_table_exists(db, "workouts_library_organization"):
+        from app.domains.workouts.library_organization_service import erase_library_organization
+
+        await erase_library_organization(db, owner)
+    if await optional_table_exists(db, "workouts_measurements"):
+        from app.domains.workouts.measurement_service import erase_measurements
+
+        await erase_measurements(db, owner)
+    if await optional_table_exists(db, "workouts_recipe_grant_epochs"):
+        from app.domains.workouts.recipe_grant_service import erase_recipe_grant_epochs
+
+        await erase_recipe_grant_epochs(db, owner)
+    # Content-free 48h import allowance receipts intentionally survive product
+    # erasure; whole-account deletion cascades them from the stable AppUser.
+    # Optional automation may be absent in a supported 034-only environment.
+    # Once installed, product erasure removes pending sources and coach memory.
+    if await optional_table_exists(db, "workouts_import_jobs"):
+        from app.domains.workouts.automation_models import AUTOMATION_TABLES
+
+        for table in AUTOMATION_TABLES:
+            await db.execute(delete(table).where(table.c.app_user_id == membership.app_user_id))
     # Version records cascade from the library/program rows. The membership
     # tombstone remains so delayed offline writes cannot silently re-enroll.
     for model in (
@@ -68,6 +118,9 @@ async def erase_product_data(db, membership, requested_generation: int):
     membership.status = "deleted"
     membership.deleted_at = now()
     await db.flush()
+    from app.domains.workouts.imports import workout_import_worker
+
+    workout_import_worker.cancel_owner(membership.app_user_id)
     return membership
 
 

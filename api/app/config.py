@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 UNSUPPORTED_ASYNCPG_QUERY_PARAMS = frozenset({"sslmode", "channel_binding"})
@@ -14,9 +14,7 @@ def _database_target_is_local(database_url: str) -> bool:
     local_hosts = {"localhost", "127.0.0.1", "::1"}
     query_parameters = parse_qsl(parsed.query, keep_blank_values=True)
     query_hosts = [value for key, value in query_parameters if key.lower() == "host"]
-    query_host_addresses = [
-        value for key, value in query_parameters if key.lower() == "hostaddr"
-    ]
+    query_host_addresses = [value for key, value in query_parameters if key.lower() == "hostaddr"]
     if any(key.lower() in {"service", "servicefile"} for key, _ in query_parameters):
         return False
     if any(host not in local_hosts and not host.startswith("/") for host in query_hosts):
@@ -56,13 +54,13 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
-    
+
     # Database
     database_url: str
     database_use_ssl: bool = True
     database_echo_sql: bool = False
     allow_remote_database_in_development: bool = False
-    
+
     # OpenAI
     openai_api_key: str
 
@@ -98,7 +96,7 @@ class Settings(BaseSettings):
             },
         }
     )
-    
+
     # Clerk Auth
     clerk_secret_key: str | None = None
     clerk_frontend_api: str | None = None  # e.g., "prepared-mole-42.clerk.accounts.dev"
@@ -122,21 +120,21 @@ class Settings(BaseSettings):
     clerk_production_authorized_parties: str = ""
     clerk_production_require_authorized_party: bool = False
     clerk_primary_environment: str = "development"
-    
+
     # AWS S3 (for thumbnail storage)
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     aws_region: str = "us-east-1"
     s3_bucket_name: str | None = None
     recipe_media_base_url: str | None = None
-    
+
     # Optional
     ig_oembed_token: str | None = None
-    
+
     # Instagram cookies (for yt-dlp authentication)
     # Can be either a file path or the raw cookie content
     instagram_cookies: str | None = None
-    
+
     # YouTube proxy (required for cloud hosting)
     # YouTube blocks datacenter IPs, so a residential proxy is needed
     # Format: http://username:password@p.webshare.io:80
@@ -178,7 +176,7 @@ class Settings(BaseSettings):
     deletion_cleanup_poll_seconds: float = 10.0
     deletion_cleanup_lease_seconds: int = 300
     deletion_cleanup_max_attempts: int = 20
-    
+
     # Sentry error monitoring
     sentry_dsn: str | None = None
 
@@ -193,11 +191,27 @@ class Settings(BaseSettings):
     migration_032_restore_point: str | None = None
     migration_033_restore_point: str | None = None
     migration_034_restore_point: str | None = None
+    migration_035_restore_point: str | None = None
+    migration_036_restore_point: str | None = None
+    migration_037_restore_point: str | None = None
+    migration_038_restore_point: str | None = None
+    migration_039_restore_point: str | None = None
+    migration_040_restore_point: str | None = None
+    migration_041_restore_point: str | None = None
+    migration_042_restore_point: str | None = None
+    workouts_ai_budget_24h_microusd: int = Field(
+        default=0, ge=0, le=9_000_000_000_000_000
+    )
+    workouts_ai_max_attempt_microusd: int = Field(
+        default=5_000_000, ge=1, le=9_000_000_000_000_000
+    )
+    workouts_share_encryption_key: str | None = None
+    workouts_development_ai_api_key: SecretStr | None = None
     cors_origins: str = ""
     enable_sentry_debug: bool = False
-    
+
     # API Settings
-    api_title: str = "Recipe Extractor API"
+    api_title: str = "Håfa API"
     api_version: str = "1.0.0"
 
     # Workouts is an independently controlled product. All capabilities stay
@@ -208,6 +222,9 @@ class Settings(BaseSettings):
     workouts_ai_enabled: bool = False
     workouts_health_sync_enabled: bool = False
     workouts_tester_user_ids: str = ""
+    workout_extraction_model: str = "gpt-5.6-luna"
+    workout_extraction_fallback_model: str = "gpt-5.6-terra"
+    workout_coach_model: str = "gpt-5.6-luna"
 
     @model_validator(mode="after")
     def validate_workouts_rollout(self) -> "Settings":
@@ -222,7 +239,9 @@ class Settings(BaseSettings):
 
     @property
     def workouts_testers(self) -> frozenset[str]:
-        return frozenset(item.strip() for item in self.workouts_tester_user_ids.split(",") if item.strip())
+        return frozenset(
+            item.strip() for item in self.workouts_tester_user_ids.split(",") if item.strip()
+        )
 
     @model_validator(mode="after")
     def validate_ai_registry(self) -> "Settings":
@@ -265,14 +284,15 @@ class Settings(BaseSettings):
         ) - supported_canary_capabilities
         if unknown_canary_capabilities:
             raise ValueError(
-                "Unknown AI canary capabilities: "
-                + ", ".join(sorted(unknown_canary_capabilities))
+                "Unknown AI canary capabilities: " + ", ".join(sorted(unknown_canary_capabilities))
             )
         for capability, percentage in self.ai_canary_percentages.items():
             if percentage < 0 or percentage > 100:
                 raise ValueError(f"AI canary percentage for {capability} must be between 0 and 100")
             if percentage and not self.ai_canary_models.get(capability, "").strip():
-                raise ValueError(f"AI canary model for {capability} is required when rollout is enabled")
+                raise ValueError(
+                    f"AI canary model for {capability} is required when rollout is enabled"
+                )
         for capability, model_id in self.ai_canary_models.items():
             normalized = model_id.strip().lower()
             if not normalized:
@@ -353,15 +373,11 @@ class Settings(BaseSettings):
             return False
         disabled = self.disabled_ai_capability_set
         return "all" not in disabled and capability.lower() not in disabled
-    
+
     @property
     def s3_enabled(self) -> bool:
         """Check if S3 is configured."""
-        return all([
-            self.aws_access_key_id,
-            self.aws_secret_access_key,
-            self.s3_bucket_name
-        ])
+        return all([self.aws_access_key_id, self.aws_secret_access_key, self.s3_bucket_name])
 
     @property
     def clerk_issuer(self) -> str:
@@ -474,7 +490,7 @@ class Settings(BaseSettings):
             "https://hafa-recipes.com",
             "https://www.hafa-recipes.com",
         ]
-    
+
     @property
     def async_database_url(self) -> str:
         """Convert database URL to async format for SQLAlchemy."""

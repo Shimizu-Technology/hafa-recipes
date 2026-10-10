@@ -66,12 +66,15 @@ def current_ai_context() -> AIRequestContext:
     return _context.get() or AIRequestContext(request_id=uuid4().hex)
 
 
+_UNSET_JOB_ID = object()
+
+
 @contextmanager
 def ai_request_context(
     *,
     request_id: str | None = None,
     user_id: str | None = None,
-    job_id: str | None = None,
+    job_id: str | None | object = _UNSET_JOB_ID,
     route: str | None = None,
 ) -> Iterator[AIRequestContext]:
     """Add safe request/job identity to all nested AI calls."""
@@ -81,7 +84,7 @@ def ai_request_context(
         existing,
         request_id=request_id or existing.request_id,
         user_id=user_id if user_id is not None else existing.user_id,
-        job_id=job_id if job_id is not None else existing.job_id,
+        job_id=existing.job_id if job_id is _UNSET_JOB_ID else job_id,
         route=route if route is not None else existing.route,
     )
     token = _context.set(merged)
@@ -120,15 +123,21 @@ def _value(value: Any, key: str) -> Any:
 
 
 def extract_token_usage(response: Any) -> dict[str, int | None]:
-    """Normalize Chat Completions SDK or HTTP usage without response content."""
+    """Normalize Chat Completions or Responses usage without response content."""
 
     usage = _value(response, "usage")
-    prompt_details = _value(usage, "prompt_tokens_details")
-    completion_details = _value(usage, "completion_tokens_details")
+    prompt_details = _value(usage, "prompt_tokens_details") or _value(usage, "input_tokens_details")
+    completion_details = _value(usage, "completion_tokens_details") or _value(
+        usage, "output_tokens_details"
+    )
+    input_tokens = _value(usage, "prompt_tokens")
+    output_tokens = _value(usage, "completion_tokens")
     return {
-        "input_tokens": _value(usage, "prompt_tokens"),
+        "input_tokens": input_tokens if input_tokens is not None else _value(usage, "input_tokens"),
         "cached_input_tokens": _value(prompt_details, "cached_tokens"),
-        "output_tokens": _value(usage, "completion_tokens"),
+        "output_tokens": output_tokens
+        if output_tokens is not None
+        else _value(usage, "output_tokens"),
         "reasoning_tokens": _value(completion_details, "reasoning_tokens"),
     }
 

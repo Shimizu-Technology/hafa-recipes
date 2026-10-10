@@ -6,7 +6,7 @@ Build a modular shared backend for Recipes and Workouts. Shared infrastructure i
 
 The starting API is FastAPI/SQLAlchemy/PostgreSQL, deployed on Render from HafaRecipes main. Recipes mobile, website and admin have independent release mechanisms. GitHub and live API were verified at `37e64e2886506cc40d65d45657c630b43c0f97d4` on October 10. The public US Recipes listing reports 2.6.4 while main declares 2.6.11/build 88. Record exact distributed artifacts and supported historical clients before compatibility execution; source versions alone are insufficient.
 
-Proposed backend name: Håfa API (`hafa-api`). Proposed repository name once it owns both products: `hafa-platform`. Domain registration and availability are not yet established. Preserve `https://recipe-api-x5na.onrender.com` and old recipe routes as long as supported clients require them. A custom Håfa API domain can be an additional address. Do not disable the Render hostname or change Recipes bundle ID, EAS project, OAuth scheme or issuer merely to rename the backend.
+Backend code and Python distribution name: Håfa API (`hafa-api`). Proposed repository name once it owns both products: `hafa-platform`. Domain registration and availability are not yet established. Preserve `https://recipe-api-x5na.onrender.com` and old recipe routes as long as supported clients require them. A custom Håfa API domain can be an additional address. Do not disable the Render hostname or change Recipes bundle ID, EAS project, OAuth scheme or issuer merely to rename the backend.
 
 Keep existing deploy paths initially:
 
@@ -112,3 +112,8 @@ Timers use persisted timestamps with foreground reconciliation and optional nati
 Rollback must distinguish code, configuration, schema and user data. A backup restore can lose post-deploy writes and is not the ordinary rollback method. Feature/capability controls and a known compatible code release should recover service while preserving new data. Exact rollout and stop thresholds are established before production deployment, with `/up` remaining database-free and deeper diagnostics protected.
 
 The full Workouts stack may not be initialized merely by importing its modules into the shared API. With Workouts disabled, its jobs/providers and domain-specific readiness checks must remain inactive; missing optional Workouts configuration must not prevent Recipes from booting. Shared identity/schema prerequisites are separately migrated and verified before any code depends on them. CI and exact rollback tests establish compatibility; feature flags alone do not prevent a bad shared migration or process-wide failure.
+
+
+## Integrated naming boundary
+
+The service now identifies as Håfa API in OpenAPI and Python distribution metadata. Legacy root-response fields, `app` imports, `/api/*` Recipes surfaces, deployment directory and original Render hostname stay compatible. Render/Neon/GitHub display or repository renames and any added domain require verified provider bindings; they are not prerequisites for the shared architecture and are not performed by the metadata change. Existing App Store Recipes binaries need no forced update to continue using those compatibility surfaces.

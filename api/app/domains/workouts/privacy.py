@@ -51,3 +51,11 @@ def redact_workouts_transaction(event, hint=None):
     ):
         return None
     return event
+
+
+class WorkoutsAccessLogFilter:
+    """Keep capability tokens and private query values out of access logs."""
+
+    def filter(self, record):
+        values = record.args if isinstance(record.args, tuple) else (record.args,)
+        return not any(isinstance(value, str) and "/api/v1/workouts" in value for value in values)
