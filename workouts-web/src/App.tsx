@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { createShareFence } from "./share-fence";
 import {
   repsLabel,
   fetchSnapshot,
@@ -682,8 +683,11 @@ function Share() {
   const [page, setPage] = useState(0);
   const [copy, setCopy] = useState("");
   const [locationVersion, setLocationVersion] = useState(0);
+  const fence = useRef<ReturnType<typeof createShareFence> | null>(null);
+  if (!fence.current) fence.current = createShareFence(() => shareToken(location.pathname, location.hash, location.search));
   useEffect(() => {
     function changedLink() {
+      fence.current!.invalidate();
       setSnapshot(null);
       setToken(null);
       setCopy("");
@@ -693,11 +697,13 @@ function Share() {
     window.addEventListener("hashchange", changedLink);
     window.addEventListener("popstate", changedLink);
     return () => {
+      fence.current!.invalidate();
       window.removeEventListener("hashchange", changedLink);
       window.removeEventListener("popstate", changedLink);
     };
   }, []);
   useEffect(() => {
+    fence.current!.invalidate();
     setSnapshot(null);
     setToken(null);
     setPage(0);
@@ -709,10 +715,13 @@ function Share() {
     }
     setToken(value);
     history.replaceState(null, "", "/shared#" + value);
-    const controller = new AbortController();
+    const request = fence.current!.begin(value);
+    const { controller } = request;
     const timer = setTimeout(() => {
-      controller.abort();
-      setError("network");
+      if (request.current()) {
+        controller.abort();
+        setError("network");
+      }
     }, 20000);
     setError(null);
     setSnapshot(null);
@@ -720,25 +729,27 @@ function Share() {
       try {
         const base = publicApiBase(import.meta.env.VITE_WORKOUTS_PUBLIC_API_BASE ?? "");
         const result = await fetchSnapshot(base, value, controller.signal);
-        if (!controller.signal.aborted) {
+        if (request.current()) {
           if (Date.parse(result.expires_at) <= Date.now()) throw new ShareError("unavailable");
           setSnapshot(result);
         }
       } catch (e) {
-        if (!controller.signal.aborted) setError(e instanceof ShareError ? e.code : "network");
+        if (request.current()) setError(e instanceof ShareError ? e.code : "network");
       } finally {
         clearTimeout(timer);
       }
     })();
     return () => {
       clearTimeout(timer);
-      controller.abort();
+      request.dispose();
     };
   }, [attempt, locationVersion]);
   useEffect(() => {
-    if (!snapshot) return;
+    if (!snapshot || !token) return;
+    const current = fence.current!.capture(token);
     let timer: ReturnType<typeof setTimeout>;
     function checkExpiry() {
+      if (!current()) return;
       const remaining = Date.parse(snapshot!.expires_at) - Date.now();
       if (remaining <= 0) {
         setSnapshot(null);
@@ -747,14 +758,15 @@ function Share() {
     }
     checkExpiry();
     return () => clearTimeout(timer);
-  }, [snapshot]);
+  }, [snapshot, token]);
   async function copyLink() {
     if (!token) return;
+    const current = fence.current!.capture(token);
     try {
       await navigator.clipboard.writeText(`${location.origin}/shared#${token}`);
-      setCopy("Link copied. Anyone who receives it can access the public snapshot while it is available.");
+      if (current()) setCopy("Link copied. Anyone who receives it can access the public snapshot while it is available.");
     } catch {
-      setCopy("Copy is unavailable here. Use your browser’s address bar to copy this link.");
+      if (current()) setCopy("Copy is unavailable here. Use your browser’s address bar to copy this link.");
     }
   }
   return (

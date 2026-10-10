@@ -1,5 +1,5 @@
 import { readFile, mkdir, writeFile, rm } from "node:fs/promises";
-import { render, publicApiBase } from "../.ssr/prerender.js";
+import { render, publicApiBase, configuredPublicApiBase } from "../.ssr/prerender.js";
 const template = await readFile("dist/index.html", "utf8");
 for (const [path, title] of [
   ["/", "Håfa Workouts · Train your way"],
@@ -21,7 +21,7 @@ for (const [path, title] of [
   await writeFile(`${dir}/index.html`, content);
 }
 
-const api = process.env.VITE_WORKOUTS_PUBLIC_API_BASE ? publicApiBase(process.env.VITE_WORKOUTS_PUBLIC_API_BASE) : "";
+const api = configuredPublicApiBase ? publicApiBase(configuredPublicApiBase) : "";
 await writeFile(
   "dist/_headers",
   `/*
