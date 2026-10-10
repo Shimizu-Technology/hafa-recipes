@@ -10,6 +10,13 @@ from pathlib import Path
 
 from capacity.safety import DATABASE, FAKE_KEY
 
+PYTHON_BASE = (
+    "python@sha256:2ed6491b93cd49272ee6de2b5a38440c3448360322c089fc23e370722d74179d"
+)
+POSTGRES_BASE = (
+    "postgres@sha256:1a66d744c1b459e13b05a8fca341da84cb63383e99ce262210efee5a319d4551"
+)
+
 
 def environment():
     return {
@@ -144,6 +151,8 @@ def build_plan(repository, output, run_id, cpus, target_platform="linux/amd64"):
                 target_platform,
                 "--build-arg",
                 f"SOURCE_COMMIT={commit}",
+                "--build-arg",
+                f"PYTHON_BASE={PYTHON_BASE}",
                 "-t",
                 image,
                 str(output / "context"),
@@ -187,7 +196,7 @@ def build_plan(repository, output, run_id, cpus, target_platform="linux/amd64"):
                 "POSTGRES_PASSWORD=capacity_local_only",
                 "-e",
                 f"POSTGRES_DB={DATABASE}",
-                "postgres:16-alpine",
+                POSTGRES_BASE,
             ],
         },
         {

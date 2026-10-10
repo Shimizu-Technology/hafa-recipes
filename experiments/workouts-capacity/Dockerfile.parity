@@ -1,0 +1,15 @@
+# Test-only derivative; never the 512 MiB capacity candidate or Render image.
+ARG CANDIDATE_IMAGE
+FROM ${CANDIDATE_IMAGE}
+USER root
+COPY test-tools.txt /test-tools.txt
+RUN python -c 'import importlib.metadata as m,json;open("/runtime-before.json","w").write(json.dumps({d.metadata["Name"].lower():d.version for d in m.distributions()}))'
+RUN pip install --no-cache-dir --no-deps --constraint /api/requirements.txt -r /test-tools.txt && pip check
+COPY api/tests /api/tests
+COPY api/pyproject.toml /api/pyproject.toml
+RUN python -c 'import importlib.metadata as m,json;old=json.load(open("/runtime-before.json"));new={d.metadata["Name"].lower():d.version for d in m.distributions()};assert all(new.get(k)==v for k,v in old.items()),"Runtime graph changed"'
+USER capacity
+ARG SOURCE_COMMIT
+ARG CANDIDATE_IMAGE_ID
+LABEL org.opencontainers.image.revision=${SOURCE_COMMIT} hafa.capacity.test-only=true org.opencontainers.image.base.name=${CANDIDATE_IMAGE_ID}
+CMD ["python", "-m", "capacity.parity"]
