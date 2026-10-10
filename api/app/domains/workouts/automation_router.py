@@ -340,19 +340,12 @@ async def effective_profile(db, user_id, generation, expected_revision=None):
                 WorkoutsActivity.content["origin_id"].as_string().is_(None),
             )
             .order_by(WorkoutsActivity.created_at.desc())
-            .limit(50)
+            .limit(500)
         )
     ).all()
     activities = [ActivityContext.model_validate(record.content) for record in manual] + activities
-    seen = set()
-    unique = []
-    for activity in activities:
-        key = (activity.date, activity.name, activity.duration_minutes)
-        if key not in seen:
-            seen.add(key)
-            unique.append(activity)
     return profile.model_copy(
-        update={"readiness": state, "other_activities": unique[:500]}
+        update={"readiness": state, "other_activities": activities[:500]}
     ), row.revision
 
 
@@ -556,6 +549,25 @@ class AcceptProposal(DomainModel):
     title: str = Field(min_length=1, max_length=200)
 
 
+async def accept_coach_record_if_present(
+    db, owner, generation, row, model, *, title="Training plan"
+):
+    from app.domains.workouts.coach_actions import accept_action, receipt_for
+
+    try:
+        await receipt_for(db, owner, generation, row.id)
+    except HTTPException as error:
+        if error.status_code == 404:
+            return None
+        raise
+    # A generic endpoint must not replay an AI-origin action after consent changed
+    # or undo. The coach receipt owns its full acceptance/undo state machine.
+    accepted = await accept_action(db, owner, generation, row.id, title=title)
+    return record_response(
+        await owned_record(db, model, UUID(accepted["record_id"]), owner, generation)
+    )
+
+
 class CopiedProgramReview(DomainModel):
     program_revision: int = Field(strict=True, ge=1)
     profile_revision: int = Field(strict=True, ge=1)
@@ -563,6 +575,7 @@ class CopiedProgramReview(DomainModel):
     session_minutes: dict[str, Annotated[int, Field(strict=True, ge=5, le=180)]] = Field(
         default_factory=dict, max_length=366
     )
+    session_dates: dict[str, date] = Field(default_factory=dict, max_length=366)
 
 
 @router.post("/programs/{program_id}/review-proposal")
@@ -588,14 +601,29 @@ async def review_program_copy(
     original = ProgramProposal.model_validate(source.content["proposal"])
     if original.status != "needs_information":
         raise HTTPException(409, "This program has already been reviewed; use a new adaptation")
-    if not set(request.session_minutes) <= {session.id for session in original.sessions}:
-        raise HTTPException(422, "Duration estimates must refer to sessions in this copy")
+    if not (set(request.session_minutes) | set(request.session_dates)) <= {
+        session.id for session in original.sessions
+    }:
+        raise HTTPException(422, "Duration estimates and dates must refer to sessions in this copy")
+    if await db.scalar(
+        select(WorkoutsSession.id)
+        .where(
+            WorkoutsSession.app_user_id == user.id,
+            WorkoutsSession.generation == generation,
+            WorkoutsSession.source_program_id == source.id,
+        )
+        .limit(1)
+    ):
+        raise HTTPException(
+            409, "This copy has recorded training; keep its history and prepare a separate plan"
+        )
     profile, revision = await effective_profile(db, user.id, generation, request.profile_revision)
     proposal = review_copied_program(
         profile,
         original,
         reviewed_custom=request.reviewed_custom_routines,
         declared_minutes=request.session_minutes,
+        declared_dates=request.session_dates,
     )
     row = await persist_proposal(
         db,
@@ -619,6 +647,11 @@ async def accept_program(
     row = await owned_record(db, WorkoutProposal, proposal_id, user.id, generation)
     if row.kind != "program":
         raise HTTPException(404, "Program proposal not found")
+    coach_record = await accept_coach_record_if_present(
+        db, user.id, generation, row, WorkoutsProgram, title=request.title
+    )
+    if coach_record is not None:
+        return coach_record
     if row.accepted_record_id:
         return record_response(
             await owned_record(db, WorkoutsProgram, row.accepted_record_id, user.id, generation)
@@ -666,6 +699,9 @@ async def accept_adaptation(proposal_id: UUID, user: User, db: Database, generat
     row = await owned_record(db, WorkoutProposal, proposal_id, user.id, generation)
     if row.kind != "adaptation":
         raise HTTPException(404, "Adaptation proposal not found")
+    coach_record = await accept_coach_record_if_present(db, user.id, generation, row, WorkoutRecord)
+    if coach_record is not None:
+        return coach_record
     if row.accepted_record_id:
         return record_response(
             await owned_record(db, WorkoutRecord, row.accepted_record_id, user.id, generation)

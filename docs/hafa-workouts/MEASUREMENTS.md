@@ -69,7 +69,9 @@ and newer. Removing a selected entry clears its current profile fields. It never
 automatically selects an older entry. Clearing current data establishes a time
 fence so later backfills do not silently restore the cleared value.
 
-Corrections/removal clear saved AI messages and pending proposals. Existing
+Corrections/removal clear saved AI messages and pending proposals. Accepted
+profile proposals are removed; other accepted proposal payloads are cleared while
+their content-free acceptance references and canonical training records remain. Existing
 profile revision advances even for historical correction/removal, fencing calls
 already in flight. Accepted user-owned plans/workouts and completed actual
 snapshots remain. Native UI should disclose clearing saved AI context before

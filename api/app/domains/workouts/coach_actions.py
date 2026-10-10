@@ -36,7 +36,6 @@ from app.domains.workouts.imports import require_ai_consent
 from app.domains.workouts.lifecycle import membership_for, now
 from app.domains.workouts.models import (
     WorkoutRecord,
-    WorkoutsActivity,
     WorkoutsProfile,
     WorkoutsProgram,
     WorkoutsProgramVersion,
@@ -46,7 +45,6 @@ from app.domains.workouts.models import (
 from app.domains.workouts.programming import REVIEW_NOTICE, adapt_workout, build_program
 from app.domains.workouts.router import content_digest, owned_record, validated_workout
 from app.domains.workouts.schemas import (
-    ActivityContext,
     DomainModel,
     TrainingProfile,
     WorkoutContent,
@@ -283,24 +281,6 @@ async def prepare_action(db, user_id, generation, name, arguments, *, compose_li
             "other_activities": [item for item in profile.other_activities if not item.origin_id]
         }
     )
-    activities = (
-        await db.scalars(
-            select(WorkoutsActivity)
-            .where(
-                WorkoutsActivity.app_user_id == user_id, WorkoutsActivity.generation == generation
-            )
-            .order_by(WorkoutsActivity.created_at.desc())
-            .limit(500)
-        )
-    ).all()
-    manual = [
-        ActivityContext.model_validate(row.content)
-        for row in activities
-        if not health_derived(row.content)
-    ]
-    profile = profile.model_copy(
-        update={"other_activities": (profile.other_activities + manual)[-500:]}
-    )
     today = now().astimezone(ZoneInfo(profile.timezone)).date()
     target = None
     target_revision = None
@@ -342,7 +322,18 @@ async def prepare_action(db, user_id, generation, name, arguments, *, compose_li
             raise HTTPException(422, "Choose at least one preference to update")
         # Read stored profile: never persist transient readiness or filtered activities.
         source = await db.get(WorkoutsProfile, user_id, populate_existing=True)
-        updated = TrainingProfile.model_validate(source.content | changes).model_dump(mode="json")
+        stored = deepcopy(source.content)
+        if "equipment" in changes and stored.get("equipment_locations"):
+            active = stored.get("active_equipment_location_id")
+            location = next(
+                (item for item in stored["equipment_locations"] if item["id"] == active), None
+            )
+            if location is None:
+                raise HTTPException(
+                    409, "Select an equipment location before updating its equipment"
+                )
+            location["equipment"] = changes["equipment"]
+        updated = TrainingProfile.model_validate(stored | changes).model_dump(mode="json")
         before = source.content
         kind, content = "profile", {"status": "ready", "changes": changes, "profile": updated}
         target_revision = source.revision
@@ -860,6 +851,12 @@ async def accept_action(
     proposal.accepted_record_id = None if proposal.kind == "profile" else saved.id
     proposal.accepted_at = now()
     await db.flush()
+    if isinstance(saved, WorkoutRecord):
+        from app.domains.workouts.library_organization_service import (
+            refresh_optional_source_metadata,
+        )
+
+        await refresh_optional_source_metadata(db, saved)
     receipt.update(
         state="accepted",
         record_id=identifier,

@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from pydantic import AwareDatetime, TypeAdapter
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, or_, select, text, update
 
 from app.domains.workouts.lifecycle import now
 from app.domains.workouts.measurement_models import (
@@ -99,7 +99,22 @@ async def reset_measurement_context(db, owner, generation):
             delete(WorkoutProposal).where(
                 WorkoutProposal.app_user_id == owner,
                 WorkoutProposal.generation == generation,
-                WorkoutProposal.accepted_at.is_(None),
+                or_(WorkoutProposal.accepted_at.is_(None), WorkoutProposal.kind == "profile"),
+            )
+        )
+        # Acceptance preserves training records, not a stale copy of the profile
+        # or model context. Keep only the content-free acceptance reference.
+        await db.execute(
+            update(WorkoutProposal)
+            .where(
+                WorkoutProposal.app_user_id == owner,
+                WorkoutProposal.generation == generation,
+                WorkoutProposal.accepted_at.is_not(None),
+            )
+            .values(
+                content={"status": "unsupported", "questions": ["Saved AI context was cleared."]},
+                source_versions=[],
+                context_hash="0" * 64,
             )
         )
 

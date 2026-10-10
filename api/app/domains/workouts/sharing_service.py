@@ -209,6 +209,8 @@ def project_workout(raw, *, include_source_url=False):
 
 
 def project_program(raw, *, include_source_url=False):
+    if raw.get("schedule_state", {}).get("status") == "paused":
+        raise HTTPException(409, "Resume and review the complete program before sharing")
     if any(raw.get(key) for key in PRIVATE_CONTEXT_KEYS):
         raise HTTPException(
             422, "A health-derived program requires a separate reviewed sharing policy"

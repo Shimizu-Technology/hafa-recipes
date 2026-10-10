@@ -613,6 +613,8 @@ async def update_program(
     row = await owned_record(db, WorkoutsProgram, program_id, user.id, generation)
     if row.revision != expected_revision:
         raise HTTPException(409, "Program changed; refresh before saving")
+    if row.content.get("schedule_state", {}).get("status") == "paused":
+        raise HTTPException(409, "Review returning from the pause before editing this program")
     row.content = program_content(request)
     row.revision += 1
     row.updated_at = now()
@@ -945,6 +947,10 @@ async def update_ai_consent(
         await cancel_imports(db, user.id)
         workout_import_worker.cancel_owner(user.id)
     await db.commit()
+    if not request.accepted:
+        from app.domains.workouts.coach import workout_coach
+
+        workout_coach.cancel_owner(user.id)
     return consent_response(row)
 
 
@@ -1052,6 +1058,9 @@ async def delete_data(user: User, db: Database, generation: Generation):
     membership = await membership_for(db, user.id, write=True, active=False)
     await erase_product_data(db, membership, generation)
     await db.commit()
+    from app.domains.workouts.coach import workout_coach
+
+    workout_coach.cancel_owner(user.id)
     return enrollment_response(membership)
 
 

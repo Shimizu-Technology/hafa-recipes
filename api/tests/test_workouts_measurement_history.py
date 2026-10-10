@@ -424,12 +424,31 @@ async def test_correction_removal_clear_ai_memory_pending_only_keep_accepted_rec
                     expires_at=now() + timedelta(days=1),
                 )
             )
+        db.add(
+            WorkoutProposal(
+                id=uuid4(),
+                app_user_id="owner",
+                generation=1,
+                kind="profile",
+                profile_revision=1,
+                context_hash="0" * 64,
+                content={"status": "ready", "profile": {"weight_kg": 80}},
+                accepted_at=now(),
+                expires_at=now() + timedelta(days=1),
+            )
+        )
         await db.commit()
     response, _ = await corrected(api, entry, value=81)
     assert response.status_code == 200, response.text
     async with api.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(WorkoutCoachMessage)) == 0
         assert (await db.scalars(select(WorkoutProposal.id))).all() == [accepted_id]
+        accepted = await db.get(WorkoutProposal, accepted_id)
+        assert accepted.content == {
+            "status": "unsupported",
+            "questions": ["Saved AI context was cleared."],
+        }
+        assert "private_old_weight" not in str(accepted.content)
 
 
 async def test_erasure_global_cascade_and_operation_immutability(measurement_api):

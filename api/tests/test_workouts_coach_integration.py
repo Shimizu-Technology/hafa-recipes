@@ -741,3 +741,50 @@ async def test_disabled_coach_checks_flags_before_parsing_or_authentication(coac
     response = await api.client.post("/api/v1/workouts/coach/messages", content=b"not-json")
     assert response.status_code == 503
     assert not api.provider.sent
+
+
+async def test_generic_accept_cannot_bypass_coach_consent_revocation(coach_api):
+    api = coach_api
+    api.provider.action = plan_action()
+    response = await send(api)
+    assert response.status_code == 200, response.text
+    identifier = response.json()["actions"][0]["proposal_id"]
+    await consent(api, False)
+    accepted = await api.client.post(
+        f"/api/v1/workouts/program-proposals/{identifier}/accept",
+        headers=GENERATION,
+        json={"title": "Bypass"},
+    )
+    assert accepted.status_code == 403, accepted.text
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutsProgram)) == 0
+
+
+async def test_coach_equipment_change_updates_selected_location_only(coach_api):
+    api = coach_api
+    async with api.sessions() as db:
+        current = await db.get(WorkoutsProfile, "owner")
+        current.content = current.content | {
+            "equipment_locations": [
+                {"id": "home", "name": "Home", "equipment": [], "available_loads_kg": []},
+                {"id": "gym", "name": "Gym", "equipment": ["barbell"], "available_loads_kg": [20]},
+            ],
+            "active_equipment_location_id": "home",
+        }
+        await db.commit()
+    api.provider.action = (
+        "update_training_preferences",
+        {
+            "primary_goal": None,
+            "experience": None,
+            "equipment": ["dumbbell"],
+            "available_days": None,
+            "session_minutes": None,
+        },
+    )
+    accepted, _ = await action(api)
+    assert accepted.status_code == 200, accepted.text
+    current = (await api.client.get("/api/v1/workouts/profile")).json()
+    assert current["equipment"] == ["dumbbell"]
+    assert current["equipment_locations"][0]["equipment"] == ["dumbbell"]
+    assert current["equipment_locations"][1]["equipment"] == ["barbell"]

@@ -315,5 +315,10 @@ async def delete_account(
             detail="Failed to delete account. Please try again.",
         ) from error
 
+    from app.domains.workouts.coach import workout_coach
+    from app.domains.workouts.imports import workout_import_worker
+
+    workout_coach.cancel_owner(user_id)
+    workout_import_worker.cancel_owner(user_id)
     deletion_cleanup_worker.wake()
     return _account_cleanup_response(cleanup_job, len(recipe_ids))

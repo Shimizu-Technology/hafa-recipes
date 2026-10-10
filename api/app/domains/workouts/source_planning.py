@@ -13,6 +13,47 @@ from app.domains.workouts.programming import (
 from app.domains.workouts.schemas import ProgramProposal, ScheduledPrescription
 
 
+def requires_recovery(workout):
+    """Only catalog walking is treated as easy activity; unknown work needs rest."""
+    exercises = [exercise for block in workout.blocks for exercise in block.exercises]
+    return not exercises or any(
+        exercise.exercise_id != "walk" or exercise.load is not None for exercise in exercises
+    )
+
+
+def recovery_conflict(profile, session, previous_training):
+    if not requires_recovery(session.workout):
+        return False
+    return (previous_training is not None and (session.date - previous_training).days < 2) or any(
+        activity.strenuous is not False and abs((activity.date - session.date).days) < 2
+        for activity in profile.other_activities
+    )
+
+
+def calendar_questions(profile, sessions):
+    """Check actual prescriptions after composition, copying or day assignment."""
+    questions = []
+    previous_training = None
+    dates = set()
+    for session in sorted(sessions, key=lambda item: item.date):
+        if session.date.weekday() not in profile.available_days:
+            questions.append(
+                f"{session.date}: choose an available training day or update your availability."
+            )
+        if session.date in dates:
+            questions.append(
+                f"{session.date}: combine these blocks or choose separate training dates."
+            )
+        dates.add(session.date)
+        if recovery_conflict(profile, session, previous_training):
+            questions.append(
+                f"{session.date}: leave a recovery day between demanding sessions and strenuous or unknown other activities."
+            )
+        if requires_recovery(session.workout):
+            previous_training = session.date
+    return list(dict.fromkeys(questions))
+
+
 def inspect_personal_source(workout, profile, *, reviewed_custom=False, declared_minutes=None):
     result = workout.model_copy(deep=True)
     questions = []
@@ -116,26 +157,44 @@ def compose_library_program(
         )
     sessions = []
     index = 0
+    previous_training = None
     for position, session in enumerate(baseline.sessions):
         use_source = mode == "selected" or position % 2 == 0
         if use_source:
             source = candidates[index % len(candidates)].model_copy(deep=True)
             index += 1
-            sessions.append(
-                session.model_copy(
-                    update={
-                        "workout": source,
-                        "purpose": "Practice your reviewed library routine within the existing schedule",
-                    }
-                )
+            chosen = session.model_copy(
+                update={
+                    "workout": source,
+                    "purpose": "Practice your reviewed library routine within the existing schedule",
+                }
             )
         else:
-            sessions.append(session)
+            chosen = session
+        # Replacing a walking slot changes its recovery needs. The baseline's
+        # dates alone are never proof that the resulting source mix is ready.
+        if recovery_conflict(profile, chosen, previous_training):
+            if mode == "mixed" and not recovery_conflict(profile, session, previous_training):
+                chosen = session
+            else:
+                warnings.append(
+                    f"{chosen.date}: left a recovery day for the actual source mix and other activities."
+                )
+                continue
+        sessions.append(chosen)
+        if requires_recovery(chosen.workout):
+            previous_training = chosen.date
     warnings.append(
         "Source targets are preserved unless an explicitly accepted adaptation changes them. This is not an event-specific or medically individualized program."
     )
+    questions = calendar_questions(profile, sessions)
     return baseline.model_copy(
-        update={"sessions": sessions, "warnings": list(dict.fromkeys(warnings))}
+        update={
+            "status": "needs_information" if questions else "ready" if sessions else "conflicts",
+            "sessions": sessions,
+            "questions": questions,
+            "warnings": list(dict.fromkeys(warnings)),
+        }
     )
 
 
@@ -176,15 +235,7 @@ def convert_program_source(profile, start_date, source, days, *, reviewed_custom
                 workout=candidate,
             )
         )
-    if len({session.date for session in sessions}) != len(sessions):
-        questions.append(
-            "Choose one source training session per calendar day, or combine the intended blocks."
-        )
-    ordered = sorted(session.date for session in sessions)
-    if any((right - left).days < 2 for left, right in zip(ordered, ordered[1:])):
-        questions.append(
-            "Leave a recovery day between these source training sessions; combine or reschedule deliberately."
-        )
+    questions.extend(calendar_questions(profile, sessions))
     return ProgramProposal(
         status="needs_information" if questions else "ready",
         rule_version=RULE_VERSION,
@@ -199,7 +250,9 @@ def convert_program_source(profile, start_date, source, days, *, reviewed_custom
     )
 
 
-def review_copied_program(profile, original, *, reviewed_custom=False, declared_minutes=None):
+def review_copied_program(
+    profile, original, *, reviewed_custom=False, declared_minutes=None, declared_dates=None
+):
     """Review a recipient's own copy; original dates and snapshots stay versioned."""
     if not original.sessions:
         return original.model_copy(
@@ -225,18 +278,15 @@ def review_copied_program(profile, original, *, reviewed_custom=False, declared_
         )
         questions.extend(needs)
         warnings.extend(notes)
-        if session.date.weekday() not in profile.available_days:
-            questions.append(
-                f"{session.date}: choose an available training day before adopting this copy."
+        sessions.append(
+            session.model_copy(
+                update={
+                    "workout": content,
+                    "date": (declared_dates or {}).get(session.id, session.date),
+                }
             )
-        if any(
-            activity.date == session.date and activity.strenuous is not False
-            for activity in profile.other_activities
-        ):
-            questions.append(
-                f"{session.date}: review the other activity conflict before scheduling."
-            )
-        sessions.append(session.model_copy(update={"workout": content}))
+        )
+    questions.extend(calendar_questions(profile, sessions))
     return original.model_copy(
         update={
             "status": "needs_information" if questions else "ready",
