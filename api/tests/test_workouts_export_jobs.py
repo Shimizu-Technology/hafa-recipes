@@ -619,3 +619,155 @@ async def test_stop_during_claim_releases_proven_never_started_source(jobs, monk
         assert (await db.get(WorkoutsExportJob, receipt.id)).status == "failed"
         assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 0
     await admit(jobs)
+
+
+@pytest.mark.parametrize("outcome", ["cancelled", "failed"])
+async def test_terminal_receipt_outcome_survives_artifact_expiry_and_replay(jobs, outcome):
+    request = uuid4()
+    receipt = await jobs.coordinator.admit(user(), 1, request)
+    if outcome == "cancelled":
+        await jobs.coordinator.cancel(user(), 1, receipt.id)
+    else:
+        execution = await jobs.coordinator.claim()
+        await jobs.coordinator.acknowledge_end(execution, "privacy_changed")
+    before = await jobs.coordinator.receipt(user(), 1, receipt.id)
+    await age(jobs, receipt.id, 601)
+    after = await jobs.coordinator.receipt(user(), 1, receipt.id)
+    replay = await jobs.coordinator.admit(user(), 1, request)
+    assert after.id == replay.id == before.id and after.status == replay.status == outcome
+    assert after.failure_code == before.failure_code and after.finished_at == before.finished_at
+    assert after.manifest is None and not after.cleanup_pending
+
+
+class PublishPauseSessions:
+    """Pause ONLY the publish transaction after actual PostgreSQL commit."""
+
+    def __init__(self, sessions, *, fail=False):
+        self.sessions = sessions
+        self.kw = sessions.kw
+        self.fail = fail
+        self.published = asyncio.Event()
+        self.retire = asyncio.Event()
+
+    def __call__(self, *a, **kw):
+        return self.sessions(*a, **kw)
+
+    def begin(self):
+        outer = self
+        context = self.sessions.begin()
+
+        class Transaction:
+            async def __aenter__(self):
+                self.db = await context.__aenter__()
+                return self.db
+
+            async def __aexit__(self, *exc):
+                published = any(
+                    isinstance(row, WorkoutsExportJob) and row.status == "ready"
+                    for row in self.db.identity_map.values()
+                )
+                result = await context.__aexit__(*exc)
+                if published and exc[0] is None:
+                    outer.published.set()
+                    await outer.retire.wait()
+                    if outer.fail:
+                        from sqlalchemy.exc import SQLAlchemyError
+
+                        raise SQLAlchemyError("synthetic publication connection-release fault")
+                return result
+
+        return Transaction()
+
+
+async def test_late_heartbeat_after_publication_commit_does_not_cancel_retiring_source(jobs):
+    await add(jobs)
+    receipt = await admit(jobs)
+    execution = await jobs.coordinator.claim()
+    paused = PublishPauseSessions(jobs.sessions)
+    jobs.worker.builder = PrivateExportService(paused, settings=jobs.coordinator.settings)
+    from app.domains.workouts import export_job_worker as worker
+
+    task = asyncio.create_task(worker.safe_build(jobs.worker.builder, execution))
+    worker.register(jobs.coordinator, execution, task)
+    jobs.worker.active_task = task
+    jobs.worker.active_execution = execution
+    try:
+        await asyncio.wait_for(paused.published.wait(), 5)
+        assert await jobs.coordinator.heartbeat(execution)
+        assert not task.cancelling() and not task.done()
+        masked = await jobs.coordinator.receipt(user(), 1, receipt.id)
+        assert masked.status == "running" and masked.manifest is None and masked.cleanup_pending
+        async with jobs.sessions() as db:
+            assert await db.get(WorkoutsExportSnapshot, execution.snapshot_id) is not None
+    finally:
+        paused.retire.set()
+    await asyncio.wait({task})
+    task = None
+    await jobs.worker._finish()
+    ready = await jobs.coordinator.receipt(user(), 1, receipt.id)
+    assert ready.status == "ready" and not ready.cleanup_pending
+    assert (
+        len(
+            (await jobs.exports.read(user(), 1, execution.snapshot_id, page=0)).export.datasets[
+                "workouts"
+            ]
+        )
+        == 1
+    )
+
+
+async def test_postcommit_source_failure_is_acknowledged_failed_without_artifact(jobs):
+    receipt = await admit(jobs)
+    execution = await jobs.coordinator.claim()
+    paused = PublishPauseSessions(jobs.sessions, fail=True)
+    jobs.worker.builder = PrivateExportService(paused, settings=jobs.coordinator.settings)
+    from app.domains.workouts import export_job_worker as worker
+
+    task = asyncio.create_task(worker.safe_build(jobs.worker.builder, execution))
+    worker.register(jobs.coordinator, execution, task)
+    jobs.worker.active_task = task
+    jobs.worker.active_execution = execution
+    await asyncio.wait_for(paused.published.wait(), 5)
+    paused.retire.set()
+    await asyncio.wait({task})
+    task = None
+    await jobs.worker._finish()
+    result = await jobs.coordinator.receipt(user(), 1, receipt.id)
+    assert (
+        result.status == "failed"
+        and result.failure_code == "export_failed"
+        and result.manifest is None
+    )
+    assert not result.cleanup_pending
+    async with jobs.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 0
+        assert await db.scalar(select(func.count()).select_from(WorkoutsExportPage)) == 0
+
+
+@pytest.mark.parametrize("fence", ["nonce", "instance", "deadline", "privacy", "lease"])
+async def test_published_heartbeat_still_enforces_all_fences(jobs, fence):
+    from dataclasses import replace
+
+    receipt = await admit(jobs)
+    execution = await jobs.coordinator.claim()
+    await jobs.exports.create(user(), 1, execution=execution)
+    attempted = execution
+    if fence == "nonce":
+        attempted = replace(execution, lease_token=uuid4())
+    elif fence == "instance":
+        attempted = replace(execution, worker_instance=uuid4())
+    elif fence == "deadline":
+        await age(jobs, receipt.id, 121)
+    elif fence == "privacy":
+        async with jobs.sessions.begin() as db:
+            await membership_for(db, "owner", generation=1, write=True)
+            await invalidate_export_snapshots(db, "owner", 1)
+    elif fence == "lease":
+        async with jobs.sessions.begin() as db:
+            row = await db.get(WorkoutsExportJob, receipt.id)
+            slot = await db.get(WorkoutsExportJobSlot, 1)
+            row.leased_until = slot.leased_until = await db.scalar(
+                select(func.clock_timestamp() - text("interval '1 second'"))
+            )
+    assert not await jobs.coordinator.heartbeat(attempted)
+    await jobs.coordinator.acknowledge_end(execution, "interrupted")

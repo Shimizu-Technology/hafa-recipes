@@ -254,7 +254,7 @@ async def guard_projection_memory(db, owner, generation, limit, offset):
             # A projected size below Sort/Limit can otherwise render every
             # matching owner's record, including rows skipped by pagination.
             text(f"""WITH selected AS MATERIALIZED
-            (SELECT {','.join(fields)} FROM {table_name}
+            (SELECT {",".join(fields)} FROM {table_name}
              WHERE app_user_id=:owner AND generation=:generation
              ORDER BY created_at {direction},id {direction} LIMIT :limit OFFSET :offset)
              SELECT COALESCE(SUM({expression}),0) FROM selected"""),
@@ -413,7 +413,9 @@ class PrivateExportService:
                             app_user_id=user.id,
                             generation=generation,
                             created_at=created,
-                            expires_at=execution.expires_at if execution is not None else created + timedelta(seconds=TTL_SECONDS),
+                            expires_at=execution.expires_at
+                            if execution is not None
+                            else created + timedelta(seconds=TTL_SECONDS),
                             status="building",
                             permission_digest=permissions,
                             page_count=0,
@@ -458,7 +460,12 @@ class PrivateExportService:
                             finished = not any(projected.has_more.values())
                             ciphertext = seal(key, snapshot, page, content)
                             await self._write_page(
-                                user, generation, snapshot, key, page, ciphertext,
+                                user,
+                                generation,
+                                snapshot,
+                                key,
+                                page,
+                                ciphertext,
                                 **({"execution": execution} if execution is not None else {}),
                             )
                             # Do not retain the previous page while the next query waits.
@@ -478,7 +485,8 @@ class PrivateExportService:
                 await membership_for(db, user.id, generation=generation, write=True)
                 job = (
                     await require_execution(db, execution, user.id, generation)
-                    if execution is not None else None
+                    if execution is not None
+                    else None
                 )
                 current = await db.get(WorkoutsExportSnapshot, snapshot_id)
                 clock = await db.scalar(select(func.clock_timestamp()))
@@ -500,6 +508,7 @@ class PrivateExportService:
                     # JSON/context and BUILD_LOCK have already been retired.
                     job.manifest = manifest.model_dump(mode="json")
                     job.status = "ready"
+            reserved = False  # A successfully exited publish transaction owns its artifact.
             return manifest
         except BaseException:
             # Source context has already released its global transaction lock.

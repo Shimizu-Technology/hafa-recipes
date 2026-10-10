@@ -282,7 +282,9 @@ class ExportJobCoordinator:
             await db.execute(
                 delete(WorkoutsExportSnapshot).where(WorkoutsExportSnapshot.id == row.snapshot_id)
             )
-            row.status, row.manifest = "expired", None
+            if row.status not in {"cancelled", "failed", "expired"}:
+                row.status = "expired"
+            row.manifest = None
             if row.finished_at is None:
                 row.finished_at = clock
         manifest = None
@@ -412,7 +414,13 @@ class ExportJobCoordinator:
         async with self.sessions.begin() as db:
             await self._fresh(db)
             slot = await self._slot(db)
-            if slot.active_job_id != execution.job_id or slot.lease_token != execution.lease_token:
+            if (
+                slot.active_job_id != execution.job_id
+                or slot.snapshot_id != execution.snapshot_id
+                or slot.lease_token != execution.lease_token
+                or slot.worker_instance != execution.worker_instance
+                or slot.deadline_at != execution.deadline_at
+            ):
                 return False
             await membership_for(db, execution.owner, generation=execution.generation, write=True)
             row = await db.scalar(
@@ -423,10 +431,18 @@ class ExportJobCoordinator:
             clock = await db.scalar(select(func.clock_timestamp()))
             if (
                 row is None
-                or row.status != "running"
+                or row.status not in {"running", "ready"}
+                or row.app_user_id != execution.owner
+                or row.generation != execution.generation
+                or row.snapshot_id != execution.snapshot_id
                 or row.lease_token != execution.lease_token
                 or row.worker_instance != execution.worker_instance
-                or slot.worker_instance != execution.worker_instance
+                or row.started_at is None
+                or slot.started_at != row.started_at
+                or slot.admitted_at != row.admitted_at
+                or row.deadline_at != execution.deadline_at
+                or row.expires_at != execution.expires_at
+                or not hmac.compare_digest(row.permission_digest, execution.permission_digest)
                 or row.deadline_at <= clock
                 or row.leased_until is None
                 or row.leased_until <= clock
@@ -434,6 +450,26 @@ class ExportJobCoordinator:
                 or slot.leased_until <= clock
             ):
                 return False
+            if not hmac.compare_digest(
+                row.permission_digest,
+                await privacy_digest(db, execution.owner, execution.generation, export_key()),
+            ):
+                return False
+            if row.status == "ready":
+                snapshot = await db.get(WorkoutsExportSnapshot, execution.snapshot_id)
+                if (
+                    snapshot is None
+                    or snapshot.status != "ready"
+                    or snapshot.app_user_id != execution.owner
+                    or snapshot.generation != execution.generation
+                    or snapshot.expires_at != execution.expires_at
+                    or snapshot.expires_at <= clock
+                    or row.manifest is None
+                    or not hmac.compare_digest(snapshot.permission_digest, row.permission_digest)
+                ):
+                    return False
+                # Publication remains private until actual-end ACK. A valid
+                # retiring source must not be cancelled just for becoming ready.
             until = min(clock + timedelta(seconds=LEASE_SECONDS), row.deadline_at)
             row.leased_until = slot.leased_until = until
             return True
@@ -464,6 +500,8 @@ class ExportJobCoordinator:
             if row is not None:
                 if row.status in {"running", "ready"} and row.deadline_at <= clock:
                     row.status, row.failure_code = "expired", "deadline_exceeded"
+                elif row.status == "ready" and outcome is not None:
+                    row.status, row.failure_code = "failed", outcome
                 elif row.status == "cancel_requested":
                     row.status = "cancelled"
                 elif row.status == "running":
