@@ -84,12 +84,28 @@ async def test_get_empty_is_private_and_has_no_implicit_data_or_connections(scop
         assert await db.scalar(select(func.count()).select_from(WorkoutsGrant)) == 0
 
 
+async def seed_health_grants(api, scopes):
+    # A deliberate health-scope fixture, not the retired broad settings writer.
+    async with api.sessions() as db:
+        await membership_for(db, "owner", generation=1, write=True)
+        await db.execute(
+            delete(WorkoutsGrant).where(
+                WorkoutsGrant.app_user_id == "owner",
+                WorkoutsGrant.scope.not_in(
+                    {"recipes_library_context", "recipes_meal_plan_context"}
+                ),
+            )
+        )
+        db.add_all(
+            [WorkoutsGrant(app_user_id="owner", generation=1, scope=scope) for scope in scopes]
+        )
+        await db.commit()
+
+
 async def test_scoped_choices_preserve_nonrecipes_and_unchanged_timestamps(scoped_api):
     api = scoped_api
-    await api.client.put(
-        PREFIX + "/grants",
-        json={"scopes": ["health_activity_read", "health_activity_write", "ai_health_context"]},
-        headers=GENERATION,
+    await seed_health_grants(
+        api, ["health_activity_read", "health_activity_write", "ai_health_context"]
     )
     before = (await api.client.get(PREFIX + "/grants")).json()
     changed = await choice(api, library=True)
@@ -112,16 +128,11 @@ async def test_scoped_choices_preserve_nonrecipes_and_unchanged_timestamps(scope
 
 async def test_delayed_recipe_choice_cannot_restore_concurrent_health_or_ai_revocation(scoped_api):
     api = scoped_api
-    await api.client.put(
-        PREFIX + "/grants",
-        json={"scopes": ["health_activity_read", "ai_health_context"]},
-        headers=GENERATION,
-    )
+    await seed_health_grants(api, ["health_activity_read", "ai_health_context"])
     pending = await snapshot(api)
     # Native captured Recipes choices before another settings screen revoked all
     # health/AI grants. The narrow command cannot carry these old grants back.
-    revoked = await api.client.put(PREFIX + "/grants", json={"scopes": []}, headers=GENERATION)
-    assert revoked.status_code == 200
+    await seed_health_grants(api, [])
     result = await choice(api, revision=pending["revision"], library=True)
     assert result.status_code == 200, result.text
     all_scopes = (await api.client.get(PREFIX + "/grants")).json()
@@ -312,3 +323,20 @@ async def test_migration_idempotence_restore_point_core_and_readiness(scoped_api
         )
     with pytest.raises(RuntimeError, match="migration041"):
         await verify_recipe_grant_schema(api.engine, settings())
+
+
+async def test_broad_settings_writer_cannot_restore_a_stale_permission_set(scoped_api):
+    api = scoped_api
+    await seed_health_grants(api, ["health_activity_read"])
+    before = (await api.client.get(PREFIX + "/grants")).json()
+    noop = await api.client.put(
+        PREFIX + "/grants", json={"scopes": ["health_activity_read"]}, headers=GENERATION
+    )
+    assert noop.status_code == 200 and noop.json() == before
+    changed = await api.client.put(
+        PREFIX + "/grants",
+        json={"scopes": ["health_activity_read", "recipes_library_context"]},
+        headers=GENERATION,
+    )
+    assert changed.status_code == 409
+    assert (await api.client.get(PREFIX + "/grants")).json() == before

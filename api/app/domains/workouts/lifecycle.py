@@ -89,6 +89,12 @@ async def erase_product_data(db, membership, requested_generation: int):
         from app.domains.workouts.measurement_service import erase_measurements
 
         await erase_measurements(db, owner)
+    if await optional_table_exists(db, "workouts_recipe_grant_epochs"):
+        from app.domains.workouts.recipe_grant_service import erase_recipe_grant_epochs
+
+        await erase_recipe_grant_epochs(db, owner)
+    # Content-free 48h import allowance receipts intentionally survive product
+    # erasure; whole-account deletion cascades them from the stable AppUser.
     # Optional automation may be absent in a supported 034-only environment.
     # Once installed, product erasure removes pending sources and coach memory.
     if await optional_table_exists(db, "workouts_import_jobs"):

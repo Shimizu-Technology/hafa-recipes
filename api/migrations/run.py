@@ -35,6 +35,9 @@ OPTIONAL_MIGRATIONS = (
     "migrations.037_add_workouts_connections_sharing",
     "migrations.038_add_workouts_library_organization",
     "migrations.039_add_workouts_measurements",
+    "migrations.040_add_workouts_ai_admission",
+    "migrations.041_add_workouts_recipe_grant_epochs",
+    "migrations.042_add_workouts_import_usage",
 )
 
 

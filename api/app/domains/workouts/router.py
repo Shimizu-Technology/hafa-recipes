@@ -1000,7 +1000,15 @@ async def replace_grants(request: GrantRequest, user: User, db: Database, genera
             )
         ).all()
     )
-    removed = previous - set(request.scopes)
+    wanted = set(request.scopes)
+    if wanted == previous:
+        return await grants_for(db, user.id, generation)
+    if await optional_table_exists(db, "workouts_recipe_grant_epochs"):
+        raise HTTPException(
+            409,
+            "Use the scoped Recipes or Health connection controls and refresh their current choices",
+        )
+    removed = previous - wanted
     if removed and await optional_table_exists(db, "workouts_health_connections"):
         from app.domains.workouts.health_service import invalidate_health_access
 
@@ -1203,6 +1211,33 @@ async def export_data(
         )
         datasets["measurements"] = measurements["items"]
         totals["measurements"] = await dataset_total(WorkoutsMeasurement)
+    if await optional_table_exists(db, "workouts_recipe_grant_epochs"):
+        from app.domains.workouts.recipe_grant_service import export_recipe_grant_epoch
+
+        datasets["recipe_grant_epoch"] = (
+            await export_recipe_grant_epoch(db, user.id, membership.generation)
+        )[offset : offset + limit]
+        totals["recipe_grant_epoch"] = len(
+            await export_recipe_grant_epoch(db, user.id, membership.generation)
+        )
+    if await optional_table_exists(db, "workouts_import_usage"):
+        from app.domains.workouts.import_usage_models import WorkoutImportUsage
+
+        query = select(WorkoutImportUsage).where(WorkoutImportUsage.app_user_id == user.id)
+        totals["import_allowance_receipts"] = await db.scalar(
+            select(func.count()).select_from(query.subquery())
+        )
+        receipts = (
+            await db.scalars(
+                query.order_by(WorkoutImportUsage.charged_at, WorkoutImportUsage.request_id)
+                .limit(limit)
+                .offset(offset)
+            )
+        ).all()
+        datasets["import_allowance_receipts"] = [
+            {"request_id": str(row.request_id), "charged_at": row.charged_at.isoformat()}
+            for row in receipts
+        ]
     response.headers["Cache-Control"] = "no-store"
     return ExportResponse(
         generated_at=now(),

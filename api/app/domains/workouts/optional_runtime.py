@@ -4,9 +4,11 @@ from sqlalchemy import text
 
 from app.config import get_settings
 from app.db.database import engine
+from app.domains.workouts.budget import verify_budget_schema
 from app.domains.workouts.health_models import HEALTH_TABLES
 from app.domains.workouts.library_organization_service import verify_organization_schema
 from app.domains.workouts.measurement_service import verify_measurement_schema
+from app.domains.workouts.recipe_grant_service import verify_recipe_grant_schema
 
 
 async def verify_optional_workouts_schema(*, configured=None, target_engine=None):
@@ -16,6 +18,8 @@ async def verify_optional_workouts_schema(*, configured=None, target_engine=None
     target = target_engine or engine
     await verify_organization_schema(target, settings)
     await verify_measurement_schema(target, settings)
+    await verify_budget_schema(target, settings)
+    await verify_recipe_grant_schema(target, settings)
     if not settings.workouts_health_sync_enabled:
         return
     async with target.connect() as connection:

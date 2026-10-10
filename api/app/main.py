@@ -16,12 +16,14 @@ from app.deletion_cleanup import deletion_cleanup_worker
 from app.domains.workouts.automation_router import imports_router as workouts_imports_router
 from app.domains.workouts.automation_router import router as workouts_automation_router
 from app.domains.workouts.automation_runtime import verify_automation_schema
+from app.domains.workouts.budget_router import router as workouts_budget_router
 from app.domains.workouts.coach import workout_coach
 from app.domains.workouts.coach_router import router as workouts_coach_router
 from app.domains.workouts.coach_router import send_router as workouts_coach_send_router
 from app.domains.workouts.connection_router import router as workouts_connections_router
 from app.domains.workouts.connection_runtime import verify_connections_schema
 from app.domains.workouts.health_router import router as workouts_health_router
+from app.domains.workouts.import_usage_service import verify_import_usage_schema
 from app.domains.workouts.imports import workout_import_worker
 from app.domains.workouts.library_organization_router import router as workouts_library_router
 from app.domains.workouts.measurement_router import router as workouts_measurements_router
@@ -131,6 +133,7 @@ app.include_router(workouts_connections_router)
 app.include_router(workouts_health_router)
 app.include_router(workouts_coach_router)
 app.include_router(workouts_coach_send_router)
+app.include_router(workouts_budget_router)
 workout_coach.compose_library_program = compose_coach_sources
 app.include_router(admin_router)
 app.include_router(recipes_router)
@@ -180,6 +183,7 @@ async def startup():
     await verify_automation_schema()
     await verify_connections_schema()
     await verify_optional_workouts_schema()
+    await verify_import_usage_schema()
     await job_worker.start()
     await workout_import_worker.start()
     await cover_job_worker.start()

@@ -109,8 +109,12 @@ class WorkoutImportWorker:
             and configured.job_worker_enabled
         )
 
+    def maintenance_enabled(self):
+        configured = get_settings()
+        return configured.workouts_api_enabled and configured.job_worker_enabled
+
     async def start(self):
-        if self.enabled() and self.task is None:
+        if self.maintenance_enabled() and self.task is None:
             self.task = asyncio.create_task(self.run(), name="workouts-import-dispatch")
 
     async def stop(self):
@@ -130,9 +134,9 @@ class WorkoutImportWorker:
             self.active_task.cancel()
 
     async def run(self):
-        while self.enabled():
+        while self.maintenance_enabled():
             try:
-                worked = await self.tick()
+                worked = await self.tick() if self.enabled() else False
                 # Sweep even under a continuous queue; successful dispatches
                 # must not indefinitely defer content-free receipt retention.
                 await self.purge_expired()
