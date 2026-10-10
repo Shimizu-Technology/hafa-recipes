@@ -1293,3 +1293,18 @@ it("capture slot revisions survive a fresh JS realm and refuse an obsolete sourc
   expect(JSON.parse(fixture.map.get(key)!)).toEqual(next.value);
   expect(JSON.parse(fixture.map.get(key)!).files[0].uri).toContain("B.jpg");
 });
+
+it("corrects an API microsecond timestamp without changing the original measurement time", async () => {
+  fixture.params = { id: "m" };
+  const recorded_at = "2026-01-01T10:00:00.903127+10:00";
+  fixture.measurement.mockResolvedValue({ ...entry, recorded_at });
+  fixture.saveMeasurement.mockRejectedValueOnce(Error("lost reply"));
+  await mount(MeasurementEditor);
+  expect(find("RecordedTime").props.value).toBe(recorded_at);
+  await act(async () => find("Field").props.onChange("76"));
+  await click("Save measurement");
+  expect(fixture.saveMeasurement).toHaveBeenCalledTimes(1);
+  expect(fixture.saveMeasurement.mock.calls[0][1]).toMatchObject({ value: 76, recorded_at });
+  await click("Retry this measurement change");
+  expect(fixture.saveMeasurement.mock.calls[1]).toEqual(fixture.saveMeasurement.mock.calls[0]);
+});
