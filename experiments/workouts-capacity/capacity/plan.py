@@ -98,7 +98,16 @@ def prepare_context(repository, output):
     return [target for _, target in mapping]
 
 
-def build_plan(repository, output, run_id, cpus, target_platform="linux/amd64"):
+def build_plan(
+    repository,
+    output,
+    run_id,
+    cpus,
+    target_platform="linux/amd64",
+    owner="native_health_preflight",
+):
+    if owner not in {"native_health_preflight", "capacity_ci"}:
+        raise ValueError("Known lifecycle owner required")
     if not re.fullmatch(r"[a-z0-9-]{1,40}", run_id) or not 0 < cpus <= 8:
         raise ValueError("Use a bounded unique run ID and verified CPU allocation")
     repository, output = Path(repository).resolve(), Path(output).resolve()
@@ -140,7 +149,7 @@ def build_plan(repository, output, run_id, cpus, target_platform="linux/amd64"):
         "--label",
         f"hafa.capacity.run={run_id}",
         "--label",
-        "hafa.capacity.owner=native_health_preflight",
+        f"hafa.capacity.owner={owner}",
     ]
     commands = [
         {
@@ -169,7 +178,7 @@ def build_plan(repository, output, run_id, cpus, target_platform="linux/amd64"):
                 "--label",
                 f"hafa.capacity.run={run_id}",
                 "--label",
-                "hafa.capacity.owner=native_health_preflight",
+                f"hafa.capacity.owner={owner}",
                 network,
             ],
         },
@@ -188,7 +197,7 @@ def build_plan(repository, output, run_id, cpus, target_platform="linux/amd64"):
                 "--label",
                 f"hafa.capacity.run={run_id}",
                 "--label",
-                "hafa.capacity.owner=native_health_preflight",
+                f"hafa.capacity.owner={owner}",
                 "--memory",
                 "1g",
                 "--tmpfs",

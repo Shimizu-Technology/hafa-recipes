@@ -193,7 +193,9 @@ def queues(raw):
 
 
 class HostMonitor:
-    def __init__(self, ledger, api_id, pg_id, run_id, phase, runner=execute):
+    def __init__(
+        self, ledger, api_id, pg_id, run_id, phase, runner=execute, owner=OWNER
+    ):
         if (
             not HEX_ID.fullmatch(api_id)
             or not HEX_ID.fullmatch(pg_id)
@@ -202,12 +204,14 @@ class HostMonitor:
         ):
             raise MonitorError("invalid_target")
         if (
-            ledger.get("owner") != OWNER
+            owner not in {OWNER, "capacity_ci"}
+            or ledger.get("owner") != owner
             or ledger.get("cleaned")
             or api_id not in ledger.get("containers", {}).values()
             or pg_id not in ledger.get("containers", {}).values()
         ):
             raise MonitorError("target_not_owned")
+        self.owner = owner
         self.api, self.pg, self.run_id, self.phase, self.runner = (
             api_id,
             pg_id,
@@ -225,7 +229,7 @@ class HostMonitor:
         )
         if (
             value.get("id") != identifier
-            or value.get("owner") != OWNER
+            or value.get("owner") != self.owner
             or value.get("run") != self.run_id
             or value.get("name") != f"/capacity-{role}-{self.run_id}"
             or value.get("ports")
@@ -448,6 +452,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     for field in ("ledger", "api-id", "pg-id", "run-id", "phase", "output"):
         parser.add_argument("--" + field, required=True)
+    parser.add_argument("--owner", choices=[OWNER, "capacity_ci"], default=OWNER)
     parser.add_argument("--seconds", type=int, default=450)
     parser.add_argument("--interval", type=float, default=0.5)
     args = parser.parse_args()
@@ -457,6 +462,7 @@ if __name__ == "__main__":
         args.pg_id,
         args.run_id,
         args.phase,
+        owner=args.owner,
     )
     report = run_monitor(monitor, args.output, args.seconds, args.interval)
     print(json.dumps(report))
