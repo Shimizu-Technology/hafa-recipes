@@ -140,7 +140,9 @@ async def test_metadata_preserves_prescription_and_actuals(organization_api):
     assert (await search(api))["items"] == []
     archived = await search(api, archived_only=True)
     assert archived["items"][0]["organization"]["archived"]
-    assert (await api.client.get(f"{PREFIX}/library/{row['id']}")).json() == row
+    detail = (await api.client.get(f"{PREFIX}/library/{row['id']}")).json()
+    assert detail["content"] == row["content"] and detail["revision"] == row["revision"]
+    assert detail["organization"]["archived"] is True
     async with api.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(WorkoutVersion)) == 1
         assert (await db.scalar(select(WorkoutsSession))).content == actual.json()["content"]
@@ -157,7 +159,7 @@ async def test_collections_revision_casefold_delete_unlinks_only(organization_ap
         PREFIX + "/collections", json={"title": "strength"}, headers=GENERATION
     )
     assert response.status_code == 409
-    await change(api, row, collection_ids=[collection["id"]])
+    linked = await change(api, row, collection_ids=[collection["id"]])
     assert (await api.client.get(PREFIX + "/collections", headers=GENERATION)).json()[0][
         "workout_count"
     ] == 1
@@ -174,7 +176,7 @@ async def test_collections_revision_casefold_delete_unlinks_only(organization_ap
     ).status_code == 204
     after_removal = await metadata(api, row)
     assert after_removal["collection_ids"] == []
-    assert after_removal["revision"] == 2
+    assert after_removal["revision"] == linked["revision"] + 1
     stale = await api.client.put(
         f"{PREFIX}/library/{row['id']}/organization",
         json={"expected_revision": 1, "favorite": True},
@@ -215,10 +217,14 @@ async def test_owner_isolation_and_composite_database_fences(organization_api):
     api = organization_api
     row = await create(api)
     other_collection = await make_collection(api, other=True)
+    current_revision = (await metadata(api, row))["revision"]
     assert (
         await api.client.put(
             f"{PREFIX}/library/{row['id']}/organization",
-            json={"expected_revision": 0, "collection_ids": [other_collection["id"]]},
+            json={
+                "expected_revision": current_revision,
+                "collection_ids": [other_collection["id"]],
+            },
             headers=GENERATION,
         )
     ).status_code == 404
