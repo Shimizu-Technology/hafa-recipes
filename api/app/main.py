@@ -21,6 +21,8 @@ from app.domains.workouts.coach_router import router as workouts_coach_router
 from app.domains.workouts.coach_router import send_router as workouts_coach_send_router
 from app.domains.workouts.connection_router import router as workouts_connections_router
 from app.domains.workouts.connection_runtime import verify_connections_schema
+from app.domains.workouts.export_job_router import router as workouts_export_job_router
+from app.domains.workouts.export_job_worker import export_job_worker
 from app.domains.workouts.export_router import read_router as workouts_export_read_router
 from app.domains.workouts.export_router import router as workouts_export_router
 from app.domains.workouts.health_router import router as workouts_health_router
@@ -124,6 +126,7 @@ app.include_router(workouts_coach_send_router)
 app.include_router(workouts_budget_router)
 app.include_router(workouts_export_router)
 app.include_router(workouts_export_read_router)
+app.include_router(workouts_export_job_router)
 app.include_router(workouts_activity_log_router)
 workout_coach.compose_library_program = compose_coach_sources
 app.include_router(admin_router)
@@ -179,6 +182,7 @@ async def startup():
     await verify_import_usage_schema()
     await job_worker.start()
     await workout_import_worker.start()
+    await export_job_worker.start()
     await cover_job_worker.start()
     await deletion_cleanup_worker.start()
 
@@ -187,6 +191,7 @@ async def startup():
 async def shutdown():
     """Run on application shutdown."""
     await workout_import_worker.stop()
+    await export_job_worker.stop()
     await cover_job_worker.stop()
     await deletion_cleanup_worker.stop()
     await job_worker.stop()

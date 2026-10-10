@@ -128,6 +128,9 @@ async def erase_product_data(db, membership, requested_generation: int):
     from app.domains.workouts.imports import workout_import_worker
 
     workout_import_worker.cancel_owner(membership.app_user_id)
+    from app.domains.workouts.export_job_worker import export_job_worker
+
+    export_job_worker.cancel_owner(membership.app_user_id)
     return membership
 
 
