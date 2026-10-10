@@ -34,6 +34,7 @@ from app.routers import (
     tts_router,
     users_router,
 )
+from app.routers.platform import router as platform_router
 from app.widget_credentials import verify_widget_credential_schema
 
 settings = get_settings()
@@ -91,6 +92,7 @@ async def attach_request_context(request: Request, call_next):
 
 # Include routers
 app.include_router(health_router)
+app.include_router(platform_router)
 app.include_router(admin_router)
 app.include_router(recipes_router)
 app.include_router(extract_router)
