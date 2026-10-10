@@ -1,18 +1,17 @@
 """Håfa API - shared FastAPI platform with compatible Recipes surfaces."""
 
 import logging
-import re
-from uuid import uuid4
 
 import sentry_sdk
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.ai_governance import ai_request_context, verify_ai_governance_schema
+from app.ai_governance import verify_ai_governance_schema
 from app.config import get_settings
 from app.cover_jobs import cover_job_worker
 from app.database_invariants import verify_database_invariants
 from app.deletion_cleanup import deletion_cleanup_worker
+from app.domains.workouts.activity_log_router import router as workouts_activity_log_router
 from app.domains.workouts.automation_router import imports_router as workouts_imports_router
 from app.domains.workouts.automation_router import router as workouts_automation_router
 from app.domains.workouts.automation_runtime import verify_automation_schema
@@ -22,6 +21,8 @@ from app.domains.workouts.coach_router import router as workouts_coach_router
 from app.domains.workouts.coach_router import send_router as workouts_coach_send_router
 from app.domains.workouts.connection_router import router as workouts_connections_router
 from app.domains.workouts.connection_runtime import verify_connections_schema
+from app.domains.workouts.export_router import read_router as workouts_export_read_router
+from app.domains.workouts.export_router import router as workouts_export_router
 from app.domains.workouts.health_router import router as workouts_health_router
 from app.domains.workouts.import_usage_service import verify_import_usage_schema
 from app.domains.workouts.imports import workout_import_worker
@@ -39,6 +40,7 @@ from app.domains.workouts.source_planning import compose_coach_sources
 from app.grocery_sync import verify_grocery_sync_schema
 from app.job_worker import job_worker
 from app.moderation import verify_moderation_schema
+from app.request_context import RequestContextMiddleware
 from app.request_limits import PastedTextBodyLimitMiddleware
 from app.routers import (
     admin_router,
@@ -104,21 +106,7 @@ app.add_middleware(
 )
 app.add_middleware(PastedTextBodyLimitMiddleware)
 
-SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-
-
-@app.middleware("http")
-async def attach_request_context(request: Request, call_next):
-    """Trace requests without trusting or logging arbitrary header content."""
-
-    supplied = request.headers.get("x-request-id", "")
-    request_id = supplied if SAFE_REQUEST_ID.fullmatch(supplied) else uuid4().hex
-    with ai_request_context(request_id=request_id, route=request.url.path):
-        response = await call_next(request)
-    if request.url.path.startswith("/api/v1/workouts"):
-        response.headers["Cache-Control"] = "no-store"
-    response.headers["X-Request-ID"] = request_id
-    return response
+app.add_middleware(RequestContextMiddleware)
 
 
 # Include routers
@@ -134,6 +122,9 @@ app.include_router(workouts_health_router)
 app.include_router(workouts_coach_router)
 app.include_router(workouts_coach_send_router)
 app.include_router(workouts_budget_router)
+app.include_router(workouts_export_router)
+app.include_router(workouts_export_read_router)
+app.include_router(workouts_activity_log_router)
 workout_coach.compose_library_program = compose_coach_sources
 app.include_router(admin_router)
 app.include_router(recipes_router)

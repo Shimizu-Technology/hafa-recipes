@@ -38,6 +38,8 @@ OPTIONAL_MIGRATIONS = (
     "migrations.040_add_workouts_ai_admission",
     "migrations.041_add_workouts_recipe_grant_epochs",
     "migrations.042_add_workouts_import_usage",
+    "migrations.043_add_workouts_export_snapshots",
+    "migrations.044_add_workouts_activity_log",
 )
 
 

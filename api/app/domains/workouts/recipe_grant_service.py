@@ -107,6 +107,9 @@ async def replace_recipe_grants(
     await advance_recipe_grant_revision(db, owner, generation, previous, wanted)
     removed = previous - wanted
     if removed:
+        from app.domains.workouts.export_service import invalidate_export_snapshots
+
+        await invalidate_export_snapshots(db, owner, generation)
         await db.execute(
             delete(WorkoutsGrant).where(
                 WorkoutsGrant.app_user_id == owner,

@@ -48,18 +48,25 @@ async def export_automation_page(db, user_id, generation, limit, offset):
         ),
     ):
         owner = (model.app_user_id == user_id, model.generation == generation)
+        # Select only the exported projection. Loading whole import ORM rows
+        # would decode up to ten retained 3 MiB image/document captures despite
+        # the snapshot's SQL memory guard deliberately excluding those payloads.
         rows = (
-            await db.scalars(
-                select(model)
-                .where(*owner)
-                .order_by(model.created_at.desc(), model.id.desc())
-                .limit(limit)
-                .offset(offset)
+            (
+                await db.execute(
+                    select(*(getattr(model, field) for field in fields), model.created_at)
+                    .where(*owner)
+                    .order_by(model.created_at.desc(), model.id.desc())
+                    .limit(limit)
+                    .offset(offset)
+                )
             )
-        ).all()
+            .mappings()
+            .all()
+        )
         totals[name] = await db.scalar(select(func.count()).select_from(model).where(*owner))
         datasets[name] = [
-            {field: getattr(row, field) for field in fields} | {"created_at": row.created_at}
+            {field: row[field] for field in fields} | {"created_at": row["created_at"]}
             for row in rows
         ]
     return datasets, totals

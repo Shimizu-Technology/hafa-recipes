@@ -144,6 +144,9 @@ async def get_import_source(import_id: UUID, user: User, db: Database):
 async def cancel_import(import_id: UUID, user: User, db: Database, generation: Generation):
     await membership_for(db, user.id, generation=generation, write=True)
     row = await owned_record(db, WorkoutImport, import_id, user.id, generation)
+    from app.domains.workouts.export_service import invalidate_export_snapshots
+
+    await invalidate_export_snapshots(db, user.id, generation)
     row.status = "cancelled"
     row.payload = None
     row.result = None
@@ -280,6 +283,9 @@ async def accept_import(
 async def remove_workout(workout_id: UUID, user: User, db: Database, generation: Generation):
     await membership_for(db, user.id, generation=generation, write=True)
     row = await owned_record(db, WorkoutRecord, workout_id, user.id, generation)
+    from app.domains.workouts.export_service import invalidate_export_snapshots
+
+    await invalidate_export_snapshots(db, user.id, generation)
     await db.delete(row)
     await db.commit()
 

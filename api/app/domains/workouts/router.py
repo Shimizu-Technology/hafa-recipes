@@ -15,6 +15,7 @@ from sqlalchemy.orm import aliased
 
 from app.auth import ClerkUser
 from app.db import get_db
+from app.domains.workouts.export_response_gate import ExportReadRoute
 from app.domains.workouts.lifecycle import (
     erase_product_data,
     lock_owner,
@@ -348,6 +349,20 @@ async def put_profile(
         content = await reconcile_profile_measurements(
             db, user.id, generation, existing.content if existing else None, content
         )
+    private_fields = (
+        "age_years",
+        "weight_kg",
+        "height_cm",
+        "limitations",
+        "movement_exclusions",
+        "other_activities",
+    )
+    if existing and any(
+        existing.content.get(field) != content.get(field) for field in private_fields
+    ):
+        from app.domains.workouts.export_service import invalidate_export_snapshots
+
+        await invalidate_export_snapshots(db, user.id, generation)
     if existing is None:
         existing = WorkoutsProfile(
             app_user_id=user.id, generation=generation, revision=1, content=content
@@ -934,6 +949,10 @@ async def update_ai_consent(
             app_user_id=user.id, generation=generation, disclosure_version=DISCLOSURE_VERSION
         )
         db.add(row)
+    if not request.accepted:
+        from app.domains.workouts.export_service import invalidate_export_snapshots
+
+        await invalidate_export_snapshots(db, user.id, generation)
     row.accepted_at = now() if request.accepted else None
     if not request.accepted and await optional_table_exists(db, "workouts_health_connections"):
         from app.domains.workouts.health_service import invalidate_health_access
@@ -1087,7 +1106,10 @@ class ExportResponse(DomainModel):
     limit: int
 
 
-@router.get("/export", response_model=ExportResponse)
+legacy_exports = APIRouter(route_class=ExportReadRoute)
+
+
+@legacy_exports.get("/export", response_model=ExportResponse)
 async def export_data(
     response: Response,
     user: User,
@@ -1211,6 +1233,13 @@ async def export_data(
         )
         datasets["measurements"] = measurements["items"]
         totals["measurements"] = await dataset_total(WorkoutsMeasurement)
+    if await optional_table_exists(db, "workouts_activity_log"):
+        from app.domains.workouts.activity_log_models import WorkoutsActivityLog
+        from app.domains.workouts.activity_log_service import export_activity_logs
+
+        activities = await export_activity_logs(db, user.id, membership.generation, limit, offset)
+        datasets["completed_activity_log"] = activities["items"]
+        totals["completed_activity_log"] = await dataset_total(WorkoutsActivityLog)
     if await optional_table_exists(db, "workouts_recipe_grant_epochs"):
         from app.domains.workouts.recipe_grant_service import export_recipe_grant_epoch
 
@@ -1252,3 +1281,8 @@ async def export_data(
         offset=offset,
         limit=limit,
     )
+
+
+# The compatibility export uses the same response lifetime admission as the new
+# snapshot reader. Its User dependency and existing method/path remain intact.
+router.include_router(legacy_exports)

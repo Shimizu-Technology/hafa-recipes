@@ -199,6 +199,8 @@ class Settings(BaseSettings):
     migration_040_restore_point: str | None = None
     migration_041_restore_point: str | None = None
     migration_042_restore_point: str | None = None
+    migration_043_restore_point: str | None = None
+    migration_044_restore_point: str | None = None
     workouts_ai_budget_24h_microusd: int = Field(
         default=0, ge=0, le=9_000_000_000_000_000
     )

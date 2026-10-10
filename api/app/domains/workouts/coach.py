@@ -442,6 +442,9 @@ def message_response(row):
 async def clear_conversation(db, user_id, generation):
     """Retain content-free UUID/quota tombstones to fence in-flight sends and retries."""
     await membership_for(db, user_id, generation=generation, write=True)
+    from app.domains.workouts.export_service import invalidate_export_snapshots
+
+    await invalidate_export_snapshots(db, user_id, generation)
     associated = (
         select(WorkoutCoachMessage.id)
         .where(
