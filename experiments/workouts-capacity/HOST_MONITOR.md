@@ -49,3 +49,19 @@ provide the reviewed Pillow-memory candidate, inspect the new image/plan, and
 authorize bounded runtime validation. Until then, the baseline failure remains
 a rollout blocker and R04 remains open. A harness-only image may be built for
 inventory, but its backend still contains the historical failing normalization.
+
+The authorized harness-only inventory build passed: source
+`81085cefee377df48086fb645345eb60687bf993`, Linux amd64 image
+`sha256:e38adaa3a3c938939904fcfc572fc3cb5757ec8a68b169f93db361eba5164f88`,
+tag `hafa-capacity:81085cefee37`. It derives from verified pinned image `cbfd1a`
+after unchanged-requirements comparison, replaces only the harness tree, and
+retains backend `990cc56` without the pending memory repair. A finite network-none
+128 MiB inspection container verified exact application 133/migration 47/harness
+12 files and CLI help; it started no API/worker. The build process and inspection
+container were claimed/released and cleaned. No capacity runtime retry occurred.
+
+Local artifact leads: filtered context `/tmp/hafa-capacity-filtered-81085ce-host-monitor`,
+hash manifest `/tmp/hafa-capacity-context-81085ce.json`, build log
+`/tmp/hafa-capacity-build-81085ce.log`, finite results
+`/tmp/hafa-capacity-inventory-81085ce.json`. Root must supply the reviewed fixed
+backend before replacing this inventory with a runtime candidate.
