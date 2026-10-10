@@ -12,6 +12,9 @@ from app.config import get_settings
 from app.cover_jobs import cover_job_worker
 from app.database_invariants import verify_database_invariants
 from app.deletion_cleanup import deletion_cleanup_worker
+from app.domains.workouts.privacy import redact_workouts_event, redact_workouts_transaction
+from app.domains.workouts.router import router as workouts_router
+from app.domains.workouts.runtime import verify_workouts_schema
 from app.grocery_sync import verify_grocery_sync_schema
 from app.job_worker import job_worker
 from app.moderation import verify_moderation_schema
@@ -51,6 +54,8 @@ if settings.sentry_dsn:
         enable_tracing=True,
         # Don't send PII
         send_default_pii=False,
+        before_send=redact_workouts_event,
+        before_send_transaction=redact_workouts_transaction,
     )
     print(f"📊 Sentry initialized for {settings.environment}")
 else:
@@ -73,6 +78,7 @@ app.add_middleware(
     allow_credentials="*" not in allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID", "ETag", "X-Workouts-Revision"],
 )
 app.add_middleware(PastedTextBodyLimitMiddleware)
 
@@ -87,12 +93,15 @@ async def attach_request_context(request: Request, call_next):
     request_id = supplied if SAFE_REQUEST_ID.fullmatch(supplied) else uuid4().hex
     with ai_request_context(request_id=request_id, route=request.url.path):
         response = await call_next(request)
+    if request.url.path.startswith("/api/v1/workouts"):
+        response.headers["Cache-Control"] = "no-store"
     response.headers["X-Request-ID"] = request_id
     return response
 
 # Include routers
 app.include_router(health_router)
 app.include_router(platform_router)
+app.include_router(workouts_router)
 app.include_router(admin_router)
 app.include_router(recipes_router)
 app.include_router(extract_router)
@@ -137,6 +146,7 @@ async def startup():
     print("Grocery synchronization schema ready")
     await verify_widget_credential_schema()
     print("Grocery widget credential schema ready")
+    await verify_workouts_schema()
     await job_worker.start()
     await cover_job_worker.start()
     await deletion_cleanup_worker.start()

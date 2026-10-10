@@ -91,9 +91,9 @@ def test_runner_registers_every_active_numbered_migration_file():
         if int(path.name[:3]) >= first_active_version
     )
 
-    assert discovered_modules == migration_runner.ACTIVE_MIGRATIONS
+    assert discovered_modules == migration_runner.ACTIVE_MIGRATIONS + migration_runner.OPTIONAL_MIGRATIONS
     assert migration_runner.LATEST_MIGRATION == int(
-        discovered_modules[-1].removeprefix("migrations.")[:3]
+        migration_runner.ACTIVE_MIGRATIONS[-1].removeprefix("migrations.")[:3]
     )
 
 
@@ -197,3 +197,32 @@ def test_setup_script_explicitly_applies_development_seed():
     ).read_text(encoding="utf-8")
 
     assert "python -m scripts.seed_development --apply" in setup_script
+
+
+@pytest.mark.asyncio
+async def test_enabled_workouts_migration_follows_core_chain(monkeypatch):
+    calls = []
+    def load(module_name):
+        async def run_migration():
+            calls.append(module_name)
+        return SimpleNamespace(run_migration=run_migration)
+    monkeypatch.setattr(migration_runner, "import_module", load)
+    monkeypatch.setattr(migration_runner, "get_settings",
+                        lambda: SimpleNamespace(workouts_api_enabled=True))
+    await migration_runner.run_migrations()
+    assert calls == list(migration_runner.ACTIVE_MIGRATIONS + migration_runner.OPTIONAL_MIGRATIONS)
+
+
+@pytest.mark.asyncio
+async def test_disabled_workouts_runner_does_not_import_optional_domain(monkeypatch):
+    calls = []
+    def load(module_name):
+        assert module_name not in migration_runner.OPTIONAL_MIGRATIONS
+        async def run_migration():
+            calls.append(module_name)
+        return SimpleNamespace(run_migration=run_migration)
+    monkeypatch.setattr(migration_runner, "import_module", load)
+    monkeypatch.setattr(migration_runner, "get_settings",
+                        lambda: SimpleNamespace(workouts_api_enabled=False))
+    await migration_runner.run_migrations()
+    assert calls == list(migration_runner.ACTIVE_MIGRATIONS)

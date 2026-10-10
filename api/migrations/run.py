@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from importlib import import_module
 
+from app.config import get_settings
+
 ACTIVE_MIGRATIONS = (
     "migrations.016_add_stable_clerk_identities",
     "migrations.017_add_clerk_migration_grants",
@@ -26,6 +28,7 @@ ACTIVE_MIGRATIONS = (
     "migrations.033_add_nutrition_backfill_audit",
 )
 LATEST_MIGRATION = 33
+OPTIONAL_MIGRATIONS = ("migrations.034_add_workouts_domain",)
 
 
 async def run_migrations() -> None:
@@ -33,6 +36,11 @@ async def run_migrations() -> None:
     for module_name in ACTIVE_MIGRATIONS:
         migration = import_module(module_name)
         await migration.run_migration()
+
+    if get_settings().workouts_api_enabled:
+        for module_name in OPTIONAL_MIGRATIONS:
+            migration = import_module(module_name)
+            await migration.run_migration()
 
     print(f"Active migration chain complete through version {LATEST_MIGRATION}")
 
