@@ -40,6 +40,7 @@ OPTIONAL_MIGRATIONS = (
     "migrations.042_add_workouts_import_usage",
     "migrations.043_add_workouts_export_snapshots",
     "migrations.044_add_workouts_activity_log",
+    "migrations.045_add_workouts_export_jobs",
 )
 
 

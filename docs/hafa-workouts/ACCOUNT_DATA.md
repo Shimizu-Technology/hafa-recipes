@@ -118,9 +118,71 @@ chunked requests; saved content is capped at 240 KiB with bounded text fields.
 Normal list limits are 1–50, offsets 0–1,000,000. The native adapter must paginate
 until complete when loading a complete library/history/export. Export contains
 all actual events and all workout/program versions, with parent record IDs.
-Pages are live reads, not a durable point-in-time export job; concurrent edits
-between pages can change the export and should be avoided/restarted. A later
-durable export worker can provide that stronger guarantee.
+`GET /export` pages are live reads; concurrent edits between pages can change
+that export. The private snapshot and optional job routes below preserve one
+repeatable-read source view, including complete prescriptions and version history.
+
+### Private export jobs (optional migration 045)
+
+`WORKOUTS_EXPORT_JOBS_ENABLED` defaults to false. Discovery reports
+`export_jobs:false`; an absent field on an older API also means false. When the
+flag is off, all new job routes return 404 before authentication, body parsing or
+database access. Existing `GET /export` and `POST /export/snapshots` (201) remain
+available under their existing product guards. Once 045 is installed, legacy
+snapshot builds share the durable global slot and rate limit even with jobs off.
+
+| Route | Request | Result |
+| --- | --- | --- |
+| `POST /export/jobs` | `{request_id: UUID}` plus generation header |202 content-free receipt. |
+| `GET /export/jobs/{id}` | Owned handle plus generation header | Current receipt. |
+| `GET /export/jobs/by-request/{request_id}` | Original request UUID plus generation header | Same receipt after an uncertain/lost POST response;404 if not admitted. |
+| `POST /export/jobs/{id}/cancel` | Owned handle plus generation header |200 idempotent receipt; fences publication and removes ready ciphertext. |
+
+A receipt contains `schema_version:1`, `id`, `request_id`, `generation`, `status`,
+`admitted_at`, `deadline_at`, `expires_at`, nullable `started_at`/`finished_at`,
+nullable `failure_code`, `cleanup_pending`, and nullable `manifest`. Status is
+`queued`, `running`, `cancel_requested`, `ready`, `cancelled`, `failed`, or
+`expired`. Failure codes are fixed values: `interrupted`, `privacy_changed`,
+`deadline_exceeded`, `too_large`, or `export_failed`. Receipts contain no source
+rows, profiles, capture data, provider data, exception messages or guessed progress.
+
+The total deadline is admission + 120 seconds, including queue time, materialization
+and actual worker retirement. Artifact expiry is admission + 600 seconds. Neither
+value extends on retries, restart or lease renewal. `ready` exposes a manifest
+only after source tasks, heartbeat references and private material have retired,
+the worker has acknowledged actual end, and fresh privacy/expiry checks pass.
+Existing snapshot page routes reject internal publication while cleanup is pending.
+Snapshot pages remain encrypted and bounded: 10 rows per dataset/page, 8 MiB per
+page, 64 MiB total, and 512 pages. Exceeding a bound fails the job without a partial
+usable export.
+
+Reuse the original request UUID after an uncertain POST; lookup 404 permits a
+retry with that same UUID. The stable owner+generation+request UUID always returns
+the original handle, including terminal receipts, until product or account erasure.
+Only an explicit new attempt gets a new UUID. Do not automatically fall back to
+legacy export after uncertainty, 409 or 429. Six accepted exports per rolling hour
+are allowed per stable owner across async and legacy builds; replays and rejected
+attempts do not consume another admission. 429 includes `Retry-After` from the
+database clock.
+
+One persistent slot serializes all builders across replicas. A started job never
+restarts under its handle or captures a second source view. Cancellation, consent
+revocation, product erasure and account cascade fence reads/writes and delete
+artifacts immediately; `cleanup_pending` can remain true until actual end is
+proved. The slot has no job/owner foreign key, so erasure cannot accidentally
+release a running or unknown worker. Expired leases and missing heartbeats are
+not termination proof. Automatic recovery requires the same Linux boot/PID
+namespace and a verified ended PID/start identity; other hosts remain held.
+Operator recovery is private and denied by default. No production recovery or
+rollout is authorized by this implementation.
+
+Startup verifies 045 whenever Workouts is enabled, including when async jobs are
+off. The first builder entry also verifies it and converts an invalid schema to
+a fixed 503 response. Successful verification is cached per coordinator process;
+absence is not cached. This assumes schema changes occur only through migrations
+with replica restart/readiness verification. It does not detect arbitrary DDL
+tampering after a successful cache entry; restart or a new coordinator refreshes
+that boundary.
 
 A workout/program record envelope is:
 
