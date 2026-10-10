@@ -41,6 +41,27 @@ def test_filtered_context_never_copies_git_env_or_dependency_caches(tmp_path):
         (repository / folder / "__pycache__/secret.pyc").write_bytes(b"cache")
     (repository / "api/requirements.txt").write_text("pypdf==6.20.0")
     (repository / "experiments/workouts-capacity/Dockerfile").write_text("FROM scratch")
+    import subprocess
+
+    subprocess.run(["git", "init", "-q", str(repository)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository),
+            "add",
+            "api/app/source.py",
+            "api/migrations/source.py",
+            "api/requirements.txt",
+            "experiments/workouts-capacity/capacity/source.py",
+            "experiments/workouts-capacity/Dockerfile",
+        ],
+        check=True,
+    )
+    (repository / "api/app/.env.production").write_text(
+        "private untracked configuration"
+    )
+    (repository / "api/app/untracked-private.json").write_text("private untracked data")
     files = plan.prepare_context(repository, tmp_path / "context")
     assert set(files) == {
         "Dockerfile",
@@ -199,3 +220,34 @@ assert any(getattr(route, 'path', None) == '/api/v1/workouts/imports' for route 
         timeout=30,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_context_refuses_tracked_private_config_and_symlinks_before_copy(tmp_path):
+    import subprocess
+
+    repository = tmp_path / "repo"
+    (repository / "api/app").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repository)], check=True)
+    private = repository / "api/app/.env.production"
+    private.write_text("private fixture")
+    subprocess.run(
+        ["git", "-C", str(repository), "add", "api/app/.env.production"], check=True
+    )
+    with pytest.raises(RuntimeError, match="Forbidden tracked"):
+        plan.prepare_context(repository, tmp_path / "private-context")
+    assert not (tmp_path / "private-context").exists()
+    subprocess.run(
+        ["git", "-C", str(repository), "rm", "--cached", "api/app/.env.production"],
+        check=True,
+        capture_output=True,
+    )
+    target = tmp_path / "outside.txt"
+    target.write_text("private fixture")
+    link = repository / "api/app/linked.py"
+    link.symlink_to(target)
+    subprocess.run(
+        ["git", "-C", str(repository), "add", "api/app/linked.py"], check=True
+    )
+    with pytest.raises(RuntimeError, match="symlinks"):
+        plan.prepare_context(repository, tmp_path / "linked-context")
+    assert not (tmp_path / "linked-context").exists()

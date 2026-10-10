@@ -25,8 +25,9 @@ Replace the CPU placeholder with the verified Render allocation. The program onl
 writes a filtered context, fixture-only environment and JSON argv plan. It never
 executes Docker. It rejects tracked uncommitted changes and existing output
 folders. Only `api/app`, migrations, pinned requirements and the harness package
-enter the context; `.git`, `.env`, dependency caches and private runtime files do
-not. Resolve/pin Python and PostgreSQL image digests before recording artifact
+enter the context. The copier selects Git-tracked candidate files only, excludes
+all untracked runtime files, and refuses tracked dotenv files or symlinks before
+copying. `.git`, `.env`, dependency caches and private runtime files do not. Resolve/pin Python and PostgreSQL image digests before recording artifact
 parity. Record Python/package/ffmpeg versions and the actual candidate commit.
 
 After inspection, root executes the plan's argv steps individually, verifying

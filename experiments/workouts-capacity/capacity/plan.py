@@ -42,24 +42,51 @@ def prepare_context(repository, output):
     repository, output = Path(repository).resolve(), Path(output).resolve()
     if output.exists():
         raise RuntimeError("Context output must be new; no directory is replaced")
-    output.mkdir(parents=True)
-    ignore = shutil.ignore_patterns(
-        "__pycache__", "*.pyc", ".env", ".venv", "node_modules"
-    )
-    for folder in ["app", "migrations"]:
-        shutil.copytree(
-            repository / "api" / folder, output / "api" / folder, ignore=ignore
+    selected = (
+        subprocess.check_output(
+            [
+                "git",
+                "-C",
+                str(repository),
+                "ls-files",
+                "-z",
+                "--",
+                "api/app",
+                "api/migrations",
+                "api/requirements.txt",
+                "experiments/workouts-capacity/capacity",
+                "experiments/workouts-capacity/Dockerfile",
+            ]
         )
-    shutil.copy2(repository / "api/requirements.txt", output / "api/requirements.txt")
-    source = repository / "experiments/workouts-capacity"
-    shutil.copytree(source / "capacity", output / "capacity", ignore=ignore)
-    shutil.copy2(source / "Dockerfile", output / "Dockerfile")
-    files = [
-        str(path.relative_to(output)) for path in output.rglob("*") if path.is_file()
-    ]
-    if any(".env" in Path(path).parts or ".git" in Path(path).parts for path in files):
-        raise RuntimeError("Forbidden build context content")
-    return files
+        .decode()
+        .split("\0")
+    )
+    selected = [name for name in selected if name]
+    if not selected:
+        raise RuntimeError("Build context requires tracked candidate files")
+    mapping = []
+    for name in selected:
+        source = repository / name
+        if source.is_symlink() or not source.resolve().is_relative_to(repository):
+            raise RuntimeError("Build context cannot dereference symlinks")
+        if any(
+            part.startswith(".env")
+            or part in {".git", ".venv", "__pycache__", "node_modules"}
+            for part in Path(name).parts
+        ):
+            raise RuntimeError("Forbidden tracked build context content")
+        if not source.is_file():
+            raise RuntimeError("Tracked context file is missing")
+        target = name
+        if name.startswith("experiments/workouts-capacity/"):
+            target = name.removeprefix("experiments/workouts-capacity/")
+        mapping.append((source, target))
+    output.mkdir(parents=True)
+    for source, target in mapping:
+        destination = output / target
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+    return [target for _, target in mapping]
 
 
 def build_plan(repository, output, run_id, cpus, target_platform="linux/amd64"):
