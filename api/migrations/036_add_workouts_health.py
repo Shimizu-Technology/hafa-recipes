@@ -45,8 +45,7 @@ async def run_migration(*, configured=None, migration_engine=None):
         if len(restore) > 160 or any(ord(char) < 32 for char in restore):
             raise RuntimeError("MIGRATION_036_RESTORE_POINT is invalid")
         await install_health_schema(connection)
-        # Root migration 035 normally widens this ledger. Preserve compatibility
-        # with its original bounded check when installing the next optional slice.
+        # Optional domains share an additive ledger independent of Recipes.
         await connection.execute(
             text(
                 "ALTER TABLE workouts_schema_migrations DROP CONSTRAINT IF EXISTS workouts_schema_migrations_version_check"
@@ -54,7 +53,7 @@ async def run_migration(*, configured=None, migration_engine=None):
         )
         await connection.execute(
             text(
-                "ALTER TABLE workouts_schema_migrations ADD CONSTRAINT workouts_schema_migrations_version_check CHECK(version BETWEEN 34 AND 36)"
+                "ALTER TABLE workouts_schema_migrations ADD CONSTRAINT workouts_schema_migrations_version_check CHECK(version>=34)"
             )
         )
         await connection.execute(

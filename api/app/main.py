@@ -16,7 +16,16 @@ from app.deletion_cleanup import deletion_cleanup_worker
 from app.domains.workouts.automation_router import imports_router as workouts_imports_router
 from app.domains.workouts.automation_router import router as workouts_automation_router
 from app.domains.workouts.automation_runtime import verify_automation_schema
+from app.domains.workouts.coach import workout_coach
+from app.domains.workouts.coach_router import router as workouts_coach_router
+from app.domains.workouts.coach_router import send_router as workouts_coach_send_router
+from app.domains.workouts.connection_router import router as workouts_connections_router
+from app.domains.workouts.connection_runtime import verify_connections_schema
+from app.domains.workouts.health_router import router as workouts_health_router
 from app.domains.workouts.imports import workout_import_worker
+from app.domains.workouts.library_organization_router import router as workouts_library_router
+from app.domains.workouts.measurement_router import router as workouts_measurements_router
+from app.domains.workouts.optional_runtime import verify_optional_workouts_schema
 from app.domains.workouts.privacy import (
     WorkoutsAccessLogFilter,
     redact_workouts_event,
@@ -24,6 +33,7 @@ from app.domains.workouts.privacy import (
 )
 from app.domains.workouts.router import router as workouts_router
 from app.domains.workouts.runtime import verify_workouts_schema
+from app.domains.workouts.source_planning import compose_coach_sources
 from app.grocery_sync import verify_grocery_sync_schema
 from app.job_worker import job_worker
 from app.moderation import verify_moderation_schema
@@ -108,12 +118,20 @@ async def attach_request_context(request: Request, call_next):
     response.headers["X-Request-ID"] = request_id
     return response
 
+
 # Include routers
 app.include_router(health_router)
 app.include_router(platform_router)
+app.include_router(workouts_library_router)
+app.include_router(workouts_measurements_router)
 app.include_router(workouts_router)
 app.include_router(workouts_automation_router)
 app.include_router(workouts_imports_router)
+app.include_router(workouts_connections_router)
+app.include_router(workouts_health_router)
+app.include_router(workouts_coach_router)
+app.include_router(workouts_coach_send_router)
+workout_coach.compose_library_program = compose_coach_sources
 app.include_router(admin_router)
 app.include_router(recipes_router)
 app.include_router(extract_router)
@@ -160,6 +178,8 @@ async def startup():
     print("Grocery widget credential schema ready")
     await verify_workouts_schema()
     await verify_automation_schema()
+    await verify_connections_schema()
+    await verify_optional_workouts_schema()
     await job_worker.start()
     await workout_import_worker.start()
     await cover_job_worker.start()

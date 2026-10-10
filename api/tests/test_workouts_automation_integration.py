@@ -606,3 +606,115 @@ def test_invalid_active_intervals_cannot_misrepresent_actual_duration(intervals,
             active_seconds=active,
             active_intervals=intervals,
         )
+
+
+async def copied_program(api):
+    from app.domains.workouts.connection_models import WorkoutCopyReceipt
+    from app.domains.workouts.models import WorkoutsProgram, WorkoutsProgramVersion
+
+    migration = importlib.import_module("migrations.037_add_workouts_connections_sharing")
+    await migration.run_migration(configured=settings(), migration_engine=api.engine)
+    await ready_profile(api)
+    proposal = (await propose(api))["proposal"]
+    proposal["status"] = "needs_information"
+    proposal["questions"] = ["Review this deliberately copied program"]
+    identifier = uuid4()
+    content = {"title": "Recipient copy", "proposal": proposal}
+    async with api.sessions() as db:
+        db.add(
+            WorkoutsProgram(
+                id=identifier, app_user_id="owner", generation=1, revision=1, content=content
+            )
+        )
+        await db.flush()
+        db.add(
+            WorkoutsProgramVersion(
+                program_id=identifier,
+                app_user_id="owner",
+                generation=1,
+                revision=1,
+                content=content,
+            )
+        )
+        db.add(
+            WorkoutCopyReceipt(
+                app_user_id="owner",
+                generation=1,
+                record_id=identifier,
+                copy_request_id=uuid4(),
+                share_id=uuid4(),
+                source_token_hash="a" * 64,
+                request_hash="b" * 64,
+                kind="program",
+                snapshot_digest="c" * 64,
+                attribution={
+                    "shared_by_display_name": "A member",
+                    "source_revision": 1,
+                    "original_source_included": False,
+                },
+            )
+        )
+        await db.commit()
+    return str(identifier)
+
+
+async def test_copied_program_review_versions_same_copy_and_preserves_receipt(automation_api):
+    from app.domains.workouts.connection_models import WorkoutCopyReceipt
+    from app.domains.workouts.models import WorkoutsProgramVersion
+
+    api = automation_api
+    identifier = await copied_program(api)
+    response = await api.client.post(
+        f"/api/v1/workouts/programs/{identifier}/review-proposal",
+        headers=GENERATION,
+        json={"program_revision": 1, "profile_revision": 1},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["proposal"]["status"] == "ready", response.text
+    accept = f"/api/v1/workouts/program-proposals/{response.json()['id']}/accept"
+    adopted = await api.client.post(accept, headers=GENERATION, json={"title": "My reviewed copy"})
+    assert adopted.status_code == 200, adopted.text
+    assert adopted.json()["id"] == identifier and adopted.json()["revision"] == 2
+    replay = await api.client.post(accept, headers=GENERATION, json={"title": "My reviewed copy"})
+    assert replay.json()["revision"] == 2
+    async with api.sessions() as db:
+        versions = (
+            await db.scalars(
+                select(WorkoutsProgramVersion)
+                .where(WorkoutsProgramVersion.program_id == identifier)
+                .order_by(WorkoutsProgramVersion.revision)
+            )
+        ).all()
+        assert (
+            len(versions) == 2 and versions[0].content["proposal"]["status"] == "needs_information"
+        )
+        assert await db.scalar(select(func.count()).select_from(WorkoutCopyReceipt)) == 1
+
+
+async def test_copied_program_review_rejects_changed_copy_and_foreign_owner(automation_api):
+    from app.domains.workouts.models import WorkoutsProgram
+
+    api = automation_api
+    identifier = await copied_program(api)
+    path = f"/api/v1/workouts/programs/{identifier}/review-proposal"
+    response = await api.client.post(
+        path, headers=GENERATION, json={"program_revision": 1, "profile_revision": 1}
+    )
+    assert response.status_code == 200, response.text
+    async with api.sessions() as db:
+        row = await db.get(WorkoutsProgram, identifier)
+        row.revision += 1
+        await db.commit()
+    adopt = await api.client.post(
+        f"/api/v1/workouts/program-proposals/{response.json()['id']}/accept",
+        headers=GENERATION,
+        json={"title": "Stale copy"},
+    )
+    assert adopt.status_code == 409
+    await enroll(api, other=True)
+    foreign = await api.client.post(
+        path,
+        headers=GENERATION | {"X-Test-User": "other"},
+        json={"program_revision": 2, "profile_revision": 1},
+    )
+    assert foreign.status_code == 404

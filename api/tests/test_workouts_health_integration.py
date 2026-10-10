@@ -5,7 +5,7 @@ import importlib
 import os
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import httpx
 import pytest
@@ -407,7 +407,9 @@ async def test_export_uses_owned_actuals_permission_and_idempotent_intent(api):
         and first.json()["intent_id"] == second.json()["intent_id"]
     )
     actual_data = first.json()["actual"]
-    assert actual_data["canonical_session_id"] == str(row.client_session_id)
+    assert actual_data["canonical_session_id"] == str(
+        uuid5(NAMESPACE_URL, f"hafa-workouts:owner:1:{row.client_session_id}")
+    )
     assert actual_data["active_seconds"] == 600 and actual_data["activity"] == "running"
     assert "calories" not in actual_data and "distance" not in actual_data
     acknowledgment = {
@@ -731,3 +733,41 @@ async def test_health_migration_replays_and_dormant_does_not_connect(api):
             )
             == 1
         )
+
+
+async def test_export_preserves_recorded_pauses_and_canonical_activity(api):
+    await connect(api, write_actuals=True)
+    intervals = [
+        {"started_at": "2026-10-01T10:00:00+10:00", "ended_at": "2026-10-01T10:04:00+10:00"},
+        {"started_at": "2026-10-01T10:07:00+10:00", "ended_at": "2026-10-01T10:10:00+10:00"},
+    ]
+    row = await actual(
+        api, active_seconds=420, activity_type="strength_training", active_intervals=intervals
+    )
+    response = await api.client.post(
+        "/api/v1/workouts/health/apple_health/exports",
+        headers=HEADERS,
+        json={"session_id": str(row.id), "expected_revision": 1},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["actual"]["activity"] == "strength"
+    assert response.json()["actual"]["active_intervals"] == intervals
+    assert response.json()["actual"]["active_seconds"] == 420
+
+
+async def test_export_rejects_forged_paused_duration(api):
+    await connect(api, write_actuals=True)
+    row = await actual(
+        api,
+        active_seconds=420,
+        active_intervals=[
+            {"started_at": "2026-10-01T10:00:00+10:00", "ended_at": "2026-10-01T10:10:00+10:00"}
+        ],
+    )
+    response = await api.client.post(
+        "/api/v1/workouts/health/apple_health/exports",
+        headers=HEADERS,
+        json={"session_id": str(row.id), "expected_revision": 1},
+    )
+    assert response.status_code == 422
+    assert await count(api, HealthExportIntent) == 0

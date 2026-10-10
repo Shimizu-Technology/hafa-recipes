@@ -31,6 +31,10 @@ LATEST_MIGRATION = 33
 OPTIONAL_MIGRATIONS = (
     "migrations.034_add_workouts_domain",
     "migrations.035_add_workouts_automation",
+    "migrations.036_add_workouts_health",
+    "migrations.037_add_workouts_connections_sharing",
+    "migrations.038_add_workouts_library_organization",
+    "migrations.039_add_workouts_measurements",
 )
 
 

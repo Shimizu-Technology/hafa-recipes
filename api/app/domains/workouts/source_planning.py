@@ -46,7 +46,12 @@ def inspect_personal_source(workout, profile, *, reviewed_custom=False, declared
                 questions.append(
                     f"{exercise.name}: match a variation or explicitly review this custom routine."
                 )
-            if exercise.sets is None and block.rounds is None:
+            if (
+                exercise.sets is None
+                and block.rounds is None
+                and exercise.duration_seconds is None
+                and exercise.distance_meters is None
+            ):
                 questions.append(f"{exercise.name}: enter the intended sets or rounds.")
             if all(
                 value is None
@@ -191,4 +196,70 @@ def convert_program_source(profile, start_date, source, days, *, reviewed_custom
             "Day assignments and duration estimates were explicitly reviewed by the user."
         ],
         progression_policy=PROGRESSION_POLICY,
+    )
+
+
+def review_copied_program(profile, original, *, reviewed_custom=False, declared_minutes=None):
+    """Review a recipient's own copy; original dates and snapshots stay versioned."""
+    if not original.sessions:
+        return original.model_copy(
+            update={
+                "status": "needs_information",
+                "questions": ["Add the intended training sessions first."],
+            }
+        )
+    baseline = build_program(profile, min(item.date for item in original.sessions), 1)
+    questions = list(baseline.questions)
+    if baseline.status != "ready" and not questions:
+        questions.append(
+            "Resolve your current profile and schedule conflicts before adopting this copy."
+        )
+    warnings = list(original.warnings) + [REVIEW_NOTICE]
+    sessions = []
+    for session in original.sessions:
+        content, needs, notes = inspect_personal_source(
+            session.workout,
+            profile,
+            reviewed_custom=reviewed_custom,
+            declared_minutes=(declared_minutes or {}).get(session.id),
+        )
+        questions.extend(needs)
+        warnings.extend(notes)
+        if session.date.weekday() not in profile.available_days:
+            questions.append(
+                f"{session.date}: choose an available training day before adopting this copy."
+            )
+        if any(
+            activity.date == session.date and activity.strenuous is not False
+            for activity in profile.other_activities
+        ):
+            questions.append(
+                f"{session.date}: review the other activity conflict before scheduling."
+            )
+        sessions.append(session.model_copy(update={"workout": content}))
+    return original.model_copy(
+        update={
+            "status": "needs_information" if questions else "ready",
+            "rule_version": RULE_VERSION,
+            "sessions": sessions,
+            "questions": list(dict.fromkeys(questions)),
+            "warnings": list(dict.fromkeys(warnings)),
+            "assumptions": [
+                "You reviewed this copy against your current profile; copying alone did not personalize it."
+            ],
+            "progression_policy": PROGRESSION_POLICY,
+        }
+    )
+
+
+async def compose_coach_sources(profile, start_date, weeks, sources):
+    from uuid import UUID
+
+    from app.domains.workouts.schemas import WorkoutContent
+
+    return compose_library_program(
+        profile,
+        start_date,
+        weeks,
+        [(UUID(row["id"]), WorkoutContent.model_validate(row["content"])) for row in sources],
     )

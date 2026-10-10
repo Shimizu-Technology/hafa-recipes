@@ -194,6 +194,11 @@ class Settings(BaseSettings):
     migration_033_restore_point: str | None = None
     migration_034_restore_point: str | None = None
     migration_035_restore_point: str | None = None
+    migration_036_restore_point: str | None = None
+    migration_037_restore_point: str | None = None
+    migration_038_restore_point: str | None = None
+    migration_039_restore_point: str | None = None
+    workouts_share_encryption_key: str | None = None
     cors_origins: str = ""
     enable_sentry_debug: bool = False
     

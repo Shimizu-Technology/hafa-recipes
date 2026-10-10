@@ -36,11 +36,16 @@ from app.domains.workouts.router import (
 from app.domains.workouts.schemas import (
     ActivityContext,
     DomainModel,
+    ProgramProposal,
     TrainingProfile,
     WorkoutContent,
 )
 from app.domains.workouts.security import WorkoutsImportRoute, WorkoutsRoute
-from app.domains.workouts.source_planning import compose_library_program, convert_program_source
+from app.domains.workouts.source_planning import (
+    compose_library_program,
+    convert_program_source,
+    review_copied_program,
+)
 
 router = APIRouter(prefix="/api/v1/workouts", tags=["workouts"], route_class=WorkoutsRoute)
 imports_router = APIRouter(
@@ -548,6 +553,61 @@ class AcceptProposal(DomainModel):
     title: str = Field(min_length=1, max_length=200)
 
 
+class CopiedProgramReview(DomainModel):
+    program_revision: int = Field(strict=True, ge=1)
+    profile_revision: int = Field(strict=True, ge=1)
+    reviewed_custom_routines: StrictBool = False
+    session_minutes: dict[str, Annotated[int, Field(strict=True, ge=5, le=180)]] = Field(
+        default_factory=dict, max_length=366
+    )
+
+
+@router.post("/programs/{program_id}/review-proposal")
+async def review_program_copy(
+    program_id: UUID, request: CopiedProgramReview, user: User, db: Database, generation: Generation
+):
+    from app.domains.workouts.connection_models import WorkoutCopyReceipt
+
+    await membership_for(db, user.id, generation=generation, write=True)
+    source = await owned_record(db, WorkoutsProgram, program_id, user.id, generation)
+    if source.revision != request.program_revision:
+        raise HTTPException(409, "Program changed; review its current version")
+    receipt = await db.scalar(
+        select(WorkoutCopyReceipt.id).where(
+            WorkoutCopyReceipt.app_user_id == user.id,
+            WorkoutCopyReceipt.generation == generation,
+            WorkoutCopyReceipt.record_id == source.id,
+            WorkoutCopyReceipt.kind == "program",
+        )
+    )
+    if receipt is None:
+        raise HTTPException(422, "Choose a deliberately copied program for personal review")
+    original = ProgramProposal.model_validate(source.content["proposal"])
+    if original.status != "needs_information":
+        raise HTTPException(409, "This program has already been reviewed; use a new adaptation")
+    if not set(request.session_minutes) <= {session.id for session in original.sessions}:
+        raise HTTPException(422, "Duration estimates must refer to sessions in this copy")
+    profile, revision = await effective_profile(db, user.id, generation, request.profile_revision)
+    proposal = review_copied_program(
+        profile,
+        original,
+        reviewed_custom=request.reviewed_custom_routines,
+        declared_minutes=request.session_minutes,
+    )
+    row = await persist_proposal(
+        db,
+        user.id,
+        generation,
+        "program",
+        revision,
+        proposal.model_dump(mode="json"),
+        target_id=source.id,
+        target_revision=source.revision,
+    )
+    await db.commit()
+    return proposal_response(row)
+
+
 @router.post("/program-proposals/{proposal_id}/accept", response_model=RecordResponse)
 async def accept_program(
     proposal_id: UUID, request: AcceptProposal, user: User, db: Database, generation: Generation
@@ -565,20 +625,30 @@ async def accept_program(
         raise HTTPException(409, "The proposal needs current information or has expired")
     if not request.title.strip():
         raise HTTPException(422, "Program title cannot be blank")
-    identifier = uuid4()
+    saved = None
+    if row.target_id:
+        saved = await owned_record(db, WorkoutsProgram, row.target_id, user.id, generation)
+        if saved.revision != row.target_revision:
+            raise HTTPException(409, "The copied program changed; prepare a fresh review")
+    identifier = saved.id if saved else uuid4()
     content = {"title": request.title, "proposal": row.content}
-    saved = WorkoutsProgram(
-        id=identifier, app_user_id=user.id, generation=generation, revision=1, content=content
-    )
-    db.add(saved)
+    if saved:
+        saved.content = {**saved.content, **content}
+        saved.revision += 1
+        saved.updated_at = now()
+    else:
+        saved = WorkoutsProgram(
+            id=identifier, app_user_id=user.id, generation=generation, revision=1, content=content
+        )
+        db.add(saved)
     db.add(
         WorkoutsProgramVersion(
             id=uuid4(),
             program_id=identifier,
             app_user_id=user.id,
             generation=generation,
-            revision=1,
-            content=content,
+            revision=saved.revision,
+            content=saved.content,
         )
     )
     row.accepted_record_id = identifier

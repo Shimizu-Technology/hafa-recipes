@@ -3,6 +3,7 @@
 import hashlib
 import json
 from datetime import UTC, datetime
+from uuid import NAMESPACE_URL, uuid5
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
@@ -598,13 +599,39 @@ async def actual_for_export(db, user_id, generation, session_id):
         or content.get("status") not in {"completed", "partial"}
     ):
         raise HTTPException(422, "The saved actual interval is not valid for health export")
-    if abs(duration - (end - start).total_seconds()) > 1:
+    intervals = content.get("active_intervals") or []
+    if intervals:
+        try:
+            elapsed = 0
+            last_end = start
+            for interval in intervals:
+                interval_start = datetime.fromisoformat(interval["started_at"])
+                interval_end = datetime.fromisoformat(interval["ended_at"])
+                if (
+                    interval_start.tzinfo is None
+                    or interval_end.tzinfo is None
+                    or not start <= interval_start < interval_end <= end
+                    or interval_start < last_end
+                ):
+                    raise ValueError("Invalid recorded interval")
+                elapsed += (interval_end - interval_start).total_seconds()
+                last_end = interval_end
+            if len(intervals) > 100 or abs(duration - elapsed) > 1:
+                raise ValueError("Active duration differs from recorded intervals")
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(
+                422, "Recorded active intervals need review before export"
+            ) from None
+    elif abs(duration - (end - start).total_seconds()) > 1:
         return (
             row,
             None,
-            "The current native bridges cannot truthfully export paused intervals; the app record is preserved.",
+            "Recorded pause intervals are unavailable; elapsed time cannot replace active duration.",
         )
-    if content.get("activity_type", "other") not in {
+    activity = {"strength_training": "strength", "general_fitness": "other"}.get(
+        content.get("activity_type"), content.get("activity_type", "other")
+    )
+    if activity not in {
         "running",
         "walking",
         "strength",
@@ -615,13 +642,19 @@ async def actual_for_export(db, user_id, generation, session_id):
     return (
         row,
         {
-            "canonical_session_id": str(original.client_session_id),
+            "canonical_session_id": str(
+                uuid5(
+                    NAMESPACE_URL,
+                    f"hafa-workouts:{user_id}:{generation}:{original.client_session_id}",
+                )
+            ),
             "revision": revision,
             "status": content["status"],
             "started_at": start.astimezone(UTC).isoformat(),
             "ended_at": end.astimezone(UTC).isoformat(),
             "active_seconds": duration,
-            "activity": content.get("activity_type", "other"),
+            "activity": activity,
+            "active_intervals": intervals,
         },
         None,
     )
