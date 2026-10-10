@@ -251,3 +251,103 @@ def test_context_refuses_tracked_private_config_and_symlinks_before_copy(tmp_pat
     with pytest.raises(RuntimeError, match="symlinks"):
         plan.prepare_context(repository, tmp_path / "linked-context")
     assert not (tmp_path / "linked-context").exists()
+
+
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_interrupted_driver_persists_partial_metadata_and_preserves_error(
+    tmp_path, monkeypatch, cancelled
+):
+    import asyncio
+    from types import SimpleNamespace
+
+    from capacity import driver as module
+
+    driver = module.Driver(tmp_path)
+    await driver.client.aclose()
+    error = asyncio.CancelledError if cancelled else httpx.ConnectError
+
+    async def respond(_):
+        raise error("private source and provider detail must not enter report")
+
+    driver.client = httpx.AsyncClient(
+        base_url="http://127.0.0.1:18047", transport=httpx.MockTransport(respond)
+    )
+
+    async def request_failure(*_):
+        await driver.request("GET", "/probe", label="interrupted-probe")
+
+    async def idle(*_):
+        return None
+
+    monkeypatch.setattr(driver, "lightweight", request_failure)
+    monkeypatch.setattr(driver, "media_and_chat", idle)
+    monkeypatch.setattr(driver, "poll", idle)
+    monkeypatch.setattr(module, "Driver", lambda _: driver)
+    output = tmp_path / "partial.json"
+    args = SimpleNamespace(
+        fixtures=tmp_path, profile="recipes-baseline", seconds=1, output=output
+    )
+    with pytest.raises(error):
+        await module.run(args)
+    report = json.loads(output.read_text())
+    assert report["completed"] is False
+    assert report["failure_type"] == error.__name__
+    assert report["r04_closed"] is False
+    assert "private source" not in output.read_text()
+    if not cancelled:
+        assert report["routes"]["interrupted-probe"]["statuses"]["0"] >= 1
+    assert driver.client.is_closed
+
+
+def test_real_backend_recipe_envelope_drives_detail_and_chat(tmp_path):
+    """Use the backend's validated response schema; a guessed fixture hid this bug."""
+    import subprocess
+    import sys
+
+    (tmp_path / "normal.jpg").write_bytes(b"mock-transport-only")
+    env = plan.environment()
+    env["PYTHONPATH"] = "api:experiments/workouts-capacity"
+    env["PATH"] = "/usr/bin:/bin"
+    env["CAPACITY_TEST_FIXTURES"] = str(tmp_path)
+    code = """
+import asyncio,json,os,socket
+from datetime import datetime,timezone
+from uuid import UUID
+def denied(*a,**kw): raise AssertionError('Real network forbidden')
+socket.socket.connect=denied
+socket.create_connection=denied
+socket.getaddrinfo=denied
+import httpx
+from app.models.schemas import RecipeListItem
+from app.routers.recipes import PaginatedRecipes
+from capacity.driver import Driver
+identifier=UUID('a3333333-3333-4333-8333-333333333333')
+item=RecipeListItem(id=identifier,title='Fixture',source_url='manual://fixture',source_type='manual',created_at=datetime.now(timezone.utc))
+envelope=PaginatedRecipes(items=[item],total=1,limit=20,offset=0,has_more=False).model_dump(mode='json')
+calls=[]
+def response(request):
+    calls.append((request.method,request.url.path))
+    return httpx.Response(200,json=envelope if request.method=='GET' else {'job_id':str(identifier)})
+async def main():
+    driver=Driver(os.environ['CAPACITY_TEST_FIXTURES'])
+    await driver.client.aclose()
+    driver.client=httpx.AsyncClient(base_url='http://127.0.0.1:18047',transport=httpx.MockTransport(response))
+    try:
+        await driver.lightweight(0,False)
+        await driver.media_and_chat(0,False)
+        assert ('GET','/api/recipes/'+str(identifier)) in calls
+        assert ('POST','/api/recipes/'+str(identifier)+'/chat') in calls
+        assert driver.report()['routes']['recipes/detail']['count']==1
+        assert driver.report()['routes']['recipes/chat']['count']==1
+    finally: await driver.client.aclose()
+asyncio.run(main())
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr

@@ -135,9 +135,7 @@ class Driver:
         await self.request(
             "GET", "/api/recipes/search?q=rice&limit=20", owner, label="recipes/search"
         )
-        recipes = (
-            listing.json().get("recipes", []) if listing.status_code == 200 else []
-        )
+        recipes = listing.json().get("items", []) if listing.status_code == 200 else []
         if recipes:
             await self.request(
                 "GET", "/api/recipes/" + recipes[0]["id"], owner, label="recipes/detail"
@@ -197,8 +195,8 @@ class Driver:
         listing = await self.request(
             "GET", "/api/recipes/?limit=1", owner, label="recipes/chat-context"
         )
-        if listing.status_code == 200 and listing.json().get("recipes"):
-            identifier = listing.json()["recipes"][0]["id"]
+        if listing.status_code == 200 and listing.json().get("items"):
+            identifier = listing.json()["items"][0]["id"]
             await self.request(
                 "POST",
                 f"/api/recipes/{identifier}/chat",
@@ -643,6 +641,8 @@ class Driver:
 
 async def run(args):
     driver = Driver(args.fixtures)
+    completed = False
+    failure_type = None
     try:
         if args.profile != "recipes-baseline":
             await driver.prepare()
@@ -683,20 +683,31 @@ async def run(args):
 
             await asyncio.gather(*(reader(n) for n in range(8)), heavy(), polling())
             await driver.poll()
-        report = driver.report()
-        Path(args.output).write_text(json.dumps(report, indent=2))
-        print(
-            json.dumps(
-                {
-                    "report_written": True,
-                    "unexpected": sum(
-                        r["unexpected"] for r in report["routes"].values()
-                    ),
-                }
-            )
-        )
+        completed = True
+    except BaseException as exc:
+        # Preserve cancellation/transport failure while retaining partial numeric
+        # evidence. Never serialize provider messages, source payloads or URLs.
+        failure_type = type(exc).__name__
+        raise
     finally:
-        await driver.client.aclose()
+        try:
+            report = driver.report()
+            report.update(completed=completed, failure_type=failure_type)
+            Path(args.output).write_text(json.dumps(report, indent=2))
+            print(
+                json.dumps(
+                    {
+                        "report_written": True,
+                        "completed": completed,
+                        "failure_type": failure_type,
+                        "unexpected": sum(
+                            r["unexpected"] for r in report["routes"].values()
+                        ),
+                    }
+                )
+            )
+        finally:
+            await driver.client.aclose()
 
 
 if __name__ == "__main__":
