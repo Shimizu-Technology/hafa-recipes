@@ -106,8 +106,13 @@ inspection of the new source/setup; no automatic rerun is authorized.
 Finalization now isolates deadline persistence, traffic stop, partial capture and
 targeted cleanup. A Docker timeout, interruption or cancellation in one stage
 cannot skip the remaining attempts. One persisted 120-second finalization budget
-is retained even if its ledger save fails; it is never restarted. The first safe
-failure remains visible, while unsuccessful cleanup sets its separate flag false.
+is retained; it is never restarted. If its initial save fails before a durable
+deadline is known, the primary refuses timed Docker/process cleanup. Always-clean
+can recover storage and establish the single budget without adding another budget
+already spent by the primary. If the failed save actually committed, recovery
+uses that earlier timestamp; a known preexisting deadline also remains unchanged.
+The first safe failure remains visible, while unsuccessful cleanup sets its
+separate flag false.
 An unsuccessful always-clean invocation also writes a failed receipt rather than
 leaving an older passing receipt as the final result.
 
@@ -118,6 +123,9 @@ it cannot guarantee writing evidence to an unavailable filesystem. The process
 entry point suppresses raw tracebacks and private command arguments. These are
 finite source regressions, not evidence of recovery from an actual hosted Docker
 hang. The source suite passed 125 tests in 15.06 seconds; no rerun is authorized.
+The subsequent two-process persistence regressions passed with the full suite:
+127 tests in 14.06 seconds. They start with no deadline in the real ledger file,
+then test both a failed uncommitted save and a committed write followed by error.
 
 The PNG matrix also cannot establish all-format memory safety. Legal nonblank
 40 MP WebP inputs within the 10 MiB cap remain a required NOT_RUN dimension:

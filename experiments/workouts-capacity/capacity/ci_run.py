@@ -41,6 +41,7 @@ class Coordinator:
         self.processes = []
         self.ledger = None
         self.cleaning_started = None
+        self.finalization_unconfirmed = False
         self.active_phase = None
         self.baseline = None
         self.summary = {
@@ -84,6 +85,8 @@ class Coordinator:
         }
 
     def command(self, argv, timeout=30):
+        if self.finalization_unconfirmed:
+            raise SafetyError("finalization_deadline_unconfirmed")
         remaining = (
             (120 - (time.monotonic() - self.cleaning_started))
             if self.cleaning_started
@@ -559,6 +562,8 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
         self.summary["passed"] = True
 
     def stop_traffic(self):
+        if self.finalization_unconfirmed:
+            raise SafetyError("finalization_deadline_unconfirmed")
         if self.ledger and "load" in self.ledger.state["containers"]:
             identifier = self.ledger.state["containers"]["load"]
             state = self.ledger.inspect(identifier)["State"]
@@ -632,14 +637,26 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
         self.summary["cleaned_owned_resources"] = True
 
     def begin_finalization(self):
-        # Assign before persistence: even a failed save cannot restart the budget.
+        if self.finalization_unconfirmed:
+            # The primary has spent no timed cleanup budget. Only a fresh process
+            # loading recovered storage may establish the single durable deadline.
+            raise SafetyError("finalization_deadline_unconfirmed")
         if self.cleaning_started is None:
             self.cleaning_started = time.monotonic()
             if self.ledger:
+                previous = self.ledger.state.get("finalization_started")
                 self.cleaning_started = self.ledger.state.setdefault(
                     "finalization_started", self.cleaning_started
                 )
-                self.ledger.save()
+                try:
+                    self.ledger.save()
+                except BaseException:
+                    if previous is None:
+                        # Do not spend 120s when always-clean cannot recover its
+                        # start. If the write actually committed before failing,
+                        # recovery loads that same start instead of creating one.
+                        self.finalization_unconfirmed = True
+                    raise
 
     def write_receipt(self):
         self.receipt.parent.mkdir(parents=True, exist_ok=True)

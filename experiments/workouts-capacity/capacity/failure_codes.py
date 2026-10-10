@@ -12,6 +12,7 @@ CODES = {
     "finite_container_failed",
     "finite_command_failed",
     "finite_command_timeout",
+    "finalization_deadline_unconfirmed",
     "load_phase_failed",
     "observer_phase_failed",
     "phase_deadline",
