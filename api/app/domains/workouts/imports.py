@@ -17,6 +17,11 @@ from app.domains.workouts.extraction import (
     WorkoutExtractionResult,
     WorkoutExtractor,
 )
+from app.domains.workouts.import_usage_service import (
+    charge_usable_import,
+    enforce_import_allowance,
+    purge_import_usage,
+)
 from app.domains.workouts.lifecycle import membership_for, now
 from app.domains.workouts.models import WorkoutsConsent
 from app.domains.workouts.router import content_digest
@@ -51,20 +56,7 @@ async def create_import(db, user_id, generation, request_id, request):
         if existing.request_hash != digest:
             raise HTTPException(409, "Import identity was used for different source content")
         return existing
-    recent = await db.scalar(
-        select(func.count())
-        .select_from(WorkoutImport)
-        .where(
-            WorkoutImport.app_user_id == user_id,
-            WorkoutImport.generation == generation,
-            WorkoutImport.created_at >= now() - timedelta(days=1),
-            WorkoutImport.status.notin_(["failed", "cancelled", "expired"]),
-        )
-    )
-    if recent >= MAX_IMPORTS_PER_DAY:
-        raise HTTPException(
-            429, "Free beta includes 15 successful or pending imports per rolling day"
-        )
+    await enforce_import_allowance(db, user_id, generation, request_id, limit=MAX_IMPORTS_PER_DAY)
     row = WorkoutImport(
         id=uuid4(),
         app_user_id=user_id,
@@ -141,9 +133,11 @@ class WorkoutImportWorker:
         while self.enabled():
             try:
                 worked = await self.tick()
+                # Sweep even under a continuous queue; successful dispatches
+                # must not indefinitely defer content-free receipt retention.
+                await self.purge_expired()
                 if worked:
                     continue
-                await self.purge_expired()
                 self.wake.clear()
                 with suppress(asyncio.TimeoutError):
                     await asyncio.wait_for(self.wake.wait(), timeout=30)
@@ -269,6 +263,7 @@ class WorkoutImportWorker:
                     row.status = "queued"
                     row.next_attempt_at = current + timedelta(seconds=15 * row.attempt_count)
                 else:
+                    await charge_usable_import(db, row, result)
                     row.status = result.status
                     row.result = result.model_dump(mode="json")
                     # Private raw capture survives until review, cancellation
@@ -305,6 +300,7 @@ class WorkoutImportWorker:
     async def purge_expired(self):
         async with self.sessions() as db:
             await db.execute(delete(WorkoutImport).where(WorkoutImport.expires_at < now()))
+            await purge_import_usage(db)
             await db.commit()
 
 

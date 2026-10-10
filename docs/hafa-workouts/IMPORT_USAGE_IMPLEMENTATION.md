@@ -1,0 +1,27 @@
+# Durable import allowance
+
+Each free beta account may have 15 usable imports or current pending imports in a rolling 24-hour window. A usable import means a ready or incomplete extraction containing a validated workout. An incomplete capture with no workout, failed extraction, cancelled pending extraction or expired pending extraction does not consume the success allowance. Provider attempts still count toward the existing global AI budget; this accounting does not refund provider cost.
+
+Migration042 adds `workouts_import_usage` with exactly three columns: stable application owner ID, original request UUID and server charge timestamp. Its composite primary key makes charging idempotent. The owner foreign key cascades on whole-account deletion. An update trigger makes receipts immutable. No source, source digest, source URL, payload, health data, Clerk identity or email is copied into a receipt.
+
+Receipts remain outside all product-erasure table lists. Deleting an import or deleting and re-enrolling in Workouts cannot refund a completed import. Recent charges count across enrollment generations. Whole-account deletion removes them through the owner cascade. Receipts are retained for 48 hours: a 24-hour allowance window followed by up to 24 hours of replay protection. After retention, the UUID may be reused. Safe replay of an existing current-generation job still returns that job and rejects a changed payload. A retained charged UUID with no current-generation job returns410 before starting new work.
+
+Admission takes the existing application-owner write lock and counts the union of recent receipt UUIDs and unexpired queued/processing UUIDs for the current generation. That union prevents overlapping reservations and charges from being counted twice. Completion rechecks generation and AI consent under the same owner lock. The receipt and usable job result commit in one transaction. Cancellation or erasure while source extraction is pending therefore cannot leave a late successful charge. The accounting helper never commits independently.
+
+Migration042 requires migration035, independently of036–041. Production requires a named, verified `MIGRATION_042_RESTORE_POINT`. Retained ready/incomplete jobs containing a workout and previously accepted jobs are backfilled once, conservatively charged at migration time. This avoids inventing a historical provider-completion timestamp. Idempotent migration replay never refreshes charges. Successful captures whose job or result was erased before042 cannot be reconstructed; deployment must install042 before enabling the new feature. Existing retained success may temporarily consume the allowance for a full day after migration.
+
+## Root integration
+
+- Register042 in the optional migration runner and add its restore-point setting/documented production activation prerequisite.
+- Call `verify_import_usage_schema(session_factory, settings=configured)` before enabling imports or starting the worker. It requires ledger042, the exact content-free columns, the owner cascade, composite primary key and immutable trigger. Disabled imports/master do no database queries.
+- Keep `WorkoutImportUsage` outside product erase/export-content table arrays. Whole-account cascade requires no extra deletion SQL. Explain the short accounting retention in the product deletion/privacy disclosure.
+- The worker calls `purge_import_usage(db)` in the same sweep as expired import jobs, including when its queue is continuously busy. A maintenance scheduler must also sweep retained accounting rows while import processing is administratively disabled; the dormant application otherwise intentionally makes no optional-domain queries. Retention is a sweep policy, not a database TTL.
+- Root owns cancellation endpoints, capabilities, router delegation, lifecycle assembly and the existing global paid-attempt budgets. Do not clear usage receipts from those handlers.
+
+Only the `test` environment permits the migration035-only synthetic fixture fallback: use live pending jobs and retained usable jobs for their isolated allowance checks. This compatibility path cannot provide durable erasure accounting and must never satisfy enabled application readiness. Development and production requests fail503 if the receipt table is absent, even if a running process previously passed readiness. There is no production feature flag to bypass042.
+
+## Acceptance limits
+
+Tests run against an exact disposable PostgreSQL database on the borrowed local container, with injected synthetic extraction and no paid provider calls. Coverage includes real successes followed by deletion, generation2 re-enrollment, original UUID replay, concurrent admissions, partial usable results, failed/unusable refunds, pending cancellation/erasure, transaction rollback, generation fences, retention, owner scoping, whole-owner deletion, schema invariants and production migration guards. Root integration, complete application gates and device acceptance remain separate work.
+
+Final local gate: `uv run pytest tests/test_workouts_import_usage.py tests/test_workouts_automation_integration.py tests/test_workouts_data_integration.py -q --tb=short` passed106 cases against `hafa_workouts_import_usage_test`. Ruff and Git whitespace checks passed. The database was dropped after testing; the borrowed PostgreSQL container remained running. No live AI or production calls were made.
