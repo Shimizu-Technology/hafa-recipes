@@ -5,6 +5,7 @@ import os
 import shutil
 from pathlib import Path
 
+from capacity.events import PHASES, traced
 from capacity.safety import OWNERS, ensure
 from capacity.transport import TEXT, FixtureBudget, install_provider_transport
 
@@ -22,10 +23,12 @@ from app.domains.workouts.extraction import (
 )
 from app.image_validation import validate_image_bytes
 from app.main import app
+from app.services.cover_selection import CoverSelectionService
 from app.services.storage import StorageService, storage_service
 from app.services.video import (
     AudioExtractionResult,
     VideoMetadata,
+    VideoService,
     video_service,
 )
 from fastapi import HTTPException, Request
@@ -133,6 +136,33 @@ video_service._download_audio = download_audio
 video_service.fetch_oembed = metadata
 video_service.get_video_metadata_ytdlp = metadata
 video_service._download_video_for_frames = download_frames
+
+# Mark the original methods, preserving their arguments/results/cancellation.
+# These existing API-process events do not start an observer process or decode
+# images to collect metadata; only compressed byte counts are emitted.
+phase = os.environ.get("CAPACITY_PHASE", "baseline")
+if phase not in PHASES:
+    raise RuntimeError("Explicit bounded experiment phase required")
+StorageService._prepare_thumbnail_variants = traced(
+    "thumbnail_normalize",
+    phase,
+    StorageService._prepare_thumbnail_variants,
+    lambda self, image_data, declared_content_type: {"input_bytes": len(image_data)},
+)
+CoverSelectionService.select = traced(
+    "cover_compare",
+    phase,
+    CoverSelectionService.select,
+    lambda self, candidates, *args, **kwargs: {
+        "input_bytes": sum(len(c.image_data) for c in candidates[:32])
+    },
+)
+VideoService.extract_cover_frames = traced(
+    "cover_frames", phase, VideoService.extract_cover_frames
+)
+VideoService.extract_video_frames = traced(
+    "evidence_frames", phase, VideoService.extract_video_frames
+)
 
 
 @app.get("/capacity/status")

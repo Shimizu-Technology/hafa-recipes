@@ -139,21 +139,38 @@ python -m capacity.driver --profile restart-prepare
 python -m capacity.driver --profile restart-check
 ```
 
-Capture memory concurrently using the exact owned API ID:
+Capture memory from a claimed host process using the exact owned API and
+PostgreSQL IDs and the new plan's ownership labels:
 
 ```text
-docker exec OWNED_API_ID python -m capacity.metrics --seconds 1500 --interval 0.5
+PYTHONPATH=experiments/workouts-capacity python -m capacity.host_monitor --ledger OWNED_RESOURCES_JSON --api-id FULL_API_ID --pg-id FULL_PG_ID --run-id RUN_ID --phase baseline --seconds 450 --output NEW_EXTERNAL_JSONL
 ```
 
-Save its numeric JSONL stdout in the owned result directory; do not capture env,
-argv, request bodies, source IDs/tokens or private URLs. Sampling includes its
-own small overhead, explicitly reported. Collect cgroup current/peak/OOM plus
-API/subprocess RSS/high-water marks. RSS sums may double-count shared pages.
-`memory.peak` catches brief spikes missed by interval samples. Also collect Docker
-CPU statistics and queue ages/counts, file-descriptor/temporary-file growth and
-final persisted outcomes. The sampler exits 2 on a stop condition; root must
-immediately stop only the recorded API ID and retain the failed evidence. It does
-not stop a shared process/container automatically.
+The monitor writes numeric JSONL and an interruption-safe summary, never replacing
+historical evidence. It validates full container IDs against the creation ledger,
+owner/run/name labels, unpublished ports and the API's 512 MiB/no-extra-swap limit.
+It executes only tiny `cat` probes inside the API; Python, Docker stats/top and
+reporting run on the host. The `cat` overhead remains included. Docker stats'
+cache-adjusted memory does not replace raw cgroup accounting. RSS sums may
+double-count shared pages; `memory.peak` catches missed spikes.
+
+The monitor stops only its revalidated owned API on 460 MiB/current-or-peak, any
+OOM or three protected 5xx responses. Probe failure/cancellation preserves a
+partial report and fails closed on a still-verifiable target. It collects numeric
+CPU/PID/RSS and bounded aggregate queue counts/ages. Fixed source-stage markers
+identify thumbnail normalization, cover comparison and cover/evidence frames;
+existing methods retain their behavior. Request-category start/end/failure events
+flush into the separate load container's results directory. They contain no
+identities, raw URLs, source bodies or exception messages. Set `CAPACITY_PHASE`
+explicitly when moving from baseline to mixed/boundaries so markers align.
+The configured interval is a minimum delay, not a guaranteed sampling frequency;
+each row includes probe start/end times. Also review saved outcomes, descriptor/
+temporary-file growth and final drained memory. No observer result closes R04.
+
+The old `capacity.metrics` Python-in-API sampler remains solely to explain the
+failed historical run. Its included 25.61 MiB RSS must not be subtracted from the
+470.17 MiB peak, and the 410/460 MiB gates remain unchanged. See
+[HOST_MONITOR.md](HOST_MONITOR.md) for the source-only validation and next gate.
 
 ## Internal gates and remaining acceptance
 
@@ -179,7 +196,7 @@ for root review. The first authorized smoke and its stop are recorded in SMOKE.m
 
 ## Implementation verification handoff
 
-Thirteen source tests pass: strict fake environment, filtered/no-secret context,
+Twenty-two source tests pass: strict fake environment, filtered/no-secret context,
 synthetic provider payload and blocked unexpected egress, deterministic real
 PDF/image fixtures and caps, numeric cgroup stop data, content bounds, conservative
 report gates, original driver account/generation headers and metadata-only output,

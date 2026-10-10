@@ -210,6 +210,19 @@ assert candidate.imports.workout_import_worker.task is None
 assert sum(candidate.transport.calls.values()) == 0
 from app.domains.workouts.automation_router import imports_router
 assert any(getattr(route, 'path', None) == '/api/v1/workouts/imports' for route in imports_router.routes)
+import asyncio,io
+from PIL import Image
+from app.services.storage import storage_service
+from app.services.cover_selection import cover_selection_service
+async def check_bound_traces():
+    out=io.BytesIO()
+    Image.new('RGB',(16,16),'white').save(out,format='PNG')
+    variants=await storage_service._prepare_thumbnail_variants(out.getvalue(),'image/png')
+    assert set(variants)=={'list','hero'}
+    selection=await cover_selection_service.select([],{},'youtube')
+    assert selection.candidate is None
+asyncio.run(check_bound_traces())
+assert sum(candidate.transport.calls.values()) == 0
 """
     result = subprocess.run(
         [sys.executable, "-c", code],

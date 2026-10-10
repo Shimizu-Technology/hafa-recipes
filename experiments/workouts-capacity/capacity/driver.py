@@ -17,6 +17,36 @@ from capacity.transport import TEXT
 
 BASE = "http://127.0.0.1:18047"
 PREFIX = "/api/v1/workouts"
+REQUEST_LABELS = {
+    "/up",
+    "recipes/list",
+    "recipes/search",
+    "recipes/detail",
+    "recipes/text",
+    "recipes/ocr",
+    "recipes/manual-write",
+    "recipes/video-submit",
+    "recipes/chat-context",
+    "recipes/chat",
+    "recipes/job-poll",
+    "workouts/library",
+    "workouts/activity-list",
+    "workouts/activity-write",
+    "workouts/coach",
+    "workouts/manual-workout",
+    "workouts/session-write",
+    "workouts/session-replay",
+    "workouts/import-submit",
+    "workouts/import-poll",
+    "workouts/import-accept",
+    "workouts/export-build",
+    "workouts/export-page",
+    "workouts/export-remove",
+    "workouts/bulk-boundary",
+    "workouts/chunked-boundary",
+    "workouts/oversized",
+    "workouts/unauthenticated-boundary",
+}
 
 
 def headers(owner):
@@ -43,9 +73,29 @@ class Driver:
         self.recipe_jobs = []
         self.snapshots = []
         self.outcomes = {"workouts": {}, "recipes": {}, "accepted": set()}
+        self.trace_stream = None
+        self.phase = "diagnostic"
+        self.request_number = 0
         self.client = httpx.AsyncClient(
             base_url=BASE, timeout=150, limits=httpx.Limits(max_connections=32)
         )
+
+    def begin_trace(self, output):
+        # Owned across concurrent reader tasks; run() closes it in finally.
+        self.trace_stream = Path(str(output) + ".requests.jsonl").open("x")  # noqa: SIM115
+
+    def trace(self, request_number, event, label, **numbers):
+        if self.trace_stream:
+            value = {
+                "timestamp": time.time(),
+                "phase": self.phase,
+                "request_number": request_number,
+                "event": event,
+                "route": label if label in REQUEST_LABELS else "other",
+                **numbers,
+            }
+            self.trace_stream.write(json.dumps(value) + "\n")
+            self.trace_stream.flush()
 
     async def request(
         self,
@@ -59,6 +109,9 @@ class Driver:
         **kwargs,
     ):
         started = time.monotonic()
+        self.request_number += 1
+        request_number = self.request_number
+        self.trace(request_number, "start", label or path)
         try:
             response = await self.client.request(
                 method, path, headers=headers(owner) if authenticated else {}, **kwargs
@@ -72,8 +125,16 @@ class Driver:
                     "bytes": len(response.content),
                 }
             )
+            self.trace(
+                request_number,
+                "end",
+                label or path,
+                status=response.status_code,
+                milliseconds=(time.monotonic() - started) * 1000,
+                bytes=len(response.content),
+            )
             return response
-        except httpx.HTTPError:
+        except BaseException:
             self.results.append(
                 {
                     "route": label or path,
@@ -82,6 +143,13 @@ class Driver:
                     "expected": False,
                     "bytes": 0,
                 }
+            )
+            self.trace(
+                request_number,
+                "failed",
+                label or path,
+                status=0,
+                milliseconds=(time.monotonic() - started) * 1000,
             )
             raise
 
@@ -640,10 +708,24 @@ class Driver:
 
 
 async def run(args):
+    if Path(args.output).exists():
+        raise RuntimeError(
+            "Use a new phase output; historical evidence cannot be replaced"
+        )
     driver = Driver(args.fixtures)
     completed = False
     failure_type = None
     try:
+        driver.phase = (
+            "baseline"
+            if args.profile == "recipes-baseline"
+            else "mixed"
+            if args.profile == "mixed"
+            else "boundaries"
+            if args.profile == "upload-boundaries"
+            else "diagnostic"
+        )
+        driver.begin_trace(args.output)
         if args.profile != "recipes-baseline":
             await driver.prepare()
         if args.profile == "upload-boundaries":
@@ -707,6 +789,8 @@ async def run(args):
                 )
             )
         finally:
+            if driver.trace_stream:
+                driver.trace_stream.close()
             await driver.client.aclose()
 
 

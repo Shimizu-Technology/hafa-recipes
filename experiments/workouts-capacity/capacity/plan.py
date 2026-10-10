@@ -33,6 +33,7 @@ def environment():
         "AWS_EC2_METADATA_DISABLED": "true",
         "SENTRY_DSN": "",
         "CAPACITY_PROVIDER_DELAY": "0.25",
+        "CAPACITY_PHASE": "baseline",
         "VIDEO_FRAME_EXTRACTION_ENABLED": "true",
         "JOB_WORKER_ENABLED": "true",
     }
@@ -128,6 +129,10 @@ def build_plan(repository, output, run_id, cpus, target_platform="linux/amd64"):
         f"container:{postgres}",
         "--env-file",
         str(env_file),
+        "--label",
+        f"hafa.capacity.run={run_id}",
+        "--label",
+        "hafa.capacity.owner=native_health_preflight",
     ]
     commands = [
         {
@@ -153,6 +158,8 @@ def build_plan(repository, output, run_id, cpus, target_platform="linux/amd64"):
                 "--internal",
                 "--label",
                 f"hafa.capacity.run={run_id}",
+                "--label",
+                "hafa.capacity.owner=native_health_preflight",
                 network,
             ],
         },
@@ -170,6 +177,8 @@ def build_plan(repository, output, run_id, cpus, target_platform="linux/amd64"):
                 network,
                 "--label",
                 f"hafa.capacity.run={run_id}",
+                "--label",
+                "hafa.capacity.owner=native_health_preflight",
                 "--memory",
                 "1g",
                 "--tmpfs",
