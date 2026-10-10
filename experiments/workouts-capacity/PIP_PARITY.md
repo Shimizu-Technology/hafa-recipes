@@ -101,6 +101,46 @@ Private evidence roots: `/tmp/hafa-parity-plan-c9d23b1/results`,
 `/tmp/hafa-capacity-plan-c9d23b1-fixed/results`. All exact owned containers/networks
 and host controllers were removed/released; borrowed root PG was untouched.
 
+## Accepted bounded fd2ef919 baseline — 2026-10-11
+
+After root inspected the harness repair and immutable image `131ff22e...`, the
+authorized 300-second Recipes-off baseline and 450-second host observation both
+completed. This one local baseline passes the agreed gates; it does not close R04.
+Production bytes, package pins, environment, original image/video fixture hashes
+and the 410/460 MiB limits were unchanged. Seed JSON now meets the actual schema.
+
+Peak cgroup memory was **311.77 MiB** (326,914,048 bytes), final current **220.25
+MiB**, across 223 external-host samples. No OOM, protected 5xx, unexpected request
+or observation failure occurred. All required categories were exercised and all
+returned 200: liveness/list/search/private detail each 152, manual writes 5 and
+chat 5. Protected acceptance explicitly passed.
+
+| Category | p95 milliseconds |
+| --- | ---: |
+| Liveness | 56.78 |
+| Recipes list | 221.14 |
+| Recipes search | 185.88 |
+| Private detail | 96.07 |
+| Manual write | 31.72 |
+| Recipe chat | 359.74 |
+
+All protected reads were below 500 ms and writes/chat below 1,000 ms. Saved
+outcomes were 1,010 Recipes, 5 completed extraction jobs and 5 completed cover
+jobs, each with a saved recipe link; queued/processing count was zero. Thirty
+synthetic AI provenance records existed. The earlier memory/coverage/environment
+failures remain separate retained evidence.
+
+Results: `/tmp/hafa-capacity-plan-fd2ef91-auth/results/baseline-acceptance-summary.json`,
+`baseline.json`, `baseline-external.jsonl` and its summary, request timing sidecar,
+and `baseline-saved-counts.json`. The exact five owned containers/network and
+host controllers were cleaned and absence verified. Shared/borrowed resources
+were left available. No runtime handoff is outstanding.
+
+Mixed traffic, bursts, legal non-JPEG concurrency, repeated runs, ten-minute idle
+return, restart/rollback, actual provider quality and native Render/Neon parity
+remain NOT_RUN. Root must inspect this baseline before authorizing further load;
+no automatic upsize or general production headroom conclusion is supported.
+
 ## Memory-fix receipts and remaining image boundary
 
 The memory agent's fresh macOS process comparisons used the same retained
