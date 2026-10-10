@@ -6,6 +6,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from capacity.failure_codes import CODES, PHASES
 from capacity.statistics import nearest_rank
 
 OWNER = "capacity_ci"
@@ -445,6 +446,19 @@ def phase_receipt(report, samples, phase, baseline=None):
 def public_receipt(summary):
     """Construct from fixed keys; never recursively copy arbitrary private JSON."""
     result = {"schema_version": 1}
+    failure = summary.get("failure")
+    if failure is not None:
+        if (
+            not isinstance(failure, dict)
+            or not isinstance(failure.get("code"), str)
+            or not isinstance(failure.get("phase"), str)
+            or failure.get("code") not in CODES
+            or failure.get("phase") not in PHASES
+        ):
+            raise SafetyError("invalid_public_failure")
+        result["failure"] = {"code": failure["code"], "phase": failure["phase"]}
+    else:
+        result["failure"] = None
     for key in (
         "passed",
         "cleaned_owned_resources",

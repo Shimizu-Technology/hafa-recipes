@@ -93,3 +93,12 @@ The subsequent review fixes passed 94 source tests in 20.98 seconds. They cover 
 five-observation write outlier, separate relative read p95/p99 gates, matching
 complete/partial estimates, and a late held `/up` reader across drain, load
 deadline and cancellation. Runtime execution remains NOT_RUN.
+
+The first hosted attempt failed during startup before any observation sample or
+protected workload request. Its actual native x86 image/runtime provenance and
+cleanup receipts are preserved in `HOSTED_FIRST_RUN.md`; zero samples provide no
+memory acceptance. The harness now tests the actual public `/up` response
+`{"status":"ok"}` rather than the admin diagnostic status. Future tiny receipts
+include only whitelisted failure code/phase enums, preserving the first cause
+without copying exception strings or identifiers. Another execution needs root's
+inspection of the new source/setup; no automatic rerun is authorized.

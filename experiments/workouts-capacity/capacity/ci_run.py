@@ -21,6 +21,7 @@ from capacity.ci_safety import (
     public_receipt,
     verify_context,
 )
+from capacity.failure_codes import CODES, PHASES
 from capacity.plan import build_plan
 
 REQUIREMENTS_SHA = "9002549c41b56eb84eda74b5e53875daf8899759ec183b532649a973343b5996"
@@ -44,6 +45,7 @@ class Coordinator:
         self.baseline = None
         self.summary = {
             "schema_version": 1,
+            "failure": None,
             "passed": False,
             "cleaned_owned_resources": False,
             "render_parity": False,
@@ -56,6 +58,29 @@ class Coordinator:
             "percentile_nearest_rank": True,
             "phases": {},
             "provenance": {},
+        }
+
+    def record_failure(self, error, phase=None, fallback="unexpected_failure"):
+        self.summary["passed"] = False
+        if self.summary.get("failure") is not None:
+            return  # Keep the first cause; cleanup success/failure has its own flag.
+        if isinstance(error, (KeyboardInterrupt, SystemExit)):
+            code = "interrupted"
+        elif isinstance(error, subprocess.TimeoutExpired):
+            code = "finite_command_timeout"
+        elif (
+            isinstance(error, SafetyError)
+            and error.args
+            and isinstance(error.args[0], str)
+            and error.args[0] in CODES
+        ):
+            code = error.args[0]
+        else:
+            code = fallback if fallback in CODES else "unexpected_failure"
+        stage = phase or self.active_phase or "setup"
+        self.summary["failure"] = {
+            "code": code,
+            "phase": stage if isinstance(stage, str) and stage in PHASES else "setup",
         }
 
     def command(self, argv, timeout=30):
@@ -242,7 +267,7 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
                     ],
                     timeout=5,
                 )
-                if json.loads(value).get("status") == "healthy":
+                if json.loads(value) == {"status": "ok"}:
                     return
             except (SafetyError, ValueError):
                 pass
@@ -656,8 +681,8 @@ def main():
             coordinator.cleanup()
             return 0
         coordinator.run()
-    except BaseException:  # noqa: BLE001 - sanitize failure and always clean exact resources
-        coordinator.summary["passed"] = False
+    except BaseException as error:  # noqa: BLE001 - fixed codes only; never raw error text
+        coordinator.record_failure(error)
     finally:
         try:
             if coordinator.cleaning_started is None:
@@ -669,13 +694,17 @@ def main():
                     coordinator.ledger.save()
             coordinator.stop_traffic()
             coordinator.capture_partial()
-        except (SafetyError, ValueError, OSError, KeyError):
-            coordinator.summary["passed"] = False
+        except (SafetyError, ValueError, OSError, KeyError) as error:
+            coordinator.record_failure(
+                error, phase="finalization", fallback="partial_evidence_failed"
+            )
         try:
             coordinator.cleanup()
-        except BaseException:  # noqa: BLE001 - cleanup failures are explicit failed acceptance
+        except BaseException as error:  # noqa: BLE001 - fixed code, no raw diagnostics
             coordinator.summary["cleaned_owned_resources"] = False
-            coordinator.summary["passed"] = False
+            coordinator.record_failure(
+                error, phase="cleanup", fallback="cleanup_failed"
+            )
         if not args.cleanup_only:
             coordinator.write_receipt()
     return 0 if coordinator.summary["passed"] else 2
