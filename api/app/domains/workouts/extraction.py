@@ -35,7 +35,7 @@ MAX_EXTRACTION_IMAGE_PIXELS = 16_000_000
 MAX_TOTAL_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_IMAGES = 8
 MAX_WEB_BYTES = 2 * 1024 * 1024
-MAX_DOCUMENT_BYTES = 128 * 1024
+MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 PROMPT_VERSION = "workout-extraction-evidence-v1"
 SCHEMA_VERSION = "workout-prescription-v1"
 
@@ -51,7 +51,7 @@ class ExtractionRequest(DomainModel):
     text: str | None = Field(default=None, max_length=MAX_TEXT_CHARS)
     source_url: str | None = Field(default=None, max_length=2000)
     images: list[ExtractionImage] = Field(default_factory=list, max_length=MAX_IMAGES)
-    document_base64: str | None = Field(default=None, max_length=180_000)
+    document_base64: str | None = Field(default=None, max_length=3 * 1024 * 1024)
     document_mime: str | None = Field(default=None, max_length=100)
     ai_consent: bool = False
 
@@ -287,12 +287,8 @@ class ProductionExtractionProvider:
         from app.config import get_settings
 
         settings = get_settings()
-        primary = settings.ocr_model if source.images else settings.recipe_extraction_model
-        fallback = (
-            settings.ocr_fallback_model
-            if source.images
-            else settings.recipe_extraction_fallback_model
-        )
+        primary = settings.workout_extraction_model
+        fallback = settings.workout_extraction_fallback_model
         last_error = "provider_failed"
         for index, model in enumerate((primary, fallback)):
             if not self.enabled:
@@ -755,6 +751,39 @@ def _complete(workout: WorkoutContent, warnings: list[str]) -> bool:
     return True
 
 
+async def _pdf_parts(data: bytes) -> list[SourcePart]:
+    import os
+    import sys
+    from pathlib import Path
+
+    api_root = str(Path(__file__).resolve().parents[3])
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-m",
+        "app.domains.workouts.pdf_text",
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+        env={"PYTHONPATH": api_root, "PATH": os.defpath},
+    )
+    try:
+        output, _ = await asyncio.wait_for(process.communicate(data), timeout=15)
+    except BaseException:
+        if process.returncode is None:
+            process.kill()
+        await process.wait()
+        raise
+    if process.returncode or len(output) > 256 * 1024:
+        raise ExtractionFailure("pdf_unreadable_or_limit")
+    parsed = json.loads(output)
+    if parsed.get("error"):
+        raise ExtractionFailure("pdf_unreadable_or_limit")
+    parts = [SourcePart(item["location"], item["text"]) for item in parsed["parts"]]
+    if len(parts) > 30 or sum(len(item.text) for item in parts) > MAX_TEXT_CHARS:
+        raise ExtractionFailure("document_text_limit")
+    return parts
+
+
 class WorkoutExtractor:
     def __init__(
         self, provider: ExtractionProvider | None = None, acquirer: SourceAcquirer | None = None
@@ -790,20 +819,30 @@ class WorkoutExtractor:
                 if request.text:
                     source.parts.append(SourcePart("provided_text", request.text))
             elif request.kind == "document":
-                if request.document_mime not in {"text/plain", "text/markdown"}:
-                    return self._draft(
-                        source,
-                        "document_type_unsupported",
-                        "Only UTF-8 text documents are currently supported; PDF/DOCX need a separate parser.",
-                    )
                 data = base64.b64decode(request.document_base64, validate=True)
                 if len(data) > MAX_DOCUMENT_BYTES:
                     raise ExtractionFailure("document_size_limit")
-                text = data.decode("utf-8")
-                if len(text) > MAX_TEXT_CHARS:
-                    raise ExtractionFailure("document_text_limit")
-                source.parts.append(SourcePart("document_text", text))
-                source.metadata.channels.append("document_text")
+                if request.document_mime == "application/pdf":
+                    source.parts = await _pdf_parts(data)
+                    source.metadata.channels.append("document_text")
+                    if not any(part.text.strip() for part in source.parts):
+                        return self._draft(
+                            source,
+                            "document_needs_images",
+                            "This PDF has no accessible text. Import its page images or enter the workout manually.",
+                        )
+                elif request.document_mime in {"text/plain", "text/markdown"}:
+                    text = data.decode("utf-8")
+                    if len(text) > MAX_TEXT_CHARS:
+                        raise ExtractionFailure("document_text_limit")
+                    source.parts.append(SourcePart("document_text", text))
+                    source.metadata.channels.append("document_text")
+                else:
+                    return self._draft(
+                        source,
+                        "document_type_unsupported",
+                        "Import a text PDF, UTF-8 text, or page images; this document format is unsupported.",
+                    )
             else:
                 source.parts.append(SourcePart("provided_text", request.text))
                 source.metadata.channels.append("provided_text")
@@ -824,6 +863,7 @@ class WorkoutExtractor:
                 )
             raw = await asyncio.wait_for(self.provider.extract(source), timeout=130)
             workout, warnings, evidence = ground_workout(raw, source)
+            workout.capture_kind = request.kind
             warnings = source.warnings + warnings
             if source.images:
                 warnings.append(

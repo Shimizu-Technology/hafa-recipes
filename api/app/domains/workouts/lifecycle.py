@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 
 from fastapi import HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 
 from app.domains.workouts.models import (
     WorkoutRecord,
@@ -52,6 +52,13 @@ async def erase_product_data(db, membership, requested_generation: int):
         return membership  # Retry of the already-completed deletion.
     if requested_generation != membership.generation or membership.status != "active":
         raise HTTPException(409, "Workouts data generation changed; refresh before deleting")
+    # Optional automation may be absent in a supported 034-only environment.
+    # Once installed, product erasure removes pending sources and coach memory.
+    if await db.scalar(text("SELECT to_regclass('public.workouts_import_jobs') IS NOT NULL")):
+        from app.domains.workouts.automation_models import AUTOMATION_TABLES
+
+        for table in AUTOMATION_TABLES:
+            await db.execute(delete(table).where(table.c.app_user_id == membership.app_user_id))
     # Version records cascade from the library/program rows. The membership
     # tombstone remains so delayed offline writes cannot silently re-enroll.
     for model in (
@@ -68,6 +75,9 @@ async def erase_product_data(db, membership, requested_generation: int):
     membership.status = "deleted"
     membership.deleted_at = now()
     await db.flush()
+    from app.domains.workouts.imports import workout_import_worker
+
+    workout_import_worker.cancel_owner(membership.app_user_id)
     return membership
 
 

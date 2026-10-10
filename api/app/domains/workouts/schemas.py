@@ -71,6 +71,7 @@ class WorkoutContent(DomainModel):
     provenance: Provenance = "user"
     blocks: list[WorkoutBlock] = Field(default_factory=list, max_length=100)
     source_url: str | None = Field(default=None, max_length=2000)
+    capture_kind: Literal["url", "text", "images", "document"] | None = None
     equipment_required: list[str] = Field(default_factory=list, max_length=100)
     equipment_optional: list[str] = Field(default_factory=list, max_length=100)
     estimated_minutes: int | None = Field(default=None, ge=1, le=1440)

@@ -66,12 +66,15 @@ def current_ai_context() -> AIRequestContext:
     return _context.get() or AIRequestContext(request_id=uuid4().hex)
 
 
+_UNSET_JOB_ID = object()
+
+
 @contextmanager
 def ai_request_context(
     *,
     request_id: str | None = None,
     user_id: str | None = None,
-    job_id: str | None = None,
+    job_id: str | None | object = _UNSET_JOB_ID,
     route: str | None = None,
 ) -> Iterator[AIRequestContext]:
     """Add safe request/job identity to all nested AI calls."""
@@ -81,7 +84,7 @@ def ai_request_context(
         existing,
         request_id=request_id or existing.request_id,
         user_id=user_id if user_id is not None else existing.user_id,
-        job_id=job_id if job_id is not None else existing.job_id,
+        job_id=existing.job_id if job_id is _UNSET_JOB_ID else job_id,
         route=route if route is not None else existing.route,
     )
     token = _context.set(merged)

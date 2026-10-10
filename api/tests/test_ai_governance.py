@@ -231,3 +231,13 @@ def test_recipe_fallback_gate_is_deterministic(recipe, expected):
         assert raw_error == expected
     else:
         assert LLMService._recipe_validation_error(recipe) == expected
+
+
+def test_explicit_none_clears_recipe_job_when_entering_workouts_context():
+    from app.ai_governance import ai_request_context, current_ai_context
+    with ai_request_context(job_id="recipe-job"):
+        with ai_request_context(route="/api/v1/workouts/imports", job_id=None):
+            assert current_ai_context().job_id is None
+        assert current_ai_context().job_id == "recipe-job"
+        with ai_request_context(route="recipe-chat"):
+            assert current_ai_context().job_id == "recipe-job"

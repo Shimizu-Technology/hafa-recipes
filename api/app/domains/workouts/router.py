@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from pydantic import AwareDatetime, Field, StrictBool, model_validator
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -153,7 +153,11 @@ def validated_workout(workout, *, authored=True):
             or any(ord(char) < 33 for char in workout.source_url)
         ):
             raise HTTPException(422, "Source URL must be an http(s) URL without credentials")
-    if workout.provenance == "source" and not workout.source_url:
+    if (
+        workout.provenance == "source"
+        and not workout.source_url
+        and workout.capture_kind not in {"text", "images", "document"}
+    ):
         raise HTTPException(422, "Source provenance requires a source URL")
     # A client-authored save cannot claim the server generated a recommendation.
     if authored and workout.provenance == "suggestion":
@@ -162,7 +166,11 @@ def validated_workout(workout, *, authored=True):
         raise HTTPException(422, "Workout block identifiers must be unique")
     for block in workout.blocks:
         for exercise in block.exercises:
-            if exercise.provenance == "source" and not workout.source_url:
+            if (
+                exercise.provenance == "source"
+                and not workout.source_url
+                and workout.capture_kind not in {"text", "images", "document"}
+            ):
                 raise HTTPException(422, "Source exercise provenance requires a source URL")
             if authored and exercise.provenance == "suggestion":
                 raise HTTPException(
@@ -631,6 +639,10 @@ class SessionRequest(DomainModel):
     started_at: AwareDatetime
     finished_at: AwareDatetime
     status: Literal["completed", "partial"]
+    active_seconds: int | None = Field(default=None, strict=True, ge=0, le=86400)
+    activity_type: (
+        Literal["strength_training", "running", "walking", "basketball", "general_fitness"] | None
+    ) = None
     actuals: list[ActualSet] = Field(default_factory=list, max_length=1000)
     notes: str | None = Field(default=None, max_length=4000)
     supersedes_session_id: UUID | None = None
@@ -639,6 +651,11 @@ class SessionRequest(DomainModel):
     def validate_session(self):
         if self.finished_at < self.started_at:
             raise ValueError("Session finish must not precede start")
+        if (
+            self.active_seconds is not None
+            and self.active_seconds > (self.finished_at - self.started_at).total_seconds()
+        ):
+            raise ValueError("Recorded active time cannot exceed the session interval")
         if bool(self.workout_id) == bool(self.program_id):
             raise ValueError("Select exactly one owned workout or program session")
         if self.workout_id and (
@@ -833,6 +850,13 @@ async def update_ai_consent(
         )
         db.add(row)
     row.accepted_at = now() if request.accepted else None
+    if not request.accepted and await db.scalar(
+        text("SELECT to_regclass('public.workouts_import_jobs') IS NOT NULL")
+    ):
+        from app.domains.workouts.imports import cancel_imports, workout_import_worker
+
+        await cancel_imports(db, user.id)
+        workout_import_worker.cancel_owner(user.id)
     await db.commit()
     return consent_response(row)
 
@@ -984,6 +1008,12 @@ async def export_data(
             }
             for row in records
         ]
+    from app.domains.workouts.automation_export import export_automation_page
+    automation_data, automation_totals = await export_automation_page(
+        db, user.id, membership.generation, limit, offset
+    )
+    datasets.update(automation_data)
+    totals.update(automation_totals)
     response.headers["Cache-Control"] = "no-store"
     return ExportResponse(
         generated_at=now(),

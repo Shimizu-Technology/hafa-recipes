@@ -10,6 +10,8 @@ MAX_BODY_BYTES = 256 * 1024
 
 
 class WorkoutsRoute(APIRoute):
+    max_body_bytes = MAX_BODY_BYTES
+
     def get_route_handler(self):
         original = super().get_route_handler()
 
@@ -22,13 +24,13 @@ class WorkoutsRoute(APIRoute):
                 if content_length is not None:
                     if not content_length.isdecimal():
                         raise HTTPException(400, "Invalid Content-Length")
-                    if len(content_length) > 10 or int(content_length) > MAX_BODY_BYTES:
+                    if len(content_length) > 10 or int(content_length) > self.max_body_bytes:
                         raise HTTPException(413, "Workouts request exceeds the size limit")
                 chunks = []
                 total = 0
                 async for chunk in request.stream():
                     total += len(chunk)
-                    if total > MAX_BODY_BYTES:
+                    if total > self.max_body_bytes:
                         raise HTTPException(413, "Workouts request exceeds the size limit")
                     chunks.append(chunk)
                 # Starlette's body cache lets FastAPI perform its normal JSON
@@ -48,3 +50,9 @@ async def require_workouts_user(user: ClerkUser = Depends(get_current_user)) -> 
     if not settings.workouts_public_access_enabled and user.id not in settings.workouts_testers:
         raise HTTPException(403, "Workouts testing is not enabled for this account")
     return user
+
+
+class WorkoutsImportRoute(WorkoutsRoute):
+    # Native capture resizes images before transmission. Other private endpoints
+    # retain their smaller account/content cap; imports admit bounded image/PDF data.
+    max_body_bytes = 3 * 1024 * 1024

@@ -1,5 +1,6 @@
 """Recipe Extractor API - FastAPI Application."""
 
+import logging
 import re
 from uuid import uuid4
 
@@ -12,7 +13,15 @@ from app.config import get_settings
 from app.cover_jobs import cover_job_worker
 from app.database_invariants import verify_database_invariants
 from app.deletion_cleanup import deletion_cleanup_worker
-from app.domains.workouts.privacy import redact_workouts_event, redact_workouts_transaction
+from app.domains.workouts.automation_router import imports_router as workouts_imports_router
+from app.domains.workouts.automation_router import router as workouts_automation_router
+from app.domains.workouts.automation_runtime import verify_automation_schema
+from app.domains.workouts.imports import workout_import_worker
+from app.domains.workouts.privacy import (
+    WorkoutsAccessLogFilter,
+    redact_workouts_event,
+    redact_workouts_transaction,
+)
 from app.domains.workouts.router import router as workouts_router
 from app.domains.workouts.runtime import verify_workouts_schema
 from app.grocery_sync import verify_grocery_sync_schema
@@ -41,6 +50,7 @@ from app.routers.platform import router as platform_router
 from app.widget_credentials import verify_widget_credential_schema
 
 settings = get_settings()
+logging.getLogger("uvicorn.access").addFilter(WorkoutsAccessLogFilter())
 
 # Initialize Sentry for error monitoring
 if settings.sentry_dsn:
@@ -102,6 +112,8 @@ async def attach_request_context(request: Request, call_next):
 app.include_router(health_router)
 app.include_router(platform_router)
 app.include_router(workouts_router)
+app.include_router(workouts_automation_router)
+app.include_router(workouts_imports_router)
 app.include_router(admin_router)
 app.include_router(recipes_router)
 app.include_router(extract_router)
@@ -147,7 +159,9 @@ async def startup():
     await verify_widget_credential_schema()
     print("Grocery widget credential schema ready")
     await verify_workouts_schema()
+    await verify_automation_schema()
     await job_worker.start()
+    await workout_import_worker.start()
     await cover_job_worker.start()
     await deletion_cleanup_worker.start()
 
@@ -155,6 +169,7 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     """Run on application shutdown."""
+    await workout_import_worker.stop()
     await cover_job_worker.stop()
     await deletion_cleanup_worker.stop()
     await job_worker.stop()

@@ -28,7 +28,10 @@ ACTIVE_MIGRATIONS = (
     "migrations.033_add_nutrition_backfill_audit",
 )
 LATEST_MIGRATION = 33
-OPTIONAL_MIGRATIONS = ("migrations.034_add_workouts_domain",)
+OPTIONAL_MIGRATIONS = (
+    "migrations.034_add_workouts_domain",
+    "migrations.035_add_workouts_automation",
+)
 
 
 async def run_migrations() -> None:

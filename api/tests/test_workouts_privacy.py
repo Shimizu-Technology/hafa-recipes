@@ -48,3 +48,49 @@ def test_workout_worker_context_protects_background_errors():
         event = {"exception": {"values": [{"value": "private SQL parameter"}]}}
         assert "exception" not in redact_workouts_event(event)
         assert redact_workouts_transaction(event) is None
+
+
+def test_workouts_capability_tokens_are_excluded_from_access_logs():
+    import logging
+
+    from app.domains.workouts.privacy import WorkoutsAccessLogFilter
+
+    guard = WorkoutsAccessLogFilter()
+    private = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        "",
+        0,
+        "%s",
+        (
+            "127.0.0.1",
+            "GET",
+            "/api/v1/workouts/shared/private-token?source=private",
+            "HTTP/1.1",
+            200,
+        ),
+        None,
+    )
+    assert guard.filter(private) is False
+    public = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        "",
+        0,
+        "%s",
+        ("127.0.0.1", "GET", "/api/recipes", "HTTP/1.1", 200),
+        None,
+    )
+    assert guard.filter(public) is True
+
+
+def test_shared_media_logging_suppresses_private_workout_source(capsys):
+    from app.ai_governance import ai_request_context
+    from app.services.video import _media_log
+
+    with ai_request_context(route="/api/v1/workouts/imports"):
+        _media_log("private workout source URL")
+    assert capsys.readouterr().out == ""
+    with ai_request_context(route="recipe_chat"):
+        _media_log("existing Recipes diagnostic")
+    assert capsys.readouterr().out == "existing Recipes diagnostic\n"

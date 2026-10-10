@@ -17,11 +17,20 @@ from urllib.parse import urlparse
 import httpx
 from PIL import Image
 
+from app.ai_governance import current_ai_context
 from app.config import get_settings
 from app.security import PublicHTTPTransport
 from app.source_urls import canonicalize_source
 
 settings = get_settings()
+
+
+def _media_log(message):
+    # Shared media acquisition serves both products. Private workout sources
+    # must not expose URLs, extracted values or provider errors in stdout.
+    if (current_ai_context().route or "").startswith("/api/v1/workouts"):
+        return
+    print(message)
 
 
 class MediaCapacityExceeded(Exception):
@@ -317,7 +326,7 @@ class VideoService:
                     ) as client:
                         response = await client.head(url)
                         resolved_url = str(response.url)
-                        print(f"🔗 Resolved TikTok URL: {url} → {resolved_url}")
+                        _media_log(f"🔗 Resolved TikTok URL: {url} → {resolved_url}")
                         
                         # Clean up query params but keep the full path with username
                         # e.g., https://www.tiktok.com/@user/video/123?_r=1 -> https://www.tiktok.com/@user/video/123
@@ -326,7 +335,7 @@ class VideoService:
                         
                         return canonicalize_source(resolved_url).url
                 except Exception as e:
-                    print(f"⚠️ Failed to resolve TikTok URL: {e}")
+                    _media_log(f"⚠️ Failed to resolve TikTok URL: {e}")
                     return url
             else:
                 # Already a full URL, just clean up query params
@@ -375,7 +384,7 @@ class VideoService:
         Uses yt-dlp to get metadata which includes image URLs for photo posts.
         Returns a list of image URLs (base64 encoded images or URLs).
         """
-        print(f"📸 Fetching TikTok photo images from: {url}")
+        _media_log(f"📸 Fetching TikTok photo images from: {url}")
         
         try:
             # Use yt-dlp to dump JSON metadata - it can get image URLs even for photo posts
@@ -386,7 +395,7 @@ class VideoService:
                 url
             ]
             
-            print(f"🔍 Executing: {' '.join(command)}")
+            _media_log(f"🔍 Executing: {' '.join(command)}")
             
             async with self._media_slot():
                 process = await asyncio.create_subprocess_exec(
@@ -429,18 +438,18 @@ class VideoService:
                         if 'url' in thumb:
                             image_urls.append(thumb['url'])
                 
-                print(f"✅ Found {len(image_urls)} images from TikTok photo post")
+                _media_log(f"✅ Found {len(image_urls)} images from TikTok photo post")
                 return image_urls
             else:
                 safe_error = _redact_sensitive_values(stderr.decode() if stderr else "")
-                print(f"⚠️ yt-dlp metadata extraction failed: {safe_error}")
+                _media_log(f"⚠️ yt-dlp metadata extraction failed: {safe_error}")
                 
         except asyncio.TimeoutError:
-            print("⚠️ yt-dlp timed out fetching photo metadata")
+            _media_log("⚠️ yt-dlp timed out fetching photo metadata")
         except MediaCapacityExceeded:
-            print("⚠️ Media process capacity unavailable for photo metadata")
+            _media_log("⚠️ Media process capacity unavailable for photo metadata")
         except Exception as e:
-            print(f"⚠️ Error fetching TikTok photo images: {e}")
+            _media_log(f"⚠️ Error fetching TikTok photo images: {e}")
         
         # Fallback: Try to scrape the page directly for image URLs
         return await self._scrape_tiktok_photo_images(url)
@@ -455,7 +464,7 @@ class VideoService:
         Uses multiple User-Agent strategies since TikTok returns different
         content based on the request source (local vs server environments).
         """
-        print(f"🌐 Scraping TikTok page for all slideshow images: {url}")
+        _media_log(f"🌐 Scraping TikTok page for all slideshow images: {url}")
         
         import json as json_module
         
@@ -489,16 +498,16 @@ class VideoService:
                     
                     if response.status_code == 200:
                         html = response.text
-                        print(f"📄 Fetched page with UA #{ua_idx + 1} ({len(html)} chars)")
+                        _media_log(f"📄 Fetched page with UA #{ua_idx + 1} ({len(html)} chars)")
                         break
                     else:
-                        print(f"⚠️ TikTok returned status {response.status_code} with UA #{ua_idx + 1}")
+                        _media_log(f"⚠️ TikTok returned status {response.status_code} with UA #{ua_idx + 1}")
                         
             except Exception as e:
-                print(f"⚠️ Failed to fetch with UA #{ua_idx + 1}: {e}")
+                _media_log(f"⚠️ Failed to fetch with UA #{ua_idx + 1}: {e}")
         
         if not html:
-            print("❌ Failed to fetch TikTok page with any User-Agent")
+            _media_log("❌ Failed to fetch TikTok page with any User-Agent")
             return []
         
         image_urls = []
@@ -532,7 +541,7 @@ class VideoService:
                         images = image_post.get("images", [])
                         
                         if images:
-                            print(f"📸 Found {len(images)} images via path: {path}")
+                            _media_log(f"📸 Found {len(images)} images via path: {path}")
                             
                             for i, img in enumerate(images):
                                 image_url_obj = img.get("imageURL", {})
@@ -541,18 +550,18 @@ class VideoService:
                                 if url_list:
                                     img_url = url_list[0]
                                     image_urls.append(img_url)
-                                    print(f"  📷 Image {i+1}: {img_url[:80]}...")
+                                    _media_log(f"  📷 Image {i+1}: {img_url[:80]}...")
                             
-                            print(f"✅ Extracted {len(image_urls)} slideshow images from JSON ({path})")
+                            _media_log(f"✅ Extracted {len(image_urls)} slideshow images from JSON ({path})")
                             break  # Found images, stop trying other paths
                 
                 if not image_urls:
-                    print("📸 Found 0 images in known JSON structures")
+                    _media_log("📸 Found 0 images in known JSON structures")
                     
             except json_module.JSONDecodeError as e:
-                print(f"⚠️ Failed to parse JSON: {e}")
+                _media_log(f"⚠️ Failed to parse JSON: {e}")
             except Exception as e:
-                print(f"⚠️ Failed to extract images from JSON structure: {e}")
+                _media_log(f"⚠️ Failed to extract images from JSON structure: {e}")
         
         # Method 2: Try SIGI_STATE (older TikTok format)
         if not image_urls:
@@ -577,14 +586,14 @@ class VideoService:
                                 image_urls.append(url_list[0])
                     
                     if image_urls:
-                        print(f"✅ Extracted {len(image_urls)} images from SIGI_STATE")
+                        _media_log(f"✅ Extracted {len(image_urls)} images from SIGI_STATE")
                         
                 except Exception as e:
-                    print(f"⚠️ Failed to parse SIGI_STATE: {e}")
+                    _media_log(f"⚠️ Failed to parse SIGI_STATE: {e}")
         
         # Method 3: Regex fallback - find all photomode image URLs
         if not image_urls:
-            print("📝 Falling back to regex pattern matching...")
+            _media_log("📝 Falling back to regex pattern matching...")
             
             # Look for urlList patterns with photomode images
             url_list_pattern = r'"urlList"\s*:\s*\[\s*"(https?:[^"]+photomode[^"]+)"'
@@ -599,11 +608,11 @@ class VideoService:
                     except UnicodeDecodeError:
                         image_urls.append(raw_url)
                 
-                print(f"✅ Found {len(image_urls)} images via regex")
+                _media_log(f"✅ Found {len(image_urls)} images via regex")
         
         # Method 4: og:image fallback (only gets 1 image)
         if not image_urls:
-            print("📝 Falling back to og:image meta tag...")
+            _media_log("📝 Falling back to og:image meta tag...")
             og_pattern = r'<meta[^>]*property=["\']og:image["\'][^>]*content=["\']([^"\']+)["\']'
             og_matches = re.findall(og_pattern, html, re.IGNORECASE)
             image_urls.extend(og_matches)
@@ -632,7 +641,7 @@ class VideoService:
                 seen.add(decoded_url)
                 unique_urls.append(decoded_url)
         
-        print(f"✅ Total unique slideshow images: {len(unique_urls)}")
+        _media_log(f"✅ Total unique slideshow images: {len(unique_urls)}")
         return unique_urls
     
     async def download_images_as_base64(self, image_urls: list[str]) -> list[str]:
@@ -660,19 +669,19 @@ class VideoService:
         ) as client:
             for i, url in enumerate(image_urls[:20]):  # Limit to 20 images
                 try:
-                    print(f"📥 Downloading image {i+1}/{len(image_urls)}: {url[:80]}...")
+                    _media_log(f"📥 Downloading image {i+1}/{len(image_urls)}: {url[:80]}...")
                     response = await client.get(url)
                     
                     if response.status_code == 200:
                         image_data = response.content
                         base64_str = base64.b64encode(image_data).decode('utf-8')
                         base64_images.append(base64_str)
-                        print(f"✅ Downloaded image {i+1} ({len(image_data)} bytes)")
+                        _media_log(f"✅ Downloaded image {i+1} ({len(image_data)} bytes)")
                     else:
-                        print(f"⚠️ Failed to download image {i+1}: HTTP {response.status_code}")
+                        _media_log(f"⚠️ Failed to download image {i+1}: HTTP {response.status_code}")
                         
                 except Exception as e:
-                    print(f"⚠️ Error downloading image {i+1}: {e}")
+                    _media_log(f"⚠️ Error downloading image {i+1}: {e}")
         
         return base64_images
     
@@ -718,7 +727,7 @@ class VideoService:
                 elif platform == "instagram":
                     token = settings.ig_oembed_token
                     if not token:
-                        print("⚠️ Instagram oEmbed token not configured")
+                        _media_log("⚠️ Instagram oEmbed token not configured")
                         return VideoMetadata()
                     endpoint = f"https://graph.facebook.com/v17.0/instagram_oembed?url={url}&access_token={token}"
                     response = await client.get(endpoint)
@@ -731,7 +740,7 @@ class VideoService:
                         )
         
         except Exception as e:
-            print(f"❌ oEmbed fetch failed for {platform}: {e}")
+            _media_log(f"❌ oEmbed fetch failed for {platform}: {e}")
         
         return VideoMetadata()
     
@@ -778,13 +787,13 @@ class VideoService:
                         os.unlink(cookies_path)
                     except FileNotFoundError:
                         pass
-                print(f"⚠️ Failed to write Instagram cookies: {e}")
+                _media_log(f"⚠️ Failed to write Instagram cookies: {e}")
                 return None
         else:
             if os.path.isfile(cookies):
                 return CredentialFile(path=cookies)
             else:
-                print(f"⚠️ Instagram cookies file not found: {cookies}")
+                _media_log(f"⚠️ Instagram cookies file not found: {cookies}")
                 return None
 
     async def download_audio(self, url: str) -> AudioExtractionResult:
@@ -805,7 +814,7 @@ class VideoService:
         
         Returns the path to the downloaded audio file.
         """
-        print(f"📥 Downloading audio from: {url}")
+        _media_log(f"📥 Downloading audio from: {url}")
         
         # Create a temp directory for the audio file
         temp_dir = tempfile.mkdtemp(prefix="recipe-audio-")
@@ -834,7 +843,7 @@ class VideoService:
             # Add YouTube proxy if configured (required for cloud hosting)
             # YouTube blocks datacenter IPs, so we need a residential proxy
             if platform == "youtube" and settings.youtube_proxy:
-                print("🔄 Using YouTube proxy for extraction")
+                _media_log("🔄 Using YouTube proxy for extraction")
                 command.extend([
                     "--proxy", settings.youtube_proxy,
                     # Use android_vr client - doesn't require PO Token
@@ -845,15 +854,15 @@ class VideoService:
             # Instagram also blocks datacenter IPs like YouTube
             if platform == "instagram":
                 if settings.youtube_proxy:
-                    print("🔄 Using residential proxy for Instagram extraction")
+                    _media_log("🔄 Using residential proxy for Instagram extraction")
                     command.extend(["--proxy", settings.youtube_proxy])
                 
                 credential_file = self._create_instagram_cookies_file()
                 if credential_file:
                     command.extend(["--cookies", credential_file.path])
-                    print("🍪 Using configured Instagram credentials")
+                    _media_log("🍪 Using configured Instagram credentials")
                 else:
-                    print("⚠️ Instagram extraction may fail without cookies")
+                    _media_log("⚠️ Instagram extraction may fail without cookies")
             
             # URL must be last argument
             command.append(url)
@@ -862,7 +871,7 @@ class VideoService:
                 "<secret>" if i > 0 and command[i - 1] in {"--proxy", "--cookies"} else part
                 for i, part in enumerate(command)
             ]
-            print(f"🎵 Executing: {' '.join(safe_command)}")
+            _media_log(f"🎵 Executing: {' '.join(safe_command)}")
             
             # Run yt-dlp asynchronously
             process = await asyncio.create_subprocess_exec(
@@ -885,11 +894,11 @@ class VideoService:
                         credential_file.path,
                         "<credential-file>",
                     )
-                print(f"❌ yt-dlp failed: {safe_error_msg}")
+                _media_log(f"❌ yt-dlp failed: {safe_error_msg}")
                 
                 # Get friendly error message
                 error_code, friendly_error = get_friendly_video_error(safe_error_msg, platform)
-                print(f"📝 Error code: {error_code}, Message: {friendly_error}")
+                _media_log(f"📝 Error code: {error_code}, Message: {friendly_error}")
                 
                 return AudioExtractionResult(
                     success=False,
@@ -916,7 +925,7 @@ class VideoService:
                     error_code="AUDIO_TOO_LARGE",
                     friendly_error="This video's audio is too large to process.",
                 )
-            print(f"✅ Audio downloaded: {audio_file}")
+            _media_log(f"✅ Audio downloaded: {audio_file}")
             
             # Try to get duration using ffprobe
             duration = await self._get_audio_duration(audio_file)
@@ -1471,9 +1480,9 @@ class VideoService:
         try:
             return await self._get_media_duration(file_path)
         except asyncio.TimeoutError:
-            print("⚠️ ffprobe timed out")
+            _media_log("⚠️ ffprobe timed out")
         except Exception as e:
-            print(f"⚠️ Could not get audio duration: {e}")
+            _media_log(f"⚠️ Could not get audio duration: {e}")
         return None
     
     async def get_video_metadata_ytdlp(self, url: str) -> VideoMetadata:
@@ -1481,7 +1490,7 @@ class VideoService:
             async with self._media_slot():
                 return await self._get_video_metadata_ytdlp(url)
         except MediaCapacityExceeded:
-            print("⚠️ Media process capacity unavailable for video metadata")
+            _media_log("⚠️ Media process capacity unavailable for video metadata")
             return VideoMetadata()
 
     async def _get_video_metadata_ytdlp(self, url: str) -> VideoMetadata:
@@ -1541,9 +1550,9 @@ class VideoService:
                 )
         except asyncio.TimeoutError:
             await _terminate_process(process)
-            print("⚠️ yt-dlp metadata extraction timed out")
+            _media_log("⚠️ yt-dlp metadata extraction timed out")
         except Exception as e:
-            print(f"⚠️ yt-dlp metadata extraction failed: {e}")
+            _media_log(f"⚠️ yt-dlp metadata extraction failed: {e}")
         finally:
             await _terminate_process(process)
             if credential_file:
@@ -1561,9 +1570,9 @@ class VideoService:
                 temp_dir = os.path.dirname(file_path)
                 if temp_dir and os.path.exists(temp_dir):
                     os.rmdir(temp_dir)
-                print(f"🗑️ Cleaned up temp audio file: {file_path}")
+                _media_log(f"🗑️ Cleaned up temp audio file: {file_path}")
         except Exception as e:
-            print(f"⚠️ Failed to clean up temp file: {e}")
+            _media_log(f"⚠️ Failed to clean up temp file: {e}")
 
 
 # Singleton instance

@@ -359,7 +359,7 @@ async def test_bad_images_fail_before_provider(value, mime):
 
 
 @pytest.mark.asyncio
-async def test_text_document_supported_pdf_explicitly_unsupported():
+async def test_text_document_supported_invalid_pdf_remains_a_draft():
     provider = FakeProvider(complete_workout("document_text"))
     text = base64.b64encode(TEXT.encode()).decode()
     result = await WorkoutExtractor(provider).extract(
@@ -376,7 +376,7 @@ async def test_text_document_supported_pdf_explicitly_unsupported():
             ai_consent=True,
         )
     )
-    assert pdf.error_code == "document_type_unsupported" and len(provider.calls) == 1
+    assert pdf.error_code == "pdf_unreadable_or_limit" and len(provider.calls) == 1
 
 
 @pytest.mark.asyncio
@@ -672,8 +672,8 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
         workouts_ai_enabled=True,
         openai_api_key="inherited-do-not-use",
         is_ai_capability_enabled=lambda _: True,
-        recipe_extraction_model="primary-test",
-        recipe_extraction_fallback_model="fallback-test",
+        workout_extraction_model="primary-test",
+        workout_extraction_fallback_model="fallback-test",
         ocr_model="vision-test",
         ocr_fallback_model="vision-fallback-test",
         openai_reasoning_effort="none",
@@ -753,3 +753,60 @@ async def test_default_extractor_never_calls_provider_in_test_environment(monkey
         ExtractionRequest(kind="text", text=TEXT, ai_consent=True)
     )
     assert result.error_code == "paid_provider_disabled"
+
+
+def text_pdf(text=None):
+    from pypdf import PdfWriter
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+    writer = PdfWriter()
+    page = writer.add_blank_page(600, 800)
+    if text:
+        font = DictionaryObject(
+            {
+                NameObject("/Type"): NameObject("/Font"),
+                NameObject("/Subtype"): NameObject("/Type1"),
+                NameObject("/BaseFont"): NameObject("/Helvetica"),
+                NameObject("/Encoding"): NameObject("/WinAnsiEncoding"),
+            }
+        )
+        page[NameObject("/Resources")] = DictionaryObject(
+            {NameObject("/Font"): DictionaryObject({NameObject("/F1"): writer._add_object(font)})}
+        )
+        stream = DecodedStreamObject()
+        stream.set_data(("BT /F1 12 Tf 50 750 Td (" + text + ") Tj ET").encode("cp1252"))
+        page[NameObject("/Contents")] = writer._add_object(stream)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return base64.b64encode(buffer.getvalue()).decode()
+
+
+@pytest.mark.asyncio
+async def test_text_pdf_is_parsed_in_isolated_bounded_process():
+    provider = FakeProvider(complete_workout("document_page:1"))
+    result = await WorkoutExtractor(provider).extract(
+        ExtractionRequest(
+            kind="document",
+            document_base64=text_pdf(TEXT),
+            document_mime="application/pdf",
+            ai_consent=True,
+        )
+    )
+    assert result.status == "ready", result
+    assert result.workout.capture_kind == "document"
+    assert result.source.channels == ["document_text"]
+
+
+@pytest.mark.asyncio
+async def test_image_only_pdf_is_honest_and_never_invokes_model():
+    provider = FakeProvider()
+    result = await WorkoutExtractor(provider).extract(
+        ExtractionRequest(
+            kind="document",
+            document_base64=text_pdf(),
+            document_mime="application/pdf",
+            ai_consent=True,
+        )
+    )
+    assert result.error_code == "document_needs_images"
+    assert not provider.calls

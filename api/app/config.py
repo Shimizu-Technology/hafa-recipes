@@ -193,6 +193,7 @@ class Settings(BaseSettings):
     migration_032_restore_point: str | None = None
     migration_033_restore_point: str | None = None
     migration_034_restore_point: str | None = None
+    migration_035_restore_point: str | None = None
     cors_origins: str = ""
     enable_sentry_debug: bool = False
     
@@ -208,6 +209,9 @@ class Settings(BaseSettings):
     workouts_ai_enabled: bool = False
     workouts_health_sync_enabled: bool = False
     workouts_tester_user_ids: str = ""
+    workout_extraction_model: str = "gpt-5.6-luna"
+    workout_extraction_fallback_model: str = "gpt-5.6-terra"
+    workout_coach_model: str = "gpt-5.6-luna"
 
     @model_validator(mode="after")
     def validate_workouts_rollout(self) -> "Settings":
