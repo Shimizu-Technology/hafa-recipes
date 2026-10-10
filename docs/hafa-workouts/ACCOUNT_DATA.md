@@ -176,8 +176,12 @@ namespace and a verified ended PID/start identity; other hosts remain held.
 Shutdown uses bounded waits and retains an unfinished dispatcher or retirement
 collector, including its source/heartbeat references, until actual end. A timeout
 cannot release the slot. New dispatch remains blocked during retained retirement.
-Operator recovery is private and denied by default. No production recovery or
-rollout is authorized by this implementation.
+Operator recovery is private and denied by default. Unknown crashed replicas can
+hold admission indefinitely, including legacy exports after 045. Installation and
+enablement require a trusted platform termination verifier, audited operator
+helper, private stale-slot alert and actual crash acceptance. See the
+[recovery runbook](EXPORT_RECOVERY_RUNBOOK.md); documentation does not fulfill
+those gates. No production recovery or rollout is authorized by this implementation.
 
 Startup verifies 045 whenever Workouts is enabled, including when async jobs are
 off. The first builder entry also verifies it and converts an invalid schema to
