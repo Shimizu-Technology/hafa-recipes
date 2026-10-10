@@ -18,6 +18,7 @@ from app.domains.workouts.recipe_connections import RecipeConnectionContext, rec
 from app.domains.workouts.router import (
     Database,
     Generation,
+    GrantResponse,
     Limit,
     Offset,
     RecordResponse,
@@ -59,6 +60,45 @@ async def connected_recipes(
         recipe_ids=recipe_ids or (),
         start_date=start_date,
         end_date=end_date,
+    )
+    await db.commit()
+    return result
+
+
+class RecipeGrantResponse(DomainModel):
+    generation: int
+    revision: int
+    library_context: bool
+    meal_plan_context: bool
+    scopes: list[GrantResponse]
+
+
+class RecipeGrantRequest(DomainModel):
+    expected_revision: int = Field(strict=True, ge=0, le=2_147_483_647)
+    library_context: StrictBool
+    meal_plan_context: StrictBool
+
+
+@router.get("/connections/recipes/grants", response_model=RecipeGrantResponse)
+async def recipe_grants(user: User, db: Database, generation: Generation):
+    from app.domains.workouts.recipe_grant_service import get_recipe_grants
+
+    return await get_recipe_grants(db, user.id, generation)
+
+
+@router.put("/connections/recipes/grants", response_model=RecipeGrantResponse)
+async def update_recipe_grants(
+    request: RecipeGrantRequest, user: User, db: Database, generation: Generation
+):
+    from app.domains.workouts.recipe_grant_service import replace_recipe_grants
+
+    result = await replace_recipe_grants(
+        db,
+        user.id,
+        generation,
+        expected_revision=request.expected_revision,
+        library_context=request.library_context,
+        meal_plan_context=request.meal_plan_context,
     )
     await db.commit()
     return result
