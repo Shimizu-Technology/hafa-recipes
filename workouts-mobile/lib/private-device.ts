@@ -1,7 +1,7 @@
 import { cleanupPrivateExportFiles } from "./export-file";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createPrivateStorageRegistry } from "./private-storage";
-import { cleanupCaptureFiles } from "./capture-io";
+import { cleanupCaptureFiles, recoverCaptureCleanup } from "./capture-io";
 import type { CaptureFile } from "./capture";
 import { nativeNotifications } from "./notifications-adapter";
 export const privateRegistry = createPrivateStorageRegistry(AsyncStorage);
@@ -17,18 +17,23 @@ async function clean(owner: string) {
       await adapter.cancel(notification.id);
   }
   await privateRegistry.erase(owner, async (raw) => {
-    let value: { files?: CaptureFile[] };
+    let value: { files?: CaptureFile[]; cleanup_files?: CaptureFile[] };
     try {
       value = JSON.parse(raw);
     } catch {
       return;
     }
-    if (Array.isArray(value?.files))
+    const files = [
+      ...(Array.isArray(value?.files) ? value.files : []),
+      ...(Array.isArray(value?.cleanup_files) ? value.cleanup_files : [])
+    ];
+    if (files.length)
       await cleanupCaptureFiles(
-        value.files.filter((file) => file && typeof file.uri === "string" && file.owned === true),
+        files.filter((file) => file && typeof file.uri === "string" && file.owned === true),
         true
       );
   });
+  await recoverCaptureCleanup(owner);
 }
 export async function erasePrivateDeviceData(owner: string, binding: string) {
   privateRegistry.retire(owner);
@@ -39,6 +44,7 @@ export async function erasePrivateDeviceData(owner: string, binding: string) {
   await AsyncStorage.removeItem(key);
 }
 export async function recoverPrivateDeviceCleanup() {
+  await recoverCaptureCleanup();
   for (const key of await AsyncStorage.getAllKeys()) {
     if (!key.startsWith(markerPrefix)) continue;
     const raw = await AsyncStorage.getItem(key);

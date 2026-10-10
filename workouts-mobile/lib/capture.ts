@@ -13,9 +13,13 @@ export interface CaptureDraft {
   text: string;
   source_url: string;
   files: CaptureFile[];
+  cleanup_files?: CaptureFile[];
   job_id?: string;
+  pending_import?: boolean;
   created_at: string;
 }
+/** Supplied by the original account/enrollment/screen; native helpers stay UI-free. */
+export type CaptureGuard = () => void;
 export interface ExtractionRequest {
   kind: CaptureKind;
   text?: string;
