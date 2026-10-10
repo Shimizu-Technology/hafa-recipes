@@ -44,11 +44,17 @@ export, including a download on another device.
 
 ## Consistency and privacy fences
 
-Admission briefly locks the stable AppUser row and reserves one private slot.
-Materialization then uses a fresh session with explicit REPEATABLE READ,
-streaming bounded pages to encrypted database rows. It never holds the AppUser
-lock or a database transaction across HTTP page requests. Its FK to the reserved
-snapshot can briefly delay snapshot cleanup while a page transaction commits.
+Global admission starts a fresh **read-only** REPEATABLE READ source session
+and fails fast before any owner slot is changed. A short separate READ COMMITTED
+transaction locks the stable AppUser row and reserves one private slot.
+Each encrypted page is inserted and committed in a separate short READ COMMITTED
+transaction, with the current owner/generation/privacy fences checked again. It never holds the AppUser
+lock or a database transaction across multiple HTTP page requests. The
+read-only source holds no page FK or owner-row locks. A page writer briefly
+holds its own FK/owner locks and releases them on that page commit; its statement
+timeout is five seconds and its lock timeout is one second. Privacy deletion can
+commit while the source is paused between pages, rather than waiting for the
+entire build. Already-written pages cascade away and cannot be published.
 READ COMMITTED publication rechecks owner, active enrollment, original
 generation, expiry, and permission fingerprint under the AppUser lock. This
 prevents a revoked/deleted account publishing an older view after materializing.
@@ -150,3 +156,87 @@ browser, native device, production data or paid provider was used. Four existing
 FastAPI startup/shutdown deprecation warnings remain unrelated to this slice.
 The disposable database was removed after verification. The borrowed container
 was left unchanged; the clean code worktree is preserved for root integration.
+
+
+## Global admission and response lifetime follow-up
+
+Export slots are conservative controls pending acceptance on the shared Render
+service. The observed Recipes peak was 397 MiB on a 512 MiB instance; these
+controls do **not** demonstrate adequate mixed-load headroom or authorize
+production activation. Root must measure simultaneous Recipes, export creation,
+and page downloads, including slow physical network clients, and reduce page
+bounds or change capacity if that acceptance gate fails.
+
+The private exporter now has three distinct PostgreSQL transaction advisory
+locks, shared across every API replica connected to the same database:
+
+| Operation | Lock ID | Lifetime |
+| --- | --- | --- |
+| Materialization | 73400430 | One read-only RR source transaction through all source pages |
+| Decrypt/read service | 73400431 | One fresh RC read transaction before any ciphertext/large JSON load |
+| HTTP GET response | 73400432 | Independent transaction across authentication, handler, serialization, and final ASGI body send |
+
+Every admission uses `pg_try_advisory_xact_lock`, without waiting for another
+export. Busy returns fixed `429 export_snapshot_busy`, `Retry-After: 2`, and
+no-store. Build admission precedes replacing/reserving an owner slot, so denial
+cannot discard an existing download or leave an unfinished reservation. Its
+first advisory SELECT establishes the consistent RR view. Advisory-lock state is
+managed by PostgreSQL rather than MVCC, so REPEATABLE READ does not admit two
+simultaneous holders. Read-only source rows remain stable while short independent
+writers check current permission state and publish encrypted pages. A busy
+builder never blocks existing page downloads; builders and readers have separate
+slots. Cancellation/error/expiry roll back the relevant transaction and release
+its slot. Previous page JSON/ciphertext references are dropped before reading the
+next page.
+
+Root must mount snapshot/manifest/page GET endpoints on a separate
+`APIRouter(route_class=ExportReadRoute)` from `export_response_gate.py`, preserving
+`User` and original `Generation` dependencies. POST creation and DELETE discard
+continue using WorkoutsRoute. A service read lock alone ends before FastAPI
+serializes its DTO, so it cannot bound HTTP body memory. ExportReadRoute keeps its
+separate lock through `Route.handle` and the final response send, with a 30-second
+response deadline, two-second guard checkout/query/cleanup deadlines, and a
+35-second server idle-transaction timeout to bound a lost connection's lock.
+Normal cancellation and send errors close/roll back immediately. A timeout after
+response-start aborts the incomplete transfer; it never appends a second JSON
+error to partial private bytes. Native must discard that incomplete download and
+retry the same page/ID. Denied/error admissions release their connection before
+sending the small fixed error response. No background cleanup/request task is
+left running.
+
+Only one admitted response connection is retained, alongside the one builder's
+source connection, one decrypt transaction, and short page-write/metadata
+transactions. Additional checkout attempts can obtain pool connections, but they
+cannot multiply admitted snapshot/decrypt/serialization memory. This is a
+concurrency bound, not a measurement of Python object overhead, TCP buffers,
+proxy behavior, total API pool usage, or provider/database connection limits.
+Existing authenticated-data checks still run before any private query/decrypt;
+while globally busy, a generic 429 may precede an otherwise expected auth 401.
+No owner/snapshot identifier or private content appears in that response.
+Master-off delegates the ordinary disabled404 before guard DB or authentication.
+Existing Recipes routes do not use any of these slots.
+
+The legacy live `GET /export` remains unchanged and is not covered by the new
+response gate automatically. Before activation, root must retire it after the
+new journey is accepted, or mount it under the same response gate; otherwise
+parallel callers of that old path can still allocate export JSON independently.
+Service-only calls also require the response gate if exposed through HTTP.
+
+Follow-up synthetic tests cover cross-instance build/decrypt denial before
+private load, existing-reader/build independence, cancellation and expiry
+release, privacy revocation/product deletion committing while the RR source is
+paused **after a committed first page**, absence of orphan/ready exports, blocked
+final ASGI sends, denied second responses before handler/decrypt, cancelled and
+errored sends, response timeout without a second error body, fixed guard DB503,
+dormant404 without guard DB/auth, and ordinary auth rejection before private
+handler. These use real PostgreSQL with simulated ASGI backpressure. They are
+not a physical-device/slow-network or shared Render RSS acceptance result.
+
+Follow-up validation receipt: **257 passed** together (36 snapshot cases,
+7 ASGI response-gate cases, 56 account integration, 158 frozen Recipes
+contracts), plus the affected 7-case ASGI suite passed again after adding a real
+persisted Recipes `/api/recipes/count` request while the export body send was
+blocked. Ruff and diff whitespace checks passed. The local synthetic
+`hafa_workouts_exports_slots_test` database was removed; the root-owned container
+was left unchanged. No servers, browsers, physical-device traffic or production
+resources were started or changed. The clean worktree remains for integration.

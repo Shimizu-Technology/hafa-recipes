@@ -289,7 +289,7 @@ async def test_revocation_while_building_cannot_publish(snapshots):
         await membership_for(db, "owner", generation=1, write=True)
         await invalidate_export_snapshots(db, "owner", 1)
     resume.set()
-    failure = await assert_error(asyncio.wait_for(pending, 5), 503)
+    failure = await assert_error(asyncio.wait_for(pending, 5), 410)
     assert failure.detail == "export_snapshot_unavailable"
     async with api.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 0
@@ -595,3 +595,144 @@ async def test_readiness_rejects_missing_account_cascade(snapshots):
         )
     with pytest.raises(RuntimeError, match="cascades"):
         await verify_export_schema(api.engine, settings())
+
+
+async def test_global_creation_slot_cross_instance_failfast_and_reader_independent(snapshots):
+    api = snapshots
+    existing = await api.exports.create(user("other"), 1)
+    acquired, resume = asyncio.Event(), asyncio.Event()
+
+    async def source(db, current_user, limit, offset):
+        acquired.set()
+        await resume.wait()
+        return await export_service.approved_export_page(db, current_user, limit, offset)
+
+    creator = PrivateExportService(api.sessions, settings=settings(), page_source=source)
+    pending = asyncio.create_task(creator.create(user(), 1))
+    await asyncio.wait_for(acquired.wait(), 5)
+    other_instance = PrivateExportService(api.sessions, settings=settings())
+    failure = await assert_error(
+        asyncio.wait_for(other_instance.create(user("other"), 1), 1), 429, "export_snapshot_busy"
+    )
+    assert failure.headers == {"Retry-After": "2"}
+    assert (
+        await other_instance.read(user("other"), 1, existing.id, page=0)
+    ).snapshot_id == existing.id
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 2
+    resume.set()
+    assert (await asyncio.wait_for(pending, 5)).generation == 1
+    replacement = await other_instance.create(user("other"), 1)
+    assert replacement.id != existing.id
+
+
+@pytest.mark.parametrize("action", ["revoke", "product_delete"])
+async def test_privacy_changes_after_committed_first_page_do_not_wait_for_rr_build(
+    snapshots, action
+):
+    api = snapshots
+    for index in range(11):
+        await add(api, f"Source {index}")
+    acquired, resume = asyncio.Event(), asyncio.Event()
+
+    async def source(db, current_user, limit, offset):
+        if offset == 10:
+            acquired.set()
+            await resume.wait()
+        return await export_service.approved_export_page(db, current_user, limit, offset)
+
+    service = PrivateExportService(api.sessions, settings=settings(), page_source=source)
+    pending = asyncio.create_task(service.create(user(), 1))
+    await asyncio.wait_for(acquired.wait(), 5)
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutsExportPage)) == 1
+
+    async def privacy_change():
+        async with api.sessions.begin() as db:
+            membership = await membership_for(db, "owner", generation=1, write=True)
+            await invalidate_export_snapshots(db, "owner", 1)
+            if action == "product_delete":
+                membership.status = "deleted"
+                membership.generation += 1
+
+    # Original implementation held a page FK lock until all RR pages committed;
+    # this revocation would have waited for resume and timed out/rolled back.
+    await asyncio.wait_for(privacy_change(), 1)
+    assert not pending.done()
+    resume.set()
+    await assert_error(asyncio.wait_for(pending, 5), 410 if action == "revoke" else 409)
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 0
+        assert await db.scalar(select(func.count()).select_from(WorkoutsExportPage)) == 0
+    if action == "revoke":
+        assert (await api.exports.create(user(), 1)).generation == 1
+    else:
+        assert (await api.exports.create(user("other"), 1)).generation == 1
+
+
+async def test_global_page_slot_cross_instance_denial_before_ciphertext_load(snapshots):
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    api = snapshots
+    first = await api.exports.create(user(), 1)
+    other = await api.exports.create(user("other"), 1)
+    acquired, resume = asyncio.Event(), asyncio.Event()
+    loads = []
+
+    class PausingSession(AsyncSession):
+        async def get(self, entity, ident, **kwargs):
+            if entity is WorkoutsExportPage:
+                loads.append(ident)
+                acquired.set()
+                await resume.wait()
+            return await super().get(entity, ident, **kwargs)
+
+    sessions = async_sessionmaker(api.engine, class_=PausingSession, expire_on_commit=False)
+    first_instance = PrivateExportService(sessions, settings=settings())
+    pending = asyncio.create_task(first_instance.read(user(), 1, first.id, page=0))
+    await asyncio.wait_for(acquired.wait(), 5)
+    await assert_error(
+        asyncio.wait_for(api.exports.read(user("other"), 1, other.id, page=0), 1),
+        429,
+        "export_snapshot_busy",
+    )
+    assert len(loads) == 1
+    # Creator has a distinct slot and may replace the other owner's snapshot.
+    replacement = await api.exports.create(user("other"), 1)
+    pending.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await pending
+    assert (
+        await api.exports.read(user("other"), 1, replacement.id, page=0)
+    ).snapshot_id == replacement.id
+
+
+async def test_expired_reader_releases_global_slot(snapshots):
+    api = snapshots
+    manifest = await api.exports.create(user(), 1)
+    other = await api.exports.create(user("other"), 1)
+    async with api.sessions.begin() as db:
+        row = await db.get(WorkoutsExportSnapshot, manifest.id)
+        row.created_at -= timedelta(minutes=11)
+        row.expires_at -= timedelta(minutes=11)
+    await assert_error(api.exports.read(user(), 1, manifest.id), 410)
+    assert (await api.exports.read(user("other"), 1, other.id)).id == other.id
+
+
+async def test_cancelled_creation_releases_global_admission(snapshots):
+    api = snapshots
+    acquired = asyncio.Event()
+
+    async def source(db, current_user, limit, offset):
+        acquired.set()
+        await asyncio.Event().wait()
+
+    service = PrivateExportService(api.sessions, settings=settings(), page_source=source)
+    pending = asyncio.create_task(service.create(user(), 1))
+    await asyncio.wait_for(acquired.wait(), 5)
+    pending.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await pending
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 0
+    assert (await api.exports.create(user("other"), 1)).generation == 1

@@ -36,6 +36,8 @@ MAX_TOTAL_BYTES = 64 * 1024 * 1024
 MAX_PAGES = 512
 TTL_SECONDS = 600
 BUILD_SECONDS = 120
+BUILD_LOCK = 73400430
+READ_LOCK = 73400431
 
 
 class ExportManifest(DomainModel):
@@ -92,6 +94,12 @@ def seal(key, snapshot, page, content):
 
 def unseal(key, snapshot, page, ciphertext):
     return AESGCM(key).decrypt(ciphertext[:12], ciphertext[12:], aad(snapshot, page))
+
+
+async def try_export_slot(db, lock_id):
+    """Transaction-owned cross-replica slot: never queue behind another export."""
+    if not await db.scalar(text("SELECT pg_try_advisory_xact_lock(:slot)"), {"slot": lock_id}):
+        raise HTTPException(429, "export_snapshot_busy", headers={"Retry-After": "2"})
 
 
 async def privacy_digest(db, owner, generation, key):
@@ -288,46 +296,79 @@ class PrivateExportService:
                 )
             )
 
+    async def _write_page(self, user, generation, snapshot, key, page, ciphertext):
+        # The readonly source transaction MUST NOT insert pages: its FK locks
+        # would otherwise block privacy deletion for the entire 120-second build.
+        async with self.sessions.begin() as db:
+            await self._fresh(db)
+            await db.execute(text("SET LOCAL statement_timeout='5s'"))
+            await db.execute(text("SET LOCAL lock_timeout='1s'"))
+            await membership_for(db, user.id, generation=generation, write=True)
+            current = await db.get(WorkoutsExportSnapshot, snapshot.id)
+            clock = await db.scalar(select(func.clock_timestamp()))
+            if (
+                current is None
+                or current.status != "building"
+                or current.expires_at <= clock
+                or not hmac.compare_digest(
+                    current.permission_digest, await privacy_digest(db, user.id, generation, key)
+                )
+            ):
+                raise error("export_snapshot_unavailable")
+            db.add(WorkoutsExportPage(snapshot_id=snapshot.id, page=page, ciphertext=ciphertext))
+            # Commit releases both the owner lock and page FK key-share lock.
+
     @redacted
     async def create(self, user, generation):
         key = self.authorize(user, generation)
         snapshot_id = uuid4()
-        async with self.sessions.begin() as db:
-            await self._fresh(db)
-            await membership_for(db, user.id, generation=generation, write=True)
-            await cleanup_expired_exports(db)
-            await db.execute(
-                delete(WorkoutsExportSnapshot).where(WorkoutsExportSnapshot.app_user_id == user.id)
-            )
-            created = await db.scalar(select(func.clock_timestamp()))
-            snapshot = WorkoutsExportSnapshot(
-                id=snapshot_id,
-                app_user_id=user.id,
-                generation=generation,
-                created_at=created,
-                expires_at=created + timedelta(seconds=TTL_SECONDS),
-                status="building",
-                permission_digest=await privacy_digest(db, user.id, generation, key),
-                page_count=0,
-                byte_count=0,
-            )
-            db.add(snapshot)
+        reserved = False
         try:
             async with asyncio.timeout(BUILD_SECONDS):
-                async with self.sessions() as db:
-                    # Set before any statement/snapshot acquisition. Never reuse an
-                    # HTTP dependency session with an already acquired RC snapshot.
-                    await db.connection(execution_options={"isolation_level": "REPEATABLE READ"})
-                    await db.execute(text("SET LOCAL statement_timeout='15s'"))
-                    await membership_for(db, user.id, generation=generation)
+                async with self.sessions() as source:
+                    await source.connection(
+                        execution_options={"isolation_level": "REPEATABLE READ"}
+                    )
+                    await source.execute(text("SET TRANSACTION READ ONLY"))
+                    await source.execute(text("SET LOCAL statement_timeout='15s'"))
+                    # Advisory locks use lock-manager state, not MVCC visibility.
+                    # This SELECT establishes the RR source view; denied attempts
+                    # have neither replaced an owner slot nor loaded private JSON.
+                    await try_export_slot(source, BUILD_LOCK)
+                    async with self.sessions.begin() as db:
+                        await self._fresh(db)
+                        await membership_for(db, user.id, generation=generation, write=True)
+                        await cleanup_expired_exports(db)
+                        await db.execute(
+                            delete(WorkoutsExportSnapshot).where(
+                                WorkoutsExportSnapshot.app_user_id == user.id
+                            )
+                        )
+                        created = await db.scalar(select(func.clock_timestamp()))
+                        snapshot = WorkoutsExportSnapshot(
+                            id=snapshot_id,
+                            app_user_id=user.id,
+                            generation=generation,
+                            created_at=created,
+                            expires_at=created + timedelta(seconds=TTL_SECONDS),
+                            status="building",
+                            permission_digest=await privacy_digest(db, user.id, generation, key),
+                            page_count=0,
+                            byte_count=0,
+                        )
+                        db.add(snapshot)
+                    reserved = True
+                    await membership_for(source, user.id, generation=generation)
                     if not hmac.compare_digest(
                         snapshot.permission_digest,
-                        await privacy_digest(db, user.id, generation, key),
+                        await privacy_digest(source, user.id, generation, key),
                     ):
                         raise error("export_snapshot_unavailable")
                     totals, total_bytes = None, 0
                     for page in range(MAX_PAGES):
-                        projected = await self.page_source(db, user, PAGE_SIZE, page * PAGE_SIZE)
+                        projected = await self.page_source(
+                            source, user, PAGE_SIZE, page * PAGE_SIZE
+                        )
                         projected.generated_at = created
                         if totals is None:
                             totals = projected.totals
@@ -339,21 +380,17 @@ class PrivateExportService:
                         total_bytes += len(content)
                         if len(content) > MAX_PAGE_BYTES or total_bytes > MAX_TOTAL_BYTES:
                             raise error("export_snapshot_too_large", 413)
-                        db.add(
-                            WorkoutsExportPage(
-                                snapshot_id=snapshot_id,
-                                page=page,
-                                ciphertext=seal(key, snapshot, page, content),
-                            )
-                        )
-                        await db.flush()
-                        if not any(projected.has_more.values()):
+                        finished = not any(projected.has_more.values())
+                        ciphertext = seal(key, snapshot, page, content)
+                        await self._write_page(user, generation, snapshot, key, page, ciphertext)
+                        # Do not retain the previous page while the next query waits.
+                        del projected, content, ciphertext
+                        if finished:
                             break
                     else:
                         raise error("export_snapshot_too_large", 413)
-                    await db.commit()
-            # Fresh RC publication fences revocation/deletion that happened during
-            # RR reads. The short owner lock is released before returning HTTP.
+                    # Release global build slot only after all source JSON is gone.
+                    await source.rollback()
             async with self.sessions.begin() as db:
                 await self._fresh(db)
                 await membership_for(db, user.id, generation=generation, write=True)
@@ -374,12 +411,13 @@ class PrivateExportService:
                 manifest = self._manifest(current, totals)
             return manifest
         except BaseException:
-            # Cancellation also removes temporary private ciphertext; cleanup is
-            # bounded. A cancelled cleanup rolls back; TTL maintenance retries.
-            try:
-                await asyncio.wait_for(self._discard(snapshot_id, user.id), 5)
-            except (SQLAlchemyError, TimeoutError):
-                pass
+            # Source context has already released its global transaction lock.
+            # Denied admissions never created/replaced a reservation.
+            if reserved:
+                try:
+                    await asyncio.wait_for(self._discard(snapshot_id, user.id), 5)
+                except (SQLAlchemyError, TimeoutError):
+                    pass
             raise
 
     @staticmethod
@@ -403,6 +441,7 @@ class PrivateExportService:
         failure = None
         async with self.sessions.begin() as db:
             await self._fresh(db)
+            await try_export_slot(db, READ_LOCK)
             await membership_for(db, user.id, generation=generation, write=True)
             snapshot = await db.scalar(
                 select(WorkoutsExportSnapshot).where(
