@@ -9,17 +9,22 @@ import { savePrivateExport } from "@/lib/export-file";
 import { logoutBinding, clearLogoutQueries } from "@/lib/logout-recovery";
 import { logoutRecovery } from "@/lib/logout-recovery-native";
 import { configuration } from "@/lib/config";
+import { useExportJob } from "@/lib/use-export-job";
+import { exportJobDescription, terminalExport } from "@/lib/export-jobs";
 export default function AccountData() {
   const { api, owner, enrollment, storage, eraseLocalData, invalidateAccount } = useTraining();
   const generation = enrollment?.generation ?? 0;
   const currentEnrollment = useRef(enrollment);
   currentEnrollment.current = enrollment;
   const { userId, sessionId } = useAuth();
+  const exports = useExportJob(logoutBinding(configuration.clerkEnvironment, configuration.clerkKey, userId ?? ""));
+  const exportView = exports.view;
   const cache = useQueryClient();
   const reminders = useReminders();
   const [mode, setMode] = useState<"none" | "workouts" | "account">("none");
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const exportBusy = busy || exportView.busy;
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [pendingCleanup, setPendingCleanup] = useState<"workouts" | null>(null);
@@ -101,7 +106,7 @@ export default function AccountData() {
     setConfirmed(false);
   }
   async function remove() {
-    if (lock.current || (!pendingCleanup && (!confirmed || mode === "none"))) return;
+    if (lock.current || exportView.busy || (!pendingCleanup && (!confirmed || mode === "none"))) return;
     lock.current = true;
     setBusy(true);
     setError("");
@@ -150,7 +155,41 @@ export default function AccountData() {
           captured private snapshot keeps all pages consistent. Privacy removal or permission revocation cancels the
           snapshot; start a fresh export if that happens.
         </Copy>
-        <Button
+        {!enrollment?.enrolled ? <Notice>Set up your Workouts account before exporting saved server records.</Notice> : exports.useJobs ? <>
+          {exportView.job && <Notice>{exportJobDescription(exportView.job, exportView.command?.cancel_requested)}</Notice>}
+          {exportView.phase === "uncertain" && <Notice>
+            This device retained the original export request. Check it or retry that same request; preparation may already have started.
+          </Notice>}
+          {exportView.command?.cancel_requested && !exportView.command.job_id && <Notice>
+            Cancellation has no acknowledged server handle yet. Resolving the original request may briefly admit that same request before immediately cancelling it. It never creates a fresh request.
+          </Notice>}
+          {exportView.phase === "downloading" && <Notice>
+            Downloading private pages: {exportView.pages} of {exportView.job?.manifest?.page_count ?? 0}. Only a complete file can be opened.
+          </Notice>}
+          {exportView.phase === "saving" && <Notice>Opening your device’s save options. Temporary records will be cleaned afterward.</Notice>}
+          {!exportView.command && <Button title="Prepare private Workouts export" secondary
+            disabled={!exports.enabled || exportBusy || exportView.phase === "loading"}
+            busy={exportView.busy} onPress={() => { void exports.controller?.start(); }} />}
+          {exportView.job?.status === "ready" && !exportView.command?.cancel_requested && !exportView.invalidated &&
+            <Button title={exportView.error ? "Retry download and save" : "Save complete private export"}
+              disabled={!exports.enabled || busy} busy={exportView.busy} onPress={() => { void exports.controller?.save(); }} />}
+          {exportView.command && <Button title="Check this export" secondary
+            disabled={!exports.enabled || exportBusy} onPress={exports.check} />}
+          {exportView.command && !exportView.command.job_id &&
+            <Button title={exportView.command.cancel_requested ? "Resolve original request and cancel" : "Retry original preparation request"} secondary disabled={!exports.enabled || exportBusy}
+              onPress={() => { void exports.controller?.retryAdmission(); }} />}
+          {exportView.command && (!exportView.job || !terminalExport(exportView.job) || exportView.job.cleanup_pending) &&
+            <Button title={exportView.command.cancel_requested || exportView.job?.cleanup_pending ? "Retry cancellation and cleanup" : "Cancel and discard this export"}
+              secondary disabled={!exports.enabled || exportBusy} onPress={() => { void exports.controller?.cancel(); }} />}
+          {exportView.job && terminalExport(exportView.job) && !exportView.job.cleanup_pending &&
+            <Button title="Start a fresh private export" secondary disabled={!exports.enabled || exportBusy}
+              onPress={() => { void exports.controller?.start(); }} />}
+          {exports.pollStopped && <Notice>Automatic checking paused after a bounded check period. Check this same export deliberately when you return.</Notice>}
+          {exports.pollStopped && exportView.phase === "loading" && <Button title="Check original export recovery" secondary
+            disabled={!exports.enabled || exportBusy} onPress={() => { void exports.controller?.restore(); }} />}
+          {!!exportView.message && <Notice>{exportView.message}</Notice>}
+          {!!exportView.error && <Notice error>{exportView.error}</Notice>}
+        </> : exports.knownLegacy ? <Button
           title="Export private Workouts JSON"
           secondary
           disabled={!enrollment?.enrolled}
@@ -158,7 +197,18 @@ export default function AccountData() {
           onPress={() => {
             void exportData();
           }}
-        />
+        /> : <>
+          {!!exportView.error && <Notice error>{exportView.error}</Notice>}
+          <Notice>{exports.pollStopped && exportView.phase === "loading" ? "Original export recovery is paused. Check that same request before preparing anything else." : exports.capability.isError ? "Export availability could not be checked. No new export was started." : exportView.error ? "The original export recovery handle needs review before a new export can be started." : "Checking export availability…"}</Notice>
+          {exports.capability.isError && <Button title="Retry export availability" secondary disabled={!exports.enabled || busy}
+            onPress={() => { void exports.capability.refetch(); }} />}
+          {!!exportView.error && <Button title="Retry export recovery" secondary disabled={!exports.enabled || exportBusy}
+            onPress={() => { void exports.controller?.restore(); }} />}
+          {exports.pollStopped && exportView.phase === "loading" && <>
+            <Button title="Check original export recovery" secondary disabled={!exports.enabled || exportBusy}
+              onPress={() => { void exports.controller?.restore(); }} />
+          </>}
+        </>}
       </Card>
       <Card>
         <Copy kind="heading">Remove only Workouts data</Copy>
@@ -172,7 +222,7 @@ export default function AccountData() {
         <Button
           title="Review Workouts-only removal"
           secondary
-          disabled={!enrollment?.enrolled || busy || !!pendingCleanup}
+          disabled={!enrollment?.enrolled || exportBusy || !!pendingCleanup}
           onPress={() => {
             setMode("workouts");
             setConfirmed(false);
@@ -189,7 +239,7 @@ export default function AccountData() {
         <Button
           title="Review whole-account deletion"
           secondary
-          disabled={busy || !!pendingCleanup}
+          disabled={exportBusy || !!pendingCleanup}
           onPress={() => {
             setMode("account");
             setConfirmed(false);
@@ -221,12 +271,12 @@ export default function AccountData() {
                 : "I understand my Recipes and Workouts data will both be erased."
             }
             selected={confirmed}
-            disabled={busy}
+            disabled={exportBusy}
             onPress={() => setConfirmed(!confirmed)}
           />
           <Button
             title={mode === "workouts" ? "Erase my Workouts data" : "Delete my whole Håfa account"}
-            disabled={!confirmed}
+            disabled={!confirmed || exportBusy}
             busy={busy}
             onPress={() => {
               void remove();

@@ -60,6 +60,8 @@ export interface ImportJob {
   accepted_workout_id: string | null;
 }
 export interface Capabilities {
+  /** Absent on old servers; only an explicit true selects durable jobs. */
+  export_jobs?: boolean;
   generation: number;
   public_beta: boolean;
   imports: boolean;

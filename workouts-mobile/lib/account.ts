@@ -117,7 +117,8 @@ export interface SnapshotPage {
 export async function collectSnapshotExport(
   manifest: ExportManifest,
   fetchPage: (page: number) => Promise<SnapshotPage>,
-  guard: () => void
+  guard: () => void,
+  onPage?: (completed: number) => void
 ) {
   if (
     !Number.isInteger(manifest.page_count) ||
@@ -141,6 +142,8 @@ export async function collectSnapshotExport(
         throw Error("The private snapshot changed. Discard this partial export and start again.");
       if (Object.values(data.export.has_more).some(Boolean) !== page < manifest.page_count - 1)
         throw Error("The private snapshot page sequence is incomplete.");
+      onPage?.(page + 1);
+      guard();
       return data.export;
     },
     manifest.generation,

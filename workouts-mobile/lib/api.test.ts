@@ -1,6 +1,29 @@
 import { describe, it, expect, vi } from "vitest";
 import { createWorkoutsApi } from "./api";
 describe("authenticated API boundary", () => {
+  it("uses durable export routes and original owner/generation across admission, lookup, cancel and pages", async () => {
+    const transport = vi.fn().mockImplementation(async () => new Response("{}", { status: 202 }));
+    const api = createWorkoutsApi("https://example.test", async () => "synthetic", transport, {
+      owner: "original-owner", binding: "issuer:original", currentBinding: () => "issuer:original",
+    });
+    await api.createExportJob("original-request", 7);
+    await api.exportJobByRequest("original-request", 7);
+    await api.exportJob("original-job", 7);
+    await api.cancelExportJob("original-job", 7);
+    await api.exportSnapshotPage("original-snapshot", 0, 7);
+    expect(transport.mock.calls.map((call) => call[0])).toEqual([
+      "https://example.test/api/v1/workouts/export/jobs",
+      "https://example.test/api/v1/workouts/export/jobs/by-request/original-request",
+      "https://example.test/api/v1/workouts/export/jobs/original-job",
+      "https://example.test/api/v1/workouts/export/jobs/original-job/cancel",
+      "https://example.test/api/v1/workouts/export/snapshots/original-snapshot/pages/0",
+    ]);
+    expect(JSON.parse(transport.mock.calls[0][1].body)).toEqual({ request_id: "original-request" });
+    for (const [, init] of transport.mock.calls) {
+      expect(init.headers["X-Hafa-Account-ID"]).toBe("original-owner");
+      expect(init.headers["X-Workouts-Generation"]).toBe("7");
+    }
+  });
   it("never makes an unauthenticated training request", async () => {
     const transport = vi.fn();
     const api = createWorkoutsApi("https://example.test", async () => null, transport);
