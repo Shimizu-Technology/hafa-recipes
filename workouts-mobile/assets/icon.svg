@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Håfa Workouts</title>
+  <rect width="1024" height="1024" fill="#172820"/>
+  <g fill="#C1DA80">
+    <rect x="250" y="288" width="132" height="490" rx="66"/>
+    <rect x="642" y="246" width="132" height="490" rx="66"/>
+    <path d="M316 468h392v104H316z"/>
+  </g>
+  <circle cx="708" cy="816" r="28" fill="#FFFEFA"/>
+</svg>
