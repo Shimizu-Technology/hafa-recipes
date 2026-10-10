@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 DATABASE = "hafa_workouts_pip_parity_test"
+AUTHORITY_DATABASE = "hafa_workouts_pip_authority_test"
 FAKE_KEY = "capacity-not-a-provider-credential"
 FILES = [
     "tests/test_request_context.py",
@@ -17,12 +18,39 @@ FILES = [
     "tests/test_workouts_export_response_gate.py",
     "tests/test_workouts_export_assembly.py",
     "tests/test_workouts_activity_log.py",
+    "tests/test_workouts_budget_authority.py",
+    "tests/test_workouts_ai_budget.py",
+    "tests/test_workouts_provider_budgets.py",
     "tests/test_mobile_contract_compatibility.py",
     "tests/test_thumbnail_memory.py",
     "tests/test_thumbnail_normalization.py",
     "tests/test_storage.py",
     "tests/test_cover_selection.py",
 ]
+REQUIRED_AUTHORITY = {
+    "test_valid_app_schema_cannot_mask_invalid_separate_authority[" + fault + "]"
+    for fault in (
+        "table",
+        "version",
+        "column",
+        "extra_column",
+        "foreign_key",
+        "trigger",
+    )
+} | {"test_role_default_shadow_cannot_split_public_global_capacity_or_diagnostics"}
+
+
+class AuthorityCoverage:
+    def __init__(self):
+        self.passed = set()
+
+    def pytest_runtest_logreport(self, report):
+        if report.when == "call" and report.passed:
+            self.passed.add(report.nodeid.rsplit("::", 1)[-1])
+
+    @property
+    def missing(self):
+        return sorted(REQUIRED_AUTHORITY - self.passed)
 
 
 def validate_environment(env):
@@ -32,13 +60,23 @@ def validate_environment(env):
         or env.get("OPENAI_API_KEY") != FAKE_KEY
     ):
         raise RuntimeError("Explicit test-only parity environment required")
-    for key in ("DATABASE_URL", "TEST_DATABASE_URL"):
+    for key in (
+        "DATABASE_URL",
+        "TEST_DATABASE_URL",
+        "TEST_BUDGET_AUTHORITY_DATABASE_URL",
+    ):
         value = urlparse(env.get(key, ""))
         if (
             value.scheme not in {"postgresql", "postgresql+asyncpg"}
             or value.hostname != "127.0.0.1"
             or value.port != 5432
-            or value.path != "/" + DATABASE
+            or value.path
+            != "/"
+            + (
+                AUTHORITY_DATABASE
+                if key == "TEST_BUDGET_AUTHORITY_DATABASE_URL"
+                else DATABASE
+            )
             or value.username != "postgres"
             or value.password != "capacity_local_only"
             or value.query
@@ -58,6 +96,7 @@ def validate_environment(env):
         "HTTPS_PROXY",
         "ALL_PROXY",
         "WORKOUTS_DEVELOPMENT_AI_API_KEY",
+        "WORKOUTS_AI_BUDGET_DATABASE_URL",
     ):
         if env.get(key):
             raise RuntimeError("External service credentials/proxies forbidden")
@@ -122,7 +161,12 @@ def main():
     block_external_sockets()
     import pytest
 
-    result = pytest.main(["-c", "/api/pyproject.toml", "-q", "--tb=short", *FILES])
+    coverage = AuthorityCoverage()
+    result = pytest.main(
+        ["-c", "/api/pyproject.toml", "-q", "--tb=short", *FILES], plugins=[coverage]
+    )
+    if not result and coverage.missing:
+        result = 2
     print(
         json.dumps(
             {
@@ -130,6 +174,7 @@ def main():
                 "production_graph_unchanged": True,
                 "versions": graph,
                 "exit_code": int(result),
+                "required_authority_cases_missing": coverage.missing,
                 "provider_acceptance": False,
                 "capacity_acceptance": False,
             }

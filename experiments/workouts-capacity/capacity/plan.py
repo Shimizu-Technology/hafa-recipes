@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from capacity.safety import DATABASE, FAKE_KEY
+from capacity.safety import DATABASE, DATABASE_URL, FAKE_KEY
 
 PYTHON_BASE = (
     "python@sha256:2ed6491b93cd49272ee6de2b5a38440c3448360322c089fc23e370722d74179d"
@@ -22,7 +22,8 @@ def environment():
     return {
         "HAFACAPACITY_RUN": "1",
         "ENVIRONMENT": "test",
-        "DATABASE_URL": f"postgresql://postgres:capacity_local_only@127.0.0.1:5432/{DATABASE}",
+        "DATABASE_URL": DATABASE_URL,
+        "WORKOUTS_AI_BUDGET_DATABASE_URL": DATABASE_URL,
         "DATABASE_USE_SSL": "false",
         "OPENAI_API_KEY": FAKE_KEY,
         "WORKOUTS_DEVELOPMENT_AI_API_KEY": FAKE_KEY,
@@ -295,6 +296,25 @@ def build_plan(repository, output, run_id, cpus, target_platform="linux/amd64"):
             ],
         },
     ]
+    mixed_api = list(
+        next(c["argv"] for c in commands if c["step"] == "start_baseline_api")
+    )
+    mixed_api[mixed_api.index("--name") + 1] = f"capacity-api-{run_id}"
+    mixed_api[mixed_api.index("WORKOUTS_API_ENABLED=false")] = (
+        "WORKOUTS_API_ENABLED=true"
+    )
+    image_position = mixed_api.index(image)
+    mixed_api[image_position:image_position] = ["-e", "CAPACITY_PHASE=mixed"]
+    mixed_load = list(
+        next(
+            c["argv"]
+            for c in commands
+            if c["step"] == "run_baseline_separate_load_cgroup"
+        )
+    )
+    mixed_load[mixed_load.index("--name") + 1] = f"capacity-mixed-load-{run_id}"
+    mixed_load[mixed_load.index("recipes-baseline")] = "mixed"
+    mixed_load[mixed_load.index("/results/baseline.json")] = "/results/mixed.json"
     plan = {
         "executed": False,
         "candidate_commit": commit,
@@ -314,6 +334,31 @@ def build_plan(repository, output, run_id, cpus, target_platform="linux/amd64"):
         },
         "resource_names": {"network": network, "postgres": postgres, "api": api},
         "commands": commands,
+        "mixed_after_baseline_inspection": {
+            "authorized": False,
+            "preserve_exact_pg_database": True,
+            "no_reset_no_reseed": True,
+            "baseline_api_action": "Capture final metrics, stop/remove ONLY exact recorded owned baseline API ID; retain owned PG/network.",
+            "commands": [
+                {"step": "start_mixed_api_ONLY", "argv": mixed_api},
+                {"step": "run_mixed300_separate_load", "argv": mixed_load},
+            ],
+            "host_monitor_phase": "mixed",
+            "host_monitor_seconds": 450,
+        },
+        "longer_acceptance_cases": {
+            "status": "NOT_RUN",
+            "cases": [
+                "15-minute mixed",
+                "three repetitions",
+                "upload burst4/8/16",
+                "worst legal40MP nonJPEG/concurrent images",
+                "ten-minute idle return",
+                "restart/replay",
+                "rollback",
+            ],
+            "auto_render_upsize": False,
+        },
         "context_files": files,
         "execution_requirements": [
             "Root must inspect and explicitly authorize runtime; this program starts nothing.",

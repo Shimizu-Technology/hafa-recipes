@@ -21,6 +21,19 @@ def test_safety_refuses_any_real_service_or_wrong_database():
         ("OPENAI_API_KEY", "real-looking-key"),
         ("SENTRY_DSN", "https://example.test"),
         ("AWS_ACCESS_KEY_ID", "credential"),
+        (
+            "WORKOUTS_AI_BUDGET_DATABASE_URL",
+            "postgresql://postgres:capacity_local_only@remote.example/hafa_workouts_capacity_test",
+        ),
+        (
+            "WORKOUTS_AI_BUDGET_DATABASE_URL",
+            env["DATABASE_URL"] + "?host=remote.example",
+        ),
+        (
+            "WORKOUTS_AI_BUDGET_DATABASE_URL",
+            env["DATABASE_URL"].replace("capacity_local_only", "wrong"),
+        ),
+        ("DATABASE_URL", env["DATABASE_URL"].replace("capacity_local_only", "wrong")),
     ]:
         with pytest.raises(RuntimeError):
             ensure({**env, key: value})

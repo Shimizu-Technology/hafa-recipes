@@ -13,6 +13,9 @@ def environment():
         "DATABASE_URL": database,
         "TEST_DATABASE_URL": database.replace("postgresql:", "postgresql+asyncpg:"),
         "DATABASE_USE_SSL": "false",
+        "TEST_BUDGET_AUTHORITY_DATABASE_URL": database.replace(
+            "postgresql:", "postgresql+asyncpg:"
+        ).replace("_pip_parity_test", "_pip_authority_test"),
     }
 
 
@@ -31,6 +34,11 @@ def test_parity_scratch_guard_rejects_shared_production_and_override_urls():
         ("DATABASE_URL", env["DATABASE_URL"] + "#other"),
         ("AWS_ACCESS_KEY_ID", "real-key"),
         ("HTTPS_PROXY", "http://proxy"),
+        ("TEST_BUDGET_AUTHORITY_DATABASE_URL", env["TEST_DATABASE_URL"]),
+        (
+            "TEST_BUDGET_AUTHORITY_DATABASE_URL",
+            env["TEST_BUDGET_AUTHORITY_DATABASE_URL"] + "?host=remote.example",
+        ),
     ]:
         with pytest.raises(RuntimeError):
             parity.validate_environment({**env, field: value})
@@ -73,6 +81,22 @@ def test_socket_guard_blocks_dns_and_nonloopback_before_any_original_call(monkey
     with pytest.raises(OSError):
         socket.getaddrinfo("provider.example", 443)
     assert calls == []
+
+
+def test_required_authority_cases_must_pass_call_not_skip_or_only_setup():
+    from types import SimpleNamespace
+
+    coverage = parity.AuthorityCoverage()
+    for case in parity.REQUIRED_AUTHORITY:
+        coverage.pytest_runtest_logreport(
+            SimpleNamespace(when="setup", passed=True, nodeid="tests/file.py::" + case)
+        )
+    assert len(coverage.missing) == 7
+    for case in parity.REQUIRED_AUTHORITY:
+        coverage.pytest_runtest_logreport(
+            SimpleNamespace(when="call", passed=True, nodeid="tests/file.py::" + case)
+        )
+    assert coverage.missing == []
 
 
 def test_test_image_context_uses_only_tracked_files_and_rejects_dotenv(tmp_path):

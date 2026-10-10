@@ -4,6 +4,7 @@ import os
 from urllib.parse import urlsplit
 
 DATABASE = "hafa_workouts_capacity_test"
+DATABASE_URL = f"postgresql://postgres:capacity_local_only@127.0.0.1:5432/{DATABASE}"
 FAKE_KEY = "capacity-not-a-provider-credential"
 OWNERS = tuple(f"capacity-{index:02d}" for index in range(24))
 
@@ -13,8 +14,12 @@ def ensure(environment=None):
     if env.get("HAFACAPACITY_RUN") != "1" or env.get("ENVIRONMENT") != "test":
         raise RuntimeError("Capacity wrapper requires explicit isolated test mode")
     parsed = urlsplit(env.get("DATABASE_URL", ""))
-    if parsed.hostname != "127.0.0.1" or parsed.path != f"/{DATABASE}":
+    if env.get("DATABASE_URL") != DATABASE_URL or parsed.query or parsed.fragment:
         raise RuntimeError("Capacity database must be the owned loopback test database")
+    if env.get("WORKOUTS_AI_BUDGET_DATABASE_URL") != DATABASE_URL:
+        raise RuntimeError(
+            "Budget authority must bind the exact same owned fixture URI"
+        )
     if env.get("DATABASE_USE_SSL") != "false":
         raise RuntimeError("Expected isolated loopback database configuration")
     for key in ["OPENAI_API_KEY", "WORKOUTS_DEVELOPMENT_AI_API_KEY"]:
