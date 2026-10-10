@@ -243,7 +243,7 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
 
     def start_api(self, phase):
         self.api = self.ledger.create_container(
-            "api", self.runtime_argv("api", phase=phase) + [self.image]
+            "api", self.runtime_argv("api", phase=phase) + self.api_command()
         )
         info = self.ledger.inspect(self.api)
         if (
@@ -277,6 +277,9 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
                 pass
             time.sleep(0.5)
         raise SafetyError("api_startup_deadline")
+
+    def api_command(self):
+        return [self.image]
 
     def saved_counts(self):
         self.ledger.inspect(self.pg)
@@ -546,7 +549,15 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
                 time.sleep(0.5)
         else:
             raise SafetyError("postgres_startup_deadline")
-        for role, step, deadline in [
+        for role, step, deadline in self.preparation_steps():
+            argv = list(
+                next(item["argv"] for item in plan["commands"] if item["step"] == step)
+            )
+            argv = [self.image if word == tag else word for word in argv]
+            self.finite_container(role, argv, deadline)
+
+    def preparation_steps(self):
+        return [
             ("fixtures", "generate_sources_separate_from_api_budget", 120),
             (
                 "source-check",
@@ -554,12 +565,7 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
                 90,
             ),
             ("seed", "seed_actual_migrations_once_empty_owned_db", 180),
-        ]:
-            argv = list(
-                next(item["argv"] for item in plan["commands"] if item["step"] == step)
-            )
-            argv = [self.image if word == tag else word for word in argv]
-            self.finite_container(role, argv, deadline)
+        ]
 
     def run(self):
         self.prepare()

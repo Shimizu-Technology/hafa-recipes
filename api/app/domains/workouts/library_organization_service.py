@@ -1,5 +1,10 @@
 """Owner-scoped organization, source hints, and optional-domain integration hooks."""
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.domains.workouts.export_context import SnapshotSourceContext
+
 import hashlib
 from uuid import UUID
 
@@ -159,10 +164,20 @@ async def erase_library_organization(db, owner):
         await db.execute(delete(model).where(model.app_user_id == owner))
 
 
-async def organization_export_page(db, owner, generation, *, limit=50, offset=0):
+async def organization_export_page(
+    db,
+    owner,
+    generation,
+    *,
+    limit=50,
+    offset=0,
+    source_context: "SnapshotSourceContext | None" = None,
+):
     """Bounded export of metadata; source hashes and replay hashes stay internal."""
     if not 1 <= limit <= 50 or not 0 <= offset <= 1_000_000:
         raise ValueError("Invalid export page")
+    if source_context is not None:
+        source_context.require_guard(db, owner, generation, limit, offset)
     result = {}
     for model, name, columns in (
         (
@@ -195,14 +210,18 @@ async def organization_export_page(db, owner, generation, *, limit=50, offset=0)
         ),
     ):
         rows = (
-            await db.scalars(
-                select(model)
-                .where(model.app_user_id == owner, model.generation == generation)
-                .order_by(*model.__table__.primary_key.columns)
-                .limit(limit + 1)
-                .offset(offset)
-            )
-        ).all()
+            []
+            if source_context is not None and not source_context.should_fetch(name, offset)
+            else (
+                await db.scalars(
+                    select(model)
+                    .where(model.app_user_id == owner, model.generation == generation)
+                    .order_by(*model.__table__.primary_key.columns)
+                    .limit(limit + 1)
+                    .offset(offset)
+                )
+            ).all()
+        )
         result[name] = {
             "items": [
                 {

@@ -32,4 +32,4 @@ CODES = {
     "unreviewed_or_foreign_pr",
     "unsupported_event_or_source",
 }
-PHASES = {"setup", "baseline", "mixed", "legal", "cleanup", "finalization", "receipt"}
+PHASES = {"setup", "baseline", "mixed", "legal", "diagnostic", "cleanup", "finalization", "receipt"}
