@@ -203,3 +203,44 @@ it("retires GETs that began while explicit enrollment was still awaiting acknowl
   await posted; resolve(new Response(JSON.stringify({ enrolled: false, generation: 2 })));
   await checked; expect(api.generation()).toBe(3);
 });
+
+it("returns a profile PUT's own body/revision pair even when later reads advance global metadata", async () => {
+  const saved = { adult_confirmed: true, limitations: ["Saved preferences"] } as import("./models").TrainingProfile;
+  const later = { ...saved, limitations: ["Later writer"] };
+  const transport = vi.fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify(saved), { headers: { "X-Workouts-Revision": "4" } }))
+    .mockResolvedValueOnce(new Response(JSON.stringify(later), { headers: { "X-Workouts-Revision": "9" } }));
+  const api = createWorkoutsApi("https://example.test", async () => "synthetic", transport);
+  const receipt = await api.saveProfileSnapshot(saved, 3, 2);
+  const fresh = await api.profileSnapshot();
+  expect(receipt).toEqual({ profile: saved, revision: 4 });
+  expect(Object.isFrozen(receipt)).toBe(true);
+  expect(Object.isFrozen(fresh)).toBe(true);
+  expect(fresh).toEqual({ profile: later, revision: 9 });
+  expect(api.profileRevision()).toBe(9);
+  const request = transport.mock.calls[0][1];
+  expect(request.headers["If-Match"]).toBe('"3"');
+  expect(request.headers["X-Workouts-Generation"]).toBe("2");
+  expect(JSON.parse(request.body)).toEqual(saved);
+});
+
+it.each([null, "", " ", "-1", "1.5", "1e3", "9007199254740992"])(
+  "refuses a paired profile acknowledgement with invalid header revision %s",
+  async (header) => {
+    const transport = vi.fn()
+      .mockResolvedValueOnce(new Response("null", { headers: { "X-Workouts-Revision": "0" } }))
+      .mockResolvedValueOnce(new Response("{}", { headers: header == null ? {} : { "X-Workouts-Revision": header } }));
+    const api = createWorkoutsApi("https://example.test", async () => "synthetic", transport);
+    await api.profileSnapshot();
+    await expect(api.saveProfileSnapshot({ adult_confirmed: true } as import("./models").TrainingProfile, 0, 1))
+      .rejects.toMatchObject({ status: 428 });
+    expect(api.profileRevision()).toBe(0);
+  }
+);
+
+it("does not start a profile write when its paired revision is absent", async () => {
+  const transport = vi.fn();
+  const api = createWorkoutsApi("https://example.test", async () => "synthetic", transport);
+  await expect(api.saveProfileSnapshot({} as import("./models").TrainingProfile, null, 1)).rejects.toMatchObject({ status: 428 });
+  expect(transport).not.toHaveBeenCalled();
+});

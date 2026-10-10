@@ -45,6 +45,17 @@ export class ApiError extends Error {
     super(message);
   }
 }
+export interface ProfileSnapshot<T extends TrainingProfile | null = TrainingProfile | null> {
+  readonly profile: T;
+  readonly revision: number;
+}
+function snapshotRevision(headers: Headers) {
+  const raw = headers.get("X-Workouts-Revision");
+  const value = raw != null && /^\d+$/.test(raw) ? Number(raw) : NaN;
+  if (!Number.isSafeInteger(value) || value < 0)
+    throw new ApiError("Reload the profile revision before editing.", 428);
+  return value;
+}
 type Token = () => Promise<string | null>;
 interface RecordEnvelope<T> {
   id: string;
@@ -194,7 +205,7 @@ export function createWorkoutsApi(
                     : response.status === 422
                       ? "Some details could not be saved. Review your entries and try again."
                       : response.status === 429
-                        ? "This beta allowance is currently used. Try again after the rolling daily window resets; your draft is safe."
+                        ? "The service is busy or the beta allowance is used. Your draft is safe; try again later."
                         : response.status === 428
                           ? "Reload the saved record before editing; a revision is required."
                           : "The training service could not finish this request. Please try again.";
@@ -418,12 +429,9 @@ export function createWorkoutsApi(
     },
     async profileSnapshot() {
       const { data, headers } = await request<TrainingProfile | null>("/profile");
-      const rawRevision = headers.get("X-Workouts-Revision");
-      const value = rawRevision == null ? NaN : Number(rawRevision);
-      if (!Number.isSafeInteger(value) || value < 0)
-        throw new ApiError("Reload the profile revision before editing measurements.", 428);
+      const value = snapshotRevision(headers);
       revision = value;
-      return { profile: data, revision: value };
+      return Object.freeze({ profile: data, revision: value });
     },
     async measurements(kind: MeasurementKind, generation: number, offset = 0) {
       return (
@@ -812,6 +820,16 @@ export function createWorkoutsApi(
       });
       revision = Number(r.headers.get("X-Workouts-Revision"));
       return r.data;
+    },
+    async saveProfileSnapshot(profile: TrainingProfile, expectedRevision: number | null, generation: number) {
+      if (expectedRevision == null) throw new ApiError("Reload the saved profile before editing.", 428);
+      const { data, headers } = await request<TrainingProfile>("/profile", "PUT", profile, {
+        generation: currentGeneration(generation),
+        revision: expectedRevision,
+      });
+      const savedRevision = snapshotRevision(headers);
+      revision = savedRevision;
+      return Object.freeze({ profile: data, revision: savedRevision });
     },
     async library() {
       return (await list<RecordEnvelope<Workout>>("/library")).map(workoutRecord);

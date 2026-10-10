@@ -1,8 +1,11 @@
 import ExpoModulesCore
+import Foundation
 
 public final class HafaPausedHealthModule: Module {
+  private static let nativeProcessIdentity = UUID().uuidString
   public func definition() -> ModuleDefinition {
     Name("HafaPausedHealth")
+    Function("nativeProcessIdentity") { Self.nativeProcessIdentity }
     AsyncFunction("savePausedWorkout") { (payload: String, promise: Promise) in
       Task {
         do { promise.resolve(try await PausedHealthWriter().save(payload)) }

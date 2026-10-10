@@ -14,8 +14,10 @@ import java.time.Instant
 import kotlin.math.abs
 
 class HafaPausedHealthModule : Module() {
+  companion object { private val nativeProcessIdentity = java.util.UUID.randomUUID().toString() }
   override fun definition() = ModuleDefinition {
     Name("HafaPausedHealth")
+    Function("nativeProcessIdentity") { nativeProcessIdentity }
     AsyncFunction("savePausedWorkout") Coroutine { json: String ->
       val payload = JSONObject(json)
       val id = payload.getString("canonical_session_id")
