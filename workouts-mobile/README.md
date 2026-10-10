@@ -1,138 +1,314 @@
-# Håfa Workouts development foundation
+# Håfa Workouts native foundation
 
-This dependent draft introduces the frozen Expo57/React Native0.86.3 SDK, domain
-contracts, private-storage and network adapters, native modules/plugins, core tests,
-assets and build gates. Its two temporary routes show development diagnostics.
-It is not a distributed product or release candidate. The full training experience
-is a separate dependent review slice.
+Independent Expo 57 / React Native 0.86.3 client. Recipes mobile identifiers, EAS settings, update URL and store records are untouched. Implemented slices establish authentication, profile onboarding/editing, account-scoped drafts, a manual library, real scheduled-session start/rescheduling, guided actual logging, durable local training/outbox, and recorded progress/corrections. They are not the complete product or a release candidate.
 
-The configured route mounts the genuine ClerkProvider, native token cache and Expo
-Router. Missing or mismatched sign-in configuration shows instructions before Clerk
-initializes. There are no training, enrollment, deletion or Health-permission actions
-in this diagnostic app, and it does not send requests to the Håfa API. Clerk may
-initialize its own SDK/session when a valid public configuration is supplied.
+## Run and check
 
-## Local checks
+Use Node 22.22.3 (Expo 57 requires at least 22.13). On this host use an explicit path:
 
-Use Node22.22.3 (SDK57 requires at least22.13). Run `npm ci`, `npm test`,
-`npm run typecheck`, `npm run doctor`, `npm run audit:runtime`,
-`npm run export:all` and `npm run check:native-bundles`. Repository-wide checks are
-`./scripts/check.sh`. Run API integration tests only against a named disposable
-Postgres database through TEST_DATABASE_URL; never use production data.
-
-Copy `.env.example` into an untracked `.env` and configure an explicit Clerk
-environment with the matching public key. Restart the development build afterward.
-An omitted key displays the foundation recovery message; a production build
-requires production sign-in. The API base is configuration only in these routes.
-
-Independent Workouts app identifiers, EAS manifest and SDK lock are retained exactly
-from the frozen native source. Recipes client identifiers/configuration are unchanged.
-This draft performs no EAS build, submission, distribution or production activation.
-The presence of native Health/share plugins does not demonstrate device permission,
-share-extension or Health-write acceptance.
-
-## Frozen review partition
-
-Backend base: `990cc56be64b510f50c589a70bddb79a749ac50a`.
-Frozen full native source: `e3db3f7257d520bdedd9cf01f43045d5a7b6baf5`.
-This foundation comprises96 copied paths plus two diagnostic routes:98 raw changed
-paths, including66 library files and26 core test files.
-
-All full app routes and components, the Health implementation document and the
-18 listed leaf/UI libraries are reserved for the experience slice. That follow-up
-also restores this README and both full app entry routes. The omitted source manifest
-below records that boundary; it is not a claim that those journeys are implemented
-or accepted by this draft.
-
-```text
-docs/hafa-workouts/HEALTH_IMPLEMENTATION.md
-workouts-mobile/app/(tabs)/_layout.tsx
-workouts-mobile/app/(tabs)/index.tsx
-workouts-mobile/app/(tabs)/library.tsx
-workouts-mobile/app/(tabs)/plan.tsx
-workouts-mobile/app/(tabs)/progress.tsx
-workouts-mobile/app/+native-intent.tsx
-workouts-mobile/app/_layout.tsx
-workouts-mobile/app/account-data.tsx
-workouts-mobile/app/activity-log.tsx
-workouts-mobile/app/activity.tsx
-workouts-mobile/app/add-workout.tsx
-workouts-mobile/app/ai-preferences.tsx
-workouts-mobile/app/build-plan.tsx
-workouts-mobile/app/capture.tsx
-workouts-mobile/app/coach-action/[id].tsx
-workouts-mobile/app/coach.tsx
-workouts-mobile/app/collections.tsx
-workouts-mobile/app/connections.tsx
-workouts-mobile/app/edit-workout/[id].tsx
-workouts-mobile/app/hafa-apps.tsx
-workouts-mobile/app/health-rationale.tsx
-workouts-mobile/app/import/[id].tsx
-workouts-mobile/app/index.tsx
-workouts-mobile/app/invalid-link.tsx
-workouts-mobile/app/measurement.tsx
-workouts-mobile/app/measurements.tsx
-workouts-mobile/app/onboarding.tsx
-workouts-mobile/app/organize/[id].tsx
-workouts-mobile/app/privacy.tsx
-workouts-mobile/app/profile.tsx
-workouts-mobile/app/recipes-connection.tsx
-workouts-mobile/app/reminders.tsx
-workouts-mobile/app/review-plan.tsx
-workouts-mobile/app/session/[id].tsx
-workouts-mobile/app/settings.tsx
-workouts-mobile/app/share.tsx
-workouts-mobile/app/shared/[token].tsx
-workouts-mobile/app/sharing-links.tsx
-workouts-mobile/app/sign-in.tsx
-workouts-mobile/app/training.tsx
-workouts-mobile/app/workout/[id].tsx
-workouts-mobile/components/activity-context.tsx
-workouts-mobile/components/activity-week.tsx
-workouts-mobile/components/calendar-date.native.tsx
-workouts-mobile/components/calendar-date.tsx
-workouts-mobile/components/coach-action-preview.tsx
-workouts-mobile/components/equipment-locations.tsx
-workouts-mobile/components/health-export.tsx
-workouts-mobile/components/import-list.tsx
-workouts-mobile/components/logout-recovery-boundary.tsx
-workouts-mobile/components/optional-number.tsx
-workouts-mobile/components/profile-form.tsx
-workouts-mobile/components/program-preview.tsx
-workouts-mobile/components/query-state.tsx
-workouts-mobile/components/recorded-time.native.tsx
-workouts-mobile/components/recorded-time.tsx
-workouts-mobile/components/reminders-provider.tsx
-workouts-mobile/components/saved-source-picker.tsx
-workouts-mobile/components/share-capture.tsx
-workouts-mobile/components/shared-snapshot.tsx
-workouts-mobile/components/source-image.tsx
-workouts-mobile/components/ui.tsx
-workouts-mobile/components/workout-editor.tsx
-workouts-mobile/lib/activity-drafts.test.ts
-workouts-mobile/lib/activity-drafts.ts
-workouts-mobile/lib/auth-recovery.test.ts
-workouts-mobile/lib/auth-recovery.ts
-workouts-mobile/lib/coach-drafts.test.ts
-workouts-mobile/lib/coach-drafts.ts
-workouts-mobile/lib/context.test.ts
-workouts-mobile/lib/context.tsx
-workouts-mobile/lib/input-purpose.ts
-workouts-mobile/lib/logout-recovery-native.ts
-workouts-mobile/lib/logout-recovery.test.ts
-workouts-mobile/lib/program-session-identity.test.ts
-workouts-mobile/lib/program-session-identity.ts
-workouts-mobile/lib/progress-screen.test.ts
-workouts-mobile/lib/progress-selection.test.ts
-workouts-mobile/lib/progress-selection.ts
-workouts-mobile/lib/root-route.test.ts
-workouts-mobile/lib/use-health.ts
+```sh
+export PATH=/Users/leonshimizu/.nodenv/versions/22.22.3/bin:/opt/homebrew/bin:/usr/bin:/bin
+npm ci
+npm test
+npm run typecheck
+npm run doctor
 ```
 
-## Acceptance
+Configure an explicit Clerk environment and matching public key, plus a development API URL, in untracked `.env` using `.env.example`. There is no bundled key, production auth bypass, or synthetic account. Missing/mismatched auth configuration shows a recovery message rather than initializing the wrong issuer. Native OAuth needs `hafaworkouts://oauth-callback` explicitly permitted. Existing-account social sign-in does not transfer into signup.
 
-Automated domain/SDK tests and exports verify the foundation source and selected
-native dependencies. Actual training, onboarding, sign-in/out, deletion, capture,
-sharing, Health permissions and recorded-session journeys belong to the full
-experience slice and its device QA. Device acceptance and TestFlight delivery
-remain separate release gates. No private/customer fixture is bundled.
+EAS project and submission IDs remain unprovisioned. Create independent Workouts records before building for TestFlight; never substitute Recipes IDs. Native health adapters are documented in `../docs/hafa-workouts/NATIVE_PREFLIGHT.md`; this slice does not claim health synchronization.
+
+The sole network boundary is `lib/api.ts`. Backend response representation changes belong there. Query keys include the authenticated account, private views remount when account identity changes, and drafts use separate per-account keys. Profile and manual-workout drafts are local until explicitly saved. AI consent is not inferred from joining or saving a profile. Core coach/planning/execution/health/sharing features require later slices and the complete release QA gate.
+
+## Experience decisions
+
+Adults train around work, sports and limited equipment. The primary task is finding the next useful training action, with private input preserved after interruptions. A warm cream/forest/lime palette relates to Recipes while creating a distinct performance-oriented identity. DM Sans provides clear headings and legible instructions, with semantic colors, a restrained 24 px spacing rhythm, and large 48–56 px touch targets. Light and dark use separate roles; content has a 660 px maximum width for accessible large displays. No decorative performance numbers or physique imagery.
+
+Three onboarding steps: goal/experience, equipment/schedule, optional context/account acknowledgment. Unknown equipment is distinct from no equipment. Numeric measurements show units. Missing workout prescriptions stay missing. Error messages preserve local drafts and permit retry. Empty history never implies completed training or inactivity in an external health store.
+
+Motion is limited to immediate pressed-state opacity and native navigation. Input is never delayed; there is no looping animation, scroll effect or motion-dependent content. The still response is the reduced-motion behavior. Later set-completion and import-completion transitions must be designed around real saved states.
+
+## Affected-flow QA scope
+
+Agent implementation and automated checks are authorized. Parent session owns computer-use runtime/device QA. No server, simulator, emulator, browser tab or container was started by this slice.
+
+| Case | Starting fixture / steps                                            | Required observable and saved outcome                                                  | Native result |
+| ---- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ------------- |
+| NF01 | Config absent or issuer mismatch; open app                          | Honest configuration state, no anonymous API request                                   | not_run       |
+| NF02 | Dedicated existing Håfa account; sign in, sign out, second account  | Stable account mapping; no cross-account query or draft exposure                       | not_run       |
+| NF03 | Adult new account; complete onboarding, exit/resume draft, save     | Explicit deletion acknowledgment; exact profile persisted; unknown equipment preserved | not_run       |
+| NF04 | Optional measurements and limitations; edit/remove/save/reload      | Correct units, validation, removal, and account-scoped edit draft                      | not_run       |
+| NF05 | Manual workout; missing sets/reps, exercise rows, failed save/retry | Private draft survives; no invented prescriptions; one saved workout                   | not_run       |
+| NF06 | Empty/unavailable backend; all four tabs, retry, long title         | Empty versus failure distinguishable; navigation/input usable                          | not_run       |
+| NF07 | Small iPhone/Android, keyboard, large text, dark and reduced motion | Current field/action visible and reachable; text readable; no layout loss              | not_run       |
+
+Physical OAuth/relay and native health acceptance remain blocked until devices/provider setup are available. Automated tests and static exports do not close these scenarios. There are no real customer fixtures in this tree.
+
+## Integration handoff
+
+Writer branch: `codex/workouts-native-foundation`, worktree `hafa-recipes-worktrees/workouts-native-foundation`, base `cc2b9c6`. Owned changes are only this client and `docs/hafa-workouts/NATIVE_PREFLIGHT.md`. Parent session owns subsequent API integration, computer-use QA, independent review, PR and deployment. Recheck the branch/commit/status and provider state before continuing.
+
+Verified locally: normal `npm install` and clean `npm ci`; TypeScript; 12 focused invariant tests; Expo Doctor 21/21; iOS/Android/web JavaScript export. Initial npm 10 fresh resolution failed inside Arborist optional Vite peer resolution; seeding from the existing reviewed dependency lock and pruning yielded a reproducible independent lock without bypassing peer checks. Vite/Vitest remain pinned. An initial Ionicons name mismatch was fixed and typecheck rerun. These checks do not prove native authorization or saved UI journeys.
+
+The adapter maps the authoritative enrollment, generation, profile revision headers, record envelopes, paginated lists and final-session DTOs documented in ACCOUNT_DATA.md. Capture, program receipt/builder, coaching, intentional sharing, health synchronization, AI-consent controls and product deletion interfaces belong to later slices. Never present this foundation as the completed release.
+
+Next useful action: connect the exact backend representations; provide an explicit development Clerk key/issuer and dedicated QA accounts; then run NF01–NF07 with native computer use. Preserve separate Recipes IDs and re-run affected checks after integration. No runtime resources are running or handed off from this slice. Ignored `node_modules/` and static `dist/` are build dependencies/artifacts, not services.
+
+## Training slice verification / handoff
+
+Branch `codex/workouts-native-training` builds on `5e1d94a` in the same owned native worktree. Root owns package/app configuration and health integration; this writer did not modify those files. Stable server prescription revisions are captured when a session starts. The app records actuals with source units, load convention, round/side identity, explicit completion, RPE and pain feedback. Missing prescriptions remain missing. Rest/interval timers use timestamps; the person explicitly transfers interval time into an actual. Undo affects only the local active session. Final actuals queue atomically under the original membership generation/client UUID. Network failures retain them; 403/409/422 block automatic replay. Corrections use new UUIDs with a superseded event and original prescription reference.
+
+Crashed sessions restore paused at their last persisted checkpoint, with recorded inputs/sets intact. Time away is not assumed active training. Pause/resume accumulates recorded unpaused seconds; explicit activity type is required at finalization. Imperial profile display converts to canonical kg/cm, while historical/source load units remain unchanged. Profile drafts retain the original revision for optimistic concurrency. Membership deletion changes the generation, invalidates private queries and prevents old queued work from being sent as a new generation.
+
+Verified automatically: 23 focused tests, typecheck, and iOS/Android/web export. Native execution remains not run. No server, browser tab, simulator, emulator, container or provider resource was started. Next: root integrates this commit and executes the following actual native journeys against dedicated accounts and an isolated backend.
+
+| Case | Fixture / steps                                                           | Required outcome                                                             | Native status |
+| ---- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------- |
+| NT01 | Superset/circuit with unilateral movement; start, log, skip, undo, finish | Correct round/side/actual values and partial/completed result persisted      | not_run       |
+| NT02 | Offline session, terminate app, restore, reconnect, repeat sync           | Restored paused checkpoint; one immutable result; stable UUID/generation     | not_run       |
+| NT03 | Delete product data on another client while result queued; reconnect      | No resurrection or automatic re-enrollment; old queue blocked/invalidated    | not_run       |
+| NT04 | Two clients edit profile/plan; save stale draft                           | Conflict preserves draft and refuses silent overwrite                        | not_run       |
+| NT05 | Imperial metrics, source kg/lb, local clocks, pause/restore               | Reversible canonical measurements and original units; no inferred completion | not_run       |
+| NT06 | Correct saved actuals, refresh history                                    | New event, original snapshot retained, latest result counted once            | not_run       |
+
+## Capture, library and sharing slice handoff
+
+Branch `codex/workouts-native-capture` builds on training commit `89b50db`. The client now provides durable link/text/photo/document source drafts, caption preservation, explicit third-party AI consent, native share-sheet intake, private import polling that stops off-screen/background/terminal, original-source/evidence/warning review, image inspection with zoom controls, incomplete private saves, structured corrections, versioned library editing, search/equipment/type filters, receipt-bound program proposals with a fresh readiness check, exact public snapshot previews, digest-confirmed links, revocation management and private recipient copies of workouts/programs. Program copies remain blocked from training until reviewed. Source-kind programs cannot run all blocks as one workout.
+
+The root owns coherent dependency/config changes. Required exact Expo 57 packages are image-picker 57.0.20, image-manipulator 57.0.21, document-picker 57.0.3, file-system 57.0.7 and expo-share-intent 8.0.1. They were installed temporarily with no manifest/lock changes for local type/export proof. A fresh optional-peer resolution again hit npm Arborist; the temporary no-save install used legacy-peer-deps. Critical Expo/React/RN/Clerk/Vite versions remained unchanged. Root must add declared dependencies, native share/camera plugins and permission strings, new extension/group/signing identities, the website origin, then verify normal `npm ci` and native builds. Do not treat the temporary module install as distribution configuration.
+
+Typecheck, 28 focused tests, Expo Doctor 21/21 and iOS/Android/web export passed. These are source/static checks. Native file picker, camera, share extension, permission prompts, sign-in/copy return context, zoom behavior and persisted UI outcomes are still not run. No runtime resources or provider mutations were started by this writer.
+
+Remaining integration: actual backend receipt/readiness/source/sharing endpoints; source-workout plan selection and program-source conversion/review; archive/favorites/collections; profile location/measurement history; health/coach/account-control screens. Raw original uploads are temporary (accept/cancel/24-hour expiry); saved prescriptions/evidence/version history remain. Root preserved import original version 1 and corrected version 2 with the real parent version ID. Cross-device review GET `/imports/{id}/source` maps its `{source,expires_at}` wrapper; raw uploads never appear in public polling or sharing projections.
+
+| Case | Fixture/actions | Required outcome | Native status |
+| --- | --- | --- | --- |
+| NC01 | Share a link/caption or images while signed out, enroll, review | Source preserved, no automatic AI transmission, private owned job | not_run |
+| NC02 | Camera/limited photo permission, image resize/zoom, text/PDF fallback | Clear recovery, readable evidence, bounded payload and exact owned-cache cleanup | not_run |
+| NC03 | Background/terminate processing, resume, failed/expired job | Durable job identity, polling stops appropriately, manual recovery remains usable | not_run |
+| NC04 | Missing prescriptions, correct selected fields, accept, edit later | Missing remains missing; original and correction versions preserved; actual history unchanged | not_run |
+| NC05 | Source preview, digest confirm, share, revoke | Only approved projection published; future access stops; prior copies remain independent | not_run |
+| NC06 | Anonymous recipient signs in/enrolls, copies workout/program | Destination preserved; copy idempotent/private; program requires review | not_run |
+| NC07 | Proposal readiness expiry/profile conflict and current source program | Stale acceptance rejected, warnings retained, no full program executed as one session | not_run |
+
+
+## Health connections and recorded pauses handoff
+
+`codex/workouts-native-health` follows capture commit `4273206`, with the unchanged health-adapter baseline cherry-picked as `274ec1e` (equivalent to `2ce86cc`, already integrated by the root). Only the subsequent health UI/fix commit should be applied to the integrated branch.
+
+The native UI provides a signed-out reachable `hafaworkouts://health-rationale` route, exercise-only permission requests, separate on-device reading/server storage/AI eligibility/actual-write choices, private source summaries, system-settings access, local-first disconnection and retry, and actual-session write-back. Profiles link to Connections and the separate AI disclosure. Stable Håfa identity is resolved through `/api/users/me/identity`; its cache binding includes the Clerk issuer environment, public key and subject. All private API instances capture `X-Hafa-Account-ID` and refuse requests/cache updates after a subject change across token/response awaits. Health scope includes stable identity plus original enrollment generation. Upload receipts, connection revisions, export acknowledgments and disconnections retain their original fencing values.
+
+Verified source gate: typecheck, 72 tests across 10 files, Expo Doctor 21/21, iOS/Android/web static export, and HealthKit Swift writer typecheck passed. Automatic checks cover durable receipt retries, byte/count chunk bounds, reconciliation failure recovery, stale consent, persistent offline disconnection, explicit reconnect, account changes before native writes, original acknowledgment revision, restored checkpoint timing and immutable pause boundaries. The Apple anchor window remains fixed. The coordinator reloads consent after local state and immediately before native write-back. Source duplicate hints are capped at 20, remain advisory and never become training totals.
+
+New sessions record `active_intervals: [{started_at,ended_at}]` alongside recorded `active_seconds`. A restored session closes its last active interval at the last persisted checkpoint and pauses. Old paused records without recorded boundaries remain unsupported for write-back. The narrow local Expo module under `modules/hafa-paused-health` saves one retrospective Apple workout through HKWorkoutBuilder with exact pause/resume events and verifies builder elapsed time before finishing; it collects no sensor, energy, distance or route samples. Android saves one ExerciseSessionRecord with PAUSE segments and a stable clientRecordId/version. The installed RN Health Connect 4.1.3 write mapper reads `samples` for both laps and segments and ignores public `segments`; the local module avoids inventing laps through that defect.
+
+Sources: [Apple workout events](https://developer.apple.com/documentation/healthkit/hkworkoutevent), [Apple builder event collection](https://developer.apple.com/documentation/healthkit/hkworkoutbuilder/addworkoutevents(_:completion:)), [Apple elapsed time](https://developer.apple.com/documentation/healthkit/hkworkoutbuilder/elapsedtime(at:)), [Android exercise segment types](https://developer.android.com/reference/kotlin/androidx/health/connect/client/records/ExerciseSegment). The installed iOS SDK header explicitly excludes pause/resume intervals from `elapsedTime(at:)`. The Swift HealthKit writer typechecks against installed iOS 26.5 SDK targeting iOS 16.4. Expo autolinking resolves the local Apple module without a manifest dependency. Android module uses connect-client 1.1.0, matching the installed library. These source/API checks do not establish actual OS Health app duration or permission acceptance.
+
+Remaining gates: coherent declared health dependencies/plugins, integrated iOS Expo module compilation and Android Gradle compilation, actual permission denial/partial authorization/revocation/account-switch checks, pause/resume write/read verification on both OS providers, owned correction/deletion and real supported hardware. No H04/H05 acceptance is claimed from mocks. No servers, browser tabs, simulators, emulators, containers or provider resources were started or left running by this writer. Next native polish: organization and source/copied-program review, equipment locations/measurement history, optional timer/reminder notifications, coach/account controls. Root owns native/runtime QA and release provisioning.
+
+| Case | Fixture/actions | Required outcome | Native status |
+| --- | --- | --- | --- |
+| NH01 | Open health rationale deep link while signed out | Explanation reachable; no private reads or sign-in required | not_run |
+| NH02 | Deny/partially grant exercise permissions; choose each app use independently | Truthful unavailable/unknown states; manual training usable | not_run |
+| NH03 | Offline upload/reconcile, terminate/restart, reconnect | Identical receipt retry; cursor advances only after complete acknowledgment | not_run |
+| NH04 | Disconnect during refresh/save, switch account and re-enroll | Original owner/generation/revision preserved; no resurrection or old callback mutation | not_run |
+| NH05 | Pause/resume/restore/finalize actuals, write and read in Apple Health/Health Connect | One owned workout; exact recorded active intervals; no modeled distance/calories | not_run |
+| NH06 | Correct/retry actual export and revoke permissions | Native version/upsert lineage; no duplicate; truthful unsupported old records | not_run |
+
+
+## Library organization handoff
+
+`codex/workouts-native-organization` follows health commit `a6c4514`. Native library search now uses server pagination and filters by title, equipment, type, favorites, archived state, collections and repeated tags. Archived items are excluded by default. A separate organization panel saves favorites/tags/collection membership with its independent revision and original generation; durable drafts survive conflicts without silently adopting a newer revision. Collection rename/remove preserves original revision preconditions and unsaved labels after external changes. Removal unlinks workouts without removing prescriptions. Intentional private duplication persists its request UUID and original source revision before sending, so retries open the same copied record. Source URL matches in Capture remain advisory and never block a deliberate extraction or overwrite saved material.
+
+Authoritative backend is organization commit `a018a8836e5588aa323b5bd0f4add6ecbdbf579c`, documented in `docs/hafa-workouts/LIBRARY_ORGANIZATION.md`. Organization read/write requests carry the original generation; shared owner API fencing remains active. Client validation matches collection names 1–100 characters, up to 20 tags of 40 characters, up to 20 collections per workout, and search/equipment filters up to 100 characters. Organization metadata is stripped from authored prescription updates.
+
+Source gate: 77 tests across 11 files, typecheck and all-platform static export passed. Actual native search/pagination, archive/restore, collection conflict/reload, duplicate retry/crash and source-hint interactions remain not_run. Root owns integrated UI acceptance. No runtime/provider resources were started or left running. Remaining native scope includes source/mixed/copied-program review, equipment locations, measurement history, optional notifications/reminders, coach and account controls.
+
+| Case | Fixture/actions | Required outcome | Native status |
+| --- | --- | --- | --- |
+| NO01 | Search >30 records, change filters, load next page | Correct persisted server results; no duplicate rows or archived items by default | not_run |
+| NO02 | Favorite/tag/collection/archive changes, terminate/restart, conflicting other-device write | Draft retained, original metadata revision enforced, explicit reload available | not_run |
+| NO03 | Rename/remove collection from another device while editing | Original revision conflict; unsaved label retained; removing preserves workouts | not_run |
+| NO04 | Duplicate source, lose response, restart and retry | Same request/copy identity and source revision; actual snapshots unchanged | not_run |
+| NO05 | Capture source already saved, open archived match or continue extraction | Advisory hints only; source/caption draft preserved | not_run |
+
+
+## Measurement history handoff
+
+`codex/workouts-native-measurements` follows organization `dc3752c` and Android Coroutine import fix `e3084de`. The client records optional weight/height history in original value/unit with an explicit measured date and time, lists owner-scoped pages, shows the selected current entry, and compares canonical earliest/latest values over a fully fetched 30-day interval. It infers no BMI, calorie need or medical clearance. Native controls use installed `@expo/ui/community/datetime-picker` 57.0.22: compact date/time on iOS and separate date/time dialogs on Android. Web fallback validates full timestamp/calendar input and preserves incomplete edit text. Root must declare this presently transitive package in its coherent manifest and verify native controls.
+
+Add/correct/remove operations persist their UUID, exact payload, original enrollment generation, original profile revision and measurement revision before networking. A lost response locks the operation fields until the same operation is retried; conflicts preserve the draft and require deliberate revision reload. Current-profile selection is separate from historical recording. Removal/correction and clearing a current profile value disclose affected saved AI-context/proposal clearing and preserved completed training. Removed measurement detail uses scrubbed server tombstones. Profile edits retain unchanged measurement timestamps, including legacy unknown times; date-only corrections go through history, while changed values require a visible paired timestamp. Clearing a profile value retains history; history removal clears a selected current value without automatic fallback.
+
+Authoritative contract is in the `workouts-measurement-history` backend worktree, coordinated with the accounts agent; GETs carry original generation and writes also carry If-Match. The transport uses raw profile+revision snapshots together, rather than reading a later mutable revision. Source gate: 82 tests across 12 files, typecheck and all-platform static exports passed. Real native date/time controls, measurement persistence/correction/removal, profile conflict and cleanup/revocation remain not_run. Root owns backend integration, actual UI QA and release. No persistent runtime resources or provider mutations were started. Next native scope: equipment locations, source/mixed/copied-program review, optional notifications/reminders, coach/account controls.
+
+| Case | Fixture/actions | Required outcome | Native status |
+| --- | --- | --- | --- |
+| NM01 | Add lb/kg or in/cm values with native date/time controls | Original units/date saved; canonical conversion and selected-current flag accurate | not_run |
+| NM02 | Backfill older entry with/without profile selection | History saved, newer current value preserved, ordinary profile edit never retimestamps it | not_run |
+| NM03 | Correction/remove selected measurement, repeat after response loss/restart | Same UUID/receipt, scrubbed removed values, no fallback current selection, affected AI context/proposals cleared | not_run |
+| NM04 | Other device changes profile/entry during edit | Original revisions rejected; draft preserved; explicit context reload before replacement | not_run |
+| NM05 | Legacy optional value without measured time | Unknown shown; no fabricated now; clearing keeps history, date-only fix uses history | not_run |
+
+
+## Equipment locations handoff
+
+`codex/workouts-native-equipment` follows measurement `92b0b85`. Profile/onboarding now exposes named equipment locations with independent equipment and available-load inventories, explicit current selection, rename/remove controls, custom equipment and canonical kg load options displayed in the chosen metric/imperial system. Global equipment remains usable with zero locations. Creating a location requires known equipment or explicit bodyweight selection. Selecting a location replaces the effective inventory with exactly that location; it never unions home and gym. Editing equipment updates only the selected location. Removing the active location while others remain clears selection and requires a deliberate next choice. These are future-planning inputs and do not change source prescriptions or historical actual units.
+
+The wire contract matches root's `workouts-jobs-coach` EquipmentLocation schema: client UUID/id, name <=80, equipment <=100, available_loads_kg <=100 positive finite values <=2000kg, at most10 locations, and active_equipment_location_id. Existing profile revision/account/generation fences and durable profile drafts remain. Source gate: 86 tests across13 files, typecheck and all-platform static exports passed. Native location selection/inventory/load entry and other-device profile conflicts remain not_run; root owns actual QA. No persistent runtime/provider resources were started. Next native scope: source/mixed/copied-program review, optional notifications/reminders, coach/account controls.
+
+| Case | Fixture/actions | Required outcome | Native status |
+| --- | --- | --- | --- |
+| NE01 | Create Home and Gym, select each, edit their equipment/load options | Exactly selected inventory used; other location retained; no implicit union | not_run |
+| NE02 | Remove current location while another remains | Fresh explicit selection required; no automatic fallback | not_run |
+| NE03 | Use only global equipment, unknown vs explicit bodyweight | Original distinction preserved; unknown never invented as no equipment | not_run |
+| NE04 | Metric/imperial loads, profile conflict, restart unsaved edits | Canonical values accurate, historical units unchanged, original revision/draft preserved | not_run |
+
+
+## Source and copied program review handoff
+
+`codex/workouts-native-source-plans` follows equipment `2f49f59` and module-version fix `884f955`. The program builder now provides paginated private source selection (up to10), source-only or mixed mode, explicit reviewed session-time overrides and custom-routine review. Drafts/proposal receipts are account/generation scoped. Profile snapshots retain their own returned revision instead of silently adopting another device’s newer context. Plan title edits retain the inspected proposal; prescription/context edits require a new review.
+
+Imported program-kind workouts route to explicit original-block day assignments instead of running the entire program as one session. Users select each source block, label, day offset and reviewed duration; invalid/unassigned blocks and missing timing remain errors/questions. Copied private programs route to review against current profile/equipment/availability, with optional reviewed session-time overrides. Both paths show the full proposed prescription (sets/reps/side/time/distance/source load conventions/rest/rounds/tempo/notes), questions, assumptions and all warnings, including qualified-review notices. Only ready receipts have explicit acceptance controls. Copy review uses the receipt acceptance route to update the same program; original copied versions/attribution and actual training snapshots remain backend protected. Stale source/program/profile/history/readiness fences remain server-authoritative.
+
+The client matches root’s `workouts-jobs-coach` source-workout selection, `/program-proposals/from-source`, and `/programs/{id}/review-proposal` contracts. Future session rescheduling now updates the actual generation-scoped cached program list. Source gate: 89 tests across14 files, typecheck and all-platform static exports passed. Actual native source search/pagination, original-block assignment, copied-plan proposal acceptance and stale-context recovery remain not_run. Root owns backend integration and UI/compiler QA. No persistent runtime/provider resources were started. Next native scope: optional notifications/reminders, coach/account controls and actual acceptance polish.
+
+| Case | Fixture/actions | Required outcome | Native status |
+| --- | --- | --- | --- |
+| NP01 | Choose source-only or mixed plan, reviewed custom routine/time, inspect preview | Explicit source choices; full targets/warnings; missing stays missing; ready-only acceptance | not_run |
+| NP02 | Imported program with multiple source blocks, assign dated sessions | Original grouping/rounds/targets retained; no invented day assignment or whole-program execution | not_run |
+| NP03 | Copy non-personalized program, inspect constraints, review/accept | Same program advances revision; copied source/attribution preserved; only ready accepted | not_run |
+| NP04 | Restart receipt/draft; other device changes profile/source/history/readiness | Draft persists; stale acceptance rejected; deliberate context reload needed | not_run |
+| NP05 | Move future session and refresh | Correct generation-scoped cache updates; actual source snapshot unchanged | not_run |
+
+
+## Incoming native link guard handoff
+
+`codex/workouts-native-intents` follows source/copy review `8a77400`. `+native-intent` validates the incoming URI before Router parses it, caps length at8192, rejects malformed UTF-8/percent encodings, credentials, raw controls/backslashes, unexpected schemes/origins, encoded path aliases and unsupported routes. It uses a single bounded validation pass and never recursively decodes its result. Legitimate nested percent escapes in query values remain untouched. Both double/triple-slash native routes, configured HTTPS website links, private UUID routes, Health rationale and 43-character share tokens are supported. The observed iOS extension `dataUrl=hafaworkoutsShareKey#media|file|weburl|text` signal routes to Capture while the share provider consumes the untouched original URL. The exact OAuth callback routes Router to sign-in while auth-session subscribers consume the original callback; the independent nonce validator now rejects malformed/oversized encoding too. Development-client launch signals are accepted only with explicitly development NODE_ENV.
+
+Rejected links open a public, non-sensitive recovery page; no raw URLs, nonces or tokens are displayed/logged. The guard supplements root’s dependency reachability audit; it is not a claim that every legacy decoder dependency has been replaced. API account/auth/generation checks remain authoritative. [Expo native-intent documentation](https://docs.expo.dev/router/advanced/native-intent/) specifies that this hook runs outside authentication context and only applies on native; web routing needs its own controls.
+
+Source gate:94 tests across15 files, typecheck and all-platform static exports passed. Adversarial cases include overlong/lone/repeated percents, invalid/overlong multibyte UTF-8, encoded separators/aliases, credentials, unrelated origins/schemes and nested source query escapes. Actual native cold/warm link intake, authenticated/anonymous sharing return, iOS extension intake and OAuth success/denial remain not_run. Root owns native interaction gates. No persistent runtime/provider resources were started.
+
+
+## Optional local reminders and actual QA fixes handoff
+
+`codex/workouts-native-reminders` follows incoming-link guard `df33a9b`, with independent fixes `18a9860` (SDK57 Promise signature), `7b878f7` (root index/cold launch), `248c618` (empty text guards), and `5cb1f58` (explicit web checkbox ARIA and observed dev scheme). Root’s actual CUA confirmed the root route now reaches Today after sign-in; root also completed actual Android/iOS native compilation. iOS first launch required an ad-hoc simulator signature for Clerk Keychain; root owns that build configuration and its ongoing native acceptance.
+
+Optional reminder choices default off and are stored per stable owner/enrollment generation on device. The client schedules generic local rest alerts from actual persisted deadlines and weekly routine reminders on explicitly selected days/device-local time. It registers no Expo/APNs/FCM push token and makes no notification-provider request. Permission is requested only by explicit save with an enabled choice; denial/unavailability preserves preferences and in-app timer operation. Foreground permission reconciliation, exact namespaced cancellation, changed timer deadlines, account switches and restored OS schedule fingerprints prevent duplicate/stale alerts. Scheduled alerts never complete a set/session and do not include measurements, health information or workout prescriptions. Device timezone changes alter routine fingerprints for reconciliation. Sign-out/enrollment changes clean only that original owner’s scheduled namespace. Notification response navigation checks current owner and session identity.
+
+SDK source uses temporarily installed expo-notifications57.0.22; root already owns its declared package/plugin. Installing a new no-save module pruned older temporary extras, so all exact capture/health/UI/notification packages were restored together; manifests/lock remain unchanged. Source gate:103 tests across17 files, typecheck, Doctor21/21 and all-platform static exports passed. Actual OS permission denial, background timer delivery, weekly delivery/timezone change, terminate/restart and account-switch cleanup remain not_run. Parent runtime/compiler/CUA tests remain authoritative. Remaining scalar JSX condition guards are boolean-normalized, preventing the same RNWeb empty-string/zero child warning seen during actual sign-in QA. No persistent runtime/provider resources were started by this writer.
+
+Sources: [Expo local notification scheduling and cancellation](https://docs.expo.dev/versions/latest/sdk/notifications/). Local schedules are best effort under the device’s settings; no successful scheduling callback is presented as a delivered alert.
+
+| Case | Fixture/actions | Required outcome | Native status |
+| --- | --- | --- | --- |
+| NN01 | Enable alerts, deny/partially grant/revoke OS permission | Clear permission state; in-app timers/manual training work; no push token | not_run |
+| NN02 | Log a set/rest, background, pause/finish, restart before deadline | Exact checkpoint alert; obsolete alerts cancel; no inferred completion | not_run |
+| NN03 | Choose weekday/time; switch timezone and foreground | Chosen device-local schedule reconciles without duplicates | not_run |
+| NN04 | Switch account/enrollment during scheduling, sign out | Original namespace canceled; new/other owner schedules untouched | not_run |
+| NN05 | Open notification after source session/account changed | Owner/session fence prevents stale navigation into another account | not_run |
+
+
+## Coach and paused-plan review handoff
+
+`codex/workouts-native-coach` follows reminders `10d3437`. Coach conversations now support a general or specific workout/program/actual-session focus. Message drafts persist the original UUID, text, focus and generation before sending; retries keep the same request. Pending history polling stops when the screen/app is inactive. Clearing conversation removes all local focus drafts for this owner/generation and advances a local reset marker so delayed callbacks cannot restore cleared text. Other owners/enrollments remain untouched. The client allows the server’s bounded orchestration deadline instead of timing out every message after20seconds.
+
+Concrete actions show prescriptions, preference changes, future dates, evaluations, questions and warnings before acceptance. Only reviewed ready/unexpired actions expose acceptance; return-after-pause also requires an explicit comfortable-baseline checkbox. Accepted unused future changes can be reviewed for undo, with server history/revision checks. No action uses generic proposal acceptance to bypass coach consent. Paused schedule metadata remains outside proposal.sessions in the adapter, and paused queues display their original order instead of appearing as an empty active plan. Today/start/reschedule controls exclude paused plans. Profile exposes the interrupted-baseline flag required for a reviewed return. Original records and completed actual snapshots remain server protected.
+
+The client matches the continuous coach worktree’s message/focus/action DTOs. It does not claim imported Health or Recipes data was used by this coach. Source gate:109 tests across19files, typecheck and all-platform static exports passed. Actual native conversation, provider quality/safety, preview/accept/undo, clear-during-flight, pause/return and cross-device conflict journeys remain not_run. Root owns model/compiler/UI/reviewer/release acceptance; deterministic fake-provider tests do not establish live coaching quality or qualified fitness review. No persistent runtime resources or provider requests were started by this writer. Next: scoped Recipes connection and account/export/removal controls, followed by the parent’s actual acceptance fixes.
+
+| Case | Fixture/actions | Required outcome | Native status |
+| --- | --- | --- | --- |
+| NCo01 | Consent/capability off, send focused message, lose response/restart/retry | Clear recovery; same UUID/focus/generation; no duplicate paid request | not_run |
+| NCo02 | Inspect proposed preferences/workout/plan/schedule/progression | Full concrete changes and warnings visible; no change before reviewed acceptance | not_run |
+| NCo03 | Accept/undo while profile/source/history/consent changes | Fresh server fences; completed actuals untouched; blocked draft preserved | not_run |
+| NCo04 | Pause future queue, inspect order, update baseline/readiness, review return | Dormant queue retained; explicit baseline confirmation; no automatic resumption | not_run |
+| NCo05 | Clear during another focus/request, return to that screen | Old text/proposals cannot be replayed; local reset marker blocks delayed save | not_run |
+
+## Recipes and account data handoff
+
+`codex/workouts-native-account-controls` follows coach/readiness/copied-date review through `12861c7`. Recipes choices now use the narrow `/connections/recipes/grants` revision contract from `f622e29`, with the original account/generation headers. Only the two Recipes scopes are sent. A stale revision requires the user to reload saved choices before trying another change; the client never replays old choices against a new revision or rewrites Health grants. Users can deliberately inspect bounded library/meal summaries, ingredients, nutrition status/basis and the chosen date range. This UI explicitly states that the current coach does not automatically use Recipes context.
+
+Account controls distinguish Workouts-only removal from deletion of the whole Håfa account. Both require an explicit scope review and checkbox. Authorized device cleanup happens first: a durable marker records the pending cleanup, exact owner namespaces and owned capture/temporary-export files are removed, and old scoped storage objects reject delayed writes. Started storage writes finish before ordered removal. The marker resumes cleanup before authentication on the next cold launch, without replaying a server deletion. A failed device cleanup blocks further deletion until retried. If the later server request fails, the UI says device drafts were already erased and the user can retry saved-data deletion. Workouts removal keeps the returned enrollment tombstone; whole-account deletion uses the existing shared-account API and signs out after cleanup. Server generation/account fences, existing shared account cleanup jobs and private immutable actuals remain authoritative. OS Health records and previously distributed copies require their own management.
+
+Server export reads every dataset page, including health and organization projections with their actual composite keys. It validates captured enrollment, profile revision, permission values, paging, totals, duplicate keys and complete counts; a bounded private JSON file is saved through the browser or native OS share sheet. Native temporary files are owner scoped and removed after sharing or account cleanup. Device-only drafts are outside this export. The current backend export is not a fixed snapshot: edits that keep counts/revisions checked here unchanged may mix pages. The UI and file disclose this, and a server snapshot receipt remains an integration requirement before claiming point-in-time export acceptance. Exports larger than the bounded device operation fail clearly rather than silently truncating.
+
+Source gate: 122 tests across22files, typecheck and all-platform static exports passed. Temporary `expo-sharing57.0.22` matches the SDK57 bundled mapping; root owns the coherent manifest/config/lock. New regression tests exercise retired/queued/in-flight writes, exact owner matching, failed cleanup/crash recovery, preserving another owner's drafts/reminders, composite export keys and original Recipes/account/generation headers. Actual native share-sheet saving, Recipes grant conflict/revocation, cross-product deletion, offline/network ambiguity and cold-launch cleanup are not_run. Root owns those fixtures and their actual interaction acceptance. No persistent runtimes, browser tabs, simulators, emulators, containers or provider resources were started by this writer; borrowed root resources remain unchanged.
+
+| Case | Fixture/actions | Required outcome | Native status |
+| --- | --- | --- | --- |
+| NA01 | Change Recipes choices while another device revokes Health or changes Recipes revision | Only Recipes grants change; conflict requires fresh explicit review | not_run |
+| NA02 | Inspect current/incomplete/stale recipes and bounded meal date range | Ingredient/source basis remains explicit; stale/unverified values never presented as current | not_run |
+| NA03 | Export several pages, save/dismiss OS share, change account/enrollment during export | Complete private JSON or clear cancellation; exact owner temporary files cleaned | not_run |
+| NA04 | Confirm Workouts removal with an offline actual/draft/timer/import present | Tombstone retained; local private files/commands retired; Recipes/account preserved | not_run |
+| NA05 | Crash/fail local cleanup or lose server deletion response | Authorized cleanup resumes without server replay; scope and remaining server state remain clear | not_run |
+| NA06 | Confirm whole Håfa account deletion | Both products erased through existing backend cleanup; sign-out; external cleanup status acknowledged | not_run |
+
+Fixed export follow-up: the account export now creates a private `/export/snapshots` manifest with captured ID/generation, reads only that snapshot's zero-based pages, validates manifest/page IDs/counts/totals and discards partial data on privacy invalidation. It never creates a replacement snapshot during an existing download. The file labels its fixed source point. A final authenticated DELETE requests server cleanup; if unavailable, the UI states the private snapshot expires within10minutes. Client memory is bounded to the backend's64MiB/512page limits. These controls replace the live-page limitation above; root still needs to mount and test the encrypted backend route/key/migration and actual OS saving/invalidation acceptance.
+
+## Running goals and declared schedule context handoff
+
+`codex/workouts-native-profile-context` adds optional secondary goals, recent weekly running minutes/frequency, event distance in the chosen miles/km display and an explicit event calendar date. Missing values stay unspecified; zero recent volume remains distinct from missing. The client validates canonical event bounds, whole-number recent history, saved run/walk stage bounds and real calendar dates. Existing running context remains inspectable even after the main goal changes, and can be deliberately cleared. No input advances a run/walk stage or raises volume automatically. Secondary priorities expose their relevant detail fields and can be cleared without changing the main goal.
+
+The profile now contains a paginated editor for other activity declarations, including name, date in the chosen training timezone, optional duration and explicit unknown/light/strenuous demand. These are planning context, separate from completed sessions and OS Health records. Rows with external provenance stay read only; the UI does not duplicate them as manual events or invent origin identifiers. Removing a declaration requires explicit review and saves through the existing full-profile original revision/account/generation boundary. A stale profile edit can now deliberately reload the latest saved profile and discard the old edit draft; it is never silently rebased. Completed activity-log CRUD remains root's separate backend review scope.
+
+Source gate: 129 tests across23files and typecheck passed; web/Android/iOS static export passed, with final conflict-recovery UI included in the last compiler gate. Native date selection, unit switching while typing, large declaration lists, saved profile conflict recovery and calendar effects on plans remain not_run. Root owns actual journey/release acceptance. No additional dependencies, provider mutations or persistent runtime resources were created.
+
+| Case | Fixture/actions | Required outcome | Native status |
+| --- | --- | --- | --- |
+| NC01 | Choose secondary running/strength goals; switch main goal and clear secondary choices | Distinct goals, relevant inputs preserved and inspectable; no implicit stage increase | not_run |
+| NC02 | Enter zero/unknown recent history and miles/km event target/date | Canonical conversion accurate; incomplete/impossible values rejected without invented history | not_run |
+| NC03 | Declare basketball on a profile-zone date, unknown demand, edit/remove/save | Planning context remains separate from completed actuals; private profile revision protected | not_run |
+| NC04 | More than10 declarations, external-origin row, other-device profile edit | Paginated inputs; external source not duplicated; explicit stale-draft recovery | not_run |
+
+## Completed activity log handoff
+
+`codex/workouts-native-activity-log` is a new isolated worktree from `232021e`, using the backend 044 DTO from `169d179`. Today and Progress now link to completed runs, walks, basketball and other activity without requiring a library workout. Entry requires a reviewed completed date in the server-returned training timezone, positive whole minutes, optional distance in miles/km, optional notes and explicit unknown/light/strenuous demand. The client does not invent timestamps, exercise prescriptions, actual sets or OS Health exports from a quick log. Future activity stays in profile schedule declarations.
+
+Drafts and pending commands use an ordered account/generation/focus box. A command is persisted before transport; retries retain exact UUID/body/target/revision. Pending commands ignore older input autosaves, and completed boxes block delayed draft reopening until the user deliberately starts another record or reviews the latest saved version. Original stable owner/generation/focus and private-storage retirement checks run across asynchronous boundaries. Account switching/deletion cannot move a command or its cache callback into another owner's data. Correction/removal uses original target revision and explicit review; a stale or removed entry is never silently recreated or rebased.
+
+History loads 50-record pages with explicit calendar filters and retry/refresh. Imported/health-derived entries stay read only; legacy manual entries require explicit completion adoption and are not duplicated. Progress combines recorded session actuals and confirmed user activity for seven-day frequency while keeping each genuine same-day record separate. Imported, unconfirmed, removed, and planned observations are excluded from manual counts. Days count once, records do not merge by name/date. Weekly activity paging has an explicit limit/lower-bound notice and fixed date range; changed timezone requires refresh. Foreground refresh reconciles calendar/history. Activity success invalidates owner queries (profile, history, readiness and coach receipts) and retires the API's cached profile revision, because a replay's operation profile_revision may be historical. Unsent coach text remains intact; server context revisions fence old action/pending-response application.
+
+Field and calendar controls now accept an optional disabled state so an immutable pending command visibly locks its inputs on native and web. No additional dependencies, native config, assets, manifests/lock or common CI were changed. Root separately owns Vitest 4.1.11 and expo-auth-session dependency updates; these gates ran on the verified232021e lock with Vitest 4.1.10.
+
+Source gate: 140 tests across 25 files, typecheck and web/Android/iOS static exports passed. These checks cover durable crash recovery, immutable UUID/body, pending/completed autosave fences, owner/target/generation retirement, legacy/import exclusion, partial-session frequency, genuine same-day records, miles/km, calendar bounds and transport/account headers. No production mutation, provider request, permanent runtime, browser tab, simulator/emulator or container was started. Actual native form/keyboard/date entry, correction/removal/retry, cross-device context recovery and saved outcomes remain not_run. Root owns fixture preparation, actual CUA, backend integration/reviewer/release and cleanup of its runtime resources. Worktrees remain preserved for integration.
+
+| Case | Fixture/actions | Required outcome | Native status |
+| --- | --- | --- | --- |
+| ALN01 | Quick run/walk/basketball/other from Today, positive duration/date, optional distance/unknown demand | Separate completed record; no fictional sets/timestamps/Health export; actual stored fields match | not_run |
+| ALN02 | Interrupt after persisted command/lost response; restart/retry; create another genuine same-day record | Original UUID/body; one replayed operation; distinct deliberate records; no late draft reopening | not_run |
+| ALN03 | Review legacy manual entry, missing duration, adopt vs view imported Health row | Explicit confirmed adoption; imported source stays read only; no duplicate counting | not_run |
+| ALN04 | Correct/remove with competing revision, account switch or Workouts-only deletion during await | Original scope/revision; stale state recoverable; no private-cache resurrection | not_run |
+| ALN05 | More than 50 entries, date filters, week with partial session plus same-day logs | Reachable pagination; counts separate by source; real recorded days only; no hidden truncation | not_run |
+| ALN06 | Activity mutation changes profile epoch with identical content; pending coach action/draft exists | Refetch current profile/context; stale receipt fails; user text kept; explicit profile recovery | not_run |
+
+Backend read follow-up `16c20b5` requires original generation for both list/detail, including empty calendar pages; root integrates it after `169d179`. Native passes original headers and independently rejects returned mismatched generations. Authoritative removed/read-only detail also retires any local pending input/notes, preventing late autosaves from reviving its private draft. Same command-slot controllers share one ordered queue; a competing UUID cannot overwrite the pending operation.
+
+## Verification recovery and input purposes handoff
+
+`codex/workouts-native-auth-recovery` is an isolated slice from `99527f5`. Root's actual iOS CUA verified the existing email/password fixture reached Clerk Device Trust, but the code expired while QA was paused and the generic error had no clear resend/back recovery. An OS password-saving prompt was dismissed by root; this code does not automate or disable that system choice. The temporary development diagnostic catch was not in the committed base and is not included here.
+
+The client maps a bounded allowlist of verification-expired/wrong-code, network and rate-limit failures to safe messages. Unknown/identifier/password errors keep a generic response; provider messages, identifiers, error bodies and codes are never displayed/logged. Exactly six ASCII digits are required, with leading zeros retained. Resend operates on the existing resource: signup email verification, Device Trust/MFA email second factor, or password-recovery first factor. It never calls a password reset, creates another account, or recreates sign-in just to resend. Authenticator codes have their own instructions and no email resend. A synchronous send gate reserves a 30 second cooldown before an attempt, including lost/failed responses; busy guards and explicit button clicks prevent duplicate/automatic sends. A verification attempt that is still incomplete does not automatically prepare/send another email. Back to sign-in preserves email and clears password/code/verification without a credential mutation.
+
+Auth fields carry explicit purposes and stable keys: email, current password, signup/reset new password, and verification code. iOS/web use one-time-code autocomplete; iOS textContentType is oneTimeCode. The installed RN 0.86 Android manager supports 2fa-app-otp (one-time-code is not an Android hint), so Android uses that native OTP hint with a number-pad. Ordinary numeric fields keep decimal-pad with no OTP/password content hint. Disabled fields keep native/web semantics. System autofill/password prompts and actual keyboard behavior still need root's native retest.
+
+Sources inspected: installed Clerk 4.5.2 legacy SignIn/SignUp resource/factor types and [Clerk Expo legacy sign-in](https://clerk.com/docs/expo/reference/objects/sign-in), [signup](https://clerk.com/docs/expo/reference/objects/sign-up), [Device Trust](https://clerk.com/docs/guides/secure/device-trust), [legacy recovery](https://clerk.com/docs/guides/development/custom-flows/authentication/legacy/forgot-password), and [React Native TextInput](https://reactnative.dev/docs/textinput). Root retains the working legacy API; no SDK/manifests/config/fixture credentials were changed.
+
+Source gate: 147 tests across 26 files, typecheck and web/Android/iOS static exports passed. New tests cover expiry/wrong-code handling, no identifier enumeration, network/rate limit recovery, cooldown reservation, existing factor routing without account creation, unsupported/authenticator sends, OTP validation/leading zeros, input traits and secret-free back state. No real email/provider request, credential creation/reset, permanent runtime, browser tab or simulator/emulator was started by this writer. Root owns actual client-trust resend/login retest. Signup/recovery provider journeys remain not_run while the user is away; source mocks do not establish actual delivery or account changes.
+
+| Case | Fixture/actions | Required outcome | Native status |
+| --- | --- | --- | --- |
+| AR01 | Root synthetic email/password fixture, expire code, resend after cooldown, verify newest code | Safe expiry message, reachable resend/back, one send per explicit action, successful session | not_run |
+| AR02 | Wrong/short/long/non-ASCII OTP, slow/offline/rate-limited verification/send | Six-digit validation, safe retry, no raw provider detail or repeated automatic email | not_run |
+| AR03 | Back from verification/recovery/signup; inspect field values and OS autofill traits | Email retained, secrets/code cleared, no reset/create merely from back; correct stable input purpose | not_run |
+| AR04 | Authorized signup/recovery/MFA/authenticator fixtures, supported factors and completion | Existing attempt routing, no email resend for authenticator, no false account/session success | not_run |
+
+## Same-process onboarding state handoff
+
+`codex/workouts-native-onboarding-state` is a new isolated slice from `3038f3c`, following root's actual native observation: enrollment/profile saves succeeded and navigation returned to Today, but Today kept offering setup because the save wrote only `[owner, draftScope]` and never published enrollment. Existing generation cleanup would also erase a naïvely seeded reenrollment profile/unit choice.
+
+The save now retains a generation-bound retry draft, uses the server's profile revision, checks authoritative enrollment again after profile save, and hands acknowledged data to a guarded Provider completion bridge. That bridge checks original owner/binding/storage and cached enrollment across awaits, retires/cleans old-generation device state before publication, restores the chosen metric/imperial preference, marks the handled generation, seeds `[owner,'profile',returnedGeneration]`, then publishes `[owner,'enrollment']`. Today therefore sees the saved profile when enabled, and the real Offline provider starts the returned generation without a foreground/relaunch event. Same-generation setup preserves live recorded training. Successful draft cleanup uses the original and actual-generation scopes. Old-generation queries/commands remain retired; the generation effect does not erase newly published data again.
+
+Profile/network/stale-owner or deleted-generation failures do not publish success or navigate. The retry draft remains bound to the acknowledged generation when the server has enrolled but profile save fails. A local completion failure offers explicit enrollment reload; old device tokens stay retired, with a fresh scoped storage handle available for recovery. Fields stop accepting ordinary touches during save. Pending sharing navigation checks the current account after completion, so it survives the intended Offline provider remount without navigating a different account. No external provider/storage instance or credential was created.
+
+Source gate: 154 tests across 27 files, typecheck and web/Android/iOS static exports passed. Behavioral regressions use the real TanStack QueryClient/QueryObserver to verify profile-before-enrollment publication and the actual scoped TrainingStore loading its new generation. They cover selected units, reenrollment, same-generation existing actuals, private retirement, another owner's preservation, profile save failure, changed owner, authoritative deletion and cleanup failure. These are source/state tests, not a native UI acceptance claim. Root's fresh same-process onboarding→Today/Offline/pending-share retest remains not_run here. No browser tab, server, simulator/emulator, container or provider request was started; root's borrowed QA resources remain untouched.
