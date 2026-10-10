@@ -65,9 +65,9 @@ TestFlight delivery remain pending. Source-informed rules do not close D03.
 
 Independent Expo project `c520b94d-aac7-49a2-be2b-838a6b992001` is verified under
 `@shimizutechnology/hafa-workouts`; Apple bundle `com.shimizutechnology.hafaworkouts`
-is registered separately. App Store Connect's user session expired. Leon is away
-and cannot log in now; creation of the app record remains pending while other work
-continues. No credentials are requested in chat, and existing Recipes identities
+is registered separately. Creating its App Store Connect app record requires renewed
+interactive Apple authentication; the app record remains pending while implementation
+and independent testing continue. No credentials are requested in chat, and existing Recipes identities
 and app records are preserved.
 
 
@@ -77,6 +77,11 @@ Backend work now includes jobs/extraction, source/copy review, continuous coach 
 
 Native training, capture, health, organization, coach, account controls, reminders and running/activity profile context are assembled. Current root static gate:129tests/typecheck/Doctor21/21/all-platform export/native source-map audit pass. Both platform development compilations succeed; this does not prove actual journeys, physical health acceptance or TestFlight signing. Initial browser cold-route and scalar-text defects were fixed. Native email/onboarding save and comprehensive recovery flows remain to execute.
 
-Leon approved up to$5perday of Workouts AI operating cost for evaluation/beta. The committed default budget remains0 and production flags remainoff. Only the explicit environment(s) used for authorized evaluation/beta may receive allocations, whose combined daily ceiling must not exceed$5. A separate development key is required for local real-model evaluation; no real paid calls have been made. Apple App Store Connect sign-in remains unavailable while Leon is away. The Workouts app record and exact TestFlight upload/availability are pending; existing Recipes app identities are preserved.
+The authorized Workouts AI operating allocation is up to$5perday for evaluation/beta. The committed default budget remains0 and production flags remainoff. Only the explicit environment(s) used for authorized evaluation/beta may receive allocations, whose combined daily ceiling must not exceed$5. A separate development key is required for local real-model evaluation; no real paid calls have been made. Renewed interactive App Store Connect authentication remains pending. The Workouts app record and exact TestFlight upload/availability are pending; existing Recipes app identities are preserved.
 
 The comprehensive QA ledger has0fullyacceptedcases across every required dimension. Backend tests, static exports and compiler success are recorded as separate evidence. Full final-head review/gates, source model evaluation, mixed workload/capacity, qualified programming review, physical/provider acceptance and exact release availability remain open.
+
+
+Independent review of a06f3b0 reproduced six private-export erasure gaps: upstream Health deletion/correction/reconciliation, coach undo of a generated copy, collection removal and automatic import expiry. The corresponding owner-locked writers now invalidate temporary snapshots; expiry maintenance commits each owner separately. The focused private-writer/import/automation retest passes59cases. Six naming assertions were also reviewed: shared OpenAPI/config metadata is Håfa API, while the legacy root response keeps Recipe Extractor API and its frozen response shape. Full final repository checks and final-head independent verification are running; these findings are not called clean until those checks finish.
+
+Actual native email/password sign-in reaches the development client-trust verification screen. A system password-save prompt obstructed a verification attempt; it was dismissed. An expired code exposed missing resend/back recovery and a generic error. That user-flow defect is being corrected and requires actual native retesting. No native sign-in completion is claimed yet.
