@@ -719,10 +719,13 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
     monkeypatch.setattr(
         module.httpx,
         "AsyncClient",
-        lambda **kwargs: actual_client(transport=httpx.MockTransport(respond), **kwargs),
+        lambda **kwargs: actual_client(**(kwargs | {"transport": httpx.MockTransport(respond)})),
     )
+    from tests.workouts_provider_fakes import FakeBudget
+
+    budget = FakeBudget()
     result = await ProductionExtractionProvider(
-        development_api_key="explicit-budget-test-key"
+        budget_guard=budget, development_api_key="explicit-budget-test-key"
     ).extract(SourceBundle(SourceMetadata(), [SourcePart("provided_text", TEXT)]))
     assert result["blocks"]
     assert [attempt.model for attempt in attempts] == ["primary-test", "fallback-test"]
@@ -733,6 +736,9 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
     )
     assert payloads[0]["store"] is False and payloads[0]["response_format"]["type"] == "json_schema"
     assert len(payloads) == 2
+    assert len(budget.reservations) == 2
+    assert budget.outcomes == ["failed", "success"]
+    assert all(payload["service_tier"] == "default" for payload in payloads)
 
 
 @pytest.mark.asyncio

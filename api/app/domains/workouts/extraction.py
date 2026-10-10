@@ -11,6 +11,7 @@ import asyncio
 import base64
 import binascii
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
@@ -20,6 +21,7 @@ import httpx
 from bs4 import BeautifulSoup
 from pydantic import Field, ValidationError, model_validator
 
+from app.domains.workouts.budget import BudgetError, BudgetGuard, BudgetPolicy, ProviderEnvelope
 from app.domains.workouts.schemas import DomainModel, Evidence, WorkoutContent
 from app.image_validation import (
     ImageValidationError,
@@ -249,8 +251,12 @@ def workout_response_format() -> dict:
 class ProductionExtractionProvider:
     """Shares configured model routing/accounting, not Recipes prompts or schemas."""
 
-    def __init__(self, *, development_api_key: str | None = None):
+    def __init__(self, *, development_api_key: str | None = None, budget_guard=None):
         self._development_api_key = development_api_key
+        self._budget_guard = budget_guard
+
+    def _guard(self, settings):
+        return self._budget_guard or BudgetGuard(BudgetPolicy.from_settings(settings))
 
     def _key(self, settings) -> str | None:
         return (
@@ -303,31 +309,49 @@ class ProductionExtractionProvider:
                 fallback_reason=last_error if index else None,
             ) as invocation:
                 try:
-                    async with httpx.AsyncClient(timeout=60.0) as client:
-                        response = await client.post(
-                            "https://api.openai.com/v1/chat/completions",
-                            headers={"Authorization": f"Bearer {self._key(settings)}"},
-                            json={
-                                "model": invocation.model,
-                                "messages": provider_messages(source),
-                                "response_format": workout_response_format(),
-                                "max_completion_tokens": 6000,
-                                "store": False,
-                                "reasoning_effort": settings.openai_reasoning_effort,
-                            },
-                        )
-                    if response.status_code != 200:
-                        last_error = "provider_http_error"
-                        invocation.fail(last_error)
-                        continue
-                    data = response.json()
-                    choice = data["choices"][0]
-                    if choice.get("finish_reason") != "stop" or choice["message"].get("refusal"):
-                        raise ExtractionFailure("provider_incomplete_response")
-                    parsed = json.loads(choice["message"]["content"])
-                    WorkoutContent.model_validate(parsed)
-                    invocation.succeed(data)
-                    return parsed
+                    async with self._guard(settings).attempt(
+                        capability="workout_extraction",
+                        model=invocation.model,
+                        envelope=ProviderEnvelope(
+                            endpoint="chat_completions",
+                            max_output_tokens=6000,
+                            includes_images=bool(source.images),
+                            service_tier="default",
+                            sdk_max_retries=0,
+                        ),
+                    ) as paid:
+                        async with httpx.AsyncClient(
+                            timeout=60.0, transport=httpx.AsyncHTTPTransport(retries=0)
+                        ) as client:
+                            response = await client.post(
+                                "https://api.openai.com/v1/chat/completions",
+                                headers={"Authorization": f"Bearer {self._key(settings)}"},
+                                json={
+                                    "model": invocation.model,
+                                    "messages": provider_messages(source),
+                                    "response_format": workout_response_format(),
+                                    "max_completion_tokens": 6000,
+                                    "store": False,
+                                    "service_tier": "default",
+                                    "reasoning_effort": settings.openai_reasoning_effort,
+                                },
+                            )
+                        if response.status_code != 200:
+                            raise ExtractionFailure("provider_http_error")
+                        data = response.json()
+                        choice = data["choices"][0]
+                        if choice.get("finish_reason") != "stop" or choice["message"].get(
+                            "refusal"
+                        ):
+                            raise ExtractionFailure("provider_incomplete_response")
+                        parsed = json.loads(choice["message"]["content"])
+                        WorkoutContent.model_validate(parsed)
+                        paid.complete(outcome="success")
+                        invocation.succeed(data)
+                        return parsed
+                except BudgetError as exc:
+                    invocation.fail(exc.code)
+                    raise ExtractionFailure(exc.code) from None
                 except asyncio.CancelledError:
                     invocation.fail("cancelled")
                     raise
@@ -361,27 +385,68 @@ class ProductionExtractionProvider:
             "transcription"
         ) or not settings.is_ai_capability_enabled("workout_transcription"):
             raise ExtractionFailure("transcription_disabled")
+        from app.services.video import video_service
+
+        try:
+            duration = await video_service._get_media_duration(path)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            raise ExtractionFailure("audio_duration_unverified") from None
+        if (
+            type(duration) not in {int, float}
+            or not math.isfinite(duration)
+            or not 0 < duration <= min(settings.video_max_duration_seconds, 1800)
+        ):
+            raise ExtractionFailure("audio_duration_unverified")
+        # Reserve a rounded-up independently probed duration, never metadata
+        # supplied by a source or caller. The SDK has no hidden retries.
+        envelope = ProviderEnvelope(
+            endpoint="audio_transcriptions",
+            audio_seconds_upper_bound=math.ceil(duration),
+            audio_duration_verified=True,
+            sdk_max_retries=0,
+        )
         async with AIInvocationTracker(
             capability="workout_transcription",
             primary_model=settings.transcription_model,
             prompt_version="workout-audio-transcription-v1",
         ) as invocation:
-            async with AsyncOpenAI(
-                api_key=self._key(settings), max_retries=0, timeout=60
-            ) as client:
-                with Path(path).open("rb") as audio:
-                    text = await client.audio.transcriptions.create(
-                        file=audio,
-                        model=invocation.model,
-                        language="en",
-                        response_format="text",
-                        temperature=0,
-                    )
-            if not text:
-                invocation.fail("empty_transcription")
-                raise ExtractionFailure("transcription_failed")
-            invocation.succeed()
-            return str(text)[:MAX_TEXT_CHARS]
+            try:
+                async with self._guard(settings).attempt(
+                    capability="workout_transcription",
+                    model=invocation.model,
+                    envelope=envelope,
+                ) as paid:
+                    async with AsyncOpenAI(
+                        api_key=self._key(settings),
+                        base_url="https://api.openai.com/v1",
+                        max_retries=0,
+                        timeout=60,
+                    ) as client:
+                        with Path(path).open("rb") as audio:
+                            value = await client.audio.transcriptions.create(
+                                file=audio,
+                                model=invocation.model,
+                                language="en",
+                                response_format="text",
+                                temperature=0,
+                            )
+                    if not value:
+                        invocation.fail("empty_transcription")
+                        raise ExtractionFailure("transcription_failed")
+                    paid.complete(outcome="success")
+                    invocation.succeed()
+                    return str(value)[:MAX_TEXT_CHARS]
+            except BudgetError as exc:
+                invocation.fail(exc.code)
+                raise ExtractionFailure(exc.code) from None
+            except asyncio.CancelledError:
+                invocation.fail("cancelled")
+                raise
+            except Exception:
+                invocation.fail("transcription_failed")
+                raise ExtractionFailure("transcription_failed") from None
 
 
 class ProductionSourceAcquirer:

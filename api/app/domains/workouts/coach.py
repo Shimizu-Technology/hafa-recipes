@@ -16,6 +16,7 @@ from sqlalchemy import String, cast, delete, func, select, update
 from app.config import get_settings
 from app.domains.workouts.automation_models import WorkoutCoachMessage, WorkoutProposal
 from app.domains.workouts.automation_router import effective_profile, proposal_context_hash
+from app.domains.workouts.budget import BudgetError, BudgetGuard, BudgetPolicy, ProviderEnvelope
 from app.domains.workouts.coach_actions import (
     current_actuals,
     health_derived,
@@ -86,8 +87,9 @@ def normalize_usage(data):
 
 
 class ProductionCoachProvider:
-    def __init__(self, *, development_api_key=None):
+    def __init__(self, *, development_api_key=None, budget_guard=None):
         self.development_api_key = development_api_key
+        self._budget_guard = budget_guard
 
     @property
     def enabled(self):
@@ -127,28 +129,48 @@ class ProductionCoachProvider:
             schema_version="coach-tools-2",
         ) as invocation:
             try:
-                async with httpx.AsyncClient(timeout=45) as client:
-                    response = await client.post(
-                        "https://api.openai.com/v1/responses",
-                        headers={"Authorization": f"Bearer {self.key(settings)}"},
-                        json={
-                            "model": invocation.model,
-                            "input": items,
-                            "tools": tools,
-                            "tool_choice": "auto" if tools else "none",
-                            "parallel_tool_calls": False,
-                            "max_output_tokens": 1800,
-                            "store": False,
-                        },
-                    )
-                if response.status_code != 200 or len(response.content) > 256000:
-                    raise CoachFailure("provider_unavailable")
-                data = response.json()
-                if data.get("status") != "completed":
-                    raise CoachFailure("provider_incomplete")
-                response_parts(data, allow_tools=bool(tools))
-                invocation.succeed(normalize_usage(data))
-                return data
+                guard = self._budget_guard or BudgetGuard(BudgetPolicy.from_settings(settings))
+                async with guard.attempt(
+                    capability="workout_coach",
+                    model=invocation.model,
+                    envelope=ProviderEnvelope(
+                        endpoint="responses",
+                        max_output_tokens=1800,
+                        function_tools=bool(tools),
+                        paid_tools=any(tool.get("type") != "function" for tool in tools),
+                        service_tier="default",
+                        sdk_max_retries=0,
+                    ),
+                ) as paid:
+                    async with httpx.AsyncClient(
+                        timeout=45, transport=httpx.AsyncHTTPTransport(retries=0)
+                    ) as client:
+                        response = await client.post(
+                            "https://api.openai.com/v1/responses",
+                            headers={"Authorization": f"Bearer {self.key(settings)}"},
+                            json={
+                                "model": invocation.model,
+                                "input": items,
+                                "tools": tools,
+                                "tool_choice": "auto" if tools else "none",
+                                "parallel_tool_calls": False,
+                                "max_output_tokens": 1800,
+                                "store": False,
+                                "service_tier": "default",
+                            },
+                        )
+                    if response.status_code != 200 or len(response.content) > 256000:
+                        raise CoachFailure("provider_unavailable")
+                    data = response.json()
+                    if data.get("status") != "completed":
+                        raise CoachFailure("provider_incomplete")
+                    response_parts(data, allow_tools=bool(tools))
+                    paid.complete(outcome="success")
+                    invocation.succeed(normalize_usage(data))
+                    return data
+            except BudgetError as exc:
+                invocation.fail(exc.code)
+                raise CoachFailure(exc.code) from None
             except asyncio.CancelledError:
                 invocation.fail("cancelled")
                 raise

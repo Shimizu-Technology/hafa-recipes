@@ -13,6 +13,7 @@ from app.domains.workouts.coach import (
 )
 from app.domains.workouts.coach_actions import health_derived, tool_definitions
 from tests.test_workouts_data_integration import settings
+from tests.workouts_provider_fakes import FakeBudget
 
 
 def test_all_function_schemas_are_strict_and_required():
@@ -172,7 +173,8 @@ async def test_real_adapter_response_contract_and_safe_accounting(monkeypatch):
 
     monkeypatch.setattr(ai_governance, "AIInvocationTracker", Tracker)
     monkeypatch.setattr(coach.httpx, "AsyncClient", Client)
-    result = await ProductionCoachProvider().respond(
+    budget = FakeBudget()
+    result = await ProductionCoachProvider(budget_guard=budget).respond(
         [{"role": "user", "content": "synthetic"}], tools=tool_definitions()
     )
     assert result["status"] == "completed"
@@ -180,6 +182,8 @@ async def test_real_adapter_response_contract_and_safe_accounting(monkeypatch):
     assert url.endswith("/v1/responses") and body["model"] == "configured-model"
     assert body["store"] is False and body["parallel_tool_calls"] is False
     assert body["max_output_tokens"] == 1800 and body["tools"][0]["strict"]
+    assert body["service_tier"] == "default"
+    assert budget.outcomes == ["success"]
     assert tracked[0]["capability"] == "workout_coach"
     assert "PRIVATE" not in json.dumps(tracked)
 
@@ -220,5 +224,5 @@ async def test_provider_error_never_exposes_response_details(monkeypatch):
     monkeypatch.setattr(ai_governance, "AIInvocationTracker", Tracker)
     monkeypatch.setattr(coach.httpx, "AsyncClient", Client)
     with pytest.raises(CoachFailure) as error:
-        await ProductionCoachProvider().respond([], tools=[])
+        await ProductionCoachProvider(budget_guard=FakeBudget()).respond([], tools=[])
     assert str(error.value) == "provider_unavailable"
