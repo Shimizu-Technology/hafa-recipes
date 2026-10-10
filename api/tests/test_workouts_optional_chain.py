@@ -3,6 +3,7 @@
 import importlib
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import text
 
 from app.domains.workouts.automation_runtime import verify_automation_schema
@@ -10,7 +11,7 @@ from app.domains.workouts.connection_runtime import verify_connections_schema
 from app.domains.workouts.optional_runtime import verify_optional_workouts_schema
 from app.domains.workouts.runtime import verify_workouts_schema
 from tests.test_workouts_automation_integration import automation_api  # noqa: F401
-from tests.test_workouts_data_integration import data_api, settings  # noqa: F401
+from tests.test_workouts_data_integration import DATABASE_URL, data_api, settings  # noqa: F401
 
 
 async def legacy_columns(engine):
@@ -24,6 +25,7 @@ async def legacy_columns(engine):
         ).all()
 
 
+@pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
 async def test_optional_full_chain_replays_and_keeps_legacy_schema(automation_api):  # noqa: F811
     api = automation_api
     configured = settings(workouts_health_sync_enabled=True)

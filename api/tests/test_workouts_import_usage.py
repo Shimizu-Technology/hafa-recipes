@@ -24,6 +24,7 @@ from tests.test_workouts_automation_integration import (  # noqa: F401
     enqueue,
 )
 from tests.test_workouts_data_integration import (  # noqa: F401
+    DATABASE_URL,
     GENERATION,
     data_api,
     enroll,
@@ -31,6 +32,7 @@ from tests.test_workouts_data_integration import (  # noqa: F401
 )
 
 migration = importlib.import_module("migrations.042_add_workouts_import_usage")
+pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
 
 
 @pytest.fixture

@@ -39,6 +39,8 @@ from app.models.meal_plan import MealPlanEntry
 from app.models.moderation import UserBlock
 from app.models.recipe import Recipe, SavedRecipe
 from tests.database_safety import require_disposable_test_database
+from tests.test_workouts_coach_integration import action, coach_api  # noqa: F401
+from tests.test_workouts_data_integration import data_api  # noqa: F401
 
 DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
@@ -872,3 +874,116 @@ async def test_stale_nutrition_is_not_presented_as_current_dietary_evidence(api)
     )
     assert response.json()["library"][0]["nutrition_status"] == "stale"
     assert response.json()["library"][0]["nutrition"]["calories"] is None
+
+
+@pytest.mark.parametrize("include_source", [False, True])
+async def test_shared_workout_copy_saves_unchanged_without_invented_url(api, include_source):
+    original, _, share = await create_share(api, include_source=include_source)
+    headers = {**GENERATION, "X-Test-User": "recipient"}
+    copied = await api.client.post(
+        share["api_path"] + "/copy",
+        headers=headers,
+        json={
+            "copy_request_id": str(uuid4()),
+            "snapshot_digest": share["snapshot_digest"],
+            "acknowledge_not_personalized": True,
+        },
+    )
+    assert copied.status_code == 201, copied.text
+    record = copied.json()["record"]
+    content = record["content"]
+    assert content["provenance"] == "source"
+    assert content["source_url"] == (WORKOUT["source_url"] if include_source else None)
+    assert all(
+        exercise["provenance"] == "source"
+        for block in content["blocks"]
+        for exercise in block["exercises"]
+    )
+    unchanged = {
+        key: value
+        for key, value in content.items()
+        if key not in {"id", "version", "parent_version_id"}
+    }
+    saved = await api.client.put(
+        f"/api/v1/workouts/library/{record['id']}?expected_revision=1",
+        json=unchanged,
+        headers=headers,
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["content"]["capture_kind"] == "shared"
+    assert saved.json()["content"]["source_url"] == content["source_url"]
+    source = await api.client.get(f"/api/v1/workouts/library/{original['id']}")
+    assert source.json()["revision"] == original["revision"]
+
+
+async def test_shared_program_copy_keeps_review_guard_then_saves_unchanged_prescriptions(api):
+    _, _, share = await program_share(api)
+    headers = {**GENERATION, "X-Test-User": "recipient"}
+    copied = await api.client.post(
+        share["api_path"] + "/copy",
+        headers=headers,
+        json={
+            "copy_request_id": str(uuid4()),
+            "snapshot_digest": share["snapshot_digest"],
+            "acknowledge_not_personalized": True,
+            "start_date": "2026-11-02",
+        },
+    )
+    assert copied.status_code == 201, copied.text
+    record = copied.json()["record"]
+    content = record["content"]
+    for item in content["proposal"]["sessions"]:
+        assert item["workout"]["provenance"] == "source"
+        assert item["workout"]["source_url"] is None
+    path = f"/api/v1/workouts/programs/{record['id']}?expected_revision=1"
+    # Copying alone must not bypass the existing explicit personal-review gate.
+    blocked = await api.client.put(path, json=content, headers=headers)
+    assert blocked.status_code == 422 and "Resolve program questions" in blocked.text
+    # A manually reviewed plan retains its exact copied workout prescriptions.
+    reviewed = {**content, "proposal": {**content["proposal"], "status": "ready", "questions": []}}
+    saved = await api.client.put(path, json=reviewed, headers=headers)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["content"]["proposal"]["sessions"] == content["proposal"]["sessions"]
+    assert all(
+        item["workout"]["capture_kind"] == "shared"
+        for item in saved.json()["content"]["proposal"]["sessions"]
+    )
+
+
+async def test_shared_copy_can_enter_coach_adaptation_acceptance_without_invented_source(
+    coach_api,  # noqa: F811 -- imported pytest fixture
+    monkeypatch,
+):
+    api = coach_api
+    await migration37.run_migration(configured=settings(), migration_engine=api.engine)
+    api.app.include_router(connection_router)
+    monkeypatch.setenv(
+        "WORKOUTS_SHARE_ENCRYPTION_KEY", base64.urlsafe_b64encode(b"x" * 32).decode()
+    )
+    monkeypatch.setitem(WORKOUT, "estimated_minutes", 20)
+    monkeypatch.setitem(WORKOUT["blocks"][0]["exercises"][0], "exercise_id", "bodyweight_squat")
+    _, _, share = await create_share(api, "owner")
+    copied = await api.client.post(
+        share["api_path"] + "/copy",
+        headers=GENERATION,
+        json={
+            "copy_request_id": str(uuid4()),
+            "snapshot_digest": share["snapshot_digest"],
+            "acknowledge_not_personalized": True,
+        },
+    )
+    assert copied.status_code == 201, copied.text
+    record = copied.json()["record"]
+    api.provider.action = (
+        "adapt_saved_workout",
+        {"workout_id": record["id"], "expected_revision": 1, "minutes": None},
+    )
+    accepted, _ = await action(api)
+    assert accepted.status_code == 200, accepted.text
+    adapted = await api.client.get(f"/api/v1/workouts/library/{accepted.json()['record_id']}")
+    assert adapted.status_code == 200, adapted.text
+    assert adapted.json()["content"]["capture_kind"] == "shared"
+    assert adapted.json()["content"]["source_url"] is None
+    assert adapted.json()["id"] != record["id"]
+    source = await api.client.get(f"/api/v1/workouts/library/{record['id']}")
+    assert source.json()["content"] == record["content"] and source.json()["revision"] == 1

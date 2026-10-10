@@ -191,7 +191,7 @@ def validated_workout(workout, *, authored=True):
     if (
         workout.provenance == "source"
         and not workout.source_url
-        and workout.capture_kind not in {"text", "images", "document"}
+        and workout.capture_kind not in {"text", "images", "document", "shared"}
     ):
         raise HTTPException(422, "Source provenance requires a source URL")
     # A client-authored save cannot claim the server generated a recommendation.
@@ -204,7 +204,7 @@ def validated_workout(workout, *, authored=True):
             if (
                 exercise.provenance == "source"
                 and not workout.source_url
-                and workout.capture_kind not in {"text", "images", "document"}
+                and workout.capture_kind not in {"text", "images", "document", "shared"}
             ):
                 raise HTTPException(422, "Source exercise provenance requires a source URL")
             if authored and exercise.provenance == "suggestion":

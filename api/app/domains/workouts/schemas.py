@@ -71,7 +71,7 @@ class WorkoutContent(DomainModel):
     provenance: Provenance = "user"
     blocks: list[WorkoutBlock] = Field(default_factory=list, max_length=100)
     source_url: str | None = Field(default=None, max_length=2000)
-    capture_kind: Literal["url", "text", "images", "document"] | None = None
+    capture_kind: Literal["url", "text", "images", "document", "shared"] | None = None
     source_creator: str | None = Field(default=None, max_length=200)
     source_title: str | None = Field(default=None, max_length=200)
     equipment_required: list[str] = Field(default_factory=list, max_length=100)
@@ -110,7 +110,7 @@ class EquipmentLocation(DomainModel):
         if not self.name.strip() or any(not item.strip() for item in self.equipment):
             raise ValueError("Equipment location names and equipment cannot be blank")
         if any(load <= 0 or load > 2000 for load in self.available_loads_kg):
-            raise ValueError("Location loads must be positive and at most2000kg")
+            raise ValueError("Location loads must be positive and at most 2000 kg")
         return self
 
 

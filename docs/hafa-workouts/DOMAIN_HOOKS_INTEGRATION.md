@@ -13,7 +13,7 @@ callbacks, and program adoption remain root-owned.
   hook inside the same owner-locked optimistic transaction. Changed values need
   explicit timestamps; unchanged goal/equipment saves preserve timestamps and
   do not append history. GET/profile serializes both paired timestamp fields.
-  A supported034-only fixture keeps its prior profile behavior without creating
+  A supported 034-only fixture keeps its prior profile behavior without creating
   fabricated measurement history.
 - Library create/edit initializes or refreshes source metadata before committing.
   Responses add `organization`, with independent metadata revision. The normal
@@ -46,7 +46,7 @@ callbacks, and program adoption remain root-owned.
   pages rather than a durable snapshot.
 
 `optional_table_exists` caches anchor table availability only in the request's
-SQLAlchemy session. It enables the supported034-only fixtures; it does not weaken
+SQLAlchemy session. It enables the supported 034-only fixtures; it does not weaken
 production readiness. The root enabled startup gate still requires the complete
 optional chain and validates schema before exposing the app.
 
@@ -58,9 +58,9 @@ changed here.
 
 ## Verification and remaining gate
 
-Eight combined PostgreSQL cases pass using the actual034–039 chain:
+Eight combined PostgreSQL cases pass using the actual 034–039 chain:
 
-1. Original034-only profile/library/grants/AI-consent/export/deletion behavior.
+1. Original 034-only profile/library/grants/AI-consent/export/deletion behavior.
 2. GET/PUT profile timestamps, unchanged edits, explicit measurement requirements,
    and clearing current values while retaining history.
 3. Measurement route → actual profile serialization → scrubbed export.
@@ -74,21 +74,23 @@ Eight combined PostgreSQL cases pass using the actual034–039 chain:
 8. Full per-product erase retaining Recipes, AppUser, other-owner health data and
    recipient copies, with link revocation and safe delete replay.
 
-The combined run with account, organization and frozen Recipes contracts reports
-**246 passed, 3 failed**. The three pre-integration organization expectations must
-be updated on root before calling the final gate clean:
+Historical integration result: the combined account, organization and frozen
+Recipes contract run reported **246 passed, 3 failed**. The three failures below
+were pre-integration organization expectations; the current tests have since
+been repaired:
 
-- `test_metadata_preserves_prescription_and_actuals` compares an entire stale
-  envelope; compare prescription content/revision separately from changed
-  organization, while retaining immutable actual/version assertions.
-- `test_collections_revision_casefold_delete_unlinks_only` assumes metadata starts
-  at0; manual create now correctly starts at1, so PUT then collection removal
-  yields3. Derive expectations from returned metadata revisions.
-- `test_owner_isolation_and_composite_database_fences` supplies stale revision0
-  after initialized1, yielding409 before ownership validation. Use the current
-  revision to test the intended404 and retain the direct composite-FK assertion.
+- `test_metadata_preserves_prescription_and_actuals` now compares prescription
+  content/revision separately from changed organization, retaining immutable
+  actual/version assertions.
+- `test_collections_revision_casefold_delete_unlinks_only` now derives expectations
+  from returned metadata revisions. Manual create starts at 1; PUT and collection
+  removal advance that revision.
+- `test_owner_isolation_and_composite_database_fences` now uses the current
+  revision to test the intended 404 and retains the direct composite-FK assertion.
 
-Root agreed to update these existing tests after integrating the hook commit.
+These repaired expectations are no longer pending root work. The historical
+counts above do not describe the current gate; current verification is recorded
+with the reviewed commit/PR.
 All frozen Recipes contracts and account scenarios passed. Ruff and diff checks
 pass. This report does not claim a clean full release gate, native/device
 acceptance, or production deployment. Tests use only synthetic fixtures in a

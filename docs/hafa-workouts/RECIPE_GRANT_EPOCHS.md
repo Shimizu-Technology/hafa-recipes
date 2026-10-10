@@ -9,9 +9,9 @@ Recipes command cannot carry back health or AI scopes revoked elsewhere.
 
 All routes require an active adult Workouts enrollment, the original
 `X-Workouts-Generation`, and the existing account identity guard. Workouts master
-off returns404 before authentication or database access. Responses are private
-no-store. A missing epoch table returns503 recipe_grant_epoch_unavailable;
-production readiness must install041 before exposing this feature.
+off returns 404 before authentication or database access. Responses are private
+no-store. A missing epoch table returns 503 recipe_grant_epoch_unavailable;
+production readiness must install 041 before exposing this feature.
 
 `GET /api/v1/workouts/connections/recipes/grants` returns:
 
@@ -33,13 +33,13 @@ or grant rows.
 
 `PUT` to the same path takes
 `{expected_revision,library_context,meal_plan_context}`. Revision is a strict
-integer0–2147483647; both booleans are strict and required. Scope arrays, owners,
+integer 0–2147483647; both booleans are strict and required. Scope arrays, owners,
 health/AI choices, or other extra fields are rejected. It returns the same shape.
 Every write locks the shared AppUser, then checks current enrollment/generation.
-Stale revision always returns409 **before** considering a no-op. An absent epoch
-is revision0; every real Recipes choice change advances it by one. All flags
+Stale revision always returns 409 **before** considering a no-op. An absent epoch
+is revision 0; every real Recipes choice change advances it by one. All flags
 false still has its advanced epoch after a revocation, so empty→grant→revoke
-cannot make an old revision0 command valid again.
+cannot make an old revision 0 command valid again.
 
 Unchanged choices at the current revision are a no-op. Existing granted_at values
 and the epoch stay unchanged. Changes delete only removed Recipes scope rows and
@@ -47,25 +47,25 @@ insert only newly selected Recipes scopes. Unchanged Recipe rows and all health/
 AI rows remain intact. Scope choice and epoch commit in the same transaction.
 
 A request UUID receipt is unnecessary here: after an ambiguous network response,
-retrying an old changed command returns409, then a GET reveals actual choices.
+retrying an old changed command returns 409, then a GET reveals actual choices.
 Native must refresh/show that state without automatically resubmitting an old
 choice or upgrading the revision/generation of a queued command. Deliberate new
 user intent can use the newly fetched revision.
 
 ## Root integration required
 
-1. Add optional migration041 after035; it has no dependency on036–040. Keep the
+1. Add optional migration 041 after 035; it has no dependency on 036–040. Keep the
    Recipes ledger/latest migration unchanged. Production requires a verified
    `MIGRATION_041_RESTORE_POINT`; disabled migration/readiness opens no database.
    Migration preserves existing grant rows and granted_at values. Legacy choices
-   with no epoch start at observed revision0 until their first real change.
+   with no epoch start at observed revision 0 until their first real change.
 2. Call `verify_recipe_grant_schema(engine, settings)` from enabled readiness.
-   It checks ledger41, exact columns, validated AppUser cascade, and enabled
+   It checks ledger 41, exact columns, validated AppUser cascade, and enabled
    monotonic trigger. Epoch PK is `(app_user_id,generation)`; persisted revisions
-   are positive, while absent state is0. Database updates must advance by one
+   are positive, while absent state is 0. Database updates must advance by one
    and cannot change ownership/generation.
 3. In generic PUT/grants, under its existing AppUser lock, read current scopes
-   and compute requested scopes. If041 is installed, call
+   and compute requested scopes. If 041 is installed, call
    `await advance_recipe_grant_revision(db,owner,generation,previous_scopes,next_scopes)`
    with validated scope strings before commit. It changes only the epoch when
    the Recipes intersection changes. Health/AI-only changes leave Recipe revision

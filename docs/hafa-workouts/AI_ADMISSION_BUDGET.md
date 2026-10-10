@@ -1,12 +1,12 @@
 # Durable Workouts AI admission budget
 
-This slice starts at `4e1065b` and changes only new budget modules, migration040,
+This slice starts at `4e1065b` and changes only new budget modules, migration 040,
 tests, and this document. It does not integrate provider calls, tracker behavior,
 configuration, startup, or Recipe capabilities. Those remain root-owned.
 
-The global rolling24-hour guard reserves a verified conservative amount before
+The global rolling 24-hour guard reserves a verified conservative amount before
 one Workouts provider attempt. All workers sharing the database serialize
-admission with PostgreSQL transaction advisory lock7340040. The independent
+admission with PostgreSQL transaction advisory lock 7340040. The independent
 reservation transaction explicitly uses READ COMMITTED, including with an
 injected REPEATABLE READ factory: a waiting snapshot must observe the previous
 lock holder's committed reservation. Database time, not a process/device clock,
@@ -21,33 +21,33 @@ a deployment changing limits must pause/drain old workers before activation.
 
 ## Verified pricing/envelopes
 
-Official documentation checked2026-10-10 establishes both exact snapshots
+Official documentation checked 2026-10-10 establishes both exact snapshots
 [gpt-5.6-luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna) and
 [gpt-5.6-terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra) have
-922,000 max input,1,050,000 context, and128,000 max output tokens. The
+922,000 max input, 1,050,000 context, and 128,000 max output tokens. The
 [vision guide](https://developers.openai.com/api/docs/guides/images-vision) says
 billable image tokens and the rest of the prompt fit input/context limits. The
 guard uses that full documented input ceiling rather than a text-length estimate
 or guessed image formula. Function schemas also fit that token bound.
 
-[Standard pricing](https://developers.openai.com/api/docs/pricing) includes2x
-input/1.5x output for input above272K, and1.25x input for cache writes. Worst-case
+[Standard pricing](https://developers.openai.com/api/docs/pricing) includes 2x
+input/1.5x output for input above 272K, and 1.25x input for cache writes. Worst-case
 input pricing takes cache writes. Current conservative amounts are:
 
 | Exact model/envelope | Admitted microusd | USD equivalent |
 | --- | ---: | ---: |
-| Luna extraction, output cap6000, text or image |471800|0.4718|
-| Luna coaching, output cap1800 |464240|0.46424|
-| Terra extraction, output cap6000 |4718000|4.718|
-| Whisper, independently probed61seconds |12000|0.012|
+| Luna extraction, output cap 6000, text or image |471800|0.4718|
+| Luna coaching, output cap 1800 |464240|0.46424|
+| Terra extraction, output cap 6000 |4718000|4.718|
+| Whisper, independently probed 61 seconds |12000|0.012|
 
 Token rates must also be explicitly present, finite and positive in existing
 `ai_model_pricing`. Verified reference floors prevent stale low quotes lowering
 admission; higher configured rates increase it. Discounts are not assumed.
-Whisper's verified0.006USD/min uses conservative whole-minute rounding, only for
-server-probed, validated audio duration up to1800seconds. No duration proof means
+Whisper's verified 0.006 USD/min uses conservative whole-minute rounding, only for
+server-probed, validated audio duration up to 1800 seconds. No duration proof means
 no audio admission. Unknown models or unavailable pricing fail closed.
-Whisper is [scheduled for retirement2027-02-26](https://developers.openai.com/api/docs/deprecations#2026-08-26-transcription-models); a new
+Whisper is [scheduled for retirement 2027-02-26](https://developers.openai.com/api/docs/deprecations#2026-08-26-transcription-models); a new
 transcription model needs independently verified registry/pricing support.
 
 Supported envelopes select the exact provider endpoint and explicit output cap.
@@ -111,9 +111,9 @@ that remains visible rather than being silently clipped. Never persist this
 random budget attempt UUID on an owner/job/request record or expose it to users.
 
 BudgetError provides a closed privacy-safe `code`, `status_code` and optional
-`retry_after_seconds`. Exceeded rolling capacity yields429 with the first expiry
+`retry_after_seconds`. Exceeded rolling capacity yields 429 with the first expiry
 that frees sufficient capacity; configuration, unsupported envelope/model,
-attempt cap or database failures yield503. If the single bound exceeds the daily
+attempt cap or database failures yield 503. If the single bound exceeds the daily
 budget, waiting cannot fix configuration and retry_after is null. Root adapters
 must propagate these bounded failures before provider/fallback invocation; do not
 turn a rejected admission into another paid retry. User messaging can say AI is
@@ -121,15 +121,15 @@ paused without showing source content or operator budget details.
 
 Register `budget_router.router`: GET `/api/admin/workouts/ai-budget?limit=50`.
 It uses the actual existing `app.moderation.require_admin`; no invented admin gate
-or enrollment is introduced. Master disabled returns404 before auth/database.
+or enrollment is introduced. Master disabled returns 404 before auth/database.
 It exposes aggregate admission, remaining capacity, outcomes/model groups, known
 usage estimates, unknown counts and failure codes; no private content/identities.
-Groups have a1–50 limit. These are live diagnostics, not invoice reconciliation.
+Groups have a 1–50 limit. These are live diagnostics, not invoice reconciliation.
 
-Run optional migration040 after035 with verified production
-`MIGRATION_040_RESTORE_POINT`, separate from Recipes ledger/latest33. Invoke
+Run optional migration 040 after 035 with verified production
+`MIGRATION_040_RESTORE_POINT`, separate from Recipes ledger/latest 33. Invoke
 `verify_budget_schema(engine, settings)` in enabled optional readiness. It checks
-ledger40, the exact allowed columns, absence of account foreign keys, and enabled
+ledger 40, the exact allowed columns, absence of account foreign keys, and enabled
 reservation immutability trigger. Do not add this table to user erasure/export or
 new worker startup. Its independent BudgetBase contains no account table.
 

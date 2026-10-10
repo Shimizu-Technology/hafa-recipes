@@ -403,6 +403,7 @@ async def copy_share(db, user_id, generation, token, request):
         # These are the sender's prescriptions, never the recipient's declared
         # baseline. Keep their exact values and identify their source honestly.
         content["provenance"] = "source"
+        content["capture_kind"] = "shared"
         for block in content["blocks"]:
             for exercise in block["exercises"]:
                 exercise["provenance"] = "source"
@@ -444,6 +445,7 @@ async def copy_share(db, user_id, generation, token, request):
             ) from None
         for session in sessions:
             session.workout.provenance = "source"
+            session.workout.capture_kind = "shared"
             for block in session.workout.blocks:
                 for exercise in block.exercises:
                     exercise.provenance = "source"
