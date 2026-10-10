@@ -24,7 +24,7 @@ JPEG reduced IDCT can change encoded output. The transformation fingerprint is
 now `webp-v2-draft-list640-200k-hero1280-500k-q82`, so a backfill run approved for
 the prior transform cannot silently resume under the new contract. Storage already
 hashes the actual encoded variant set. Changed bytes receive a new immutable key;
-the key layout and legacy `thumbnails/v2/<hash>/{list,hero}.webp` classification
+the key layout and existing `thumbnails/<recipe_id>/<hash>/{list,hero}.webp` classification
 remain intact. Existing stored URLs continue selecting their sibling variants.
 
 ## Isolated measurement
