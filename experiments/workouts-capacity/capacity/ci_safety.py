@@ -6,6 +6,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from capacity.driver_diagnostics import partial_metadata
 from capacity.failure_codes import CODES, PHASES
 from capacity.statistics import nearest_rank
 
@@ -25,6 +26,7 @@ BASE_WRITES = {
     "recipes/text",
     "recipes/ocr",
     "recipes/video-submit",
+    "recipes/cover-fallback-submit",
 }
 EXTRA_WRITES = {
     "workouts/activity-write",
@@ -55,6 +57,7 @@ COUNT_KEYS = {
 STAGE_KEYS = {
     "evidence_frames",
     "cover_frames",
+    "cover_cache_reuse",
     "cover_compare",
     "export_build",
     "export_read",
@@ -408,6 +411,7 @@ def phase_receipt(report, samples, phase, baseline=None):
         failures.append("memory_oom_or5xx")
     return {
         "passed": not failures,
+        "partial_outcomes": partial_metadata(report),
         "failure_count": len(failures),
         "peak_bytes": peak,
         "final_bytes": number(samples[-1]["memory_current"]) if samples else None,
@@ -524,11 +528,34 @@ def public_receipt(summary):
             for key in (
                 "passed",
                 "observer_completed",
-                "recipe_jobs_drained",
-                "workout_jobs_drained",
-                "container_oom_killed",
             )
         }
+        for key in (
+            "recipe_jobs_drained",
+            "workout_jobs_drained",
+            "container_oom_killed",
+        ):
+            value = row.get(key)
+            output[key] = value if type(value) is bool else None
+        if "partial_outcomes" in row:
+            # Reapply the fixed-field filter; never trust a private intermediate.
+            value = row["partial_outcomes"]
+            source = {"failure_code": value.get("driver_failure_code")}
+            if value.get("saved_outcomes_available") is True:
+                source["saved_outcomes"] = {
+                    key: value[key]
+                    for key in (
+                        "accepted_workout_count",
+                        "distinct_recipe_jobs_submitted",
+                        "distinct_saved_recipe_links",
+                        "recipes_states",
+                        "workouts_states",
+                        "stage_checkpoints",
+                        "fallback_jobs_submitted",
+                    )
+                    if key in value and value[key] is not None
+                }
+            output["partial_outcomes"] = partial_metadata(source)
         for key in (
             "failure_count",
             "peak_bytes",

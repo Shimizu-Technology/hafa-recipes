@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from capacity.driver_diagnostics import AcceptanceFailure, failure_code
 from capacity.events import STAGES
 from capacity.media_identity import video_url
 from capacity.safety import OWNERS
@@ -30,6 +31,7 @@ REQUEST_LABELS = {
     "recipes/ocr",
     "recipes/manual-write",
     "recipes/video-submit",
+    "recipes/cover-fallback-submit",
     "recipes/chat-context",
     "recipes/chat",
     "recipes/job-poll",
@@ -60,10 +62,6 @@ PROTECTED = {
     "recipes/chat",
     "recipes/manual-write",
 }
-
-
-class AcceptanceFailure(RuntimeError):
-    pass
 
 
 def protected_acceptance(report):
@@ -106,6 +104,7 @@ class Driver:
         self.phase = "diagnostic"
         self.recipe_submission_ids = set()
         self.recipe_saved_links = set()
+        self.fallback_job = None
         self.checkpoints = {}
         self.results = []
         self.jobs = []
@@ -197,7 +196,7 @@ class Driver:
             "GET", "/capacity/status", label="capacity/checkpoint"
         )
         if response.status_code != 200:
-            raise AcceptanceFailure("Synthetic metadata checkpoint unavailable")
+            raise AcceptanceFailure("metadata_checkpoint_unavailable")
         value = response.json()
         stages = value.get("stage_counts", {})
         counters = value.get("provider_attempts", {})
@@ -213,7 +212,7 @@ class Driver:
             )
             or any(type(n) is not int or not 0 <= n <= 1_000_000_000 for n in counts)
         ):
-            raise AcceptanceFailure("Invalid synthetic metadata checkpoint")
+            raise AcceptanceFailure("metadata_checkpoint_invalid")
         diagnostic = value.get("diagnostics", {})
         allowed = {
             "loop_samples",
@@ -228,11 +227,27 @@ class Driver:
             type(n) not in (int, float) or not 0 <= n <= 1e12
             for n in diagnostic.values()
         ):
-            raise AcceptanceFailure("Invalid numeric diagnostic metadata")
+            raise AcceptanceFailure("diagnostic_metadata_invalid")
+        scenarios = value.get("cover_scenarios")
+        if (
+            not isinstance(scenarios, dict)
+            or set(scenarios) != {"cached", "fallback"}
+            or any(
+                not isinstance(row, dict)
+                or set(row) != {"observed", "completed", "linked_recipes"}
+                or any(
+                    type(number) is not int or not 0 <= number <= 100
+                    for number in row.values()
+                )
+                for row in scenarios.values()
+            )
+        ):
+            raise AcceptanceFailure("metadata_checkpoint_invalid")
         self.checkpoints[name] = {
             "stage_counts": stages,
             "provider_attempts": counters,
             "diagnostics": diagnostic,
+            "cover_scenarios": scenarios,
         }
 
     async def prepare(self):
@@ -343,11 +358,20 @@ class Driver:
         if job.status_code in (200, 202):
             identifier = job.json().get("job_id")
             if not identifier or identifier in self.recipe_submission_ids:
-                raise AcceptanceFailure(
-                    "Cold synthetic media did not create a distinct job"
-                )
+                raise AcceptanceFailure("cold_job_not_distinct")
             self.recipe_submission_ids.add(identifier)
             self.recipe_jobs.append((owner, identifier))
+        if index == 0:
+            fallback = await self.request(
+                "POST",
+                "/capacity/cover-fallback",
+                OWNERS[21],
+                label="recipes/cover-fallback-submit",
+                json={"phase": self.phase},
+            )
+            if fallback.status_code != 200 or not fallback.json().get("job_id"):
+                raise AcceptanceFailure("cold_cover_fallback_missing")
+            self.fallback_job = fallback.json()["job_id"]
         listing = await self.request(
             "GET", "/api/recipes/?limit=1", owner, label="recipes/chat-context"
         )
@@ -533,9 +557,7 @@ class Driver:
                     json={"acknowledge_warnings": True},
                 )
                 if accepted.status_code != 200:
-                    raise AcceptanceFailure(
-                        "Reviewed source could not be accepted; stop repeated retries"
-                    )
+                    raise AcceptanceFailure("source_acceptance_failed")
                 self.outcomes["accepted"].add(accepted.json()["id"])
         for owner, identifier in self.recipe_jobs:
             if identifier:
@@ -547,9 +569,7 @@ class Driver:
                     if current.json()["status"] == "completed":
                         saved_id = current.json().get("recipe_id")
                         if not saved_id:
-                            raise AcceptanceFailure(
-                                "Completed cold media job has no saved recipe link"
-                            )
+                            raise AcceptanceFailure("completed_recipe_missing_link")
                         self.recipe_saved_links.add(saved_id)
 
     async def boundaries(self, concurrency=8):
@@ -783,6 +803,7 @@ class Driver:
                 "distinct_recipe_jobs_submitted": len(self.recipe_submission_ids),
                 "distinct_saved_recipe_links": len(self.recipe_saved_links),
                 "stage_checkpoints": self.checkpoints,
+                "fallback_jobs_submitted": int(self.fallback_job is not None),
                 **{
                     kind + "_states": {
                         state: list(self.outcomes[kind].values()).count(state)
@@ -816,6 +837,7 @@ async def run(args):
     driver = Driver(args.fixtures)
     completed = False
     failure_type = None
+    fixed_failure = None
     try:
         driver.phase = (
             "baseline"
@@ -873,7 +895,7 @@ async def run(args):
             await driver.checkpoint("after")
             report = driver.report()
             if any(row["unexpected"] for row in report["routes"].values()):
-                raise AcceptanceFailure("Unexpected status in mixed/baseline workload")
+                raise AcceptanceFailure("unexpected_workload_status")
             stages = driver.checkpoints["after"]["stage_counts"]
             before = driver.checkpoints["before"]["stage_counts"]
             for stage in ("evidence_frames", "cover_frames", "cover_compare"):
@@ -881,33 +903,55 @@ async def run(args):
                     "end", 0
                 ):
                     raise AcceptanceFailure(
-                        "Cold media frame/cover work was not observed"
+                        {
+                            "evidence_frames": "cold_evidence_frames_missing",
+                            "cover_frames": "cold_cover_fallback_missing",
+                            "cover_compare": "cold_cover_compare_missing",
+                        }[stage]
                     )
+            scenarios = driver.checkpoints["after"].get("cover_scenarios")
+            if not isinstance(scenarios, dict) or scenarios.get("cached") != {
+                "observed": 5,
+                "completed": 5,
+                "linked_recipes": 5,
+            }:
+                raise AcceptanceFailure("cold_cover_reuse_missing")
+            if scenarios.get("fallback") != {
+                "observed": 1,
+                "completed": 1,
+                "linked_recipes": 1,
+            }:
+                raise AcceptanceFailure("cold_cover_fallback_missing")
             if not driver.recipe_submission_ids or len(
                 driver.outcomes["recipes"]
             ) != len(driver.recipe_submission_ids):
-                raise AcceptanceFailure("Cold media saved outcomes are missing")
+                raise AcceptanceFailure("cold_saved_outcomes_missing")
             if len(driver.recipe_saved_links) != len(driver.recipe_submission_ids):
-                raise AcceptanceFailure("Cold media saved links are not distinct")
+                raise AcceptanceFailure("cold_saved_links_not_distinct")
             if any(
                 state != "completed" for state in driver.outcomes["recipes"].values()
             ):
-                raise AcceptanceFailure("Cold media jobs have not drained")
+                raise AcceptanceFailure("cold_jobs_not_drained")
         completed = True
         if (
             args.profile in {"recipes-baseline", "mixed"}
             and not protected_acceptance(driver.report())["passed"]
         ):
-            raise AcceptanceFailure("Protected category missing or non-200 response")
+            raise AcceptanceFailure("protected_category_failed")
     except BaseException as exc:
         # Preserve cancellation/transport failure while retaining partial numeric
         # evidence. Never serialize provider messages, source payloads or URLs.
         failure_type = type(exc).__name__
+        fixed_failure = failure_code(exc)
         raise
     finally:
         try:
             report = driver.report()
-            report.update(completed=completed, failure_type=failure_type)
+            report.update(
+                completed=completed,
+                failure_type=failure_type,
+                failure_code=fixed_failure,
+            )
             if args.profile in {"recipes-baseline", "mixed"}:
                 report["protected_acceptance"] = protected_acceptance(report)
             Path(args.output).write_text(json.dumps(report, indent=2))

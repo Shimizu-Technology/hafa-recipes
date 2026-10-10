@@ -44,6 +44,7 @@ class Coordinator:
         self.finalization_unconfirmed = False
         self.active_phase = None
         self.baseline = None
+        self.phase_before_counts = None
         self.summary = {
             "schema_version": 1,
             "failure": None,
@@ -313,7 +314,9 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
 
     def phase(self, phase, *, retain_api=False):
         self.active_phase = phase
+        self.phase_before_counts = None
         before_counts = self.saved_counts()
+        self.phase_before_counts = before_counts
         self.start_api(phase)
         result_dir = self.plan_root / "results"
         memory = result_dir / f"{phase}-external.jsonl"
@@ -418,6 +421,7 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
             for stage in (
                 "evidence_frames",
                 "cover_frames",
+                "cover_cache_reuse",
                 "cover_compare",
                 "export_build",
                 "export_read",
@@ -437,8 +441,14 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
         ):
             receipt["passed"] = False
         if any(
-            receipt["saved_count_deltas"][key] != 5
-            for key in ("extract_jobs", "cover_jobs", "extract_saved", "cover_saved")
+            receipt["saved_count_deltas"][key] != expected
+            for key, expected in {
+                "recipes": 11,
+                "extract_jobs": 5,
+                "cover_jobs": 6,
+                "extract_saved": 5,
+                "cover_saved": 6,
+            }.items()
         ):
             receipt["passed"] = False
         if phase == "mixed" and (
@@ -604,6 +614,22 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
             state = self.ledger.inspect(self.ledger.state["containers"]["api"])["State"]
             receipt["container_oom_killed"] = state["OOMKilled"]
         receipt["timeline"] = numeric_timeline(samples, str(path) + ".requests.jsonl")
+        # Load failure does not erase already-captured outcomes. A final bounded
+        # private DB query can establish drain/counts; unavailable stays unknown.
+        receipt["recipe_jobs_drained"] = None
+        receipt["workout_jobs_drained"] = None
+        if self.ledger and getattr(self, "pg", None):
+            try:
+                after = self.saved_counts()
+                receipt["recipe_jobs_drained"] = after["recipe_active"] == 0
+                receipt["workout_jobs_drained"] = after["workout_active"] == 0
+                if self.phase_before_counts is not None:
+                    receipt["saved_count_deltas"] = {
+                        key: after[key] - value
+                        for key, value in self.phase_before_counts.items()
+                    }
+            except BaseException:  # noqa: BLE001, S110 - optional evidence, never reset original cause
+                pass
         self.summary["phases"][self.active_phase] = receipt
 
     def cleanup(self):

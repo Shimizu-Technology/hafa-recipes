@@ -42,6 +42,7 @@ def environment():
         "SENTRY_DSN": "",
         "CAPACITY_PROVIDER_DELAY": "0.25",
         "CAPACITY_PHASE": "baseline",
+        "CAPACITY_COVER_SCENARIOS": "true",
         "VIDEO_FRAME_EXTRACTION_ENABLED": "true",
         "JOB_WORKER_ENABLED": "true",
     }
@@ -353,6 +354,17 @@ def build_plan(
         "cold_media": {
             "phase_distinct_canonical_ids": True,
             "fresh_job_and_frame_checkpoints_required": True,
+            "cached_extraction_covers_per_phase": 5,
+            "cache_absent_durable_covers_per_phase": 1,
+            "cache_absent_scenario": "One guarded test-only private external recipe and empty-candidate durable cover job; no public regeneration route or cache clearing.",
+            "expected_saved_deltas": {
+                "recipes": 11,
+                "extract_jobs": 5,
+                "extract_saved": 5,
+                "cover_jobs": 6,
+                "cover_saved": 6,
+            },
+            "success_requires_completed_jobs_and_distinct_owned_recipe_links": True,
         },
         "source_preflight": "Must pass all grounded fixture facts before load; PDF blocked under current amd64 emulation. No parser-limit bypass.",
         "financial_guard": "synthetic throughput only; separate real-guard denial tests required",
@@ -363,6 +375,7 @@ def build_plan(
             "read_p95_ms": 500,
             "write_p95_ms": 1000,
             "baseline_p95_multiplier": 1.25,
+            "baseline_p99_multiplier": 2,
         },
         "resource_names": {"network": network, "postgres": postgres, "api": api},
         "commands": commands,

@@ -17,6 +17,7 @@ transport = install_provider_transport(
 
 from app.auth import ClerkUser, get_current_user, get_optional_user
 from app.config import get_settings
+from app.db.database import AsyncSessionLocal
 from app.domains.workouts import coach, imports
 from app.domains.workouts.extraction import (
     ProductionExtractionProvider,
@@ -187,6 +188,10 @@ from capacity.diagnostics import Diagnostics
 diagnostics = Diagnostics(phase)
 diagnostics.install(app)
 
+from capacity.cover_scenarios import install as install_cover_scenarios
+
+cover_scenarios = install_cover_scenarios(app, identity, phase)
+
 
 @app.get("/capacity/status")
 async def capacity_status():
@@ -198,6 +203,9 @@ async def capacity_status():
         "financial_guard": "synthetic throughput only",
         "auth": "fixture whitelist",
         "workouts_enabled": get_settings().workouts_api_enabled,
+        "cover_scenarios": await cover_scenarios.snapshot(AsyncSessionLocal)
+        if cover_scenarios
+        else None,
     }
 
 

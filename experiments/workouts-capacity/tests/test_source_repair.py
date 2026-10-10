@@ -147,7 +147,7 @@ async def test_duplicate_recipe_job_is_a_cold_coverage_failure(tmp_path):
     )
     try:
         await driver.media_and_chat(0, False)
-        with pytest.raises(AcceptanceFailure, match="distinct job"):
+        with pytest.raises(AcceptanceFailure, match="cold_job_not_distinct"):
             await driver.media_and_chat(1, False)
     finally:
         await driver.client.aclose()

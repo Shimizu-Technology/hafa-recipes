@@ -19,6 +19,7 @@ STAGES = {
     "thumbnail_normalize",
     "cover_compare",
     "cover_frames",
+    "cover_cache_reuse",
     "evidence_frames",
     "export_build",
     "export_read",
