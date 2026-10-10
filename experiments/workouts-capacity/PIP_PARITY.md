@@ -104,7 +104,7 @@ and host controllers were removed/released; borrowed root PG was untouched.
 ## Accepted bounded fd2ef919 baseline — 2026-10-11
 
 After root inspected the harness repair and immutable image `131ff22e...`, the
-authorized 300-second Recipes-off baseline and 450-second host observation both
+authorized 300-second Workouts-off Recipes baseline and 450-second host observation both
 completed. This one local baseline passes the agreed gates; it does not close R04.
 Production bytes, package pins, environment, original image/video fixture hashes
 and the 410/460 MiB limits were unchanged. Seed JSON now meets the actual schema.
