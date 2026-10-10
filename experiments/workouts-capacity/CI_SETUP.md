@@ -68,7 +68,7 @@ phase evidence and resetting cleanup-deadline flaws. Those were fixed with
 regressions. The source gates include the real schema/grounding/handler checks,
 foreign-owner refusal, lost-create recovery, exact API recreation, old export/up
 SLO failures, receipt filtering, interrupted evidence and finalization bounds.
-The latest full gate passed 48 tests; the export-priority timeline regression and
+The latest full gate passed 49 tests in 10.44 seconds; the export-priority timeline regression and
 focused CI suite passed 13 tests. Ruff/diff and workflow structure checks passed.
 Actual hosted execution, end-to-end coordinator behavior and the additional
 legal boundary matrix are NOT_RUN; passing source tests does not claim those
