@@ -77,18 +77,24 @@ async def consent(api, accepted=True):
     assert r.status_code == 200, r.text
 
 
-@pytest.mark.parametrize("budget", [0, 5_000_000])
+@pytest.mark.parametrize(
+    "budget,authority",
+    [(0, None), (5_000_000, None), (5_000_000, "postgresql://synthetic@localhost/authority_test")],
+)
 async def test_operational_capabilities_hide_ai_when_budget_is_zero(
-    automation_api, monkeypatch, budget
+    automation_api, monkeypatch, budget, authority
 ):
     configured = settings(workouts_imports_enabled=True, workouts_ai_enabled=True).model_copy(
-        update={"workouts_ai_budget_24h_microusd": budget}
+        update={
+            "workouts_ai_budget_24h_microusd": budget,
+            "workouts_ai_budget_database_url": authority,
+        }
     )
     monkeypatch.setattr(automation_router, "get_settings", lambda: configured)
     response = await automation_api.client.get("/api/v1/workouts/capabilities")
     assert response.status_code == 200, response.text
-    assert response.json()["imports"] is (budget > 0)
-    assert response.json()["coach"] is (budget > 0)
+    assert response.json()["imports"] is (budget > 0 and bool(authority))
+    assert response.json()["coach"] is (budget > 0 and bool(authority))
     assert response.json()["billing_active"] is False
 
 
