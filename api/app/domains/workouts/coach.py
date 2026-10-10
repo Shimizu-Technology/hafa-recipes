@@ -97,7 +97,7 @@ class ProductionCoachProvider:
         environment_allowed = settings.environment == "production" or (
             settings.environment == "development"
             and settings.allow_paid_ai_in_development
-            and bool(self.development_api_key)
+            and bool(self.key(settings))
         )
         return bool(
             environment_allowed
@@ -108,11 +108,10 @@ class ProductionCoachProvider:
         )
 
     def key(self, settings):
-        return (
-            self.development_api_key
-            if settings.environment == "development"
-            else settings.openai_api_key
-        )
+        if settings.environment != "development":
+            return settings.openai_api_key
+        configured = getattr(settings, "workouts_development_ai_api_key", None)
+        return self.development_api_key or (configured.get_secret_value() if configured else None)
 
     async def respond(self, items, *, tools):
         if not self.enabled:

@@ -69,3 +69,63 @@ is registered separately. App Store Connect's user session expired. Leon is away
 and cannot log in now; creation of the app record remains pending while other work
 continues. No credentials are requested in chat, and existing Recipes identities
 and app records are preserved.
+
+## Coherent backend services review base
+
+This branch is `codex/workouts-backend-services`, based on the first 23 assembly
+commits through `a5fa546b0e4d7b209191ddf7748d52efb6f80d77`, against verified
+`main` at `1385ca79df33a287e8f38fe17968c6d785605ab9`. It keeps complete source
+extraction/import review, guarded coach actions and continuity, private Health
+and Recipes connections, sharing/copying, library organization, measurements,
+anonymous admission budgets and import allowances together. Their implementation,
+migrations 035–042, tests, provider fakes, dependency locks and domain docs remain
+in this review base. Base membership/programming migration 034 already belongs
+to main; Recipes core migrations remain through 033.
+
+The dependent slice keeps commits `11f9cf9`, `e87ef7b`, `a0d7c10`, `c0f2879`,
+`a06f3b0`, `554ef3a` and `3b064f7`, with private export snapshots, completed
+activity logging, migrations 043–044, all snapshot/privacy/activity tests and docs,
+and their corresponding route/readiness/erasure/response-admission integration.
+No export-snapshot or activity-log module, import, migration or readiness check
+is mounted by this base. Existing live paged export remains available to
+authorized Workouts accounts; consistent encrypted export is a dependent feature.
+
+Two scoped changes move forward from those later commits: Håfa OpenAPI branding
+preserves the full legacy `/` discovery response, and local real-provider wiring
+uses a dedicated SecretStr development key with explicit paid-processing opt-in
+and positive admission budget. Zero-budget operational capabilities hide AI
+actions. The website share path carries its token in `/shared#...`; native and
+API paths retain their existing forms.
+
+Every Workouts capability remains disabled by default and the committed admission
+budget remains0. This partition does not turn on production, apply optional
+production migrations, issue a credential, spend provider funds or alter a
+Recipes identity/app record. D03 qualified programming review, real-provider
+quality, physical Health integrations, exact released Recipes binary smoke,
+mixed workload/capacity and full native/store acceptance remain open.
+
+The assembled PR133 head had 110 changed files, 109 selected by CodeRabbit's existing
+lockfile filter. The initial base cut has 91 changed files and 90 selected. The
+scoped naming test and this status/QA documentation bring the base to 94 changed
+files, 93 selected under the same existing lockfile filter. Count the actual PR
+diff again before publication. No tests or docs were omitted to
+satisfy the review limit. CodeRabbit also reports unavailable credits; reducing
+file count does not establish that a review can run or that code was approved.
+
+Validation for this partitioned base passed the complete `./scripts/check.sh`
+gate: 1606 API tests passed, 34 skipped, 16 warnings; 790 Recipes mobile tests and
+type checking passed; Expo Doctor passed 21/21; the runtime audit retained 48
+inherited findings and 12 reviewed upstream advisories with 0 unexpected findings.
+Marketing/admin production audits found 0 vulnerabilities; their lint/type/build
+checks passed and the admin suite passed 13 tests. Ruff and whitespace checks
+passed. Dependency installation used explicit Node 22.22.3; the unchanged
+repository gate selects Node 22.22.2 for its JavaScript stages. These receipts
+apply to the a5fa546 base plus the scoped forward changes recorded above,
+including dedicated development-key transport/fail-closed, zero-budget capability
+and fragment share-link regression checks. Fake provider transport was used.
+
+The disposable `hafa_workouts_backend_services_test` database was removed after
+testing. The borrowed PostgreSQL service and root's QA resources remain available.
+No server, browser tab, simulator, credential or paid call was started by this
+base task. The clean branch/worktree remains for root's independent review and
+PR creation; this task did not push, create a PR or merge.

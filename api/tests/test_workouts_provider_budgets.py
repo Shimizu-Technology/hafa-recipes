@@ -5,6 +5,7 @@ import asyncio
 import json
 
 import pytest
+from pydantic import SecretStr
 from sqlalchemy import select
 
 from app import ai_governance, config
@@ -66,6 +67,59 @@ async def provider_environment(monkeypatch):
     monkeypatch.setattr(ai_governance, "AIInvocationTracker", Tracker)
     Tracker.attempts, Tracker.selected_model = [], None
     return configured
+
+
+@pytest.mark.parametrize("kind", ["extraction", "coach"])
+async def test_configured_development_key_is_used_in_transport(
+    provider_environment, monkeypatch, kind
+):
+    configured = provider_environment.model_copy(
+        update={
+            "openai_api_key": "synthetic-shared-key",
+            "workouts_development_ai_api_key": SecretStr("synthetic-workouts-development-key"),
+        }
+    )
+    monkeypatch.setattr(config, "get_settings", lambda: configured)
+    monkeypatch.setattr(coach, "get_settings", lambda: configured)
+    assert "synthetic-workouts-development-key" not in repr(configured)
+    calls = []
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, **kwargs):
+            assert kwargs["headers"]["Authorization"] == "Bearer synthetic-workouts-development-key"
+            calls.append(url)
+            return Response(completion() if kind == "extraction" else coach_response())
+
+    monkeypatch.setattr(extraction.httpx, "AsyncClient", Client)
+    if kind == "extraction":
+        await ProductionExtractionProvider(budget_guard=FakeBudget()).extract(source())
+    else:
+        await ProductionCoachProvider(budget_guard=FakeBudget()).respond([], tools=[])
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("kind", ["extraction", "coach"])
+async def test_missing_development_key_cannot_borrow_shared_key(
+    provider_environment, monkeypatch, kind
+):
+    calls = install_http(monkeypatch)
+    assert provider_environment.workouts_development_ai_api_key is None
+    if kind == "extraction":
+        with pytest.raises(ExtractionFailure, match="paid_provider_disabled"):
+            await ProductionExtractionProvider(budget_guard=FakeBudget()).extract(source())
+    else:
+        with pytest.raises(CoachFailure, match="provider_disabled"):
+            await ProductionCoachProvider(budget_guard=FakeBudget()).respond([], tools=[])
+    assert calls == []
 
 
 def source():

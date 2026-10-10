@@ -259,11 +259,10 @@ class ProductionExtractionProvider:
         return self._budget_guard or BudgetGuard(BudgetPolicy.from_settings(settings))
 
     def _key(self, settings) -> str | None:
-        return (
-            self._development_api_key
-            if settings.environment == "development"
-            else settings.openai_api_key
-        )
+        if settings.environment != "development":
+            return settings.openai_api_key
+        configured = getattr(settings, "workouts_development_ai_api_key", None)
+        return self._development_api_key or (configured.get_secret_value() if configured else None)
 
     @property
     def enabled(self) -> bool:
@@ -276,7 +275,7 @@ class ProductionExtractionProvider:
                 or (
                     settings.environment == "development"
                     and settings.allow_paid_ai_in_development
-                    and bool(self._development_api_key)
+                    and bool(self._key(settings))
                 )
             )
             and settings.workouts_api_enabled

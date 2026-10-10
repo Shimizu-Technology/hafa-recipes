@@ -21,3 +21,18 @@ Tests use synthetic HTTP/audio clients and an exact disposable PostgreSQL databa
 The official [Responses API reference](https://developers.openai.com/api/reference/resources/responses/methods/create) defines output limits and the standard service tier. The official [transcription reference](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create) defines the audio request. Model/pricing bounds and their limits remain documented in [AI_ADMISSION_BUDGET.md](AI_ADMISSION_BUDGET.md).
 
 Final local gate: `uv run pytest tests/test_workouts_provider_budgets.py tests/test_workout_extraction.py tests/test_workout_coach.py tests/test_workouts_ai_budget.py -q --tb=short` passed116 cases. Ruff and Git whitespace checks passed. The exact owned `hafa_workouts_provider_budget_test` database was dropped after testing; the borrowed PostgreSQL container stayed running.
+
+Local real-provider evaluation requires a separately issued development key in ignored `WORKOUTS_DEVELOPMENT_AI_API_KEY`, `ALLOW_PAID_AI_IN_DEVELOPMENT=true`, the explicit capability flags and a positive admission budget. This SecretStr is never substituted with the shared production OpenAI credential in development. Production continues its existing provider credential binding. No development key has been provisioned and no real evaluation calls have been executed by this integration. Public capability projection hides AI actions when the operational budget is zero.
+
+Leon authorized at most $5 per day combined across Workouts testing and beta. Any
+allocations across separate databases/environments must sum to at most $5; this
+is not a $5 allowance for each environment. The committed operational budget
+remains 0 and production capabilities remain off; the dedicated development key
+is still unavailable. No actual paid call has occurred.
+
+Under the current conservative admission envelope, one Luna extraction reserves
+$0.4718 and its Terra fallback reserves $4.718, totaling $5.1898. Both cannot be
+admitted in the same $5 rolling-day window, even when no other calls were admitted.
+The guard denies the fallback and manual completion remains available. Do not
+increase the budget automatically to accommodate fallback; any later envelope
+change requires independent verification and the same combined spending ceiling.
