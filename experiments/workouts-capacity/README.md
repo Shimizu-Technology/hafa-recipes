@@ -29,6 +29,8 @@ enter the context. The copier selects Git-tracked candidate files only, excludes
 all untracked runtime files, and refuses tracked dotenv files or symlinks before
 copying. `.git`, `.env`, dependency caches and private runtime files do not. Resolve/pin Python and PostgreSQL image digests before recording artifact
 parity. Record Python/package/ffmpeg versions and the actual candidate commit.
+The source label is declared after dependency installation so a new commit does
+not change the dependency RUN environment and invalidate otherwise reusable layers.
 
 After inspection, root executes the plan's argv steps individually, verifying
 names are absent first and recording each returned exact container/network ID.
