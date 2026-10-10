@@ -17,7 +17,7 @@ from tests.test_workouts_data_integration import settings
 
 def test_all_function_schemas_are_strict_and_required():
     tools = tool_definitions()
-    assert len(tools) == 5
+    assert len(tools) == 9
     for tool in tools:
         assert tool["strict"] is True
         schema = tool["parameters"]

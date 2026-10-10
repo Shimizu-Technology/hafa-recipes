@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import HTTPException
-from pydantic import Field
+from pydantic import Field, model_validator
 from sqlalchemy import String, cast, delete, func, select, update
 
 from app.config import get_settings
@@ -30,20 +30,36 @@ from app.domains.workouts.models import (
     WorkoutsActivity,
     WorkoutsProfile,
     WorkoutsProgram,
+    WorkoutsSession,
 )
-from app.domains.workouts.router import content_digest
+from app.domains.workouts.router import content_digest, owned_record
 from app.domains.workouts.schemas import DomainModel
 from app.models.ai import AIInvocation
 
 MAX_MESSAGES_PER_DAY = 50
 MAX_CONTEXT_BYTES = 60000
 MAX_CALLS = 3
-PROMPT_VERSION = "workouts-coach-1"
+PROMPT_VERSION = "workouts-coach-2"
 
 
 class CoachRequest(DomainModel):
     request_id: UUID
     message: str = Field(min_length=1, max_length=4000)
+    context_workout_id: UUID | None = None
+    context_program_id: UUID | None = None
+    context_session_id: UUID | None = None
+    context_revision: int | None = Field(default=None, strict=True, ge=1)
+
+    @model_validator(mode="after")
+    def bounded_focus(self):
+        identifiers = [self.context_workout_id, self.context_program_id, self.context_session_id]
+        if sum(value is not None for value in identifiers) > 1:
+            raise ValueError("Choose one conversation focus")
+        if self.context_revision is not None and not (
+            self.context_workout_id or self.context_program_id
+        ):
+            raise ValueError("A context revision requires a workout or program")
+        return self
 
 
 class CoachFailure(Exception):
@@ -108,7 +124,7 @@ class ProductionCoachProvider:
             capability="workout_coach",
             primary_model=settings.workout_coach_model,
             prompt_version=PROMPT_VERSION,
-            schema_version="coach-tools-1",
+            schema_version="coach-tools-2",
         ) as invocation:
             try:
                 async with httpx.AsyncClient(timeout=45) as client:
@@ -196,7 +212,25 @@ def validate_inspected_ids(calls, context):
             raise CoachFailure("uninspected_source")
 
 
-async def build_context(db, user_id, generation, consent):
+async def build_context(db, user_id, generation, consent, *, focus=None):
+    focus = focus or {}
+    focused = None
+    focused_model = None
+    for field, model in (
+        ("context_workout_id", WorkoutRecord),
+        ("context_program_id", WorkoutsProgram),
+        ("context_session_id", WorkoutsSession),
+    ):
+        if focus.get(field):
+            focused_model = model
+            focused = await owned_record(db, model, UUID(focus[field]), user_id, generation)
+            if health_derived(focused.content):
+                raise HTTPException(409, "This context needs provenance review before coaching")
+            if (
+                focus.get("context_revision") is not None
+                and focused.revision != focus["context_revision"]
+            ):
+                raise HTTPException(409, "The selected context changed; refresh before chatting")
     profile, revision = await effective_profile(db, user_id, generation)
     stored = await db.get(WorkoutsProfile, user_id, populate_existing=True)
     boundary = max(stored.updated_at, consent.accepted_at)
@@ -214,6 +248,7 @@ async def build_context(db, user_id, generation, consent):
         "actuals": [],
         "manual_activities": [],
         "history": [],
+        "focus": focus,
         "coverage": {
             "library_limit": 10,
             "program_limit": 3,
@@ -231,6 +266,8 @@ async def build_context(db, user_id, generation, consent):
                 .limit(limit)
             )
         ).all()
+        if focused_model is model and all(row.id != focused.id for row in rows):
+            rows = list(rows[: limit - 1]) + [focused]
         for row in rows:
             if not health_derived(row.content):
                 content = deepcopy(row.content)
@@ -262,11 +299,28 @@ async def build_context(db, user_id, generation, consent):
                             }
                             for session in sessions[:36]
                         ],
+                        "schedule_state": {
+                            "status": content.get("schedule_state", {}).get("status", "active"),
+                            "paused_at": content.get("schedule_state", {}).get("paused_at"),
+                            "paused_session_count": len(
+                                content.get("schedule_state", {}).get("paused_sessions", [])
+                            ),
+                        },
                     }
                 if len(json.dumps(item)) < 14000:
                     context[label].append(item)
-    for row in (await current_actuals(db, user_id, generation))[:12]:
+    actual_rows = (await current_actuals(db, user_id, generation))[:12]
+    if focused_model is WorkoutsSession and all(row.id != focused.id for row in actual_rows):
+        actual_rows = actual_rows[:11] + [focused]
+    for row in actual_rows:
         content = row.content
+        corrected_by = await db.scalar(
+            select(WorkoutsSession.id).where(
+                WorkoutsSession.app_user_id == user_id,
+                WorkoutsSession.generation == generation,
+                WorkoutsSession.supersedes_session_id == row.id,
+            )
+        )
         context["actuals"].append(
             {
                 "id": str(row.id),
@@ -274,6 +328,8 @@ async def build_context(db, user_id, generation, consent):
                 "program_id": str(row.source_program_id) if row.source_program_id else None,
                 "started_at": content.get("started_at"),
                 "status": content.get("status"),
+                "is_current": corrected_by is None,
+                "corrected_by_session_id": str(corrected_by) if corrected_by else None,
                 "actuals": [
                     {
                         key: item.get(key)
@@ -322,7 +378,9 @@ async def build_context(db, user_id, generation, consent):
     context["history"] = [
         {"user": row.user_message[:1000], "assistant": row.assistant_message[:2000]}
         for row in reversed(rows)
-        if row.proposals.get("state") == "completed" and not row.used_health_context
+        if row.proposals.get("state") == "completed"
+        and not row.used_health_context
+        and row.proposals.get("focus", {}) == focus
     ][-6:]
     # Fail usefully instead of silently truncating key context and pretending it was inspected.
     if len(json.dumps(context).encode()) > MAX_CONTEXT_BYTES:
@@ -356,6 +414,7 @@ def message_response(row):
         "assistant_message": row.assistant_message,
         "actions": actions,
         "created_at": row.created_at,
+        "focus": row.proposals.get("focus", {}),
     }
 
 
@@ -420,7 +479,9 @@ class WorkoutCoach:
             or row.proposals.get("state") != "pending"
         ):
             raise HTTPException(409, "Conversation was cleared or this request is no longer active")
-        context, fresh = await build_context(db, user_id, generation, consent)
+        context, fresh = await build_context(
+            db, user_id, generation, consent, focus=row.proposals.get("focus", {})
+        )
         if fresh != fingerprint:
             raise HTTPException(409, "Training context changed; send a fresh request")
         return row, context
@@ -449,7 +510,7 @@ class WorkoutCoach:
                 WorkoutCoachMessage.request_id == request.request_id,
             )
         )
-        digest = content_digest(request.model_dump(mode="json"))
+        digest = content_digest(request.model_dump(mode="json", exclude_none=True))
         if existing:
             if existing.proposals.get("state") == "cleared":
                 raise HTTPException(410, "This conversation request was cleared")
@@ -492,7 +553,12 @@ class WorkoutCoach:
         count = await db.scalar(select(func.count()).select_from(quota_requests.subquery()))
         if count >= MAX_MESSAGES_PER_DAY:
             raise HTTPException(429, "The beta coach allows 50 messages per rolling day")
-        context, fingerprint = await build_context(db, user_id, generation, consent)
+        focus = {
+            key: value
+            for key, value in request.model_dump(mode="json", exclude_none=True).items()
+            if key.startswith("context_")
+        }
+        context, fingerprint = await build_context(db, user_id, generation, consent, focus=focus)
         consent_at = consent.accepted_at
         token = str(uuid4())
         row = WorkoutCoachMessage(
@@ -508,6 +574,7 @@ class WorkoutCoach:
                 "token": token,
                 "actions": [],
                 "consent_at": consent_at.isoformat(),
+                "focus": focus,
             },
             used_health_context=False,
         )
@@ -612,6 +679,7 @@ class WorkoutCoach:
                 "state": "completed",
                 "actions": receipts,
                 "consent_at": consent_at.isoformat(),
+                "focus": focus,
             }
             await db.commit()
             return message_response(row)
@@ -629,6 +697,7 @@ class WorkoutCoach:
                     "state": "failed",
                     "actions": [],
                     "consent_at": consent_at.isoformat(),
+                    "focus": focus,
                 }
                 row.assistant_message = "I couldn't finish this request. Review your current training information and send a new message to retry."
                 await db.commit()

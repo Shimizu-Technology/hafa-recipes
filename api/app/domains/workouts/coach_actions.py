@@ -1,7 +1,7 @@
 """Validated coach tools. Model output proposes; only an explicit receipt accepts."""
 
 from copy import deepcopy
-from datetime import date, datetime
+from datetime import date
 from typing import Literal
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
@@ -11,12 +11,26 @@ from pydantic import Field
 from sqlalchemy import String, cast, select
 
 from app.config import get_settings
-from app.domains.workouts.automation_models import WorkoutCoachMessage, WorkoutProposal
+from app.domains.workouts.automation_models import (
+    WorkoutCoachMessage,
+    WorkoutProposal,
+    WorkoutReadiness,
+)
 from app.domains.workouts.automation_router import (
     effective_profile,
     persist_proposal,
     proposal_context_hash,
     store_workout,
+)
+from app.domains.workouts.coach_continuity import (
+    bulk_schedule,
+    comparable_progression,
+    future_change_guard,
+    running_geometry,
+    running_progression,
+    running_workout,
+    shorter_workout,
+    validate_calendar,
 )
 from app.domains.workouts.imports import require_ai_consent
 from app.domains.workouts.lifecycle import membership_for, now
@@ -29,11 +43,10 @@ from app.domains.workouts.models import (
     WorkoutsSession,
     WorkoutVersion,
 )
-from app.domains.workouts.programming import adapt_workout, build_program, evaluate_progression
+from app.domains.workouts.programming import REVIEW_NOTICE, adapt_workout, build_program
 from app.domains.workouts.router import content_digest, owned_record, validated_workout
 from app.domains.workouts.schemas import (
     ActivityContext,
-    CompletedExposure,
     DomainModel,
     TrainingProfile,
     WorkoutContent,
@@ -80,6 +93,36 @@ class ProgressionAction(DomainModel):
     exercise_index: int = Field(ge=0, le=99, strict=True)
 
 
+class RunningAction(DomainModel):
+    program_id: UUID
+    expected_revision: int = Field(ge=1, strict=True)
+
+
+class BulkScheduleAction(DomainModel):
+    program_id: UUID
+    expected_revision: int = Field(ge=1, strict=True)
+    operation: Literal["shift", "pause", "return"]
+    shift_days: int | None = Field(default=None, ge=-365, le=365, strict=True)
+    start_date: date | None = None
+
+
+class ProgramProgressionAction(DomainModel):
+    program_id: UUID
+    expected_revision: int = Field(ge=1, strict=True)
+    session_id: str = Field(min_length=1, max_length=100)
+    block_id: str = Field(min_length=1, max_length=100)
+    exercise_index: int = Field(ge=0, le=99, strict=True)
+
+
+class SessionAlternativeAction(DomainModel):
+    program_id: UUID
+    expected_revision: int = Field(ge=1, strict=True)
+    session_id: str = Field(min_length=1, max_length=100)
+    operation: Literal["swap", "shorten"]
+    other_session_id: str | None = Field(default=None, max_length=100)
+    minutes: int | None = Field(default=None, ge=5, le=180, strict=True)
+
+
 TOOLS = {
     "propose_training_plan": (
         PlanAction,
@@ -100,6 +143,22 @@ TOOLS = {
     "review_actual_progression": (
         ProgressionAction,
         "Evaluate comparable recorded actuals; the server chooses whether any load increase is supported.",
+    ),
+    "review_running_stage": (
+        RunningAction,
+        "Review three actual full-stage results and propose the next introductory stage; calendar weeks and shortened sessions do not prove completion.",
+    ),
+    "adjust_program_calendar": (
+        BulkScheduleAction,
+        "Preview a bulk future shift, pause or return. Return requires a direct user acceptance baseline confirmation and fresh readiness. Never stack missed sessions.",
+    ),
+    "review_program_exercise": (
+        ProgramProgressionAction,
+        "Review comparable actual round/set/side feedback for a future program exercise, then propose changes only to matching future prescriptions.",
+    ),
+    "prepare_session_alternative": (
+        SessionAlternativeAction,
+        "Preview swapping two future sessions or a shorter known timed walking/run-walk alternative. Unknown optional strength/source work requires clarification.",
     ),
 }
 
@@ -181,6 +240,38 @@ async def current_actuals(db, user_id, generation, *, workout_id=None, program_i
     return [row for row in rows if not health_derived(row.content)]
 
 
+async def recorded_program_ids(db, user_id, generation, program_id):
+    # Every historical recording freezes its prescription; no latest-30 coverage gap.
+    identifiers = (
+        await db.scalars(
+            select(WorkoutsSession.content["program_session_id"].astext).where(
+                WorkoutsSession.app_user_id == user_id,
+                WorkoutsSession.generation == generation,
+                WorkoutsSession.source_program_id == program_id,
+            )
+        )
+    ).all()
+    return {identifier for identifier in identifiers if identifier is not None}
+
+
+async def owned_program_hash(db, user_id, generation):
+    rows = (
+        await db.execute(
+            select(WorkoutsProgram.id, WorkoutsProgram.revision)
+            .where(WorkoutsProgram.app_user_id == user_id, WorkoutsProgram.generation == generation)
+            .order_by(WorkoutsProgram.id)
+        )
+    ).all()
+    return content_digest([(str(identifier), revision) for identifier, revision in rows])
+
+
+async def safe_program(db, user_id, generation, identifier, revision):
+    row = await owned_record(db, WorkoutsProgram, identifier, user_id, generation)
+    if row.revision != revision or health_derived(row.content):
+        raise HTTPException(409, "Program changed or needs provenance review")
+    return row
+
+
 async def prepare_action(db, user_id, generation, name, arguments, *, compose_library_program=None):
     if name not in TOOLS:
         raise HTTPException(422, "Unknown coaching action")
@@ -215,6 +306,7 @@ async def prepare_action(db, user_id, generation, name, arguments, *, compose_li
     target_revision = None
     before = None
     source_revisions = []
+    before_profile = None
     if isinstance(action, PlanAction):
         if action.start_date < today:
             raise HTTPException(422, "A new plan must start today or later")
@@ -263,10 +355,8 @@ async def prepare_action(db, user_id, generation, name, arguments, *, compose_li
         selected = next((item for item in sessions if item["id"] == action.session_id), None)
         if selected is None:
             raise HTTPException(404, "Scheduled session not found")
-        actuals = await current_actuals(db, user_id, generation, program_id=source.id)
-        if date.fromisoformat(selected["date"]) <= today or any(
-            row.content.get("program_session_id") == action.session_id for row in actuals
-        ):
+        recorded = await recorded_program_ids(db, user_id, generation, source.id)
+        if date.fromisoformat(selected["date"]) <= today or action.session_id in recorded:
             raise HTTPException(409, "Only future uncompleted sessions may change")
         if action.operation == "skip":
             sessions.remove(selected)
@@ -296,85 +386,268 @@ async def prepare_action(db, user_id, generation, name, arguments, *, compose_li
         before = source.content
         kind, target, target_revision = "schedule", source.id, source.revision
         content = {"status": "ready", "program": content, "session_id": action.session_id}
+    elif isinstance(action, BulkScheduleAction):
+        source = await safe_program(
+            db, user_id, generation, action.program_id, action.expected_revision
+        )
+        recorded = await recorded_program_ids(db, user_id, generation, source.id)
+        state = source.content.get("schedule_state", {})
+        if action.operation == "return" and state.get("paused_at"):
+            readiness = await db.get(WorkoutReadiness, user_id, populate_existing=True)
+            from datetime import datetime
+
+            if (
+                not readiness
+                or readiness.confirmed_at <= datetime.fromisoformat(state["paused_at"])
+                or profile.readiness != "ready"
+            ):
+                raise HTTPException(
+                    409, "Confirm fresh readiness and a comfortable baseline after the pause"
+                )
+        updated, ids = bulk_schedule(
+            source.content,
+            profile,
+            recorded,
+            today,
+            action.operation,
+            shift_days=action.shift_days,
+            start_date=action.start_date,
+        )
+        future_change_guard(
+            source.content,
+            updated,
+            set(ids),
+            recorded,
+            today,
+            returning=action.operation == "return",
+        )
+        before = source.content
+        kind, target, target_revision = "schedule", source.id, source.revision
+        content = {
+            "status": "ready",
+            "operation": action.operation,
+            "program": updated,
+            "session_ids": ids,
+            "confirmation_required": action.operation == "return",
+            "review_notice": REVIEW_NOTICE,
+        }
+    elif isinstance(action, RunningAction):
+        source = await safe_program(
+            db, user_id, generation, action.program_id, action.expected_revision
+        )
+        records = await current_actuals(db, user_id, generation, program_id=source.id)
+        records = [
+            row
+            for row in records
+            if any(
+                ex.get("exercise_id") == "easy_run"
+                for block in row.content.get("prescription_snapshot", {}).get("blocks", [])
+                for ex in block["exercises"]
+            )
+        ]
+        decision, next_workout = running_progression(profile, records, as_of=today)
+        stored_profile = await db.get(WorkoutsProfile, user_id, populate_existing=True)
+        updated_profile = deepcopy(stored_profile.content)
+        content = {
+            "status": "needs_information",
+            "evaluation": decision,
+            "questions": [decision["reason"]],
+        }
+        kind, target, target_revision = "schedule", source.id, source.revision
+        if next_workout is not None:
+            updated_profile["running_baseline"]["accepted_stage"] = decision["suggested_stage"]
+            updated = deepcopy(source.content)
+            recorded = await recorded_program_ids(db, user_id, generation, source.id)
+            baseline = running_workout(profile)
+            ids = []
+            for item in updated["proposal"]["sessions"]:
+                if (
+                    item["id"] not in recorded
+                    and date.fromisoformat(item["date"]) > today
+                    and running_geometry(WorkoutContent.model_validate(item["workout"]))
+                    == running_geometry(baseline)
+                ):
+                    original = item["workout"]
+                    replacement = next_workout.model_dump(mode="json")
+                    replacement.update(
+                        id=content_digest(
+                            {"session": item["id"], "stage": decision["suggested_stage"]}
+                        )[:24],
+                        version=original.get("version", 1) + 1,
+                        parent_version_id=original.get("id"),
+                    )
+                    item["workout"] = replacement
+                    ids.append(item["id"])
+            if ids:
+                before, before_profile = source.content, stored_profile.content
+                content = {
+                    "status": "ready",
+                    "operation": "running_stage",
+                    "evaluation": decision,
+                    "program": updated,
+                    "profile": updated_profile,
+                    "session_ids": ids,
+                    "review_notice": REVIEW_NOTICE,
+                }
+            else:
+                # A finished plan still allows a separately accepted next-stage profile.
+                kind = "profile"
+                before = stored_profile.content
+                content = {
+                    "status": "ready",
+                    "operation": "running_stage_profile",
+                    "evaluation": decision,
+                    "profile": updated_profile,
+                    "changes": {"running_baseline.accepted_stage": decision["suggested_stage"]},
+                    "review_notice": REVIEW_NOTICE,
+                }
+    elif isinstance(action, ProgramProgressionAction):
+        source = await safe_program(
+            db, user_id, generation, action.program_id, action.expected_revision
+        )
+        recorded = await recorded_program_ids(db, user_id, generation, source.id)
+        selected = next(
+            (
+                item
+                for item in source.content["proposal"]["sessions"]
+                if item["id"] == action.session_id
+            ),
+            None,
+        )
+        if not selected:
+            raise HTTPException(404, "Scheduled session not found")
+        if selected["id"] in recorded or date.fromisoformat(selected["date"]) <= today:
+            raise HTTPException(409, "Choose an uncompleted future prescription")
+        workout = WorkoutContent.model_validate(selected["workout"])
+        records = await current_actuals(db, user_id, generation, program_id=source.id)
+        records = [
+            row
+            for row in records
+            if any(
+                block["id"] == action.block_id
+                for block in row.content.get("prescription_snapshot", {}).get("blocks", [])
+            )
+        ]
+        decision, changed_workout = comparable_progression(
+            workout, action.block_id, action.exercise_index, records, profile, as_of=today
+        )
+        updated = deepcopy(source.content)
+        ids = []
+        if changed_workout:
+            original_block = next(block for block in workout.blocks if block.id == action.block_id)
+            replacement_block = next(
+                block for block in changed_workout["blocks"] if block["id"] == action.block_id
+            )
+            for item in updated["proposal"]["sessions"]:
+                current_block = next(
+                    (
+                        block
+                        for block in item["workout"]["blocks"]
+                        if block["id"] == action.block_id
+                    ),
+                    None,
+                )
+                if (
+                    item["id"] not in recorded
+                    and date.fromisoformat(item["date"]) > today
+                    and current_block
+                    and content_digest(current_block)
+                    == content_digest(original_block.model_dump(mode="json"))
+                ):
+                    item["workout"]["blocks"] = [
+                        deepcopy(replacement_block) if block["id"] == action.block_id else block
+                        for block in item["workout"]["blocks"]
+                    ]
+                    item["workout"]["provenance"] = "suggestion"
+                    item["workout"]["parent_version_id"] = item["workout"].get("id")
+                    item["workout"]["version"] = item["workout"].get("version", 1) + 1
+                    item["workout"]["id"] = content_digest(
+                        {"session": item["id"], "decision": decision}
+                    )[:24]
+                    ids.append(item["id"])
+        kind, target, target_revision, before = (
+            "schedule",
+            source.id,
+            source.revision,
+            source.content,
+        )
+        content = {
+            "status": "ready" if ids else "needs_information",
+            "operation": "exercise_progression",
+            "evaluation": decision,
+            "program": updated if ids else None,
+            "session_ids": ids,
+            "review_notice": REVIEW_NOTICE,
+        }
+    elif isinstance(action, SessionAlternativeAction):
+        source = await safe_program(
+            db, user_id, generation, action.program_id, action.expected_revision
+        )
+        if source.content.get("schedule_state", {}).get("status") == "paused":
+            raise HTTPException(409, "Return this paused program before changing active sessions")
+        updated = deepcopy(source.content)
+        selected = next(
+            (item for item in updated["proposal"]["sessions"] if item["id"] == action.session_id),
+            None,
+        )
+        if not selected:
+            raise HTTPException(404, "Scheduled session not found")
+        recorded = await recorded_program_ids(db, user_id, generation, source.id)
+        ids = {selected["id"]}
+        question = None
+        if action.operation == "swap":
+            other = next(
+                (
+                    item
+                    for item in updated["proposal"]["sessions"]
+                    if item["id"] == action.other_session_id
+                ),
+                None,
+            )
+            if not other or other["id"] == selected["id"]:
+                raise HTTPException(422, "Choose a different scheduled session to swap")
+            selected["date"], other["date"] = other["date"], selected["date"]
+            ids.add(other["id"])
+            updated["proposal"]["sessions"].sort(key=lambda item: (item["date"], item["id"]))
+        else:
+            if action.minutes is None:
+                raise HTTPException(422, "Choose a shorter duration")
+            shorter, question = shorter_workout(
+                WorkoutContent.model_validate(selected["workout"]), action.minutes
+            )
+            if shorter:
+                selected["workout"] = shorter.model_dump(mode="json")
+        if question is None:
+            future_change_guard(source.content, updated, ids, recorded, today)
+            validate_calendar(updated, profile, ids)
+        before, kind, target, target_revision = (
+            source.content,
+            "schedule",
+            source.id,
+            source.revision,
+        )
+        content = {
+            "status": "needs_information" if question else "ready",
+            "operation": action.operation,
+            "program": updated if question is None else None,
+            "session_ids": sorted(ids),
+            "questions": [question] if question else [],
+            "review_notice": REVIEW_NOTICE,
+        }
     else:
         source = await safe_workout(
             db, user_id, generation, action.workout_id, action.expected_revision
         )
         workout = WorkoutContent.model_validate(source.content)
-        block = next((item for item in workout.blocks if item.id == action.block_id), None)
-        if not block or action.exercise_index >= len(block.exercises):
-            raise HTTPException(404, "Exercise not found")
-        prescription = block.exercises[action.exercise_index]
-        exposures = []
-        if block.grouping == "sequential" and not prescription.per_side:
-            for row in await current_actuals(db, user_id, generation, workout_id=source.id):
-                snapshot = row.content.get("prescription_snapshot", {})
-                original_block = next(
-                    (item for item in snapshot.get("blocks", []) if item["id"] == block.id), None
-                )
-                if not original_block or len(original_block["exercises"]) <= action.exercise_index:
-                    continue
-                original = original_block["exercises"][action.exercise_index]
-                # Same complete prescription, not just same exercise label/load.
-                if content_digest(original) != content_digest(prescription.model_dump(mode="json")):
-                    continue
-                actual = [
-                    item
-                    for item in row.content.get("actuals", [])
-                    if item["block_id"] == block.id
-                    and item["exercise_index"] == action.exercise_index
-                ]
-                actual.sort(key=lambda item: item["set_index"])
-                if not actual or any(
-                    item.get("reps") is None
-                    or item.get("round_index", 1) != 1
-                    or item.get("side") not in (None, "both")
-                    for item in actual
-                ):
-                    continue
-                comparable = all(
-                    item.get("load") == prescription.load
-                    and item.get("load_unit") == prescription.load_unit
-                    and item.get("load_convention") == prescription.load_convention
-                    for item in actual
-                )
-                exposures.append(
-                    CompletedExposure(
-                        session_id=str(row.id),
-                        date=datetime.fromisoformat(row.content["started_at"])
-                        .astimezone(ZoneInfo(profile.timezone))
-                        .date(),
-                        exercise_id=prescription.exercise_id or "unknown",
-                        reps=[item["reps"] for item in actual],
-                        load=prescription.load,
-                        load_unit=prescription.load_unit,
-                        load_convention=prescription.load_convention,
-                        completed=comparable
-                        and row.content["status"] == "completed"
-                        and all(item.get("completed") for item in actual),
-                        difficulty="hard"
-                        if any(item.get("difficulty") == "hard" for item in actual)
-                        else "manageable"
-                        if all(item.get("difficulty") in {"easy", "manageable"} for item in actual)
-                        else None,
-                        pain_reported=False
-                        if all(item.get("pain_reported") is False for item in actual)
-                        else None,
-                    )
-                )
-        result = evaluate_progression(prescription, exposures, profile)
+        records = await current_actuals(db, user_id, generation, workout_id=source.id)
+        decision, changed = comparable_progression(
+            workout, action.block_id, action.exercise_index, records, profile, as_of=today
+        )
         kind, target, target_revision = "progression", source.id, source.revision
-        changed = deepcopy(source.content)
-        if result.action == "increase_load":
-            changed_block = next(item for item in changed["blocks"] if item["id"] == block.id)
-            changed_block["exercises"][action.exercise_index].update(
-                load=result.suggested_load, provenance="suggestion", evidence=[]
-            )
-            changed["provenance"] = "suggestion"
         content = {
-            "status": "ready" if result.action == "increase_load" else "needs_information",
-            "evaluation": result.model_dump(mode="json"),
-            "workout": changed if result.action == "increase_load" else None,
+            "status": "ready" if changed else "needs_information",
+            "evaluation": decision,
+            "workout": changed,
         }
     return {
         "name": name,
@@ -386,6 +659,7 @@ async def prepare_action(db, user_id, generation, name, arguments, *, compose_li
         "target_revision": target_revision,
         "before": before,
         "source_revisions": source_revisions,
+        "before_profile": before_profile,
     }
 
 
@@ -407,6 +681,7 @@ async def save_prepared(db, user_id, generation, prepared):
         "before": prepared["before"],
         "state": "proposed",
         "source_revisions": prepared["source_revisions"],
+        "before_profile": prepared["before_profile"],
     }
 
 
@@ -428,7 +703,9 @@ async def receipt_for(db, user_id, generation, proposal_id):
     raise HTTPException(404, "Coach action receipt not found")
 
 
-async def accept_action(db, user_id, generation, proposal_id, *, title="Training plan"):
+async def accept_action(
+    db, user_id, generation, proposal_id, *, title="Training plan", confirm_return_baseline=False
+):
     configured = get_settings()
     if (
         not configured.workouts_api_enabled
@@ -460,7 +737,11 @@ async def accept_action(db, user_id, generation, proposal_id, *, title="Training
         or proposal.content.get("status") != "ready"
     ):
         raise HTTPException(409, "Training context changed or the proposal needs information")
-    if proposal.kind != "profile" and profile.readiness != "ready":
+    if (
+        proposal.kind != "profile"
+        and proposal.content.get("operation") != "pause"
+        and profile.readiness != "ready"
+    ):
         raise HTTPException(409, "Confirm readiness before applying a training change")
     for pin in receipt.get("source_revisions", []):
         await safe_workout(db, user_id, generation, UUID(pin["id"]), pin["revision"])
@@ -507,6 +788,10 @@ async def accept_action(db, user_id, generation, proposal_id, *, title="Training
             parent_version_id=str(version),
         )
     elif proposal.kind == "profile":
+        if proposal.content.get("operation") == "running_stage_profile":
+            await safe_program(
+                db, user_id, generation, proposal.target_id, proposal.target_revision
+            )
         saved = await db.get(WorkoutsProfile, user_id, populate_existing=True)
         saved.content = TrainingProfile.model_validate(proposal.content["profile"]).model_dump(
             mode="json"
@@ -517,30 +802,48 @@ async def accept_action(db, user_id, generation, proposal_id, *, title="Training
         saved = await owned_record(db, WorkoutsProgram, proposal.target_id, user_id, generation)
         if saved.revision != proposal.target_revision:
             raise HTTPException(409, "Program changed; prepare a fresh schedule edit")
-        # Re-run original future/completion guard immediately before acceptance.
-        session_id = proposal.content["session_id"]
         today = now().astimezone(ZoneInfo(profile.timezone)).date()
-        before_session = next(
-            item for item in saved.content["proposal"]["sessions"] if item["id"] == session_id
+        ids = set(proposal.content.get("session_ids", [proposal.content.get("session_id")]))
+        recorded = await recorded_program_ids(db, user_id, generation, saved.id)
+        operation = proposal.content.get("operation")
+        if operation == "return":
+            if not confirm_return_baseline:
+                raise HTTPException(
+                    422,
+                    "Explicitly confirm that the shown prescriptions match your current comfortable baseline",
+                )
+            if profile.interrupted:
+                raise HTTPException(
+                    409, "Confirm your current baseline in your profile before returning"
+                )
+            paused_at = saved.content.get("schedule_state", {}).get("paused_at")
+            if paused_at:
+                readiness = await db.get(WorkoutReadiness, user_id, populate_existing=True)
+                from datetime import datetime
+
+                if not readiness or readiness.confirmed_at <= datetime.fromisoformat(paused_at):
+                    raise HTTPException(409, "Confirm fresh readiness after the pause")
+        future_change_guard(
+            saved.content,
+            proposal.content["program"],
+            ids,
+            recorded,
+            today,
+            returning=operation == "return",
         )
-        after_session = next(
-            (
-                item
-                for item in proposal.content["program"]["proposal"]["sessions"]
-                if item["id"] == session_id
-            ),
-            None,
-        )
-        if (
-            date.fromisoformat(before_session["date"]) <= today
-            or (after_session and date.fromisoformat(after_session["date"]) <= today)
-            or any(
-                row.content.get("program_session_id") == session_id
-                for row in await current_actuals(db, user_id, generation, program_id=saved.id)
-            )
-        ):
-            raise HTTPException(409, "Only future uncompleted sessions may change")
-        saved.content = proposal.content["program"]
+        if operation != "pause":
+            validate_calendar(proposal.content["program"], profile, ids)
+        saved.content = deepcopy(proposal.content["program"])
+        if operation == "pause":
+            saved.content["schedule_state"]["paused_at"] = now().isoformat()
+        if proposal.content.get("profile"):
+            changed_profile = await db.get(WorkoutsProfile, user_id, populate_existing=True)
+            changed_profile.content = TrainingProfile.model_validate(
+                proposal.content["profile"]
+            ).model_dump(mode="json")
+            changed_profile.revision += 1
+            changed_profile.updated_at = now()
+            receipt["after_profile_revision"] = changed_profile.revision
         saved.revision += 1
         saved.updated_at = now()
         db.add(
@@ -562,6 +865,7 @@ async def accept_action(db, user_id, generation, proposal_id, *, title="Training
         record_id=identifier,
         after_revision=saved.revision,
         accepted_hash=await proposal_context_hash(db, user_id, generation),
+        programs_hash=await owned_program_hash(db, user_id, generation),
     )
     message.proposals = metadata
     await db.commit()
@@ -586,8 +890,10 @@ async def undo_action(db, user_id, generation, proposal_id):
     proposal = await owned_record(db, WorkoutProposal, proposal_id, user_id, generation)
     if proposal.kind == "profile":
         saved = await db.get(WorkoutsProfile, user_id, populate_existing=True)
-        if saved.revision != receipt["after_revision"]:
-            raise HTTPException(409, "Profile changed after acceptance")
+        if saved.revision != receipt["after_revision"] or receipt[
+            "programs_hash"
+        ] != await owned_program_hash(db, user_id, generation):
+            raise HTTPException(409, "Profile or dependent plans changed after acceptance")
         saved.content = receipt["before"]
         saved.revision += 1
         saved.updated_at = now()
@@ -597,21 +903,32 @@ async def undo_action(db, user_id, generation, proposal_id):
         )
         profile, _ = await effective_profile(db, user_id, generation)
         today = now().astimezone(ZoneInfo(profile.timezone)).date()
-        dates = [
-            date.fromisoformat(item["date"])
-            for content in (saved.content, receipt["before"])
-            for item in content["proposal"]["sessions"]
-            if item["id"] == proposal.content["session_id"]
-        ]
-        if (
-            saved.revision != receipt["after_revision"]
-            or any(day <= today for day in dates)
-            or any(
-                row.content.get("program_session_id") == proposal.content["session_id"]
-                for row in await current_actuals(db, user_id, generation, program_id=saved.id)
-            )
-        ):
-            raise HTTPException(409, "Only unchanged future schedule edits may be undone")
+        ids = set(proposal.content.get("session_ids", [proposal.content.get("session_id")]))
+        recorded = await recorded_program_ids(db, user_id, generation, saved.id)
+        if saved.revision != receipt["after_revision"]:
+            raise HTTPException(409, "Program changed after acceptance")
+        # Undo of a return may put unused future sessions back in its dormant pause queue.
+        restoring_pause = receipt["before"].get("schedule_state", {}).get("status") == "paused"
+        future_change_guard(
+            saved.content,
+            receipt["before"],
+            ids,
+            recorded,
+            today,
+            returning=restoring_pause,
+            restoring=True,
+        )
+        if receipt.get("before_profile") is not None:
+            changed_profile = await db.get(WorkoutsProfile, user_id, populate_existing=True)
+            if changed_profile.revision != receipt["after_profile_revision"] or receipt[
+                "programs_hash"
+            ] != await owned_program_hash(db, user_id, generation):
+                raise HTTPException(
+                    409, "Training profile or dependent plans changed after stage acceptance"
+                )
+            changed_profile.content = receipt["before_profile"]
+            changed_profile.revision += 1
+            changed_profile.updated_at = now()
         saved.content = receipt["before"]
         saved.revision += 1
         saved.updated_at = now()

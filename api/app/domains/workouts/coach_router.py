@@ -3,7 +3,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
-from pydantic import Field
+from pydantic import Field, StrictBool
 from sqlalchemy import select
 
 from app.config import get_settings
@@ -93,13 +93,21 @@ async def inspect_action(proposal_id: UUID, user: User, db: Database):
 
 class AcceptAction(DomainModel):
     title: str = Field(default="Training plan", min_length=1, max_length=200)
+    confirm_return_baseline: StrictBool = False
 
 
 @send_router.post("/actions/{proposal_id}/accept")
 async def accept(
     proposal_id: UUID, request: AcceptAction, user: User, db: Database, generation: Generation
 ):
-    return await accept_action(db, user.id, generation, proposal_id, title=request.title)
+    return await accept_action(
+        db,
+        user.id,
+        generation,
+        proposal_id,
+        title=request.title,
+        confirm_return_baseline=request.confirm_return_baseline,
+    )
 
 
 @router.post("/actions/{proposal_id}/undo")
