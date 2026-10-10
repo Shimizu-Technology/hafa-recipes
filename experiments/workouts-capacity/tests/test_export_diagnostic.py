@@ -103,7 +103,26 @@ async def test_actual_original_create_retains_19_pages_encryption_finalization_a
     async def guard(db, *_, **__):
         await db.scalar()
 
-    async def projection(response, user, db, limit, offset):
+    from app.domains.workouts.export_context import SnapshotSourceContext
+
+    prepared = []
+    retired = []
+
+    async def prepare(cls, db, owner, generation):
+        await db.scalar()
+        prepared.append((db, owner, generation))
+        return SimpleNamespace(
+            generation=generation,
+            assert_scope=lambda *args: None,
+            approve_page=lambda *args: None,
+            require_guard=lambda *args: None,
+            close=lambda: retired.append(True),
+        )
+
+    monkeypatch.setattr(SnapshotSourceContext, "prepare", classmethod(prepare))
+
+    async def projection(response, user, db, limit, offset, *, source_context=None):
+        assert source_context is not None
         await db.execute()
         return svc.ExportResponse(
             schema_version=1,
@@ -132,22 +151,32 @@ async def test_actual_original_create_retains_19_pages_encryption_finalization_a
         "cleanup_expired_exports": no_op,
         "try_export_slot": no_op,
         "guard_projection_memory": guard,
-        "export_data": projection,
+        "build_export_page": projection,
     }.items():
         monkeypatch.setattr(svc, key, value)
     monkeypatch.setattr(svc.PrivateExportService, "authorize", lambda *_: b"K" * 32)
     cleanup = instrument.install(monkeypatch.setattr)
     for method in ("execute", "scalar", "get"):
         monkeypatch.setattr(DB, method, source_call(getattr(DB, method)))
-    monkeypatch.setattr(DB, "rollback", rollback_call(DB.rollback))
-    service = svc.PrivateExportService(
-        factory, page_source=router.private_exports.page_source
-    )
+    original_rollback = DB.rollback
+
+    async def rollback(db):
+        assert retired == [True]
+        return await original_rollback(db)
+
+    monkeypatch.setattr(DB, "rollback", rollback_call(rollback))
+    service = svc.PrivateExportService(factory)
+    # Production instrumentation wraps a constructed builtin singleton. A
+    # wrapper must not silently turn off its source inventory optimization.
+    service.page_source = router.private_exports.page_source
     try:
         manifest = await service.create(SimpleNamespace(id="synthetic"), 1)
         assert manifest.page_count == 19
         measured = instrument.snapshot()
         assert measured["complete"] and measured["pages"] == 19
+        assert len(prepared) == 1
+        assert measured["stages"]["source_inventory"]["completed"] == 1
+        assert measured["stages"]["source_inventory"]["query_count"] == 1
         assert measured["stages"]["projection"]["completed"] == 19
         assert measured["stages"]["json_encode"]["completed"] == 19
         assert measured["stages"]["aes_encrypt"]["completed"] == 19
@@ -217,6 +246,7 @@ def report_fixture():
     ):
         stages[s].update(calls=19, completed=19)
     stages["source_fetch_decode"]["query_count"] = 1
+    stages["source_inventory"]["query_count"] = 1
     routes = {
         r: {
             "count": {"recipes/chat": 5, "workouts/export-page": 19}.get(r, 1),
@@ -520,16 +550,27 @@ def test_final_oom_true_or_unknown_cannot_pass_safety(oom):
 @pytest.mark.parametrize(
     "change",
     [
-        lambda stages: stages.pop("source_fetch_decode"),
-        lambda stages: stages["source_fetch_decode"].update(completed=0),
-        lambda stages: stages["source_fetch_decode"].update(query_count=0),
-        lambda stages: stages["source_fetch_decode"].update(failed=1),
+        lambda stages, stage: stages.pop(stage),
+        lambda stages, stage: stages[stage].update(completed=0),
+        lambda stages, stage: stages[stage].update(query_count=0),
+        lambda stages, stage: stages[stage].update(failed=1),
     ],
 )
-def test_missing_source_fetch_decode_evidence_is_incomplete(change):
+@pytest.mark.parametrize("stage", ["source_fetch_decode", "source_inventory"])
+def test_missing_source_evidence_is_incomplete(change, stage):
     report = report_fixture()
-    change(report["metrics"]["stages"])
-    assert not diagnostic(report, [], {}, None)["complete"]
+    counts = {
+        "recipe_active": 0,
+        "workout_active": 0,
+        "extract_jobs": 0,
+        "cover_jobs": 0,
+        "export_snapshots": 0,
+        "export_pages": 0,
+    }
+    # Missing idle evidence must not make every variant fail trivially.
+    assert diagnostic(report, [], {}, counts)["complete"]
+    change(report["metrics"]["stages"], stage)
+    assert not diagnostic(report, [], {}, counts)["complete"]
 
 
 def test_recovered_flushed_trace_preserves_origin_end_and_unfinished_request(tmp_path):

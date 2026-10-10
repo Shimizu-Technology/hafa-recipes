@@ -6,6 +6,7 @@ import time
 
 STAGES = {
     "build_total",
+    "source_inventory",
     "size_guard",
     "source_fetch_decode",
     "projection",

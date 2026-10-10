@@ -64,6 +64,7 @@ def diagnostic(report, samples, observation, counts, oom=None):
     }
     expected = {
         "build_total": 1,
+        "source_inventory": 1,
         "size_guard": 19,
         "projection": 19,
         "json_encode": 19,
@@ -77,6 +78,7 @@ def diagnostic(report, samples, observation, counts, oom=None):
         and not stages[s].get("failed")
         for s, n in expected.items()
     )
+    complete &= stages["source_inventory"].get("query_count", 0) > 0
     fetched = stages["source_fetch_decode"]
     complete &= bool(
         fetched.get("completed", 0) > 0

@@ -55,6 +55,7 @@ def source_call(original):
 def install(patch=setattr):
     from app.db.database import engine
     from app.domains.workouts import export_service as service
+    from app.domains.workouts.export_context import SnapshotSourceContext
     from app.domains.workouts.export_router import private_exports
     from app.domains.workouts.router import ExportResponse
     from sqlalchemy import event
@@ -66,7 +67,23 @@ def install(patch=setattr):
         "guard_projection_memory",
         async_stage("size_guard", service.guard_projection_memory),
     )
-    patch(service, "export_data", async_stage("projection", service.export_data))
+    patch(
+        service, "build_export_page", async_stage("projection", service.build_export_page)
+    )
+    original_prepare = SnapshotSourceContext.prepare.__func__
+
+    @functools.wraps(original_prepare)
+    async def prepare(cls, db, *args, **kwargs):
+        state = active.get()
+        if state is None:
+            return await original_prepare(cls, db, *args, **kwargs)
+        # Identify the real source before its scalar inventory queries. The
+        # original constructor verifies its live readonly RR transaction.
+        state.source = db
+        with state.measure("source_inventory"):
+            return await original_prepare(cls, db, *args, **kwargs)
+
+    patch(SnapshotSourceContext, "prepare", classmethod(prepare))
     patch(service, "seal", sync_stage("aes_encrypt", service.seal, output_bytes=True))
     patch(
         ExportResponse,

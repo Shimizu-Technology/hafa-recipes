@@ -22,6 +22,9 @@ ROUTES = {
     "workouts/export-remove",
 }
 
+EXPORT_START_SECONDS = 48
+CHAT_OFFSETS_SECONDS = (0, 32, 48.25, 96, 128)
+
 
 class Probe(Driver):
     def __init__(self):
@@ -51,7 +54,7 @@ class Probe(Driver):
                 self.dropped += 1
 
     async def export(self):
-        await asyncio.sleep(48)
+        await asyncio.sleep(EXPORT_START_SECONDS)
         response = await self.request(
             "POST",
             PREFIX + "/export/snapshots",
@@ -90,7 +93,7 @@ class Probe(Driver):
         identifier = response.json()["items"][0]["id"]
         for n in range(5):
             await asyncio.sleep(
-                max(0, self.started + (0, 32, 56, 96, 128)[n] - time.monotonic())
+                max(0, self.started + CHAT_OFFSETS_SECONDS[n] - time.monotonic())
             )
             response = await self.request(
                 "POST",
