@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from fastapi import HTTPException
 
+from app.domains.workouts.export_job_execution import LegacyAdmissionCapsule
 from app.domains.workouts.export_job_service import ExportJobCoordinator
 from app.domains.workouts.export_service import PrivateExportService
 
@@ -135,17 +136,57 @@ def consume(coordinator, execution, task):
 
 
 async def run_compatibility_export(builder, coordinator, user, generation):
-    """Old POST still returns201; installed045 shares the same persistent slot."""
+    """Own admission before any await can lose the durable start ACK."""
     from uuid import uuid4
 
-    receipt = await coordinator.admit(user, generation, uuid4(), kind="legacy")
-    execution = await coordinator.legacy_execution(user, generation, receipt.id)
-    task = asyncio.create_task(safe_build(builder, execution), name="workouts-export-legacy")
-    register(coordinator, execution, task)
-    heartbeat = asyncio.create_task(
-        pulse(coordinator, execution, task), name="workouts-export-lease"
-    )
+    capsule = LegacyAdmissionCapsule(user.id, generation, uuid4())
     try:
+        receipt = await coordinator.admit(
+            user, generation, capsule.request_id, kind="legacy", capsule=capsule
+        )
+        execution = await coordinator.legacy_execution(user, generation, receipt.id)
+        if capsule.execution is None or execution != capsule.execution:
+            raise HTTPException(503, "export_jobs_unavailable")
+        return await _run_compatibility_source(
+            builder, coordinator, user, generation, execution, capsule
+        )
+    except BaseException as error:
+        if capsule.source_created:
+            raise
+        # No source task ever existed. Retire admission/driver frames before
+        # acknowledging that exact captured execution, including uncertain commit.
+        cancelled = isinstance(error, asyncio.CancelledError)
+        status = error.status_code if isinstance(error, HTTPException) else 503
+        detail = error.detail if isinstance(error, HTTPException) else "export_jobs_unavailable"
+        headers = error.headers if isinstance(error, HTTPException) else None
+        clear_exception(error)
+        if cancelled:
+            raise asyncio.CancelledError() from None
+        raise HTTPException(status, detail, headers=headers) from None
+    finally:
+        if capsule.execution is not None and not capsule.source_created:
+            try:
+                await coordinator.acknowledge_end(capsule.execution, "interrupted")
+            except BaseException as error:
+                clear_exception(error)
+                _pending_legacy_ack[(engine_key(coordinator), capsule.execution.job_id)] = (
+                    capsule.execution,
+                    "interrupted",
+                )
+
+
+async def _run_compatibility_source(builder, coordinator, user, generation, execution, capsule):
+    """Old POST returns201 only after source retirement and fresh readiness."""
+    task = heartbeat = None
+    try:
+        # Mark before scheduling: eager/custom factories may execute source code
+        # even when create_task raises and returns no task to this caller.
+        capsule.source_created = True
+        task = asyncio.create_task(safe_build(builder, execution), name="workouts-export-legacy")
+        register(coordinator, execution, task)
+        heartbeat = asyncio.create_task(
+            pulse(coordinator, execution, task), name="workouts-export-lease"
+        )
         await asyncio.shield(task)
         # Only small manifest metadata survives source-task retirement.
         heartbeat.cancel()

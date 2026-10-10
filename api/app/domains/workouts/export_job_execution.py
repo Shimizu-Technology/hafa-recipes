@@ -1,9 +1,9 @@
 """Trusted internal execution identity; never accepted from a request body."""
 
 import hmac
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
@@ -22,6 +22,22 @@ class ExportJobExecution:
     deadline_at: datetime
     expires_at: datetime
     permission_digest: bytes
+
+
+@dataclass
+class LegacyAdmissionCapsule:
+    """Internal caller's exact nonce and proof that no source task was created.
+
+    Never parsed from HTTP. Admission attaches execution synchronously before
+    commit can lose its ACK; only the owning compatibility call marks creation.
+    """
+
+    owner: str
+    generation: int
+    request_id: UUID
+    nonce: UUID = field(default_factory=uuid4)
+    execution: ExportJobExecution | None = None
+    source_created: bool = False
 
 
 async def require_execution(db, execution, owner, generation):

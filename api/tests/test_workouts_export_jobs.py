@@ -507,3 +507,60 @@ async def test_privacy_rollback_conservatively_stops_without_resurrection(jobs):
     )
     async with jobs.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 0
+
+
+@pytest.mark.parametrize("boundary", ["receipt", "legacy_execution"])
+@pytest.mark.parametrize("failure", ["cancelled", "database"])
+async def test_legacy_postcommit_pre_source_failures_release_exact_nonce(
+    jobs, monkeypatch, boundary, failure
+):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    api = jobs
+    original = getattr(api.coordinator, boundary)
+
+    async def fail(*args, **kwargs):
+        # The row and slot have committed. No source/view has been created.
+        async with api.sessions() as db:
+            slot = await db.get(WorkoutsExportJobSlot, 1)
+            assert slot.active_job_id is not None and slot.started_at is not None
+        if failure == "cancelled":
+            raise asyncio.CancelledError()
+        raise SQLAlchemyError("synthetic private driver fault")
+
+    monkeypatch.setattr(api.coordinator, boundary, fail)
+    api.exports._job_coordinator = api.coordinator
+    if failure == "cancelled":
+        with pytest.raises(asyncio.CancelledError):
+            await api.exports.create(user(), 1)
+    else:
+        await assert_error(api.exports.create(user(), 1), 503, "export_jobs_unavailable")
+    monkeypatch.setattr(api.coordinator, boundary, original)
+    async with api.sessions() as db:
+        slot = await db.get(WorkoutsExportJobSlot, 1)
+        assert slot.active_job_id is None
+        row = await db.scalar(select(WorkoutsExportJob))
+        assert row.status == "failed" and row.failure_code == "interrupted"
+        assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 0
+        assert await db.scalar(select(func.count()).select_from(WorkoutsExportPage)) == 0
+    await admit(api)
+
+
+async def test_erasure_before_legacy_admission_returns_releases_captured_slot(jobs, monkeypatch):
+    api = jobs
+    original = api.coordinator.receipt
+
+    async def erased(user, generation, identifier=None, **kwargs):
+        async with api.sessions.begin() as db:
+            await db.execute(delete(AppUser).where(AppUser.id == "owner"))
+        return await original(user, generation, identifier, **kwargs)
+
+    monkeypatch.setattr(api.coordinator, "receipt", erased)
+    api.exports._job_coordinator = api.coordinator
+    await assert_error(api.exports.create(user(), 1), 404)
+    monkeypatch.setattr(api.coordinator, "receipt", original)
+    async with api.sessions() as db:
+        assert (await db.get(WorkoutsExportJobSlot, 1)).active_job_id is None
+        assert await db.scalar(select(func.count()).select_from(WorkoutsExportJob)) == 0
+        assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 0
+    await api.coordinator.admit(user("other"), 1, uuid4())

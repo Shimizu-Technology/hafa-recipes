@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
 from app.db.database import AsyncSessionLocal
-from app.domains.workouts.export_job_execution import ExportJobExecution
+from app.domains.workouts.export_job_execution import ExportJobExecution, LegacyAdmissionCapsule
 from app.domains.workouts.export_job_identity import (
     OperatorDeathVerifier,
     current_worker_identity,
@@ -94,12 +94,21 @@ class ExportJobCoordinator:
         ):
             raise stopped("Workouts testing is not enabled for this account", 403)
 
-    async def admit(self, user, generation, request_id, *, kind="async"):
+    async def admit(self, user, generation, request_id, *, kind="async", capsule=None):
         self.authorize(user)
         if kind == "async" and not self.configured.workouts_export_jobs_enabled:
             raise stopped("Not found", 404)
         if type(request_id) is not UUID or kind not in {"async", "legacy"}:
             raise stopped("Invalid export request", 422)
+        if kind == "legacy" and (
+            type(capsule) is not LegacyAdmissionCapsule
+            or capsule.owner != user.id
+            or capsule.generation != generation
+            or capsule.request_id != request_id
+            or capsule.execution is not None
+            or capsule.source_created
+        ):
+            raise stopped("Invalid internal export admission", 503)
         if not await self.installed():
             raise stopped("export_jobs_unavailable", 503)
         key = export_key()
@@ -170,13 +179,16 @@ class ExportJobCoordinator:
                 slot.active_job_id, slot.snapshot_id = identifier, snapshot_id
                 slot.admitted_at, slot.deadline_at = row.admitted_at, row.deadline_at
                 if kind == "legacy":
-                    self._start(row, slot, clock)
+                    self._start(row, slot, clock, token=capsule.nonce)
+                    # No await between durable identity allocation and capture.
+                    # Even an uncertain commit/receipt ACK cannot lose our nonce.
+                    capsule.execution = self.execution(row)
         return await self.receipt(user, generation, identifier)
 
-    def _start(self, row, slot, clock):
+    def _start(self, row, slot, clock, *, token=None):
         if row.started_at is not None or slot.started_at is not None:
             raise stopped("export_job_interrupted")
-        token = uuid4()
+        token = token or uuid4()
         for target in (row, slot):
             target.started_at = clock
             target.worker_instance = self.identity.instance

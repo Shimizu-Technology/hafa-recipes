@@ -29,6 +29,7 @@ class Coordinator:
         self.ack_failure = False
 
     async def admit(self, *a, **kw):
+        kw["capsule"].execution = self.execution
         return SimpleNamespace(id=self.execution.job_id)
 
     async def legacy_execution(self, *a, **kw):
