@@ -173,6 +173,9 @@ proved. The slot has no job/owner foreign key, so erasure cannot accidentally
 release a running or unknown worker. Expired leases and missing heartbeats are
 not termination proof. Automatic recovery requires the same Linux boot/PID
 namespace and a verified ended PID/start identity; other hosts remain held.
+Shutdown uses bounded waits and retains an unfinished dispatcher or retirement
+collector, including its source/heartbeat references, until actual end. A timeout
+cannot release the slot. New dispatch remains blocked during retained retirement.
 Operator recovery is private and denied by default. No production recovery or
 rollout is authorized by this implementation.
 

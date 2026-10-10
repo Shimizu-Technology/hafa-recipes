@@ -260,6 +260,7 @@ class ExportJobWorker:
         self.heartbeat_task = None
         self.pending_ack = None
         self.claim_capsule = None
+        self.retirement_task = None
         self.stopping = False
         self.wake = asyncio.Event()
 
@@ -268,6 +269,7 @@ class ExportJobWorker:
             self.coordinator.configured.workouts_api_enabled
             and await self.coordinator.installed()
             and self.task is None
+            and self.retirement_task is None
         ):
             self.stopping = False
             self.task = asyncio.create_task(self.run(), name="workouts-export-dispatch")
@@ -345,6 +347,8 @@ class ExportJobWorker:
                 _pending_legacy_ack.pop(registration, None)
 
     async def tick(self):
+        if self.retirement_task is not None:
+            return  # The retained collector exclusively owns these references.
         await self._finish()
         await self._ack()
         await self._finish_legacy()
@@ -410,6 +414,11 @@ class ExportJobWorker:
             except TimeoutError:
                 pass
 
+    async def _retire(self):
+        await self._finish()
+        await self._ack()
+        await self._finish_legacy()
+
     async def stop(self):
         self.stopping = True
         # Signal sources/heartbeat even if a dispatcher is resisting cancellation.
@@ -446,17 +455,25 @@ class ExportJobWorker:
         if other:
             await asyncio.wait(other, timeout=5)
         other = None
+        if self.retirement_task is None:
+            self.retirement_task = asyncio.create_task(
+                self._retire(), name="workouts-export-retirement"
+            )
+        # A timeout is never death proof. Do not cancel/replace the collector:
+        # a resistant heartbeat or DB await keeps its references and permit.
+        await asyncio.wait({self.retirement_task}, timeout=5)
+        if not self.retirement_task.done():
+            return False
         try:
-            async with asyncio.timeout(5):
-                await self._finish()
-                await self._ack()
-                await self._finish_legacy()
+            self.retirement_task.result()
         except BaseException as error:
             clear_exception(error)
+        self.retirement_task = None
         # An unfinished task/ACK remains referenced and the durable slot held.
         # Shutdown is not proof that any still-running native process has ended.
         return (
             self.task is None
+            and self.retirement_task is None
             and self.claim_capsule is None
             and self.active_task is None
             and self.pending_ack is None

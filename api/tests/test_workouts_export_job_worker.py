@@ -316,7 +316,11 @@ async def test_claim_factory_failure_keeps_unknown_capsule_without_ack(monkeypat
     coordinator.claim = claim
     dispatcher = worker.ExportJobWorker(coordinator, Builder(coordinator))
 
+    original_factory = worker.asyncio.create_task
+
     def failed_factory(coro, **kwargs):
+        if coro.cr_code.co_name != "safe_build":
+            return original_factory(coro, **kwargs)
         assert coordinator.capsule.source_created
         coro.close()
         raise RuntimeError("synthetic custom factory failed")
@@ -328,3 +332,80 @@ async def test_claim_factory_failure_keeps_unknown_capsule_without_ack(monkeypat
     assert dispatcher.claim_capsule is coordinator.capsule and coordinator.acks == []
     assert dispatcher.active_task is None
     assert not await dispatcher.stop()
+
+
+async def test_stop_bounds_resistant_heartbeat_and_retains_collector():
+    coordinator = Coordinator()
+    dispatcher = worker.ExportJobWorker(coordinator, Builder(coordinator))
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def held_heartbeat(source):
+        entered.set()
+        while not release.is_set():
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                pass
+
+    source = asyncio.create_task(worker.safe_build(dispatcher.builder, coordinator.execution))
+    worker.register(coordinator, coordinator.execution, source)
+    dispatcher.active_task = source
+    dispatcher.active_execution = coordinator.execution
+    dispatcher.heartbeat_task = asyncio.create_task(held_heartbeat(source))
+    await asyncio.wait({source})
+    source = None
+    await entered.wait()
+    clock = asyncio.get_running_loop().time()
+    try:
+        assert not await dispatcher.stop()
+        assert asyncio.get_running_loop().time() - clock < 6
+        assert dispatcher.retirement_task is not None and not dispatcher.retirement_task.done()
+        assert dispatcher.active_task is not None and dispatcher.heartbeat_task is not None
+        assert coordinator.acks == []
+        retained = dispatcher.retirement_task
+        await dispatcher.tick()
+        assert dispatcher.retirement_task is retained
+        retained = None
+    finally:
+        release.set()
+        await asyncio.wait({dispatcher.retirement_task}, timeout=5)
+    assert await dispatcher.stop()
+    assert coordinator.acks == [None] and dispatcher.retirement_task is None
+
+
+async def test_stop_bounds_resistant_ack_without_inventing_end():
+    coordinator = Coordinator()
+    dispatcher = worker.ExportJobWorker(coordinator, Builder(coordinator))
+    release = asyncio.Event()
+    entered = asyncio.Event()
+    original = coordinator.acknowledge_end
+
+    async def held_ack(*args):
+        entered.set()
+        while not release.is_set():
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                pass
+        await original(*args)
+
+    coordinator.acknowledge_end = held_ack
+    source = asyncio.create_task(worker.safe_build(dispatcher.builder, coordinator.execution))
+    worker.register(coordinator, coordinator.execution, source)
+    dispatcher.active_task = source
+    dispatcher.active_execution = coordinator.execution
+    await asyncio.wait({source})
+    source = None
+    clock = asyncio.get_running_loop().time()
+    try:
+        assert not await dispatcher.stop()
+        assert entered.is_set() and asyncio.get_running_loop().time() - clock < 6
+        assert dispatcher.retirement_task is not None and not dispatcher.retirement_task.done()
+        assert dispatcher.active_task is None and coordinator.acks == []
+        assert dispatcher.pending_ack == (coordinator.execution, None)
+    finally:
+        release.set()
+        await asyncio.wait({dispatcher.retirement_task}, timeout=5)
+    assert await dispatcher.stop()
+    assert coordinator.acks == [None] and dispatcher.retirement_task is None
