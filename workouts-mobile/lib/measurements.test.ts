@@ -66,3 +66,19 @@ it("requires a paired timestamp for changed values while preserving legacy unkno
   ).toEqual([]);
   expect(profileMeasurementErrors({ ...legacy, weight_kg: null }, legacy)).toEqual([]);
 });
+
+it("accepts API microseconds while retaining strict dates and future-time checks", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-10T18:30:00Z"));
+  try {
+    expect(parseRecordedTime("2026-10-10T18:22:55.903127+00:00")).toBe("2026-10-10T18:22:55.903Z");
+    expect(parseRecordedTime("2026-10-11T04:22:55.903127+10:00")).toBe("2026-10-10T18:22:55.903Z");
+    expect(measurementErrors("weight", "178.8", "lb", "2026-10-10T18:22:55.903127+00:00")).toEqual([]);
+    expect(profileMeasurementErrors({ ...initialProfile(), weight_kg: 80, weight_recorded_at: "2026-10-10T18:22:55.903127Z" })).toEqual([]);
+    expect(measurementErrors("weight", "178.8", "lb", "2026-10-10T19:22:55.903127Z")).toHaveLength(1);
+    expect(parseRecordedTime("2026-02-31T18:22:55.903127Z")).toBeNull();
+    expect(parseRecordedTime("2026-10-10T18:22:55.9031277Z")).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
