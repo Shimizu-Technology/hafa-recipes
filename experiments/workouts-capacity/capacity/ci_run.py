@@ -602,13 +602,7 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
         self.summary["phases"][self.active_phase] = receipt
 
     def cleanup(self):
-        if self.cleaning_started is None:
-            self.cleaning_started = time.monotonic()
-            if self.ledger:
-                self.cleaning_started = self.ledger.state.setdefault(
-                    "finalization_started", self.cleaning_started
-                )
-                self.ledger.save()
+        self.begin_finalization()
         for process in self.processes:
             if process.poll() is None:
                 process.terminate()
@@ -637,6 +631,16 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
             self.ledger.cleanup()
         self.summary["cleaned_owned_resources"] = True
 
+    def begin_finalization(self):
+        # Assign before persistence: even a failed save cannot restart the budget.
+        if self.cleaning_started is None:
+            self.cleaning_started = time.monotonic()
+            if self.ledger:
+                self.cleaning_started = self.ledger.state.setdefault(
+                    "finalization_started", self.cleaning_started
+                )
+                self.ledger.save()
+
     def write_receipt(self):
         self.receipt.parent.mkdir(parents=True, exist_ok=True)
         encoded = (
@@ -645,6 +649,89 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
         if len(encoded.encode()) > 100 * 1024:
             raise SafetyError("public_receipt_too_large")
         self.receipt.write_text(encoded)
+
+    def write_failed_receipt(self):
+        # No report serialization/filter path, dynamic identifiers or raw errors.
+        failure = self.summary.get("failure")
+        if not (
+            isinstance(failure, dict)
+            and isinstance(failure.get("code"), str)
+            and isinstance(failure.get("phase"), str)
+            and failure.get("code") in CODES
+            and failure.get("phase") in PHASES
+        ):
+            failure = {"code": "receipt_failed", "phase": "receipt"}
+        else:
+            failure = {"code": failure["code"], "phase": failure["phase"]}
+        minimal = {
+            "schema_version": 1,
+            "passed": False,
+            "failure": failure,
+            "receipt_fallback": True,
+            "cleaned_owned_resources": self.summary.get("cleaned_owned_resources")
+            is True,
+            "render_parity": False,
+            "r04_closed": False,
+            "provider_quality": False,
+            "real_provider_calls": 0,
+        }
+        self.receipt.parent.mkdir(parents=True, exist_ok=True)
+        self.receipt.write_text(json.dumps(minimal, allow_nan=False) + "\n")
+
+
+def finish(coordinator, cleanup_only=False):
+    """Independent bounded attempts; every exceptional exit is sanitized."""
+    for operation, phase, fallback in [
+        (coordinator.begin_finalization, "finalization", "partial_evidence_failed"),
+        (coordinator.stop_traffic, "finalization", "partial_evidence_failed"),
+        (coordinator.capture_partial, "finalization", "partial_evidence_failed"),
+        (coordinator.cleanup, "cleanup", "cleanup_failed"),
+    ]:
+        try:
+            operation()
+        except BaseException as error:  # noqa: BLE001 - including cancellation, no raw diagnostics
+            if phase == "cleanup":
+                coordinator.summary["cleaned_owned_resources"] = False
+            coordinator.record_failure(error, phase=phase, fallback=fallback)
+    if not cleanup_only or coordinator.summary.get("failure") is not None:
+        try:
+            coordinator.write_receipt()
+        except BaseException as error:  # noqa: BLE001 - serialization/interrupt must not leak data
+            coordinator.record_failure(
+                error, phase="receipt", fallback="receipt_failed"
+            )
+            try:
+                coordinator.write_failed_receipt()
+            except BaseException:  # noqa: BLE001 - disk failure cannot produce a receipt
+                try:
+                    coordinator.receipt.unlink(missing_ok=True)
+                except BaseException:  # noqa: BLE001, S110 - fixed diagnostic follows
+                    pass
+                # Fixed text only; upload will fail for a missing/invalid file.
+                print("capacity_receipt_failed", file=sys.stderr)
+
+
+def execute(coordinator, cleanup_only=False):
+    try:
+        if cleanup_only:
+            path = coordinator.work / "resources.json"
+            if path.exists():
+                state = json.loads(path.read_text())
+                coordinator.ledger = Ledger(path, state["run_id"], coordinator.command)
+        else:
+            coordinator.run()
+    except BaseException as error:  # noqa: BLE001 - fixed codes only
+        coordinator.record_failure(error)
+    finally:
+        finish(coordinator, cleanup_only)
+    if cleanup_only:
+        return (
+            0
+            if coordinator.summary["cleaned_owned_resources"]
+            and not coordinator.summary["failure"]
+            else 2
+        )
+    return 0 if coordinator.summary["passed"] else 2
 
 
 def main():
@@ -672,43 +759,13 @@ def main():
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, cancelled)
-    try:
-        if args.cleanup_only:
-            path = coordinator.work / "resources.json"
-            if path.exists():
-                state = json.loads(path.read_text())
-                coordinator.ledger = Ledger(path, state["run_id"], coordinator.command)
-            coordinator.cleanup()
-            return 0
-        coordinator.run()
-    except BaseException as error:  # noqa: BLE001 - fixed codes only; never raw error text
-        coordinator.record_failure(error)
-    finally:
-        try:
-            if coordinator.cleaning_started is None:
-                coordinator.cleaning_started = time.monotonic()
-                if coordinator.ledger:
-                    coordinator.cleaning_started = coordinator.ledger.state.setdefault(
-                        "finalization_started", coordinator.cleaning_started
-                    )
-                    coordinator.ledger.save()
-            coordinator.stop_traffic()
-            coordinator.capture_partial()
-        except (SafetyError, ValueError, OSError, KeyError) as error:
-            coordinator.record_failure(
-                error, phase="finalization", fallback="partial_evidence_failed"
-            )
-        try:
-            coordinator.cleanup()
-        except BaseException as error:  # noqa: BLE001 - fixed code, no raw diagnostics
-            coordinator.summary["cleaned_owned_resources"] = False
-            coordinator.record_failure(
-                error, phase="cleanup", fallback="cleanup_failed"
-            )
-        if not args.cleanup_only:
-            coordinator.write_receipt()
-    return 0 if coordinator.summary["passed"] else 2
+    return execute(coordinator, args.cleanup_only)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        result = main()
+    except BaseException:  # noqa: BLE001 - pre-coordinator failure must not print private argv
+        print("capacity_coordinator_failed", file=sys.stderr)
+        result = 2
+    raise SystemExit(result)
