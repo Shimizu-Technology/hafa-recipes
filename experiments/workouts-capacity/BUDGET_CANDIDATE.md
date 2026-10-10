@@ -141,3 +141,51 @@ This is one bounded local baseline using amd64 emulation and synthetic
 external boundaries. Mixed degradation, sustained traffic, legal non-JPEG
 concurrency, restart/rollback, native Render/Neon and real provider acceptance
 remain unproven. R04 remains open; this result does not justify activation.
+
+## Mixed phase failed; resources cleaned
+
+Root approved the same-database mixed phase after inspecting the passing
+baseline. The new API used the same image, owned PG, database and internal
+network; no reset or reseed occurred. Root then stopped traffic after unexpected
+import acceptance 422 responses. The mixed phase is **FAILED**, not a capacity
+pass. The load exited 137 after the exact owned container stop. Numeric request
+traces survived; the ordinary final driver JSON was not produced.
+
+There were 161 host samples, peak 224.5234375 MiB, zero OOM and zero protected
+5xx responses. Those measurements do not rescue the failed acceptance gate.
+The interrupted observer recorded `api_not_running` after deliberate API
+cleanup; it did not complete 450 seconds. Numeric traces show 25 import
+acceptance 422 responses. Protected Recipes reads all returned 200 (88 in each
+category), but liveness p95 was 440.735 milliseconds versus 62.814 baseline:
+7.016 times baseline, above the 1.25 gate. Its absolute 500 ms gate passed. Other
+Recipes read ratios passed. Export build p95 was 6,829.6 ms for the 19-page
+snapshot workload; all five build requests returned 201.
+
+The fixture/provider defects and limits are separate:
+
+- Image evidence used `image:1`, while real normalized source locations begin at `image:0`. The server removed unsupported fields and kept explicit source-review warnings. Two such incomplete private drafts were deliberately accepted with warnings; the unexpected422 responses came from the PDF draft. Do not loosen grounding or acceptance validation.
+- The actual PDF parser returned `pdf_unreadable_or_limit`. A finite isolated network-none probe on the same image showed the real parser exiting SIGTRAP(-5) in 0.42–0.47 seconds. The child process already had 305,720 KiB virtual size and 23,776 KiB RSS before the 96 MiB address-space limit. The same retained PDF parsed 30 pages/1,320 characters when a diagnostic omitted only that process address-space bound inside a 256 MiB cgroup. This supports an amd64-emulation limit conflict; it does not justify changing the production bound or establish native Render PDF acceptance.
+- Recipes used the same five video identities as baseline, so the five existing extraction/cover pairs were reused. No new FFmpeg/cover work occurred (`cover` fake calls 0). This was warm-cache mixed traffic, with no cold media concurrency acceptance. A later harness must use validated distinct canonical video identities and verify new jobs, saved links and actual frame stages.
+
+Saved aggregates at stop: 1,015 Recipes; baseline five extraction/five cover
+jobs retained; five Workouts sessions, five activity entries and five coach
+messages; five imports (two ready accepted, two incomplete image drafts accepted,
+one unaccepted incomplete PDF); zero active import/Recipes jobs. Five exports
+were built, 92 page reads returned 200, four were removed, and one 19-page
+snapshot remained at stop. Fake provider counters were extraction 14, cover 0,
+chat 10; actual financial admission rows 0 because the throughput Budget mock
+was explicit. These are not paid-provider or budget-authority load results.
+
+Read private evidence in the same results directory: `mixed-failure-summary.json`,
+`mixed.json.requests.jsonl`, `mixed-external.jsonl` and its failed summary,
+`mixed-final-cgroup.txt`, `mixed-saved-counts.json`,
+`mixed-provider-counts.json`, `mixed-import-diagnostics.json`, and
+`pdf-forensics.log`. No raw user data was used.
+
+Exact mixed API 70e71d1d462c, load f4799745473e, finite forensic 6efd8ab28a89,
+PG d8452fcd00f3 and the owned internal network were removed after capture.
+Every exact ID was checked absent; owner-scoped lifecycle status is clean.
+The shared root PG and protected services were untouched. Images and evidence
+remain. Source/image/threshold changes and any rerun require separate inspection.
+R04, cold media, legal non-JPEG concurrency and longer/restart acceptance remain
+open. The earlier baseline and dependency passes retain their limited scope.
