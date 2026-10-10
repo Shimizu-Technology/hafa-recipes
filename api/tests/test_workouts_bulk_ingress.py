@@ -10,9 +10,12 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import ClientDisconnect
 
 from app.domains.workouts import security
+from app.request_context import RequestContextMiddleware
+from app.request_limits import PastedTextBodyLimitMiddleware
 
 PATH = "/api/v1/workouts/imports"
 
@@ -42,6 +45,11 @@ def fixture(monkeypatch):
 
     app = FastAPI()
     app.include_router(router)
+    # The same middleware composition as main must retain the route permit
+    # through the outermost final send, not an intermediate call_next channel.
+    app.add_middleware(CORSMiddleware, allow_origins=["http://test"])
+    app.add_middleware(PastedTextBodyLimitMiddleware)
+    app.add_middleware(RequestContextMiddleware)
 
     @app.get("/api/recipes/count")
     async def legacy():

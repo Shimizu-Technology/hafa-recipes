@@ -2,15 +2,16 @@
 
 import base64
 import importlib
-from uuid import UUID
+from datetime import timedelta
+from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.domains.workouts import export_response_gate, export_router
 from app.domains.workouts.export_models import WorkoutsExportPage, WorkoutsExportSnapshot
 from app.domains.workouts.export_service import PrivateExportService
-from app.domains.workouts.lifecycle import membership_for
+from app.domains.workouts.lifecycle import membership_for, now
 from app.domains.workouts.measurement_service import reset_measurement_context
 from tests.test_workouts_data_integration import (
     GENERATION,
@@ -131,3 +132,49 @@ async def test_parent_privacy_writes_invalidate_actual_mounted_snapshot(
                 )
             )
         ).all()
+
+
+async def test_snapshot_and_legacy_export_never_select_retained_large_capture(assembled_exports):
+    """A tiny export result must not decode its unrelated near-limit capture."""
+    from app.domains.workouts.automation_models import WorkoutImport
+
+    api = assembled_exports
+    captured_time = now()
+    capture = "A" * (3 * 1024 * 1024 - 1024)
+    async with api.sessions.begin() as db:
+        db.add(
+            WorkoutImport(
+                id=uuid4(),
+                app_user_id="owner",
+                generation=1,
+                request_id=uuid4(),
+                request_hash="a" * 64,
+                ai_accepted_at=captured_time,
+                payload={"kind": "image", "image_base64": capture},
+                status="ready",
+                result={"status": "ready", "workout": WORKOUT},
+                expires_at=captured_time + timedelta(minutes=10),
+            )
+        )
+    statements = []
+
+    def inspect_query(connection, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT") and "workouts_import_jobs" in statement:
+            statements.append(statement)
+            assert "workouts_import_jobs.payload" not in statement
+            assert "workouts_import_jobs.request_hash" not in statement
+
+    event.listen(api.engine.sync_engine, "before_cursor_execute", inspect_query)
+    try:
+        captured = await manifest(api)
+        downloaded = await page(api, captured["id"])
+        legacy = await api.client.get("/api/v1/workouts/export")
+        assert downloaded.status_code == legacy.status_code == 200
+        new_items = downloaded.json()["export"]["datasets"]["imports"]
+        old_items = legacy.json()["datasets"]["imports"]
+        assert new_items == old_items and len(new_items) == 1
+        assert new_items[0]["result"] == {"status": "ready", "workout": WORKOUT}
+        assert "payload" not in new_items[0] and "request_hash" not in new_items[0]
+        assert statements and len(downloaded.content) < 100_000
+    finally:
+        event.remove(api.engine.sync_engine, "before_cursor_execute", inspect_query)
