@@ -48,7 +48,11 @@ def prepare(repository, folder, run_id):
         .read_text()
         .splitlines()
     ):
-        if line and not line.startswith("#") and line not in full:
+        if (
+            line
+            and not line.startswith("#")
+            and line not in {item.split(";", 1)[0].strip() for item in full}
+        ):
             raise RuntimeError(
                 "Native parser dependency differs from production requirement"
             )
