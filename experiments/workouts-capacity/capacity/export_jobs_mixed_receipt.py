@@ -11,6 +11,7 @@ from capacity.ci_safety import (
 from capacity.export_diagnostic_metrics import STAGES
 from capacity.export_diagnostic_receipt import complete_stages
 from capacity.export_jobs_diagnostic_contract import OUTCOME_BOOLEANS, OUTCOME_NUMBERS
+from capacity.export_jobs_mixed_schema import DATASET_NAMES
 from capacity.export_jobs_overlap import overlap_evidence
 
 JOB_READS = {"workouts/export-status"}
@@ -53,7 +54,8 @@ def cycle_proofs(report):
             and out.get("pages_read") == 19
             and out.get("workouts_rows") == 190
             and out.get("versions_rows") == 190
-            and out.get("dataset_count") == 2
+            and out.get("dataset_count") == len(DATASET_NAMES)
+            and out.get("dataset_schema_matched") is True
             and out.get("total_rows") == 380
             and type(out.get("admission_ms")) in (int, float)
             and 0 <= out["admission_ms"] <= 1000
@@ -149,6 +151,9 @@ def mixed_public_receipt(summary):
                     key: row.get("outcome", {}).get(key) is True
                     for key in OUTCOME_BOOLEANS
                 }
+            )
+            value["outcome"]["dataset_schema_matched"] = (
+                row.get("outcome", {}).get("dataset_schema_matched") is True
             )
             value["cipher_bytes"] = (
                 number(row["cipher_bytes"])

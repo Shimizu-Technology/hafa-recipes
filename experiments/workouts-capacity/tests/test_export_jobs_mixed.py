@@ -28,6 +28,7 @@ from capacity.export_jobs_mixed_receipt import (
     cycle_proofs,
     mixed_public_receipt,
 )
+from capacity.export_jobs_mixed_schema import DATASET_NAMES, expected_totals
 from test_export_jobs_diagnostic import checks, report
 
 
@@ -38,6 +39,7 @@ def isolated_source(monkeypatch):
 
 def complete_report():
     value = report()
+    value["job_outcome"].update(dataset_count=23, dataset_schema_matched=True)
     value["spans"] = [
         {"route": route, "offset_ms": offset, "duration_ms": 10, "status": 200}
         for route in READS
@@ -97,6 +99,10 @@ def test_five_independent_content_ack_and_overlap_proofs():
     "section,key,value",
     [
         ("outcome", "prescriptions_matched", False),
+        ("outcome", "dataset_schema_matched", False),
+        ("outcome", "dataset_count", 2),
+        ("outcome", "dataset_count", 22),
+        ("outcome", "dataset_count", 24),
         ("outcome", "versions_rows", 189),
         ("outcome", "pages_read", 18),
         ("outcome", "admission_ms", 1001),
@@ -149,6 +155,22 @@ def test_empty_gap_is_not_download_overlap_and_slow_witness_fails():
     assert not cycle_proofs(data)[1]
 
 
+def test_complete_schema_does_not_override_prior_phase_or_missing_page_witness():
+    data = complete_report()
+    assert cycle_proofs(data)[1]
+    receipt = {"passed": False, "failure_count": 4}
+    check_scenario(data, receipt, "mixed")
+    assert not receipt["passed"] and receipt["failure_count"] == 4
+    assert all(row["passed"] for row in receipt["background_export_cycles"])
+    # A cycle with no protected /up span during its individual pages still
+    # fails its actual overlap proof even with a complete23-dataset schema.
+    for row in data["spans"]:
+        if row["route"] == "/up" and row["offset_ms"] == 62005:
+            row["offset_ms"] = 62025
+    proofs, passed = cycle_proofs(data)
+    assert not passed and not proofs[1]["protected_reads_during_pages"]
+
+
 def test_missing_round_or_export_cycle_fails_without_retries():
     data = complete_report()
     receipt = {"passed": True}
@@ -190,6 +212,30 @@ def test_old_defaults_and_new_branch_do_not_dispatch_old_jobs():
     new = (workflows / "workouts-export-jobs-mixed.yml").read_text()
     assert "timeout-minutes: 35" in new and "persist-credentials: false" in new
     assert "if: always()" in new and "retention-days: 1" in new
+
+
+def test_mixed_schema_pins_actual_complete_export_inventory_without_api_imports():
+    root = Path(__file__).resolve().parents[3]
+    tree = ast.parse((root / "api/app/domains/workouts/export_context.py").read_text())
+    definition = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "datasets"
+    )
+    inventory = next(
+        node.value for node in definition.body if isinstance(node, ast.Return)
+    )
+    actual_names = [ast.literal_eval(item.elts[1]) for item in inventory.elts]
+    assert len(actual_names) == len(set(actual_names)) == 23
+    assert set(actual_names) == DATASET_NAMES
+    totals = expected_totals()
+    assert set(totals) == set(actual_names) and sum(totals.values()) == 380
+    assert totals["workouts"] == totals["workout_versions"] == 190
+    assert all(
+        value == 0
+        for key, value in totals.items()
+        if key not in {"workouts", "workout_versions"}
+    )
 
 
 def test_actual_phase_overrides_resolve_every_strict_app_flag(tmp_path):
@@ -316,7 +362,7 @@ def full_transport_fixture():
     pages = []
     placeholder = "00000000-0000-4000-8000-ffffffffffff"
     for page in range(19):
-        datasets = {}
+        datasets = {name: [] for name in DATASET_NAMES}
         for name in ("workouts", "workout_versions"):
             rows = []
             for index in range(page * 10, (page + 1) * 10):
@@ -347,8 +393,13 @@ def full_transport_fixture():
                 "profile": None,
                 "grants": [],
                 "ai_consent": None,
-                "totals": {"workouts": 190, "workout_versions": 190},
-                "has_more": {"workouts": page < 18, "workout_versions": page < 18},
+                "totals": expected_totals(),
+                "has_more": {
+                    name: page < 18
+                    if name in {"workouts", "workout_versions"}
+                    else False
+                    for name in DATASET_NAMES
+                },
                 "datasets": datasets,
             },
         }
@@ -389,7 +440,7 @@ class MixedTransportFixture:
                 "id": record["snapshot"],
                 "page_size": 10,
                 "page_count": 19,
-                "totals": {"workouts": 190, "workout_versions": 190},
+                "totals": expected_totals(),
             }
             if self.corruption == "foreign_job":
                 value["id"] = str(UUID(int=999))
@@ -407,6 +458,16 @@ class MixedTransportFixture:
                 value["expires_at"] = (
                     record["admitted"] + timedelta(seconds=604)
                 ).isoformat()
+            elif self.corruption == "manifest_missing_dataset":
+                del value["manifest"]["totals"]["measurements"]
+            elif self.corruption == "manifest_extra_dataset":
+                value["manifest"]["totals"]["foreign_owner_measurements"] = 0
+            elif self.corruption == "manifest_foreign_key":
+                value["manifest"]["totals"]["foreign_owner_measurements"] = value[
+                    "manifest"
+                ]["totals"].pop("measurements")
+            elif self.corruption == "manifest_foreign_rows":
+                value["manifest"]["totals"]["measurements"] = 1
         return value
 
     async def serve(self, request):
@@ -471,6 +532,12 @@ class MixedTransportFixture:
             "foreign_snapshot",
             "page_generation",
             "cross_cycle_profile",
+            "page_missing_dataset",
+            "page_extra_dataset",
+            "page_foreign_key",
+            "has_more_foreign_key",
+            "page_foreign_rows",
+            "history_foreign_key",
         }:
             body = json.loads(payload)
             data = body["export"]
@@ -485,7 +552,25 @@ class MixedTransportFixture:
                 body["snapshot_id"] = str(UUID(int=999))
             elif self.corruption == "page_generation":
                 data["enrollment"]["generation"] = 2
-            elif len(self.jobs) == 2:
+            elif self.corruption == "page_missing_dataset":
+                del data["datasets"]["measurements"]
+            elif self.corruption == "page_extra_dataset":
+                data["datasets"]["foreign_owner_measurements"] = []
+            elif self.corruption == "page_foreign_key":
+                data["datasets"]["foreign_owner_measurements"] = data["datasets"].pop(
+                    "measurements"
+                )
+            elif self.corruption == "has_more_foreign_key":
+                data["has_more"]["foreign_owner_measurements"] = data["has_more"].pop(
+                    "measurements"
+                )
+            elif self.corruption == "page_foreign_rows":
+                data["datasets"]["measurements"] = [{"id": "foreign-owner-record"}]
+            elif self.corruption == "history_foreign_key":
+                data["datasets"]["workout_versions"][0]["workout_id"] = (
+                    "foreign-workout"
+                )
+            elif self.corruption == "cross_cycle_profile" and len(self.jobs) == 2:
                 data["profile_revision"] = 1
                 data["profile"] = {"readiness": "ready"}
             payload = json.dumps(body, separators=(",", ":")).encode()
@@ -545,6 +630,7 @@ async def test_new_driver_executes_five_full_history_exports_and_same_handle_can
             outcome = cycle["outcome"]
             assert outcome["workouts_rows"] == outcome["versions_rows"] == 190
             assert outcome["pages_read"] == 19 and outcome["prescriptions_matched"]
+            assert outcome["dataset_count"] == 23 and outcome["dataset_schema_matched"]
             assert (
                 outcome["ready_actual_end_verified"] and outcome["same_job_cancelled"]
             )
@@ -571,6 +657,16 @@ async def test_new_driver_executes_five_full_history_exports_and_same_handle_can
         ("foreign_snapshot", "pages_failed", 1, 0),
         ("page_generation", "pages_failed", 1, 0),
         ("missing_ack_after_cancel", "cleanup_failed", 19, 1),
+        ("manifest_missing_dataset", "pages_failed", 0, 0),
+        ("manifest_extra_dataset", "pages_failed", 0, 0),
+        ("manifest_foreign_key", "pages_failed", 0, 0),
+        ("manifest_foreign_rows", "pages_failed", 0, 0),
+        ("page_missing_dataset", "pages_failed", 1, 0),
+        ("page_extra_dataset", "pages_failed", 1, 0),
+        ("page_foreign_key", "pages_failed", 1, 0),
+        ("has_more_foreign_key", "pages_failed", 1, 0),
+        ("page_foreign_rows", "pages_failed", 1, 0),
+        ("history_foreign_key", "pages_failed", 1, 0),
     ],
 )
 async def test_new_driver_failure_keeps_original_admission_without_replay(

@@ -20,6 +20,7 @@ from capacity.export_jobs_diagnostic_prescriptions import (
     PrescriptionProof,
     expected_prescriptions,
 )
+from capacity.export_jobs_mixed_schema import valid_page_schema, valid_totals
 from capacity.export_jobs_mixed_timing import (
     PREPARATION_SECONDS,
     TimingError,
@@ -246,9 +247,7 @@ class MixedDriver(Driver):
             or manifest.get("schema_version") != 1
             or manifest.get("page_size") != 10
             or manifest.get("page_count") != 19
-            or totals.get("workouts") != 190
-            or totals.get("workout_versions") != 190
-            or not all(type(value) is int and value >= 0 for value in totals.values())
+            or not valid_totals(totals)
         ):
             raise JobProbeFailure("export_job_pages_failed")
         collected, identities, static, wire = {}, {}, None, 0
@@ -271,8 +270,7 @@ class MixedDriver(Driver):
                 or data.get("schema_version") != 1
                 or data.get("enrollment", {}).get("generation") != 1
                 or data.get("totals") != totals
-                or set(data.get("datasets", {})) != set(totals)
-                or any(data.get("has_more", {}).values()) != (page < 18)
+                or not valid_page_schema(data, page)
             ):
                 raise JobProbeFailure("export_job_pages_failed")
             current = [
@@ -308,6 +306,7 @@ class MixedDriver(Driver):
             workouts_rows=collected["workouts"],
             versions_rows=collected["workout_versions"],
             dataset_count=len(totals),
+            dataset_schema_matched=True,
             total_rows=sum(totals.values()),
             wire_bytes=wire,
         )
