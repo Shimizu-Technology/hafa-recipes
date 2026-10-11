@@ -90,12 +90,21 @@ async def run_workload(driver, mixed, seconds, *, started=None):
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         raise TimingError("mixed_timing_failed")
-    async with asyncio.timeout(remaining):
-        await settled_workload(
-            *(protected_reader(driver, index, mixed, started) for index in range(8)),
-            heavy_cycles(driver, mixed, started),
-            polling(),
-        )
+    window = asyncio.timeout(remaining)
+    try:
+        async with window:
+            await settled_workload(
+                *(
+                    protected_reader(driver, index, mixed, started)
+                    for index in range(8)
+                ),
+                heavy_cycles(driver, mixed, started),
+                polling(),
+            )
+    except TimeoutError:
+        if not window.expired():
+            raise  # A body/request failure does not become a window overrun.
+        raise TimingError("mixed_timing_failed") from None
     if time.monotonic() > deadline:
         raise TimingError("mixed_timing_failed")
 
@@ -106,14 +115,20 @@ async def traffic_window(driver, mixed, start):
         raise TimingError("mixed_timing_failed")
     driver.traffic_active = True
     driver.traffic_start = start
-    async with asyncio.timeout(remaining):
-        await run_workload(driver, mixed, SECONDS, started=start)
-        if time.monotonic() > start + SECONDS:
-            raise TimingError("mixed_timing_failed")
-        await driver.poll()
-        if time.monotonic() > start + SECONDS:
-            raise TimingError("mixed_timing_failed")
-        await driver.checkpoint("after")
+    window = asyncio.timeout(remaining)
+    try:
+        async with window:
+            await run_workload(driver, mixed, SECONDS, started=start)
+            if time.monotonic() > start + SECONDS:
+                raise TimingError("mixed_timing_failed")
+            await driver.poll()
+            if time.monotonic() > start + SECONDS:
+                raise TimingError("mixed_timing_failed")
+            await driver.checkpoint("after")
+    except TimeoutError:
+        if not window.expired():
+            raise
+        raise TimingError("mixed_timing_failed") from None
     if time.monotonic() > start + SECONDS:
         raise TimingError("mixed_timing_failed")
 

@@ -1,12 +1,16 @@
 """Fixed-time handshake/traffic/tail regressions; no actual runtime acceptance."""
 
+import asyncio
+import io
 import json
 import sys
 import time
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from capacity import export_jobs_mixed_timing as timing
+from capacity.driver_diagnostics import failure_code, partial_metadata
 from capacity.export_jobs_mixed_receipt import mixed_public_receipt
 
 
@@ -258,6 +262,157 @@ def test_every_final_http_end_is_recorded_even_outside_public_span_categories(
     clock.now = 400.01
     driver.trace(2, "failed", "/capacity/status", milliseconds=10, status=0)
     assert driver.traffic_last_end == 400.01
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure,expected",
+    [
+        ("outer_window", "mixed_timing_failed"),
+        ("inner_window", "mixed_timing_failed"),
+        ("httpx_timeout", "driver_request_timeout"),
+        ("body_timeout", "driver_request_timeout"),
+    ],
+)
+async def test_real_run_workload_stall_records_owned_window_timeout_and_settles(
+    monkeypatch, tmp_path, failure, expected
+):
+    from capacity import export_jobs_mixed_driver as module
+
+    original_workload, original_timeout, original_clock = (
+        module.run_workload,
+        asyncio.timeout,
+        time.monotonic,
+    )
+    created, windows, requested, rescheduled = [], [], [], []
+    stalled = asyncio.Future()
+    heavy_started = asyncio.Event()
+    calls = []
+
+    def owned_timeout(seconds):
+        requested.append(seconds)
+        # Return real original300s scopes. The held heavy call later reschedules
+        # only its selected owned scope, so a busy host cannot expire it before
+        # that producer starts. Global timers/clocks and anchors stay intact.
+        window = original_timeout(seconds)
+        windows.append(window)
+        return window
+
+    def create_task(coroutine):
+        task = asyncio.create_task(coroutine)
+        created.append(task)
+        return task
+
+    monkeypatch.setattr(
+        module,
+        "asyncio",
+        SimpleNamespace(
+            timeout=owned_timeout,
+            create_task=create_task,
+            gather=asyncio.gather,
+            sleep=asyncio.sleep,
+        ),
+    )
+
+    class FixtureDriver:
+        def __init__(self, _):
+            self.results = []
+            self.trace_stream = io.StringIO()
+            self.client = SimpleNamespace(aclose=self.close)
+            self.closed = False
+            instances.append(self)
+
+        def begin_trace(self, _):
+            pass
+
+        async def checkpoint(self, name):
+            calls.append(name)
+
+        async def prepare(self):
+            calls.append("prepare")
+
+        async def lightweight(self, index, mixed):
+            calls.append(("reader", index, mixed))
+
+        async def media_and_chat(self, index, mixed):
+            calls.append(("heavy", index, mixed))
+            heavy_started.set()
+            if failure == "httpx_timeout":
+                raise httpx.ReadTimeout("PRIVATE_NOT_SERIALIZED")
+            if failure == "body_timeout":
+                raise TimeoutError("PRIVATE_NOT_SERIALIZED")
+            assert len(windows) == 2
+            selected = 0 if failure == "outer_window" else 1
+            deadline = asyncio.get_running_loop().time() + 0.005
+            windows[selected].reschedule(deadline)
+            rescheduled.append(selected)
+            try:
+                await stalled
+            finally:
+                calls.append("heavy_settled")
+
+        async def poll(self):
+            calls.append("poll")
+
+        def report(self):
+            return {"routes": {}, "unsettled_requests": 0}
+
+        async def close(self):
+            self.closed = True
+
+    async def prepared(*_):
+        return time.monotonic(), None
+
+    instances = []
+    monkeypatch.setattr(module, "MixedDriver", FixtureDriver)
+    monkeypatch.setattr(module, "client_start", prepared)
+    monkeypatch.setattr(module, "namespace", lambda: 33)
+    args = SimpleNamespace(
+        fixtures=tmp_path,
+        output=tmp_path / "failed.json",
+        control=tmp_path,
+        profile="mixed",
+    )
+    error_type = (
+        timing.TimingError
+        if "window" in failure
+        else (httpx.ReadTimeout if failure == "httpx_timeout" else TimeoutError)
+    )
+    with pytest.raises(error_type):
+        await module.run(args)
+    value = json.loads(args.output.read_text())
+    assert (
+        value["failure_code"]
+        == partial_metadata(value)["driver_failure_code"]
+        == expected
+    )
+    assert (
+        value["completed"] is False
+        and "PRIVATE_NOT_SERIALIZED" not in args.output.read_text()
+    )
+    assert module.run_workload is original_workload and module.SECONDS == 300
+    assert asyncio.timeout is original_timeout and time.monotonic is original_clock
+    assert len(created) == 10 and all(task.done() for task in created)
+    assert heavy_started.is_set()
+    assert sum(isinstance(item, tuple) and item[0] == "heavy" for item in calls) == 1
+    assert (
+        "after" not in calls
+        and instances[0].closed
+        and instances[0].trace_stream.closed
+    )
+    assert len(windows) == 2 and all(299 < seconds <= 300 for seconds in requested)
+    if "window" in failure:
+        assert rescheduled == [0 if failure == "outer_window" else 1]
+        assert windows[0 if failure == "outer_window" else 1].expired()
+        assert not windows[1 if failure == "outer_window" else 0].expired()
+        assert stalled.cancelled() and "heavy_settled" in calls
+    else:
+        assert rescheduled == []
+        assert not any(window.expired() for window in windows)
+        stalled.cancel()
+    # Shared old profiles retain their existing request/builtin classifications.
+    assert failure_code(httpx.ReadTimeout("fixture")) == "driver_request_timeout"
+    assert failure_code(TimeoutError("fixture")) == "driver_request_timeout"
 
 
 @pytest.mark.parametrize("completed", [True, False])
