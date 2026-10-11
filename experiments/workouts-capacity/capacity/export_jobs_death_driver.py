@@ -72,7 +72,6 @@ async def run():
     identity = current_worker_identity()
     require(identity.boot and identity.namespace and identity.start)
     coordinator = ExportJobCoordinator(sessions, settings=configured, identity=identity)
-    require(await coordinator.installed())  # Actual045 verifier, not metadata-only.
     owner = ClerkUser(
         id=OWNERS[22],
         clerk_user_id=OWNERS[22],
@@ -117,6 +116,7 @@ async def run():
         require(False)
 
     try:
+        require(await coordinator.installed())  # Actual045 verifier, not metadata-only.
         # Never reuse a partially executed fixture; no schema reset or cleanup SQL.
         for model in (
             WorkoutsExportJob,
