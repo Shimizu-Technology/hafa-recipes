@@ -1,5 +1,6 @@
 """Profile control and evidence boundaries; no Docker, HTTP or runtime starts."""
 
+import copy
 import json
 from dataclasses import FrozenInstanceError
 from pathlib import Path
@@ -16,7 +17,13 @@ from capacity.ci_safety import (
     phase_receipt,
     public_receipt,
 )
-from capacity.comparison_ci import validate_context
+from capacity.comparison_ci import (
+    BRANCH,
+    MAX_EVENT_BYTES,
+    REPOSITORY,
+    read_event,
+    validate_context,
+)
 from capacity.export_jobs_mixed_ci import MixedCoordinator
 from capacity.host_monitor import HostMonitor, MonitorError
 from capacity.legal_ci import LegalCoordinator
@@ -329,18 +336,36 @@ def test_comparison_is_explicit_manual_same_repository_only(monkeypatch, fault):
         validate_context(env)
 
 
-def test_comparison_workflow_has_no_push_or_pr_trigger_and_binds_exact_sha():
+def test_comparison_workflow_requires_explicit_label_and_binds_exact_sha():
+    import yaml
+
     workflow = (
         Path(__file__).resolve().parents[3]
         / ".github/workflows/workouts-capacity-comparison.yml"
     )
     text = workflow.read_text()
-    assert (
-        "workflow_dispatch:" in text
-        and "pull_request:" not in text
-        and "  push:" not in text
-    )
-    assert "ref: ${{ github.sha }}" in text and "persist-credentials: false" in text
+    parsed = yaml.load(text, Loader=yaml.BaseLoader)
+    assert parsed["on"]["pull_request"]["types"] == ["labeled"]
+    assert "workflow_dispatch" in parsed["on"] and "push" not in parsed["on"]
+    assert parsed["permissions"] == {"contents": "read"}
+    for scenario in ("mixed", "legal"):
+        job = parsed["jobs"]["opt-in-" + scenario]
+        assert job["env"]["COMPARISON_PROFILE"] == "render-1c-2g"
+        assert job["env"]["COMPARISON_SCENARIO"] == scenario
+        assert "capacity-compare-1c-2g-" + scenario in job["if"]
+        assert (
+            BRANCH in job["if"]
+            and "head.repo.full_name == github.repository" in job["if"]
+        )
+        assert (
+            job["steps"][0]["with"]["ref"]
+            == "${{ github.event.pull_request.head.sha }}"
+        )
+        assert job["steps"][0]["with"]["persist-credentials"] == "false"
+        assert "${{ github.event.label" not in " ".join(
+            step.get("run", "") for step in job["steps"]
+        )
+    assert "ref: ${{ github.sha }}" in text
     assert (
         "timeout-minutes: 35" in text
         and "--cleanup-only" in text
@@ -578,3 +603,218 @@ def test_wrong_quota_run_still_cleans_exact_known_owned_ledger(tmp_path):
     assert docker.resources == {borrowed: {"borrowed": True}}
     stopped = [argv[-1] for argv in docker.calls if argv[1] == "stop"]
     assert stopped == ["0" * 63 + "1"]
+
+
+def pr_context(scenario="mixed"):
+    head = "a" * 40
+    env = {
+        "GITHUB_ACTIONS": "true",
+        "GITHUB_REPOSITORY": REPOSITORY,
+        "GITHUB_EVENT_NAME": "pull_request",
+        "GITHUB_HEAD_REF": BRANCH,
+        "COMPARISON_SOURCE_SHA": head,
+    }
+    event = {
+        "action": "labeled",
+        "repository": {"full_name": REPOSITORY},
+        "label": {"name": "capacity-compare-1c-2g-" + scenario},
+        "pull_request": {
+            "head": {"sha": head, "ref": BRANCH, "repo": {"full_name": REPOSITORY}},
+            "base": {"repo": {"full_name": REPOSITORY}},
+        },
+    }
+    return env, event
+
+
+@pytest.mark.parametrize("scenario", ["mixed", "legal"])
+def test_fixed_opt_in_event_accepts_only_its_exact_scenario(monkeypatch, scenario):
+    monkeypatch.setattr("capacity.comparison_ci.platform.system", lambda: "Linux")
+    env, event = pr_context(scenario)
+    validate_context(
+        env, event=event, scenario=scenario, resource_profile=ProfileId.STANDARD
+    )
+    with pytest.raises(SafetyError):
+        validate_context(
+            env,
+            event=event,
+            scenario="legal" if scenario == "mixed" else "mixed",
+            resource_profile=ProfileId.STANDARD,
+        )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "fork",
+        "base-repo",
+        "event-repo",
+        "branch",
+        "env-branch",
+        "source",
+        "bad-sha",
+        "action",
+        "label",
+        "missing-label",
+        "profile",
+        "scenario",
+        "list-event",
+        "bool-event",
+        "bool-pr",
+        "list-head",
+        "bool-repo",
+        "list-label",
+    ],
+)
+def test_invalid_opt_in_event_refuses_before_coordinator(monkeypatch, tmp_path, fault):
+    import capacity.comparison_ci as module
+
+    env, event = pr_context()
+    event = copy.deepcopy(event)
+    scenario, profile = "mixed", ProfileId.STANDARD
+    if fault == "fork":
+        event["pull_request"]["head"]["repo"]["full_name"] = "foreign/fork"
+    elif fault == "base-repo":
+        event["pull_request"]["base"]["repo"]["full_name"] = "foreign/base"
+    elif fault == "event-repo":
+        event["repository"]["full_name"] = "foreign/event"
+    elif fault == "branch":
+        event["pull_request"]["head"]["ref"] = "unreviewed"
+    elif fault == "env-branch":
+        env["GITHUB_HEAD_REF"] = "unreviewed"
+    elif fault == "source":
+        event["pull_request"]["head"]["sha"] = "b" * 40
+    elif fault == "bad-sha":
+        env["COMPARISON_SOURCE_SHA"] = "not-a-sha"
+    elif fault == "action":
+        event["action"] = "synchronize"
+    elif fault == "label":
+        event["label"]["name"] = "unreviewed"
+        scenario = None
+    elif fault == "missing-label":
+        event.pop("label")
+    elif fault == "profile":
+        profile = ProfileId.STARTER
+    elif fault == "scenario":
+        scenario = "unreviewed"
+    elif fault == "list-event":
+        event = []
+    elif fault == "bool-event":
+        event = True
+    elif fault == "bool-pr":
+        event["pull_request"] = True
+    elif fault == "list-head":
+        event["pull_request"]["head"] = []
+    elif fault == "bool-repo":
+        event["pull_request"]["head"]["repo"] = True
+    else:
+        event["label"] = []
+    monkeypatch.setattr(module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(
+        module,
+        "MixedCoordinator",
+        lambda *_a, **_kw: pytest.fail("resources before validation"),
+    )
+    monkeypatch.setattr(
+        module,
+        "LegalCoordinator",
+        lambda *_a, **_kw: pytest.fail("resources before validation"),
+    )
+    with pytest.raises(SafetyError):
+        validate_context(env, event=event, scenario=scenario, resource_profile=profile)
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize(
+    "data", [b"{", b"[]", b"true", b"\xff", b" " * (MAX_EVENT_BYTES + 1)]
+)
+def test_event_file_read_is_bounded_and_malformed_payload_is_refused(tmp_path, data):
+    path = tmp_path / "event.json"
+    path.write_bytes(data)
+    with pytest.raises(SafetyError):
+        read_event(path)
+
+
+def test_event_read_and_actual_main_validation_precede_resource_construction(
+    tmp_path, monkeypatch
+):
+    import capacity.comparison_ci as module
+
+    env, event = pr_context()
+    path = tmp_path / "event.json"
+    path.write_text(json.dumps(event))
+    assert read_event(path) == event
+    event["pull_request"]["head"]["sha"] = "b" * 40
+    path.write_text(json.dumps(event))
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(path))
+    monkeypatch.setattr(module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(
+        module,
+        "MixedCoordinator",
+        lambda *_a, **_kw: pytest.fail("resources before validation"),
+    )
+    monkeypatch.setattr(
+        module,
+        "LegalCoordinator",
+        lambda *_a, **_kw: pytest.fail("resources before validation"),
+    )
+    monkeypatch.setattr(
+        module.sys,
+        "argv",
+        [
+            "comparison",
+            "--repository",
+            str(tmp_path),
+            "--work",
+            str(tmp_path / "work"),
+            "--receipt",
+            str(tmp_path / "receipt"),
+            "--scenario",
+            "mixed",
+            "--resource-profile",
+            "render-1c-2g",
+        ],
+    )
+    with pytest.raises(SafetyError):
+        module.main()
+    assert not (tmp_path / "work").exists() and not (tmp_path / "receipt").exists()
+
+
+def test_actual_preparation_refuses_checked_out_head_different_from_opt_in_event(
+    tmp_path, monkeypatch
+):
+    import capacity.ci_run as module
+
+    env, event = pr_context()
+    env.update(GITHUB_RUN_ID="123", GITHUB_RUN_ATTEMPT="1")
+    path = tmp_path / "event.json"
+    path.write_text(json.dumps(event))
+    env["GITHUB_EVENT_PATH"] = str(path)
+    monkeypatch.setattr(module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(module.platform, "machine", lambda: "x86_64")
+    validate_context(
+        env, event=event, scenario="mixed", resource_profile=ProfileId.STANDARD
+    )
+    c = MixedCoordinator(
+        tmp_path,
+        tmp_path / "work",
+        tmp_path / "receipt",
+        env=env,
+        resource_profile=ProfileId.STANDARD,
+    )
+    calls = []
+
+    def command(argv, timeout=30):
+        calls.append(argv)
+        if argv == ["git", "rev-parse", "HEAD"]:
+            return "b" * 40
+        if argv == ["docker", "info", "--format", "{{.Architecture}}"]:
+            return "amd64"
+        pytest.fail("unreviewed checkout reached resource operation")
+
+    c.command = command
+    with pytest.raises(SafetyError, match="unreviewed_or_foreign_pr"):
+        c.prepare()
+    assert c.ledger is None and not (c.work / "resources.json").exists()
+    assert len(calls) == 2

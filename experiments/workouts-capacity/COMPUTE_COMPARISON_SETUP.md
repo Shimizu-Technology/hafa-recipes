@@ -44,19 +44,35 @@ identifiers, environment values and bodies never become public receipt fields.
 
 ## Trigger and exact source
 
-The new `workouts-capacity-comparison.yml` is **manual-only**. Its closed scenario
-and profile choices are passed as quoted environment-backed CLI arguments. It
-checks out `github.sha` without stored credentials. The coordinator additionally
-requires the trusted repository, workflow_dispatch event and native Linux x86;
-the existing context verifier binds the exact checkout to GITHUB_SHA. Existing
-PR workflows do not automatically run the larger profile.
+The `workouts-capacity-comparison.yml` retains manual dispatch with closed
+scenario/profile choices and exact `github.sha` checkout. Manual dispatch still
+requires registration on the default branch; do not merge an unaccepted stack
+merely to register it.
 
-GitHub requires a workflow_dispatch workflow to exist on the default branch
-before it can receive dispatch. Therefore this new file is not assumed runnable
-on the unmerged stack. Do not merge main merely to register an experiment. Until
-normal ready-PR integration registers it, hosted dispatch is blocked; a separately
-reviewed explicit opt-in trigger would require its own source/authorization review.
-See [GitHub manual workflow requirements](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow).
+A separate opt-in path uses only `pull_request` activity `labeled` on the exact
+same-repository branch `codex/workouts-capacity-profiles`. The two fixed labels
+`capacity-compare-1c-2g-mixed` and `capacity-compare-1c-2g-legal` select separate
+jobs with literal `render-1c-2g` and mixed/legal arguments. Opening or updating a
+PR does not run these jobs. Adding a label is an explicit execution step requiring
+review of that exact head; changed heads require fresh review and remove/re-add.
+No label is applied by this source change. Existing512 automatic PR checks remain
+unchanged and their historical failures are not erased.
+
+The job checks out `github.event.pull_request.head.sha` without stored
+credentials. Before constructing a coordinator, the entry point reads at most
+1MiB of event JSON and checks action, repository/base/head ownership, branch,
+label, selected fixed scenario/profile and exact source SHA. Malformed nested
+objects and unknown selections refuse. The existing preparation verifier then
+independently binds actual checked-out HEAD to the same event head before any
+build/resource creation. There is no `pull_request_target`, secret access, write
+permission or PR-controlled shell argument. Event label text only participates
+in comparisons, never command interpolation.
+
+GitHub documents labelled PR events and explicit head checkout; unlike manual
+dispatch, this offers an opt-in route for an unmerged mergeable PR. A merge
+conflict blocks the normal PR workflow. Actual registration/event delivery remains
+unverified until separately authorized execution; no hosted run is claimed.
+See [GitHub event requirements](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows).
 
 Work/ledger/receipt names are unique to each workflow run/attempt; artifact names
 include scenario and profile. Retention remains one day and receipts stay at most

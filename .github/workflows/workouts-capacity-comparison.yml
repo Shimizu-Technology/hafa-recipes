@@ -1,6 +1,8 @@
 name: Workouts explicit compute comparison (synthetic)
 
 on:
+  pull_request:
+    types: [labeled]
   workflow_dispatch:
     inputs:
       resource_profile:
@@ -22,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: workouts-comparison-${{ github.ref }}-${{ inputs.scenario }}-${{ inputs.resource_profile }}
+  group: workouts-comparison-${{ github.event.pull_request.number || github.ref }}-${{ github.event.label.name || inputs.scenario }}-${{ inputs.resource_profile || 'render-1c-2g' }}
   cancel-in-progress: false
 
 jobs:
@@ -35,6 +37,7 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       COMPARISON_PROFILE: ${{ inputs.resource_profile }}
       COMPARISON_SCENARIO: ${{ inputs.scenario }}
+      COMPARISON_SOURCE_SHA: ${{ github.sha }}
     steps:
       - name: Check out exact selected source without stored credentials
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -61,6 +64,86 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: comparison-${{ inputs.scenario }}-${{ inputs.resource_profile }}-numeric-receipt
+          path: ${{ runner.temp }}/hafa-comparison-receipt.json
+          if-no-files-found: error
+          retention-days: 1
+
+  opt-in-mixed:
+    if: github.event_name == 'pull_request' && github.event.action == 'labeled' && github.repository == 'Shimizu-Technology/hafa-recipes' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/workouts-capacity-profiles' && github.event.label.name == 'capacity-compare-1c-2g-mixed'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PYTHONPATH: experiments/workouts-capacity
+      PYTHONDONTWRITEBYTECODE: '1'
+      COMPARISON_PROFILE: render-1c-2g
+      COMPARISON_SCENARIO: mixed
+      COMPARISON_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Check out the exact opted-in PR head without credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Run only the fixed mixed comparison
+        run: >-
+          python3 -m capacity.comparison_ci
+          --repository "$GITHUB_WORKSPACE"
+          --work "$RUNNER_TEMP/hafa-comparison-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          --receipt "$RUNNER_TEMP/hafa-comparison-receipt.json"
+          --resource-profile "$COMPARISON_PROFILE" --scenario "$COMPARISON_SCENARIO"
+      - name: Always clean exact comparison resources
+        if: always()
+        run: >-
+          python3 -m capacity.comparison_ci --cleanup-only
+          --repository "$GITHUB_WORKSPACE"
+          --work "$RUNNER_TEMP/hafa-comparison-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          --receipt "$RUNNER_TEMP/hafa-comparison-receipt.json"
+          --resource-profile "$COMPARISON_PROFILE" --scenario "$COMPARISON_SCENARIO"
+      - name: Upload only the bounded whitelisted receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: comparison-mixed-render-1c-2g-numeric-receipt
+          path: ${{ runner.temp }}/hafa-comparison-receipt.json
+          if-no-files-found: error
+          retention-days: 1
+
+  opt-in-legal:
+    if: github.event_name == 'pull_request' && github.event.action == 'labeled' && github.repository == 'Shimizu-Technology/hafa-recipes' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/workouts-capacity-profiles' && github.event.label.name == 'capacity-compare-1c-2g-legal'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PYTHONPATH: experiments/workouts-capacity
+      PYTHONDONTWRITEBYTECODE: '1'
+      COMPARISON_PROFILE: render-1c-2g
+      COMPARISON_SCENARIO: legal
+      COMPARISON_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Check out the exact opted-in PR head without credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Run only the fixed legal comparison
+        run: >-
+          python3 -m capacity.comparison_ci
+          --repository "$GITHUB_WORKSPACE"
+          --work "$RUNNER_TEMP/hafa-comparison-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          --receipt "$RUNNER_TEMP/hafa-comparison-receipt.json"
+          --resource-profile "$COMPARISON_PROFILE" --scenario "$COMPARISON_SCENARIO"
+      - name: Always clean exact comparison resources
+        if: always()
+        run: >-
+          python3 -m capacity.comparison_ci --cleanup-only
+          --repository "$GITHUB_WORKSPACE"
+          --work "$RUNNER_TEMP/hafa-comparison-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          --receipt "$RUNNER_TEMP/hafa-comparison-receipt.json"
+          --resource-profile "$COMPARISON_PROFILE" --scenario "$COMPARISON_SCENARIO"
+      - name: Upload only the bounded whitelisted receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: comparison-legal-render-1c-2g-numeric-receipt
           path: ${{ runner.temp }}/hafa-comparison-receipt.json
           if-no-files-found: error
           retention-days: 1
