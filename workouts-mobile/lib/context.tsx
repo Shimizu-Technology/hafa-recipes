@@ -11,7 +11,7 @@ import {
   useSyncExternalStore,
   type PropsWithChildren,
 } from "react";
-import { useAuth } from "@clerk/expo";
+import { useAuth, useClerk } from "@clerk/expo";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { AppState } from "react-native";
@@ -51,6 +51,12 @@ const OfflineContext = createContext<{ store: TrainingStore | null; ready: boole
   retry() {},
 });
 const identityStorage = createVerifiedIdentityCache(AsyncStorage);
+function accountAccessMessage(error: Error | null) {
+  const status = (error as { status?: number } | null)?.status;
+  if (status === 403) return "This account does not have access to the Workouts private beta. Choose an invited account or ask for access.";
+  if (status === 401) return "Your sign-in session expired. Sign out and sign in again to open your training.";
+  return error?.message;
+}
 function OfflineProvider({
   owner,
   generation,
@@ -95,7 +101,8 @@ function OfflineProvider({
   );
 }
 export function TrainingProvider({ children }: PropsWithChildren) {
-  const { getToken, userId } = useAuth();
+  const { getToken, userId, sessionId } = useAuth();
+  const clerk = useClerk();
   // Clerk may return a new function on each render. Keep owner-bound API state
   // stable while requests still retrieve the latest token; API binding guards
   // continue checking the account before and after that asynchronous retrieval.
@@ -104,6 +111,12 @@ export function TrainingProvider({ children }: PropsWithChildren) {
   const currentToken = useCallback(() => tokenGetter.current(), []);
   const subject = userId ?? "";
   const binding = `${configuration.clerkEnvironment}:${configuration.clerkKey}:${subject}`;
+  const currentAuth = useRef({ binding, sessionId });
+  currentAuth.current = { binding, sessionId };
+  const signingOut = useRef<{ binding: string; sessionId: string } | null>(null);
+  const [recovery, setRecovery] = useState({ binding, sessionId, busy: false, error: "" });
+  const recoveryBusy = recovery.binding === binding && recovery.sessionId === sessionId && recovery.busy;
+  const recoveryError = recovery.binding === binding && recovery.sessionId === sessionId ? recovery.error : "";
   const invalidBindings = useRef(new Set<string>());
   const bindingRef = useRef<string | null>(binding);
   bindingRef.current = invalidBindings.current.has(binding) ? null : binding;
@@ -119,7 +132,7 @@ export function TrainingProvider({ children }: PropsWithChildren) {
   const identityQuery = useQuery({
     queryKey: ["identity", binding],
     queryFn: identityApi.identity,
-    enabled: !!subject,
+    enabled: !!subject && !recoveryBusy,
     retry: 1,
   });
   const [cachedIdentity, setCachedIdentity] = useState<{ id: string; binding: string } | null>(null);
@@ -155,7 +168,7 @@ export function TrainingProvider({ children }: PropsWithChildren) {
     queryKey: [owner, "enrollment"],
     queryFn: ({ signal }) => api.enrollment({ signal }),
     retry: 1,
-    enabled: !!owner,
+    enabled: !!owner && !recoveryBusy,
   });
   const enrollment = boot?.scope === scope ? boot.value.enrollment : null;
   const [localEpoch, setLocalEpoch] = useState(0);
@@ -178,6 +191,32 @@ export function TrainingProvider({ children }: PropsWithChildren) {
   const setupRef = useRef<EnrollmentSetupLease | null>(null);
   const currentOwner = useRef(owner);
   currentOwner.current = owner;
+  async function signOutForRecovery() {
+    if (!sessionId || currentAuth.current.binding !== binding || currentAuth.current.sessionId !== sessionId ||
+      (signingOut.current?.binding === binding && signingOut.current.sessionId === sessionId)) return;
+    const captured = { binding, sessionId };
+    signingOut.current = captured;
+    setRecovery({ binding, sessionId, busy: true, error: "" });
+    let signedOut = false;
+    const scoped = (query: { queryKey: readonly unknown[] }) =>
+      (!!owner && query.queryKey[0] === owner) ||
+      (query.queryKey[0] === "identity" && query.queryKey[1] === binding);
+    try {
+      await cache.cancelQueries({ predicate: scoped });
+      if (currentAuth.current.binding !== binding || currentAuth.current.sessionId !== sessionId) return;
+      await clerk.signOut({ sessionId });
+      signedOut = true;
+      cache.removeQueries({ predicate: scoped });
+    } catch {
+      if (currentAuth.current.binding === binding && currentAuth.current.sessionId === sessionId)
+        setRecovery({ binding, sessionId, busy: false, error: "Could not sign out. Your private drafts remain saved for this account. Try again." });
+    } finally {
+      if (!signedOut && signingOut.current === captured) signingOut.current = null;
+      // The SDK may settle before its hooks publish. Keep private consumers closed until the captured session leaves.
+      if (!signedOut && currentAuth.current.binding === binding && currentAuth.current.sessionId === sessionId)
+        setRecovery((value) => ({ ...value, busy: false }));
+    }
+  }
   const bootstrap = useMemo(() => createEnrollmentBootstrap({
     owner,
     isCurrent: () => !!owner && currentOwner.current === owner && bindingRef.current === binding,
@@ -301,19 +340,27 @@ export function TrainingProvider({ children }: PropsWithChildren) {
     [owner, cache]
   );
   if (!userId) return null;
+  const recoveryControls = <>
+    {!!recoveryError && <Notice error>{recoveryError}</Notice>}
+    <Button title="Sign out and choose account" secondary busy={recoveryBusy} disabled={!sessionId}
+      onPress={() => { void signOutForRecovery(); }} />
+    <Copy kind="small">Your private drafts stay saved on this device for this account.</Copy>
+  </>;
   if (!owner)
     return (
       <Screen title="Open your Håfa account.">
         <Copy>Verifying your account identity…</Copy>
         {identityQuery.error && (
           <>
-            <Notice error>{identityQuery.error.message}</Notice>
+            <Notice error>{accountAccessMessage(identityQuery.error)}</Notice>
             <Button
               title="Try verifying again"
+              disabled={recoveryBusy}
               onPress={() => {
                 void identityQuery.refetch();
               }}
             />
+            {recoveryControls}
           </>
         )}
       </Screen>
@@ -321,14 +368,16 @@ export function TrainingProvider({ children }: PropsWithChildren) {
   const live = enrollmentQuery.data;
   const changedAuthority = !!live && !!enrollment && (live.generation !== enrollment.generation || live.enrolled !== enrollment.enrolled);
   const awaitingOwnAcknowledgement = !!setupRef.current && !enrollment?.enrolled && !!live?.enrolled;
-  if (boot?.scope !== scope || boot.value.status === "pending" || boot.value.status === "blocked" || privateError || (changedAuthority && !awaitingOwnAcknowledgement))
+  const enrollmentDenied = [401, 403].includes((enrollmentQuery.error as { status?: number } | null)?.status ?? 0);
+  if (recoveryBusy || enrollmentDenied || boot?.scope !== scope || boot.value.status === "pending" || boot.value.status === "blocked" || privateError || (changedAuthority && !awaitingOwnAcknowledgement))
     return <Screen title="Open your saved training.">
-      <Copy>{boot?.scope === scope && boot.value.status === "blocked" ? boot.value.error : "Checking your account and saved training…"}</Copy>
-      {(boot?.value.status === "blocked" || privateError) ? <>
+      <Copy>{enrollmentDenied ? accountAccessMessage(enrollmentQuery.error) : boot?.scope === scope && boot.value.status === "blocked" ? boot.value.error : "Checking your account and saved training…"}</Copy>
+      {(enrollmentDenied || boot?.value.status === "blocked" || privateError || recoveryBusy) ? <>
         {!!privateError && <Notice error>{privateError}</Notice>}
-        <Button title="Try checking again" onPress={() => {
-          void enrollmentQuery.refetch(); void bootstrap.retry();
+        <Button title="Try checking again" disabled={recoveryBusy} onPress={() => {
+          void identityQuery.refetch(); void enrollmentQuery.refetch(); void bootstrap.retry();
         }} />
+        {recoveryControls}
       </> : <ActivityIndicator accessibilityLabel="Verifying private training" />}
     </Screen>;
   return (

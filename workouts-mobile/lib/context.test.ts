@@ -11,7 +11,11 @@ const fixture = vi.hoisted(() => ({
   authRenders: 0,
   unstableTokenGetter: true,
   token: "initial-token",
-  subject: "subject-A",
+  subject: "subject-A" as string | null,
+  sessionId: "session-A" as string | null,
+  identityStatus: 200,
+  enrollmentStatus: 200,
+  signOut: vi.fn<(options: { sessionId: string }) => Promise<void>>(),
   foreground: new Set<(state: string) => void>(),
   erase: vi.fn(),
 }));
@@ -39,8 +43,8 @@ vi.mock("@clerk/expo", () => {
     // Fail deterministically instead of letting an effect loop hang the test worker.
     if (++fixture.authRenders > 50) throw Error("Provider did not settle: token-getter render loop");
     const tokenForThisRender = fixture.token;
-    return { userId: fixture.subject, getToken: fixture.unstableTokenGetter ? async () => tokenForThisRender : stable };
-  } };
+    return { userId: fixture.subject, sessionId: fixture.sessionId, getToken: fixture.unstableTokenGetter ? async () => tokenForThisRender : stable };
+  }, useClerk: () => ({ signOut: fixture.signOut }) };
 });
 vi.mock("./private-device", async () => {
   const { createPrivateStorageRegistry } = await import("./private-storage");
@@ -78,14 +82,16 @@ beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   fixture.disk.clear(); fixture.foreground.clear(); fixture.erase.mockClear();
   fixture.authRenders = 0; fixture.unstableTokenGetter = true; fixture.token = "initial-token"; fixture.subject = "subject-A";
+  fixture.sessionId = "session-A"; fixture.identityStatus = 200; fixture.enrollmentStatus = 200;
+  fixture.signOut.mockReset(); fixture.signOut.mockResolvedValue(undefined);
   observed = null; mounts = 0; unmounts = 0; serverMember = member;
-  cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  cache = new QueryClient({ defaultOptions: { queries: { retry: false, retryDelay: 0, gcTime: Infinity } } });
   fixture.disk.set(draftKey("A", "enrollment"), JSON.stringify(member));
   fixture.disk.set(draftKey("A", "units"), '"imperial"');
   transport.mockReset();
   transport.mockImplementation(async (url) => {
-    if (String(url).endsWith("/api/users/me/identity")) return new Response(JSON.stringify({ id: fixture.subject === "subject-A" ? "A" : "B" }));
-    if (String(url).endsWith("/enrollment")) return new Response(JSON.stringify(serverMember));
+    if (String(url).endsWith("/api/users/me/identity")) return new Response(JSON.stringify({ id: fixture.subject === "subject-A" ? "A" : "B" }), { status: fixture.identityStatus });
+    if (String(url).endsWith("/enrollment")) return new Response(JSON.stringify(serverMember), { status: fixture.enrollmentStatus });
     throw Error("Unexpected synthetic request");
   });
   vi.stubGlobal("fetch", transport);
@@ -163,4 +169,99 @@ it("stable provider lifetime still retires private state on authoritative foregr
   expect(fixture.disk.has(draftKey("A", "profile:1"))).toBe(false);
   expect(fixture.disk.get(draftKey("B", "profile:1"))).toBe("another owner's profile");
   await expect(originalStorage.setItem(draftKey("A", "profile:1"), "stale write")).rejects.toThrow("retired");
+});
+
+function button(title: string) {
+  return renderer!.root.findAllByType("Button" as never).find((node) => node.props.title === title)!;
+}
+function visibleText() { return JSON.stringify(renderer!.toJSON()); }
+
+it("denied beta access blocks private consumers, explains access and retries identity plus enrollment without erasing drafts", async () => {
+  fixture.enrollmentStatus = 403;
+  fixture.disk.set(draftKey("A", "profile:1"), "saved private draft");
+  await act(async () => { renderer = create(tree()); }); await settle();
+  expect(mounts).toBe(0);
+  expect(visibleText()).toContain("does not have access to the Workouts private beta");
+  expect(button("Sign out and choose account")).toBeDefined();
+  const identities = transport.mock.calls.filter(([url]) => String(url).endsWith("/identity")).length;
+  const enrollments = transport.mock.calls.filter(([url]) => String(url).endsWith("/enrollment")).length;
+  fixture.enrollmentStatus = 200;
+  await act(async () => { button("Try checking again").props.onPress(); }); await settle();
+  expect(transport.mock.calls.filter(([url]) => String(url).endsWith("/identity")).length).toBeGreaterThan(identities);
+  expect(transport.mock.calls.filter(([url]) => String(url).endsWith("/enrollment")).length).toBeGreaterThan(enrollments);
+  expect(observed?.training.owner).toBe("A");
+  expect(fixture.disk.get(draftKey("A", "profile:1"))).toBe("saved private draft");
+  expect(fixture.erase).not.toHaveBeenCalled();
+});
+
+it("identity failure explains an expired session and offers captured-session recovery before private consumers mount", async () => {
+  fixture.identityStatus = 401;
+  await act(async () => { renderer = create(tree()); }); await settle();
+  expect(mounts).toBe(0);
+  expect(visibleText()).toContain("Your sign-in session expired");
+  expect(button("Sign out and choose account")).toBeDefined();
+  expect(transport.mock.calls.some(([url]) => String(url).endsWith("/enrollment"))).toBe(false);
+  fixture.identityStatus = 200;
+  await act(async () => { button("Try verifying again").props.onPress(); }); await settle();
+  expect(observed?.training.owner).toBe("A");
+  expect(fixture.erase).not.toHaveBeenCalled();
+});
+
+it("repeated recovery taps sign out one captured session, clear only its cache and preserve owner drafts when choosing another account", async () => {
+  fixture.enrollmentStatus = 403;
+  fixture.disk.set(draftKey("A", "profile:1"), "account A draft");
+  cache.setQueryData(["B", "private-record"], "account B cache");
+  cache.setQueryData(["identity", "other-binding"], { id: "B" });
+  let complete!: () => void;
+  fixture.signOut.mockImplementation(() => new Promise<void>((done) => { complete = done; }));
+  await act(async () => { renderer = create(tree()); }); await settle();
+  const press = button("Sign out and choose account").props.onPress;
+  await act(async () => { press(); press(); }); await settle();
+  expect(fixture.signOut).toHaveBeenCalledExactlyOnceWith({ sessionId: "session-A" });
+  expect(button("Sign out and choose account").props.busy).toBe(true);
+  expect(mounts).toBe(0);
+  await act(async () => { complete(); }); await settle();
+  expect(cache.getQueryData(["A", "enrollment"])).toBeUndefined();
+  expect(cache.getQueryData(["identity", "development:synthetic-key:subject-A"])).toBeUndefined();
+  expect(cache.getQueryData(["B", "private-record"])).toBe("account B cache");
+  expect(cache.getQueryData(["identity", "other-binding"])).toEqual({ id: "B" });
+  fixture.subject = null; fixture.sessionId = null;
+  await act(async () => { renderer!.update(tree()); });
+  expect(renderer!.toJSON()).toBeNull();
+  fixture.subject = "subject-B"; fixture.sessionId = "session-B"; fixture.enrollmentStatus = 200;
+  await act(async () => { renderer!.update(tree()); }); await settle();
+  expect(observed?.training.owner).toBe("B");
+  expect(fixture.disk.get(draftKey("A", "profile:1"))).toBe("account A draft");
+  expect(fixture.erase).not.toHaveBeenCalled();
+});
+
+it("failed sign-out keeps denied training closed and drafts intact, then permits an explicit retry", async () => {
+  fixture.enrollmentStatus = 403;
+  fixture.disk.set(draftKey("A", "profile:1"), "account A draft");
+  fixture.signOut.mockRejectedValueOnce(Error("Synthetic sign-out failure"));
+  await act(async () => { renderer = create(tree()); }); await settle();
+  await act(async () => { button("Sign out and choose account").props.onPress(); }); await settle();
+  expect(visibleText()).toContain("Could not sign out");
+  expect(visibleText()).toContain("does not have access to the Workouts private beta");
+  expect(mounts).toBe(0);
+  expect(fixture.disk.get(draftKey("A", "profile:1"))).toBe("account A draft");
+  await act(async () => { button("Sign out and choose account").props.onPress(); }); await settle();
+  expect(fixture.signOut).toHaveBeenCalledTimes(2);
+  expect(fixture.signOut.mock.calls).toEqual([[{ sessionId: "session-A" }], [{ sessionId: "session-A" }]]);
+  expect(visibleText()).not.toContain("Could not sign out");
+  expect(fixture.erase).not.toHaveBeenCalled();
+});
+
+it("a retained recovery callback cannot sign out a newly selected session", async () => {
+  fixture.enrollmentStatus = 403;
+  await act(async () => { renderer = create(tree()); }); await settle();
+  const oldPress = button("Sign out and choose account").props.onPress;
+  fixture.subject = "subject-B"; fixture.sessionId = "session-B";
+  await act(async () => { renderer!.update(tree()); }); await settle();
+  await act(async () => { oldPress(); }); await settle();
+  expect(fixture.signOut).not.toHaveBeenCalled();
+  await act(async () => { button("Sign out and choose account").props.onPress(); }); await settle();
+  expect(fixture.signOut).toHaveBeenCalledExactlyOnceWith({ sessionId: "session-B" });
+  expect(mounts).toBe(0);
+  expect(fixture.erase).not.toHaveBeenCalled();
 });
