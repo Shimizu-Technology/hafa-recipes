@@ -2,9 +2,9 @@
 # One direct Docker comparison; no app deployment, provider calls, or retries.
 set -Eeuo pipefail
 : "${GITHUB_WORKSPACE:?}" "${CONTROL_WORK:?}" "${GITHUB_RUN_ID:?}" "${GITHUB_RUN_ATTEMPT:?}"
-[[ "$GITHUB_ACTIONS" == true && "$GITHUB_REPOSITORY" == Shimizu-Technology/hafa-recipes ]]
-[[ "$(uname -m)" == x86_64 && "$(uname -s)" == Linux ]]
-[[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]]
+[[ "$GITHUB_ACTIONS" == true && "$GITHUB_REPOSITORY" == Shimizu-Technology/hafa-recipes ]] || exit 1
+[[ "$(uname -m)" == x86_64 && "$(uname -s)" == Linux ]] || exit 1
+[[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]] || exit 1
 cd "$GITHUB_WORKSPACE"
 control="$GITHUB_WORKSPACE/workflow/experiments/recipes-capacity-control"
 run="recipes-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -14,13 +14,23 @@ work="$CONTROL_WORK"
 api= pg= load= finite= monitor= network=
 cleanup_deadline=0
 cleanup_ok=true
+limited() {
+  local seconds="$1" remaining
+  shift
+  if ((cleanup_deadline>0)); then
+    remaining=$((cleanup_deadline-SECONDS))
+    ((remaining>0)) || return 1
+    ((seconds<=remaining)) || seconds=$remaining
+  fi
+  timeout "${seconds}s" "$@"
+}
 owned_remove() {
   local id="$1" label
   [[ -z "$id" ]] && return 0
-  label=$(timeout 10s docker inspect --format '{{index .Config.Labels "hafa.capacity.run"}}/{{index .Config.Labels "hafa.capacity.owner"}}' "$id") || return 1
+  label=$(limited 10 docker inspect --format '{{index .Config.Labels "hafa.capacity.run"}}/{{index .Config.Labels "hafa.capacity.owner"}}' "$id") || return 1
   [[ "$label" == "$run/$owner" ]] || return 1
   [[ "$cleanup_deadline" == 0 || "$SECONDS" -lt "$cleanup_deadline" ]] || return 1
-  timeout 10s docker stop --time 3 "$id" >/dev/null && timeout 5s docker rm "$id" >/dev/null
+  limited 10 docker stop --time 3 "$id" >/dev/null && limited 5 docker rm "$id" >/dev/null
 }
 cleanup() {
   local status=$?
@@ -28,8 +38,11 @@ cleanup() {
   trap - EXIT TERM INT
   if [[ -n "$monitor" ]]; then kill "$monitor" 2>/dev/null || true; wait "$monitor" 2>/dev/null || true; fi
   for id in "$load" "$api" "$finite" "$pg"; do owned_remove "$id" || cleanup_ok=false; done
+  # Reconcile creation interrupted before its stdout ID was assigned.
+  recovered=$(limited 10 docker ps -aq --no-trunc --filter "label=hafa.capacity.run=$run" --filter "label=hafa.capacity.owner=$owner") || cleanup_ok=false
+  for id in ${recovered:-}; do owned_remove "$id" || cleanup_ok=false; done
   if [[ -n "$network" ]]; then
-    [[ "$(timeout 10s docker network inspect --format '{{index .Labels "hafa.capacity.run"}}' "$network")" == "$run" ]] && timeout 10s docker network rm "$network" >/dev/null || cleanup_ok=false
+    [[ "$(limited 10 docker network inspect --format '{{index .Labels "hafa.capacity.run"}}' "$network")" == "$run" ]] && limited 10 docker network rm "$network" >/dev/null || cleanup_ok=false
   fi
   python3 - "$work" "$cleanup_ok" "$status" <<'PY'
 import json,sys
@@ -75,11 +88,12 @@ cp "$control/fixture.env" "$work/fixture.env"
 chmod 600 "$work/fixture.env"
 chmod 777 "$work/fixtures"
 timeout 600s docker build --platform linux/amd64 --build-arg PYTHON_BASE=python@sha256:2ed6491b93cd49272ee6de2b5a38440c3448360322c089fc23e370722d74179d --build-arg SOURCE_COMMIT=8d4b175fc43a5e2d561b0e4c158718ac9c20500f -t "$run" "$work/context" >"$work/build.log" 2>&1
-image=$(docker image inspect --format '{{.Id}}' "$run")
-[[ "$(docker image inspect --format '{{.Architecture}}' "$image")" == amd64 ]]
-network=$(docker network create --internal --label "hafa.capacity.run=$run" "$run")
+image=$(timeout 10s docker image inspect --format '{{.Id}}' "$run")
+[[ "$(timeout 10s docker image inspect --format '{{.Architecture}}' "$image")" == amd64 ]]
+network="$run"
+timeout 15s docker network create --internal --label "hafa.capacity.run=$run" "$network" >"$work/network-id.txt"
 labels=(--label "hafa.capacity.run=$run" --label "hafa.capacity.owner=$owner")
-finite=$(docker run -d "${labels[@]}" --network none --env-file "$work/fixture.env" -v "$work/fixtures:/fixtures" -e PYTHONPATH=/harness:/api "$image" python -m capacity.fixtures /fixtures)
+finite=$(timeout 15s docker run -d "${labels[@]}" --network none --env-file "$work/fixture.env" -v "$work/fixtures:/fixtures" -e PYTHONPATH=/harness:/api "$image" python -m capacity.fixtures /fixtures)
 [[ "$(timeout 120s docker wait "$finite")" == 0 ]]
 owned_remove "$finite"; finite=
 python3 - "$control/fixture-sha256.json" "$work/fixtures" <<'PY'
@@ -93,34 +107,54 @@ PY
 for source in main candidate; do
   mkdir "$work/$source"; chmod 777 "$work/$source"
   result="$work/$source"
-  pg=$(docker run -d --name "capacity-pg-$run" "${labels[@]}" --network "$network" --memory 512m --memory-swap 512m --tmpfs /var/lib/postgresql/data:rw,nosuid,nodev,size=512m -e POSTGRES_PASSWORD=capacity_local_only -e POSTGRES_DB=hafa_workouts_capacity_test postgres@sha256:1a66d744c1b459e13b05a8fca341da84cb63383e99ce262210efee5a319d4551)
+  pg=$(timeout 15s docker run -d --name "capacity-pg-$run" "${labels[@]}" --network "$network" --memory 512m --memory-swap 512m --tmpfs /var/lib/postgresql/data:rw,nosuid,nodev,size=512m -e POSTGRES_PASSWORD=capacity_local_only -e POSTGRES_DB=hafa_workouts_capacity_test postgres@sha256:1a66d744c1b459e13b05a8fca341da84cb63383e99ce262210efee5a319d4551)
   for ((n=0;n<60;n++)); do timeout 5s docker exec "$pg" pg_isready -U postgres -d hafa_workouts_capacity_test >/dev/null 2>&1 && break; sleep 0.5; done
   timeout 5s docker exec "$pg" pg_isready -U postgres -d hafa_workouts_capacity_test >/dev/null
   common=("${labels[@]}" --network "container:$pg" --env-file "$work/fixture.env" -v "$GITHUB_WORKSPACE/$source-source/api:/api:ro" -v "$work/context/capacity:/adapter/capacity:ro" -v "$work/fixtures:/fixtures:ro" --workdir /tmp)
-  finite=$(docker run -d "${common[@]}" "$image" python -m capacity.seed)
+  finite=$(timeout 15s docker run -d "${common[@]}" "$image" python -m capacity.seed)
   [[ "$(timeout 180s docker wait "$finite")" == 0 ]]; owned_remove "$finite"; finite=
-  api=$(docker run -d --name "capacity-api-$run" "${common[@]}" --memory 512m --memory-swap 512m --cpus 0.5 "$image" python -m uvicorn capacity.app:app --host 0.0.0.0 --port 18047)
-  [[ "$(docker inspect --format '{{.HostConfig.Memory}}/{{.HostConfig.MemorySwap}}/{{.HostConfig.NanoCpus}}' "$api")" == 536870912/536870912/500000000 ]]
-  for ((n=0;n<60;n++)); do timeout 5s docker exec "$pg" wget -qO- http://127.0.0.1:18047/up >/dev/null 2>&1 && break; sleep 0.5; done
-  timeout 5s docker exec "$pg" wget -qO- http://127.0.0.1:18047/up >/dev/null
+  start=$SECONDS
+  api=$(timeout 10s docker run -d --name "capacity-api-$run" "${common[@]}" --memory 512m --memory-swap 512m --cpus 0.5 "$image" python -m uvicorn capacity.app:app --host 0.0.0.0 --port 18047)
+  [[ "$(timeout 10s docker inspect --format '{{.HostConfig.Memory}}/{{.HostConfig.MemorySwap}}/{{.HostConfig.NanoCpus}}' "$api")" == 536870912/536870912/500000000 ]]
+  finite=$(timeout 5s docker run -d "${common[@]}" "$image" python -c 'import json,time,urllib.request
+for attempt in range(20):
+ try:
+  assert json.load(urllib.request.urlopen("http://127.0.0.1:18047/up",timeout=1))=={"status":"ok"};break
+ except Exception:
+  time.sleep(.2)
+else:raise SystemExit(1)')
+  [[ "$(timeout 10s docker wait "$finite")" == 0 ]]; owned_remove "$finite"; finite=
+  # Admit the unchanged 450-second observer only with startup/cleanup headroom.
+  [[ $((SECONDS-start)) -le 12 ]] || exit 1
   python3 - "$result/ledger.json" "$api" "$pg" <<'PY'
 import json,sys
 from pathlib import Path
 Path(sys.argv[1]).write_text(json.dumps({'owner':'native_health_preflight','containers':{'api':sys.argv[2],'pg':sys.argv[3]},'cleaned':False}))
 PY
-  start=$SECONDS
   PYTHONPATH="$work/context" python3 -m capacity.host_monitor --ledger "$result/ledger.json" --api-id "$api" --pg-id "$pg" --run-id "$run" --phase baseline --output "$result/memory.jsonl" --seconds 450 --interval 0.5 >"$result/monitor.log" 2>&1 &
   monitor=$!
-  load=$(docker run -d "${common[@]}" -v "$result:/results" "$image" python -m capacity.driver --profile recipes-baseline --seconds 300 --fixtures /fixtures --output /results/latency.json)
+  load=$(timeout 10s docker run -d "${common[@]}" -v "$result:/results" "$image" python -m capacity.driver --profile recipes-baseline --seconds 300 --fixtures /fixtures --output /results/latency.json)
   [[ "$(timeout 320s docker wait "$load")" == 0 ]]
   # GNU timeout cannot wait on a shell child; exact PID is polled within phase bound.
   while kill -0 "$monitor" 2>/dev/null; do [[ $((SECONDS-start)) -lt 465 ]]; sleep 0.5; done
-  wait "$monitor"; monitor=
-  python3 - "$result/memory.jsonl.summary.json" <<'PY'
+  monitor_status=0; wait "$monitor" || monitor_status=$?; monitor=
+  python3 - "$result/memory.jsonl.summary.json" "$source" "$monitor_status" <<'PY'
 import json,sys
 from pathlib import Path
 r=json.loads(Path(sys.argv[1]).read_text())
 assert r['completed'] and not r['failure_code'] and not r['failure_type']
+assert int(sys.argv[3])==0 or (sys.argv[2]=='main' and int(sys.argv[3])==2 and r['local_memory_gate']=='failed')
+PY
+  [[ "$(timeout 5s docker inspect --format '{{.State.Running}}/{{.State.OOMKilled}}' "$api")" == true/false ]] || exit 1
+  timeout 5s docker exec "$api" cat /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.peak /sys/fs/cgroup/memory.events >"$result/final-cgroup.txt"
+  PYTHONPATH="$work/context" python3 - "$result" <<'PY'
+import json,sys,time
+from pathlib import Path
+from capacity.host_monitor import cgroup
+p=Path(sys.argv[1]); sample=cgroup((p/'final-cgroup.txt').read_text())
+sample.update(timestamp=time.time(),phase='baseline',stages=[],stop_required=max(sample['memory_current'],sample['memory_peak'])>=460*1024**2 or sample['oom']>0 or sample['oom_kill']>0)
+with (p/'memory.jsonl').open('a') as f:f.write(json.dumps(sample)+'\n')
+assert not sample['stop_required']
 PY
   timeout 5s docker exec "$pg" psql -U postgres -d hafa_workouts_capacity_test -At -c "SELECT json_build_object('schema',(SELECT max(version) FROM schema_migrations),'recipes',(SELECT count(*) FROM recipes),'extract',(SELECT count(*) FROM extraction_jobs WHERE job_kind='extract' AND status='completed'),'cover',(SELECT count(*) FROM extraction_jobs WHERE job_kind='cover' AND status='completed'),'active',(SELECT count(*) FROM extraction_jobs WHERE status IN ('queued','claimed','processing')),'workouts_tables',(SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'workouts%'));" >"$result/counts.json"
   owned_remove "$load"; load=; owned_remove "$api"; api=; owned_remove "$pg"; pg=
@@ -138,6 +172,7 @@ for name in ['main','candidate']:
     assert latency['completed'] and latency['protected_acceptance']['passed']
     samples=[json.loads(line) for line in (p/'memory.jsonl').read_text().splitlines()]
     ends=collections.Counter(e['stage'] for row in samples for e in row['stages'] if e['event']=='end')
+    assert all(not row.get('stop_required') and row.get('oom',0)==0 and row.get('oom_kill',0)==0 for row in samples)
     assert ends=={'evidence_frames':5,'thumbnail_normalize':5,'cover_compare':5},ends
     phases[name]={'memory':memory,'routes':latency['routes'],'counts':counts}
 r={'passed':comparison['local_gate']=='passed','main':'823986f48e4eb5de3075969a742f834036b5d473','candidate':'8d4b175fc43a5e2d561b0e4c158718ac9c20500f','comparison':comparison,'phases':phases,'render_parity':False,'r04_closed':False,'real_provider_calls':0}
