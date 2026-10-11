@@ -7,6 +7,7 @@ The existing audited Ledger owns exact labelled Docker resources and cleanup.
 import argparse
 import hashlib
 import json
+import os
 import platform
 import re
 import signal
@@ -15,6 +16,13 @@ import time
 from pathlib import Path
 
 from capacity.ci_safety import OWNER, Ledger, SafetyError
+from capacity.export_jobs_death_binding import (
+    selected,
+    unselected,
+    validate_shape,
+    verify_binding,
+    verify_context,
+)
 from capacity.plan import build_plan
 from capacity.safety import ensure
 
@@ -94,8 +102,12 @@ def check_scenario(value):
 
 def gate_argv(argv, image):
     position = argv.index(image)
+    command = argv[3] if argv[1:2] == ["--context"] else argv[1]
     require(
-        position >= 2 and argv[:2] == ["docker", "run"] and position < len(argv) - 1
+        position >= 2
+        and argv[0] == "docker"
+        and command == "run"
+        and position < len(argv) - 1
     )
     return argv[: position + 1] + ["python", "-c", START_GATE] + argv[position + 1 :]
 
@@ -112,9 +124,9 @@ def git(repository, *args):
     ).strip()
 
 
-def prepare(repository, output, run_id, docker_context, api_reference):
+def prepare(repository, output, run_id, binding, api_reference):
     repository, output = Path(repository).resolve(), Path(output).resolve()
-    require(docker_context in {"desktop-linux", "orbstack"})
+    validate_shape(binding)
     require(
         not git(
             repository,
@@ -170,7 +182,7 @@ def prepare(repository, output, run_id, docker_context, api_reference):
         "candidate_commit": baseline["candidate_commit"],
         "api_reference": api_reference,
         "api_parity_verified": True,
-        "docker_context": docker_context,
+        "docker_binding": binding,
         "platform": "linux/arm64",
         "run_id": run_id,
         "resource_names": baseline["resource_names"],
@@ -227,6 +239,12 @@ def prepare(repository, output, run_id, docker_context, api_reference):
         },
         "scope": "one local ARM Linux kernel death scenario; not x86, capacity, Render, operator or rollout acceptance",
     }
+    plan["commands"] = {
+        key: selected(argv, binding["context"])
+        for key, argv in plan["commands"].items()
+    }
+    for key in ("inventory_argv", "driver_argv"):
+        plan[key] = selected(plan[key], binding["context"])
     path = output / "linux-death-plan.json"
     path.write_text(encoded(plan))
     path.chmod(0o600)
@@ -242,6 +260,7 @@ def validate_plan(repository, output, approved_sha):
     path = output / "linux-death-plan.json"
     require(len(approved_sha) == 64 and sha(path) == approved_sha)
     plan = json.loads(path.read_text())
+    validate_shape(plan["docker_binding"])
     require(not plan["executed"] and plan["platform"] == "linux/arm64")
     require(git(repository, "rev-parse", "HEAD") == plan["candidate_commit"])
     require(not git(repository, "status", "--porcelain", "--untracked-files=no"))
@@ -305,7 +324,7 @@ class LocalRunner:
             "local_arm_linux_only": True,
         }
 
-    def command(self, argv, timeout=30):
+    def raw(self, argv, timeout=30):
         limit = (
             (
                 self.plan["deadlines_seconds"]["cleanup"]
@@ -318,17 +337,65 @@ class LocalRunner:
             )
         )
         require(limit > 0)
+        environment = {
+            **os.environ,
+            "DOCKER_CONTEXT": self.plan["docker_binding"]["context"],
+        }
+        environment.pop("DOCKER_HOST", None)
         done = subprocess.run(
             argv,
             cwd=self.repository,
             capture_output=True,
             text=True,
             timeout=max(1, min(timeout, limit)),
+            env=environment,
         )
         with (self.output / "linux-death-private-command.log").open("a") as log:
             log.write(done.stdout + done.stderr)
         require(done.returncode == 0)
         return done.stdout.strip()
+
+    def verify_environment(self):
+        binding = self.plan["docker_binding"]
+        context = json.loads(
+            self.raw(
+                selected(
+                    [
+                        "docker",
+                        "context",
+                        "inspect",
+                        binding["context"],
+                        "--format",
+                        "{{json .}}",
+                    ],
+                    binding["context"],
+                ),
+                15,
+            )
+        )
+        verify_context(binding, context)  # Refuse changed/remote host BEFORE info.
+        daemon = json.loads(
+            self.raw(
+                selected(
+                    [
+                        "docker",
+                        "info",
+                        "--format",
+                        '{"ID":{{json .ID}},"OSType":{{json .OSType}},"Architecture":{{json .Architecture}},"Name":{{json .Name}}}',
+                    ],
+                    binding["context"],
+                ),
+                15,
+            )
+        )
+        verify_binding(binding, context, daemon)
+
+    def command(self, argv, timeout=30):
+        if argv[0] == "docker" or argv[0] == self.helper:
+            self.verify_environment()
+        if argv[0] == "docker":
+            argv = selected(argv, self.plan["docker_binding"]["context"])
+        return self.raw(argv, timeout)
 
     def claim(self, identifier):
         self.ledger.inspect(identifier)  # Full identity/labels remain authoritative.
@@ -383,7 +450,9 @@ class LocalRunner:
             self.claimed.remove(identifier)
 
     def create(self, role, argv):
-        identifier = self.ledger.create_container(role, argv)
+        identifier = self.ledger.create_container(
+            role, unselected(argv, self.plan["docker_binding"]["context"])
+        )
         self.claim(identifier)
         return identifier
 
@@ -418,14 +487,7 @@ class LocalRunner:
     def run(self):
         try:
             require(platform.machine() == "arm64")
-            require(
-                self.command(["docker", "context", "show"])
-                == self.plan["docker_context"]
-            )
-            require(
-                self.command(["docker", "info", "--format", "{{.Architecture}}"])
-                in {"aarch64", "arm64"}
-            )
+            self.verify_environment()
             commands, limits = self.plan["commands"], self.plan["deadlines_seconds"]
             self.command(commands["build_after_root_inspection"], limits["build"])
             image = json.loads(
@@ -509,6 +571,9 @@ def main():
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--run-id")
     parser.add_argument("--docker-context")
+    parser.add_argument("--docker-endpoint")
+    parser.add_argument("--docker-daemon-id")
+    parser.add_argument("--docker-daemon-name")
     parser.add_argument(
         "--api-reference", default="7139ccf7ec5a1b593f4a7dd6cb091382fe4e2b4e"
     )
@@ -517,12 +582,23 @@ def main():
     args = parser.parse_args()
     require(args.prepare != args.execute)
     if args.prepare:
-        require(args.run_id and args.docker_context)
+        require(
+            args.run_id
+            and args.docker_context
+            and args.docker_endpoint
+            and args.docker_daemon_id
+            and args.docker_daemon_name
+        )
         result = prepare(
             args.repository,
             args.output,
             args.run_id,
-            args.docker_context,
+            {
+                "context": args.docker_context,
+                "endpoint": args.docker_endpoint,
+                "daemon_id": args.docker_daemon_id,
+                "daemon_name": args.docker_daemon_name,
+            },
             args.api_reference,
         )
     else:

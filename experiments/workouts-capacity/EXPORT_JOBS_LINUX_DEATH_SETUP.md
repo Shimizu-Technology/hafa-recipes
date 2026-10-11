@@ -80,9 +80,17 @@ The child never cooperatively acknowledges source end on the success path.
 
 `capacity.export_jobs_death_local` now prepares the filtered local ARM plan. Run
 its `--prepare` mode with repository, fresh output directory, unique run ID and
-the verified active Docker context (`desktop-linux` or `orbstack`). Preparation
+the verified local Docker context, exact UNIX socket endpoint, daemon ID and name.
+The actual reviewed machine uses the Colima `colima-aire-payroll-staging` context;
+the private prepared plan pins its observed endpoint and daemon identity.
+Preparation
 starts nothing: it records the commit, every context file hash, API parity against
 the explicit reference, requirements/env hashes and selected bounded commands.
+Every Docker argv explicitly selects that pinned context. Each Docker/helper
+operation rechecks context endpoint and daemon identity/ARM Linux architecture;
+the helper inherits only the pinned Docker selection, with DOCKER_HOST cleared.
+No global context switch occurs. TCP/SSH or altered socket/daemon identity aborts
+before the operation. A default context change cannot redirect the commands.
 Root must inspect `linux-death-plan.json` and its SHA256 before authorizing
 `--execute --approved-plan-sha <reviewed hash> --session <lifecycle session>`.
 Claim the external finite runner process before entering execute mode.
