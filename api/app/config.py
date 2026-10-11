@@ -202,11 +202,12 @@ class Settings(BaseSettings):
     migration_043_restore_point: str | None = None
     migration_044_restore_point: str | None = None
     workouts_ai_budget_24h_microusd: int = Field(
-        default=0, ge=0, le=9_000_000_000_000_000
+        default=0, ge=0, le=5_000_000
     )
     workouts_ai_max_attempt_microusd: int = Field(
-        default=5_000_000, ge=1, le=9_000_000_000_000_000
+        default=5_000_000, ge=1, le=5_000_000
     )
+    workouts_ai_budget_database_url: SecretStr | None = None
     workouts_share_encryption_key: str | None = None
     workouts_development_ai_api_key: SecretStr | None = None
     cors_origins: str = ""

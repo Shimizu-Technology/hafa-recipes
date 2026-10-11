@@ -44,7 +44,7 @@ migration = importlib.import_module("migrations.040_add_workouts_ai_admission")
 automation = importlib.import_module("migrations.035_add_workouts_automation")
 
 
-def policy(budget=10_000_000, **changes):
+def policy(budget=5_000_000, **changes):
     return BudgetPolicy(enabled=True, budget_24h_microusd=budget, model_pricing=PRICES, **changes)
 
 
@@ -55,11 +55,15 @@ async def budget_api(data_api, monkeypatch):  # noqa: F811 -- imported reusable 
     data_api.app.include_router(budget_router.router)
     configured = SimpleNamespace(
         workouts_api_enabled=True,
-        workouts_ai_budget_24h_microusd=10_000_000,
+        workouts_ai_budget_24h_microusd=5_000_000,
         workouts_ai_max_attempt_microusd=5_000_000,
         ai_model_pricing=PRICES,
     )
     monkeypatch.setattr(budget_router, "get_settings", lambda: configured)
+    from app.domains.workouts import budget_authority
+
+    configured.workouts_ai_budget_database_url = "synthetic-test-injection"
+    monkeypatch.setattr(budget_authority, "authority_sessions", lambda _: data_api.sessions)
 
     async def auth(request: Request):
         return user().model_copy(
@@ -158,6 +162,8 @@ async def test_disabled_unconfigured_or_invalid_admission_never_opens_database()
         (replace(policy(), enabled=False), "budget_disabled"),
         (policy(budget=0), "budget_unconfigured"),
         (policy(budget=-1), "configuration_invalid"),
+        (policy(budget=5_000_001), "configuration_invalid"),
+        (policy(max_attempt_microusd=5_000_001), "configuration_invalid"),
     ]:
         guard = BudgetGuard(p, session_factory=no_sessions)
         with pytest.raises(BudgetError, match=code):
@@ -241,7 +247,8 @@ async def test_rolling_window_database_clock_and_retry_capacity(budget_api):
                     model="gpt-5.6-luna",
                     admitted_microusd=LUNA,
                     admitted_at=old,
-                    outcome="failed",
+                    outcome="success",
+                    finished_at=old,
                 ),
                 WorkoutsAIAdmission(
                     attempt_id=uuid4(),
@@ -249,7 +256,8 @@ async def test_rolling_window_database_clock_and_retry_capacity(budget_api):
                     model="gpt-5.6-luna",
                     admitted_microusd=LUNA,
                     admitted_at=recent,
-                    outcome="unknown",
+                    finished_at=recent,
+                    outcome="success",
                 ),
             ]
         )
@@ -394,7 +402,7 @@ async def test_optional_migration_restore_readiness_and_core_ledger(budget_api, 
 
 
 @DB_REQUIRED
-async def test_expired_admission_does_not_block_new_and_uses_database_time(budget_api):
+async def test_confirmed_success_expiry_does_not_block_new_and_uses_database_time(budget_api):
     api = budget_api
     async with api.sessions() as db:
         old = await db.scalar(text("SELECT clock_timestamp()-INTERVAL '25 hours'"))
@@ -405,7 +413,8 @@ async def test_expired_admission_does_not_block_new_and_uses_database_time(budge
                 model="gpt-5.6-luna",
                 admitted_microusd=LUNA,
                 admitted_at=old,
-                outcome="unknown",
+                finished_at=old,
+                outcome="success",
             )
         )
         await db.commit()
@@ -434,7 +443,8 @@ async def test_partial_multi_model_expiry_retry_waits_for_sufficient_capacity(bu
                     model="gpt-5.6-luna",
                     admitted_microusd=amount,
                     admitted_at=current - timedelta(hours=hours),
-                    outcome="failed",
+                    finished_at=current - timedelta(hours=hours),
+                    outcome="success",
                 )
             )
         await db.commit()

@@ -1,5 +1,10 @@
 """Unit normalization, chronological current values, and profile integration hooks."""
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.domains.workouts.export_context import SnapshotSourceContext
+
 import hashlib
 import json
 from datetime import timedelta
@@ -326,22 +331,40 @@ async def erase_measurements(db, owner):
         await db.execute(delete(model).where(model.app_user_id == owner))
 
 
-async def measurement_export_page(db, owner, generation, *, limit=50, offset=0):
+async def measurement_export_page(
+    db,
+    owner,
+    generation,
+    *,
+    limit=50,
+    offset=0,
+    source_context: "SnapshotSourceContext | None" = None,
+):
     if not 1 <= limit <= 50 or not 0 <= offset <= 1_000_000:
         raise ValueError("Invalid measurement export page")
+    if source_context is not None:
+        source_context.require_guard(db, owner, generation, limit, offset)
     rows = (
-        await db.scalars(
-            select(WorkoutsMeasurement)
-            .where(
-                WorkoutsMeasurement.app_user_id == owner,
-                WorkoutsMeasurement.generation == generation,
+        []
+        if source_context is not None and not source_context.should_fetch("measurements", offset)
+        else (
+            await db.scalars(
+                select(WorkoutsMeasurement)
+                .where(
+                    WorkoutsMeasurement.app_user_id == owner,
+                    WorkoutsMeasurement.generation == generation,
+                )
+                .order_by(WorkoutsMeasurement.created_at, WorkoutsMeasurement.id)
+                .limit(limit + 1)
+                .offset(offset)
             )
-            .order_by(WorkoutsMeasurement.created_at, WorkoutsMeasurement.id)
-            .limit(limit + 1)
-            .offset(offset)
-        )
-    ).all()
-    current = await current_measurement_ids(db, owner, generation)
+        ).all()
+    )
+    current = (
+        await current_measurement_ids(db, owner, generation)
+        if rows or source_context is None
+        else set()
+    )
     return {
         "items": [measurement_response(row, is_current=row.id in current) for row in rows[:limit]],
         "has_more": len(rows) > limit,

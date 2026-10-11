@@ -1,5 +1,10 @@
 """Exact owner-scoped erasure/export hooks for parent integration."""
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.domains.workouts.export_context import SnapshotSourceContext
+
 from sqlalchemy import delete, select
 
 from app.domains.workouts.connection_models import (
@@ -20,8 +25,18 @@ async def erase_connections_data(db, app_user_id: str):
         await db.execute(delete(model).where(model.app_user_id == app_user_id))
 
 
-async def connection_export_page(db, app_user_id: str, generation: int, *, limit=10, offset=0):
+async def connection_export_page(
+    db,
+    app_user_id: str,
+    generation: int,
+    *,
+    limit=10,
+    offset=0,
+    source_context: "SnapshotSourceContext | None" = None,
+):
     """Private user export excludes all bearer credentials and token ciphertext."""
+    if source_context is not None:
+        source_context.require_guard(db, app_user_id, generation, limit, offset)
     datasets = {}
     for name, model in (
         ("recipe_connection_receipts", RecipeConnectionReceipt),
@@ -29,14 +44,18 @@ async def connection_export_page(db, app_user_id: str, generation: int, *, limit
         ("training_copy_receipts", WorkoutCopyReceipt),
     ):
         rows = (
-            await db.scalars(
-                select(model)
-                .where(model.app_user_id == app_user_id, model.generation == generation)
-                .order_by(model.created_at, model.id)
-                .limit(limit)
-                .offset(offset)
-            )
-        ).all()
+            []
+            if source_context is not None and not source_context.should_fetch(name, offset)
+            else (
+                await db.scalars(
+                    select(model)
+                    .where(model.app_user_id == app_user_id, model.generation == generation)
+                    .order_by(model.created_at, model.id)
+                    .limit(limit)
+                    .offset(offset)
+                )
+            ).all()
+        )
         datasets[name] = [
             {
                 "id": str(row.id),

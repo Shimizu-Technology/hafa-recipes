@@ -1,5 +1,10 @@
 """Scoped Recipes permissions cannot restore unrelated health/AI permissions."""
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.domains.workouts.export_context import SnapshotSourceContext
+
 from fastapi import HTTPException
 from sqlalchemy import delete, select, text
 
@@ -130,7 +135,13 @@ async def erase_recipe_grant_epochs(db, owner):
     )
 
 
-async def export_recipe_grant_epoch(db, owner, generation):
+async def export_recipe_grant_epoch(
+    db, owner, generation, *, source_context: "SnapshotSourceContext | None" = None
+):
+    if source_context is not None:
+        source_context.assert_scope(db, owner, generation)
+        if not source_context.should_fetch("recipe_grant_epoch", 0):
+            return []
     row = await db.get(WorkoutsRecipeGrantEpoch, (owner, generation))
     return (
         []

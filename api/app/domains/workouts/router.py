@@ -3,9 +3,12 @@
 import hashlib
 import json
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
+
+if TYPE_CHECKING:
+    from app.domains.workouts.export_context import SnapshotSourceContext
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from pydantic import AwareDatetime, Field, StrictBool, model_validator
@@ -1117,9 +1120,47 @@ async def export_data(
     limit: Annotated[int, Query(ge=1, le=10)] = 10,
     offset: Offset = 0,
 ):
-    membership = await membership_for(db, user.id)
-    profile = await db.get(WorkoutsProfile, user.id)
+    return await build_export_page(response, user, db, limit, offset)
+
+
+async def build_export_page(
+    response, user, db, limit=10, offset=0, *, source_context: "SnapshotSourceContext | None" = None
+):
+    if source_context is not None:
+        source_context.require_guard(db, user.id, source_context.generation, limit, offset)
+        generation = source_context.generation
+        metadata = source_context.static_metadata()
+        if metadata is None:
+            membership = await membership_for(db, user.id, generation=generation)
+            profile = await db.get(WorkoutsProfile, user.id)
+            source_context.capture_static(
+                {
+                    "enrollment": enrollment_response(membership).model_dump(mode="json"),
+                    "profile": profile.content if profile else None,
+                    "profile_revision": profile.revision if profile else 0,
+                    "ai_consent": consent_response(
+                        await db.get(WorkoutsConsent, user.id)
+                    ).model_dump(mode="json"),
+                    "grants": [
+                        row.model_dump(mode="json")
+                        for row in await grants_for(db, user.id, generation)
+                    ],
+                }
+            )
+            metadata = source_context.static_metadata()
+    else:
+        membership = await membership_for(db, user.id)
+        profile = await db.get(WorkoutsProfile, user.id)
+        generation = membership.generation
     datasets, totals = {}, {}
+
+    async def table_exists(name):
+        return (
+            name in source_context.tables
+            if source_context is not None
+            else await optional_table_exists(db, name)
+        )
+
     for name, model in (
         ("workouts", WorkoutRecord),
         ("workout_versions", WorkoutVersion),
@@ -1128,11 +1169,19 @@ async def export_data(
         ("sessions", WorkoutsSession),
         ("activities", WorkoutsActivity),
     ):
-        records = await list_owned(db, model, user.id, membership.generation, limit, offset)
-        totals[name] = await db.scalar(
-            select(func.count())
-            .select_from(model)
-            .where(model.app_user_id == user.id, model.generation == membership.generation)
+        records = (
+            await list_owned(db, model, user.id, generation, limit, offset)
+            if source_context is None or source_context.should_fetch(name, offset)
+            else []
+        )
+        totals[name] = (
+            source_context.totals[name]
+            if source_context is not None
+            else await db.scalar(
+                select(func.count())
+                .select_from(model)
+                .where(model.app_user_id == user.id, model.generation == generation)
+            )
         )
         datasets[name] = [
             {
@@ -1151,19 +1200,21 @@ async def export_data(
     from app.domains.workouts.automation_export import export_automation_page
 
     automation_data, automation_totals = await export_automation_page(
-        db, user.id, membership.generation, limit, offset
+        db, user.id, generation, limit, offset, source_context=source_context
     )
     datasets.update(automation_data)
     totals.update(automation_totals)
 
-    async def dataset_total(model):
+    async def dataset_total(name, model):
+        if source_context is not None:
+            return source_context.totals[name]
         return await db.scalar(
             select(func.count())
             .select_from(model)
-            .where(model.app_user_id == user.id, model.generation == membership.generation)
+            .where(model.app_user_id == user.id, model.generation == generation)
         )
 
-    if await optional_table_exists(db, "workouts_health_connections"):
+    if await table_exists("workouts_health_connections"):
         from app.domains.workouts.health_models import (
             HealthConnection,
             HealthExportIntent,
@@ -1172,7 +1223,7 @@ async def export_data(
         from app.domains.workouts.health_service import export_health_page
 
         health = await export_health_page(
-            db, user.id, membership.generation, limit=limit, offset=offset
+            db, user.id, generation, limit=limit, offset=offset, source_context=source_context
         )
         datasets["health_connections"] = sorted(
             health["connections"], key=lambda row: row["provider"]
@@ -1184,8 +1235,8 @@ async def export_data(
             ("health_observations", HealthObservation),
             ("health_owned_writes", HealthExportIntent),
         ):
-            totals[name] = await dataset_total(model)
-    if await optional_table_exists(db, "workouts_shares"):
+            totals[name] = await dataset_total(name, model)
+    if await table_exists("workouts_shares"):
         from app.domains.workouts.connection_lifecycle import connection_export_page
         from app.domains.workouts.connection_models import (
             RecipeConnectionReceipt,
@@ -1195,7 +1246,7 @@ async def export_data(
 
         datasets.update(
             await connection_export_page(
-                db, user.id, membership.generation, limit=limit, offset=offset
+                db, user.id, generation, limit=limit, offset=offset, source_context=source_context
             )
         )
         for name, model in (
@@ -1203,8 +1254,8 @@ async def export_data(
             ("published_training_shares", WorkoutShare),
             ("training_copy_receipts", WorkoutCopyReceipt),
         ):
-            totals[name] = await dataset_total(model)
-    if await optional_table_exists(db, "workouts_library_organization"):
+            totals[name] = await dataset_total(name, model)
+    if await table_exists("workouts_library_organization"):
         from app.domains.workouts.library_organization_models import (
             WorkoutLibraryCollection,
             WorkoutLibraryCollectionMember,
@@ -1214,7 +1265,7 @@ async def export_data(
         from app.domains.workouts.library_organization_service import organization_export_page
 
         organized = await organization_export_page(
-            db, user.id, membership.generation, limit=limit, offset=offset
+            db, user.id, generation, limit=limit, offset=offset, source_context=source_context
         )
         datasets.update({name: page["items"] for name, page in organized.items()})
         for name, model in (
@@ -1223,58 +1274,86 @@ async def export_data(
             ("library_collection_members", WorkoutLibraryCollectionMember),
             ("library_duplicate_receipts", WorkoutLibraryDuplicateReceipt),
         ):
-            totals[name] = await dataset_total(model)
-    if await optional_table_exists(db, "workouts_measurements"):
+            totals[name] = await dataset_total(name, model)
+    if await table_exists("workouts_measurements"):
         from app.domains.workouts.measurement_models import WorkoutsMeasurement
         from app.domains.workouts.measurement_service import measurement_export_page
 
         measurements = await measurement_export_page(
-            db, user.id, membership.generation, limit=limit, offset=offset
+            db, user.id, generation, limit=limit, offset=offset, source_context=source_context
         )
         datasets["measurements"] = measurements["items"]
-        totals["measurements"] = await dataset_total(WorkoutsMeasurement)
-    if await optional_table_exists(db, "workouts_activity_log"):
+        totals["measurements"] = await dataset_total("measurements", WorkoutsMeasurement)
+    if await table_exists("workouts_activity_log"):
         from app.domains.workouts.activity_log_models import WorkoutsActivityLog
         from app.domains.workouts.activity_log_service import export_activity_logs
 
-        activities = await export_activity_logs(db, user.id, membership.generation, limit, offset)
+        activities = await export_activity_logs(
+            db, user.id, generation, limit, offset, source_context=source_context
+        )
         datasets["completed_activity_log"] = activities["items"]
-        totals["completed_activity_log"] = await dataset_total(WorkoutsActivityLog)
-    if await optional_table_exists(db, "workouts_recipe_grant_epochs"):
+        totals["completed_activity_log"] = await dataset_total(
+            "completed_activity_log", WorkoutsActivityLog
+        )
+    if await table_exists("workouts_recipe_grant_epochs"):
         from app.domains.workouts.recipe_grant_service import export_recipe_grant_epoch
 
         datasets["recipe_grant_epoch"] = (
-            await export_recipe_grant_epoch(db, user.id, membership.generation)
-        )[offset : offset + limit]
-        totals["recipe_grant_epoch"] = len(
-            await export_recipe_grant_epoch(db, user.id, membership.generation)
+            []
+            if source_context is not None
+            and not source_context.should_fetch("recipe_grant_epoch", offset)
+            else (
+                await export_recipe_grant_epoch(
+                    db, user.id, generation, source_context=source_context
+                )
+            )[offset : offset + limit]
         )
-    if await optional_table_exists(db, "workouts_import_usage"):
+        totals["recipe_grant_epoch"] = (
+            source_context.totals["recipe_grant_epoch"]
+            if source_context is not None
+            else len(
+                await export_recipe_grant_epoch(
+                    db, user.id, generation, source_context=source_context
+                )
+            )
+        )
+    if await table_exists("workouts_import_usage"):
         from app.domains.workouts.import_usage_models import WorkoutImportUsage
 
         query = select(WorkoutImportUsage).where(WorkoutImportUsage.app_user_id == user.id)
-        totals["import_allowance_receipts"] = await db.scalar(
-            select(func.count()).select_from(query.subquery())
+        totals["import_allowance_receipts"] = (
+            source_context.totals["import_allowance_receipts"]
+            if source_context is not None
+            else await db.scalar(select(func.count()).select_from(query.subquery()))
         )
         receipts = (
-            await db.scalars(
-                query.order_by(WorkoutImportUsage.charged_at, WorkoutImportUsage.request_id)
-                .limit(limit)
-                .offset(offset)
-            )
-        ).all()
+            []
+            if source_context is not None
+            and not source_context.should_fetch("import_allowance_receipts", offset)
+            else (
+                await db.scalars(
+                    query.order_by(WorkoutImportUsage.charged_at, WorkoutImportUsage.request_id)
+                    .limit(limit)
+                    .offset(offset)
+                )
+            ).all()
+        )
         datasets["import_allowance_receipts"] = [
             {"request_id": str(row.request_id), "charged_at": row.charged_at.isoformat()}
             for row in receipts
         ]
+    if source_context is None:
+        metadata = {
+            "enrollment": enrollment_response(membership),
+            "profile": profile.content if profile else None,
+            "profile_revision": profile.revision if profile else 0,
+            "ai_consent": consent_response(await db.get(WorkoutsConsent, user.id)),
+            "grants": await grants_for(db, user.id, generation),
+        }
     response.headers["Cache-Control"] = "no-store"
     return ExportResponse(
         generated_at=now(),
-        enrollment=enrollment_response(membership),
-        profile=profile.content if profile else None,
-        profile_revision=profile.revision if profile else 0,
-        ai_consent=consent_response(await db.get(WorkoutsConsent, user.id)),
-        grants=await grants_for(db, user.id, membership.generation),
+        **metadata,
         datasets=datasets,
         totals=totals,
         has_more={name: offset + len(rows) < totals[name] for name, rows in datasets.items()},

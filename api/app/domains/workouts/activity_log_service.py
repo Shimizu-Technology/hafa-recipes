@@ -1,5 +1,10 @@
 """Owner-locked manual observations, without fictional exercise prescriptions."""
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.domains.workouts.export_context import SnapshotSourceContext
+
 from datetime import timedelta
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -342,19 +347,28 @@ async def erase_activity_logs(db, owner):
     await db.execute(delete(WorkoutsActivityLog).where(WorkoutsActivityLog.app_user_id == owner))
 
 
-async def export_activity_logs(db, owner, generation, limit, offset):
+async def export_activity_logs(
+    db, owner, generation, limit, offset, *, source_context: "SnapshotSourceContext | None" = None
+):
+    if source_context is not None:
+        source_context.require_guard(db, owner, generation, limit, offset)
     rows = (
-        await db.scalars(
-            select(WorkoutsActivityLog)
-            .where(
-                WorkoutsActivityLog.app_user_id == owner,
-                WorkoutsActivityLog.generation == generation,
+        []
+        if source_context is not None
+        and not source_context.should_fetch("completed_activity_log", offset)
+        else (
+            await db.scalars(
+                select(WorkoutsActivityLog)
+                .where(
+                    WorkoutsActivityLog.app_user_id == owner,
+                    WorkoutsActivityLog.generation == generation,
+                )
+                .order_by(WorkoutsActivityLog.created_at, WorkoutsActivityLog.id)
+                .limit(limit + 1)
+                .offset(offset)
             )
-            .order_by(WorkoutsActivityLog.created_at, WorkoutsActivityLog.id)
-            .limit(limit + 1)
-            .offset(offset)
-        )
-    ).all()
+        ).all()
+    )
     return {
         "items": [activity_response(row) for row in rows[:limit]],
         "has_more": len(rows) > limit,

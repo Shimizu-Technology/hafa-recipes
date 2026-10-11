@@ -18,6 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
 from app.db.database import AsyncSessionLocal
+from app.domains.workouts.export_context import SnapshotSourceContext, source_context
 from app.domains.workouts.export_models import (
     EXPORT_TABLES,
     WorkoutsExportEpoch,
@@ -26,7 +27,7 @@ from app.domains.workouts.export_models import (
 )
 from app.domains.workouts.lifecycle import membership_for, optional_table_exists
 from app.domains.workouts.models import WorkoutsConsent, WorkoutsGrant
-from app.domains.workouts.router import ExportResponse, export_data
+from app.domains.workouts.router import ExportResponse, build_export_page
 from app.domains.workouts.schemas import DomainModel
 from app.domains.workouts.sharing_service import sharing_key
 
@@ -230,12 +231,22 @@ async def guard_projection_memory(db, owner, generation, limit, offset):
     ):
         if not await optional_table_exists(db, table_name):
             continue
+        direction = (
+            "ASC"
+            if table_name
+            in ("workouts_health_observations", "workouts_shares", "workouts_copy_receipts")
+            else "DESC"
+        )
         expression = " + ".join(f"COALESCE(octet_length({field}::text),0)" for field in fields)
         size += await db.scalar(
-            text(f"""SELECT COALESCE(SUM(size),0) FROM
-            (SELECT {expression} AS size FROM {table_name}
+            # Materialize only the bounded page before rendering JSONB as text.
+            # A projected size below Sort/Limit can otherwise render every
+            # matching owner's record, including rows skipped by pagination.
+            text(f"""WITH selected AS MATERIALIZED
+            (SELECT {','.join(fields)} FROM {table_name}
              WHERE app_user_id=:owner AND generation=:generation
-             ORDER BY created_at DESC,id DESC LIMIT :limit OFFSET :offset) selected"""),
+             ORDER BY created_at {direction},id {direction} LIMIT :limit OFFSET :offset)
+             SELECT COALESCE(SUM({expression}),0) FROM selected"""),
             {"owner": owner, "generation": generation, "limit": limit, "offset": offset},
         )
         if size > MAX_PAGE_BYTES // 2:
@@ -252,18 +263,26 @@ async def guard_projection_memory(db, owner, generation, limit, offset):
 async def approved_export_page(db, user, limit, offset):
     # Reuse the reviewed explicit projection, not arbitrary ORM/column dumps.
     # This handler does not commit; the service supplies one RR transaction.
-    membership = await membership_for(db, user.id)
-    await guard_projection_memory(db, user.id, membership.generation, limit, offset)
-    return await export_data(Response(), user, db, limit=limit, offset=offset)
+    context = source_context.get()
+    if context is not None:
+        context.assert_scope(db, user.id, context.generation)
+        generation = context.generation
+    else:
+        generation = (await membership_for(db, user.id)).generation
+    await guard_projection_memory(db, user.id, generation, limit, offset)
+    if context is not None:
+        context.approve_page(db, user.id, generation, limit, offset)
+    return await build_export_page(
+        Response(), user, db, limit=limit, offset=offset, source_context=context
+    )
 
 
 class PrivateExportService:
-    def __init__(
-        self, session_factory=AsyncSessionLocal, *, settings=None, page_source=approved_export_page
-    ):
+    def __init__(self, session_factory=AsyncSessionLocal, *, settings=None, page_source=None):
         self.sessions = session_factory
         self.settings = settings
-        self.page_source = page_source
+        self._builtin_page_source = page_source is None or page_source is approved_export_page
+        self.page_source = approved_export_page if page_source is None else page_source
 
     def authorize(self, user, generation):
         configured = self.settings or get_settings()
@@ -364,31 +383,49 @@ class PrivateExportService:
                         await privacy_digest(source, user.id, generation, key),
                     ):
                         raise error("export_snapshot_unavailable")
-                    totals, total_bytes = None, 0
-                    for page in range(MAX_PAGES):
-                        projected = await self.page_source(
-                            source, user, PAGE_SIZE, page * PAGE_SIZE
+                    context = None
+                    projected = content = ciphertext = None
+                    try:
+                        context = (
+                            await SnapshotSourceContext.prepare(source, user.id, generation)
+                            if self._builtin_page_source
+                            else None
                         )
-                        projected.generated_at = created
-                        if totals is None:
-                            totals = projected.totals
-                            if any(count > MAX_PAGES * PAGE_SIZE for count in totals.values()):
+                        totals, total_bytes = None, 0
+                        for page in range(MAX_PAGES):
+                            token = source_context.set(context)
+                            try:
+                                projected = await self.page_source(
+                                    source, user, PAGE_SIZE, page * PAGE_SIZE
+                                )
+                            finally:
+                                source_context.reset(token)
+                            projected.generated_at = created
+                            if totals is None:
+                                totals = projected.totals
+                                if any(count > MAX_PAGES * PAGE_SIZE for count in totals.values()):
+                                    raise error("export_snapshot_too_large", 413)
+                            elif totals != projected.totals:
+                                raise error("export_snapshot_unavailable", 503)
+                            content = projected.model_dump_json().encode()
+                            total_bytes += len(content)
+                            if len(content) > MAX_PAGE_BYTES or total_bytes > MAX_TOTAL_BYTES:
                                 raise error("export_snapshot_too_large", 413)
-                        elif totals != projected.totals:
-                            raise error("export_snapshot_unavailable", 503)
-                        content = projected.model_dump_json().encode()
-                        total_bytes += len(content)
-                        if len(content) > MAX_PAGE_BYTES or total_bytes > MAX_TOTAL_BYTES:
+                            finished = not any(projected.has_more.values())
+                            ciphertext = seal(key, snapshot, page, content)
+                            await self._write_page(
+                                user, generation, snapshot, key, page, ciphertext
+                            )
+                            # Do not retain the previous page while the next query waits.
+                            projected = content = ciphertext = None
+                            if finished:
+                                break
+                        else:
                             raise error("export_snapshot_too_large", 413)
-                        finished = not any(projected.has_more.values())
-                        ciphertext = seal(key, snapshot, page, content)
-                        await self._write_page(user, generation, snapshot, key, page, ciphertext)
-                        # Do not retain the previous page while the next query waits.
+                    finally:
                         del projected, content, ciphertext
-                        if finished:
-                            break
-                    else:
-                        raise error("export_snapshot_too_large", 413)
+                        if context is not None:
+                            context.close()
                     # Release global build slot only after all source JSON is gone.
                     await source.rollback()
             async with self.sessions.begin() as db:

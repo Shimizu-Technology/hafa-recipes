@@ -190,4 +190,7 @@ async def shutdown():
     await cover_job_worker.stop()
     await deletion_cleanup_worker.stop()
     await job_worker.stop()
+    from app.domains.workouts.budget_authority import dispose_budget_authorities
+
+    await dispose_budget_authorities()
     print("👋 Shutting down Håfa API")
