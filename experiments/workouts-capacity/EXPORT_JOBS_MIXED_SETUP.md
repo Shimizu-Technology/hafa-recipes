@@ -1,6 +1,6 @@
 # Background export under a matching Recipes workload
 
-The scenario ran at `316e044db00cc46c6fad45929f6aca69a43aeca1` in hosted run `38106174584`. The Recipes baseline passed; mixed acceptance failed relative Recipes latency and a missing individual-page `/up` witness. Its receipt remains immutable. Last verified local source `44ef6e1180d43ee1606ca1149c7f8c7072b57979` includes the complete 23-dataset schema correction and bounded numerical diagnostics, with 40 focused diagnostic and 348 full harness tests passing without skips. Its separate hosted diagnostic run `38112155265` failed baseline acceptance because Recipes chat p95 was 1,654.883ms against the unchanged 1,000ms write limit; mixed traffic was not run. Baseline timing, protected reads, memory bounds, saved outcomes and cleanup passed. Both failed receipts remain preserved. The subsequent timeout-classification review fix and its new regressions are prepared locally with tests pending. The branch starts at `7b35c34b8ac135c687437ef9a6e92d334504fc8e` and preserves existing profiles and receipts. The synchronous 1.810-second admission remains failed. Production is unchanged and R04 remains open.
+The scenario ran at `316e044db00cc46c6fad45929f6aca69a43aeca1` in hosted run `38106174584`. The Recipes baseline passed; mixed acceptance failed relative Recipes latency and a missing individual-page `/up` witness. Its receipt remains immutable. Last verified local source `44ef6e1180d43ee1606ca1149c7f8c7072b57979` includes the complete 23-dataset schema correction and bounded numerical diagnostics, with 40 focused diagnostic and 348 full harness tests passing without skips. Its separate hosted diagnostic run `38112155265` failed baseline acceptance because Recipes chat p95 was 1,654.883ms against the unchanged 1,000ms write limit; mixed traffic was not run. Baseline timing, protected reads, memory bounds, saved outcomes and cleanup passed. Both failed receipts remain preserved. The subsequent timeout-classification review fix, chat observations and their new regressions are prepared locally with tests pending. The branch starts at `7b35c34b8ac135c687437ef9a6e92d334504fc8e` and preserves existing profiles and receipts. The synchronous 1.810-second admission remains failed. Production is unchanged and R04 remains open.
 
 The new coordinator runs a fresh Recipes-only baseline followed by mixed traffic on the same owned PostgreSQL/database, recreating only the API. Each phase first completes client/hash/HTTP preparation and exact-target observer validation under one 60-second pre-phase bound, counted inside the unchanged 1,900-second total work limit. A fresh owned control folder exchanges bounded PREPARED, one fixed future monotonic start T and OBSERVING acknowledgements. Host, load and observer must share the verified Linux time-namespace inode. The monitor acknowledges when its first actual sample begins; only then may prepared client traffic start within one second of T. Missing, late, malformed or failed acknowledgement/clock binding fails.
 
@@ -36,3 +36,22 @@ All calculations occur after traffic, add no requests or sampling timers, and
 retain the existing thresholds and 100KiB numeric-only receipt limit. These
 diagnostics cannot change a failed acceptance result or classify a prior run
 whose individual request spans were not retained in its public receipt.
+
+The next unchanged workload also observes its five original Recipes chat calls.
+Their existing request trace supplies relative start offsets and client duration;
+the same monitor sample origin aligns completed GC, event-loop and media stage
+intervals. Counts indicate temporal overlap, without asserting causation.
+The new wrapper records the real tracker body's SDK and response-validation
+duration, accounting-exit duration, and the actual fake-transport duration and
+requested wait. SDK resources stay lazy: installation never accesses cached
+`.chat` or `.completions` resources. The fake transport retains its original
+250ms wait. These timings are inclusive and cannot be added together.
+The existing final checkpoint carries the numeric observations once; no extra
+HTTP request, parsing pass, clock change or polling timer is introduced.
+Only five complete successful numeric rows may be published. Missing pairs,
+failed or cancelled calls, overflow or malformed evidence leave this diagnosis
+unavailable. No request arguments, prompts, responses, SQL or identifying data
+are captured by these hooks. The new coordinator writes compact JSON to retain
+the complete numeric receipt under the unchanged 100KiB bound; original
+coordinators retain their two-space format. These observations cannot change
+acceptance thresholds or turn either preserved failed run into a pass.

@@ -1,0 +1,510 @@
+"""Real lazy SDK/fake wait, bounded numeric pairing and default-preserving output."""
+
+import asyncio
+import copy
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import httpx
+import pytest
+from capacity import export_jobs_mixed_chat as chat
+from capacity.ci_run import Coordinator
+from capacity.driver import Driver
+from capacity.export_jobs_mixed_ci import MixedCoordinator
+from capacity.export_jobs_mixed_diagnostics import phase_diagnostics
+from capacity.export_jobs_mixed_driver import MixedDriver
+from capacity.export_jobs_mixed_receipt import cycle_proofs, mixed_public_receipt
+from capacity.plan import environment
+from capacity.transport import ProviderTransport
+from fastapi import FastAPI
+from openai import AsyncOpenAI
+from test_export_jobs_mixed import complete_report
+
+
+def component_rows():
+    return {
+        "calls_observed": 5,
+        "rows": [
+            {
+                "ordinal": index,
+                "complete": True,
+                "failed": False,
+                "sdk_body_ms": 1400.0,
+                "accounting_exit_ms": 20.0,
+                "fixture_transport_ms": 250.0,
+                "fixture_requested_wait_ms": 250.0,
+                "fixture_transport_calls": 1,
+            }
+            for index in range(1, 6)
+        ],
+    }
+
+
+def trace_fixture(tmp_path):
+    path = tmp_path / "requests.jsonl"
+    events = []
+    for index in range(5):
+        start = 100.2 + 60 * index
+        events.extend(
+            [
+                {
+                    "route": "recipes/chat",
+                    "event": "start",
+                    "timestamp": start,
+                    "request_number": 5 * index + 1,
+                },
+                {
+                    "route": "recipes/chat",
+                    "event": "end",
+                    "timestamp": start + 1.65,
+                    "request_number": 5 * index + 1,
+                    "milliseconds": 1650.0,
+                    "status": 200,
+                },
+            ]
+        )
+    path.write_text("".join(json.dumps(event) + "\n" for event in events))
+    samples = [
+        {
+            "timestamp": 100,
+            "stages": [
+                {
+                    "stage": "gc_pause",
+                    "event": "end",
+                    "timestamp": 101.3,
+                    "duration_ms": 304,
+                },
+                {
+                    "stage": "loop_lag",
+                    "event": "end",
+                    "timestamp": 101.8,
+                    "duration_ms": 1191,
+                },
+                {
+                    "stage": "evidence_frames",
+                    "event": "end",
+                    "timestamp": 108.7,
+                    "duration_ms": 5800,
+                },
+            ],
+        }
+    ]
+    return path, samples, events
+
+
+@pytest.fixture
+def setup(monkeypatch):
+    for key, value in environment().items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("CAPACITY_EXPORT_JOBS_MIXED", "true")
+    monkeypatch.setenv("CAPACITY_PHASE", "baseline")
+    from app import ai_governance
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    accounted = []
+
+    async def account(**_):
+        accounted.append(True)  # Do not retain arguments/response/source data.
+        await asyncio.sleep(0.002)
+
+    monkeypatch.setattr(ai_governance, "record_ai_invocation", account)
+    app = FastAPI()
+    calls = []
+
+    @app.get("/capacity/status")
+    async def status():
+        calls.append(True)
+        return {"synthetic": True}
+
+    yield app, ai_governance.AIInvocationTracker, accounted, calls
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_lazy_resources_real250ms_wait_and_accounting_are_observed(
+    setup, monkeypatch
+):
+    app, Tracker, accounted, status_calls = setup
+    provider = ProviderTransport(delay=0.25)
+    client = AsyncOpenAI(
+        api_key="capacity-not-a-provider-credential",
+        max_retries=0,
+        http_client=httpx.AsyncClient(transport=provider),
+    )
+    assert "chat" not in client.__dict__
+    components = chat.install(app, monkeypatch.setattr)
+    assert "chat" not in client.__dict__  # Installation did not warm cached imports.
+    try:
+        for _ in range(5):
+            tracker = Tracker(
+                capability="recipe_chat",
+                primary_model="gpt-4o-mini",
+                prompt_version="fixture",
+                allow_canary=False,
+            )
+            async with tracker:
+                assert chat.active.get() is not None
+                response = await client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a recipe cooking assistant",
+                        },
+                        {"role": "user", "content": "How can I prepare this?"},
+                    ],
+                )
+                assert response.choices[0].message.content
+                tracker.succeed(response)
+            assert not hasattr(tracker, "_capacity_chat_pairs")
+            assert chat.active.get() is None
+        snapshot = components.snapshot()
+        assert snapshot["available"] and len(accounted) == 5
+        assert provider.delay == 0.25 and provider.calls["chat"] == 5
+        assert chat.component_public(snapshot) == snapshot
+        for row in snapshot["rows"]:
+            assert (
+                row["fixture_requested_wait_ms"] == 250
+                and row["fixture_transport_calls"] == 1
+            )
+            assert row["sdk_body_ms"] >= row["fixture_transport_ms"] >= 250
+            assert row["accounting_exit_ms"] > 0
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://fixture.invalid"
+        ) as control:
+            value = (await control.get("/capacity/status")).json()
+        assert value == {"synthetic": True, "recipe_chat_components": snapshot}
+        assert status_calls == [True]  # Exactly the original request/handler call.
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_nested_unrelated_context_does_not_steal_parent_wait_or_retain_arguments(
+    setup, monkeypatch
+):
+    app, Tracker, _, _ = setup
+    clock = SimpleNamespace(now=0.0)
+    sentinel, returned = object(), object()
+
+    async def provider_call(provider, request):
+        assert request is sentinel
+        clock.now += provider.delay
+        return returned
+
+    monkeypatch.setattr(ProviderTransport, "handle_async_request", provider_call)
+    components = chat.install(app, monkeypatch.setattr, clock=lambda: clock.now)
+    provider = ProviderTransport(delay=0.25)
+    for _ in range(5):
+        tracker = Tracker(
+            capability="recipe_chat",
+            primary_model="fixture",
+            prompt_version="fixture",
+            allow_canary=False,
+        )
+        async with tracker:
+            parent = chat.active.get()
+            unrelated = Tracker(
+                capability="fixture_other",
+                primary_model="fixture",
+                prompt_version="fixture",
+                allow_canary=False,
+            )
+            async with unrelated:
+                assert chat.active.get() is None
+                assert await provider.handle_async_request(sentinel) is returned
+            assert chat.active.get() is parent
+            assert await provider.handle_async_request(sentinel) is returned
+            tracker.succeed()
+        assert chat.active.get() is None
+    snapshot = components.snapshot()
+    assert snapshot["available"]
+    assert all(
+        row["fixture_transport_calls"] == 1 and row["fixture_transport_ms"] == 250
+        for row in snapshot["rows"]
+    )
+    assert not any(
+        key in json.dumps(snapshot)
+        for key in (
+            "request_body",
+            "response_body",
+            "source_data",
+            "timestamp",
+            "token",
+            "url",
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_concurrent_frames_are_task_local_and_cancellation_cleans_pair(
+    setup, monkeypatch
+):
+    app, Tracker, _, _ = setup
+    components = chat.install(app, monkeypatch.setattr)
+    ready, held = asyncio.Event(), asyncio.Future()
+    tracker = Tracker(
+        capability="recipe_chat",
+        primary_model="fixture",
+        prompt_version="fixture",
+        allow_canary=False,
+    )
+
+    async def actor():
+        async with tracker:
+            assert chat.active.get() is not None
+            ready.set()
+            await held
+
+    task = asyncio.create_task(actor())
+    await ready.wait()
+    assert chat.active.get() is None
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert held.cancelled() and not hasattr(tracker, "_capacity_chat_pairs")
+    assert chat.active.get() is None and components.snapshot() == {"available": False}
+
+
+@pytest.mark.asyncio
+async def test_failed_tracker_without_exception_leaves_numeric_diagnosis_unavailable(
+    setup, monkeypatch
+):
+    app, Tracker, accounted, _ = setup
+    components = chat.install(app, monkeypatch.setattr)
+    for _ in range(5):
+        tracker = Tracker(
+            capability="recipe_chat",
+            primary_model="fixture",
+            prompt_version="fixture",
+            allow_canary=False,
+        )
+        async with tracker:
+            tracker.fail("fixture_failure")
+        assert chat.active.get() is None and not hasattr(
+            tracker, "_capacity_chat_pairs"
+        )
+    assert len(accounted) == 5 and all(row["failed"] for row in components.rows)
+    assert components.snapshot() == {"available": False}
+
+
+def test_installer_rejects_other_profiles_before_patching(setup, monkeypatch):
+    app, Tracker, _, _ = setup
+    original = Tracker.__aenter__
+    monkeypatch.setenv("CAPACITY_EXPORT_JOBS_MIXED", "false")
+    with pytest.raises(RuntimeError):
+        chat.install(app, monkeypatch.setattr)
+    assert Tracker.__aenter__ is original
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "partial",
+        "failed",
+        "overflow",
+        "wrong_ordinal",
+        "nan",
+        "bool",
+        "multi_provider",
+        "changed_delay",
+        "missing_field",
+        "short_wait",
+    ],
+)
+def test_component_whitelist_refuses_incomplete_or_false_fixture_evidence(corruption):
+    value = component_rows()
+    if corruption == "partial":
+        value["rows"][0]["complete"] = False
+    elif corruption == "failed":
+        value["rows"][0]["failed"] = True
+    elif corruption == "overflow":
+        value["calls_observed"] = 6
+    elif corruption == "wrong_ordinal":
+        value["rows"][0]["ordinal"] = 2
+    elif corruption == "nan":
+        value["rows"][0]["sdk_body_ms"] = float("nan")
+    elif corruption == "bool":
+        value["rows"][0]["fixture_transport_calls"] = True
+    elif corruption == "multi_provider":
+        value["rows"][0]["fixture_transport_calls"] = 2
+    elif corruption == "changed_delay":
+        value["rows"][0]["fixture_requested_wait_ms"] = 249
+    elif corruption == "missing_field":
+        del value["rows"][0]["accounting_exit_ms"]
+    elif corruption == "short_wait":
+        value["rows"][0]["fixture_transport_ms"] = 249
+    assert chat.component_public(value) == {"available": False}
+
+
+def test_five_trace_pairs_align_to_existing_phase_origin_and_actual_end_intervals(
+    tmp_path,
+):
+    path, samples, _ = trace_fixture(tmp_path)
+    result = chat.chat_trace(samples, path, component_rows())
+    assert result["available"] and len(result["rows"]) == 5
+    first = result["rows"][0]
+    assert first["relative_start_ms"] == pytest.approx(200)
+    assert first["duration_ms"] == 1650
+    assert (
+        first["overlap_counts"]["gc_pause"] == first["overlap_counts"]["loop_lag"] == 1
+    )
+    assert first["overlap_counts"]["evidence_frames"] == 0
+    assert result["inclusive_timings"] and not result["nested_timings_summed"]
+    assert all(not any(row["overlap_counts"].values()) for row in result["rows"][1:])
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "missing_end",
+        "foreign_pair",
+        "duplicate_number",
+        "backwards_pair",
+        "bad_status",
+        "nan",
+        "zero_duration",
+        "before_origin",
+        "extra_chat",
+        "truncated_json",
+        "oversized",
+        "bad_stage",
+        "failed_stage",
+        "bad_components",
+    ],
+)
+def test_partial_bad_pair_or_malformed_trace_never_claims_diagnosis(
+    tmp_path, corruption
+):
+    path, samples, events = trace_fixture(tmp_path)
+    components = component_rows()
+    if corruption == "missing_end":
+        events.pop()
+    elif corruption == "foreign_pair":
+        events[1]["request_number"] = 999
+    elif corruption == "duplicate_number":
+        events[2]["request_number"] = events[3]["request_number"] = 1
+    elif corruption == "backwards_pair":
+        events[2]["timestamp"] = 100.3
+    elif corruption == "bad_status":
+        events[1]["status"] = 500
+    elif corruption == "nan":
+        events[1]["milliseconds"] = float("nan")
+    elif corruption == "zero_duration":
+        events[1]["milliseconds"] = 0
+    elif corruption == "before_origin":
+        events[0]["timestamp"] = 99
+    elif corruption == "extra_chat":
+        events.extend(events[:2])
+    elif corruption == "bad_stage":
+        samples[0]["stages"][0]["duration_ms"] = float("nan")
+    elif corruption == "failed_stage":
+        samples[0]["stages"][0]["event"] = "failed"
+    elif corruption == "bad_components":
+        components["calls_observed"] = 4
+    path.write_text("".join(json.dumps(event) + "\n" for event in events))
+    if corruption == "truncated_json":
+        path.write_text(path.read_text() + "{")
+    elif corruption == "oversized":
+        path.write_text(" " * (2 * 1024 * 1024 + 1))
+    assert chat.chat_trace(samples, path, components) == {"available": False}
+
+
+def test_public_rows_strip_private_fields_and_preserve_failed_gate(tmp_path):
+    path, samples, _ = trace_fixture(tmp_path)
+    data = chat.chat_trace(samples, path, component_rows())
+    data["absolute_clock"] = "PRIVATE"
+    data["rows"][0].update(
+        owner="PRIVATE", url="PRIVATE", provider_body="PRIVATE", sql="PRIVATE"
+    )
+    summary = {
+        "passed": False,
+        "cleaned_owned_resources": True,
+        "phases": {"baseline": {"passed": False, "recipe_chat_diagnostics": data}},
+    }
+    safe = mixed_public_receipt(summary)
+    text = json.dumps(safe)
+    assert not safe["passed"] and "PRIVATE" not in text and "absolute_clock" not in text
+    assert (
+        safe["phases"]["baseline"]["recipe_chat_diagnostics"]["rows"][0]["duration_ms"]
+        == 1650
+    )
+
+
+def test_checkpoint_extension_default_is_noop_and_new_capture_is_numeric_only():
+    original = Driver.__new__(Driver)
+    assert (
+        original.checkpoint_extra("after", {"recipe_chat_components": component_rows()})
+        is None
+    )
+    assert not hasattr(original, "recipe_chat_components")
+    mixed = MixedDriver.__new__(MixedDriver)
+    mixed.recipe_chat_components = {"available": False}
+    metadata = component_rows()
+    metadata["private_payload"] = "PRIVATE"
+    mixed.checkpoint_extra("before", {"recipe_chat_components": metadata})
+    assert mixed.recipe_chat_components == {"available": False}
+    mixed.checkpoint_extra("after", {"recipe_chat_components": metadata})
+    assert mixed.recipe_chat_components["available"] and "PRIVATE" not in json.dumps(
+        mixed.recipe_chat_components
+    )
+
+
+def test_compact_new_writer_retains_complete_numeric_payload_under_original100k(
+    tmp_path,
+):
+    root = Path(__file__).resolve().parents[3]
+    payload = {"counts": {"retained": 5}, "rows": [1, 2, 3]}
+    old = Coordinator(root, tmp_path / "old", tmp_path / "old.json", env={})
+    old.summary = payload
+    old.format_public_receipt = lambda value: value
+    old.write_receipt()
+    assert (
+        old.receipt_indent == 2
+        and old.receipt.read_text() == json.dumps(payload, indent=2) + "\n"
+    )
+    new = MixedCoordinator(root, tmp_path / "new", tmp_path / "new.json", env={})
+    # Maximal retained stage arrays plus all new fixed numeric fields: no field
+    # is dropped just to make publication fit. The real sanitizer is applied.
+    path, samples, _ = trace_fixture(tmp_path)
+    diagnosis = chat.chat_trace(samples, path, component_rows())
+    stage = {
+        "stage": "gc_pause",
+        "event": "end",
+        "offset_seconds": 299.123456789,
+        "duration_ms": 999999999999999.9,
+        "input_bytes": 999999999999999,
+    }
+    phases = {
+        phase: {
+            "passed": False,
+            "recipe_chat_diagnostics": diagnosis,
+            "timeline": {
+                "stages": [copy.deepcopy(stage) for _ in range(320)],
+                "slow_liveness": [],
+                "observed_stage_count": 320,
+                "dropped_stage_count": 0,
+                "timeline_truncated": False,
+            },
+        }
+        for phase in ("baseline", "mixed")
+    }
+    report = complete_report()
+    phases["mixed"]["latency_diagnostics"] = phase_diagnostics(report, "mixed")
+    phases["mixed"]["background_export_cycles"] = cycle_proofs(report)[0]
+    phases["mixed"]["routes"] = report["routes"]
+    report["job_cycles"] = []
+    phases["baseline"]["latency_diagnostics"] = phase_diagnostics(report, "baseline")
+    new.summary = {"passed": False, "cleaned_owned_resources": True, "phases": phases}
+    expected = mixed_public_receipt(new.summary)
+    new.write_receipt()
+    assert (
+        new.receipt_indent is None and json.loads(new.receipt.read_text()) == expected
+    )
+    assert all(
+        len(expected["phases"][phase]["timeline"]["stages"]) == 320 for phase in phases
+    )
+    assert len(new.receipt.read_bytes()) <= 100 * 1024
+    assert len(new.receipt.read_text().splitlines()) == 1

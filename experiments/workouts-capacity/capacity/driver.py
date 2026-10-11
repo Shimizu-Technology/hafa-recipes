@@ -253,6 +253,10 @@ class Driver:
             "diagnostics": diagnostic,
             "cover_scenarios": scenarios,
         }
+        self.checkpoint_extra(name, value)
+
+    def checkpoint_extra(self, name, value):
+        """Optional experiment-only observation; original profiles retain no data."""
 
     async def prepare(self):
         for owner in OWNERS:

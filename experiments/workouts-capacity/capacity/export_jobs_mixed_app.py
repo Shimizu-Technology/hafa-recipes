@@ -44,10 +44,12 @@ from sqlalchemy import func, select
 from capacity.app import app, identity
 from capacity.export_diagnostic_instrument import install, snapshot
 from capacity.export_jobs_diagnostic_contract import STATUS_CODES
+from capacity.export_jobs_mixed_chat import install as install_recipe_chat
 
 # The real worker owns a separately constructed normal builder. Class-level
 # wrappers cover it; no singleton page-source replacement is needed here.
 install(wrap_singleton=False, max_builds=5)
+install_recipe_chat(app)
 
 
 async def job_checks(sessions=AsyncSessionLocal, worker=export_job_worker):

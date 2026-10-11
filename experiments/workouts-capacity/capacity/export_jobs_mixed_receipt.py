@@ -11,6 +11,7 @@ from capacity.ci_safety import (
 from capacity.export_diagnostic_metrics import STAGES
 from capacity.export_diagnostic_receipt import complete_stages
 from capacity.export_jobs_diagnostic_contract import OUTCOME_BOOLEANS, OUTCOME_NUMBERS
+from capacity.export_jobs_mixed_chat import chat_public
 from capacity.export_jobs_mixed_diagnostics import phase_diagnostics, public_diagnostics
 from capacity.export_jobs_mixed_schema import DATASET_NAMES
 from capacity.export_jobs_overlap import overlap_evidence
@@ -180,6 +181,11 @@ def mixed_public_receipt(summary):
         safe["phases"]["mixed"]["background_export_cycles"] = values
     for phase in ("baseline", "mixed"):
         if phase in safe["phases"]:
+            safe["phases"][phase]["recipe_chat_diagnostics"] = chat_public(
+                summary.get("phases", {})
+                .get(phase, {})
+                .get("recipe_chat_diagnostics", {})
+            )
             safe["phases"][phase]["latency_diagnostics"] = public_diagnostics(
                 summary.get("phases", {}).get(phase, {}).get("latency_diagnostics")
             )

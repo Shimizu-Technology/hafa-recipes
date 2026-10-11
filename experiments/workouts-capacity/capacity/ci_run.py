@@ -30,6 +30,8 @@ TOTAL_SECONDS = 1900
 
 class Coordinator:
     driver_module = "capacity.driver"
+    receipt_indent = 2
+    receipt_separators = None
 
     @staticmethod
     def make_phase_receipt(*args, **kwargs):
@@ -713,7 +715,10 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
         self.receipt.parent.mkdir(parents=True, exist_ok=True)
         encoded = (
             json.dumps(
-                self.format_public_receipt(self.summary), allow_nan=False, indent=2
+                self.format_public_receipt(self.summary),
+                allow_nan=False,
+                indent=self.receipt_indent,
+                separators=self.receipt_separators,
             )
             + "\n"
         )

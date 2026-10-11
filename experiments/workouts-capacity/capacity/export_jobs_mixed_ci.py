@@ -13,6 +13,7 @@ from pathlib import Path
 from capacity.ci_run import TOTAL_SECONDS, Coordinator, execute
 from capacity.ci_safety import OWNER, SafetyError, numeric_timeline
 from capacity.export_jobs_diagnostic_plan import build_jobs_plan
+from capacity.export_jobs_mixed_chat import chat_trace
 from capacity.export_jobs_mixed_receipt import (
     check_scenario,
     mixed_phase_receipt,
@@ -34,6 +35,8 @@ BRANCH = "codex/workouts-export-jobs-mixed"
 
 class MixedCoordinator(Coordinator):
     driver_module = "capacity.export_jobs_mixed_driver"
+    receipt_indent = None
+    receipt_separators = (",", ":")
     make_phase_receipt = staticmethod(mixed_phase_receipt)
     format_public_receipt = staticmethod(mixed_public_receipt)
     check_scenario = staticmethod(check_scenario)
@@ -183,6 +186,11 @@ class MixedCoordinator(Coordinator):
         )
         receipt["timeline"] = numeric_timeline(
             samples, str(result_dir / f"{phase}.json") + ".requests.jsonl"
+        )
+        receipt["recipe_chat_diagnostics"] = chat_trace(
+            samples,
+            str(result_dir / f"{phase}.json") + ".requests.jsonl",
+            report.get("recipe_chat_components", {}),
         )
         self.summary["phases"][phase] = receipt
         after_counts = self.saved_counts()
