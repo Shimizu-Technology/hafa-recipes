@@ -10,6 +10,10 @@ android {
   // Production code does not use these APIs; no downloaded test runtime is added.
   useLibrary 'android.test.base'
   useLibrary 'android.test.runner'
-  defaultConfig { testInstrumentationRunner 'android.test.InstrumentationTestRunner' }
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+    testInstrumentationRunner 'android.test.InstrumentationTestRunner'
+  }
 }
 dependencies { testImplementation 'junit:junit:4.13.2' }
