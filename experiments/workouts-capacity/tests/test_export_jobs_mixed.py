@@ -1,5 +1,6 @@
 """Finite source/protocol tests; not native hosted mixed acceptance."""
 
+import ast
 import asyncio
 import copy
 import json
@@ -189,6 +190,50 @@ def test_old_defaults_and_new_branch_do_not_dispatch_old_jobs():
     new = (workflows / "workouts-export-jobs-mixed.yml").read_text()
     assert "timeout-minutes: 35" in new and "persist-credentials: false" in new
     assert "if: always()" in new and "retention-days: 1" in new
+
+
+def test_actual_phase_overrides_resolve_every_strict_app_flag(tmp_path):
+    root = Path(__file__).resolve().parents[3]
+    source = ast.parse(
+        (
+            root / "experiments/workouts-capacity/capacity/export_jobs_mixed_app.py"
+        ).read_text()
+    )
+    flags = next(
+        ast.literal_eval(node.value)
+        for node in source.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "FLAGS"
+            for target in node.targets
+        )
+    )
+    coordinator = MixedCoordinator(
+        root, tmp_path / "work", tmp_path / "receipt.json", env={}
+    )
+    coordinator.run_id = "strict-flags-fixture"
+    coordinator.pg = "synthetic-owned-pg"
+    coordinator.plan_root = tmp_path / "plan"
+    coordinator.preparation_plan()
+    fixture = dict(
+        line.split("=", 1)
+        for line in (coordinator.plan_root / "fixture.env").read_text().splitlines()
+    )
+    assert "DELETION_CLEANUP_WORKER_ENABLED" not in fixture
+    for phase in ("baseline", "mixed"):
+        argv = coordinator.runtime_argv("api", phase=phase)
+        effective = dict(fixture)
+        for index, word in enumerate(argv):
+            if word == "-e":
+                key, value = argv[index + 1].split("=", 1)
+                effective[key] = value
+        assert {key: effective.get(key) for key in flags} == flags
+        assert effective["CAPACITY_PHASE"] == phase
+        assert effective["WORKOUTS_API_ENABLED"] == (
+            "true" if phase == "mixed" else "false"
+        )
+        original = Coordinator.runtime_argv(coordinator, "api", phase=phase)
+        assert "DELETION_CLEANUP_WORKER_ENABLED=false" not in original
 
 
 @pytest.mark.asyncio

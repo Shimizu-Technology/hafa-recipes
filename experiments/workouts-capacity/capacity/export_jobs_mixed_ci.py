@@ -281,6 +281,8 @@ class MixedCoordinator(Coordinator):
                 "WORKOUTS_EXPORT_JOBS_ENABLED=true",
                 "-e",
                 "JOB_WORKER_ENABLED=true",
+                "-e",
+                "DELETION_CLEANUP_WORKER_ENABLED=false",
             ]
         return argv
 
