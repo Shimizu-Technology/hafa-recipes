@@ -107,12 +107,26 @@ matrix. Compiler warnings retain the deprecated SDK test harness and inherited
 Expo/React Native API/unchecked-cast/Gradle deprecations; no dependency upgrade or
 unrelated source change was made to silence them.
 
-Neither APK is installed. Descriptor instrumentation is NOT_RUN, as are all nine
-actual Android destination/provider/UI acceptance scenarios. This arm64
-development compilation does not establish a full release matrix, store signing,
-upload, tester delivery, or accepted device behavior. Artifacts/failure logs stay
-private and ignored; owned finite wrappers/JVMs ended and were released, with
-canonical lifecycle status showing no active owned resources.
+The exact test APK/source pair was then verified and installed on an owned
+Android API 36 emulator. Both real reliable-descriptor instrumentation cases
+passed (`OK (2 tests)`, exit 0): plain auto-close caches a reported peer error,
+while the checked document output rejects that error after successful writing.
+This is scoped kernel/descriptor proof, with fixed synthetic status and no
+document-provider or app journey. It does not establish eventual cloud persistence.
+
+The app APK remains uninstalled. All nine actual Android destination/provider/UI
+acceptance scenarios remain NOT_RUN and are required flow gates. Input preflight
+was infrastructure BLOCKED: the owned emulator could not be presented through the
+supported IDE surface, and a subsequent IDE session had no accessible window.
+Working preview controls do not prove application input or saving. No app
+journey was performed; owned runtime phases were cleaned afterwards.
+
+This arm64 development compilation and two descriptor cases do not establish a
+full release matrix, store signing, upload, tester delivery, or accepted app
+behavior. The complete integration's canonical gate remains separate from this
+focused branch's checks. Artifacts/failure logs stay private and ignored; owned
+finite wrappers/JVMs ended and were released. Publication remains a draft review
+step, with required Android acceptance and release holds intact.
 
 Actual Android acceptance must verify a local selected destination's full bytes,
 filename-collision behavior without changing the existing file, cancelled
