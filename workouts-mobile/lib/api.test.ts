@@ -11,12 +11,14 @@ describe("authenticated API boundary", () => {
     await api.exportJob("original-job", 7);
     await api.cancelExportJob("original-job", 7);
     await api.exportSnapshotPage("original-snapshot", 0, 7);
+    await api.exportSnapshotManifest("original-snapshot", 7);
     expect(transport.mock.calls.map((call) => call[0])).toEqual([
       "https://example.test/api/v1/workouts/export/jobs",
       "https://example.test/api/v1/workouts/export/jobs/by-request/original-request",
       "https://example.test/api/v1/workouts/export/jobs/original-job",
       "https://example.test/api/v1/workouts/export/jobs/original-job/cancel",
       "https://example.test/api/v1/workouts/export/snapshots/original-snapshot/pages/0",
+      "https://example.test/api/v1/workouts/export/snapshots/original-snapshot",
     ]);
     expect(JSON.parse(transport.mock.calls[0][1].body)).toEqual({ request_id: "original-request" });
     for (const [, init] of transport.mock.calls) {

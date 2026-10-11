@@ -12,6 +12,7 @@ export interface ExportCommand extends ExportScope {
   job_id: string | null;
   cancel_requested: boolean;
   retired: boolean;
+  save_pending?: boolean;
 }
 const queues = new Map<string, Promise<unknown>>();
 const safeId = (value: unknown): value is string => typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
@@ -34,11 +35,13 @@ export function createExportJobStore(storage: Storage, scope: ExportScope, guard
       value.schema_version !== 1 || value.owner !== scope.owner || value.generation !== scope.generation ||
       value.backend !== scope.backend || value.binding !== scope.binding || !safeId(value.request_id) ||
       !(value.job_id === null || safeId(value.job_id)) ||
-      typeof value.cancel_requested !== "boolean" || typeof value.retired !== "boolean")
+      typeof value.cancel_requested !== "boolean" || typeof value.retired !== "boolean" ||
+      (value.save_pending !== undefined && typeof value.save_pending !== "boolean"))
       throw Error("This export recovery handle is invalid. Contact support before creating another export.");
     // Project only content-free fields, even if an older implementation stored extra data.
     return { ...scope, schema_version: 1, request_id: value.request_id, job_id: value.job_id,
-      cancel_requested: value.cancel_requested, retired: value.retired };
+      cancel_requested: value.cancel_requested, retired: value.retired,
+      ...(value.save_pending === undefined ? {} : { save_pending: value.save_pending }) };
   }
   async function write(command: ExportCommand) {
     guard();
@@ -67,6 +70,8 @@ export function createExportJobStore(storage: Storage, scope: ExportScope, guard
       return { ...current, job_id: jobId };
     })),
     requestCancel: (requestId: string) => ordered(() => update(requestId, (current) => ({ ...current, cancel_requested: true }))),
+    beginSave: (requestId: string) => ordered(() => update(requestId, (current) => ({ ...current, cancel_requested: true, save_pending: true }))),
+    finishSave: (requestId: string) => ordered(() => update(requestId, (current) => ({ ...current, save_pending: false }))),
     retire: (requestId: string) => ordered(() => update(requestId, (current) => ({ ...current, retired: true }))),
   };
 }

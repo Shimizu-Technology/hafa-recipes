@@ -4,6 +4,7 @@ import type { collectSnapshotExport } from "./account";
 import { createExportJobStore, type ExportCommand } from "./export-job-store";
 import { createPrivateStorageRegistry } from "./private-storage";
 import type { SnapshotPage } from "./account";
+import type { ExportSaveOptions, ExportSaveResult } from "./export-save";
 
 const scope = { owner: "stable-account", generation: 2, backend: "https://fixture.invalid", binding: "test:issuer:subject" };
 const manifest = { id: "snapshot-one", generation: 2, schema_version: 1 as const,
@@ -36,8 +37,9 @@ function setup() {
     createExportJob: vi.fn<ExportJobApi["createExportJob"]>(async () => job()), exportJob: vi.fn<ExportJobApi["exportJob"]>(async () => job()),
     exportJobByRequest: vi.fn<ExportJobApi["exportJobByRequest"]>(async () => job()), cancelExportJob: vi.fn<ExportJobApi["cancelExportJob"]>(async () => job("cancelled")),
     exportSnapshotPage: vi.fn(async (_id: string, index: number) => page(index)),
+    exportSnapshotManifest: vi.fn<ExportJobApi["exportSnapshotManifest"]>(async () => manifest),
   };
-  const save = vi.fn<(data: Awaited<ReturnType<typeof collectSnapshotExport>>, owner: string, guard: () => void) => Promise<void>>(async () => undefined);
+  const save = vi.fn<(data: Awaited<ReturnType<typeof collectSnapshotExport>>, owner: string, guard: () => void, options: ExportSaveOptions) => Promise<ExportSaveResult>>(async () => "opened");
   const make = () => createExportController({ scope, storage, api, isCurrent: () => current && storage.isCurrent(),
     newRequestId: () => ++next === 1 ? "request-one" : `request-${next}`, save });
   return { map, raw, registry, storage, api, save, make, switchAccount: () => { current = false; },
@@ -215,5 +217,57 @@ describe("durable private export commands", () => {
     expect(() => validateExportJob(job("failed", { failure_code: "raw provider body" as ExportJob["failure_code"] }), command)).toThrow();
     expect(() => validateExportJob(job("running", { manifest }), command)).toThrow();
     expect(() => validateExportJob(job(), { ...command, job_id: "foreign-job" })).toThrow();
+  });
+  it("preserves only the owned Android picker background pause, then checks the original manifest before saving", async () => {
+    const s = setup(); const picker = deferred<void>(); let saveOptions!: ExportSaveOptions;
+    s.api.createExportJob.mockResolvedValue(job("ready")); s.api.exportJob.mockResolvedValue(job("ready"));
+    const c = s.make();
+    s.save.mockImplementation(async (_data, _owner, guard, options) => {
+      saveOptions = options; options.onModal?.(true); await picker.promise; options.onModal?.(false);
+      guard(); await options.revalidate(); return "saved";
+    });
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-11T00:01:00Z"));
+    try {
+      await c.start(); const work = c.save();
+      await vi.waitFor(() => expect(s.save).toHaveBeenCalledOnce()); c.pause("background");
+      expect(saveOptions.signal?.aborted).toBe(false); expect(c.state().busy).toBe(true);
+      picker.resolve(); await work;
+      expect(s.api.exportSnapshotManifest).toHaveBeenCalledWith("snapshot-one", 2, expect.any(AbortSignal));
+      expect(c.state().message).toContain("was saved"); expect(s.api.cancelExportJob).toHaveBeenCalledOnce();
+    } finally { vi.restoreAllMocks(); }
+  });
+  it.each(["focus", "dispose"])("%s cancels an outstanding Android picker lease", async (reason) => {
+    const s = setup(); const picker = deferred<void>(); let signal: AbortSignal | undefined;
+    s.api.createExportJob.mockResolvedValue(job("ready")); s.api.exportJob.mockResolvedValue(job("ready"));
+    s.save.mockImplementation(async (_data, _owner, guard, options) => {
+      signal = options.signal; options.onModal?.(true); await picker.promise; options.onModal?.(false); guard(); return "cancelled";
+    });
+    const c = s.make(); await c.start(); const work = c.save();
+    await vi.waitFor(() => expect(s.save).toHaveBeenCalledOnce());
+    if (reason === "dispose") c.dispose(); else c.pause("focus");
+    expect(signal?.aborted).toBe(true); picker.resolve(); await work;
+    expect(c.state().message).not.toContain("was saved"); expect((await s.store.load())?.cancel_requested).toBe(true);
+  });
+  it("privacy check failure after picker retains cleanup intent and cleans the same job", async () => {
+    const s = setup(); s.api.createExportJob.mockResolvedValue(job("ready")); s.api.exportJob.mockResolvedValue(job("ready"));
+    s.api.exportSnapshotManifest.mockRejectedValue(Object.assign(Error("Privacy changed"), { status: 410 }));
+    s.save.mockImplementation(async (_data, _owner, _guard, options) => { await options.revalidate(); return "saved"; });
+    const c = s.make(); await c.start(); await c.save();
+    expect(c.state().error).toBe("Privacy changed"); expect(s.api.cancelExportJob).toHaveBeenCalledOnce();
+    expect((await s.store.load())?.cancel_requested).toBe(true); expect(c.state().message).toBe("");
+  });
+  it("cancelled document picker has truthful copy and same-job cleanup", async () => {
+    const s = setup(); s.api.createExportJob.mockResolvedValue(job("ready")); s.api.exportJob.mockResolvedValue(job("ready"));
+    s.save.mockResolvedValue("cancelled"); const c = s.make(); await c.start(); await c.save();
+    expect(c.state().message).toContain("Saving was cancelled"); expect(s.api.cancelExportJob).toHaveBeenCalledOnce();
+  });
+  it("cold restart during a save retains uncertainty without re-opening or copying", async () => {
+    const s = setup(); await s.store.begin("request-one"); await s.store.attach("request-one", "job-one");
+    await s.store.beginSave("request-one");
+    const restored = s.make(); await restored.restore();
+    expect(restored.state().message).toContain("previous save was interrupted");
+    expect(restored.state().command?.save_pending).toBe(true);
+    expect(s.save).not.toHaveBeenCalled(); expect(s.api.createExportJob).not.toHaveBeenCalled();
+    await restored.cancel(); expect((await s.store.load())?.save_pending).toBe(true);
   });
 });

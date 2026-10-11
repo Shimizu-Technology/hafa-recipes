@@ -1,6 +1,7 @@
 import { collectSnapshotExport, type ExportManifest, type SnapshotPage } from "./account";
 import { createExportJobStore, type ExportCommand, type ExportScope } from "./export-job-store";
 import type { Storage } from "./drafts";
+import { exportSaveMessage, interruptedSaveMessage, requireSameExportManifest, type ExportSaveOptions, type ExportSaveResult } from "./export-save";
 
 export type ExportJobStatus = "queued" | "running" | "cancel_requested" | "ready" | "cancelled" | "failed" | "expired";
 export type ExportFailure = "interrupted" | "privacy_changed" | "deadline_exceeded" | "too_large" | "export_failed";
@@ -25,6 +26,7 @@ export interface ExportJobApi {
   exportJobByRequest(requestId: string, generation: number, signal?: AbortSignal): Promise<ExportJob>;
   cancelExportJob(id: string, generation: number, signal?: AbortSignal): Promise<ExportJob>;
   exportSnapshotPage(id: string, page: number, generation: number, signal?: AbortSignal): Promise<SnapshotPage>;
+  exportSnapshotManifest(id: string, generation: number, signal?: AbortSignal): Promise<ExportManifest>;
 }
 const statuses: readonly string[] = ["queued", "running", "cancel_requested", "ready", "cancelled", "failed", "expired"];
 const failures: readonly string[] = ["interrupted", "privacy_changed", "deadline_exceeded", "too_large", "export_failed"];
@@ -84,11 +86,12 @@ export function createExportController(options: {
   api: ExportJobApi;
   isCurrent(): boolean;
   newRequestId(): string;
-  save(data: Awaited<ReturnType<typeof collectSnapshotExport>>, owner: string, guard: () => void): Promise<void>;
+  save(data: Awaited<ReturnType<typeof collectSnapshotExport>>, owner: string, guard: () => void, options: ExportSaveOptions): Promise<ExportSaveResult>;
 }) {
   let disposed = false;
   let sequence = 0;
   let abort: AbortController | null = null;
+  let ownSaveModal = false;
   let view: ExportJobView = { phase: "loading", command: null, job: null, busy: false, error: "", message: "", pages: 0, invalidated: false };
   const listeners = new Set<(state: ExportJobView) => void>();
   const operationKey = JSON.stringify(options.scope);
@@ -145,12 +148,16 @@ export function createExportController(options: {
   return {
     state: () => view,
     subscribe(listener: (state: ExportJobView) => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    pause() { ++sequence; abort?.abort(); if (!disposed && options.isCurrent()) publish({ busy: false }); },
+    pause(reason: "background" | "focus" = "focus") {
+      if (reason === "background" && ownSaveModal && !disposed && options.isCurrent()) return;
+      ++sequence; abort?.abort(); if (!disposed && options.isCurrent()) publish({ busy: false });
+    },
     dispose() { disposed = true; ++sequence; abort?.abort(); listeners.clear(); },
     restore: () => run(async (guard, signal) => {
       const command = await store.load(); guard();
       if (!command || command.retired) { publish({ phase: "idle", command: null, job: null }); return; }
-      publish({ command, phase: command.cancel_requested ? "cancelling" : "uncertain" });
+      publish({ command, phase: command.cancel_requested ? "cancelling" : "uncertain",
+        ...(command.save_pending ? { message: interruptedSaveMessage } : {}) });
       await lookup(command, guard, signal);
     }),
     check: () => run(async (guard, signal) => {
@@ -199,16 +206,27 @@ export function createExportController(options: {
         (pages) => { guard(); publish({ pages }); });
       guard();
       // Persist cleanup intent before presenting the OS sheet. Cold restart never opens it again automatically.
-      const cleanupCommand = await store.requestCancel(command.request_id); guard();
+      const cleanupCommand = await store.beginSave(command.request_id); guard();
       publish({ phase: "saving", command: cleanupCommand });
       let saveFailed = false;
       let saveError: unknown;
       try {
-        await options.save(data, command.owner, guard); guard();
-        publish({ message: "The export file was opened for saving. The app cannot tell whether you saved it or closed the save options. Keep any copy private." });
+        const result = await options.save(data, command.owner, guard, {
+          signal,
+          onModal(open) { ownSaveModal = open; },
+          async revalidate() {
+            guard();
+            const fresh = await options.api.exportSnapshotManifest(manifest.id, command.generation, signal);
+            guard(); requireSameExportManifest(manifest, fresh);
+          },
+        }); guard();
+        const acknowledged = await store.finishSave(command.request_id); guard();
+        publish({ command: acknowledged, message: exportSaveMessage(result) });
       } catch (error) {
         saveFailed = true;
         saveError = error;
+      } finally {
+        ownSaveModal = false;
       }
       let cleanupFailed = false;
       let cleanupError: unknown;

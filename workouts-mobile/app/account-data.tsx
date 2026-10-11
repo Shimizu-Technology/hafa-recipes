@@ -11,8 +11,9 @@ import { logoutRecovery } from "@/lib/logout-recovery-native";
 import { configuration } from "@/lib/config";
 import { useExportJob } from "@/lib/use-export-job";
 import { exportJobDescription, terminalExport } from "@/lib/export-jobs";
+import { exportSaveMessage, interruptedSaveMessage, legacySaveRecovery, requireSameExportManifest } from "@/lib/export-save";
 export default function AccountData() {
-  const { api, owner, enrollment, storage, eraseLocalData, invalidateAccount } = useTraining();
+  const { api, owner, enrollment, storage, eraseLocalData, invalidateAccount, isCurrentAccount } = useTraining();
   const generation = enrollment?.generation ?? 0;
   const currentEnrollment = useRef(enrollment);
   currentEnrollment.current = enrollment;
@@ -30,12 +31,22 @@ export default function AccountData() {
   const [pendingCleanup, setPendingCleanup] = useState<"workouts" | null>(null);
   const lock = useRef(false);
   const mounted = useRef(true);
+  const legacySave = useRef<AbortController | null>(null);
   useEffect(
     () => () => {
       mounted.current = false;
+      legacySave.current?.abort();
     },
     []
   );
+  useEffect(() => () => { legacySave.current?.abort(); }, [owner, generation, storage]);
+  useEffect(() => {
+    let current = true;
+    void legacySaveRecovery(storage, owner, generation).pending().then((pending) => {
+      if (current && pending) setMessage(interruptedSaveMessage);
+    }).catch(() => { if (current) setError("The previous save could not be checked. Try local data cleanup before saving again."); });
+    return () => { current = false; };
+  }, [owner, generation, storage]);
   async function exportData() {
     if (lock.current) return;
     lock.current = true;
@@ -43,10 +54,14 @@ export default function AccountData() {
     setError("");
     let snapshotId: string | null = null;
     let cleanupWarning = "";
+    const operation = new AbortController();
+    legacySave.current = operation;
     try {
       const guard = () => {
         if (
           !mounted.current ||
+          operation.signal.aborted ||
+          !isCurrentAccount() ||
           !storage.isCurrent() ||
           !currentEnrollment.current?.enrolled ||
           currentEnrollment.current.generation !== generation
@@ -62,12 +77,19 @@ export default function AccountData() {
         (page) => api.exportSnapshotPage(manifest.id, page, generation),
         guard
       );
-      await savePrivateExport(data, owner, guard);
-      setMessage(
-        "The export file was opened for saving. Keep it somewhere private; it contains your saved training and health-related records."
-      );
+      const recovery = legacySaveRecovery(storage, owner, generation);
+      await recovery.begin(); guard();
+      const result = await savePrivateExport(data, owner, guard, {
+        signal: operation.signal,
+        async revalidate() {
+          guard();
+          const fresh = await api.exportSnapshotManifest(manifest.id, generation, operation.signal);
+          guard(); requireSameExportManifest(manifest, fresh);
+        },
+      });
+      guard(); await recovery.finish(); guard(); setMessage(exportSaveMessage(result));
     } catch (e) {
-      setError((e as Error).message);
+      if (mounted.current && isCurrentAccount() && storage.isCurrent()) setError((e as Error).message);
     } finally {
       if (snapshotId) {
         try {
@@ -77,9 +99,10 @@ export default function AccountData() {
             "The private server snapshot cleanup was not acknowledged. It expires automatically within10minutes.";
         }
       }
-      if (cleanupWarning && mounted.current) setMessage((current) => `${current} ${cleanupWarning}`);
+      if (cleanupWarning && mounted.current && isCurrentAccount() && storage.isCurrent()) setMessage((current) => `${current} ${cleanupWarning}`);
       lock.current = false;
-      setBusy(false);
+      if (legacySave.current === operation) legacySave.current = null;
+      if (mounted.current && isCurrentAccount() && storage.isCurrent()) setBusy(false);
     }
   }
   async function finishCleanup() {
