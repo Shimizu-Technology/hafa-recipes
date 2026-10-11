@@ -1,0 +1,36 @@
+--- a/driver.py
++++ b/driver.py
+@@ -15,0 +16 @@
++from capacity.statistics import nearest_rank
+@@ -95,5 +96 @@
+-    return (
+-        sorted(values)[min(len(values) - 1, int((len(values) - 1) * fraction))]
+-        if values
+-        else None
+-    )
++    return nearest_rank(values, fraction)
+@@ -442,0 +440,4 @@
++            if (manifest["page_count"] != 19 or manifest["page_size"] != 10
++                or manifest["totals"].get("workouts") != 190
++                or manifest["totals"].get("workout_versions") != 190):
++                raise RuntimeError("Private beta export inventory differs from fixture")
+@@ -452 +453,10 @@
+-                    break
++                    raise RuntimeError("Private beta export page unavailable")
++                value = response.json()
++                exported = value["export"]
++                if (value["snapshot_id"] != manifest["id"] or value["page"] != page
++                    or value["page_count"] != 19 or exported["offset"] != page * 10
++                    or exported["limit"] != 10 or exported["totals"] != manifest["totals"]
++                    or any(len(exported["datasets"][name]) != 10
++                           or exported["has_more"][name] != (page < 18)
++                           for name in ("workouts", "workout_versions"))):
++                    raise RuntimeError("Private beta export page inventory differs")
+@@ -713,0 +724 @@
++            "percentile_method": "nearest_rank",
+@@ -782 +793 @@
+-                    # Eight readers, 4 or 6 HTTP calls/turn: approximately 2 req/s.
++                    # Same sixteen-second Recipes cadence; two Workouts reads are added.
+@@ -784 +795 @@
+-                        max(0, (24 if mixed else 16) - (time.monotonic() - started))
++                        max(0, 16 - (time.monotonic() - started))
