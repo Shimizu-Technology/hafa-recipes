@@ -17,7 +17,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 class HafaDocumentSaveModule : Module() {
-  private class Save(val token: String, val source: File, val resolver: ContentResolver, val requestCode: Int, var picker: Promise?) {
+  private class Save(val token: String, val source: File, val resolver: ContentResolver, val requestCode: Int, promise: Promise) {
+    val picker = PickerPromiseOwner(promise)
     val stopped = AtomicBoolean(false)
     val opening = CancellationSignal()
     var uri: Uri? = null
@@ -65,17 +66,18 @@ class HafaDocumentSaveModule : Module() {
         }
         appContext.throwingActivity.startActivityForResult(intent, save!!.requestCode)
       } catch (_: Exception) {
-        synchronized(lock) { if (current === save) current = null }
-        promise.resolve(result("failed"))
+        val owned = takePickerLaunchFailure(lock, save?.picker, promise) {
+          if (current === save) current = null
+        }
+        if (owned) promise.resolve(result("failed"))
       }
     }.runOnQueue(Queues.MAIN)
 
     OnActivityResult { _, (requestCode, resultCode, intent) ->
       synchronized(lock) {
-        val save = current?.takeIf { !destroyed && it.requestCode == requestCode && it.picker != null }
+        val save = current?.takeIf { !destroyed && it.requestCode == requestCode && it.picker.hasPending() }
           ?: return@OnActivityResult
-        val picker = save.picker!!
-        save.picker = null
+        val picker = save.picker.take() ?: return@OnActivityResult
         val uri = intent?.data
         // Only a successful result from OUR create-document request establishes ownership.
         val created = try {
@@ -110,8 +112,10 @@ class HafaDocumentSaveModule : Module() {
             DocumentCopy.copy(save.source.length(), save.stopped::get,
               { FileInputStream(save.source) },
               { documentOutput(requireNotNull(save.resolver.openFileDescriptor(save.uri!!, "w", save.opening))) })
-            finish(save)
-            promise.resolve(result("saved"))
+            commitDocumentCopy(lock, save.stopped::get) {
+              finish(save)
+              promise.resolve(result("saved"))
+            }
           } catch (_: Exception) {
             promise.resolve(discard(save, if (save.stopped.get()) "cancelled" else "failed"))
           }
@@ -146,8 +150,7 @@ class HafaDocumentSaveModule : Module() {
         shutdownDocumentExecutor(io) {
           current?.let { save ->
             stop(save)
-            save.picker?.resolve(result("failed", true))
-            save.picker = null
+            save.picker.take()?.resolve(result("failed", true))
             if (save.uri != null && !save.copying && !save.finishing) {
               save.finishing = true
               io.execute { discard(save) }
