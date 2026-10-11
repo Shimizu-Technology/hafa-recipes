@@ -1,6 +1,7 @@
 """Fixed public diagnostics, never exception messages or resource identifiers."""
 
 CODES = {
+    "mixed_timing_failed",
     "export_job_identity_failed",
     "export_job_deadline_failed",
     "export_job_terminal",

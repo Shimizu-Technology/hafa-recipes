@@ -20,6 +20,12 @@ from capacity.export_jobs_diagnostic_prescriptions import (
     PrescriptionProof,
     expected_prescriptions,
 )
+from capacity.export_jobs_mixed_timing import (
+    PREPARATION_SECONDS,
+    TimingError,
+    client_start,
+    namespace,
+)
 from capacity.safety import OWNERS
 
 SECONDS = 300
@@ -70,21 +76,45 @@ async def settled_workload(*coroutines):
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
-async def run_workload(driver, mixed, seconds):
-    started = time.monotonic()
+async def run_workload(driver, mixed, seconds, *, started=None):
+    started = time.monotonic() if started is None else started
     deadline = started + seconds
 
     async def polling():
-        while time.monotonic() < deadline:
+        async def poll(_):
             await driver.poll()
-            await asyncio.sleep(5)
 
-    async with asyncio.timeout(seconds + 30):
+        await anchored_turns(tuple(started + 5 * index for index in range(60)), poll)
+
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimingError("mixed_timing_failed")
+    async with asyncio.timeout(remaining):
         await settled_workload(
             *(protected_reader(driver, index, mixed, started) for index in range(8)),
             heavy_cycles(driver, mixed, started),
             polling(),
         )
+    if time.monotonic() > deadline:
+        raise TimingError("mixed_timing_failed")
+
+
+async def traffic_window(driver, mixed, start):
+    remaining = start + SECONDS - time.monotonic()
+    if remaining <= 0:
+        raise TimingError("mixed_timing_failed")
+    driver.traffic_active = True
+    driver.traffic_start = start
+    async with asyncio.timeout(remaining):
+        await run_workload(driver, mixed, SECONDS, started=start)
+        if time.monotonic() > start + SECONDS:
+            raise TimingError("mixed_timing_failed")
+        await driver.poll()
+        if time.monotonic() > start + SECONDS:
+            raise TimingError("mixed_timing_failed")
+        await driver.checkpoint("after")
+    if time.monotonic() > start + SECONDS:
+        raise TimingError("mixed_timing_failed")
 
 
 class MixedDriver(Driver):
@@ -96,9 +126,21 @@ class MixedDriver(Driver):
         self.origin = time.time()
         self.spans, self.pending = [], {}
         self.dropped = 0
+        self.traffic_active = False
+        self.traffic_start, self.traffic_first_start, self.traffic_last_end = (
+            None,
+            None,
+            None,
+        )
 
     def trace(self, number, event, label, **values):
         super().trace(number, event, label, **values)
+        if self.traffic_active:
+            instant = time.monotonic()
+            if event == "start" and self.traffic_first_start is None:
+                self.traffic_first_start = instant
+            if event in ("end", "failed"):
+                self.traffic_last_end = instant
         if event == "start":
             self.pending[number] = time.time()
         elif number in self.pending:
@@ -135,6 +177,13 @@ class MixedDriver(Driver):
             origin_timestamp=self.origin,
             dropped_spans=self.dropped,
             unsettled_requests=len(self.pending),
+            traffic_timing={
+                "start_at": self.traffic_start,
+                "traffic_first_start": self.traffic_first_start,
+                "traffic_last_end": self.traffic_last_end,
+                "namespace_inode": getattr(self, "clock_namespace", None),
+                "unsettled_requests": len(self.pending),
+            },
         )
         return value
 
@@ -313,6 +362,7 @@ async def run(args):
         raise RuntimeError(
             "Use a new phase output; historical evidence cannot be replaced"
         )
+    preparation_until = time.monotonic() + PREPARATION_SECONDS
     driver = MixedDriver(args.fixtures)
     completed = False
     failure_type = None
@@ -325,10 +375,10 @@ async def run(args):
             await driver.prepare()
         mixed = args.profile == "mixed"
         driver.results.clear()  # Setup is excluded from protected-route latency.
-        await run_workload(driver, mixed, args.seconds)
-        await driver.poll()
+        start, _ = await client_start(args.control, driver.phase, preparation_until)
+        driver.clock_namespace = namespace()
+        await traffic_window(driver, mixed, start)
         if args.profile in {"recipes-baseline", "mixed"}:
-            await driver.checkpoint("after")
             report = driver.report()
             if any(row["unexpected"] for row in report["routes"].values()):
                 raise AcceptanceFailure("unexpected_workload_status")
@@ -378,7 +428,9 @@ async def run(args):
         # Preserve cancellation/transport failure while retaining partial numeric
         # evidence. Never serialize provider messages, source payloads or URLs.
         failure_type = type(exc).__name__
-        fixed_failure = failure_code(exc)
+        fixed_failure = (
+            "mixed_timing_failed" if isinstance(exc, TimingError) else failure_code(exc)
+        )
         raise
     finally:
         try:
@@ -417,4 +469,5 @@ if __name__ == "__main__":
     parser.add_argument("--seconds", type=int, choices=(300,), default=300)
     parser.add_argument("--fixtures", default="/fixtures")
     parser.add_argument("--output", required=True)
+    parser.add_argument("--control", required=True)
     asyncio.run(run(parser.parse_args()))

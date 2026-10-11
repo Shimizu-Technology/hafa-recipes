@@ -171,4 +171,25 @@ def mixed_public_receipt(summary):
                 }
             values.append(value)
         safe["phases"]["mixed"]["background_export_cycles"] = values
+    for phase in ("baseline", "mixed"):
+        if phase in safe["phases"]:
+            raw = summary.get("phases", {}).get(phase, {}).get("timing_proof", {})
+            safe["phases"][phase]["timing_proof"] = {
+                "passed": raw.get("passed") is True,
+                **{
+                    key: number(raw[key]) if raw[key] is not None else None
+                    for key in (
+                        "planned_traffic_seconds",
+                        "planned_observation_seconds",
+                        "first_traffic_delay_seconds",
+                        "last_traffic_offset_seconds",
+                        "observer_duration_seconds",
+                        "actual_tail_seconds",
+                    )
+                    if key in raw
+                },
+            }
+            if raw.get("passed") is not True:
+                safe["phases"][phase]["passed"] = False
+                safe["passed"] = False
     return safe

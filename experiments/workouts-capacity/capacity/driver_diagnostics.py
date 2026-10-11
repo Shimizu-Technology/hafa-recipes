@@ -5,6 +5,7 @@ import asyncio
 from capacity.events import STAGES
 
 FAILURES = {
+    "mixed_timing_failed",
     "workload_slot_missed",
     "metadata_checkpoint_unavailable",
     "metadata_checkpoint_invalid",
