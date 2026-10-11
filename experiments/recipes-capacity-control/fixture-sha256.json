@@ -1,0 +1,42 @@
+{
+  "cover.jpg": {
+    "bytes": 288911,
+    "sha256": "d567618e1126374cf79908c5ac12c5102d2e55bfb36ac8c048a0f28050add775"
+  },
+  "image-limit.jpg": {
+    "bytes": 82252,
+    "sha256": "54431117d0edabf508c655d77af1ab3481018b1ac831503dc618ee94446b4961"
+  },
+  "malformed.pdf": {
+    "bytes": 24,
+    "sha256": "6fa4beb8a38d8d852698f7cc3604dac3991a60fc06011f31e132055ed9296442"
+  },
+  "near-body.json": {
+    "bytes": 3145216,
+    "sha256": "f938d4a1b59af2fe385b63ba0388e99f683b6902e1ab0574b67f5f2900680952"
+  },
+  "normal.jpg": {
+    "bytes": 26691,
+    "sha256": "bca34c0f449941b8d96ba8904b87f3581cf67e4d03caaa67bb47c8084218e4c3"
+  },
+  "source-1.pdf": {
+    "bytes": 704,
+    "sha256": "21dab53ac0eb8c46c3db8f9bc7346756a394033ace1e1e62a74410dfebe32309"
+  },
+  "source-30.pdf": {
+    "bytes": 9605,
+    "sha256": "d4160b0e1e3f56f0c2298469427e86e8c4322a2a25526796c41993f386362e4f"
+  },
+  "source-31.pdf": {
+    "bytes": 9912,
+    "sha256": "cbaa3e2d63bd9581c9f8fbb4cae3904e0c1a708f9086e228a993f8b03d947b4b"
+  },
+  "source.mp4": {
+    "bytes": 10079395,
+    "sha256": "de43dceeb0e8568272d8517b24b3251c0a63d07d369c45916588229ee813a121"
+  },
+  "source.wav": {
+    "bytes": 384078,
+    "sha256": "2d17bd20abeebab0a9f0c9b71a71f410a108198bfadaecc33bea6bdcb3281388"
+  }
+}

@@ -1,0 +1,47 @@
+name: Recipes pinned capacity control (synthetic)
+on:
+  pull_request:
+    types: [labeled]
+permissions:
+  contents: read
+concurrency:
+  group: recipes-pinned-control-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+jobs:
+  control:
+    if: github.repository == 'Shimizu-Technology/hafa-recipes' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/recipes-hosted-control' && github.event.label.name == 'recipes-capacity-control'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          path: workflow
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 823986f48e4eb5de3075969a742f834036b5d473
+          persist-credentials: false
+          path: main-source
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 8d4b175fc43a5e2d561b0e4c158718ac9c20500f
+          persist-credentials: false
+          path: candidate-source
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 405d89446b536f8ca0009739a07d45101ee095de
+          persist-credentials: false
+          path: harness-source
+      - name: Run one pinned pair; always clean exact owned resources
+        env:
+          CONTROL_WORK: ${{ runner.temp }}/recipes-control-${{ github.run_id }}-${{ github.run_attempt }}
+        run: timeout --signal=TERM --kill-after=125s 1900s bash workflow/experiments/recipes-capacity-control/run.sh
+      - name: Retain numeric comparison only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: recipes-pinned-control-numeric
+          path: ${{ runner.temp }}/recipes-control-${{ github.run_id }}-${{ github.run_attempt }}/receipt.json
+          if-no-files-found: error
+          retention-days: 1

@@ -1,0 +1,140 @@
+--- a/app.py
++++ b/app.py
+@@ -7,7 +7,7 @@
+ 
+ from capacity.events import PHASES, traced
+ from capacity.safety import OWNERS, ensure
+-from capacity.transport import TEXT, FixtureBudget, install_provider_transport
++from capacity.transport import TEXT, install_provider_transport
+ 
+ ensure()  # Before importing application settings or any external SDK.
+ transport = install_provider_transport(
+@@ -16,11 +16,6 @@
+ 
+ from app.auth import ClerkUser, get_current_user, get_optional_user
+ from app.config import get_settings
+-from app.domains.workouts import coach, imports
+-from app.domains.workouts.extraction import (
+-    ProductionExtractionProvider,
+-    WorkoutExtractor,
+-)
+ from app.image_validation import validate_image_bytes
+ from app.main import app
+ from app.services.cover_selection import CoverSelectionService
+@@ -58,26 +53,6 @@
+ 
+ 
+ app.dependency_overrides[get_optional_user] = optional_identity
+-
+-
+-class ExtractionProvider(ProductionExtractionProvider):
+-    @property
+-    def enabled(self):
+-        configured = get_settings()
+-        return configured.workouts_api_enabled and configured.workouts_ai_enabled
+-
+-
+-class CoachProvider(coach.ProductionCoachProvider):
+-    @property
+-    def enabled(self):
+-        configured = get_settings()
+-        return configured.workouts_api_enabled and configured.workouts_ai_enabled
+-
+-
+-imports.workout_import_worker.extractor = WorkoutExtractor(
+-    ExtractionProvider(budget_guard=FixtureBudget())
+-)
+-coach.workout_coach.provider = CoachProvider(budget_guard=FixtureBudget())
+ 
+ 
+ class FixtureS3:
+--- a/seed.py
++++ b/seed.py
+@@ -2,19 +2,14 @@
+ 
+ import asyncio
+ import json
+-from uuid import uuid4
+ 
+ from capacity.fixtures import padding
+ from capacity.safety import OWNERS, ensure
+-from capacity.transport import recipe, workout
++from capacity.transport import recipe
+ 
+ ensure()
+ 
+ from app.db.database import AsyncSessionLocal, Base, engine
+-from app.domains.workouts.models import WorkoutRecord, WorkoutVersion
+-from app.main import (
+-    app,  # noqa: F401 -- registers actual core model metadata; no startup called
+-)
+ from app.models import (  # noqa: F401
+     ai,
+     deletion,
+@@ -72,55 +67,6 @@
+                     extracted=content,
+                 )
+             )
+-        # Large export owners are separate from normal coach/context users.
+-        for owner, count, note_count in [(OWNERS[22], 190, 40), (OWNERS[23], 12, 56)]:
+-            for index in range(count):
+-                identifier = uuid4()
+-                content = workout()
+-                content.update(
+-                    id=str(identifier),
+-                    version=1,
+-                    provenance="user",
+-                    notes=[padding(4000, index * 60 + n) for n in range(note_count)],
+-                )
+-                if len(json.dumps(content).encode()) > 240 * 1024:
+-                    raise RuntimeError("Fixture exceeds normal saved-content bounds")
+-                db.add(
+-                    WorkoutRecord(
+-                        id=identifier,
+-                        app_user_id=owner,
+-                        generation=1,
+-                        revision=1,
+-                        content=content,
+-                    )
+-                )
+-                db.add(
+-                    WorkoutVersion(
+-                        workout_id=identifier,
+-                        app_user_id=owner,
+-                        generation=1,
+-                        revision=1,
+-                        content=content,
+-                    )
+-                )
+-        # Membership/profile/consent must be initialized before seeded owned rows.
+-        # The prepare HTTP phase does that before large exports are requested;
+-        # insert memberships here for FK/generation coherence, never production.
+-        from app.domains.workouts.lifecycle import now
+-        from app.domains.workouts.models import WorkoutsMembership
+-
+-        for owner in OWNERS:
+-            db.add(
+-                WorkoutsMembership(
+-                    app_user_id=owner,
+-                    generation=1,
+-                    status="active",
+-                    adult_confirmed_at=now(),
+-                    deletion_acknowledged_at=now(),
+-                    disclosure_version=1,
+-                    enrolled_at=now(),
+-                )
+-            )
+         await db.commit()
+     async with engine.connect() as db:
+         sizes = (
+--- a/host_monitor.py
++++ b/host_monitor.py
+@@ -58,7 +58,7 @@
+ }
+ 
+ INSPECT = """{"id":{{json .Id}},"image":{{json .Image}},"name":{{json .Name}},"run":{{json (index .Config.Labels "hafa.capacity.run")}},"owner":{{json (index .Config.Labels "hafa.capacity.owner")}},"running":{{json .State.Running}},"oom_killed":{{json .State.OOMKilled}},"memory":{{.HostConfig.Memory}},"memory_swap":{{.HostConfig.MemorySwap}},"ports":{{json .HostConfig.PortBindings}}}"""
+-QUEUE_SQL = """SELECT json_build_object('recipes',COALESCE((SELECT json_agg(t) FROM (SELECT job_kind,status,current_step,count(*) AS count,GREATEST(0,EXTRACT(EPOCH FROM (now()-MIN(created_at))))::float AS oldest_age_seconds FROM extraction_jobs GROUP BY job_kind,status,current_step ORDER BY job_kind,status,current_step LIMIT 32) t),'[]'::json),'workouts',COALESCE((SELECT json_agg(t) FROM (SELECT status,count(*) AS count,GREATEST(0,EXTRACT(EPOCH FROM (now()-MIN(created_at))))::float AS oldest_age_seconds FROM workouts_import_jobs GROUP BY status ORDER BY status LIMIT 16) t),'[]'::json));"""
++QUEUE_SQL = """SELECT json_build_object('recipes',COALESCE((SELECT json_agg(t) FROM (SELECT job_kind,status,current_step,count(*) AS count,GREATEST(0,EXTRACT(EPOCH FROM (now()-MIN(created_at))))::float AS oldest_age_seconds FROM extraction_jobs GROUP BY job_kind,status,current_step ORDER BY job_kind,status,current_step LIMIT 32) t),'[]'::json),'workouts','[]'::json);"""
+ 
+ 
+ class MonitorError(RuntimeError):
