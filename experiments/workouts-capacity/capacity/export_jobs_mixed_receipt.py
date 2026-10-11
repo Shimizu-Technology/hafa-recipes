@@ -11,6 +11,7 @@ from capacity.ci_safety import (
 from capacity.export_diagnostic_metrics import STAGES
 from capacity.export_diagnostic_receipt import complete_stages
 from capacity.export_jobs_diagnostic_contract import OUTCOME_BOOLEANS, OUTCOME_NUMBERS
+from capacity.export_jobs_mixed_diagnostics import phase_diagnostics, public_diagnostics
 from capacity.export_jobs_mixed_schema import DATASET_NAMES
 from capacity.export_jobs_overlap import overlap_evidence
 
@@ -102,6 +103,7 @@ def cycle_proofs(report):
 
 
 def check_scenario(report, receipt, phase):
+    receipt["latency_diagnostics"] = phase_diagnostics(report, phase)
     rows = report.get("routes", {})
     counts_good = all(
         rows.get(route, {}).get("count") == 150
@@ -178,6 +180,9 @@ def mixed_public_receipt(summary):
         safe["phases"]["mixed"]["background_export_cycles"] = values
     for phase in ("baseline", "mixed"):
         if phase in safe["phases"]:
+            safe["phases"][phase]["latency_diagnostics"] = public_diagnostics(
+                summary.get("phases", {}).get(phase, {}).get("latency_diagnostics")
+            )
             raw = summary.get("phases", {}).get(phase, {}).get("timing_proof", {})
             safe["phases"][phase]["timing_proof"] = {
                 "passed": raw.get("passed") is True,
