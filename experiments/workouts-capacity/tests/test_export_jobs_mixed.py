@@ -530,3 +530,197 @@ async def test_new_driver_rejects_profile_change_across_complete_original_export
     finally:
         driver.trace_stream.close()
         await driver.client.aclose()
+
+
+class ImmediateScheduleClock:
+    def __init__(self, jitter=0):
+        self.now, self.jitter, self.sleeps = 0.0, jitter, []
+
+    async def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds + self.jitter
+
+
+def scoped_scheduler(monkeypatch, clock, **extra):
+    from capacity import export_jobs_mixed_driver as module
+
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: clock.now))
+    monkeypatch.setattr(module, "asyncio", SimpleNamespace(sleep=clock.sleep, **extra))
+    return module
+
+
+@pytest.mark.asyncio
+async def test_actual_heavy_scheduler_stops_before_missed_next_cycle(monkeypatch):
+    clock = ImmediateScheduleClock()
+    module = scoped_scheduler(monkeypatch, clock)
+    calls = []
+
+    async def heavy(index, mixed):
+        calls.append((index, mixed, clock.now))
+        clock.now += 62  # A valid <=120s export crosses the next60s anchor.
+
+    with pytest.raises(module.AcceptanceFailure, match="workload_slot_missed"):
+        await module.heavy_cycles(SimpleNamespace(media_and_chat=heavy), True, 0)
+    assert calls == [(0, True, 0)] and clock.sleeps == [0]
+    assert clock.now == 62  # No clock reset, catch-up turn or replay.
+
+
+@pytest.mark.asyncio
+async def test_actual_reader_scheduler_stops_before_missed_next_round(monkeypatch):
+    clock = ImmediateScheduleClock()
+    module = scoped_scheduler(monkeypatch, clock)
+    calls = []
+
+    async def read(index, mixed):
+        calls.append((index, mixed, clock.now))
+        clock.now += 18
+
+    with pytest.raises(module.AcceptanceFailure, match="workload_slot_missed"):
+        await module.protected_reader(SimpleNamespace(lightweight=read), 0, False, 0)
+    assert calls == [(0, False, 0)] and clock.sleeps == [0] and clock.now == 18
+
+
+@pytest.mark.asyncio
+async def test_post_sleep_lateness_also_fails_before_issuing_any_request(monkeypatch):
+    clock = ImmediateScheduleClock(jitter=1.01)
+    module = scoped_scheduler(monkeypatch, clock)
+    calls = []
+
+    async def read(index, mixed):
+        calls.append(index)
+
+    with pytest.raises(module.AcceptanceFailure, match="workload_slot_missed"):
+        await module.protected_reader(SimpleNamespace(lightweight=read), 0, False, 0)
+    assert calls == [] and clock.sleeps == [0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("jitter", [0.2, 1.0])
+async def test_actual_schedulers_accept_bounded_jitter_without_anchor_drift(
+    monkeypatch, jitter
+):
+    clock = ImmediateScheduleClock(jitter)
+    module = scoped_scheduler(monkeypatch, clock)
+    reads = []
+    heavies = []
+
+    async def read(index, mixed):
+        reads.append((index, mixed, clock.now))
+
+    async def heavy(index, mixed):
+        heavies.append((index, mixed, clock.now))
+
+    await module.protected_reader(SimpleNamespace(lightweight=read), 1, True, 0)
+    assert [
+        round(now - target, 6) for (_, _, now), target in zip(reads, reader_targets(1))
+    ] == [jitter] * len(reads)
+    heavy_clock = ImmediateScheduleClock(jitter)
+    module = scoped_scheduler(monkeypatch, heavy_clock)
+    clock = heavy_clock
+    await module.heavy_cycles(SimpleNamespace(media_and_chat=heavy), True, 0)
+    assert [round(now - 60 * index, 6) for index, _, now in heavies] == [jitter] * 5
+    assert [index for index, _, _ in heavies] == list(range(5))
+
+
+@pytest.mark.asyncio
+async def test_actual_workload_settles_all_siblings_on_missed_slot(monkeypatch):
+    from capacity import export_jobs_mixed_driver as module
+
+    real_sleep, real_wall, real_monotonic = asyncio.sleep, time.time, time.monotonic
+    clock = SimpleNamespace(now=0.0, waiters=[])
+
+    async def controlled_sleep(seconds):
+        future = asyncio.get_running_loop().create_future()
+        clock.waiters.append((clock.now + seconds, future))
+        await future
+
+    clock.sleep = controlled_sleep
+    owned_tasks = []
+
+    def start(coroutine):
+        task = asyncio.create_task(coroutine)
+        owned_tasks.append(task)
+        return task
+
+    scoped_scheduler(
+        monkeypatch,
+        clock,
+        create_task=start,
+        gather=asyncio.gather,
+        timeout=asyncio.timeout,
+    )
+    entered = []
+    retired = []
+    heavy_calls = []
+    held = asyncio.Event()
+
+    async def read(index, mixed):
+        entered.append(index)
+        try:
+            await held.wait()
+        finally:
+            retired.append(index)
+
+    async def heavy(index, mixed):
+        heavy_calls.append(index)
+        await real_sleep(0)
+        clock.now = 62
+
+    async def poll():
+        pass
+
+    task = asyncio.create_task(
+        module.run_workload(
+            SimpleNamespace(lightweight=read, media_and_chat=heavy, poll=poll),
+            True,
+            300,
+        )
+    )
+    try:
+        for _ in range(20):
+            await real_sleep(0)
+        assert len(owned_tasks) == 10
+        for target, future in clock.waiters:
+            if target == 0 and not future.done():
+                future.set_result(None)
+        with pytest.raises(module.AcceptanceFailure, match="workload_slot_missed"):
+            await asyncio.wait_for(task, 1)
+        assert heavy_calls == [0] and entered == retired == [0]
+        assert all(child.done() for child in owned_tasks)
+        assert all(future.done() for _, future in clock.waiters)
+        assert (
+            asyncio.sleep is real_sleep
+            and time.time is real_wall
+            and time.monotonic is real_monotonic
+        )
+    finally:
+        if not task.done():
+            task.cancel()
+        for child in owned_tasks:
+            if not child.done():
+                child.cancel()
+        await asyncio.gather(task, *owned_tasks, return_exceptions=True)
+
+
+def test_missed_slot_failure_survives_numeric_partial_receipt():
+    from capacity.driver_diagnostics import (
+        AcceptanceFailure,
+        failure_code,
+        partial_metadata,
+    )
+
+    error = AcceptanceFailure("workload_slot_missed")
+    assert failure_code(error) == "workload_slot_missed"
+    partial = partial_metadata({"failure_code": failure_code(error)})
+    safe = mixed_public_receipt(
+        {
+            "cleaned_owned_resources": True,
+            "passed": False,
+            "phases": {"mixed": {"partial_outcomes": partial}},
+        }
+    )
+    assert (
+        safe["phases"]["mixed"]["partial_outcomes"]["driver_failure_code"]
+        == "workload_slot_missed"
+    )
+    assert not safe["passed"]

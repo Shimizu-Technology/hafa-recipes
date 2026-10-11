@@ -23,6 +23,7 @@ from capacity.export_jobs_diagnostic_prescriptions import (
 from capacity.safety import OWNERS
 
 SECONDS = 300
+START_TOLERANCE_SECONDS = 1.0
 
 
 def reader_targets(index, started=0):
@@ -31,6 +32,59 @@ def reader_targets(index, started=0):
         for turn in range(19)
         if 2 * index + 16 * turn < SECONDS
     )
+
+
+async def anchored_turns(targets, operation):
+    """A missed offered-load slot fails before issuing another operation."""
+    for index, target in enumerate(targets):
+        if time.monotonic() - target > START_TOLERANCE_SECONDS:
+            raise AcceptanceFailure("workload_slot_missed")
+        await asyncio.sleep(max(0, target - time.monotonic()))
+        if time.monotonic() - target > START_TOLERANCE_SECONDS:
+            raise AcceptanceFailure("workload_slot_missed")
+        await operation(index)
+
+
+async def protected_reader(driver, index, mixed, started):
+    async def operation(_):
+        await driver.lightweight(index, mixed)
+
+    await anchored_turns(reader_targets(index, started), operation)
+
+
+async def heavy_cycles(driver, mixed, started):
+    async def operation(index):
+        await driver.media_and_chat(index, mixed)
+
+    await anchored_turns(tuple(started + 60 * index for index in range(5)), operation)
+
+
+async def settled_workload(*coroutines):
+    tasks = [asyncio.create_task(coroutine) for coroutine in coroutines]
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def run_workload(driver, mixed, seconds):
+    started = time.monotonic()
+    deadline = started + seconds
+
+    async def polling():
+        while time.monotonic() < deadline:
+            await driver.poll()
+            await asyncio.sleep(5)
+
+    async with asyncio.timeout(seconds + 30):
+        await settled_workload(
+            *(protected_reader(driver, index, mixed, started) for index in range(8)),
+            heavy_cycles(driver, mixed, started),
+            polling(),
+        )
 
 
 class MixedDriver(Driver):
@@ -269,29 +323,9 @@ async def run(args):
         await driver.checkpoint("before")
         if args.profile == "mixed":
             await driver.prepare()
-        deadline = time.monotonic() + args.seconds
         mixed = args.profile == "mixed"
-        driver.results.clear()  # Setup is recorded separately, not protected-route latency.
-
-        started_at = time.monotonic()
-
-        async def reader(index):
-            for target in reader_targets(index, started_at):
-                await asyncio.sleep(max(0, target - time.monotonic()))
-                await driver.lightweight(index, mixed)
-
-        async def heavy():
-            for index in range(5):
-                await asyncio.sleep(max(0, started_at + 60 * index - time.monotonic()))
-                await driver.media_and_chat(index, mixed)
-
-        async def polling():
-            while time.monotonic() < deadline:
-                await driver.poll()
-                await asyncio.sleep(5)
-
-        async with asyncio.timeout(args.seconds + 30):
-            await asyncio.gather(*(reader(n) for n in range(8)), heavy(), polling())
+        driver.results.clear()  # Setup is excluded from protected-route latency.
+        await run_workload(driver, mixed, args.seconds)
         await driver.poll()
         if args.profile in {"recipes-baseline", "mixed"}:
             await driver.checkpoint("after")
