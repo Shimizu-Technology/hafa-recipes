@@ -25,6 +25,8 @@ export function useExportJob(binding: string) {
     return () => listener.remove();
   }, []);
   const enabled = focused && active && !!enrollment?.enrolled;
+  const visibility = useRef({ active, focused });
+  visibility.current = { active, focused };
   const capability = useQuery({
     queryKey: [owner, "export-capabilities", generation],
     queryFn: () => api.capabilities(),
@@ -46,7 +48,8 @@ export function useExportJob(binding: string) {
     return () => { unsubscribe(); created.dispose(); controllerScope.current = null; };
   }, [owner, generation, binding, storage, api]);
   useEffect(() => {
-    if (!controller || !enabled) { controller?.pause(); return; }
+    const pause = () => controller?.pause(!visibility.current.active && visibility.current.focused ? "background" : "focus");
+    if (!controller || !enabled) { pause(); return; }
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let checks = 0;
@@ -82,7 +85,7 @@ export function useExportJob(binding: string) {
       timer = setTimeout(() => { void tick(); }, 4000);
     };
     void tick(true);
-    return () => { cancelled = true; clearTimeout(timer); controller.pause(); };
+    return () => { cancelled = true; clearTimeout(timer); pause(); };
   }, [controller, enabled]);
   // Never select the old path merely because a job admission or status request failed.
   const captured = controllerScope.current;

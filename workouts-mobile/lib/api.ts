@@ -317,6 +317,9 @@ export function createWorkoutsApi(
     async deleteExportSnapshot(id: string, generation: number) {
       await request<void>(`/export/snapshots/${id}`, "DELETE", undefined, { generation });
     },
+    async exportSnapshotManifest(id: string, generation: number, signal?: AbortSignal) {
+      return (await request<ExportManifest>(`/export/snapshots/${encodeURIComponent(id)}`, "GET", undefined, { generation, signal })).data;
+    },
     async exportPage(generation: number, offset = 0) {
       return (await request<ExportPage>(`/export?limit=10&offset=${offset}`, "GET", undefined, { generation })).data;
     },
