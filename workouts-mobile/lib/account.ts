@@ -1,4 +1,5 @@
 import type { TrainingProfile, Enrollment } from "./models";
+import { sameExportTotals } from "./export-totals";
 export interface ExportPage {
   schema_version: 1;
   generated_at: string;
@@ -62,7 +63,7 @@ export async function collectExport(
     if (
       first &&
       (data.profile_revision !== first.profile_revision ||
-        JSON.stringify(data.totals) !== JSON.stringify(first.totals) ||
+        !sameExportTotals(data.totals, first.totals) ||
         JSON.stringify(data.grants) !== JSON.stringify(first.grants) ||
         JSON.stringify(data.ai_consent) !== JSON.stringify(first.ai_consent))
     )
@@ -137,7 +138,7 @@ export async function collectSnapshotExport(
         data.snapshot_id !== manifest.id ||
         data.page !== page ||
         data.page_count !== manifest.page_count ||
-        JSON.stringify(data.export.totals) !== JSON.stringify(manifest.totals)
+        !sameExportTotals(data.export.totals, manifest.totals)
       )
         throw Error("The private snapshot changed. Discard this partial export and start again.");
       if (Object.values(data.export.has_more).some(Boolean) !== page < manifest.page_count - 1)

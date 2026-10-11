@@ -1,4 +1,5 @@
 import type { ExportManifest } from "./account";
+import { sameExportTotals } from "./export-totals";
 import { draftKey, type Storage } from "./drafts";
 
 export type ExportSaveResult = "saved" | "cancelled" | "opened";
@@ -30,11 +31,10 @@ export function legacySaveRecovery(storage: Storage, owner: string, generation: 
   };
 }
 export function requireSameExportManifest(original: ExportManifest, current: ExportManifest) {
-  const totals = (value: ExportManifest) => Object.entries(value.totals).sort(([a], [b]) => a.localeCompare(b));
   if (!current || current.id !== original.id || current.generation !== original.generation ||
       current.schema_version !== original.schema_version || current.page_size !== original.page_size ||
       current.page_count !== original.page_count || current.created_at !== original.created_at ||
       current.expires_at !== original.expires_at || !Number.isFinite(Date.parse(current.expires_at)) || Date.parse(current.expires_at) <= Date.now() ||
-      JSON.stringify(totals(current)) !== JSON.stringify(totals(original)))
+      !sameExportTotals(current.totals, original.totals))
     throw Error("This export changed or expired while choosing where to save. Prepare a fresh export.");
 }
