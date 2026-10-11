@@ -28,14 +28,32 @@ select fallback. See [API provenance](../../api/docs/PRIVATE_BETA_API_SOURCE.md)
 
 ## Verification and deployment hold
 
-The API `2855679` engineering gate passed 1838 API tests (35 skipped), 790 Recipes
-mobile tests, Doctor 21/21 and 13 admin tests with required types/audits/builds.
-API `2536601` changes only its provenance document after `2855679`. The signed
-native source passed 412 JavaScript tests; its iOS 1.0.0(2) build was uploaded and
-processed for TestFlight.
-These component results do not establish this new combination's acceptance.
-Its complete engineering/native gate, final review and affected device journeys
-have not run yet. Android/device and full public acceptance remain separate.
+The complete combined `./scripts/check.sh` passed on exact integration
+`860a1082ec3e9618417d89f1bda15d02aafc968c`: 1838 API tests passed, 35 skipped and
+16 existing warnings; 790 Recipes mobile and 13 admin tests passed. Both Expo
+Doctors passed 21/21, with types, audits, web/admin builds, all-platform Workouts
+exports and native bundle checks passing. Runtime audits reported zero unexpected
+findings; web/admin production audits reported zero vulnerabilities.
+
+The stock Workouts suite recorded 411 passed and one conditional skip. A separate
+native-only follow-up supplied this exact checkout and its own Python interpreter
+through the two explicit backend bindings, then passed all 412 with zero skips,
+including the real native-store/API-validator continuity contract. The stock
+receipt remains unchanged; the follow-up is separate evidence, not an API rerun.
+Final receipt SHA256:
+`bd9d7f18cc90649c9e1733ccd72a7ef86937ef55cdf97f69cdc5f73f8df2f906`.
+Owned gate processes, PostgreSQL container and disk bind were closed/released;
+ordinary cleanup passed and no active owned resources remained.
+
+An independent nonauthor review of exact `860a108` completed without material
+findings. CodeRabbit's automatic attempt explicitly skipped 337 reviewable files
+against its configured 100-file limit; this is neither a completed bot review nor
+approval. No duplicate request or paid upgrade was made. All five CI jobs passed
+on `860a108`. A later documentation-only head retains the frozen API/native trees;
+the executed gate source is `860a108`, not a claim that the later whole Git head
+was tested. The signed iOS 1.0.0(2) build was uploaded and processed for TestFlight;
+actual device, configuration, capacity and rollback acceptance remain pending.
+Android/device and full public acceptance remain separate.
 
 Private-beta capacity acceptance requires a fresh matching isolated OFF baseline
 and enabled candidate: absolute protected-read p95 ≤100 ms, relative p99 ≤2× that
