@@ -22,6 +22,7 @@ from capacity.export_jobs_diagnostic_contract import (
     READS,
     ROUTES,
 )
+from capacity.export_jobs_overlap import overlap_evidence
 
 
 def summarize(report, samples, observation, counts, oom=None):
@@ -38,6 +39,7 @@ def summarize(report, samples, observation, counts, oom=None):
         "workouts/export-admit": 1,
         "workouts/export-page": 19,
         "workouts/export-cancel": 1,
+        "workouts/export-observe": 1,
     }
     expected_routes = set(routes) == ROUTES and all(
         row.get("count") == required.get(key, row.get("count"))
@@ -84,7 +86,13 @@ def summarize(report, samples, observation, counts, oom=None):
         and row["p95_ms"]
         <= (
             500
-            if key in READS | {"workouts/export-page", "workouts/export-status"}
+            if key
+            in READS
+            | {
+                "workouts/export-page",
+                "workouts/export-status",
+                "workouts/export-observe",
+            }
             else 1000
         )
         for key, row in routes.items()
@@ -92,6 +100,7 @@ def summarize(report, samples, observation, counts, oom=None):
     # One observation uses nearest rank: admission outlier cannot be averaged away.
     admission = outcome.get("admission_ms")
     admission_slo = type(admission) in (int, float) and 0 <= admission <= 1000
+    overlap = overlap_evidence(report, metrics)
     complete = (
         complete_stages(report, metrics, data["stages"])
         and expected_routes
@@ -103,16 +112,23 @@ def summarize(report, samples, observation, counts, oom=None):
         and not any(
             row.get("unexpected", 0) for row in report.get("routes", {}).values()
         )
+        and overlap["responsive_concurrency"]
     )
     data.update(
         complete=bool(complete),
-        latency_slos_passed=bool(route_slos and admission_slo and completion_slo),
+        latency_slos_passed=bool(
+            route_slos
+            and admission_slo
+            and completion_slo
+            and overlap["responsive_concurrency"]
+        ),
         admission_slo_passed=admission_slo,
         completion_slo_passed=completion_slo,
         routes=routes,
         job_checks=jobs,
         job_outcome=outcome,
         driver_failure_code=report.get("driver_failure_code"),
+        **overlap,
     )
     return data
 
@@ -165,5 +181,22 @@ def receipt(summary, data):
     if failure is not None and failure not in FAILURES:
         raise SafetyError("invalid_public_failure")
     output["driver_failure_code"] = failure
+    for key in (
+        "protected_reads_during_build",
+        "protected_reads_during_pages",
+        "responsive_concurrency",
+    ):
+        output[key] = data.get(key) is True
+    for key in ("overlap_counts", "overlap_p95_ms"):
+        values = data.get(key) or {}
+        output[key] = {
+            phase: {
+                route: numeric(value)
+                if (value := values.get(phase, {}).get(route)) is not None
+                else None
+                for route in sorted(READS)
+            }
+            for phase in ("build", "pages")
+        }
     safe["background_export_diagnostic"] = output
     return safe

@@ -40,6 +40,7 @@ from sqlalchemy import func, select
 from capacity.app import app, identity
 from capacity.export_diagnostic_instrument import install, snapshot
 from capacity.export_jobs_diagnostic_contract import STATUS_CODES
+from capacity.export_jobs_overlap import wait_active_build
 
 # The real worker owns a separately constructed normal builder. Class-level
 # wrappers cover it; no singleton page-source replacement is needed here.
@@ -130,3 +131,11 @@ async def measurements(user=Depends(identity)):  # noqa: B008
     value = dict(snapshot() or {})
     value["job_checks"] = await job_checks()
     return value
+
+
+@app.get("/capacity/export-jobs-diagnostic/build-start")
+async def build_start(user=Depends(identity)):  # noqa: B008
+    if user.id != OWNERS[22]:
+        raise HTTPException(403, "Diagnostic fixture identity required")
+    # One bounded observation, with no database access or producer wait/hold.
+    return {"build_started": await wait_active_build(snapshot)}

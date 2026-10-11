@@ -58,6 +58,7 @@ def report():
         ("workouts/export-admit", "202", 1),
         ("workouts/export-status", "200", 1),
         ("workouts/export-cancel", "200", 1),
+        ("workouts/export-observe", "200", 1),
     ]:
         value["routes"][key] = {
             "count": count,
@@ -79,6 +80,29 @@ def report():
         "wire_bytes": 100,
     }
     value["metrics"]["job_checks"] = checks()
+    value["metrics"]["spans"] = [
+        {
+            "stage": "build_total",
+            "offset_ms": 0,
+            "duration_ms": 100,
+            "query_count": 100,
+            "sync_thread_cpu_ms": 0,
+            "failed": False,
+        }
+    ]
+    value["spans"] = [
+        {"route": route, "offset_ms": offset, "duration_ms": 10, "status": 200}
+        for route in sorted(READS)
+        for offset in [1010, 2005, *[4000 + index * 100 for index in range(78)]]
+    ] + [
+        {
+            "route": "workouts/export-page",
+            "offset_ms": 2000 + index * 50,
+            "duration_ms": 20,
+            "status": 200,
+        }
+        for index in range(19)
+    ]
     return value
 
 
@@ -235,6 +259,8 @@ async def test_driver_actual_http_adapter_reads_complete_history_then_cancels_sa
         if request.method == "POST" and request.url.path.endswith("/jobs"):
             request_id = json.loads(request.content)["request_id"]
             return httpx.Response(202, json=job("queued"))
+        if request.url.path.endswith("/build-start"):
+            return httpx.Response(200, json={"build_started": True})
         if request.url.path.endswith("/cancel"):
             return httpx.Response(200, json=job("cancelled"))
         if request.url.path.endswith("/" + identifier):
@@ -324,7 +350,7 @@ async def test_driver_actual_http_adapter_reads_complete_history_then_cancels_sa
             probe.outcome["all_totals_matched"] and probe.outcome["same_job_cancelled"]
         )
         assert probe.outcome["prescriptions_matched"]
-        assert len(probe.spans) == 22 and not probe.pending
+        assert len(probe.spans) == 23 and not probe.pending
     finally:
         probe.trace_stream.close()
         await probe.client.aclose()

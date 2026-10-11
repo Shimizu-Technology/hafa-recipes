@@ -42,3 +42,15 @@ python3 -m capacity.export_jobs_diagnostic_ci \
 ```
 
 Always-clean uses the same arguments plus `--cleanup-only`. This command refuses local/non-Linux/untrusted branch execution. All runtime and hosted acceptance is NOT_RUN until root explicitly authorizes one reviewed run. Source tests, static checks and a prepared plan alone do not establish admission, completion, saved outcomes, cleanup or performance.
+
+## Protected reads during export
+
+The original run 38096784338 at `d23fb71746046672bfc3c24555aa9e497c889fb1` passed its declared diagnostic. Its faster build and page downloads fell between the protected reader turns, so neither phase witnessed a protected request. Its receipt and scoped result remain unchanged.
+
+This follow-up scenario moves exactly two existing four-request rounds: reader 0 round 3 waits for an observed active build, and reader 1 round 3 waits for the actual first page-request start. The other 78 rounds keep their absolute `start + 2*reader + 16*round` schedule. Each reader still runs ten rounds and every protected category still receives 80 requests. Later turns at 64 and 66 seconds remain anchored rather than drifting after either barrier. The original capacity and synchronous schedulers remain unchanged.
+
+One additional fixed observation GET is allowed only in the strict synthetic jobs app for owner `capacity-22`. It checks the existing class-wrapper metrics signal: one build has started and has neither completed nor failed. It performs no SQL or provider request and never holds the producer. Its asynchronous wait is bounded to 450 ms, leaving time inside the same 500 ms read gate; the client timeout also respects the original job deadline. Missing the active phase fails the scenario without starting another job or retrying the observation. The native four-second status cadence and all admission/page/cancel counts remain unchanged.
+
+Final acceptance independently aligns settled server build and client request spans using their recorded origins. Each of `/up`, list, detail and search must have a successful request with positive intersection during the build and during an individual page GET. Touching boundaries or falling between page requests does not count. Missing, failed, truncated, nonfinite or unsettled evidence fails. The receipt emits only fixed booleans and per-category witness counts/p95 values. The same 500 ms threshold applies to each witnessed phase subset, including a single witness; the global80-sample p95 remains unchanged. An isolated slow witness cannot hide among the other fast requests.
+
+This remains source preparation until a new exact pin, review and explicit run authorization. No previous receipt is reinterpreted, and passing this scenario would still leave sustained load, legal image boundaries, restart/death proof, Render/Neon parity and fullR04 acceptance open.

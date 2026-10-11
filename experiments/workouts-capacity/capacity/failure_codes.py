@@ -8,6 +8,7 @@ CODES = {
     "export_job_ack_failed",
     "export_job_cleanup_failed",
     "export_job_request_failed",
+    "export_job_overlap_unavailable",
     "api_startup_deadline",
     "api_startup_failed",
     "api_budget_or_image_changed",

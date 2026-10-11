@@ -7,6 +7,7 @@ ROUTES = READS | {
     "workouts/export-status",
     "workouts/export-page",
     "workouts/export-cancel",
+    "workouts/export-observe",
 }
 FAILURES = {
     "export_job_identity_failed",
@@ -16,6 +17,7 @@ FAILURES = {
     "export_job_ack_failed",
     "export_job_cleanup_failed",
     "export_job_request_failed",
+    "export_job_overlap_unavailable",
 }
 STATUS_CODES = {
     "queued": 1,

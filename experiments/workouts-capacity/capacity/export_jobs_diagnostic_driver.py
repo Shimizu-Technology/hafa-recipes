@@ -8,6 +8,8 @@ import time
 from datetime import datetime
 from uuid import UUID, uuid4
 
+import httpx
+
 from capacity.driver import PREFIX
 from capacity.export_diagnostic_driver import EXPORT_START_SECONDS, Probe, save
 from capacity.export_jobs_diagnostic_contract import ROUTES, STATUS_CODES
@@ -109,6 +111,25 @@ class JobsProbe(Probe):
         self.prescriptions = PrescriptionProof(expected_prescriptions())
         super().__init__()
         self.outcome = {}
+        self.build_signal = asyncio.Event()
+        self.page_signal = asyncio.Event()
+
+    def trace(self, number, event, label, **values):
+        super().trace(number, event, label, **values)
+        if event == "start" and label == "workouts/export-page":
+            self.page_signal.set()  # Actual request start, not anticipated READY.
+
+    async def readers(self, index):
+        # Exactly10 rounds per reader; moving a round never shifts later turns.
+        for round_number in range(10):
+            target = self.started + index * 2 + round_number * 16
+            await asyncio.sleep(max(0, target - time.monotonic()))
+            if round_number == 3 and index in (0, 1):
+                signal = self.build_signal if index == 0 else self.page_signal
+                remaining = self.started + 180 - time.monotonic()
+                async with asyncio.timeout(max(0, remaining)):
+                    await signal.wait()
+            await self.lightweight(index, False)
 
     async def measurements(self):
         response = await self.request(
@@ -137,6 +158,25 @@ class JobsProbe(Probe):
         original = job
         identifier, admitted = job["id"], instant(job["admitted_at"])
         deadline = instant(job["deadline_at"]).timestamp()
+        remaining = min(0.5, deadline - time.time())
+        if remaining <= 0:
+            raise JobProbeFailure("export_job_deadline_failed")
+        try:
+            observed = await self.request(
+                "GET",
+                "/capacity/export-jobs-diagnostic/build-start",
+                OWNERS[22],
+                label="workouts/export-observe",
+                timeout=remaining,
+            )
+            observed_ready = observed.status_code == 200 and observed.json() == {
+                "build_started": True
+            }
+        except (httpx.RequestError, ValueError):
+            raise JobProbeFailure("export_job_overlap_unavailable") from None
+        if not observed_ready:
+            raise JobProbeFailure("export_job_overlap_unavailable")
+        self.build_signal.set()
         polls = 0
         # Four-second reads match the native foreground cadence. Admission is
         # never replayed, and neither a timeout nor a terminal state creates a job.

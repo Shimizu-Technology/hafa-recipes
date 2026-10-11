@@ -52,6 +52,7 @@ REQUEST_LABELS = {
     "workouts/export-admit",
     "workouts/export-status",
     "workouts/export-cancel",
+    "workouts/export-observe",
     "workouts/bulk-boundary",
     "workouts/chunked-boundary",
     "workouts/oversized",
