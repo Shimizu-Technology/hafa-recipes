@@ -75,7 +75,7 @@ r=json.loads(p.read_text()) if p.exists() else {'passed':False,'failure':'incomp
 r.setdefault('phases',{})
 for name in ['off','enabled']:
     phase={}
-    for file,key in [('latency.json','latency'),('memory.jsonl.summary.json','memory'),('counts.json','counts'),('counts-before.json','counts_before'),('workouts-counts.json','workouts_counts'),('schema-ledger-before.json','optional_schema_ledger')]:
+    for file,key in [('latency.json','latency'),('memory.jsonl.summary.json','memory'),('counts.json','counts'),('readiness.json','startup_readiness'),('counts-before.json','counts_before'),('workouts-counts.json','workouts_counts'),('schema-ledger-before.json','optional_schema_ledger')]:
         f=w/name/file
         if f.exists():
             value=json.loads(f.read_text())
@@ -212,17 +212,36 @@ assert json.loads(Path(sys.argv[1]).read_text())==list(range(34,45))
 LEDGER
   fi
   start=$SECONDS
+  startup_deadline=$(python3 -c 'import time; print(time.monotonic()+12)')
   stage="api_start_$source"
   api=$(timeout 10s docker run -d --name "capacity-api-$run" "${common[@]}" --memory 512m --memory-swap 512m --cpus 0.5 "$image" python -m uvicorn capacity.app:app --host 0.0.0.0 --port 18047)
   [[ "$(timeout 10s docker inspect --format '{{.HostConfig.Memory}}/{{.HostConfig.MemorySwap}}/{{.HostConfig.NanoCpus}}' "$api")" == 536870912/536870912/500000000 ]]
   stage="api_readiness_$source"
-  finite=$(timeout 5s docker run -d "${common[@]}" "$image" python -c 'import json,time,urllib.request
-for attempt in range(20):
- try:
-  assert json.load(urllib.request.urlopen("http://127.0.0.1:18047/up",timeout=1))=={"status":"ok"};break
- except Exception:
-  time.sleep(.2)
-else:raise SystemExit(1)')
+  finite=$(timeout 5s docker run -d "${common[@]}" -v "$result:/results" "$image" python -c 'import json,sys,time,urllib.request,urllib.error
+from pathlib import Path
+
+def readiness(deadline,clock,sleep,open_url):
+    attempts=0
+    error="DeadlineExceeded"
+    while (remaining:=deadline-clock())>0:
+        attempts+=1
+        try:
+            with open_url("http://127.0.0.1:18047/up",timeout=min(1,remaining)) as response:
+                valid=json.load(response)=={"status":"ok"}
+            if valid and clock()<=deadline:
+                return {"ready":True,"expired":False,"attempts":attempts,"error_class":"None"}
+            error="InvalidLiveness" if not valid else "DeadlineExceeded"
+        except Exception as exc:
+            reason=getattr(exc,"reason",exc)
+            name=type(reason).__name__
+            error=name if name in {"ConnectionRefusedError","TimeoutError","HTTPError","URLError","OSError","JSONDecodeError"} else "OtherError"
+        remaining=deadline-clock()
+        if remaining>0:sleep(min(.2,remaining))
+    return {"ready":False,"expired":True,"attempts":attempts,"error_class":error}
+
+value=readiness(float(sys.argv[1]),time.monotonic,time.sleep,urllib.request.urlopen)
+Path("/results/readiness.json").write_text(json.dumps(value))
+raise SystemExit(0 if value["ready"] else 1)' "$startup_deadline")
   [[ "$(timeout 10s docker wait "$finite")" == 0 ]]; owned_remove "$finite"; finite=
   # Admit the unchanged 450-second observer only with startup/cleanup headroom.
   stage="startup_budget_$source"
@@ -297,6 +316,8 @@ w=Path(sys.argv[1]); comparison=json.loads((w/'comparison.json').read_text()); p
 for name in ['off','enabled']:
     p=w/name; latency=json.loads((p/'latency.json').read_text()); memory=json.loads((p/'memory.jsonl.summary.json').read_text()); counts=json.loads((p/'counts.json').read_text())
     assert memory['completed'] and not memory['failure_code'] and not memory['failure_type']
+    ready=json.loads((p/'readiness.json').read_text())
+    assert ready['ready'] and not ready['expired']
     before=json.loads((p/'counts-before.json').read_text())
     assert before['schema']==33 and before['recipes']==1000 and before['jobs']==0
     assert counts['schema']==33 and counts['recipes']==1010 and counts['extract']==5 and counts['cover']==5 and counts['active']==0
@@ -306,7 +327,7 @@ for name in ['off','enabled']:
     ends=collections.Counter(e['stage'] for row in samples for e in row['stages'] if e['event']=='end')
     assert all(not row.get('stop_required') and row.get('oom',0)==0 and row.get('oom_kill',0)==0 for row in samples)
     assert ends=={'evidence_frames':5,'thumbnail_normalize':5,'cover_compare':5},ends
-    phases[name]={'memory':memory,'routes':latency['routes'],'counts':counts,'counts_before':before}
+    phases[name]={'memory':memory,'routes':latency['routes'],'counts':counts,'counts_before':before,'startup_readiness':ready}
     if name=='enabled':
         ledger=json.loads((p/'schema-ledger-before.json').read_text())
         assert ledger==list(range(34,45))
