@@ -8,7 +8,13 @@ import subprocess
 import time
 from pathlib import Path
 
+if __package__:
+    from .resource_profiles import cpu_matches, resolve
+else:  # Preserve the historical direct-file observer entry point.
+    from resource_profiles import cpu_matches, resolve
+
 OWNER = "native_health_preflight"
+
 PASS_BYTES = 410 * 1024 * 1024
 STOP_BYTES = 460 * 1024 * 1024
 HEX_ID = re.compile(r"[0-9a-f]{64}")
@@ -68,7 +74,7 @@ PROCESS_NAMES = {
     "qemu-x86_64",
 }
 
-INSPECT = """{"id":{{json .Id}},"image":{{json .Image}},"name":{{json .Name}},"run":{{json (index .Config.Labels "hafa.capacity.run")}},"owner":{{json (index .Config.Labels "hafa.capacity.owner")}},"running":{{json .State.Running}},"oom_killed":{{json .State.OOMKilled}},"memory":{{.HostConfig.Memory}},"memory_swap":{{.HostConfig.MemorySwap}},"ports":{{json .HostConfig.PortBindings}}}"""
+INSPECT = """{"id":{{json .Id}},"image":{{json .Image}},"name":{{json .Name}},"run":{{json (index .Config.Labels "hafa.capacity.run")}},"owner":{{json (index .Config.Labels "hafa.capacity.owner")}},"running":{{json .State.Running}},"oom_killed":{{json .State.OOMKilled}},"memory":{{.HostConfig.Memory}},"memory_swap":{{.HostConfig.MemorySwap}},"nano_cpus":{{.HostConfig.NanoCpus}},"cpu_quota":{{.HostConfig.CpuQuota}},"cpu_period":{{.HostConfig.CpuPeriod}},"ports":{{json .HostConfig.PortBindings}}}"""
 QUEUE_SQL = """SELECT json_build_object('recipes',COALESCE((SELECT json_agg(t) FROM (SELECT job_kind,status,current_step,count(*) AS count,GREATEST(0,EXTRACT(EPOCH FROM (now()-MIN(created_at))))::float AS oldest_age_seconds FROM extraction_jobs GROUP BY job_kind,status,current_step ORDER BY job_kind,status,current_step LIMIT 32) t),'[]'::json),'workouts',COALESCE((SELECT json_agg(t) FROM (SELECT status,count(*) AS count,GREATEST(0,EXTRACT(EPOCH FROM (now()-MIN(created_at))))::float AS oldest_age_seconds FROM workouts_import_jobs GROUP BY status ORDER BY status LIMIT 16) t),'[]'::json));"""
 
 
@@ -196,7 +202,15 @@ def queues(raw):
 
 class HostMonitor:
     def __init__(
-        self, ledger, api_id, pg_id, run_id, phase, runner=execute, owner=OWNER
+        self,
+        ledger,
+        api_id,
+        pg_id,
+        run_id,
+        phase,
+        runner=execute,
+        owner=OWNER,
+        resource_profile=None,
     ):
         if (
             not HEX_ID.fullmatch(api_id)
@@ -221,6 +235,8 @@ class HostMonitor:
             phase,
             runner,
         )
+        self.resource_profile = resource_profile
+        self.profile = resolve(resource_profile)
         self.last_event = 0
         self.last_http_stamp = ""
         self.protected_5xx = 0
@@ -238,8 +254,12 @@ class HostMonitor:
         ):
             raise MonitorError("target_identity_or_label_mismatch")
         if role == "api" and (
-            value.get("memory") != 512 * 1024 * 1024
-            or value.get("memory_swap") != 512 * 1024 * 1024
+            value.get("memory") != self.profile.memory_bytes
+            or value.get("memory_swap") != self.profile.memory_bytes
+            or (
+                self.resource_profile is not None
+                and not cpu_matches(value, self.profile)
+            )
         ):
             raise MonitorError("api_budget_mismatch")
         if running and not value.get("running"):
@@ -277,7 +297,8 @@ class HostMonitor:
         )
         # Observe/stop before slower auxiliary queries can delay the memory gate.
         stop = (
-            max(memory["memory_current"], memory["memory_peak"]) >= STOP_BYTES
+            max(memory["memory_current"], memory["memory_peak"])
+            >= self.profile.stop_bytes
             or memory["oom"] > 0
             or memory["oom_kill"] > 0
             or identity["oom_killed"]
@@ -291,6 +312,8 @@ class HostMonitor:
             "tiny_exec_overhead_included": True,
             "python_observer_inside_api": False,
         }
+        if self.resource_profile is not None:
+            result["resource_profile"] = self.profile.metadata()
         if stop:
             self.stop()
             result.update(
@@ -400,8 +423,8 @@ def run_monitor(monitor, output, seconds, interval, sleeper=time.sleep):
         "phase": monitor.phase,
         "observer": "host_docker",
         "r04_closed": False,
-        "pass_peak_bytes": PASS_BYTES,
-        "stop_bytes": STOP_BYTES,
+        "pass_peak_bytes": monitor.profile.pass_bytes,
+        "stop_bytes": monitor.profile.stop_bytes,
         "samples": 0,
         "peak_bytes": None,
         "failure_type": None,
@@ -442,7 +465,8 @@ def run_monitor(monitor, output, seconds, interval, sleeper=time.sleep):
         finally:
             summary["local_memory_gate"] = (
                 "failed"
-                if summary["failure_code"] or (summary["peak_bytes"] or 0) > PASS_BYTES
+                if summary["failure_code"]
+                or (summary["peak_bytes"] or 0) > monitor.profile.pass_bytes
                 else "passed"
                 if summary["completed"]
                 else "blocked"
@@ -454,6 +478,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     for field in ("ledger", "api-id", "pg-id", "run-id", "phase", "output"):
         parser.add_argument("--" + field, required=True)
+    parser.add_argument(
+        "--resource-profile", choices=["render-0.5c-512mb", "render-1c-2g"]
+    )
     parser.add_argument("--owner", choices=[OWNER, "capacity_ci"], default=OWNER)
     parser.add_argument("--seconds", type=int, default=450)
     parser.add_argument("--interval", type=float, default=0.5)
@@ -465,6 +492,7 @@ if __name__ == "__main__":
         args.run_id,
         args.phase,
         owner=args.owner,
+        resource_profile=args.resource_profile,
     )
     report = run_monitor(monitor, args.output, args.seconds, args.interval)
     print(json.dumps(report))

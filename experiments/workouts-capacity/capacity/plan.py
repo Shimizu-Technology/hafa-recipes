@@ -8,6 +8,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from capacity.resource_profiles import resolve
 from capacity.safety import DATABASE, DATABASE_URL, FAKE_KEY
 
 PYTHON_BASE = (
@@ -107,7 +108,11 @@ def build_plan(
     target_platform="linux/amd64",
     owner="native_health_preflight",
     fixture_overrides=None,
+    resource_profile=None,
 ):
+    profile = resolve(resource_profile)
+    if resource_profile is not None and cpus != profile.cpus:
+        raise ValueError("resource_profile_cpu_mismatch")
     if owner not in {"native_health_preflight", "capacity_ci"}:
         raise ValueError("Known lifecycle owner required")
     if not re.fullmatch(r"[a-z0-9-]{1,40}", run_id) or not 0 < cpus <= 8:
@@ -292,9 +297,9 @@ def build_plan(
                 "--label",
                 f"hafa.capacity.run={run_id}",
                 "--memory",
-                "512m",
+                f"{profile.memory_mib}m",
                 "--memory-swap",
-                "512m",
+                f"{profile.memory_mib}m",
                 "--cpus",
                 str(cpus),
                 "-e",
@@ -376,8 +381,8 @@ def build_plan(
         "financial_guard": "synthetic throughput only; separate real-guard denial tests required",
         "r04_closed": False,
         "thresholds": {
-            "pass_peak_mib": 410,
-            "stop_current_mib": 460,
+            "pass_peak_mib": profile.pass_peak_mib,
+            "stop_current_mib": profile.stop_mib,
             "read_p95_ms": 500,
             "write_p95_ms": 1000,
             "baseline_p95_multiplier": 1.25,
@@ -416,13 +421,15 @@ def build_plan(
             "Verify names are absent, then claim exact returned container IDs immediately via dev-lifecycle.",
             "Resolve/pin base and PostgreSQL image digests before declaring artifact parity.",
             "Record Render CPU/runtime/binary versions; current plan is a local experiment.",
-            "Stop only the recorded owned API container if memory.current>=460MiB or OOM occurs.",
+            f"Stop only the recorded owned API container if current/peak>={profile.stop_mib}MiB or OOM occurs.",
             "For mixed run recreate ONLY the owned API container without WORKOUTS_API_ENABLED=false; do not reset database.",
             "Run three repetitions, burst4/8/16, export backpressure and restart/rollback protocol from README.",
             "Capture memory.peak/events BEFORE stopping each API container.",
             "Cleanup exact owned container IDs and network ID; no shared containers, volume pruning or image pruning.",
         ],
     }
+    if resource_profile is not None:
+        plan["resource_profile"] = profile.metadata()
     (output / "plan.json").write_text(json.dumps(plan, indent=2))
     return plan
 
@@ -434,9 +441,17 @@ if __name__ == "__main__":
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--cpus", type=float, required=True)
     parser.add_argument("--platform", default="linux/amd64")
+    parser.add_argument(
+        "--resource-profile", choices=["render-0.5c-512mb", "render-1c-2g"]
+    )
     args = parser.parse_args()
     plan = build_plan(
-        args.repository, args.output, args.run_id, args.cpus, args.platform
+        args.repository,
+        args.output,
+        args.run_id,
+        args.cpus,
+        args.platform,
+        resource_profile=args.resource_profile,
     )
     print(
         json.dumps(

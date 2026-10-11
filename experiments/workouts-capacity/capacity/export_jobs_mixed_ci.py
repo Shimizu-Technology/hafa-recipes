@@ -37,7 +37,12 @@ class MixedCoordinator(Coordinator):
     driver_module = "capacity.export_jobs_mixed_driver"
     receipt_indent = None
     receipt_separators = (",", ":")
-    make_phase_receipt = staticmethod(mixed_phase_receipt)
+
+    def make_phase_receipt(self, *args, **kwargs):
+        return mixed_phase_receipt(
+            *args, **kwargs, resource_profile=self.resource_profile
+        )
+
     format_public_receipt = staticmethod(mixed_public_receipt)
     check_scenario = staticmethod(check_scenario)
 
@@ -105,6 +110,7 @@ class MixedCoordinator(Coordinator):
                 str(memory),
                 "--control",
                 str(control),
+                *self.profile_argv(),
             ],
             stdout=monitor_log,
             stderr=subprocess.STDOUT,
@@ -160,7 +166,9 @@ class MixedCoordinator(Coordinator):
             raise SafetyError("phase_deadline")
         monitor_log.close()
         observer_timing = read_state(control, "observer-ended.json")
-        report = json.loads((result_dir / f"{phase}.json").read_text())
+        report = self.stamp_report(
+            json.loads((result_dir / f"{phase}.json").read_text())
+        )
         observation = json.loads(Path(str(memory) + ".summary.json").read_text())
         samples = [json.loads(line) for line in memory.read_text().splitlines()]
         receipt = self.make_phase_receipt(
@@ -280,7 +288,13 @@ class MixedCoordinator(Coordinator):
             raise SafetyError("phase_acceptance_failed")
 
     def preparation_plan(self):
-        return build_jobs_plan(self.repo, self.plan_root, self.run_id, owner=OWNER)
+        return build_jobs_plan(
+            self.repo,
+            self.plan_root,
+            self.run_id,
+            owner=OWNER,
+            resource_profile=self.resource_profile,
+        )
 
     def runtime_argv(self, name, **kwargs):
         argv = super().runtime_argv(name, **kwargs)

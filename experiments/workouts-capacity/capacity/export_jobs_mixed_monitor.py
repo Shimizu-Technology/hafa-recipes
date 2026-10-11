@@ -51,6 +51,9 @@ def main():
     parser = argparse.ArgumentParser()
     for key in ("ledger", "api-id", "pg-id", "run-id", "phase", "output", "control"):
         parser.add_argument("--" + key, required=True)
+    parser.add_argument(
+        "--resource-profile", choices=["render-0.5c-512mb", "render-1c-2g"]
+    )
     args = parser.parse_args()
     until = time.monotonic() + PREPARATION_SECONDS
     monitor = MixedMonitor(
@@ -60,6 +63,7 @@ def main():
         args.run_id,
         args.phase,
         owner="capacity_ci",
+        resource_profile=getattr(args, "resource_profile", None),
     )
     monitor.validate(monitor.api, "api")
     monitor.validate(monitor.pg, "pg")

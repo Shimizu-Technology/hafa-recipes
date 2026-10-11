@@ -20,12 +20,15 @@ JOB_READS = {"workouts/export-status"}
 JOB_WRITES = {"workouts/export-admit", "workouts/export-cancel"}
 
 
-def mixed_phase_receipt(report, samples, phase, baseline=None):
+def mixed_phase_receipt(
+    report, samples, phase, baseline=None, *, resource_profile=None
+):
     return phase_receipt(
         report,
         samples,
         phase,
         baseline,
+        resource_profile=resource_profile,
         extra_reads=EXTRA_READS | JOB_READS,
         extra_writes=(
             EXTRA_WRITES - {"workouts/export-build", "workouts/export-remove"}

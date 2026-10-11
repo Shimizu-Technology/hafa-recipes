@@ -8,6 +8,7 @@ from pathlib import Path
 
 from capacity.driver_diagnostics import partial_metadata
 from capacity.failure_codes import CODES, PHASES
+from capacity.resource_profiles import checked_metadata, resolve, same_profile_evidence
 from capacity.statistics import nearest_rank
 
 OWNER = "capacity_ci"
@@ -362,7 +363,9 @@ def phase_receipt(
     *,
     extra_reads=EXTRA_READS,
     extra_writes=EXTRA_WRITES,
+    resource_profile=None,
 ):
+    profile = resolve(resource_profile)
     required = READS | BASE_WRITES | {"recipes/job-poll"}
     if phase == "mixed":
         required |= extra_reads | extra_writes
@@ -408,8 +411,13 @@ def phase_receipt(
         failures.append("unexpected_other_route")
     if not samples:
         failures.append("missing_observation")
+    if resource_profile is not None and (
+        (phase == "mixed" and baseline is None)
+        or not same_profile_evidence(resource_profile, report, samples, baseline)
+    ):
+        failures.append("resource_profile_evidence_mismatch")
     peak = max((number(row["memory_peak"]) for row in samples), default=0)
-    if peak > 410 * 1024 * 1024 or any(
+    if peak > profile.pass_bytes or any(
         row.get("stop_required")
         or row.get("oom")
         or row.get("oom_kill")
@@ -417,7 +425,7 @@ def phase_receipt(
         for row in samples
     ):
         failures.append("memory_oom_or5xx")
-    return {
+    result = {
         "passed": not failures,
         "partial_outcomes": partial_metadata(report),
         "failure_count": len(failures),
@@ -453,11 +461,16 @@ def phase_receipt(
         ),
         "routes": routes,
     }
+    if resource_profile is not None:
+        result["resource_profile"] = profile.metadata()
+    return result
 
 
 def public_receipt(summary, *, additional_routes=frozenset()):
     """Construct from fixed keys; never recursively copy arbitrary private JSON."""
     result = {"schema_version": 1}
+    if "resource_profile" in summary:
+        result["resource_profile"] = checked_metadata(summary["resource_profile"])
     failure = summary.get("failure")
     if failure is not None:
         if (
@@ -591,6 +604,10 @@ def public_receipt(summary, *, additional_routes=frozenset()):
                 for name, value in row.get(key, {}).items()
                 if name in allowed
             }
+        if "resource_profile" in summary:
+            output["resource_profile"] = checked_metadata(row.get("resource_profile"))
+            if output["resource_profile"] != result["resource_profile"]:
+                raise SafetyError("invalid_public_provenance")
         output["routes"] = {}
         for route in (
             READS

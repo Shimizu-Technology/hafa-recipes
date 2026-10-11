@@ -17,9 +17,11 @@ from capacity.ci_safety import (
     phase_receipt,
 )
 from capacity.legal_contract import CASES, case_passed
+from capacity.resource_profiles import resolve, same_profile_evidence
 
 
-def receipt(report, samples, baseline):
+def receipt(report, samples, baseline, *, resource_profile=None):
+    profile = resolve(resource_profile)
     failures = int(
         report.get("percentile_method") != "nearest_rank"
         or baseline.get("percentile_method") != "nearest_rank"
@@ -50,10 +52,14 @@ def receipt(report, samples, baseline):
         or any(row.get("unexpected") for row in report.get("routes", {}).values())
     ):
         failures += 1
+    if resource_profile is not None and not same_profile_evidence(
+        resource_profile, report, samples, baseline
+    ):
+        failures += 1
     peak = max((number(row["memory_peak"]) for row in samples), default=0)
     if (
         not samples
-        or peak > 410 * 2**20
+        or peak > profile.pass_bytes
         or any(
             row.get("stop_required")
             or row.get("oom")
@@ -63,8 +69,10 @@ def receipt(report, samples, baseline):
         )
     ):
         failures += 1
-    metrics = phase_receipt(report, samples, "baseline")
-    return {
+    metrics = phase_receipt(
+        report, samples, "baseline", resource_profile=resource_profile
+    )
+    result = {
         **{
             key: metrics[key]
             for key in (
@@ -83,6 +91,9 @@ def receipt(report, samples, baseline):
         "routes": routes,
         "cases": cases,
     }
+    if resource_profile is not None:
+        result["resource_profile"] = profile.metadata()
+    return result
 
 
 class LegalCoordinator(Coordinator):
@@ -154,6 +165,7 @@ class LegalCoordinator(Coordinator):
                     "450",
                     "--output",
                     str(memory),
+                    *self.profile_argv(),
                 ],
                 stdout=log,
                 stderr=subprocess.STDOUT,
@@ -192,10 +204,12 @@ class LegalCoordinator(Coordinator):
                 time.sleep(0.5)
             else:
                 raise SafetyError("legal_phase_deadline")
-        report = json.loads((root / "legal.json").read_text())
+        report = self.stamp_report(json.loads((root / "legal.json").read_text()))
         samples = [json.loads(line) for line in memory.read_text().splitlines()]
         observation = json.loads(Path(str(memory) + ".summary.json").read_text())
-        result = receipt(report, samples, self.baseline)
+        result = receipt(
+            report, samples, self.baseline, resource_profile=self.resource_profile
+        )
         result["observer_completed"] = observation["completed"]
         result["timeline"] = numeric_timeline(
             samples, str(root / "legal.json") + ".requests.jsonl"
@@ -223,6 +237,7 @@ class LegalCoordinator(Coordinator):
             report = {"completed": False}
         recovered = partial_trace_report(str(root / "legal.json") + ".requests.jsonl")
         report.update(recovered)
+        self.stamp_report(report)
         samples = []
         memory = root / "legal-external.jsonl"
         lines = memory.read_text().splitlines() if memory.exists() else []
@@ -232,7 +247,9 @@ class LegalCoordinator(Coordinator):
             except ValueError:
                 if index != len(lines) - 1:
                     raise SafetyError("corrupt_observation_interior")
-        result = receipt(report, samples, self.baseline)
+        result = receipt(
+            report, samples, self.baseline, resource_profile=self.resource_profile
+        )
         result["passed"] = False
         result["observer_completed"] = False
         if self.ledger and "api" in self.ledger.state["containers"]:

@@ -23,6 +23,7 @@ from capacity.ci_safety import (
 )
 from capacity.failure_codes import CODES, PHASES
 from capacity.plan import build_plan
+from capacity.resource_profiles import resolve
 
 REQUIREMENTS_SHA = "9002549c41b56eb84eda74b5e53875daf8899759ec183b532649a973343b5996"
 TOTAL_SECONDS = 1900
@@ -33,9 +34,8 @@ class Coordinator:
     receipt_indent = 2
     receipt_separators = None
 
-    @staticmethod
-    def make_phase_receipt(*args, **kwargs):
-        return phase_receipt(*args, **kwargs)
+    def make_phase_receipt(self, *args, **kwargs):
+        return phase_receipt(*args, **kwargs, resource_profile=self.resource_profile)
 
     @staticmethod
     def format_public_receipt(summary):
@@ -44,7 +44,11 @@ class Coordinator:
     def check_scenario(self, report, receipt, phase):
         pass
 
-    def __init__(self, repository, work, receipt, env=os.environ):
+    def __init__(
+        self, repository, work, receipt, env=os.environ, *, resource_profile=None
+    ):
+        self.resource_profile = resource_profile
+        self.profile = resolve(resource_profile)
         self.repo, self.work, self.receipt = (
             Path(repository).resolve(),
             Path(work).resolve(),
@@ -76,6 +80,20 @@ class Coordinator:
             "phases": {},
             "provenance": {},
         }
+        if resource_profile is not None:
+            self.summary["resource_profile"] = self.profile.metadata()
+
+    def stamp_report(self, report):
+        if self.resource_profile is not None:
+            report["resource_profile"] = self.profile.metadata()
+        return report
+
+    def profile_argv(self):
+        return (
+            ["--resource-profile", self.profile.id.value]
+            if self.resource_profile is not None
+            else []
+        )
 
     def record_failure(self, error, phase=None, fallback="unexpected_failure"):
         self.summary["passed"] = False
@@ -166,11 +184,11 @@ class Coordinator:
         if phase:
             argv += [
                 "--memory",
-                "512m",
+                f"{self.profile.memory_mib}m",
                 "--memory-swap",
-                "512m",
+                f"{self.profile.memory_mib}m",
                 "--cpus",
-                "0.5",
+                str(self.profile.cpus),
                 "-e",
                 f"WORKOUTS_API_ENABLED={'true' if phase == 'mixed' else 'false'}",
                 "-e",
@@ -361,6 +379,7 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
                 "450",
                 "--output",
                 str(memory),
+                *self.profile_argv(),
             ],
             stdout=monitor_log,
             stderr=subprocess.STDOUT,
@@ -398,7 +417,9 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
         else:
             raise SafetyError("phase_deadline")
         monitor_log.close()
-        report = json.loads((result_dir / f"{phase}.json").read_text())
+        report = self.stamp_report(
+            json.loads((result_dir / f"{phase}.json").read_text())
+        )
         observation = json.loads(Path(str(memory) + ".summary.json").read_text())
         samples = [json.loads(line) for line in memory.read_text().splitlines()]
         receipt = self.make_phase_receipt(
@@ -509,6 +530,9 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
         )
         self.summary["provenance"]["source_commit"] = commit
         self.ledger = Ledger(self.work / "resources.json", self.run_id, self.command)
+        if self.resource_profile is not None:
+            self.ledger.state["resource_profile"] = self.profile.metadata()
+            self.ledger.save()
         self.plan_root = self.work / "plan"
         plan = self.preparation_plan()
         tag = f"hafa-capacity:{commit[:12]}"
@@ -584,7 +608,14 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
         ]
 
     def preparation_plan(self):
-        return build_plan(self.repo, self.plan_root, self.run_id, 0.5, owner=OWNER)
+        return build_plan(
+            self.repo,
+            self.plan_root,
+            self.run_id,
+            self.profile.cpus,
+            owner=OWNER,
+            resource_profile=self.resource_profile,
+        )
 
     def run(self):
         self.prepare()
@@ -622,6 +653,7 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
             report = json.loads(path.read_text())
         except (OSError, ValueError):
             report = partial_trace_report(str(path) + ".requests.jsonl")
+        self.stamp_report(report)
         report["completed"] = False
         memory = root / f"{self.active_phase}-external.jsonl"
         samples = []
@@ -751,6 +783,8 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
             "provider_quality": False,
             "real_provider_calls": 0,
         }
+        if self.resource_profile is not None:
+            minimal["resource_profile"] = self.profile.metadata()
         self.receipt.parent.mkdir(parents=True, exist_ok=True)
         self.receipt.write_text(json.dumps(minimal, allow_nan=False) + "\n")
 
@@ -793,6 +827,12 @@ def execute(coordinator, cleanup_only=False):
             path = coordinator.work / "resources.json"
             if path.exists():
                 state = json.loads(path.read_text())
+                if (
+                    coordinator.resource_profile is not None
+                    and state.get("resource_profile") != coordinator.profile.metadata()
+                ):
+                    coordinator.finalization_unconfirmed = True
+                    raise SafetyError("invalid_public_provenance")
                 coordinator.ledger = Ledger(path, state["run_id"], coordinator.command)
         else:
             coordinator.run()

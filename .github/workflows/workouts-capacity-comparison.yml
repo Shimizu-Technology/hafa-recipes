@@ -1,0 +1,66 @@
+name: Workouts explicit compute comparison (synthetic)
+
+on:
+  workflow_dispatch:
+    inputs:
+      resource_profile:
+        description: Explicit synthetic API resource profile; no Render mutation
+        type: choice
+        required: true
+        options:
+          - render-0.5c-512mb
+          - render-1c-2g
+      scenario:
+        description: Fresh same-profile baseline followed by unchanged offered load
+        type: choice
+        required: true
+        options:
+          - mixed
+          - legal
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workouts-comparison-${{ github.ref }}-${{ inputs.scenario }}-${{ inputs.resource_profile }}
+  cancel-in-progress: false
+
+jobs:
+  comparison:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'Shimizu-Technology/hafa-recipes'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PYTHONPATH: experiments/workouts-capacity
+      PYTHONDONTWRITEBYTECODE: '1'
+      COMPARISON_PROFILE: ${{ inputs.resource_profile }}
+      COMPARISON_SCENARIO: ${{ inputs.scenario }}
+    steps:
+      - name: Check out exact selected source without stored credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Run the explicit fresh comparison
+        run: >-
+          python3 -m capacity.comparison_ci
+          --repository "$GITHUB_WORKSPACE"
+          --work "$RUNNER_TEMP/hafa-comparison-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          --receipt "$RUNNER_TEMP/hafa-comparison-receipt.json"
+          --resource-profile "$COMPARISON_PROFILE" --scenario "$COMPARISON_SCENARIO"
+      - name: Always clean exact comparison resources
+        if: always()
+        run: >-
+          python3 -m capacity.comparison_ci --cleanup-only
+          --repository "$GITHUB_WORKSPACE"
+          --work "$RUNNER_TEMP/hafa-comparison-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          --receipt "$RUNNER_TEMP/hafa-comparison-receipt.json"
+          --resource-profile "$COMPARISON_PROFILE" --scenario "$COMPARISON_SCENARIO"
+      - name: Upload only the bounded whitelisted receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: comparison-${{ inputs.scenario }}-${{ inputs.resource_profile }}-numeric-receipt
+          path: ${{ runner.temp }}/hafa-comparison-receipt.json
+          if-no-files-found: error
+          retention-days: 1
