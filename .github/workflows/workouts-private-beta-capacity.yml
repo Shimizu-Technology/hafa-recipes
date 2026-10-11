@@ -42,6 +42,8 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: workouts-private-beta-numeric
-          path: ${{ runner.temp }}/workouts-private-beta-${{ github.run_id }}-${{ github.run_attempt }}/receipt.json
+          path: |
+            ${{ runner.temp }}/workouts-private-beta-${{ github.run_id }}-${{ github.run_attempt }}/receipt.json
+            ${{ runner.temp }}/workouts-private-beta-${{ github.run_id }}-${{ github.run_attempt }}/pg-setup.log
           if-no-files-found: error
           retention-days: 1

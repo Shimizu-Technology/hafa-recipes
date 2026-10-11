@@ -39,6 +39,10 @@ cleanup() {
   local status=$?
   cleanup_deadline=$((SECONDS+120))
   trap - EXIT TERM INT ERR
+  # Only pre-seed PG initialization logs: no app/SQL source bodies exist yet.
+  if [[ -n "$pg" && "$stage" == postgres_setup_* ]]; then
+    limited 5 docker logs "$pg" 2>&1 | head -c 65536 >"$work/pg-setup.log" || true
+  fi
   # Retain role/state/error-class metadata, never environment or command dumps.
   for role in api pg load finite; do
     id="${!role}"
@@ -190,8 +194,8 @@ for source in off enabled; do
   if [[ "$source" == off ]]; then adapter="$work/off-adapter"; profile=recipes-baseline; phase=baseline; fi
   stage="postgres_setup_$source"
   pg=$(timeout 15s docker run -d --name "capacity-pg-$run" "${labels[@]}" --network "$network" --memory 2g --memory-swap 2g --mount "type=bind,source=$result/pgdata,target=/var/lib/postgresql/data" -e POSTGRES_PASSWORD=capacity_local_only -e POSTGRES_DB=hafa_workouts_capacity_test postgres@sha256:1a66d744c1b459e13b05a8fca341da84cb63383e99ce262210efee5a319d4551)
-  for ((n=0;n<60;n++)); do timeout 5s docker exec "$pg" pg_isready -U postgres -d hafa_workouts_capacity_test >/dev/null 2>&1 && break; sleep 0.5; done
-  timeout 5s docker exec "$pg" pg_isready -U postgres -d hafa_workouts_capacity_test >/dev/null
+  for ((n=0;n<60;n++)); do timeout 5s docker exec "$pg" pg_isready -h 127.0.0.1 -U postgres -d hafa_workouts_capacity_test >/dev/null 2>&1 && break; sleep 0.5; done
+  timeout 5s docker exec "$pg" pg_isready -h 127.0.0.1 -U postgres -d hafa_workouts_capacity_test >/dev/null
   common=("${labels[@]}" --network "container:$pg" --env-file "$work/$source.env" -v "$GITHUB_WORKSPACE/candidate-source/api:/api:ro" -v "$adapter/capacity:/adapter/capacity:ro" -v "$work/fixtures:/fixtures:ro" --workdir /tmp)
   stage="seed_$source"
   seed_flags=()

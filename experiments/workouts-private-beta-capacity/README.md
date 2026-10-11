@@ -49,7 +49,9 @@ After the enabled phase, old master
 database. Existing urllib smoke checks liveness/platform/list/search/detail;
 all Workouts table counts and per-row fingerprints must match before/after.
 No reset or optional DDL occurs during rollback. Only bounded numeric outcomes
-are uploaded for one day; no bodies, DB files, raw logs or fixture contents.
+are uploaded for one day. On PostgreSQL initialization failure before seed, up to
+64 KiB of its setup log is also retained. No application/SQL source bodies exist
+at that stage; application logs, DB files and fixture contents are excluded.
 
 Prepared source checks and unit plans are not hosted acceptance. Actual workload,
 rollback, installed-client, Clerk/provider-network and production rollback
