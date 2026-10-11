@@ -76,7 +76,8 @@ cmp main-source/api/requirements.txt candidate-source/api/requirements.txt
 mkdir "$work/context" "$work/fixtures"
 cp -R candidate-source/api "$work/context/api"
 cp -R harness-source/experiments/workouts-capacity/capacity "$work/context/capacity"
-cp workflow/experiments/workouts-capacity/Dockerfile "$work/context/Dockerfile"
+cp "$control/Dockerfile" "$work/context/Dockerfile"
+cp "$control/fixture.requirements.txt" "$work/context/fixture.requirements.txt"
 (cd "$work/context/capacity" && patch --fuzz=0 -p1 < "$control/recipes-only.patch")
 python3 - "$control/adapter-sha256.json" "$work/context/capacity" <<'PY'
 import hashlib,json,sys

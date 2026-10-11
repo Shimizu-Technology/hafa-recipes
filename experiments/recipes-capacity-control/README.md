@@ -21,7 +21,10 @@ Workouts setup from app/seed/observer. SHA256 checks cover every retained adapte
 module and the synthetic fixture bytes. Fuzzed patches are refused.
 
 The direct script builds one native x86 image with the existing pinned Python
-base, API requirements and FFmpeg version. Main and candidate use that identical
+base, API requirements and FFmpeg version. Its fixture generator additionally
+needs `pypdf==6.20.0`, absent from the Recipes dependency list. A harness-only
+wheel-hash pin installs that one package with no dependency resolution; no
+production lock or requirement changes. Main and candidate use that identical
 image, adapter and read-only fixtures, with their own read-only application
 source mounts. Each gets a fresh isolated core-schema database with 1,000 recipes;
 no historical job/cache identity can leak between phases. An internal Docker
