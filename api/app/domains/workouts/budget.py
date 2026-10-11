@@ -19,9 +19,10 @@ WINDOW = timedelta(hours=24)
 AUTHORIZED_CAP_MICROUSD = 5_000_000
 CAPABILITIES = frozenset({"workout_extraction", "workout_coach", "workout_transcription"})
 MAX_MONEY = 9_000_000_000_000_000
-# Official exact snapshot/model and standard pricing/vision docs checked2026-10-10.
-# Both text and billable image tokens fit this documented model input ceiling.
-MODEL_MAX_INPUT = 922_000
+# Official model pages checked2026-10-12 document context, not a separate input limit.
+# Reserve the whole context as input plus the enforced output cap, overestimating
+# the combined context rather than deriving input from the model's maximum output.
+MODEL_INPUT_UPPER_BOUND = 1_050_000
 MODEL_MAX_OUTPUT = 128_000
 STANDARD_TOKEN_PRICES = {
     "gpt-5.6-luna": (Decimal("0.20"), Decimal("1.20")),
@@ -201,14 +202,14 @@ def admission_upper_bound(capability, model, envelope, policy):
                 input_rate = max(input_rate, positive_rate(cached_rate))
         output_rate = positive_rate(prices.get("output_per_million"))
         reference_input, reference_output = STANDARD_TOKEN_PRICES[model]
-        # Full max input is long context: input2x, cache writes1.25x, output1.5x.
+        # Full context input bound: input2x, cache writes1.25x, output1.5x.
         # Reference floors prevent a stale/low operator quote lowering admission.
         input_upper_rate = max(input_rate, reference_input) * Decimal("2.5")
         output_upper_rate = max(output_rate, reference_output) * Decimal("1.5")
         amount = int(
-            (MODEL_MAX_INPUT * input_upper_rate + output * output_upper_rate).to_integral_value(
-                rounding=ROUND_CEILING
-            )
+            (
+                MODEL_INPUT_UPPER_BOUND * input_upper_rate + output * output_upper_rate
+            ).to_integral_value(rounding=ROUND_CEILING)
         )
     if amount > policy.max_attempt_microusd:
         raise BudgetError("workouts_ai_attempt_cap_exceeded")

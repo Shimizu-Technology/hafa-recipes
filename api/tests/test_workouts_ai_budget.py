@@ -37,7 +37,7 @@ PRICES = {
     "gpt-5.6-luna": {"input_per_million": 0.20, "output_per_million": 1.20},
     "gpt-5.6-terra": {"input_per_million": 2, "output_per_million": 12},
 }
-LUNA = 471_800
+LUNA = 535_800
 EXTRACTION = ProviderEnvelope(endpoint="chat_completions", max_output_tokens=6000)
 DB_REQUIRED = pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
 migration = importlib.import_module("migrations.040_add_workouts_ai_admission")
@@ -83,7 +83,9 @@ def test_documented_worst_bounds_text_vision_tools_long_context_and_audio():
         )
         == LUNA
     )
-    assert admission_upper_bound("workout_extraction", "gpt-5.6-terra", EXTRACTION, p) == 4_718_000
+    # Terra's whole-context bound is5,358,000; the unchanged5,000,000 cap denies it.
+    with pytest.raises(BudgetError, match="attempt_cap_exceeded"):
+        admission_upper_bound("workout_extraction", "gpt-5.6-terra", EXTRACTION, p)
     assert (
         admission_upper_bound(
             "workout_coach",
@@ -91,7 +93,7 @@ def test_documented_worst_bounds_text_vision_tools_long_context_and_audio():
             ProviderEnvelope(endpoint="responses", max_output_tokens=1800, function_tools=True),
             p,
         )
-        == 464_240
+        == 528_240
     )
     audio = ProviderEnvelope(
         endpoint="audio_transcriptions", audio_seconds_upper_bound=61, audio_duration_verified=True

@@ -22,7 +22,7 @@ from app.domains.workouts.extraction import (
 )
 from app.services.video import video_service
 from tests.test_workout_extraction import TEXT, complete_workout
-from tests.test_workouts_ai_budget import budget_api, policy  # noqa: F401
+from tests.test_workouts_ai_budget import LUNA, budget_api, policy  # noqa: F401
 from tests.test_workouts_data_integration import DATABASE_URL, data_api, settings  # noqa: F401
 from tests.workouts_provider_fakes import FakeBudget
 
@@ -251,6 +251,24 @@ async def test_canary_selected_model_is_reserved_and_sent(provider_environment, 
     assert calls[0][1]["model"] == guard.reservations[0][1] == Tracker.selected_model
 
 
+async def test_real_guard_denies_terra_before_database_or_transport(
+    provider_environment, monkeypatch
+):
+    def no_sessions():
+        raise AssertionError("Over-cap Terra admission incorrectly connected")
+
+    Tracker.selected_model = "gpt-5.6-terra"
+    calls = install_http(monkeypatch)
+    guard = BudgetGuard(policy(), session_factory=no_sessions)
+    with pytest.raises(ExtractionFailure, match="workouts_ai_attempt_cap_exceeded"):
+        await ProductionExtractionProvider(development_api_key="fake", budget_guard=guard).extract(
+            source()
+        )
+    assert calls == []
+    assert len(Tracker.attempts) == 1
+    assert Tracker.attempts[0].status == "workouts_ai_attempt_cap_exceeded"
+
+
 async def test_each_coach_round_has_own_envelope_and_standard_tier(
     provider_environment, monkeypatch
 ):
@@ -436,7 +454,7 @@ async def test_default_unconfigured_guard_prevents_http_without_database(
 async def test_durable_reservation_exists_before_transport_and_denies_next_call(
     budget_api, provider_environment, monkeypatch
 ):
-    guard = BudgetGuard(policy(budget=471800), session_factory=budget_api.sessions)
+    guard = BudgetGuard(policy(budget=LUNA), session_factory=budget_api.sessions)
 
     async def respond(_):
         async with budget_api.sessions() as db:
@@ -453,6 +471,28 @@ async def test_durable_reservation_exists_before_transport_and_denies_next_call(
     async with budget_api.sessions() as db:
         row = await db.scalar(select(WorkoutsAIAdmission))
         assert row.outcome == "success"
+
+
+@pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+async def test_real_guard_denies_terra_fallback_and_keeps_failed_luna_reservation(
+    budget_api, provider_environment, monkeypatch
+):
+    calls = install_http(monkeypatch, values=[completion({"ingredients": []})])
+    guard = BudgetGuard(policy(), session_factory=budget_api.sessions)
+    with pytest.raises(ExtractionFailure, match="workouts_ai_attempt_cap_exceeded"):
+        await ProductionExtractionProvider(development_api_key="fake", budget_guard=guard).extract(
+            source()
+        )
+    assert len(calls) == 1 and calls[0][1]["model"] == "gpt-5.6-luna"
+    assert [attempt.status for attempt in Tracker.attempts] == [
+        "provider_invalid_response",
+        "workouts_ai_attempt_cap_exceeded",
+    ]
+    async with budget_api.sessions() as db:
+        rows = (await db.scalars(select(WorkoutsAIAdmission))).all()
+        assert len(rows) == 1
+        assert rows[0].model == "gpt-5.6-luna"
+        assert rows[0].outcome == "failed" and rows[0].admitted_microusd == LUNA
 
 
 @pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")

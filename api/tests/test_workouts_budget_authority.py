@@ -145,7 +145,7 @@ async def test_insufficient_confirmed_releases_cannot_promise_retry(budget_api):
         await BudgetGuard(policy(budget=600_000), session_factory=budget_api.sessions).reserve(
             "workout_extraction", "gpt-5.6-luna", EXTRACTION
         )
-    # Releasing100k still leaves150k +471800 >600k indefinitely.
+    # Releasing100k still leaves150k +535800 >600k indefinitely.
     assert error.value.retry_after_seconds is None
 
 
