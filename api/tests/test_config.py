@@ -72,9 +72,7 @@ def test_clerk_environments_are_issuer_scoped_and_deduplicate_legacy_settings():
         "development",
         "production",
     ]
-    production = settings.clerk_environment_for_issuer(
-        "https://clerk.hafa-recipes.com/"
-    )
+    production = settings.clerk_environment_for_issuer("https://clerk.hafa-recipes.com/")
     assert production is not None
     assert production.audience == ["mobile", "web"]
     assert production.authorized_parties == (
@@ -227,3 +225,18 @@ def test_ssl_can_only_be_disabled_for_explicitly_local_urls(database_url):
     )
 
     assert settings.database_use_ssl is False
+
+
+def test_migration045_restore_point_loads_dotenv_and_process_override(tmp_path, monkeypatch):
+    monkeypatch.delenv("MIGRATION_045_RESTORE_POINT", raising=False)
+    dotenv = tmp_path / "restore.env"
+    dotenv.write_text("MIGRATION_045_RESTORE_POINT=synthetic-reviewed-restore\n")
+    options = dict(
+        database_url="postgresql://test:test@localhost/hafa_recipes_test",
+        openai_api_key="test",
+        environment="test",
+        _env_file=dotenv,
+    )
+    assert Settings(**options).migration_045_restore_point == "synthetic-reviewed-restore"
+    monkeypatch.setenv("MIGRATION_045_RESTORE_POINT", "synthetic-process-restore")
+    assert Settings(**options).migration_045_restore_point == "synthetic-process-restore"

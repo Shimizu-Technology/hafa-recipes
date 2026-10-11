@@ -70,6 +70,7 @@ async def capabilities(user: User, db: Database):
         and bool(configured.workouts_ai_budget_database_url)
         and configured.is_ai_capability_enabled("workout_coach"),
         "health_sync": configured.workouts_health_sync_enabled,
+        "export_jobs": configured.workouts_export_jobs_enabled,
         "limits": {
             "successful_or_pending_imports_per_rolling_day": MAX_IMPORTS_PER_DAY,
             "coach_messages_per_rolling_day": 50,

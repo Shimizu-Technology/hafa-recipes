@@ -38,11 +38,8 @@ def numeric(value):
     return value
 
 
-def diagnostic(report, samples, observation, counts, oom=None):
-    # Use the existing numeric observer summaries, but not its media expectations.
-    host = phase_receipt(report, samples, "baseline")
-    metrics = report.get("metrics") or {}
-    status = report.get("status") or {}
+def complete_stages(report, metrics, stages):
+    """Shared unchanged inclusive-stage proof; route contracts stay separate."""
     complete = (
         report.get("completed") is True
         and metrics.get("complete") is True
@@ -54,14 +51,6 @@ def diagnostic(report, samples, observation, counts, oom=None):
         and metrics.get("summed_nested_timings") is False
         and report.get("percentile_method") == "nearest_rank"
     )
-    stages = {
-        s: {
-            k: numeric(v)
-            for k, v in metrics.get("stages", {}).get(s, {}).items()
-            if k in FIELDS
-        }
-        for s in STAGES
-    }
     expected = {
         "build_total": 1,
         "source_inventory": 1,
@@ -87,6 +76,23 @@ def diagnostic(report, samples, observation, counts, oom=None):
         and fetched.get("failed") == 0
         and metrics.get("query_count", 0) > 0
     )
+    return bool(complete)
+
+
+def diagnostic(report, samples, observation, counts, oom=None):
+    # Use the existing numeric observer summaries, but not its media expectations.
+    host = phase_receipt(report, samples, "baseline")
+    metrics = report.get("metrics") or {}
+    status = report.get("status") or {}
+    stages = {
+        s: {
+            k: numeric(v)
+            for k, v in metrics.get("stages", {}).get(s, {}).items()
+            if k in FIELDS
+        }
+        for s in STAGES
+    }
+    complete = complete_stages(report, metrics, stages)
     routes = {k: v for k, v in report.get("routes", {}).items() if k in ROUTES}
     required = {
         "/up": 80,
@@ -175,7 +181,11 @@ def diagnostic(report, samples, observation, counts, oom=None):
     }
 
 
-def receipt(summary, data):
+def receipt(summary, data, *, route_whitelist=ROUTES):
+    from capacity.export_jobs_diagnostic_contract import ROUTES as JOB_ROUTES
+
+    if not set(route_whitelist) <= ROUTES | JOB_ROUTES:
+        raise SafetyError("invalid_numeric_receipt")
     safe = public_receipt(summary)
     # Reuse the original route/diagnostic/host whitelist through a temporary phase.
     intermediary = public_receipt(
@@ -261,7 +271,7 @@ def receipt(summary, data):
             )
         )
     for row in data.get("request_spans", [])[:384]:
-        if row.get("route") not in ROUTES:
+        if row.get("route") not in route_whitelist:
             raise SafetyError("invalid_numeric_receipt")
         output["request_spans"].append(
             dict(

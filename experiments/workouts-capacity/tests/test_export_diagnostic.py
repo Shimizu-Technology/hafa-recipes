@@ -85,8 +85,9 @@ class Factory:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("wrap_singleton", [False, True])
 async def test_actual_original_create_retains_19_pages_encryption_finalization_and_one_shot(
-    source, monkeypatch
+    source, monkeypatch, wrap_singleton
 ):
     svc, router, instrument = source
     factory = Factory()
@@ -155,7 +156,7 @@ async def test_actual_original_create_retains_19_pages_encryption_finalization_a
     }.items():
         monkeypatch.setattr(svc, key, value)
     monkeypatch.setattr(svc.PrivateExportService, "authorize", lambda *_: b"K" * 32)
-    cleanup = instrument.install(monkeypatch.setattr)
+    cleanup = instrument.install(monkeypatch.setattr, wrap_singleton=wrap_singleton)
     for method in ("execute", "scalar", "get"):
         monkeypatch.setattr(DB, method, source_call(getattr(DB, method)))
     original_rollback = DB.rollback
@@ -166,11 +167,25 @@ async def test_actual_original_create_retains_19_pages_encryption_finalization_a
 
     monkeypatch.setattr(DB, "rollback", rollback_call(rollback))
     service = svc.PrivateExportService(factory)
+    presence_checks = []
+
+    async def absent_045():
+        # This pure fake-session fixture represents the pre045 compatible
+        # builder. Installed045 and real worker dispatch have separate DB tests.
+        presence_checks.append(True)
+        return False
+
+    monkeypatch.setattr(service.job_coordinator(), "installed", absent_045)
     # Production instrumentation wraps a constructed builtin singleton. A
     # wrapper must not silently turn off its source inventory optimization.
-    service.page_source = router.private_exports.page_source
+    if wrap_singleton:
+        service.page_source = router.private_exports.page_source
+    else:
+        assert service.page_source is svc.approved_export_page
+        assert service._builtin_page_source is True
     try:
         manifest = await service.create(SimpleNamespace(id="synthetic"), 1)
+        assert presence_checks == [True]
         assert manifest.page_count == 19
         measured = instrument.snapshot()
         assert measured["complete"] and measured["pages"] == 19

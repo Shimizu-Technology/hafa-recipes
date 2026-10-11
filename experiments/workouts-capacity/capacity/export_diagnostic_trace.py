@@ -7,11 +7,11 @@ from capacity.ci_safety import SafetyError, partial_trace_report
 from capacity.export_diagnostic_receipt import ROUTES
 
 
-def recover(output):
+def recover(output, *, routes=ROUTES):
     path = Path(str(output) + ".requests.jsonl")
     if path.exists() and path.stat().st_size > 512 * 1024:
         raise SafetyError("partial_evidence_failed")
-    report = partial_trace_report(path)
+    report = partial_trace_report(path, routes)
     report.update(spans=[], dropped_spans=0, unsettled_requests=None)
     if not path.exists():
         return report
@@ -26,7 +26,7 @@ def recover(output):
             continue
         if "origin_timestamp" in row:
             report["origin_timestamp"] = row["origin_timestamp"]
-        if row.get("route") not in ROUTES:
+        if row.get("route") not in routes:
             continue
         key = row.get("request_number")
         if row.get("event") == "start":

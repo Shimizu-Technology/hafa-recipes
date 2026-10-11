@@ -52,7 +52,7 @@ def source_call(original):
     return call
 
 
-def install(patch=setattr):
+def install(patch=setattr, *, wrap_singleton=True):
     from app.db.database import engine
     from app.domains.workouts import export_service as service
     from app.domains.workouts.export_context import SnapshotSourceContext
@@ -68,7 +68,9 @@ def install(patch=setattr):
         async_stage("size_guard", service.guard_projection_memory),
     )
     patch(
-        service, "build_export_page", async_stage("projection", service.build_export_page)
+        service,
+        "build_export_page",
+        async_stage("projection", service.build_export_page),
     )
     original_prepare = SnapshotSourceContext.prepare.__func__
 
@@ -98,7 +100,8 @@ def install(patch=setattr):
 
     # The existing singleton's default callback was captured at construction.
     # Replace only that callback with an await-preserving wrapper around it.
-    patch(private_exports, "page_source", page)
+    if wrap_singleton:
+        patch(private_exports, "page_source", page)
     for method in ("execute", "scalar", "get"):
         patch(AsyncSession, method, source_call(getattr(AsyncSession, method)))
     patch(AsyncSession, "rollback", rollback_call(AsyncSession.rollback))

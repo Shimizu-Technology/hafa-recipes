@@ -1,6 +1,14 @@
 """Fixed public diagnostics, never exception messages or resource identifiers."""
 
 CODES = {
+    "export_job_identity_failed",
+    "export_job_deadline_failed",
+    "export_job_terminal",
+    "export_job_pages_failed",
+    "export_job_ack_failed",
+    "export_job_cleanup_failed",
+    "export_job_request_failed",
+    "export_job_overlap_unavailable",
     "api_startup_deadline",
     "api_startup_failed",
     "api_budget_or_image_changed",
@@ -32,4 +40,13 @@ CODES = {
     "unreviewed_or_foreign_pr",
     "unsupported_event_or_source",
 }
-PHASES = {"setup", "baseline", "mixed", "legal", "diagnostic", "cleanup", "finalization", "receipt"}
+PHASES = {
+    "setup",
+    "baseline",
+    "mixed",
+    "legal",
+    "diagnostic",
+    "cleanup",
+    "finalization",
+    "receipt",
+}
