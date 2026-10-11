@@ -61,3 +61,11 @@ Local source/structure checks do not establish hosted acceptance. A passing
 candidate comparison cannot turn a failed main memory control into a pass,
 prove Render/Neon parity, approve enabled Workouts load, or close full R04.
 Existing failed local and hosted receipts remain authoritative history.
+
+Run38161716929 passed the original archive checks, then stopped during first
+main-source setup and cleaned its resources. Its receipt lacked the failing
+setup line, so the cause could not be recovered. The diagnostic now records a
+closed stage name, shell error line and bounded container exit/error-class
+metadata before cleanup. It does not upload command arguments, environment
+values, raw container logs or provider bodies. This is diagnostic evidence;
+neither failed setup run establishes API capacity or latency acceptance.
