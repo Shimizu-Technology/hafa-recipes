@@ -99,20 +99,22 @@ trap 'exit 143' TERM
 [[ "$(git -C harness-source rev-parse HEAD)" == 405d89446b536f8ca0009739a07d45101ee095de ]]
 [[ -z "$(find candidate-source/api/migrations -maxdepth 1 -name '045*' -print -quit)" ]]
 python3 - <<'CHECK_PINS'
-import re
 from pathlib import Path
-def pins(name):
-    pairs=[]
-    for line in Path(name).read_text().splitlines():
-        line=line.strip()
-        if not line or line.startswith('#'):continue
-        match=re.fullmatch(r'([A-Za-z0-9_.-]+)==([^ ;]+)',line)
-        assert match,'unexpected_dependency_syntax'
-        pairs.append((match[1].lower(),match[2]))
-    assert len(dict(pairs))==len(pairs),'duplicate_dependency_pin'
-    return dict(pairs)
-a=pins('rollback-source/api/requirements.txt');b=pins('candidate-source/api/requirements.txt')
-assert b=={**a,'pypdf':'6.20.0'}
+
+def require_matching_requirements(baseline, candidate):
+    def lines(content):
+        return [line.strip() for line in content.splitlines()
+                if line.strip() and not line.strip().startswith('#')]
+    old, new = lines(baseline), lines(candidate)
+    extra = 'pypdf==6.20.0'
+    assert new.count(extra) == 1, 'expected_one_unconditional_pypdf_pin'
+    new.remove(extra)
+    assert new == old, 'dependency_lines_or_order_changed'
+
+require_matching_requirements(
+    Path('rollback-source/api/requirements.txt').read_text(),
+    Path('candidate-source/api/requirements.txt').read_text(),
+)
 CHECK_PINS
 mkdir "$work/context" "$work/fixtures" "$work/rollback"
 chmod 777 "$work/rollback"
