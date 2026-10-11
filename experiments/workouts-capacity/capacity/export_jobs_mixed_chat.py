@@ -25,6 +25,65 @@ STAGES = {
     "cover_compare",
 }
 active = contextvars.ContextVar("capacity_recipe_chat_frame", default=None)
+REJECTIONS = {
+    "none": {"none"},
+    "unknown": {"unavailable"},
+    "checkpoint": {"missing"},
+    "components": {"count", "shape", "ordinal", "incomplete", "fields", "wait"},
+    "trace": {"samples", "source", "bounds", "pairing", "count", "format"},
+    "stages": {"bounds", "failed", "fields"},
+    "public": {"shape"},
+}
+
+
+def rejection_public(value):
+    """Closed content-free boundary evidence; unknown inputs imply no attribution."""
+    unknown = {"boundary": "unknown", "code": "unavailable", "ordinal": 0, "count": 0}
+    if not isinstance(value, dict):
+        return unknown
+    boundary, code = value.get("boundary"), value.get("code")
+    if (
+        type(boundary) is not str
+        or type(code) is not str
+        or code not in REJECTIONS.get(boundary, set())
+    ):
+        return unknown
+    if (
+        type(value.get("ordinal")) is not int
+        or not 0 <= value["ordinal"] <= 5
+        or type(value.get("count")) is not int
+        or not 0 <= value["count"] <= 4097
+    ):
+        return unknown
+    return {
+        "boundary": boundary,
+        "code": code,
+        "ordinal": value["ordinal"],
+        "count": value["count"],
+    }
+
+
+def reject(sink, boundary, code, *, ordinal=0, count=0):
+    if isinstance(sink, dict):
+        sink.clear()
+        sink.update(
+            {
+                "boundary": boundary,
+                "code": code,
+                "ordinal": ordinal,
+                "count": min(max(count, 0), 4097) if type(count) is int else 0,
+            }
+        )
+    return {"available": False}
+
+
+def chat_rejection(diagnosis, observation, parser):
+    if diagnosis.get("available") is True:
+        return {"boundary": "none", "code": "none", "ordinal": 0, "count": 5}
+    parsed, observed = rejection_public(parser), rejection_public(observation)
+    if observed["boundary"] in {"components", "checkpoint"}:
+        return observed
+    return parsed
 
 
 def number(value):
@@ -36,6 +95,7 @@ class Components:
         self.clock = clock
         self.calls = 0
         self.rows = []
+        self.rejection = {}
 
     def begin(self):
         self.calls += 1
@@ -55,10 +115,12 @@ class Components:
         return row
 
     def snapshot(self):
-        return component_public({"calls_observed": self.calls, "rows": self.rows})
+        return component_public(
+            {"calls_observed": self.calls, "rows": self.rows}, self.rejection
+        )
 
 
-def component_public(value):
+def component_public(value, rejection=None):
     """Closed five-row whitelist. Partial/failed/overflow evidence is unavailable."""
     try:
         rows = value.get("rows")
@@ -68,22 +130,27 @@ def component_public(value):
             or not isinstance(rows, list)
             or len(rows) != 5
         ):
-            return {"available": False}
+            return reject(
+                rejection, "components", "count", count=value.get("calls_observed")
+            )
         clean = []
         for ordinal, row in enumerate(rows, 1):
+            if type(row.get("ordinal")) is not int or row["ordinal"] != ordinal:
+                return reject(rejection, "components", "ordinal", ordinal=ordinal)
+            if row.get("complete") is not True or row.get("failed") is not False:
+                return reject(rejection, "components", "incomplete", ordinal=ordinal)
             if (
-                type(row.get("ordinal")) is not int
-                or row["ordinal"] != ordinal
-                or row.get("complete") is not True
-                or row.get("failed") is not False
-                or any(not number(row.get(key)) for key in FIELDS)
+                any(not number(row.get(key)) for key in FIELDS)
                 or type(row.get("fixture_transport_calls")) is not int
-                or row["fixture_transport_calls"] != 1
+            ):
+                return reject(rejection, "components", "fields", ordinal=ordinal)
+            if (
+                row["fixture_transport_calls"] != 1
                 or row["fixture_requested_wait_ms"] != 250
                 or row["fixture_transport_ms"] < 250
                 or row["sdk_body_ms"] < row["fixture_transport_ms"]
             ):
-                return {"available": False}
+                return reject(rejection, "components", "wait", ordinal=ordinal)
             clean.append(
                 {
                     "ordinal": ordinal,
@@ -92,6 +159,9 @@ def component_public(value):
                     **{key: row[key] for key in FIELDS},
                 }
             )
+        if isinstance(rejection, dict):
+            rejection.clear()
+            rejection.update(boundary="none", code="none", ordinal=0, count=5)
         return {
             "available": True,
             "calls_observed": 5,
@@ -100,7 +170,7 @@ def component_public(value):
             "rows": clean,
         }
     except (AttributeError, KeyError, TypeError):
-        return {"available": False}
+        return reject(rejection, "components", "shape")
 
 
 def install(app, patch=setattr, *, clock=time.monotonic):
@@ -185,37 +255,43 @@ def install(app, patch=setattr, *, clock=time.monotonic):
 
     async def observed_status(*args, **kwargs):
         result = await status(*args, **kwargs)
-        return {**result, "recipe_chat_components": components.snapshot()}
+        measured = components.snapshot()
+        return {
+            **result,
+            "recipe_chat_components": measured,
+            "recipe_chat_observation": rejection_public(components.rejection),
+        }
 
     patch(route.dependant, "call", observed_status)
     return components
 
 
-def chat_trace(samples, trace_path, components):
+def chat_trace(samples, trace_path, components, rejection=None):
     """Five actual trace pairs aligned to existing sample origin, no IDs/UTC output."""
     unavailable = {"available": False}
+    boundary = "trace"
     try:
         if (
             not samples
             or len(samples) > 1000
             or not number(origin := samples[0].get("timestamp"))
         ):
-            return unavailable
+            return reject(rejection, "trace", "samples")
         path = Path(trace_path)
         if not path.is_file() or path.is_symlink():
-            return unavailable
+            return reject(rejection, "trace", "source")
         with path.open("rb") as stream:
             data = stream.read(2 * 1024 * 1024 + 1)
         lines = data.decode().splitlines()
         if len(data) > 2 * 1024 * 1024 or len(lines) > 4096:
-            return unavailable
+            return reject(rejection, "trace", "bounds", count=len(lines))
         rows, pending, last_request, last_end = [], None, -1, origin
         for line in lines:
             event = json.loads(line)
             if event.get("route") != "recipes/chat":
                 continue
             if len(rows) >= 5:
-                return unavailable
+                return reject(rejection, "trace", "count", count=len(rows) + 1)
             if event.get("event") == "start":
                 if (
                     pending is not None
@@ -224,7 +300,7 @@ def chat_trace(samples, trace_path, components):
                     or type(event.get("request_number")) is not int
                     or event["request_number"] <= last_request
                 ):
-                    return unavailable
+                    return reject(rejection, "trace", "pairing", ordinal=len(rows) + 1)
                 pending = (event.get("request_number"), event["timestamp"])
             elif event.get("event") == "end":
                 if (
@@ -239,7 +315,7 @@ def chat_trace(samples, trace_path, components):
                     or event["timestamp"] < pending[1]
                     or pending[1] < origin
                 ):
-                    return unavailable
+                    return reject(rejection, "trace", "pairing", ordinal=len(rows) + 1)
                 rows.append(
                     {
                         "ordinal": len(rows) + 1,
@@ -252,16 +328,23 @@ def chat_trace(samples, trace_path, components):
                 last_end = event["timestamp"]
                 pending = None
             else:
-                return unavailable
-        clean_components = component_public(components)
-        if pending is not None or len(rows) != 5 or not clean_components["available"]:
+                return reject(rejection, "trace", "pairing", ordinal=len(rows) + 1)
+        if pending is not None or len(rows) != 5:
+            return reject(rejection, "trace", "count", count=len(rows))
+        clean_components = component_public(components, rejection)
+        if not clean_components["available"]:
             return unavailable
+        boundary = "stages"
         observed = []
         for sample in samples:
             for event in sample.get("stages", []):
                 if event.get("stage") in STAGES:
-                    if len(observed) >= 1024 or event.get("event") == "failed":
-                        return unavailable
+                    if len(observed) >= 1024:
+                        return reject(
+                            rejection, "stages", "bounds", count=len(observed)
+                        )
+                    if event.get("event") == "failed":
+                        return reject(rejection, "stages", "failed")
                     observed.append(event)
         for row, timings in zip(rows, clean_components["rows"]):
             row.update({key: timings[key] for key in FIELDS})
@@ -279,12 +362,19 @@ def chat_trace(samples, trace_path, components):
                         continue
                     end, duration = event.get("timestamp"), event.get("duration_ms")
                     if not number(end) or not number(duration) or duration <= 0:
-                        return unavailable
+                        return reject(rejection, "stages", "fields")
                     count += int(min(right, end) > max(left, end - duration / 1000))
                 row["overlap_counts"][stage] = count
-        return chat_public({"available": True, "rows": rows})
-    except (OSError, UnicodeError, ValueError, TypeError, KeyError, AttributeError):
-        return unavailable
+        clean = chat_public({"available": True, "rows": rows})
+        if not clean["available"]:
+            return reject(rejection, "public", "shape")
+        return clean
+    except OSError:
+        return reject(rejection, "trace", "source")
+    except (UnicodeError, ValueError, TypeError, KeyError, AttributeError):
+        return reject(
+            rejection, boundary, "fields" if boundary == "stages" else "format"
+        )
 
 
 def chat_public(value):

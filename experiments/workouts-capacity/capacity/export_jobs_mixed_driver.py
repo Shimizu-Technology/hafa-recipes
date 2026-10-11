@@ -20,7 +20,7 @@ from capacity.export_jobs_diagnostic_prescriptions import (
     PrescriptionProof,
     expected_prescriptions,
 )
-from capacity.export_jobs_mixed_chat import component_public
+from capacity.export_jobs_mixed_chat import component_public, rejection_public
 from capacity.export_jobs_mixed_schema import valid_page_schema, valid_totals
 from capacity.export_jobs_mixed_timing import (
     PREPARATION_SECONDS,
@@ -141,6 +141,12 @@ class MixedDriver(Driver):
         self.cycles = []
         self.export_static = None
         self.recipe_chat_components = {"available": False}
+        self.recipe_chat_observation = {
+            "boundary": "checkpoint",
+            "code": "missing",
+            "ordinal": 0,
+            "count": 0,
+        }
         self.origin = time.time()
         self.spans, self.pending = [], {}
         self.dropped = 0
@@ -189,14 +195,23 @@ class MixedDriver(Driver):
 
     def checkpoint_extra(self, name, value):
         if name == "after":
+            probe = {}
             self.recipe_chat_components = component_public(
-                value.get("recipe_chat_components", {})
+                value.get("recipe_chat_components", {}), probe
+            )
+            self.recipe_chat_observation = (
+                rejection_public(probe)
+                if self.recipe_chat_components["available"]
+                else rejection_public(
+                    value.get("recipe_chat_observation", self.recipe_chat_observation)
+                )
             )
 
     def report(self):
         value = super().report()
         value.update(
             recipe_chat_components=self.recipe_chat_components,
+            recipe_chat_observation=self.recipe_chat_observation,
             job_cycles=self.cycles,
             spans=self.spans,
             origin_timestamp=self.origin,

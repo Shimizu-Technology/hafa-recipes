@@ -1,6 +1,10 @@
 # Background export under a matching Recipes workload
 
-The scenario ran at `316e044db00cc46c6fad45929f6aca69a43aeca1` in hosted run `38106174584`. The Recipes baseline passed; mixed acceptance failed relative Recipes latency and a missing individual-page `/up` witness. Its receipt remains immutable. Last verified local source `44ef6e1180d43ee1606ca1149c7f8c7072b57979` includes the complete 23-dataset schema correction and bounded numerical diagnostics, with 40 focused diagnostic and 348 full harness tests passing without skips. Its separate hosted diagnostic run `38112155265` failed baseline acceptance because Recipes chat p95 was 1,654.883ms against the unchanged 1,000ms write limit; mixed traffic was not run. Baseline timing, protected reads, memory bounds, saved outcomes and cleanup passed. Both failed receipts remain preserved. The subsequent timeout-classification review fix, chat observations and their new regressions are prepared locally with tests pending. The branch starts at `7b35c34b8ac135c687437ef9a6e92d334504fc8e` and preserves existing profiles and receipts. The synchronous 1.810-second admission remains failed. Production is unchanged and R04 remains open.
+Local source `ee95cd2e513d198b190f23107d3b076f1f6e8695` passed 62 focused timing/chat tests and 385 full harness tests without skips, including the timeout-classification fix and chat observations. AST/Ruff/format/diff checks and independent source/context/fixture review passed. Earlier `44ef6e1180d43ee1606ca1149c7f8c7072b57979` passed 40 focused diagnostic and 348 full harness tests. These are exact tested sources; subsequent changes require their own affected local gates before a hosted experiment.
+
+Three hosted failed receipts remain immutable. Run `38106174584` at `316e044db00cc46c6fad45929f6aca69a43aeca1` passed the Recipes baseline but failed mixed relative Recipes latency and an individual-page `/up` witness. Run `38112155265` at `44ef6e11` failed baseline chat p95 at 1,654.883ms against the unchanged 1,000ms write limit. Run `38118689517` at `ee95cd2e` failed the same baseline gate at 1,163.880ms; its chat component diagnosis was unavailable. Neither of the latter runs executed mixed traffic. Their other baseline gates and cleanup passed. No component cause or production optimization is established by these failures.
+
+The branch starts at `7b35c34b8ac135c687437ef9a6e92d334504fc8e` and preserves existing profiles and receipts. The synchronous 1.810-second admission remains failed. Production is unchanged and R04 remains open.
 
 The new coordinator runs a fresh Recipes-only baseline followed by mixed traffic on the same owned PostgreSQL/database, recreating only the API. Each phase first completes client/hash/HTTP preparation and exact-target observer validation under one 60-second pre-phase bound, counted inside the unchanged 1,900-second total work limit. A fresh owned control folder exchanges bounded PREPARED, one fixed future monotonic start T and OBSERVING acknowledgements. Host, load and observer must share the verified Linux time-namespace inode. The monitor acknowledges when its first actual sample begins; only then may prepared client traffic start within one second of T. Missing, late, malformed or failed acknowledgement/clock binding fails.
 
@@ -54,4 +58,17 @@ unavailable. No request arguments, prompts, responses, SQL or identifying data
 are captured by these hooks. The new coordinator writes compact JSON to retain
 the complete numeric receipt under the unchanged 100KiB bound; original
 coordinators retain their two-space format. These observations cannot change
-acceptance thresholds or turn either preserved failed run into a pass.
+acceptance thresholds or turn any preserved failed run into a pass.
+
+Unavailable chat observations carry a separate closed rejection record. Its
+fixed boundary and code identify component snapshot, checkpoint, trace, stage
+or public-validation rejection; an ordinal is limited to zero through five and
+a count to zero through 4,097. A captured component rejection survives later
+trace validation without being replaced by missing-row evidence. Unknown input
+remains unattributed. Successful observations and unavailable observations keep
+their existing contracts; these records never alter acceptance or replay a call.
+The pipeline regression exercises real tracker/SDK/250ms transport and the
+original status schema through actual driver checkpoint, report and trace
+validation, including 813 requests and 1,626 trace lines. It also injects
+component, missing-checkpoint and trace faults into this complete observation
+path. This is pure fixture verification, not hosted offered-load acceptance.

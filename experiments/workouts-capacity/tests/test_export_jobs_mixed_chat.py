@@ -3,6 +3,7 @@
 import asyncio
 import copy
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,6 +12,7 @@ import pytest
 from capacity import export_jobs_mixed_chat as chat
 from capacity.ci_run import Coordinator
 from capacity.driver import Driver
+from capacity.events import stage_counts
 from capacity.export_jobs_mixed_ci import MixedCoordinator
 from capacity.export_jobs_mixed_diagnostics import phase_diagnostics
 from capacity.export_jobs_mixed_driver import MixedDriver
@@ -175,10 +177,221 @@ async def test_real_sdk_lazy_resources_real250ms_wait_and_accounting_are_observe
             transport=httpx.ASGITransport(app), base_url="http://fixture.invalid"
         ) as control:
             value = (await control.get("/capacity/status")).json()
-        assert value == {"synthetic": True, "recipe_chat_components": snapshot}
+        assert value == {
+            "synthetic": True,
+            "recipe_chat_components": snapshot,
+            "recipe_chat_observation": {
+                "boundary": "none",
+                "code": "none",
+                "ordinal": 0,
+                "count": 5,
+            },
+        }
         assert status_calls == [True]  # Exactly the original request/handler call.
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        None,
+        "snapshot_incomplete",
+        "snapshot_count",
+        "checkpoint_missing",
+        "trace_missing_pair",
+        "trace_malformed",
+    ],
+)
+async def test_real_observation_pipeline_with_full813_call_trace(
+    setup, monkeypatch, tmp_path, corruption
+):
+    app, Tracker, accounted, status_calls = setup
+    provider = ProviderTransport(delay=0.25)
+    sdk = AsyncOpenAI(
+        api_key="capacity-not-a-provider-credential",
+        max_retries=0,
+        http_client=httpx.AsyncClient(transport=provider),
+    )
+    status_route = next(
+        route
+        for route in app.routes
+        if getattr(route, "path", None) == "/capacity/status"
+    )
+
+    async def metadata():
+        status_calls.append(True)
+        return {
+            "synthetic": True,
+            "provider_attempts": provider.calls,
+            "stage_counts": stage_counts(),
+            "diagnostics": {
+                "loop_samples": 0,
+                "loop_max_ms": 0,
+                "loop_over100ms": 0,
+                "gc_collections": 0,
+                "gc_total_ms": 0,
+                "gc_max_ms": 0,
+                "interval_ms": 250,
+            },
+            "cover_scenarios": {
+                name: {"observed": 0, "completed": 0, "linked_recipes": 0}
+                for name in ("cached", "fallback")
+            },
+        }
+
+    monkeypatch.setattr(status_route.dependant, "call", metadata)
+
+    @app.get("/fixture")
+    async def ordinary():
+        return {"synthetic": True}
+
+    @app.post("/fixture-chat")
+    async def recipe_chat():
+        tracker = Tracker(
+            capability="recipe_chat",
+            primary_model="gpt-4o-mini",
+            prompt_version="fixture",
+            allow_canary=False,
+        )
+        async with tracker:
+            response = await sdk.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are a recipe cooking assistant"},
+                    {"role": "user", "content": "How can I prepare this?"},
+                ],
+            )
+            assert response.choices[0].message.content
+            tracker.succeed(response)
+        assert not hasattr(tracker, "_capacity_chat_pairs")
+        return {"synthetic": True}
+
+    assert "chat" not in sdk.__dict__
+    components = chat.install(app, monkeypatch.setattr)
+    assert "chat" not in sdk.__dict__
+    driver = MixedDriver(tmp_path)
+    await driver.client.aclose()
+    driver.client = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app), base_url="http://fixture.invalid"
+    )
+    driver.phase = "baseline"
+    output = tmp_path / "baseline.json"
+    trace = Path(str(output) + ".requests.jsonl")
+    samples = [{"timestamp": time.time(), "stages": []}]
+    driver.begin_trace(output)
+    try:
+        await driver.checkpoint("before")
+        for cycle in range(5):
+            for label in (
+                "recipes/text",
+                "recipes/ocr",
+                "recipes/manual-write",
+                "recipes/video-submit",
+                "recipes/chat-context",
+            ):
+                await driver.request("GET", "/fixture", label=label)
+            if cycle == 0:
+                await driver.request(
+                    "GET", "/fixture", label="recipes/cover-fallback-submit"
+                )
+            await driver.request("POST", "/fixture-chat", label="recipes/chat")
+            for _ in range(30):
+                for label in (
+                    "/up",
+                    "recipes/list",
+                    "recipes/detail",
+                    "recipes/search",
+                ):
+                    await driver.request("GET", "/fixture", label=label)
+            for _ in range(12 * (cycle + 1)):
+                await driver.request("GET", "/fixture", label="recipes/job-poll")
+        assert len(accounted) == provider.calls["chat"] == 5
+        if corruption == "snapshot_incomplete":
+            components.rows[0]["complete"] = False
+        elif corruption == "snapshot_count":
+            components.calls = 6
+        elif corruption == "checkpoint_missing":
+            original_status = status_route.dependant.call
+
+            async def missing_status():
+                value = await original_status()
+                return {
+                    key: item
+                    for key, item in value.items()
+                    if key not in {"recipe_chat_components", "recipe_chat_observation"}
+                }
+
+            monkeypatch.setattr(status_route.dependant, "call", missing_status)
+        await driver.checkpoint("after")
+        report = driver.report()
+        assert driver.request_number == 813 and status_calls == [True, True]
+        assert report["unsettled_requests"] == 0 and chat.active.get() is None
+        assert all(
+            report["routes"][label]["count"] == 150
+            for label in ("/up", "recipes/list", "recipes/detail", "recipes/search")
+        )
+        assert report["routes"]["recipes/job-poll"]["count"] == 180
+    finally:
+        driver.trace_stream.close()
+        await driver.client.aclose()
+        await sdk.close()
+    events = [json.loads(line) for line in trace.read_text().splitlines()]
+    assert (
+        len(events) == 1626
+        and len([event for event in events if event["route"] == "recipes/chat"]) == 10
+    )
+    if corruption == "trace_missing_pair":
+        events.remove(
+            next(
+                event
+                for event in events
+                if event["route"] == "recipes/chat" and event["event"] == "end"
+            )
+        )
+        trace.write_text("".join(json.dumps(event) + "\n" for event in events))
+    elif corruption == "trace_malformed":
+        trace.write_text(trace.read_text() + "{\n")
+    rejected = {}
+    result = chat.chat_trace(samples, trace, report["recipe_chat_components"], rejected)
+    proof = chat.chat_rejection(result, report["recipe_chat_observation"], rejected)
+    expected = {
+        "snapshot_incomplete": ("components", "incomplete"),
+        "snapshot_count": ("components", "count"),
+        "checkpoint_missing": ("checkpoint", "missing"),
+        "trace_missing_pair": ("trace", "pairing"),
+        "trace_malformed": ("trace", "format"),
+    }
+    if corruption is None:
+        assert result["available"] and len(result["rows"]) == 5
+        assert (proof["boundary"], proof["code"], proof["count"]) == ("none", "none", 5)
+        assert all(
+            row["fixture_transport_calls"] == 1
+            and row["fixture_requested_wait_ms"] == 250
+            and row["sdk_body_ms"] >= row["fixture_transport_ms"] >= 250
+            for row in result["rows"]
+        )
+    else:
+        assert result == {"available": False}
+        assert (proof["boundary"], proof["code"]) == expected[corruption]
+    safe = mixed_public_receipt(
+        {
+            "passed": False,
+            "phases": {
+                "baseline": {
+                    "passed": False,
+                    "recipe_chat_diagnostics": result,
+                    "recipe_chat_rejection": {**proof, "private_source": "PRIVATE"},
+                }
+            },
+        }
+    )
+    assert (
+        not safe["passed"]
+        and safe["phases"]["baseline"]["recipe_chat_rejection"] == proof
+    )
+    assert "PRIVATE" not in json.dumps(safe)
 
 
 @pytest.mark.asyncio
@@ -339,6 +552,70 @@ def test_component_whitelist_refuses_incomplete_or_false_fixture_evidence(corrup
     assert chat.component_public(value) == {"available": False}
 
 
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        None,
+        {},
+        {"boundary": []},
+        {"boundary": "trace", "code": []},
+        {"boundary": "PRIVATE", "code": "PRIVATE", "ordinal": 0, "count": 0},
+        {"boundary": "trace", "code": "pairing", "ordinal": True, "count": 1},
+        {"boundary": "trace", "code": "bounds", "ordinal": 0, "count": 4098},
+        {"boundary": "components", "code": "incomplete", "ordinal": 6, "count": 0},
+    ],
+)
+def test_rejection_whitelist_never_publishes_unknown_or_unbounded_fields(invalid):
+    assert chat.rejection_public(invalid) == {
+        "boundary": "unknown",
+        "code": "unavailable",
+        "ordinal": 0,
+        "count": 0,
+    }
+
+
+def test_component_rejection_preserves_actual_failure_and_original_unavailable_contract():
+    components = component_rows()
+    components["rows"][2]["failed"] = True
+    observed = {}
+    assert chat.component_public(components, observed) == {"available": False}
+    assert observed == {
+        "boundary": "components",
+        "code": "incomplete",
+        "ordinal": 3,
+        "count": 0,
+    }
+    parsed = {"boundary": "components", "code": "count", "ordinal": 0, "count": 0}
+    assert (
+        chat.chat_rejection(
+            {"available": False}, {**observed, "provider_body": "PRIVATE"}, parsed
+        )
+        == observed
+    )
+    assert (
+        chat.chat_rejection(
+            {"available": False},
+            observed,
+            {"boundary": "trace", "code": "format", "ordinal": 0, "count": 0},
+        )
+        == observed
+    )
+    assert (
+        chat.chat_rejection(
+            {"available": False},
+            {"boundary": "none", "code": "none", "ordinal": 0, "count": 5},
+            parsed,
+        )
+        == parsed
+    )
+    assert chat.chat_rejection({"available": True}, observed, parsed) == {
+        "boundary": "none",
+        "code": "none",
+        "ordinal": 0,
+        "count": 5,
+    }
+
+
 def test_five_trace_pairs_align_to_existing_phase_origin_and_actual_end_intervals(
     tmp_path,
 ):
@@ -409,7 +686,17 @@ def test_partial_bad_pair_or_malformed_trace_never_claims_diagnosis(
         path.write_text(path.read_text() + "{")
     elif corruption == "oversized":
         path.write_text(" " * (2 * 1024 * 1024 + 1))
-    assert chat.chat_trace(samples, path, components) == {"available": False}
+    rejected = {}
+    assert chat.chat_trace(samples, path, components, rejected) == {"available": False}
+    assert chat.rejection_public(rejected) == rejected and rejected["boundary"] in {
+        "trace",
+        "components",
+        "stages",
+    }
+    if corruption == "bad_stage":
+        assert (rejected["boundary"], rejected["code"]) == ("stages", "fields")
+    elif corruption == "failed_stage":
+        assert (rejected["boundary"], rejected["code"]) == ("stages", "failed")
 
 
 def test_public_rows_strip_private_fields_and_preserve_failed_gate(tmp_path):
@@ -481,6 +768,12 @@ def test_compact_new_writer_retains_complete_numeric_payload_under_original100k(
         phase: {
             "passed": False,
             "recipe_chat_diagnostics": diagnosis,
+            "recipe_chat_rejection": {
+                "boundary": "trace",
+                "code": "bounds",
+                "ordinal": 5,
+                "count": 4097,
+            },
             "timeline": {
                 "stages": [copy.deepcopy(stage) for _ in range(320)],
                 "slow_liveness": [],
