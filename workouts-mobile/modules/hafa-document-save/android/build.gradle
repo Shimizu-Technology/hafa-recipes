@@ -4,5 +4,12 @@ plugins {
 }
 group = 'com.shimizutechnology.hafadocumentsave'
 version = '1.0.0'
-android { namespace 'com.shimizutechnology.hafadocumentsave' }
+android {
+  namespace 'com.shimizutechnology.hafadocumentsave'
+  // API36 supplies the optional harness for real-descriptor instrumentation tests.
+  // Production code does not use these APIs; no downloaded test runtime is added.
+  useLibrary 'android.test.base'
+  useLibrary 'android.test.runner'
+  defaultConfig { testInstrumentationRunner 'android.test.InstrumentationTestRunner' }
+}
 dependencies { testImplementation 'junit:junit:4.13.2' }

@@ -26,16 +26,26 @@ the manifest before allowing native copying. A failed read prevents copying.
 
 The background controller preserves its operation only for its own Android
 picker's background transition. Losing screen focus, disposal or captured scope
-still cancels it. Foreground polling remains bounded. The picker request stays
-reserved until its matching callback, including cancellation; a late result
-cannot become the destination of a newer operation.
+still cancels it. Foreground polling remains bounded. While the module is alive,
+the picker request stays reserved until its matching callback, including
+cancellation; a late result cannot become the destination of a newer operation.
+During destruction Expo removes the activity listener and module registry, so a
+missing picker URI remains unknown. Known cleanup is queued before orderly
+executor shutdown; running and queued work keeps its close ownership, and new
+work is rejected.
 
 Copying uses a 64KiB buffer and a 64MiB compact-source limit. Provider I/O can
 block; cancellation is not proof that I/O ended. The copy owns both stream
-closures, and failures cannot become saved results. Failed or cancelled copies
-attempt to remove only their new destination. A failed deletion produces an
-incomplete-file notice, and the private cache source is removed in the adapter's
-`finally` block. Server cancellation/removal remains the caller's responsibility.
+closures, and failures cannot become saved results. A reliable descriptor is
+checked for reported peer errors before and after its owning stream closes;
+the first error is preserved even if closure clears or caches a status. These
+checks detect available errors, not future remote persistence. Failed or cancelled
+copies attempt to remove only their new destination. A failed deletion produces
+an incomplete-file notice. Private source cleanup runs after the operation settles;
+if source removal also fails, the safe primary save failure remains first and a
+local cleanup warning is added. A successful Android write or iOS opened outcome
+also remains truthful when only local cleanup fails. Server cancellation/removal
+remains the caller's responsibility.
 
 An interrupted save marker contains no URI or export payload. A cold restart
 shows that a complete or incomplete file may remain in the chosen location and
@@ -54,6 +64,12 @@ Focused automated gates cover source cleanup after deferred copy/close,
 cancelled selection, missing module, stale scope and privacy, modal-background
 versus disposal, interrupted-save recovery, exact bounded stream bytes,
 oversize/truncated sources, and open/write/flush/close/cancellation errors.
+Prepared native regressions cover errors consumed before close, errors cached
+during close, orderly executor teardown with queued work, and an unknown picker
+that cannot supply a future callback. An API36 instrumentation regression uses
+real reliable socket descriptors and a fixed synthetic peer failure; it opens no
+document/provider/UI. Simultaneous destination and private-source cleanup failures
+are covered by prepared Android/iOS adapter tests. None has run yet.
 
 Actual Android acceptance must verify a local selected destination's full bytes,
 filename-collision behavior without changing the existing file, cancelled

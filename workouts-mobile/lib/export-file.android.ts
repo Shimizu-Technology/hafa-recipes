@@ -1,5 +1,5 @@
 import * as Crypto from "expo-crypto";
-import { privateExportSource, removePrivateExportSource } from "./export-file-native-cache";
+import { privateExportSource, withPrivateExportSourceCleanup } from "./export-file-native-cache";
 import { saveDocument, type DocumentSaver } from "./save-document";
 import type { ExportSaveOptions } from "./export-save";
 export { cleanupPrivateExportFiles } from "./export-file-native-cache";
@@ -15,9 +15,6 @@ export async function savePrivateExport(value: unknown, owner: string, guard: ()
   if (!saver) throw Error("Saving is unavailable in this app build. Update the app before trying again.");
   guard();
   const { file, sourceId, ownerScope } = privateExportSource(value, owner, true);
-  try {
-    return await saveDocument(saver, Crypto.randomUUID(), sourceId, ownerScope, guard, options);
-  } finally {
-    removePrivateExportSource(file);
-  }
+  return withPrivateExportSourceCleanup(file,
+    () => saveDocument(saver, Crypto.randomUUID(), sourceId, ownerScope, guard, options));
 }

@@ -2,6 +2,10 @@ import type { ExportManifest } from "./account";
 import { draftKey, type Storage } from "./drafts";
 
 export type ExportSaveResult = "saved" | "cancelled" | "opened";
+export class ExportSaveError extends Error {
+  status?: number;
+  localCleanupWarning?: string;
+}
 export interface ExportSaveOptions {
   signal?: AbortSignal;
   revalidate(): Promise<void>;

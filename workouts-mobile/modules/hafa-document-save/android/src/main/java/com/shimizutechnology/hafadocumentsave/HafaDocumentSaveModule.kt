@@ -2,9 +2,9 @@ package com.shimizutechnology.hafadocumentsave
 
 import android.app.Activity
 import android.content.Intent
+import android.content.ContentResolver
 import android.net.Uri
 import android.os.CancellationSignal
-import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 class HafaDocumentSaveModule : Module() {
-  private class Save(val token: String, val source: File, val requestCode: Int, var picker: Promise?) {
+  private class Save(val token: String, val source: File, val resolver: ContentResolver, val requestCode: Int, var picker: Promise?) {
     val stopped = AtomicBoolean(false)
     val opening = CancellationSignal()
     var uri: Uri? = null
@@ -51,7 +51,7 @@ class HafaDocumentSaveModule : Module() {
           // Unique across module recreation: a late picker result cannot select a newer operation.
           val request = REQUESTS.getAndIncrement()
           require(request <= 65535)
-          save = Save(token, source, request, promise)
+          save = Save(token, source, context.contentResolver, request, promise)
           current = save
         }
         // Android's documented ACTION_CREATE_DOCUMENT contract creates a NEW document and
@@ -71,65 +71,68 @@ class HafaDocumentSaveModule : Module() {
     }.runOnQueue(Queues.MAIN)
 
     OnActivityResult { _, (requestCode, resultCode, intent) ->
-      val save = synchronized(lock) { current?.takeIf { it.requestCode == requestCode && it.picker != null } }
-        ?: return@OnActivityResult
-      val picker = synchronized(lock) { save.picker.also { save.picker = null } } ?: return@OnActivityResult
-      val uri = intent?.data
-      // Only a successful result from OUR create-document request establishes ownership.
-      val created = try {
-        resultCode == Activity.RESULT_OK && uri?.scheme == "content" &&
-          appContext.reactContext?.let { DocumentsContract.isDocumentUri(it, uri) } == true
-      } catch (_: Exception) { false }
-      if (!created) {
-        finish(save)
-        picker.resolve(result(if (resultCode == Activity.RESULT_CANCELED && uri == null) "cancelled" else "failed",
-          resultCode == Activity.RESULT_OK || uri != null))
-      } else {
-        synchronized(lock) { save.uri = uri }
-        if (save.stopped.get()) {
-          io.execute { picker.resolve(discard(save)) }
+      synchronized(lock) {
+        val save = current?.takeIf { !destroyed && it.requestCode == requestCode && it.picker != null }
+          ?: return@OnActivityResult
+        val picker = save.picker!!
+        save.picker = null
+        val uri = intent?.data
+        // Only a successful result from OUR create-document request establishes ownership.
+        val created = try {
+          resultCode == Activity.RESULT_OK && uri?.scheme == "content" &&
+            appContext.reactContext?.let { DocumentsContract.isDocumentUri(it, uri) } == true
+        } catch (_: Exception) { false }
+        if (!created) {
+          finish(save)
+          picker.resolve(result(if (resultCode == Activity.RESULT_CANCELED && uri == null) "cancelled" else "failed",
+            resultCode == Activity.RESULT_OK || uri != null))
         } else {
-          picker.resolve(result("selected"))
+          save.uri = uri
+          if (save.stopped.get()) {
+            save.finishing = true
+            io.execute { picker.resolve(discard(save)) }
+          } else {
+            picker.resolve(result("selected"))
+          }
         }
       }
     }
 
     AsyncFunction("copyToDestination") { token: String, promise: Promise ->
-      val save = synchronized(lock) {
-        current?.takeIf { it.token == token && it.uri != null && !it.copying && !it.finishing }?.also { it.copying = true }
-      }
-      if (save == null) { promise.resolve(result("failed")); return@AsyncFunction }
-      io.execute {
-        try {
-          val resolver = requireNotNull(appContext.reactContext).contentResolver
-          require(save.source.canonicalFile == save.source)
-          DocumentCopy.copy(save.source.length(), save.stopped::get,
-            { FileInputStream(save.source) },
-            {
-              val descriptor = requireNotNull(resolver.openFileDescriptor(save.uri!!, "w", save.opening))
-              ParcelFileDescriptor.AutoCloseOutputStream(descriptor)
-            })
-          finish(save)
-          promise.resolve(result("saved"))
-        } catch (_: Exception) {
-          promise.resolve(discard(save, if (save.stopped.get()) "cancelled" else "failed"))
+      synchronized(lock) {
+        val save = current?.takeIf { !destroyed && it.token == token && it.uri != null && !it.copying && !it.finishing }
+        if (save == null) { promise.resolve(result("failed", destroyed)); return@AsyncFunction }
+        save.copying = true
+        // Submit under the same lock as destruction: selected work cannot fall into a shutdown gap.
+        io.execute {
+          try {
+            require(save.source.canonicalFile == save.source)
+            DocumentCopy.copy(save.source.length(), save.stopped::get,
+              { FileInputStream(save.source) },
+              { documentOutput(requireNotNull(save.resolver.openFileDescriptor(save.uri!!, "w", save.opening))) })
+            finish(save)
+            promise.resolve(result("saved"))
+          } catch (_: Exception) {
+            promise.resolve(discard(save, if (save.stopped.get()) "cancelled" else "failed"))
+          }
         }
       }
     }
 
     AsyncFunction("discardDestination") { token: String, promise: Promise ->
-      val save = synchronized(lock) {
-        current?.takeIf { it.token == token && it.uri != null && !it.copying && !it.finishing }?.also { it.finishing = true }
+      synchronized(lock) {
+        val save = current?.takeIf { !destroyed && it.token == token && it.uri != null && !it.copying && !it.finishing }
+        if (save == null) { promise.resolve(result("failed", true)); return@AsyncFunction }
+        save.finishing = true
+        stop(save)
+        io.execute { promise.resolve(discard(save)) }
       }
-      if (save == null) { promise.resolve(result("failed", true)); return@AsyncFunction }
-      save.stopped.set(true)
-      io.execute { promise.resolve(discard(save)) }
     }
 
     Function("cancel") { token: String ->
       synchronized(lock) {
         val save = current?.takeIf { it.token == token }
-        if (save != null) { save.stopped.set(true); save.opening.cancel() }
+        if (save != null) { stop(save) }
         else if (UUID_PATTERN.matches(token)) {
           // Covers cancellation racing the queued chooseDestination call. Never start a second picker.
           cancelledBeforeStart.add(token)
@@ -140,27 +143,30 @@ class HafaDocumentSaveModule : Module() {
     OnDestroy {
       synchronized(lock) {
         destroyed = true
-        current?.let { save ->
-          save.stopped.set(true); save.opening.cancel()
-          save.picker?.resolve(result("failed", true))
-          // A picker still outstanding retains its slot until its matching callback. Process death
-          // can lose this callback/URI; never assert that an empty/partial document was removed.
-          if (save.uri != null && !save.copying && !save.finishing) {
-            save.finishing = true
-            io.execute { discard(save) }
+        shutdownDocumentExecutor(io) {
+          current?.let { save ->
+            stop(save)
+            save.picker?.resolve(result("failed", true))
+            save.picker = null
+            if (save.uri != null && !save.copying && !save.finishing) {
+              save.finishing = true
+              io.execute { discard(save) }
+            } else if (save.uri == null) {
+              // Expo removes activity listeners and clears the registry during destruction.
+              // No future callback can reveal this picker URI; retain only an incomplete outcome.
+              current = null
+            }
           }
         }
-        if (current == null) io.shutdown()
+        cancelledBeforeStart.clear()
       }
-      // Running I/O or a late picker callback still owns close/cleanup; finish releases the executor.
     }
   }
 
   private fun discard(save: Save, status: String = "cancelled"): Map<String, Any> {
     val removed = try {
-      val context = appContext.reactContext
       val uri = save.uri
-      context != null && uri != null && DocumentsContract.deleteDocument(context.contentResolver, uri)
+      uri != null && DocumentsContract.deleteDocument(save.resolver, uri)
     } catch (_: Exception) { false }
     finish(save)
     return result(status, !removed)
@@ -168,8 +174,11 @@ class HafaDocumentSaveModule : Module() {
   private fun finish(save: Save) {
     synchronized(lock) {
       if (current === save) current = null
-      if (destroyed && current == null) io.shutdown()
     }
+  }
+  private fun stop(save: Save) {
+    save.stopped.set(true)
+    try { save.opening.cancel() } catch (_: Exception) { /* Copy checks the cancellation flag too. */ }
   }
   private fun result(status: String, incomplete: Boolean = false): Map<String, Any> =
     mapOf("status" to status, "cleanupIncomplete" to incomplete)

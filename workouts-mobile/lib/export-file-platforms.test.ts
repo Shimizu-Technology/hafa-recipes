@@ -28,6 +28,7 @@ import { savePrivateExport as ios } from "./export-file.native";
 
 beforeEach(() => {
   vi.clearAllMocks(); f.sources.clear(); f.next = 0;
+  f.deletes.mockReset();
   f.choose.mockResolvedValue({ status: "selected" }); f.copy.mockResolvedValue({ status: "saved" });
   f.discard.mockResolvedValue({ status: "cancelled" }); f.available.mockResolvedValue(true); f.sharing.mockResolvedValue(undefined);
   f.module = { chooseDestination: f.choose, copyToDestination: f.copy, discardDestination: f.discard, cancel: f.cancel };
@@ -66,4 +67,35 @@ it("iOS keeps truthful opened result and deletes only after its existing share c
   await vi.waitFor(() => expect(f.sharing).toHaveBeenCalledOnce()); expect(f.sources.size).toBe(1);
   expect(f.choose).not.toHaveBeenCalled(); expect(options.revalidate).not.toHaveBeenCalled();
   close(); expect(await work).toBe("opened"); expect(f.sources.size).toBe(0);
+});
+it("Android incomplete destination stays primary when private source cleanup also fails", async () => {
+  f.copy.mockResolvedValue({ status: "failed", cleanupIncomplete: true });
+  f.deletes.mockImplementation(() => { throw Error("private source path must not escape"); });
+  const work = android({}, "owned-account", () => {}, { revalidate: async () => {} });
+  await expect(work).rejects.toMatchObject({
+    message: expect.stringMatching(/^Saving did not finish\. An incomplete file may remain/),
+    localCleanupWarning: "The temporary private export could not be removed. Try local data cleanup before saving again.",
+  });
+  await expect(work).rejects.toThrow("local data cleanup");
+  await expect(work).rejects.not.toThrow("private source path");
+  expect(f.sources.size).toBe(1); expect(f.sharing).not.toHaveBeenCalled();
+});
+it("iOS primary save failure survives source cleanup failure without provider/path text", async () => {
+  f.sharing.mockRejectedValue(Error("content://private/provider-error"));
+  f.deletes.mockImplementation(() => { throw Error("file://private/source-error"); });
+  const work = ios({}, "owned-account", () => {});
+  await expect(work).rejects.toMatchObject({ message: expect.stringMatching(/^The save options could not be opened\./),
+    localCleanupWarning: expect.stringContaining("local data cleanup") });
+  await expect(work).rejects.not.toThrow("content://"); await expect(work).rejects.not.toThrow("file://");
+  expect(f.sources.size).toBe(1); expect(f.choose).not.toHaveBeenCalled();
+});
+it("a successful Android write remains truthful when only source removal fails", async () => {
+  f.deletes.mockImplementation(() => { throw Error("private source deletion failed"); });
+  await expect(android({}, "owned-account", () => {}, { revalidate: async () => {} })).rejects
+    .toThrow(/^Your private export was saved\. The temporary private export could not be removed\./);
+});
+it("iOS opened outcome never becomes a saved claim after source cleanup failure", async () => {
+  f.deletes.mockImplementation(() => { throw Error("private source deletion failed"); });
+  await expect(ios({}, "owned-account", () => {})).rejects.toThrow("cannot tell whether you saved a copy");
+  expect(f.choose).not.toHaveBeenCalled();
 });

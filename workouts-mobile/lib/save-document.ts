@@ -1,4 +1,4 @@
-import type { ExportSaveOptions, ExportSaveResult } from "./export-save";
+import { ExportSaveError, type ExportSaveOptions, type ExportSaveResult } from "./export-save";
 
 export interface DocumentResult {
   status: "selected" | "saved" | "cancelled" | "failed";
@@ -10,7 +10,7 @@ export interface DocumentSaver {
   discardDestination(operation: string): Promise<DocumentResult>;
   cancel(operation: string): void;
 }
-class DocumentSaveError extends Error {}
+class DocumentSaveError extends ExportSaveError {}
 const safeErrors = new Set([
   "This export changed or expired while choosing where to save. Prepare a fresh export.",
   "Saving was stopped because your account or training changed.",
@@ -57,8 +57,8 @@ export async function saveDocument(saver: DocumentSaver, operation: string, sour
       if (cleanup.cleanupIncomplete) completed(cleanup);
     }
     // Native exceptions may include provider URI/path text. Never surface them.
-    if (error instanceof DocumentSaveError || error instanceof Error && safeErrors.has(error.message))
-      throw error;
+    if (error instanceof DocumentSaveError) throw error;
+    if (error instanceof Error && safeErrors.has(error.message)) throw new DocumentSaveError(error.message);
     const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : 0;
     throw Object.assign(new DocumentSaveError("The export could not be saved. Check the location you chose and try a fresh export."),
       { status: [404, 409, 410].includes(status) ? status : 0 });
