@@ -1,14 +1,25 @@
 """Finite source/protocol tests; not native hosted mixed acceptance."""
 
+import asyncio
 import copy
 import json
+import time
+from datetime import datetime, timedelta, timezone
 from itertools import pairwise
 from pathlib import Path
+from types import SimpleNamespace
+from uuid import UUID
 
+import httpx
 import pytest
 import test_export_diagnostic as original_tests
 from capacity.ci_run import TOTAL_SECONDS, Coordinator
 from capacity.ci_safety import READS
+from capacity.export_jobs_diagnostic_driver import JobProbeFailure
+from capacity.export_jobs_diagnostic_prescriptions import (
+    expected_content,
+    expected_prescriptions,
+)
 from capacity.export_jobs_mixed_ci import BRANCH, MixedCoordinator
 from capacity.export_jobs_mixed_driver import reader_targets
 from capacity.export_jobs_mixed_receipt import (
@@ -16,7 +27,7 @@ from capacity.export_jobs_mixed_receipt import (
     cycle_proofs,
     mixed_public_receipt,
 )
-from test_export_jobs_diagnostic import report
+from test_export_jobs_diagnostic import checks, report
 
 
 @pytest.fixture
@@ -204,3 +215,318 @@ async def test_repeated_instrumentation_is_five_bounded_sequential_builds(
         assert len(calls) == 5
     finally:
         cleanup()
+
+
+# Full fixture bytes remain in the test process, outside any API memory budget.
+# Independent expected hashes are computed separately from expected_content;
+# each successful driver cycle still decodes/checks all190+190 original rows.
+@pytest.fixture(scope="module")
+def full_transport_fixture():
+    hashes = expected_prescriptions()
+    pages = []
+    placeholder = "00000000-0000-4000-8000-ffffffffffff"
+    for page in range(19):
+        datasets = {}
+        for name in ("workouts", "workout_versions"):
+            rows = []
+            for index in range(page * 10, (page + 1) * 10):
+                content = expected_content(index)
+                assert len(content["notes"]) == 40
+                assert all(len(note) == 4000 for note in content["notes"])
+                rows.append(
+                    {
+                        "id": f"{name}-{index}",
+                        "workout_id": f"workouts-{index}"
+                        if name == "workout_versions"
+                        else None,
+                        "revision": 1,
+                        "content": {**content, "id": f"workouts-{index}"},
+                    }
+                )
+            datasets[name] = rows
+        body = {
+            "snapshot_id": placeholder,
+            "page": page,
+            "page_count": 19,
+            "export": {
+                "offset": page * 10,
+                "limit": 10,
+                "schema_version": 1,
+                "enrollment": {"generation": 1},
+                "profile_revision": 0,
+                "profile": None,
+                "grants": [],
+                "ai_consent": None,
+                "totals": {"workouts": 190, "workout_versions": 190},
+                "has_more": {"workouts": page < 18, "workout_versions": page < 18},
+                "datasets": datasets,
+            },
+        }
+        pages.append(json.dumps(body, separators=(",", ":")).encode())
+    return hashes, tuple(pages), placeholder.encode()
+
+
+class MixedTransportFixture:
+    def __init__(self, full, corruption=None):
+        self.hashes, self.pages, self.placeholder = full
+        self.corruption = corruption
+        self.now = datetime(2026, 10, 11, tzinfo=timezone.utc).timestamp()
+        self.sleeps, self.requests, self.jobs, self.cancelled = [], [], [], []
+        self.page_count = 0
+
+    async def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+    def receipt(self, status):
+        record = self.jobs[-1]
+        value = {
+            "schema_version": 1,
+            "generation": 1,
+            "id": record["id"],
+            "request_id": record["request_id"],
+            "status": status,
+            "admitted_at": record["admitted"].isoformat(),
+            "deadline_at": (record["admitted"] + timedelta(seconds=120)).isoformat(),
+            "expires_at": (record["admitted"] + timedelta(seconds=600)).isoformat(),
+            "cleanup_pending": False,
+            "manifest": None,
+        }
+        if status == "ready":
+            value["manifest"] = {
+                "schema_version": 1,
+                "generation": 1,
+                "id": record["snapshot"],
+                "page_size": 10,
+                "page_count": 19,
+                "totals": {"workouts": 190, "workout_versions": 190},
+            }
+            if self.corruption == "foreign_job":
+                value["id"] = str(UUID(int=999))
+            elif self.corruption == "foreign_request":
+                value["request_id"] = str(UUID(int=998))
+            elif self.corruption == "wrong_generation":
+                value["generation"] = 2
+            elif self.corruption == "refreshed_deadline":
+                value["admitted_at"] = (
+                    record["admitted"] + timedelta(seconds=4)
+                ).isoformat()
+                value["deadline_at"] = (
+                    record["admitted"] + timedelta(seconds=124)
+                ).isoformat()
+                value["expires_at"] = (
+                    record["admitted"] + timedelta(seconds=604)
+                ).isoformat()
+        return value
+
+    async def serve(self, request):
+        path = request.url.path
+        self.requests.append((request.method, path))
+        assert request.headers["X-Hafa-Account-ID"] == "capacity-22"
+        assert request.headers["X-Workouts-Generation"] == "1"
+        if request.method == "POST" and path == "/api/v1/workouts/export/jobs":
+            number = len(self.jobs) + 1
+            request_id = json.loads(request.content)["request_id"]
+            UUID(request_id)
+            assert request_id not in {row["request_id"] for row in self.jobs}
+            self.jobs.append(
+                {
+                    "id": str(UUID(int=number)),
+                    "snapshot": str(UUID(int=100 + number)),
+                    "request_id": request_id,
+                    "admitted": datetime.fromtimestamp(self.now, timezone.utc),
+                }
+            )
+            return httpx.Response(202, json=self.receipt("queued"))
+        assert self.jobs
+        current = self.jobs[-1]
+        if (
+            request.method == "GET"
+            and path == "/api/v1/workouts/export/jobs/" + current["id"]
+        ):
+            return httpx.Response(200, json=self.receipt("ready"))
+        if (
+            request.method == "POST"
+            and path == "/api/v1/workouts/export/jobs/" + current["id"] + "/cancel"
+        ):
+            assert current["id"] not in self.cancelled
+            self.cancelled.append(current["id"])
+            return httpx.Response(200, json=self.receipt("cancelled"))
+        if path == "/capacity/export-jobs-mixed":
+            status = 5 if current["id"] in self.cancelled else 4
+            proof = checks(status)
+            proof.update(
+                cycle_count=len(self.jobs), cancelled_count=len(self.cancelled)
+            )
+            if self.corruption == "missing_ack" or (
+                self.corruption == "missing_ack_after_cancel" and status == 5
+            ):
+                proof["actual_end_ack_count"] = 0
+            elif self.corruption == "source_not_retired":
+                proof["source_frames_retired"] = False
+            elif self.corruption == "heartbeat_not_retired":
+                proof["worker_heartbeat_task_count"] = 1
+            return httpx.Response(200, json={"job_checks": proof})
+        assert request.method == "GET" and path.startswith(
+            "/api/v1/workouts/export/snapshots/" + current["snapshot"] + "/pages/"
+        )
+        page = int(path.rsplit("/", 1)[1])
+        self.page_count += 1
+        payload = self.pages[page].replace(
+            self.placeholder, current["snapshot"].encode()
+        )
+        if page == 0 and self.corruption in {
+            "notes",
+            "reps",
+            "foreign_snapshot",
+            "page_generation",
+            "cross_cycle_profile",
+        }:
+            body = json.loads(payload)
+            data = body["export"]
+            if self.corruption == "notes":
+                row = data["datasets"]["workouts"][0]["content"]
+                row["notes"][0] = row["notes"][0][:-1]
+            elif self.corruption == "reps":
+                data["datasets"]["workout_versions"][0]["content"]["blocks"][0][
+                    "exercises"
+                ][0]["reps_min"] += 1
+            elif self.corruption == "foreign_snapshot":
+                body["snapshot_id"] = str(UUID(int=999))
+            elif self.corruption == "page_generation":
+                data["enrollment"]["generation"] = 2
+            elif len(self.jobs) == 2:
+                data["profile_revision"] = 1
+                data["profile"] = {"readiness": "ready"}
+            payload = json.dumps(body, separators=(",", ":")).encode()
+        return httpx.Response(
+            200, content=payload, headers={"content-type": "application/json"}
+        )
+
+    async def driver(self, monkeypatch, tmp_path):
+        from capacity import export_jobs_mixed_driver as module
+
+        # Rebind THIS module only; never monkeypatch shared asyncio/time objects.
+        monkeypatch.setattr(
+            module,
+            "asyncio",
+            SimpleNamespace(sleep=self.sleep, to_thread=asyncio.to_thread),
+        )
+        monkeypatch.setattr(
+            module,
+            "time",
+            SimpleNamespace(time=lambda: self.now, monotonic=time.monotonic),
+        )
+        monkeypatch.setattr(module, "expected_prescriptions", lambda: dict(self.hashes))
+        driver = module.MixedDriver(tmp_path)
+        await driver.client.aclose()
+        driver.client = httpx.AsyncClient(
+            base_url="http://fixture.invalid", transport=httpx.MockTransport(self.serve)
+        )
+        driver.begin_trace(tmp_path / "private-full-export.json")
+        return driver
+
+
+@pytest.mark.asyncio
+async def test_new_driver_executes_five_full_history_exports_and_same_handle_cancels(
+    monkeypatch, tmp_path, full_transport_fixture
+):
+    transport = MixedTransportFixture(full_transport_fixture)
+    original_sleep, original_wall = asyncio.sleep, time.time
+    driver = await transport.driver(monkeypatch, tmp_path)
+    try:
+        for _ in range(5):
+            await driver.export_snapshot()
+        assert asyncio.sleep is original_sleep and time.time is original_wall
+        assert transport.sleeps == [4] * 5
+        assert len(driver.cycles) == 5
+        assert len({row["id"] for row in transport.jobs}) == 5
+        assert len({row["request_id"] for row in transport.jobs}) == 5
+        assert transport.cancelled == [row["id"] for row in transport.jobs]
+        assert transport.page_count == 95
+        routes = driver.report()["routes"]
+        for route, count in {
+            "workouts/export-admit": 5,
+            "workouts/export-page": 95,
+            "workouts/export-cancel": 5,
+        }.items():
+            assert routes[route]["count"] == count and routes[route]["unexpected"] == 0
+        for cycle in driver.cycles:
+            outcome = cycle["outcome"]
+            assert outcome["workouts_rows"] == outcome["versions_rows"] == 190
+            assert outcome["pages_read"] == 19 and outcome["prescriptions_matched"]
+            assert (
+                outcome["ready_actual_end_verified"] and outcome["same_job_cancelled"]
+            )
+            assert outcome["wire_bytes"] > 61000000
+        assert not driver.pending and driver.dropped == 0
+    finally:
+        driver.trace_stream.close()
+        await driver.client.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "corruption,error,pages,cancels",
+    [
+        ("missing_ack", "ack_failed", 0, 0),
+        ("source_not_retired", "ack_failed", 0, 0),
+        ("heartbeat_not_retired", "ack_failed", 0, 0),
+        ("foreign_job", "identity_failed", 0, 0),
+        ("foreign_request", "identity_failed", 0, 0),
+        ("wrong_generation", "identity_failed", 0, 0),
+        ("refreshed_deadline", "deadline_failed", 0, 0),
+        ("notes", "pages_failed", 1, 0),
+        ("reps", "pages_failed", 1, 0),
+        ("foreign_snapshot", "pages_failed", 1, 0),
+        ("page_generation", "pages_failed", 1, 0),
+        ("missing_ack_after_cancel", "cleanup_failed", 19, 1),
+    ],
+)
+async def test_new_driver_failure_keeps_original_admission_without_replay(
+    monkeypatch, tmp_path, full_transport_fixture, corruption, error, pages, cancels
+):
+    transport = MixedTransportFixture(full_transport_fixture, corruption)
+    driver = await transport.driver(monkeypatch, tmp_path)
+    try:
+        with pytest.raises(JobProbeFailure, match=error):
+            await driver.export_snapshot()
+        assert len(transport.jobs) == 1 and driver.cycles == []
+        assert transport.page_count == pages and len(transport.cancelled) == cancels
+        assert (
+            sum(
+                method == "POST" and path == "/api/v1/workouts/export/jobs"
+                for method, path in transport.requests
+            )
+            == 1
+        )
+        assert transport.sleeps == [4]
+        assert not driver.pending
+    finally:
+        driver.trace_stream.close()
+        await driver.client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_new_driver_rejects_profile_change_across_complete_original_exports(
+    monkeypatch, tmp_path, full_transport_fixture
+):
+    transport = MixedTransportFixture(full_transport_fixture, "cross_cycle_profile")
+    driver = await transport.driver(monkeypatch, tmp_path)
+    try:
+        await driver.export_snapshot()
+        assert (
+            len(driver.cycles) == 1
+            and driver.cycles[0]["outcome"]["prescriptions_matched"]
+        )
+        with pytest.raises(JobProbeFailure, match="pages_failed"):
+            await driver.export_snapshot()
+        assert len(driver.cycles) == 1 and len(transport.jobs) == 2
+        assert transport.page_count == 20 and len(transport.cancelled) == 1
+        assert transport.sleeps == [4, 4]
+        assert driver.report()["routes"]["workouts/export-admit"]["count"] == 2
+        assert driver.export_static == [0, None, [], None]
+        assert not driver.pending
+    finally:
+        driver.trace_stream.close()
+        await driver.client.aclose()

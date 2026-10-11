@@ -76,8 +76,8 @@ async def job_checks(sessions=AsyncSessionLocal, worker=export_job_worker):
             if row is not None
             else []
         )
-        # The isolated fixture admits exactly one job. Global artifact counts
-        # catch an unexpected second owner/build instead of hiding its leftovers.
+        # This fixed fixture admits five sequential jobs. Inspect the latest
+        # cycle while global artifact counts expose any other owner/build leak.
         snapshot_count = await db.scalar(
             select(func.count()).select_from(WorkoutsExportSnapshot)
         )
