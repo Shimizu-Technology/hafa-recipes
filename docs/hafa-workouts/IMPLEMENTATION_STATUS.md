@@ -65,7 +65,83 @@ TestFlight delivery remain pending. Source-informed rules do not close D03.
 
 Independent Expo project `c520b94d-aac7-49a2-be2b-838a6b992001` is verified under
 `@shimizutechnology/hafa-workouts`; Apple bundle `com.shimizutechnology.hafaworkouts`
-is registered separately. App Store Connect's user session expired. Leon is away
-and cannot log in now; creation of the app record remains pending while other work
-continues. No credentials are requested in chat, and existing Recipes identities
+is registered separately. Creating its App Store Connect app record requires renewed
+interactive Apple authentication; the app record remains pending while implementation
+and independent testing continue. No credentials are requested in chat, and existing Recipes identities
 and app records are preserved.
+
+
+## Current unmerged assembly
+
+Backend work now includes jobs/extraction, source/copy review, continuous coach actions, foreground exercise-summary health adapters, scoped Recipes connections, library organization, measurements, durable allowance receipts and anonymous AI admission accounting. The service/package metadata is Håfa API while legacy Recipes routing/address/imports remain compatible. Root follow-up regressions cover revoked consent acceptance, actual source/copy recovery calendars and empty capture drafts. Encrypted fixed-snapshot export is being integrated with privacy invalidation and bounded processing/response concurrency; completed activity logging and the separate website are in isolated slices.
+
+Native training, capture, health, organization, coach, account controls, reminders and running/activity profile context are assembled. Current root static gate:129tests/typecheck/Doctor21/21/all-platform export/native source-map audit pass. Both platform development compilations succeed; this does not prove actual journeys, physical health acceptance or TestFlight signing. Initial browser cold-route and scalar-text defects were fixed. Native email/onboarding save and comprehensive recovery flows remain to execute.
+
+The authorized Workouts AI operating allocation is up to$5perday for evaluation/beta. The committed default budget remains0 and production flags remainoff. Only the explicit environment(s) used for authorized evaluation/beta may receive allocations, whose combined daily ceiling must not exceed$5. A separate development key is required for local real-model evaluation; no real paid calls have been made. Renewed interactive App Store Connect authentication remains pending. The Workouts app record and exact TestFlight upload/availability are pending; existing Recipes app identities are preserved.
+
+The comprehensive QA ledger has0fullyacceptedcases across every required dimension. Backend tests, static exports and compiler success are recorded as separate evidence. Full final-head review/gates, source model evaluation, mixed workload/capacity, qualified programming review, physical/provider acceptance and exact release availability remain open.
+
+
+Independent review of a06f3b0 reproduced six private-export erasure gaps: upstream Health deletion/correction/reconciliation, coach undo of a generated copy, collection removal and automatic import expiry. The corresponding owner-locked writers now invalidate temporary snapshots; expiry maintenance commits each owner separately. The focused private-writer/import/automation retest passes59cases. Six naming assertions were also reviewed: shared OpenAPI/config metadata is Håfa API, while the legacy root response keeps Recipe Extractor API and its frozen response shape. Full final repository checks and final-head independent verification are running; these findings are not called clean until those checks finish.
+
+Actual native email/password sign-in reaches the development client-trust verification screen. A system password-save prompt obstructed a verification attempt; it was dismissed. An expired code exposed missing resend/back recovery and a generic error. That user-flow defect is being corrected and requires actual native retesting. No native sign-in completion is claimed yet.
+
+## Coherent backend services review base
+
+This branch is `codex/workouts-backend-services`, based on the first 23 assembly
+commits through `a5fa546b0e4d7b209191ddf7748d52efb6f80d77`, against verified
+`main` at `1385ca79df33a287e8f38fe17968c6d785605ab9`. It keeps complete source
+extraction/import review, guarded coach actions and continuity, private Health
+and Recipes connections, sharing/copying, library organization, measurements,
+anonymous admission budgets and import allowances together. Their implementation,
+migrations 035–042, tests, provider fakes, dependency locks and domain docs remain
+in this review base. Base membership/programming migration 034 already belongs
+to main; Recipes core migrations remain through 033.
+
+The dependent slice keeps commits `11f9cf9`, `e87ef7b`, `a0d7c10`, `c0f2879`,
+`a06f3b0`, `554ef3a` and `3b064f7`, with private export snapshots, completed
+activity logging, migrations 043–044, all snapshot/privacy/activity tests and docs,
+and their corresponding route/readiness/erasure/response-admission integration.
+No export-snapshot or activity-log module, import, migration or readiness check
+is mounted by this base. Existing live paged export remains available to
+authorized Workouts accounts; consistent encrypted export is a dependent feature.
+
+Two scoped changes move forward from those later commits: Håfa OpenAPI branding
+preserves the full legacy `/` discovery response, and local real-provider wiring
+uses a dedicated SecretStr development key with explicit paid-processing opt-in
+and positive admission budget. Zero-budget operational capabilities hide AI
+actions. The website share path carries its token in `/shared#...`; native and
+API paths retain their existing forms.
+
+Every Workouts capability remains disabled by default and the committed admission
+budget remains 0. This partition does not turn on production, apply optional
+production migrations, issue a credential, spend provider funds or alter a
+Recipes identity/app record. D03 qualified programming review, real-provider
+quality, physical Health integrations, exact released Recipes binary smoke,
+mixed workload/capacity and full native/store acceptance remain open.
+
+The assembled PR133 head had 110 changed files, 109 selected by CodeRabbit's existing
+lockfile filter. The initial base cut has 91 changed files and 90 selected. The
+scoped naming test and this status/QA documentation bring the base to 94 changed
+files, 93 selected under the same existing lockfile filter. Count the actual PR
+diff again before publication. No tests or docs were omitted to
+satisfy the review limit. CodeRabbit also reports unavailable credits; reducing
+file count does not establish that a review can run or that code was approved.
+
+Validation for this partitioned base passed the complete `./scripts/check.sh`
+gate: 1606 API tests passed, 34 skipped, 16 warnings; 790 Recipes mobile tests and
+type checking passed; Expo Doctor passed 21/21; the runtime audit retained 48
+inherited findings and 12 reviewed upstream advisories with 0 unexpected findings.
+Marketing/admin production audits found 0 vulnerabilities; their lint/type/build
+checks passed and the admin suite passed 13 tests. Ruff and whitespace checks
+passed. Dependency installation used explicit Node 22.22.3; the unchanged
+repository gate selects Node 22.22.2 for its JavaScript stages. These receipts
+apply to the a5fa546 base plus the scoped forward changes recorded above,
+including dedicated development-key transport/fail-closed, zero-budget capability
+and fragment share-link regression checks. Fake provider transport was used.
+
+The disposable `hafa_workouts_backend_services_test` database was removed after
+testing. The borrowed PostgreSQL service and root's QA resources remain available.
+No server, browser tab, simulator, credential or paid call was started by this
+base task. The clean branch/worktree remains for root's independent review and
+PR creation; this task did not push, create a PR or merge.

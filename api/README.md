@@ -1,4 +1,6 @@
-# Recipe Extractor API
+# Håfa API
+
+The shared FastAPI service supports Håfa Recipes and the independently gated Håfa Workouts domain. The Python distribution is `hafa-api`; existing `app` imports, deploy directory, Render address and Recipes API contracts remain compatible with released clients. Workouts routes and optional migrations are disabled in production until their separate rollout checks pass. See [the architecture and rollout](../docs/hafa-workouts/ARCHITECTURE.md).
 
 FastAPI backend for extracting structured recipes from cooking videos and recipe websites using AI.
 

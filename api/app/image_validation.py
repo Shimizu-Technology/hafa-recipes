@@ -3,9 +3,11 @@
 import base64
 import binascii
 import io
+import math
 import warnings
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Iterator, Mapping
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -40,9 +42,77 @@ class ThumbnailVariantSpec:
 
 
 def _encode_webp(image: Image.Image, quality: int) -> bytes:
-    output = io.BytesIO()
-    image.save(output, format="WEBP", quality=quality, method=4)
-    return output.getvalue()
+    with io.BytesIO() as output:
+        image.save(output, format="WEBP", quality=quality, method=4)
+        return output.getvalue()
+
+
+def _bounded_dimensions(size: tuple[int, int], maximum: int) -> tuple[int, int]:
+    """Use Pillow thumbnail's aspect rounding before draft changes JPEG dimensions."""
+    width, height = size
+    if max(size) <= maximum:
+        return size
+    aspect = width / height
+    if width >= height:
+        value = maximum / aspect
+        other = min(math.floor(value), math.ceil(value), key=lambda n: 0 if n == 0 else abs(aspect - maximum / n))
+        return maximum, max(1, other)
+    value = maximum * aspect
+    other = min(math.floor(value), math.ceil(value), key=lambda n: abs(aspect - n / maximum))
+    return max(1, other), maximum
+
+
+@contextmanager
+def bounded_still_image(
+    source: Image.Image,
+    maximum: int,
+    *,
+    mode: str | None = None,
+    resample: Image.Resampling = Image.Resampling.LANCZOS,
+) -> Iterator[Image.Image]:
+    """Consume an opened image, resize before EXIF/copies, and close all pixel buffers.
+
+    JPEG draft decodes at a reduced resolution. Other codecs still need their
+    source decode; palette expansion precedes filtering to retain alpha/colors,
+    rather than letting Pillow silently resize palette images with NEAREST.
+    Original encoded bytes and validation limits are never changed here.
+    """
+    working = source
+    try:
+        source.seek(0)
+        swaps_axes = source.getexif().get(0x0112, 1) in (5, 6, 7, 8)
+        visual_size = source.size[::-1] if swaps_axes else source.size
+        visual_target = _bounded_dimensions(visual_size, maximum)
+        target = visual_target[::-1] if swaps_axes else visual_target
+        has_alpha = source.mode in {"RGBA", "LA"} or (
+            source.mode == "P" and "transparency" in source.info
+        )
+        output_mode = mode or ("RGBA" if has_alpha else "RGB")
+        box = None
+        if source.format == "JPEG" and target != source.size:
+            drafted = source.draft(None, target)
+            if drafted is not None:
+                box = drafted[1]
+        if source.mode not in {"RGB", "RGBA", "L", "LA"} or (
+            output_mode == "RGB" and has_alpha
+        ):
+            working = source.convert(output_mode)
+            source.close()
+        if working.size != target or box is not None:
+            resized = working.resize(target, resample, box=box, reducing_gap=2.0)
+            working.close()
+            working = resized
+        # EXIF transpose otherwise copies even an already-upright full-size image.
+        ImageOps.exif_transpose(working, in_place=True)
+        if working.mode != output_mode:
+            converted = working.convert(output_mode)
+            working.close()
+            working = converted
+        working.info.clear()
+        yield working
+    finally:
+        working.close()
+        source.close()
 
 
 def _render_thumbnail_variant(
@@ -51,34 +121,39 @@ def _render_thumbnail_variant(
     quality: int,
 ) -> ValidatedImage:
     rendered = source.copy()
-    rendered.thumbnail(
-        (spec.max_dimension, spec.max_dimension),
-        Image.Resampling.LANCZOS,
-    )
-
-    qualities = [quality]
-    if spec.max_bytes is not None and quality > 50:
-        qualities = list(range(quality, 49, -8))
-    while True:
-        for candidate_quality in qualities:
-            data = _encode_webp(rendered, candidate_quality)
-            if spec.max_bytes is None or len(data) <= spec.max_bytes:
-                width, height = rendered.size
-                return ValidatedImage(
-                    data=data,
-                    content_type="image/webp",
-                    width=width,
-                    height=height,
-                )
-
-        width, height = rendered.size
-        next_size = (
-            max(1, int(width * 0.85)),
-            max(1, int(height * 0.85)),
+    try:
+        rendered.thumbnail(
+            (spec.max_dimension, spec.max_dimension),
+            Image.Resampling.LANCZOS,
         )
-        if next_size == rendered.size:
-            raise ImageValidationError("Thumbnail cannot fit its delivery byte limit")
-        rendered = rendered.resize(next_size, Image.Resampling.LANCZOS)
+
+        qualities = [quality]
+        if spec.max_bytes is not None and quality > 50:
+            qualities = list(range(quality, 49, -8))
+        while True:
+            for candidate_quality in qualities:
+                data = _encode_webp(rendered, candidate_quality)
+                if spec.max_bytes is None or len(data) <= spec.max_bytes:
+                    width, height = rendered.size
+                    return ValidatedImage(
+                        data=data,
+                        content_type="image/webp",
+                        width=width,
+                        height=height,
+                    )
+
+            width, height = rendered.size
+            next_size = (
+                max(1, int(width * 0.85)),
+                max(1, int(height * 0.85)),
+            )
+            if next_size == rendered.size:
+                raise ImageValidationError("Thumbnail cannot fit its delivery byte limit")
+            resized = rendered.resize(next_size, Image.Resampling.LANCZOS)
+            rendered.close()
+            rendered = resized
+    finally:
+        rendered.close()
 
 
 def normalize_thumbnail_variants(
@@ -101,24 +176,12 @@ def normalize_thumbnail_variants(
     try:
         with Image.open(io.BytesIO(image.data)) as source:
             # Thumbnails are intentionally still images, including for GIF inputs.
-            source.seek(0)
-            normalized = ImageOps.exif_transpose(source)
-            normalized.load()
-
-            has_alpha = normalized.mode in {"RGBA", "LA"} or (
-                normalized.mode == "P" and "transparency" in normalized.info
-            )
-            normalized = normalized.convert("RGBA" if has_alpha else "RGB")
             largest_dimension = max(spec.max_dimension for spec in variants.values())
-            normalized.thumbnail(
-                (largest_dimension, largest_dimension),
-                Image.Resampling.LANCZOS,
-            )
-
-            return {
-                name: _render_thumbnail_variant(normalized, spec, quality)
-                for name, spec in variants.items()
-            }
+            with bounded_still_image(source, largest_dimension) as normalized:
+                return {
+                    name: _render_thumbnail_variant(normalized, spec, quality)
+                    for name, spec in variants.items()
+                }
     except ImageValidationError:
         raise
     except (UnidentifiedImageError, OSError, SyntaxError) as exc:
