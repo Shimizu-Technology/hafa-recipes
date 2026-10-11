@@ -54,7 +54,7 @@ def _overlaps(left, right):
     return min(left[1], right[1]) > max(left[0], right[0])
 
 
-def overlap_evidence(report, metrics):
+def overlap_evidence(report, metrics, *, expected_reads=80, request_limit=384):
     counts = {phase: dict.fromkeys(sorted(READS), 0) for phase in ("build", "pages")}
     p95 = {phase: dict.fromkeys(sorted(READS)) for phase in counts}
     result = {
@@ -76,7 +76,7 @@ def overlap_evidence(report, metrics):
         or not isinstance(stages, list)
         or not isinstance(requests, list)
         or len(stages) > 160
-        or len(requests) > 384
+        or len(requests) > request_limit
         or report.get("dropped_spans") != 0
         or metrics.get("dropped_spans") != 0
         or report.get("unsettled_requests") != 0
@@ -99,7 +99,8 @@ def overlap_evidence(report, metrics):
             return result
         intervals = [(row, _interval(row)) for row in relevant]
         if any(
-            sum(row["route"] == route for row, _ in intervals) != 80 for route in READS
+            sum(row["route"] == route for row, _ in intervals) != expected_reads
+            for route in READS
         ):
             return result
         pages = [

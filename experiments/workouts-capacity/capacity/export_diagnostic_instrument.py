@@ -52,7 +52,11 @@ def source_call(original):
     return call
 
 
-def install(patch=setattr, *, wrap_singleton=True):
+def install(patch=setattr, *, wrap_singleton=True, max_builds=1):
+    if type(max_builds) is not int or max_builds not in (1, 5):
+        raise ValueError("Only fixed one/five build scenarios are permitted")
+    build_count = 0
+
     from app.db.database import engine
     from app.domains.workouts import export_service as service
     from app.domains.workouts.export_context import SnapshotSourceContext
@@ -118,8 +122,13 @@ def install(patch=setattr, *, wrap_singleton=True):
 
     async def build(*args, **kwargs):
         global latest
-        if latest is not None:
-            raise RuntimeError("Only one diagnostic export is permitted")
+        nonlocal build_count
+        if max_builds == 1:
+            if latest is not None:
+                raise RuntimeError("Only one diagnostic export is permitted")
+        elif build_count >= max_builds or (latest is not None and not latest.complete):
+            raise RuntimeError("Diagnostic build inventory exhausted or unsettled")
+        build_count += 1
         state = latest = Metrics()
         token = active.set(state)
         failed = True

@@ -512,6 +512,9 @@ class Driver:
         )
         if created.status_code == 202:
             self.jobs.append((owner, created.json()["id"], request_id))
+        await self.export_snapshot()
+
+    async def export_snapshot(self):
         snapshot = await self.request(
             "POST",
             PREFIX + "/export/snapshots",

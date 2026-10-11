@@ -354,10 +354,18 @@ class Ledger:
         self.save()
 
 
-def phase_receipt(report, samples, phase, baseline=None):
+def phase_receipt(
+    report,
+    samples,
+    phase,
+    baseline=None,
+    *,
+    extra_reads=EXTRA_READS,
+    extra_writes=EXTRA_WRITES,
+):
     required = READS | BASE_WRITES | {"recipes/job-poll"}
     if phase == "mixed":
-        required |= EXTRA_READS | EXTRA_WRITES
+        required |= extra_reads | extra_writes
     routes, failures = {}, []
     if report.get("percentile_method") != "nearest_rank" or (
         baseline is not None and baseline.get("percentile_method") != "nearest_rank"
@@ -381,7 +389,7 @@ def phase_receipt(report, samples, phase, baseline=None):
         if route in READS and set(statuses) != {"200"}:
             failures.append("protected_non200")
         limit = (
-            500 if route in READS | EXTRA_READS or route == "recipes/job-poll" else 1000
+            500 if route in READS | extra_reads or route == "recipes/job-poll" else 1000
         )
         if value["p95_ms"] is None or value["p95_ms"] > limit:
             failures.append("absolute_latency")
@@ -447,7 +455,7 @@ def phase_receipt(report, samples, phase, baseline=None):
     }
 
 
-def public_receipt(summary):
+def public_receipt(summary, *, additional_routes=frozenset()):
     """Construct from fixed keys; never recursively copy arbitrary private JSON."""
     result = {"schema_version": 1}
     failure = summary.get("failure")
@@ -585,7 +593,12 @@ def public_receipt(summary):
             }
         output["routes"] = {}
         for route in (
-            READS | EXTRA_READS | BASE_WRITES | EXTRA_WRITES | {"recipes/job-poll"}
+            READS
+            | EXTRA_READS
+            | BASE_WRITES
+            | EXTRA_WRITES
+            | {"recipes/job-poll"}
+            | additional_routes
         ):
             if route not in row.get("routes", {}):
                 continue
