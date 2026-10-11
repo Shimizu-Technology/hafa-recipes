@@ -123,7 +123,10 @@ def install(patch=setattr, *, wrap_singleton=True, max_builds=1):
     async def build(*args, **kwargs):
         global latest
         nonlocal build_count
-        if build_count >= max_builds or (latest is not None and not latest.complete):
+        if max_builds == 1:
+            if latest is not None:
+                raise RuntimeError("Only one diagnostic export is permitted")
+        elif build_count >= max_builds or (latest is not None and not latest.complete):
             raise RuntimeError("Diagnostic build inventory exhausted or unsettled")
         build_count += 1
         state = latest = Metrics()

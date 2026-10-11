@@ -217,6 +217,51 @@ async def test_repeated_instrumentation_is_five_bounded_sequential_builds(
         cleanup()
 
 
+@pytest.mark.asyncio
+async def test_default_instrumentation_uses_original_latest_guard_after_reinstall(
+    isolated_source, monkeypatch
+):
+    svc, _, instrument = isolated_source
+    calls = []
+
+    async def original(*args, **kwargs):
+        calls.append((args, kwargs))
+        return "fixture-only"
+
+    monkeypatch.setattr(svc.PrivateExportService, "create", original)
+    with monkeypatch.context() as first_patch:
+        cleanup = instrument.install(first_patch.setattr, wrap_singleton=False)
+        try:
+            assert await svc.PrivateExportService.create(0) == "fixture-only"
+            prior = instrument.latest
+            with pytest.raises(
+                RuntimeError, match="^Only one diagnostic export is permitted$"
+            ):
+                await svc.PrivateExportService.create(1)
+            assert instrument.latest is prior and len(calls) == 1
+            # Explicit state reset retains the original predicate, rather than
+            # imposing a new installation-local count on the default mode.
+            monkeypatch.setattr(instrument, "latest", None)
+            assert await svc.PrivateExportService.create(2) == "fixture-only"
+            prior = instrument.latest
+            assert prior.complete and len(calls) == 2
+        finally:
+            cleanup()
+    with monkeypatch.context() as second_patch:
+        cleanup = instrument.install(second_patch.setattr, wrap_singleton=False)
+        try:
+            # Reinstallation starts a fresh local count; existing latest still
+            # refuses a completed original build without calling its source.
+            with pytest.raises(
+                RuntimeError, match="^Only one diagnostic export is permitted$"
+            ):
+                await svc.PrivateExportService.create(3)
+            assert instrument.latest is prior and len(calls) == 2
+            assert instrument.active.get() is None and instrument.stack.get() == ()
+        finally:
+            cleanup()
+
+
 # Full fixture bytes remain in the test process, outside any API memory budget.
 # Independent expected hashes are computed separately from expected_content;
 # each successful driver cycle still decodes/checks all190+190 original rows.
