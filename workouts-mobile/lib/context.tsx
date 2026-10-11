@@ -150,7 +150,7 @@ export function TrainingProvider({ children }: PropsWithChildren) {
     (identityQuery.error as { status?: number } | null)?.status === 401 ||
     (identityQuery.error as { status?: number } | null)?.status === 403;
   const owner =
-    identityQuery.data?.id ?? (!blockedIdentity && cachedIdentity?.binding === binding ? cachedIdentity.id : "");
+    blockedIdentity ? "" : identityQuery.data?.id ?? (cachedIdentity?.binding === binding ? cachedIdentity.id : "");
   const api = useMemo(() => {
     const selected = createWorkoutsApi(configuration.apiBase, currentToken, fetch, {
       owner: owner || undefined, binding, currentBinding: () => bindingRef.current,

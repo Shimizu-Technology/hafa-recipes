@@ -207,6 +207,28 @@ it("identity failure explains an expired session and offers captured-session rec
   expect(fixture.erase).not.toHaveBeenCalled();
 });
 
+it.each([401, 403])("identity refetch denial%s blocks earlier authorized private content despite retained query data", async (status) => {
+  fixture.disk.set(draftKey("A", "profile:1"), "saved private draft");
+  await act(async () => { renderer = create(tree()); }); await settle();
+  expect(renderer!.root.findAllByType("Training" as never)).toHaveLength(1);
+  const identityKey = ["identity", "development:synthetic-key:subject-A"];
+  expect(cache.getQueryData(identityKey)).toEqual({ id: "A" });
+  fixture.identityStatus = status;
+  await act(async () => { await cache.refetchQueries({ queryKey: identityKey }); }); await settle();
+  // TanStack retains the prior successful response after the refetch fails.
+  expect(cache.getQueryData(identityKey)).toEqual({ id: "A" });
+  expect(renderer!.root.findAllByType("Training" as never)).toHaveLength(0);
+  expect(visibleText()).toContain(status === 401 ? "Your sign-in session expired" : "does not have access to the Workouts private beta");
+  expect(button("Sign out and choose account")).toBeDefined();
+  expect(fixture.disk.get(draftKey("A", "profile:1"))).toBe("saved private draft");
+  expect(fixture.erase).not.toHaveBeenCalled();
+  fixture.identityStatus = 200;
+  await act(async () => { button("Try verifying again").props.onPress(); }); await settle();
+  expect(renderer!.root.findAllByType("Training" as never)).toHaveLength(1);
+  expect(observed?.training.owner).toBe("A");
+  expect(fixture.erase).not.toHaveBeenCalled();
+});
+
 it("repeated recovery taps sign out one captured session, clear only its cache and preserve owner drafts when choosing another account", async () => {
   fixture.enrollmentStatus = 403;
   fixture.disk.set(draftKey("A", "profile:1"), "account A draft");
