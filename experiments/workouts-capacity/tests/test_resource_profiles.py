@@ -3,6 +3,7 @@
 import json
 from dataclasses import FrozenInstanceError
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from capacity.ci_run import Coordinator
@@ -446,3 +447,134 @@ def test_profile_stop_boundary_preserves_exact_owned_target(name):
     assert sample["stop_required"] and sample["stopped"]
     assert sample["resource_profile"] == p.metadata()
     assert not running and ["docker", "stop", "--timeout", "2", api] in calls
+
+
+@pytest.mark.parametrize("cls", [Coordinator, MixedCoordinator, LegalCoordinator])
+@pytest.mark.parametrize("name", [None, *ProfileId])
+@pytest.mark.parametrize("fault", [None, "image", "memory", "swap", "cpu"])
+def test_actual_api_startup_verifies_selected_profile_before_liveness(
+    tmp_path, cls, name, fault
+):
+    p = resolve(name)
+    c = cls(
+        tmp_path, tmp_path / "work", tmp_path / "receipt.json", resource_profile=name
+    )
+    c.run_id, c.pg, c.plan_root, c.image = (
+        "startup-test",
+        "b" * 64,
+        tmp_path / "plan",
+        "sha256:" + "c" * 64,
+    )
+    info = {
+        "Image": c.image,
+        "State": {"Running": True, "OOMKilled": False},
+        "HostConfig": {
+            "Memory": p.memory_bytes,
+            "MemorySwap": p.memory_bytes,
+            "NanoCpus": p.cpu_millicores * 1_000_000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+        },
+    }
+    if fault == "image":
+        info["Image"] = "sha256:" + "d" * 64
+    elif fault in ("memory", "swap"):
+        info["HostConfig"]["Memory" if fault == "memory" else "MemorySwap"] += 1
+    elif fault == "cpu":
+        info["HostConfig"]["NanoCpus"] += 1
+    created, probes = [], []
+    c.ledger = SimpleNamespace(
+        create_container=lambda role, argv: created.append((role, argv)) or "a" * 64,
+        inspect=lambda _: info,
+    )
+    c.command = lambda argv, timeout=30: probes.append(argv) or '{"status":"ok"}'
+    if fault:
+        with pytest.raises(SafetyError, match="api_budget_or_image_changed"):
+            c.start_api("baseline")
+        assert not probes
+    else:
+        c.start_api("baseline")
+        assert len(probes) == 1 and probes[0][2] == c.pg
+    assert len(created) == 1 and created[0][0] == "api"
+
+
+@pytest.mark.parametrize("name", [None, *ProfileId])
+def test_actual_startup_quota_alternative_preserves_legacy_nanocpu_policy(
+    tmp_path, name
+):
+    p = resolve(name)
+    c = Coordinator(
+        tmp_path, tmp_path / "work", tmp_path / "receipt.json", resource_profile=name
+    )
+    c.run_id, c.pg, c.plan_root, c.image = (
+        "quota-start",
+        "b" * 64,
+        tmp_path / "plan",
+        "sha256:" + "c" * 64,
+    )
+    info = {
+        "Image": c.image,
+        "State": {"Running": True, "OOMKilled": False},
+        "HostConfig": {
+            "Memory": p.memory_bytes,
+            "MemorySwap": p.memory_bytes,
+            "NanoCpus": 0,
+            "CpuQuota": p.cpu_millicores * 100,
+            "CpuPeriod": 100000,
+        },
+    }
+    c.ledger = SimpleNamespace(
+        create_container=lambda *_: "a" * 64, inspect=lambda _: info
+    )
+    c.command = lambda *_args, **_kwargs: '{"status":"ok"}'
+    if name is None:
+        with pytest.raises(SafetyError, match="api_budget_or_image_changed"):
+            c.start_api("baseline")
+    else:
+        c.start_api("baseline")
+
+
+def test_wrong_quota_run_still_cleans_exact_known_owned_ledger(tmp_path):
+    from capacity.ci_run import execute
+    from capacity.ci_safety import Ledger
+    from test_ci_safety import RUN, Docker
+
+    p = resolve(ProfileId.STANDARD)
+    c = Coordinator(
+        tmp_path, tmp_path / "work", tmp_path / "receipt.json", resource_profile=p.id
+    )
+    c.run_id, c.pg, c.plan_root, c.image = (
+        RUN,
+        "b" * 64,
+        tmp_path / "plan",
+        "sha256:" + "c" * 64,
+    )
+    docker = Docker()
+    borrowed = "b" * 64
+    docker.resources[borrowed] = {"borrowed": True}
+
+    def transport(argv, timeout=30):
+        value = docker(argv, timeout)
+        if argv[1] == "create":
+            item = docker.resources[value]
+            item["Image"] = c.image
+            item["HostConfig"].update(
+                Memory=p.memory_bytes,
+                MemorySwap=p.memory_bytes,
+                NanoCpus=500_000_000,
+                CpuQuota=0,
+                CpuPeriod=0,
+            )
+            item["State"]["OOMKilled"] = False
+        return value
+
+    c.ledger = Ledger(c.work / "resources.json", RUN, transport)
+    c.command = transport
+    c.run = lambda: c.start_api("baseline")
+    assert execute(c) == 2
+    value = json.loads(c.receipt.read_text())
+    assert not value["passed"] and value["cleaned_owned_resources"]
+    assert c.ledger.state["cleaned"] and not c.ledger.state["containers"]
+    assert docker.resources == {borrowed: {"borrowed": True}}
+    stopped = [argv[-1] for argv in docker.calls if argv[1] == "stop"]
+    assert stopped == ["0" * 63 + "1"]

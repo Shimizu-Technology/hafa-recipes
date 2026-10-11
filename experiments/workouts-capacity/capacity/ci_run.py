@@ -23,7 +23,7 @@ from capacity.ci_safety import (
 )
 from capacity.failure_codes import CODES, PHASES
 from capacity.plan import build_plan
-from capacity.resource_profiles import resolve
+from capacity.resource_profiles import cpu_matches, resolve
 
 REQUIREMENTS_SHA = "9002549c41b56eb84eda74b5e53875daf8899759ec183b532649a973343b5996"
 TOTAL_SECONDS = 1900
@@ -279,11 +279,24 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
             "api", self.runtime_argv("api", phase=phase) + self.api_command()
         )
         info = self.ledger.inspect(self.api)
+        host = info["HostConfig"]
+        valid_cpu = (
+            host["NanoCpus"] == 500_000_000
+            if self.resource_profile is None
+            else cpu_matches(
+                {
+                    "nano_cpus": host.get("NanoCpus"),
+                    "cpu_quota": host.get("CpuQuota"),
+                    "cpu_period": host.get("CpuPeriod"),
+                },
+                self.profile,
+            )
+        )
         if (
             info["Image"] != self.image
-            or info["HostConfig"]["Memory"] != 512 * 2**20
-            or info["HostConfig"]["MemorySwap"] != 512 * 2**20
-            or info["HostConfig"]["NanoCpus"] != 500_000_000
+            or host["Memory"] != self.profile.memory_bytes
+            or host["MemorySwap"] != self.profile.memory_bytes
+            or not valid_cpu
         ):
             raise SafetyError("api_budget_or_image_changed")
         # Probe from the owned PG namespace; no Python observer inside API.
