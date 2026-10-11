@@ -37,6 +37,15 @@ The child never cooperatively acknowledges source end on the success path.
    fixture URI `hafa_workouts_capacity_test` only inside that new environment.
    Record intent before creation and exact IDs immediately afterward. Existing
    local/root/shared databases are never candidates.
+   The local plan uses the official LinuxARM64 immutable PostgreSQL15 image
+   `docker.io/library/postgres@sha256:7edb00ef081f792e6b08ff2990bb72de1b842581de7cfe516d63c9ce293b26ab`.
+   Registry config digest is
+   `sha256:f6a528436858e8356a8f9265e67eebf2067a3d8cccc90fc800f8d10fb21c7f35`;
+   metadata declares OSlinux/architecturearm64/PG_MAJOR15/version15.19-1.pgdg13+2.
+   The original x86 CI `capacity.plan.POSTGRES_BASE` stays unchanged.
+   Before build/network/DB startup, pull only this immutable ARM image and verify
+   its config ID, official source digest, OS, architecture and PostgreSQL version.
+   After creation, verify the actual container image ID matches that config.
 4. Execute the existing `capacity.seed` on the empty fixture. It installs actual
    core/optional migrations including045 and creates190 workouts+190 versions for
    capacity-22. The driver independently requires at least11 matched rows, actual
@@ -110,6 +119,13 @@ finally. The driver retains its inner100-second bound. The external owner must
 still perform exact ledger cleanup and reconcile lifecycle records after an
 uncatchable runner kill or machine interruption; no program can promise cleanup
 after those events. Images/build cache remain available and are not pruned.
+The local-only database preflight adds a120-second pull stage inside the unchanged
+whole budget. Existing app dependency layers remain cacheable; no no-cache rebuild
+or fallback tag is supplied. The first6e execution built its ARM app image but
+failed before DB startup because the generic x86 PostgreSQL digest was AMD64.
+That failed receipt is preserved; seed, pin inventory and kernel cases were
+NOT_RUN. Selecting a corrected immutable ARM DB image requires a fresh reviewed
+plan and separately authorized execution, not an automatic retry.
 
 The parent kills/reaps only its bound child, checking exact identity for scenario
 signals, stops only its own worker and disposes its engine. If binding fails,

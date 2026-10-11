@@ -23,6 +23,13 @@ from capacity.export_jobs_death_binding import (
     verify_binding,
     verify_context,
 )
+from capacity.export_jobs_death_postgres import (
+    ARM_CONFIG,
+    ARM_IMAGE,
+    SOURCE,
+    local_pg_argv,
+    verify_pg_image,
+)
 from capacity.plan import build_plan
 from capacity.safety import ensure
 
@@ -243,6 +250,14 @@ def prepare(repository, output, run_id, binding, api_reference):
         key: selected(argv, binding["context"])
         for key, argv in plan["commands"].items()
     }
+    plan["commands"]["start_owned_postgres"] = local_pg_argv(
+        plan["commands"]["start_owned_postgres"]
+    )
+    plan["postgres_source"] = dict(SOURCE)
+    plan["postgres_pull_argv"] = selected(
+        ["docker", "pull", "--platform", "linux/arm64", ARM_IMAGE], binding["context"]
+    )
+    plan["deadlines_seconds"]["postgres_pull"] = 120
     for key in ("inventory_argv", "driver_argv"):
         plan[key] = selected(plan[key], binding["context"])
     path = output / "linux-death-plan.json"
@@ -261,6 +276,8 @@ def validate_plan(repository, output, approved_sha):
     require(len(approved_sha) == 64 and sha(path) == approved_sha)
     plan = json.loads(path.read_text())
     validate_shape(plan["docker_binding"])
+    require(plan["postgres_source"] == SOURCE)
+    require(plan["commands"]["start_owned_postgres"][-1] == ARM_IMAGE)
     require(not plan["executed"] and plan["platform"] == "linux/arm64")
     require(git(repository, "rev-parse", "HEAD") == plan["candidate_commit"])
     require(not git(repository, "status", "--porcelain", "--untracked-files=no"))
@@ -489,6 +506,16 @@ class LocalRunner:
             require(platform.machine() == "arm64")
             self.verify_environment()
             commands, limits = self.plan["commands"], self.plan["deadlines_seconds"]
+            # Refuse an incompatible DB image BEFORE build/network/DB startup.
+            self.command(self.plan["postgres_pull_argv"], limits["postgres_pull"])
+            pg_image = json.loads(
+                self.command(["docker", "image", "inspect", ARM_IMAGE])
+            )
+            require(len(pg_image) == 1)
+            self.result["postgres_source"] = verify_pg_image(pg_image[0])
+            (self.output / "linux-death-postgres-inventory.json").write_text(
+                encoded(self.result["postgres_source"])
+            )
             self.command(commands["build_after_root_inspection"], limits["build"])
             image = json.loads(
                 self.command(["docker", "image", "inspect", self.plan["image_tag"]])
@@ -509,6 +536,7 @@ class LocalRunner:
 
             self.ledger.create_network(self.plan["resource_names"]["network"])
             pg = self.create("pg", commands["start_owned_postgres"])
+            require(self.ledger.inspect(pg)["Image"] == ARM_CONFIG)
             until = time.monotonic() + limits["ready"]
             while True:
                 try:
