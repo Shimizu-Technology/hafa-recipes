@@ -5,6 +5,26 @@ operator verifier, alert, or deployment authorization. Cross-namespace terminati
 remains unknown and default-denied. No Docker or hosted run is authorized merely
 by committing this document.
 
+## Executed evidence
+
+At tested code commit `6e1f325ed5226336ba8a63559856710fde74ae91`, one authorized
+local ARM Linux execution passed in331.15 seconds. The actual interpreter reported
+aarch64/Python3.12.15 and verified all81 active requirements pins. Actual migrations,
+including045, seeded190 workouts and190 versions in a fresh disposable database.
+The real worker held source after a committed page: live/SIGSTOP past its natural
+15-second lease retained the slot; exact pidfd-bound kill/reap/identity absence
+allowed the matching immutable death audit and release. Old UUID replay stayed
+terminal, a fresh multi-page export completed with actual-end ACK and exact totals,
+and artifacts/worker references reached zero. Default operator and wrong-namespace
+evidence remained denied. Exact owned containers/network/processes were closed.
+
+Source gates at that same tested code passed80 focused and296 full harness tests,
+Ruff, formatting and diff checks. Private receipts were independently reviewed;
+result SHA256 is `23118f40b3913e3afd29ed4aa55783c545b6e25f6a59b88873f98b9bb9ed5808`.
+Later evidence-only documentation edits do not represent another runtime run.
+Both preceding setup failures remain preserved. This result covers one local
+same-namespace death scenario; the rollout gates below remain open.
+
 ## Source boundary
 
 Base is PR145 `7b35c34b8ac135c687437ef9a6e92d334504fc8e`. Its application identity,
@@ -22,7 +42,7 @@ marker, then waits. The production source context, repeatable-read transaction,
 projection, encryption, limits, execution fences and heartbeat remain active.
 The child never cooperatively acknowledges source end on the success path.
 
-## Proposed finite execution, pending source/plan review
+## Finite execution procedure
 
 1. Generate a fresh filtered tracked context and `build_jobs_plan` using a unique
    reviewed run ID. Verify the context inventory, API/migration/requirements hashes,
@@ -97,7 +117,7 @@ The child never cooperatively acknowledges source end on the success path.
 `capacity.export_jobs_death_local` now prepares the filtered local ARM plan. Run
 its `--prepare` mode with repository, fresh output directory, unique run ID and
 the verified local Docker context, exact UNIX socket endpoint, daemon ID and name.
-The actual reviewed machine uses the Colima `colima-aire-payroll-staging` context;
+The accepted execution used the original Hafa `desktop-linux` daemon;
 the private prepared plan pins its observed endpoint and daemon identity.
 Preparation
 starts nothing: it records the commit, every context file hash, API parity against
@@ -128,7 +148,7 @@ uncatchable runner kill or machine interruption; no program can promise cleanup
 after those events. Images/build cache remain available and are not pruned.
 The local-only database preflight adds a120-second pull stage inside the unchanged
 whole budget. Existing app dependency layers remain cacheable; no no-cache rebuild
-or fallback tag is supplied. The first6e execution built its ARM app image but
+or fallback tag is supplied. The first6e execution built an app image with ARM metadata but
 failed before DB startup because the generic x86 PostgreSQL digest was AMD64.
 That failed receipt is preserved; seed, pin inventory and kernel cases were
 NOT_RUN. Selecting a corrected immutable ARM DB image requires a fresh reviewed
@@ -156,4 +176,4 @@ PID reuse against a real kernel, job cascade, lost recovery ACK, operator eviden
 races, platform verifier, monitoring/alert delivery, Render/Neon parity and rollout
 remain separate required acceptance. Local source tests do not establish this
 Linux/DB acceptance. Full repository/application gates remain required before PR
-readiness; this slice remains held pending those checks and runtime execution.
+readiness; this slice remains held pending the broader required checks and review.
