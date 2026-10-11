@@ -29,6 +29,19 @@ TOTAL_SECONDS = 1900
 
 
 class Coordinator:
+    driver_module = "capacity.driver"
+
+    @staticmethod
+    def make_phase_receipt(*args, **kwargs):
+        return phase_receipt(*args, **kwargs)
+
+    @staticmethod
+    def format_public_receipt(summary):
+        return public_receipt(summary)
+
+    def check_scenario(self, report, receipt, phase):
+        pass
+
     def __init__(self, repository, work, receipt, env=os.environ):
         self.repo, self.work, self.receipt = (
             Path(repository).resolve(),
@@ -359,7 +372,7 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
             self.image,
             "python",
             "-m",
-            "capacity.driver",
+            self.driver_module,
             "--profile",
             "mixed" if phase == "mixed" else "recipes-baseline",
             "--seconds",
@@ -386,7 +399,7 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
         report = json.loads((result_dir / f"{phase}.json").read_text())
         observation = json.loads(Path(str(memory) + ".summary.json").read_text())
         samples = [json.loads(line) for line in memory.read_text().splitlines()]
-        receipt = phase_receipt(
+        receipt = self.make_phase_receipt(
             report, samples, phase, self.baseline if phase == "mixed" else None
         )
         receipt["observer_completed"] = observation["completed"]
@@ -469,6 +482,7 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
             or after_counts["export_pages"]
         ):
             receipt["passed"] = False
+        self.check_scenario(report, receipt, phase)
         if phase == "baseline":
             self.baseline = report
         self.ledger.remove_container("load")
@@ -616,7 +630,9 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
             except ValueError:
                 if index != len(lines) - 1:
                     raise SafetyError("corrupt_observation_interior")
-        receipt = phase_receipt(report, samples, self.active_phase, self.baseline)
+        receipt = self.make_phase_receipt(
+            report, samples, self.active_phase, self.baseline
+        )
         receipt["passed"] = False
         receipt["observer_completed"] = False
         if self.ledger and "api" in self.ledger.state["containers"]:
@@ -696,7 +712,10 @@ print(json.dumps({'requirements_sha':hashlib.sha256(text.encode()).hexdigest(),'
     def write_receipt(self):
         self.receipt.parent.mkdir(parents=True, exist_ok=True)
         encoded = (
-            json.dumps(public_receipt(self.summary), allow_nan=False, indent=2) + "\n"
+            json.dumps(
+                self.format_public_receipt(self.summary), allow_nan=False, indent=2
+            )
+            + "\n"
         )
         if len(encoded.encode()) > 100 * 1024:
             raise SafetyError("public_receipt_too_large")
