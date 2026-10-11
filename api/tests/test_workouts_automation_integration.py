@@ -6,6 +6,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
+from pydantic import SecretStr
 from sqlalchemy import func, select
 
 from app.domains.workouts import automation_router, imports
@@ -96,6 +97,21 @@ async def test_operational_capabilities_hide_ai_when_budget_is_zero(
     assert response.json()["imports"] is (budget > 0 and bool(authority))
     assert response.json()["coach"] is (budget > 0 and bool(authority))
     assert response.json()["billing_active"] is False
+
+
+@pytest.mark.parametrize("authority", ["", " \t\n", SecretStr(""), SecretStr("  ")])
+async def test_empty_authority_keeps_operational_ai_capabilities_off(automation_api, monkeypatch, authority):
+    configured = settings(
+        workouts_imports_enabled=True,
+        workouts_ai_enabled=True,
+        workouts_ai_budget_24h_microusd=5_000_000,
+        workouts_ai_budget_database_url=authority,
+    )
+    assert configured.workouts_ai_budget_database_url is None
+    monkeypatch.setattr(automation_router, "get_settings", lambda: configured)
+    response = await automation_api.client.get("/api/v1/workouts/capabilities")
+    assert response.status_code == 200
+    assert response.json()["imports"] is False and response.json()["coach"] is False
 
 
 async def enqueue(api, request_id=None, text=TEXT):

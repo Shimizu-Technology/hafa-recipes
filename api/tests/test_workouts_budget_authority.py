@@ -2,8 +2,10 @@
 
 # ruff: noqa: F811 -- reusable isolated PostgreSQL fixtures
 import asyncio
+import ssl
 from dataclasses import replace
 from datetime import timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -78,6 +80,83 @@ async def test_invalid_authority_does_not_expose_credentials(url, caplog):
     assert str(error.value) == "workouts_ai_budget_unavailable"
     assert "private-password" not in str(error.value) + caplog.text
     assert url not in repr(replace(policy(), authority_url=SecretStr(url)))
+
+
+@pytest.mark.parametrize("value", ["", " \t\n", SecretStr(""), SecretStr("  ")])
+def test_empty_authority_configuration_is_none(value):
+    configured = settings(workouts_ai_budget_database_url=value)
+    assert configured.workouts_ai_budget_database_url is None
+    with pytest.raises(BudgetError, match="workouts_ai_budget_authority_unconfigured"):
+        BudgetGuard(replace(policy(), authority_url=configured.workouts_ai_budget_database_url)).sessions()
+
+
+@pytest.mark.parametrize("value", ["", " \t\n"])
+def test_empty_authority_environment_is_none(monkeypatch, value):
+    monkeypatch.setenv("WORKOUTS_AI_BUDGET_DATABASE_URL", value)
+    configured = Settings(database_url="postgresql://test:test@localhost/hafa_test", openai_api_key="test")
+    assert configured.workouts_ai_budget_database_url is None
+
+
+@pytest.mark.parametrize("value", ["", " \t\n"])
+def test_direct_blank_secret_keeps_unconfigured_error_before_pool(monkeypatch, value):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("An absent authority constructed a pool")
+
+    monkeypatch.setattr(budget_authority, "create_async_engine", forbidden)
+    with pytest.raises(BudgetError, match="workouts_ai_budget_authority_unconfigured"):
+        BudgetGuard(replace(policy(), authority_url=SecretStr(value))).sessions()
+    with pytest.raises(BudgetError, match="workouts_ai_budget_authority_unconfigured"):
+        budget_authority.authority_sessions(SecretStr(value))
+
+
+@pytest.mark.parametrize("environment", ["development", "test", "production"])
+@pytest.mark.parametrize("host", ["localhost", "127.0.0.1", "[::1]", "authority.example.test"])
+async def test_authority_tls_requires_verified_peer_outside_local_testing(monkeypatch, environment, host):
+    captured = []
+
+    def engine(url, **options):
+        captured.append((url, options))
+        return object()
+
+    monkeypatch.setattr(budget_authority, "_engines", {})
+    monkeypatch.setattr(config, "get_settings", lambda: SimpleNamespace(environment=environment))
+    monkeypatch.setattr(budget_authority, "create_async_engine", engine)
+    budget_authority.authority_sessions(SecretStr(f"postgresql://synthetic@{host}/authority_test?sslmode=disable"))
+    assert len(captured) == 1
+    url, options = captured[0]
+    assert "sslmode" not in url
+    tls = options["connect_args"]["ssl"]
+    local_testing = host != "authority.example.test" and environment in {"development", "test"}
+    if local_testing:
+        assert tls is False
+    else:
+        assert isinstance(tls, ssl.SSLContext)
+        assert tls.check_hostname is True and tls.verify_mode == ssl.CERT_REQUIRED
+
+
+async def test_authority_cache_separates_plaintext_from_production_tls(monkeypatch):
+    stage = {"environment": "development"}
+    created = []
+
+    def engine(url, **options):
+        value = object()
+        created.append((value, options["connect_args"]["ssl"]))
+        return value
+
+    monkeypatch.setattr(budget_authority, "_engines", {})
+    monkeypatch.setattr(config, "get_settings", lambda: SimpleNamespace(**stage))
+    monkeypatch.setattr(budget_authority, "create_async_engine", engine)
+    url = SecretStr("postgresql://synthetic@localhost/authority_test")
+    development = budget_authority.authority_sessions(url)
+    stage["environment"] = "production"
+    production = budget_authority.authority_sessions(url)
+    stage["environment"] = "test"
+    testing = budget_authority.authority_sessions(url)
+    assert len(created) == 2
+    assert development.kw["bind"] is testing.kw["bind"]
+    assert production.kw["bind"] is not development.kw["bind"]
+    assert created[0][1] is False
+    assert isinstance(created[1][1], ssl.SSLContext) and created[1][1].check_hostname
 
 
 async def seed(api, *, outcome, admitted_hours=30, finished_hours=None, amount=LUNA):

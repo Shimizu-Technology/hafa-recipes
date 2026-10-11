@@ -11,13 +11,14 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app import config
 from app.domains.workouts.budget import BudgetError
 
 _engines = {}
 
 
 def authority_sessions(secret):
-    if not isinstance(secret, SecretStr) or not secret.get_secret_value():
+    if not isinstance(secret, SecretStr) or not secret.get_secret_value().strip():
         raise BudgetError("workouts_ai_budget_authority_unconfigured")
     try:
         raw = secret.get_secret_value()
@@ -44,10 +45,11 @@ def authority_sessions(secret):
                 "",
             )
         )
-        # Local is for isolated synthetic tests. Remote authority always verifies TLS,
-        # even when a supplied libpq sslmode asks for something less restrictive.
+        # Only isolated development/test loopback authorities may omit TLS.
+        # Production, including a local tunnel, always verifies its peer.
         local = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
-        identifier = (asyncio.get_running_loop(), raw)
+        allow_local_plaintext = local and config.get_settings().environment in {"development", "test"}
+        identifier = (asyncio.get_running_loop(), raw, allow_local_plaintext)
         if identifier not in _engines:
             _engines[identifier] = create_async_engine(
                 normalized,
@@ -58,7 +60,7 @@ def authority_sessions(secret):
                 pool_timeout=2,
                 pool_pre_ping=True,
                 connect_args={
-                    "ssl": False if local else ssl.create_default_context(),
+                    "ssl": False if allow_local_plaintext else ssl.create_default_context(),
                     "timeout": 5,
                     "command_timeout": 5,
                     "server_settings": {

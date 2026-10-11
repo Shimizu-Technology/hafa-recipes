@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 UNSUPPORTED_ASYNCPG_QUERY_PARAMS = frozenset({"sslmode", "channel_binding"})
@@ -228,6 +228,14 @@ class Settings(BaseSettings):
     workout_extraction_model: str = "gpt-5.6-luna"
     workout_extraction_fallback_model: str = "gpt-5.6-terra"
     workout_coach_model: str = "gpt-5.6-luna"
+
+    @field_validator("workouts_ai_budget_database_url", mode="before")
+    @classmethod
+    def normalize_empty_budget_authority(cls, value):
+        raw = value.get_secret_value() if isinstance(value, SecretStr) else value
+        if isinstance(raw, str) and not raw.strip():
+            return None
+        return value
 
     @model_validator(mode="after")
     def validate_workouts_rollout(self) -> "Settings":

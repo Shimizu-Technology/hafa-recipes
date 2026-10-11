@@ -246,7 +246,10 @@ class BudgetGuard:
     def sessions(self):
         if self.session_factory is not None:
             return self.session_factory  # Trusted, explicit synthetic test injection only.
-        if self.policy.authority_url is None:
+        authority = self.policy.authority_url
+        if authority is None or (
+            isinstance(authority, SecretStr) and not authority.get_secret_value().strip()
+        ):
             raise BudgetError("workouts_ai_budget_authority_unconfigured")
         from app.domains.workouts.budget_authority import authority_sessions
 
