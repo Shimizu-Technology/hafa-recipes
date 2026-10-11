@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+import uvloop
 from capacity import export_jobs_mixed_chat as chat
 from capacity.ci_run import Coordinator
 from capacity.driver import Driver
@@ -548,8 +549,151 @@ def test_component_whitelist_refuses_incomplete_or_false_fixture_evidence(corrup
     elif corruption == "missing_field":
         del value["rows"][0]["accounting_exit_ms"]
     elif corruption == "short_wait":
-        value["rows"][0]["fixture_transport_ms"] = 249
+        value["rows"][0]["fixture_transport_ms"] = 248.999
     assert chat.component_public(value) == {"available": False}
+
+
+@pytest.mark.parametrize(
+    "elapsed,accepted",
+    [
+        (249.0, True),
+        (249.50137501582503, True),
+        (250.0, True),
+        (248.999, False),
+        (0.0, False),
+    ],
+)
+def test_exact_timer_quantization_boundary_in_component_and_public_checks(
+    elapsed, accepted
+):
+    value = component_rows()
+    value["rows"][0]["fixture_transport_ms"] = elapsed
+    rejected = {}
+    snapshot = chat.component_public(value, rejected)
+    rows = [
+        {
+            "ordinal": row["ordinal"],
+            "status": 200,
+            "relative_start_ms": (row["ordinal"] - 1) * 60000,
+            "duration_ms": 1650,
+            **{key: row[key] for key in chat.FIELDS},
+            "overlap_counts": dict.fromkeys(chat.STAGES, 0),
+        }
+        for row in value["rows"]
+    ]
+    public = chat.chat_public({"available": True, "rows": rows})
+    assert snapshot["available"] is public["available"] is accepted
+    assert chat.MIN_OBSERVED_WAIT_MS == 249 and chat.TIMER_QUANTIZATION_MS == 1
+    if accepted:
+        assert (
+            snapshot["rows"][0]["fixture_transport_ms"]
+            == public["rows"][0]["fixture_transport_ms"]
+            == elapsed
+        )
+        assert public["rows"][0]["fixture_requested_wait_ms"] == 250
+    else:
+        assert rejected["code"] == "observed_wait"
+
+
+@pytest.mark.parametrize(
+    "field,value,code",
+    [
+        ("fixture_transport_calls", 0, "transport_calls"),
+        ("fixture_transport_calls", 2, "transport_calls"),
+        ("fixture_requested_wait_ms", 249, "requested_wait"),
+        ("fixture_transport_ms", 248.999, "observed_wait"),
+        ("sdk_body_ms", 249, "body_duration"),
+    ],
+)
+def test_four_wait_predicates_have_distinct_closed_rejections(field, value, code):
+    metadata = component_rows()
+    metadata["rows"][0][field] = value
+    rejected = {}
+    assert chat.component_public(metadata, rejected) == {"available": False}
+    assert rejected == {
+        "boundary": "components",
+        "code": code,
+        "ordinal": 1,
+        "count": 0,
+    }
+    assert chat.rejection_public(rejected) == rejected
+
+
+def test_actual_uvloop_sdk_preserves_real_wait_and_observed_values(
+    setup, monkeypatch, tmp_path
+):
+    app, Tracker, accounted, _ = setup
+    assert uvloop.__version__ == "0.22.1"
+    policy, sleep, clock = (
+        asyncio.get_event_loop_policy(),
+        asyncio.sleep,
+        time.monotonic,
+    )
+
+    async def observe():
+        assert isinstance(asyncio.get_running_loop(), uvloop.Loop)
+        provider = ProviderTransport(delay=0.25)
+        client = AsyncOpenAI(
+            api_key="capacity-not-a-provider-credential",
+            max_retries=0,
+            http_client=httpx.AsyncClient(transport=provider),
+        )
+        assert "chat" not in client.__dict__
+        components = chat.install(app, monkeypatch.setattr)
+        assert "chat" not in client.__dict__
+        try:
+            for _ in range(5):
+                tracker = Tracker(
+                    capability="recipe_chat",
+                    primary_model="gpt-4o-mini",
+                    prompt_version="fixture",
+                    allow_canary=False,
+                )
+                async with tracker:
+                    response = await client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": "You are a recipe cooking assistant",
+                            },
+                            {"role": "user", "content": "How can I prepare this?"},
+                        ],
+                    )
+                    tracker.succeed(response)
+                assert chat.active.get() is None and not hasattr(
+                    tracker, "_capacity_chat_pairs"
+                )
+            assert (
+                provider.delay == 0.25 and provider.calls["chat"] == len(accounted) == 5
+            )
+            snapshot = components.snapshot()
+            assert snapshot["available"] and len(asyncio.all_tasks()) == 1
+            for raw, clean in zip(components.rows, snapshot["rows"]):
+                assert (
+                    clean["fixture_transport_ms"] == raw["fixture_transport_ms"] >= 249
+                )
+                assert (
+                    clean["fixture_requested_wait_ms"] == 250
+                    and clean["fixture_transport_calls"] == 1
+                )
+            return snapshot
+        finally:
+            await client.close()
+
+    with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
+        snapshot = runner.run(observe())
+    path, samples, _ = trace_fixture(tmp_path)
+    diagnosis = chat.chat_trace(samples, path, snapshot)
+    assert diagnosis["available"]
+    assert [row["fixture_transport_ms"] for row in diagnosis["rows"]] == [
+        row["fixture_transport_ms"] for row in snapshot["rows"]
+    ]
+    assert (
+        asyncio.get_event_loop_policy() is policy
+        and asyncio.sleep is sleep
+        and time.monotonic is clock
+    )
 
 
 @pytest.mark.parametrize(

@@ -16,6 +16,13 @@ FIELDS = (
     "fixture_requested_wait_ms",
     "fixture_transport_calls",
 )
+# uvloop0.22.1 uses integer-ms timers and refreshes uv_now before starting
+# them (loop.pyx call_later; handles/timer.pyx UVTimer.start). A requested
+# 250ms sleep can finish just under250ms on our higher-resolution clock.
+# Keep the measured value; this bound validates diagnostic consistency only.
+TIMER_QUANTIZATION_MS = 1.0
+REQUESTED_WAIT_MS = 250.0
+MIN_OBSERVED_WAIT_MS = REQUESTED_WAIT_MS - TIMER_QUANTIZATION_MS
 STAGES = {
     "gc_pause",
     "loop_lag",
@@ -29,7 +36,18 @@ REJECTIONS = {
     "none": {"none"},
     "unknown": {"unavailable"},
     "checkpoint": {"missing"},
-    "components": {"count", "shape", "ordinal", "incomplete", "fields", "wait"},
+    "components": {
+        "count",
+        "shape",
+        "ordinal",
+        "incomplete",
+        "fields",
+        "wait",
+        "transport_calls",
+        "requested_wait",
+        "observed_wait",
+        "body_duration",
+    },
     "trace": {"samples", "source", "bounds", "pairing", "count", "format"},
     "stages": {"bounds", "failed", "fields"},
     "public": {"shape"},
@@ -90,6 +108,19 @@ def number(value):
     return type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 1e15
 
 
+def wait_rejection(row):
+    """Four independent checks; never round observed time to the requested wait."""
+    if row["fixture_transport_calls"] != 1:
+        return "transport_calls"
+    if row["fixture_requested_wait_ms"] != REQUESTED_WAIT_MS:
+        return "requested_wait"
+    if row["fixture_transport_ms"] < MIN_OBSERVED_WAIT_MS:
+        return "observed_wait"
+    if row["sdk_body_ms"] < row["fixture_transport_ms"]:
+        return "body_duration"
+    return None
+
+
 class Components:
     def __init__(self, clock=time.monotonic):
         self.clock = clock
@@ -144,13 +175,8 @@ def component_public(value, rejection=None):
                 or type(row.get("fixture_transport_calls")) is not int
             ):
                 return reject(rejection, "components", "fields", ordinal=ordinal)
-            if (
-                row["fixture_transport_calls"] != 1
-                or row["fixture_requested_wait_ms"] != 250
-                or row["fixture_transport_ms"] < 250
-                or row["sdk_body_ms"] < row["fixture_transport_ms"]
-            ):
-                return reject(rejection, "components", "wait", ordinal=ordinal)
+            if code := wait_rejection(row):
+                return reject(rejection, "components", code, ordinal=ordinal)
             clean.append(
                 {
                     "ordinal": ordinal,
@@ -399,11 +425,8 @@ def chat_public(value):
             if (
                 any(not number(row.get(key)) for key in fields)
                 or row["duration_ms"] <= 0
-                or row["fixture_transport_calls"] != 1
                 or type(row["fixture_transport_calls"]) is not int
-                or row["fixture_requested_wait_ms"] != 250
-                or row["fixture_transport_ms"] < 250
-                or row["sdk_body_ms"] < row["fixture_transport_ms"]
+                or wait_rejection(row) is not None
             ):
                 return {"available": False}
             overlaps = {stage: row["overlap_counts"][stage] for stage in sorted(STAGES)}

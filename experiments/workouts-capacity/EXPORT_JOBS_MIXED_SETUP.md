@@ -1,8 +1,8 @@
 # Background export under a matching Recipes workload
 
-Local source `ee95cd2e513d198b190f23107d3b076f1f6e8695` passed 62 focused timing/chat tests and 385 full harness tests without skips, including the timeout-classification fix and chat observations. AST/Ruff/format/diff checks and independent source/context/fixture review passed. Earlier `44ef6e1180d43ee1606ca1149c7f8c7072b57979` passed 40 focused diagnostic and 348 full harness tests. These are exact tested sources; subsequent changes require their own affected local gates before a hosted experiment.
+Local source `c6d4a14d9c1784bafb65a722e90468b4396725eb` passed 77 focused timing/chat tests and 400 full harness tests without skips, including the complete observation path and rejection codes. AST/Ruff/format/diff checks and independent source/context/fixture review passed. Earlier `ee95cd2e513d198b190f23107d3b076f1f6e8695` passed 62 focused timing/chat and 385 full harness tests; `44ef6e1180d43ee1606ca1149c7f8c7072b57979` passed 40 focused diagnostic and 348 full harness tests. These are exact tested sources; subsequent changes require their own affected local gates before a hosted experiment.
 
-Three hosted failed receipts remain immutable. Run `38106174584` at `316e044db00cc46c6fad45929f6aca69a43aeca1` passed the Recipes baseline but failed mixed relative Recipes latency and an individual-page `/up` witness. Run `38112155265` at `44ef6e11` failed baseline chat p95 at 1,654.883ms against the unchanged 1,000ms write limit. Run `38118689517` at `ee95cd2e` failed the same baseline gate at 1,163.880ms; its chat component diagnosis was unavailable. Neither of the latter runs executed mixed traffic. Their other baseline gates and cleanup passed. No component cause or production optimization is established by these failures.
+Four hosted failed receipts remain immutable. Run `38106174584` at `316e044db00cc46c6fad45929f6aca69a43aeca1` passed the Recipes baseline but failed mixed relative Recipes latency and an individual-page `/up` witness. Run `38112155265` at `44ef6e11` failed baseline chat p95 at 1,654.883ms against the unchanged 1,000ms write limit. Run `38118689517` at `ee95cd2e` failed the same baseline gate at 1,163.880ms; its chat component diagnosis was unavailable. Neither of those two runs executed mixed traffic. Their other baseline gates and cleanup passed. Run `38123145272` at `c6d4a14d` passed baseline, then failed all four protected relative p95 checks and individual-page witness checks in cycles two, four and five. Its absolute latency, full export content/identity/AES/ACK/cancellation, memory, actual tails and cleanup passed. Both phases rejected chat observations at component wait-consistency validation. No production optimization is established by these results.
 
 The branch starts at `7b35c34b8ac135c687437ef9a6e92d334504fc8e` and preserves existing profiles and receipts. The synchronous 1.810-second admission remains failed. Production is unchanged and R04 remains open.
 
@@ -72,3 +72,24 @@ original status schema through actual driver checkpoint, report and trace
 validation, including 813 requests and 1,626 trace lines. It also injects
 component, missing-checkpoint and trace faults into this complete observation
 path. This is pure fixture verification, not hosted offered-load acceptance.
+
+The pinned API command lets Uvicorn select installed uvloop 0.22.1. That version
+rounds timer delays to integer milliseconds (`loop.pyx` `call_later`) and refreshes
+`uv_now` immediately before starting the timer (`handles/timer.pyx` `UVTimer.start`).
+A private 30-call local SDK/transport/tracker probe at c6d4 used five default-loop
+and 25 uvloop calls. One uvloop call measured 249.501375ms despite requested 250ms,
+one transport call and SDK/body duration at least the transport duration; the
+old 250ms diagnostic floor rejected it. The other three wait predicates did not
+fail. This is macOS ARM64/CPython 3.12.8 evidence, not a raw hosted Linux
+subpredicate observation or a production latency result.
+
+The diagnostic validators allow only the bounded one-millisecond timer
+quantization, keeping the actual observed duration unchanged: requested wait
+must remain 250ms, exactly one transport call is required, observed duration
+must be at least 249ms and SDK/body duration must encompass it. Values below
+that floor, changed requests, extra/missing calls and inconsistent nesting
+remain unavailable. Four distinct closed codes identify those checks; legacy
+`wait` remains readable for preserved receipts. The producer still executes
+the original 250ms request, with no added sleep, clock or SDK cache changes.
+This corrects diagnostic validation; all workload, latency, relative, memory,
+concurrency and deadline acceptance limits remain unchanged.
