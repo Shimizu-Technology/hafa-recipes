@@ -67,21 +67,52 @@ Doctor passed 21/21 checks. The runtime audit found zero unexpected advisories
 within the existing dated dependency exceptions. iOS/Android/web exports with
 source maps and native bundle selection checks passed. The maps select the
 Android document adapter and the existing iOS native sharing adapter separately.
-These results cover JavaScript/types/bundles; they do not compile or accept the
-new Android module. Fresh autolinking, native tests and an APK built from the final
-source are still required. The previous development APK does not prove the new ABI.
+These results cover JavaScript/types/bundles. Fresh Android generation/autolinking
+then passed at the results-only descendant `bdfa58a`, with the Workouts identity
+and package/config/lock bytes preserved. The first Gradle configuration attempt
+failed because the local library lacked required Android version metadata;
+`542f28378bf6fe1bfbbdb614dcfbd8fc849395e5` added only versionCode 1/versionName 1.0.0.
+The original failure is retained separately from the successful retest.
 
 The executed JavaScript regressions cover source cleanup after deferred copy/close,
 cancelled selection, missing module, stale scope and privacy, modal-background
 versus disposal, interrupted-save recovery and simultaneous destination/source
 cleanup failures, preserving safe primary errors and truthful Android/iOS results.
-Prepared native regressions cover exact bounded stream bytes, oversize/truncated
+Executed native host regressions cover exact bounded stream bytes, oversize/truncated
 sources, open/write/flush/close/cancellation errors, errors consumed before close,
 errors cached during close, orderly teardown with queued work, and an unknown
 picker that cannot supply a future callback. An API36 instrumentation regression
 uses real reliable socket descriptors and a fixed synthetic peer failure; it
-opens no document/provider/UI. Native JVM and descriptor instrumentation tests
-remain NOT_RUN, as do all actual Android destination/provider/UI scenarios.
+opens no document/provider/UI. At exact `542f283`, all 16 host tests passed across
+three suites: 9 copy, 3 executor, and 4 peer-error tests; zero failures/errors/skips. This executes
+JVM logic, not the real Android descriptor instrumentation or document picker.
+
+The same authorized retest compiled the instrumentation APK and fresh arm64 app
+APK under JDK 17, 4 GiB heap/1 GiB metaspace, Kotlin in-process and two Gradle workers.
+Every stage stayed within its 900-second bound, with no retry or tracked drift.
+The app package is `com.shimizutechnology.hafaworkouts`, version 1/1.0.0,
+minimum SDK 26/compile-target SDK 36. Its 100,740,082-byte APK has SHA256
+`8d0f53edbe0de89642dc0a6c78307d101c33428fd4bc9323ddf9ba4078326899` and contains
+arm64-v8a libraries plus all five document-save classes in DEX. It contains no
+bundled JavaScript; future Metro must serve this document-save source or its
+verified integration, rather than the older 8fe client source.
+
+The 180,048,458-byte instrumentation APK has SHA256
+`02b47afd4335f0b96c1a47b84a765978bd0629c83d17f501202a1270a716b974`.
+Its package/target is `com.shimizutechnology.hafadocumentsave.test`, runner
+`android.test.InstrumentationTestRunner`, class
+`com.shimizutechnology.hafadocumentsave.DocumentDescriptorTest` (two descriptor
+tests). It packages four dependency ABIs; that does not establish the app release
+matrix. Compiler warnings retain the deprecated SDK test harness and inherited
+Expo/React Native API/unchecked-cast/Gradle deprecations; no dependency upgrade or
+unrelated source change was made to silence them.
+
+Neither APK is installed. Descriptor instrumentation is NOT_RUN, as are all nine
+actual Android destination/provider/UI acceptance scenarios. This arm64
+development compilation does not establish a full release matrix, store signing,
+upload, tester delivery, or accepted device behavior. Artifacts/failure logs stay
+private and ignored; owned finite wrappers/JVMs ended and were released, with
+canonical lifecycle status showing no active owned resources.
 
 Actual Android acceptance must verify a local selected destination's full bytes,
 filename-collision behavior without changing the existing file, cancelled
