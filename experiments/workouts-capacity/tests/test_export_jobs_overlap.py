@@ -34,8 +34,12 @@ def test_positive_overlap_is_derived_from_both_time_origins_not_driver_flags():
     )
     value["job_outcome"]["protected_reads_during_build"] = False
     assert analyze(value)["responsive_concurrency"]
-    value["metrics"]["origin_timestamp"] += 1
-    assert not analyze(value)["protected_reads_during_build"]
+    # Align build to1500–1600ms, independently between the1010/2005ms reads.
+    value["metrics"]["origin_timestamp"] += 0.5
+    shifted = analyze(value)
+    assert shifted["overlap_counts"]["build"] == dict.fromkeys(READS, 0)
+    assert shifted["overlap_counts"]["pages"] == dict.fromkeys(READS, 1)
+    assert not shifted["protected_reads_during_build"]
 
 
 @pytest.mark.parametrize(
@@ -205,8 +209,10 @@ async def test_exactly_two_rounds_move_and_all_later_absolute_turns_are_preserve
         await Driver.lightweight(probe, index, mixed)
 
     probe.lightweight = lightweight
-    monkeypatch.setattr(module.time, "monotonic", lambda: clock.now)
-    monkeypatch.setattr(module.asyncio, "sleep", clock.sleep)
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: clock.now))
+    monkeypatch.setattr(
+        module, "asyncio", SimpleNamespace(sleep=clock.sleep, timeout=asyncio.timeout)
+    )
 
     async def signal(event, at):
         await clock.sleep(at)
@@ -257,15 +263,21 @@ async def test_cancelled_barrier_reader_never_issues_or_restores_a_round(monkeyp
     async def sleep(_):
         clock.now = 48
 
-    monkeypatch.setattr(module.time, "monotonic", lambda: clock.now)
-    monkeypatch.setattr(module.asyncio, "sleep", sleep)
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: clock.now))
+    monkeypatch.setattr(
+        module, "asyncio", SimpleNamespace(sleep=sleep, timeout=asyncio.timeout)
+    )
     task = asyncio.create_task(JobsProbe.readers(probe, 0))
     # First three normal rounds finish; round3 awaits the real build signal.
-    await asyncio.wait_for(asyncio.shield(_wait_registered(task, calls)), 1)
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    assert len(calls) == 3 and not probe.build_signal.is_set()
+    try:
+        await asyncio.wait_for(_wait_registered(task, calls), 1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert len(calls) == 3 and not probe.build_signal.is_set()
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 async def _wait_registered(task, calls):
