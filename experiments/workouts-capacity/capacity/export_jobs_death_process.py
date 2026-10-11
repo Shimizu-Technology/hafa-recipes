@@ -72,9 +72,7 @@ def validate_child(record, current, owned_pid, *, inspect=process_start):
     require(inspect(owned_pid) == record["start"])
 
 
-def signal_child(
-    record, current, owned_pid, sig, *, inspect=process_start, send=os.kill
-):
+def signal_child(record, current, owned_pid, sig, *, send, inspect=process_start):
     require(sig in {signal.SIGSTOP, signal.SIGKILL})
     validate_child(record, current, owned_pid, inspect=inspect)
     send(owned_pid, sig)

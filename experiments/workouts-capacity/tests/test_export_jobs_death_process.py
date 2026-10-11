@@ -118,6 +118,13 @@ def test_missing_current_namespace_denies_validation():
         validate_child(record, current, 47, inspect=lambda _: "100")
 
 
+def test_missing_signal_transport_cannot_fall_back_to_numeric_pid(monkeypatch):
+    record, current = identities()
+    monkeypatch.setattr("os.kill", lambda *_: pytest.fail("numeric PID fallback"))
+    with pytest.raises(TypeError, match="send"):
+        signal_child(record, current, 47, signal.SIGKILL, inspect=lambda _: "100")
+
+
 def test_pidfd_binding_keeps_live_direct_child_and_start_identity():
     closed = []
     bound = bind_child(

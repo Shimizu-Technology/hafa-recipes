@@ -78,6 +78,31 @@ The child never cooperatively acknowledges source end on the success path.
 
 ## Cleanup and remaining gates
 
+`capacity.export_jobs_death_local` now prepares the filtered local ARM plan. Run
+its `--prepare` mode with repository, fresh output directory, unique run ID and
+the verified active Docker context (`desktop-linux` or `orbstack`). Preparation
+starts nothing: it records the commit, every context file hash, API parity against
+the explicit reference, requirements/env hashes and selected bounded commands.
+Root must inspect `linux-death-plan.json` and its SHA256 before authorizing
+`--execute --approved-plan-sha <reviewed hash> --session <lifecycle session>`.
+Claim the external finite runner process before entering execute mode.
+
+Execute mode requires the same clean source/context/environment and native ARM
+host/daemon, installs the actual pip graph, seeds190+190 rows and starts no API
+server. It uses the existing exact-label Ledger. Full64-character identities stay
+in that ledger; ordinary helper claims/releases use the validated unique12-character
+collector ID. Every short-lived container waits at a start gate until its claim
+succeeds. Safety rejection or uncertain lifecycle completion aborts execution;
+no override or automatic retry is supplied.
+
+The runner bounds setup/runtime to1000 seconds, with a separate120-second exact
+cleanup budget; build600, inventory60, PG readiness30, seed180 and driver130-second
+stage maxima remain inside that whole budget. SIGTERM raises into its cleanup
+finally. The driver retains its inner100-second bound. The external owner must
+still perform exact ledger cleanup and reconcile lifecycle records after an
+uncatchable runner kill or machine interruption; no program can promise cleanup
+after those events. Images/build cache remain available and are not pruned.
+
 The parent kills/reaps only its bound child, checking exact identity for scenario
 signals, stops only its own worker and disposes its engine. If binding fails,
 outer exact container cleanup must end the child. A helper failure may

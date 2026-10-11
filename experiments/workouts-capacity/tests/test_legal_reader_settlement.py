@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -94,16 +95,40 @@ async def test_interruption_settles_and_saves_cancelled_request_as_failure(
     monkeypatch.setattr(
         legal_driver, "DRAIN_SECONDS", 0.02 if interruption == "drain_deadline" else 30
     )
-    monkeypatch.setattr(
-        legal_driver, "LOAD_SECONDS", 0.05 if interruption == "load_deadline" else 300
-    )
+    monkeypatch.setattr(legal_driver, "LOAD_SECONDS", 300)
+    scopes = []
+    if interruption == "load_deadline":
+
+        def capture_timeout(seconds):
+            scope = asyncio.timeout(seconds)
+            scopes.append(scope)
+            return scope
+
+        # Keep the real timer/cancellation implementation, but schedule expiry
+        # after the held request exists instead of racing a50ms wall clock.
+        monkeypatch.setattr(
+            legal_driver,
+            "asyncio",
+            SimpleNamespace(**{**vars(asyncio), "timeout": capture_timeout}),
+        )
     output = tmp_path / "legal.json"
     task = asyncio.create_task(legal_driver.run(tmp_path, output))
-    await asyncio.wait_for(final.wait(), 2)
-    if interruption == "cancel":
-        task.cancel()
-    with pytest.raises((TimeoutError, asyncio.CancelledError)):
-        await asyncio.wait_for(task, 2)
+    try:
+        await asyncio.wait_for(final.wait(), 2)
+        if interruption == "cancel":
+            task.cancel()
+        elif interruption == "load_deadline":
+            assert len(scopes) == 1
+            scopes[0].reschedule(asyncio.get_running_loop().time())
+        with pytest.raises((TimeoutError, asyncio.CancelledError)):
+            await asyncio.wait_for(task, 2)
+        if interruption == "load_deadline":
+            assert scopes[0].expired()
+    finally:
+        _release.set()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
     after = json.loads(output.read_text())
     assert not after["completed"] and after["failure_type"] == "matrix_incomplete"
     assert after["routes"]["/up"]["statuses"]["0"] == 1
