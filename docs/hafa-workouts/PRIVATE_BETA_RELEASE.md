@@ -2,16 +2,19 @@
 
 This integration starts directly at production/main
 `823986f48e4eb5de3075969a742f834036b5d473`. It combines the reviewed pre045 API
-with the existing signed Workouts iPhone client, without merging experimental
+with the Workouts iPhone client and its reviewed account-recovery correction, without merging experimental
 branch ancestry or changing the Recipes mobile, web, admin or Render configuration.
 
 ## Frozen source
 
 - API source: `253660117800ffd83494d91230beb199851ec427`, tree
   `de2fc100bc634cde5e51c3a3d6e7e0d3fefb9eb9` (335 files).
-- Workouts native source: signed `eccf4b5e0fea658dead37fa04395c703ee265b92`, tree
-  `a388a03ec3c15685e2d5103976e0f82c0f18fa0c` (208 files). This folder is byte
-  identical to PR146 `02d255a49903b69788645ac52f8214b901c9f4a8`.
+- Workouts native source: `325cde603a2246d2e36bb9bc58bc184ba9e2656b`, tree
+  `a132a86eeaee7afa8485f42577b5d34c945c0acb`. PR157 merged this correction
+  into integration `b8cb96418732c69be0e9d7c189140579aa2f228b`. Compared with
+  signed build2 source `eccf4b5e0fea658dead37fa04395c703ee265b92`, only the
+  training provider and its tests changed. Native modules, signing configuration,
+  dependencies and production build settings remain identical.
 - CI and `scripts/check.sh` retain the existing Recipes gates and add only the
   reviewed native gate from PR146: tests, types, Doctor, runtime audit, exports
   and native bundle checks.
@@ -49,11 +52,33 @@ An independent nonauthor review of exact `860a108` completed without material
 findings. CodeRabbit's automatic attempt explicitly skipped 337 reviewable files
 against its configured 100-file limit; this is neither a completed bot review nor
 approval. No duplicate request or paid upgrade was made. All five CI jobs passed
-on `860a108`. A later documentation-only head retains the frozen API/native trees;
-the executed gate source is `860a108`, not a claim that the later whole Git head
-was tested. The signed iOS 1.0.0(2) build was uploaded and processed for TestFlight;
-actual device, configuration, capacity and rollback acceptance remain pending.
-Android/device and full public acceptance remain separate.
+on `860a108`. The full combined gate remains pinned to that source; later
+native acceptance is recorded separately below. The signed iOS1.0.0(2) build
+was uploaded and processed for TestFlight. Updated build3 is in progress from
+`b8cb964`; processing and tester availability must be verified after submission.
+Physical device, production sign-in, capacity and rollback acceptance remain
+pending. Android/device and full public acceptance remain separate.
+
+PR157 provides a clear401/403 message and captured-session sign-out when private
+training is blocked. It preserves owner drafts and clears only that account's
+query cache. CodeRabbit found that a failed identity refetch could retain earlier
+successful data; deny-first owner selection now closes private consumers even
+when TanStack retains that data. Both401/403 regressions and the affected native
+gate passed:419 tests, types, Doctor21/21, audit with zero unexpected findings,
+three-platform exports and native bundle checks. Root independently reviewed the
+final correction. CodeRabbit explicitly confirmed the fix and resolved its Major
+thread; its final incremental review was rate limited, not approved. All five
+CI jobs passed on `325cde6` before the child PR merged into this release branch.
+
+Agent-executed iPhone18.5 QA used a compatible development shell, development
+Clerk and isolated local data. Account denial/sign-out/relogin preserved the
+profile and exactly one synced session. A manual workout retained unknown
+prescribed reps and Bodyweight equipment; its two actual sets contained8 and7
+reps. The legacy private JSON export opened the share sheet; cancellation removed
+the temporary file and server snapshot/pages. Final native source was reloaded
+and account recovery repeated with an already enrolled account. All owned local
+UI resources were physically cleaned. These checks do not establish physical
+TestFlight or production SSO acceptance.
 
 Private-beta capacity acceptance requires a fresh matching isolated OFF baseline
 and enabled candidate: absolute protected-read p95 ≤100 ms, relative p99 ≤2× that
