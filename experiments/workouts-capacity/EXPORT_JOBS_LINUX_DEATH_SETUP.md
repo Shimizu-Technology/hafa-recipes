@@ -32,6 +32,13 @@ The child never cooperatively acknowledges source end on the success path.
    graph. Native Linux x86 is preferred for parity; local ARM Linux, if separately
    authorized, establishes only the kernel identity behavior for that architecture.
    Do not claim Render or hosted parity from an emulated/local test.
+   The local build overrides only its Python base argument with official native
+   ARM `docker.io/library/python@sha256:739ba32ae445e8d58f3d90feb85f83bebc8346f8dd280fa1eb5848f4ff1ed163`,
+   config `sha256:eb7d16fec874f15b584063275012ac719885a2b87574d124c0da9c156d504629`,
+   LinuxARM64/PYTHON_VERSION3.12.15. Its immutable source/config/platform/version
+   is checked before build. The generic x86 CI PYTHON_BASE stays unchanged.
+   The final running interpreter must independently report aarch64/3.12.15 and
+   pass every active requirements pin; an ARM image label does not qualify it.
 3. Create an exact owned internal Docker network and fresh tmpfs PostgreSQL15
    container/database, with no host-port publication. Reuse the plan's loopback
    fixture URI `hafa_workouts_capacity_test` only inside that new environment.
@@ -126,6 +133,13 @@ failed before DB startup because the generic x86 PostgreSQL digest was AMD64.
 That failed receipt is preserved; seed, pin inventory and kernel cases were
 NOT_RUN. Selecting a corrected immutable ARM DB image requires a fresh reviewed
 plan and separately authorized execution, not an automatic retry.
+The subsequent858 attempt passed the corrected database setup but failed the
+actual interpreter architecture check: the inherited Python base was also AMD64,
+despite ARM app image metadata. Its receipt and warning remain preserved; seed
+and kernel cases stayed NOT_RUN. Native Python selection adds another120-second
+pull stage inside the same whole budget, with no weakening of actual runtime
+qualification and no automatic retry. Correct native platform dependencies may
+need rebuilding; caches for incompatible x86 layers do not establish ARM parity.
 
 The parent kills/reaps only its bound child, checking exact identity for scenario
 signals, stops only its own worker and disposes its engine. If binding fails,

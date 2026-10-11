@@ -30,6 +30,9 @@ from capacity.export_jobs_death_postgres import (
     local_pg_argv,
     verify_pg_image,
 )
+from capacity.export_jobs_death_python import ARM_IMAGE as PYTHON_ARM_IMAGE
+from capacity.export_jobs_death_python import SOURCE as PYTHON_SOURCE
+from capacity.export_jobs_death_python import local_build_argv, verify_base_image
 from capacity.plan import build_plan
 from capacity.safety import ensure
 
@@ -64,6 +67,7 @@ BOOL_KEYS = {
 PROBE = """import hashlib,importlib.metadata,json,platform
 from pathlib import Path
 from pip._vendor.packaging.requirements import Requirement
+from capacity.export_jobs_death_python import verify_runtime
 text=Path('/api/requirements.txt').read_text(); pins={}
 for line in text.splitlines():
  line=line.strip()
@@ -73,7 +77,7 @@ for line in text.splitlines():
   v=importlib.metadata.version(r.name)
   assert r.specifier.contains(v,prereleases=True)
   pins[r.name.lower()]=v
-assert platform.machine()=='aarch64'
+verify_runtime(platform.machine(),platform.python_version())
 print(json.dumps({'architecture':platform.machine(),'python':platform.python_version(),'requirements_sha256':hashlib.sha256(text.encode()).hexdigest(),'packages':pins},sort_keys=True))
 """
 START_GATE = """import os,sys,time
@@ -254,6 +258,15 @@ def prepare(repository, output, run_id, binding, api_reference):
         plan["commands"]["start_owned_postgres"]
     )
     plan["postgres_source"] = dict(SOURCE)
+    plan["commands"]["build_after_root_inspection"] = local_build_argv(
+        plan["commands"]["build_after_root_inspection"]
+    )
+    plan["python_source"] = dict(PYTHON_SOURCE)
+    plan["python_pull_argv"] = selected(
+        ["docker", "pull", "--platform", "linux/arm64", PYTHON_ARM_IMAGE],
+        binding["context"],
+    )
+    plan["deadlines_seconds"]["python_pull"] = 120
     plan["postgres_pull_argv"] = selected(
         ["docker", "pull", "--platform", "linux/arm64", ARM_IMAGE], binding["context"]
     )
@@ -277,6 +290,11 @@ def validate_plan(repository, output, approved_sha):
     plan = json.loads(path.read_text())
     validate_shape(plan["docker_binding"])
     require(plan["postgres_source"] == SOURCE)
+    require(plan["python_source"] == PYTHON_SOURCE)
+    require(
+        "PYTHON_BASE=" + PYTHON_ARM_IMAGE
+        in plan["commands"]["build_after_root_inspection"]
+    )
     require(plan["commands"]["start_owned_postgres"][-1] == ARM_IMAGE)
     require(not plan["executed"] and plan["platform"] == "linux/arm64")
     require(git(repository, "rev-parse", "HEAD") == plan["candidate_commit"])
@@ -506,6 +524,16 @@ class LocalRunner:
             require(platform.machine() == "arm64")
             self.verify_environment()
             commands, limits = self.plan["commands"], self.plan["deadlines_seconds"]
+            # A declared ARM app label cannot qualify an x86 base/interpreter.
+            self.command(self.plan["python_pull_argv"], limits["python_pull"])
+            python_image = json.loads(
+                self.command(["docker", "image", "inspect", PYTHON_ARM_IMAGE])
+            )
+            require(len(python_image) == 1)
+            self.result["python_source"] = verify_base_image(python_image[0])
+            (self.output / "linux-death-python-base-inventory.json").write_text(
+                encoded(self.result["python_source"])
+            )
             # Refuse an incompatible DB image BEFORE build/network/DB startup.
             self.command(self.plan["postgres_pull_argv"], limits["postgres_pull"])
             pg_image = json.loads(
