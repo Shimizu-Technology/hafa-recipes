@@ -21,8 +21,8 @@ Workouts setup from app/seed/observer. SHA256 checks cover every retained adapte
 module and the synthetic fixture bytes. Fuzzed patches are refused.
 
 The direct script builds one native x86 image with the existing pinned Python
-base, API requirements and FFmpeg version. Its fixture generator additionally
-needs `pypdf==6.20.0`, absent from the Recipes dependency list. A harness-only
+base, API requirements and FFmpeg version. Its unchanged seed helper imports
+`pypdf==6.20.0`, absent from the Recipes dependency list. A harness-only
 wheel-hash pin installs that one package with no dependency resolution; no
 production lock or requirement changes. Main and candidate use that identical
 image, adapter and read-only fixtures, with their own read-only application
@@ -46,6 +46,16 @@ failure remain explicit. Raw bodies, database contents, fixture payloads and
 runtime logs are not uploaded. Containers are removed only after their exact
 IDs/labels match; the internal network is removed only after its label matches.
 No shared resource or image cache is pruned.
+
+The first hosted run38159665938 failed the original fixture-byte preflight
+before starting either workload. Its generic assertion did not identify which
+regenerated file differed. That failure remains recorded; no expected hash was
+replaced. The diagnostic now carries the ten original generated synthetic test
+files in a hash-pinned archive. Extraction admits only those regular filenames
+and checks every original size/SHA before either phase. These files contain
+synthetic test patterns/text, not application binaries or user data. Both native
+x86 phases therefore use the exact original media instead of relying on
+cross-platform encoding to reproduce its bytes.
 
 Local source/structure checks do not establish hosted acceptance. A passing
 candidate comparison cannot turn a failed main memory control into a pass,

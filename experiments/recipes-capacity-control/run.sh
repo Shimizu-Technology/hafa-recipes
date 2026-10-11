@@ -94,15 +94,26 @@ image=$(timeout 10s docker image inspect --format '{{.Id}}' "$run")
 network="$run"
 timeout 15s docker network create --internal --label "hafa.capacity.run=$run" "$network" >"$work/network-id.txt"
 labels=(--label "hafa.capacity.run=$run" --label "hafa.capacity.owner=$owner")
-finite=$(timeout 15s docker run -d "${labels[@]}" --network none --env-file "$work/fixture.env" -v "$work/fixtures:/fixtures" -e PYTHONPATH=/harness:/api "$image" python -m capacity.fixtures /fixtures)
-[[ "$(timeout 120s docker wait "$finite")" == 0 ]]
-owned_remove "$finite"; finite=
-python3 - "$control/fixture-sha256.json" "$work/fixtures" <<'PY'
-import hashlib,json,sys
+python3 - "$control/fixture-sha256.json" "$control/fixtures.tar.gz" "$work/fixtures" <<'PY'
+import hashlib,json,sys,tarfile
 from pathlib import Path
 manifest=json.loads(Path(sys.argv[1]).read_text())
+archive=Path(sys.argv[2]); target=Path(sys.argv[3])
+assert hashlib.sha256(archive.read_bytes()).hexdigest()=='36462237e1e4b585364ded88480640ea86eabba8b35738647954871f1c5c1e08','fixture_archive_hash'
+# Only the ten original regular files are admitted; no path/link extraction.
+with tarfile.open(archive,'r:gz') as packed:
+    members=packed.getmembers()
+    assert len(members)==len(manifest) and {m.name for m in members}==set(manifest),'fixture_archive_names'
+    for member in members:
+        assert member.isfile() and member.size==manifest[member.name]['bytes'],member.name
+        payload=packed.extractfile(member)
+        assert payload is not None,member.name
+        with payload, (target/member.name).open('xb') as output:
+            while chunk:=payload.read(65536):output.write(chunk)
 for name,item in manifest.items():
-    p=Path(sys.argv[2])/name;assert p.stat().st_size==item['bytes'];assert hashlib.sha256(p.read_bytes()).hexdigest()==item['sha256']
+    p=target/name
+    assert p.stat().st_size==item['bytes'],f'fixture_size:{name}'
+    assert hashlib.sha256(p.read_bytes()).hexdigest()==item['sha256'],f'fixture_hash:{name}'
 PY
 # Fresh identical database per source avoids old completed-job/cache contamination.
 for source in main candidate; do

@@ -51,3 +51,6 @@ mobile/android/
 *.tar
 *.tar.gz
 *.zip
+
+# Exact synthetic acceptance inputs, not application/release build output.
+!/experiments/recipes-capacity-control/fixtures.tar.gz
