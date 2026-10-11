@@ -56,20 +56,32 @@ success does not claim cloud synchronization or physical-storage durability.
 
 ## Acceptance still required
 
-Source and tests are prepared; no test/build/UI result is claimed by this note.
-The new Android module requires fresh autolinking and an APK built from the final
-source. The previous development APK does not prove the new ABI.
+At source `7ab88f89707f9b588fb61679104a76defe5beb72`, the first focused gate passed
+91 tests in five files, and a separate TypeScript typecheck passed with no
+diagnostics. The full Workouts suite then passed 377 tests in 42 files, including
+the real continuity bridge against integration API `8fe483f` and its verified
+Render-pinned Python dependency environment. All commands used isolated Node
+22.22.3 and their explicit time limits; no retry or dependency sync was needed.
 
-Focused automated gates cover source cleanup after deferred copy/close,
+Doctor passed 21/21 checks. The runtime audit found zero unexpected advisories
+within the existing dated dependency exceptions. iOS/Android/web exports with
+source maps and native bundle selection checks passed. The maps select the
+Android document adapter and the existing iOS native sharing adapter separately.
+These results cover JavaScript/types/bundles; they do not compile or accept the
+new Android module. Fresh autolinking, native tests and an APK built from the final
+source are still required. The previous development APK does not prove the new ABI.
+
+The executed JavaScript regressions cover source cleanup after deferred copy/close,
 cancelled selection, missing module, stale scope and privacy, modal-background
-versus disposal, interrupted-save recovery, exact bounded stream bytes,
-oversize/truncated sources, and open/write/flush/close/cancellation errors.
-Prepared native regressions cover errors consumed before close, errors cached
-during close, orderly executor teardown with queued work, and an unknown picker
-that cannot supply a future callback. An API36 instrumentation regression uses
-real reliable socket descriptors and a fixed synthetic peer failure; it opens no
-document/provider/UI. Simultaneous destination and private-source cleanup failures
-are covered by prepared Android/iOS adapter tests. None has run yet.
+versus disposal, interrupted-save recovery and simultaneous destination/source
+cleanup failures, preserving safe primary errors and truthful Android/iOS results.
+Prepared native regressions cover exact bounded stream bytes, oversize/truncated
+sources, open/write/flush/close/cancellation errors, errors consumed before close,
+errors cached during close, orderly teardown with queued work, and an unknown
+picker that cannot supply a future callback. An API36 instrumentation regression
+uses real reliable socket descriptors and a fixed synthetic peer failure; it
+opens no document/provider/UI. Native JVM and descriptor instrumentation tests
+remain NOT_RUN, as do all actual Android destination/provider/UI scenarios.
 
 Actual Android acceptance must verify a local selected destination's full bytes,
 filename-collision behavior without changing the existing file, cancelled
