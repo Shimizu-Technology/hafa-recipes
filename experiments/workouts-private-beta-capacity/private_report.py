@@ -20,8 +20,13 @@ def evaluate(baseline, mixed, samples):
             row = report.get("routes", {}).get(label)
             if not row or not row["count"] or set(row["statuses"]) != {"200"}:
                 blocked.append(f"Missing successful {phase} reads: {label}")
-            elif row["p95_ms"] is None or row["p95_ms"] > 100:
-                failures.append(f"Private-beta p95 exceeds100ms: {phase}/{label}")
+            else:
+                if row["p95_ms"] is None or row["p95_ms"] > 500:
+                    failures.append(f"Private-beta p95 exceeds500ms: {phase}/{label}")
+                if row["p99_ms"] is None:
+                    blocked.append(f"p99 unavailable: {phase}/{label}")
+                elif row["p99_ms"] > 1000:
+                    failures.append(f"Private-beta p99 exceeds1000ms: {phase}/{label}")
     peaks = [
         row["memory_peak"] for row in samples if row.get("memory_peak") is not None
     ]
@@ -34,15 +39,6 @@ def evaluate(baseline, mixed, samples):
         for row in samples
     ):
         failures.append("460MiB stop or OOM observed")
-    for label in READS:
-        old, row = (
-            baseline.get("routes", {}).get(label),
-            mixed.get("routes", {}).get(label),
-        )
-        if not old or not row or old["p99_ms"] is None or row["p99_ms"] is None:
-            blocked.append(f"p99 comparison unavailable: {label}")
-        elif row["p99_ms"] > old["p99_ms"] * 2:
-            failures.append(f"Baseline p99 degradation: {label}")
     for label in WRITES:
         row = mixed.get("routes", {}).get(label)
         if not row or row["p95_ms"] is None or row["p95_ms"] > 1000:
@@ -52,8 +48,8 @@ def evaluate(baseline, mixed, samples):
         "failures": failures,
         "blocked": blocked,
         "peak_mib": max(peaks) / 1024**2 if peaks else None,
-        "private_beta_read_p95_ms": 100,
-        "p99_relative_limit": 2,
+        "private_beta_read_p95_ms": 500,
+        "private_beta_read_p99_ms": 1000,
         "financial_admission_tested": False,
         "r04_closed": False,
     }

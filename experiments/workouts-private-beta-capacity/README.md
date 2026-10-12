@@ -24,10 +24,12 @@ in the separate 1,838-test source gate; no budget is raised or wiped here.
 Private-only changes preserve Recipes reader cadence 16s in both phases, adding
 Workouts requests without thinning Recipes. Both fresh reports use the existing
 conservative nearest-rank implementation. The separate evaluator uses Leon's
-approved 100 ms p95 cap for `/up`, Recipes list/search/detail, while retaining p99
-at most 2× the fresh dormant baseline, write p95 ≤ 1000 ms, zero unexpected responses,
-410 MiB memory reserve and460 MiB/OOM stop. Original evaluators and the prior failed
-hosted receipts are unchanged; none is reclassified as passed.
+approved private-beta 500 ms p95 and absolute 1000 ms p99 caps for `/up` and
+Recipes list/search/detail in both dormant and enabled phases. This replaces
+the earlier private 100 ms p95 and 2× baseline p99 policy with Leon's explicitly
+approved beta limits. Write p95 ≤ 1000 ms, zero unexpected responses, 410 MiB
+memory reserve and460 MiB/OOM stop remain required. The public evaluator and
+original failed hosted receipts are unchanged; reassessments are separate records.
 
 Each phase offers 300s load with 450s external observation and 470s active phase
 bound including startup and API stop. API is 512 MiB/equal swap/0.5 CPU. Its owned
@@ -67,7 +69,8 @@ same-ID acceptance replay per import, instead of repeatedly accepting a
 finished import. Both phases keep the original Recipes cadence, fixtures,
 reader count, durations and workload outcomes. Fresh and rollback startup use
 the same existing 12-second total deadline, with closed readiness metadata
-retained even on failure. No acceptance threshold is raised.
+retained even on failure. The later approved private-beta latency policy is
+the only acceptance-threshold amendment.
 
 The numeric diagnostic retains the existing protected-read, export, import-submit/poll and coach request
 spans, media-stage timestamps, memory samples and API cgroup CPU usage/throttling
@@ -89,3 +92,26 @@ causal evidence rather than claiming a cause or changing a threshold.
 Collector execution has its own `numeric_trace_ok` receipt flag and shares the
 existing cleanup deadline, with at most20 seconds available. A collector failure
 fails the run while resource cleanup status continues to describe resources only.
+
+## Existing-run assessment under the approved private policy
+
+The original receipts for runs38191766681 and38197202548 remain failed under
+their recorded 100 ms/2× policy. Separate assessments use the already-recorded
+nearest-rank route percentiles and memory peaks for the same API source
+`17b78a1c73681d481a4efcba4c17fd0ef5a01068`; no new load was run.
+Both runs satisfy the approved 500 ms p95/1000 ms absolute p99 limits.
+
+| Run | Largest protected p95, both phases | Largest protected p99, both phases | API peak | Existing outcome/rollback guards |
+| --- | ---: | ---: | ---: | --- |
+| 38191766681 | 356.28 ms | 384.30 ms | 276.59 MiB | Passed |
+| 38197202548 | 181.03 ms | 475.14 ms | 269.94 MiB | Passed |
+
+Each receipt contains both completed phases, zero unexpected responses, five
+Recipe extracts/covers, five accepted imports/coach/session/activity outcomes,
+95 export pages, cleaned snapshots/pages, and successful old-source rollback
+reads with all38 Workouts tables/552 rows preserved. Its assembly required the
+original workload completion, media witnesses and exact saved outcomes before
+writing that receipt. Cleanup passed in both runs. These separate assessments
+address synthetic private-beta capacity only: Render parity, real provider
+billing, sustained public R04 and installed-client acceptance remain separate
+release gates. No historical receipt or public criterion is rewritten.
