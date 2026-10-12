@@ -8,11 +8,8 @@ from urllib.error import URLError
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "experiments/workouts-private-beta-capacity/run.sh"
-code = (
-    SCRIPT.read_text()
-    .split("python -c 'import json,sys,time,urllib.request,urllib.error\n", 1)[1]
-    .split('\' "$startup_deadline")', 1)[0]
-)
+code = SCRIPT.read_text().split("readiness_code=$(cat <<'READINESS_PY'\n", 1)[1].split("\nREADINESS_PY", 1)[0]
+
 namespace = {"json": json}
 functions = ast.Module(
     body=[node for node in ast.parse(code).body if isinstance(node, ast.FunctionDef)],

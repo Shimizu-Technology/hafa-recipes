@@ -84,6 +84,8 @@ for name in ['off','enabled']:
 for name in ['comparison','rollback']:
     f=w/('rollback/rollback.json' if name=='rollback' else 'comparison.json')
     if f.exists():r[name]=json.loads(f.read_text())
+f=w/'rollback/readiness.json'
+if f.exists():r['rollback_startup_readiness']=json.loads(f.read_text())
 r['cleaned_owned_resources']=sys.argv[2]=='true';r['exit_code']=int(sys.argv[3])
 r['last_stage']=sys.argv[4];r['failure_line']=int(sys.argv[5])
 r['setup_metadata']={f.stem:json.loads(f.read_text()) for name in ['api-state.json','pg-state.json','load-state.json','finite-state.json','finite-errors.json'] if (f:=w/name).exists() and f.stat().st_size}
@@ -98,7 +100,7 @@ trap 'failure_line=$LINENO' ERR
 trap 'exit 130' INT
 trap 'exit 143' TERM
 # Exact pre045 application for both load phases; old master only for rollback.
-[[ "$(git -C candidate-source rev-parse HEAD)" == 253660117800ffd83494d91230beb199851ec427 ]]
+[[ "$(git -C candidate-source rev-parse HEAD)" == 17b78a1c73681d481a4efcba4c17fd0ef5a01068 ]]
 [[ "$(git -C rollback-source rev-parse HEAD)" == 823986f48e4eb5de3075969a742f834036b5d473 ]]
 [[ "$(git -C harness-source rev-parse HEAD)" == 405d89446b536f8ca0009739a07d45101ee095de ]]
 [[ -z "$(find candidate-source/api/migrations -maxdepth 1 -name '045*' -print -quit)" ]]
@@ -156,7 +158,7 @@ ENABLED
 chmod 600 "$work/off.env" "$work/enabled.env"
 chmod 777 "$work/fixtures"
 stage=image_build
-timeout 600s docker build --platform linux/amd64 --build-arg PYTHON_BASE=python@sha256:2ed6491b93cd49272ee6de2b5a38440c3448360322c089fc23e370722d74179d --build-arg SOURCE_COMMIT=253660117800ffd83494d91230beb199851ec427 -t "$run" "$work/context" >"$work/build.log" 2>&1
+timeout 600s docker build --platform linux/amd64 --build-arg PYTHON_BASE=python@sha256:2ed6491b93cd49272ee6de2b5a38440c3448360322c089fc23e370722d74179d --build-arg SOURCE_COMMIT=17b78a1c73681d481a4efcba4c17fd0ef5a01068 -t "$run" "$work/context" >"$work/build.log" 2>&1
 image=$(timeout 10s docker image inspect --format '{{.Id}}' "$run")
 [[ "$(timeout 10s docker image inspect --format '{{.Architecture}}' "$image")" == amd64 ]]
 network="$run"
@@ -186,6 +188,35 @@ for name,item in manifest.items():
     assert hashlib.sha256(p.read_bytes()).hexdigest()==item['sha256'],f'fixture_hash:{name}'
 PY
 # Fresh Recipes seed in each phase; enabled additionally runs optional034–044.
+readiness_code=$(cat <<'READINESS_PY'
+import json,sys,time,urllib.request,urllib.error
+from pathlib import Path
+
+def readiness(deadline,clock,sleep,open_url):
+    attempts=0
+    error="DeadlineExceeded"
+    while (remaining:=deadline-clock())>0:
+        attempts+=1
+        try:
+            with open_url("http://127.0.0.1:18047/up",timeout=min(1,remaining)) as response:
+                valid=json.load(response)=={"status":"ok"}
+            if valid and clock()<=deadline:
+                return {"ready":True,"expired":False,"attempts":attempts,"error_class":"None"}
+            error="InvalidLiveness" if not valid else "DeadlineExceeded"
+        except Exception as exc:
+            reason=getattr(exc,"reason",exc)
+            name=type(reason).__name__
+            error=name if name in {"ConnectionRefusedError","TimeoutError","HTTPError","URLError","OSError","JSONDecodeError"} else "OtherError"
+        remaining=deadline-clock()
+        if remaining>0:sleep(min(.2,remaining))
+    return {"ready":False,"expired":True,"attempts":attempts,"error_class":error}
+
+value=readiness(float(sys.argv[1]),time.monotonic,time.sleep,urllib.request.urlopen)
+Path("/results/readiness.json").write_text(json.dumps(value))
+raise SystemExit(0 if value["ready"] else 1)
+READINESS_PY
+)
+
 for source in off enabled; do
   mkdir "$work/$source"; chmod 777 "$work/$source"
   result="$work/$source"
@@ -217,31 +248,7 @@ LEDGER
   api=$(timeout 10s docker run -d --name "capacity-api-$run" "${common[@]}" --memory 512m --memory-swap 512m --cpus 0.5 "$image" python -m uvicorn capacity.app:app --host 0.0.0.0 --port 18047)
   [[ "$(timeout 10s docker inspect --format '{{.HostConfig.Memory}}/{{.HostConfig.MemorySwap}}/{{.HostConfig.NanoCpus}}' "$api")" == 536870912/536870912/500000000 ]]
   stage="api_readiness_$source"
-  finite=$(timeout 5s docker run -d "${common[@]}" -v "$result:/results" "$image" python -c 'import json,sys,time,urllib.request,urllib.error
-from pathlib import Path
-
-def readiness(deadline,clock,sleep,open_url):
-    attempts=0
-    error="DeadlineExceeded"
-    while (remaining:=deadline-clock())>0:
-        attempts+=1
-        try:
-            with open_url("http://127.0.0.1:18047/up",timeout=min(1,remaining)) as response:
-                valid=json.load(response)=={"status":"ok"}
-            if valid and clock()<=deadline:
-                return {"ready":True,"expired":False,"attempts":attempts,"error_class":"None"}
-            error="InvalidLiveness" if not valid else "DeadlineExceeded"
-        except Exception as exc:
-            reason=getattr(exc,"reason",exc)
-            name=type(reason).__name__
-            error=name if name in {"ConnectionRefusedError","TimeoutError","HTTPError","URLError","OSError","JSONDecodeError"} else "OtherError"
-        remaining=deadline-clock()
-        if remaining>0:sleep(min(.2,remaining))
-    return {"ready":False,"expired":True,"attempts":attempts,"error_class":error}
-
-value=readiness(float(sys.argv[1]),time.monotonic,time.sleep,urllib.request.urlopen)
-Path("/results/readiness.json").write_text(json.dumps(value))
-raise SystemExit(0 if value["ready"] else 1)' "$startup_deadline")
+  finite=$(timeout 5s docker run -d "${common[@]}" -v "$result:/results" "$image" python -c "$readiness_code" "$startup_deadline")
   [[ "$(timeout 10s docker wait "$finite")" == 0 ]]; owned_remove "$finite"; finite=
   # Admit the unchanged 450-second observer only with startup/cleanup headroom.
   stage="startup_budget_$source"
@@ -290,14 +297,14 @@ PY
     [[ "$(timeout 30s docker wait "$finite")" == 0 ]]; owned_remove "$finite"; finite=
     rollback_common=("${labels[@]}" --network "container:$pg" --env-file "$work/off.env" -v "$GITHUB_WORKSPACE/rollback-source/api:/api:ro" -v "$work/off-adapter/capacity:/adapter/capacity:ro" -v "$work/fixtures:/fixtures:ro" --workdir /tmp)
     stage=rollback_api_start
+    rollback_start=$SECONDS
+    startup_deadline=$(python3 -c 'import time; print(time.monotonic()+12)')
     api=$(timeout 10s docker run -d --name "capacity-api-$run" "${rollback_common[@]}" --memory 512m --memory-swap 512m --cpus 0.5 "$image" python -m uvicorn capacity.app:app --host 0.0.0.0 --port 18047)
-    finite=$(timeout 10s docker run -d "${rollback_common[@]}" "$image" python -c 'import time,urllib.request
-for attempt in range(30):
- try:
-  urllib.request.urlopen("http://127.0.0.1:18047/up",timeout=1);break
- except Exception:time.sleep(.2)
-else:raise SystemExit(1)')
+    stage=rollback_api_readiness
+    finite=$(timeout 10s docker run -d "${rollback_common[@]}" -v "$work/rollback:/results" "$image" python -c "$readiness_code" "$startup_deadline")
     [[ "$(timeout 15s docker wait "$finite")" == 0 ]]; owned_remove "$finite"; finite=
+    stage=rollback_startup_budget
+    [[ $((SECONDS-rollback_start)) -le 12 ]] || exit 1
     stage=rollback_read_smoke
     finite=$(timeout 10s docker run -d "${rollback_common[@]}" -v "$work/rollback:/results" "$image" python -m capacity.rollback_smoke smoke --before /results/workouts-before.json --output /results/rollback.json)
     [[ "$(timeout 30s docker wait "$finite")" == 0 ]]; owned_remove "$finite"; finite=
@@ -335,13 +342,15 @@ for name in ['off','enabled']:
         saved=json.loads((p/'workouts-counts.json').read_text())
         assert saved=={'optional_schema':44,'imports':5,'accepted':5,'active_imports':0,'library':212,'versions':212,'coach':5,'sessions':5,'activity':5,'snapshots':0,'pages':0},saved
         assert latency['saved_outcomes']['accepted_workout_count']==5
-        for label,status,count in [('workouts/import-submit','202',5),('workouts/coach','200',5),('workouts/session-write','201',5),('workouts/session-replay','200',5),('workouts/activity-write','201',5),('workouts/export-build','201',5),('workouts/export-page','200',95),('workouts/export-remove','204',5)]:
+        for label,status,count in [('workouts/import-submit','202',5),('workouts/coach','200',5),('workouts/session-write','201',5),('workouts/session-replay','200',5),('workouts/activity-write','201',5),('workouts/export-build','201',5),('workouts/export-page','200',95),('workouts/export-remove','204',5),('workouts/import-accept','200',10)]:
             row=latency['routes'][label]
             assert row['count']==count and row['statuses']=={status:count} and row['unexpected']==0,(label,row)
         phases[name]['workouts_counts']=saved
+rollback_ready=json.loads((w/'rollback/readiness.json').read_text())
+assert rollback_ready['ready'] and not rollback_ready['expired']
 rollback=json.loads((w/'rollback/rollback.json').read_text())
 assert rollback['five_recipe_reads_passed'] and rollback['workouts_data_preserved']
-r={'passed':comparison['local_gate']=='passed','api_source':'253660117800ffd83494d91230beb199851ec427','rollback_source':'823986f48e4eb5de3075969a742f834036b5d473','comparison':comparison,'phases':phases,'rollback':rollback,'render_parity':False,'r04_closed':False,'real_provider_calls':0,'financial_admission_tested':False}
+r={'passed':comparison['local_gate']=='passed','api_source':'17b78a1c73681d481a4efcba4c17fd0ef5a01068','rollback_source':'823986f48e4eb5de3075969a742f834036b5d473','comparison':comparison,'phases':phases,'rollback':rollback,'rollback_startup_readiness':rollback_ready,'render_parity':False,'r04_closed':False,'real_provider_calls':0,'financial_admission_tested':False}
 (w/'receipt.json').write_text(json.dumps(r,indent=2)+'\n')
 raise SystemExit(0 if r['passed'] else 1)
 PY

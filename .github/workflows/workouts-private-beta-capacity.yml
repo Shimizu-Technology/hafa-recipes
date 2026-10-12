@@ -25,7 +25,7 @@ jobs:
           path: rollback-source
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: 253660117800ffd83494d91230beb199851ec427
+          ref: 17b78a1c73681d481a4efcba4c17fd0ef5a01068
           persist-credentials: false
           path: candidate-source
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262

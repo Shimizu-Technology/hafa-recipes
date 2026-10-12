@@ -26,11 +26,65 @@
 +                           or exported["has_more"][name] != (page < 18)
 +                           for name in ("workouts", "workout_versions"))):
 +                    raise RuntimeError("Private beta export page inventory differs")
-@@ -713,0 +724 @@
+@@ -462 +472,3 @@
+-        for owner, identifier, _ in self.jobs:
++        # Match native terminal retirement; retain one deliberate acceptance replay.
++        for entry in list(self.jobs):
++            owner, identifier, _ = entry
+@@ -464,3 +476 @@
+-                "GET",
+-                PREFIX + "/imports/" + identifier,
+-                owner,
++                "GET", PREFIX + "/imports/" + identifier, owner,
+@@ -471,4 +481,6 @@
+-            self.outcomes["workouts"][identifier] = job.json()["status"]
+-            if job.json()["status"] in {"ready", "incomplete"} and job.json().get(
+-                "result", {}
+-            ).get("workout"):
++            value = job.json()
++            state = value["status"]
++            self.outcomes["workouts"][identifier] = state
++            if value.get("accepted_workout_id"):
++                self.outcomes["accepted"].add(value["accepted_workout_id"])
++            elif state in {"ready", "incomplete"} and (value.get("result") or {}).get("workout"):
+@@ -476,9 +488,17 @@
+-                    "POST",
+-                    PREFIX + "/imports/" + identifier + "/accept",
+-                    owner,
+-                    label="workouts/import-accept",
+-                    json={"acknowledge_warnings": True},
+-                )
+-                if accepted.status_code == 200:
+-                    self.outcomes["accepted"].add(accepted.json()["id"])
+-        for owner, identifier in self.recipe_jobs:
++                    "POST", PREFIX + "/imports/" + identifier + "/accept", owner,
++                    label="workouts/import-accept", json={"acknowledge_warnings": True},
++                )
++                if accepted.status_code != 200:
++                    raise RuntimeError("Private beta acceptance unavailable")
++                saved_id = accepted.json()["id"]
++                replay = await self.request(
++                    "POST", PREFIX + "/imports/" + identifier + "/accept", owner,
++                    label="workouts/import-accept", json={"acknowledge_warnings": True},
++                )
++                if replay.status_code != 200 or replay.json()["id"] != saved_id:
++                    raise RuntimeError("Private beta acceptance replay differs")
++                self.outcomes["accepted"].add(saved_id)
++            if state in {"ready", "incomplete", "failed", "cancelled", "expired"}:
++                self.jobs.remove(entry)
++        for entry in list(self.recipe_jobs):
++            owner, identifier = entry
+@@ -490 +510,4 @@
+-                    self.outcomes["recipes"][identifier] = current.json()["status"]
++                    state = current.json()["status"]
++                    self.outcomes["recipes"][identifier] = state
++                    if state in {"completed", "failed", "cancelled"}:
++                        self.recipe_jobs.remove(entry)
+@@ -713,0 +737 @@
 +            "percentile_method": "nearest_rank",
-@@ -782 +793 @@
+@@ -782 +806 @@
 -                    # Eight readers, 4 or 6 HTTP calls/turn: approximately 2 req/s.
 +                    # Same sixteen-second Recipes cadence; two Workouts reads are added.
-@@ -784 +795 @@
+@@ -784 +808 @@
 -                        max(0, (24 if mixed else 16) - (time.monotonic() - started))
 +                        max(0, 16 - (time.monotonic() - started))

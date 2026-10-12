@@ -1,7 +1,7 @@
 # Restricted iPhone beta capacity check
 
 This new check exercises exact private-beta API
-`253660117800ffd83494d91230beb199851ec427`, first dormant on core schema 33 and
+`17b78a1c73681d481a4efcba4c17fd0ef5a01068`, first dormant on core schema 33 and
 then enabled only for the 24 synthetic tester IDs through optional schema 44.
 The seed command enables health only while applying migration036; serving health
 stays off. Actual optional ledger34–44 is required before load and rollback.
@@ -26,7 +26,7 @@ Workouts requests without thinning Recipes. Both fresh reports use the existing
 conservative nearest-rank implementation. The separate evaluator uses Leon's
 approved 100 ms p95 cap for `/up`, Recipes list/search/detail, while retaining p99
 at most 2× the fresh dormant baseline, write p95 ≤ 1000 ms, zero unexpected responses,
-410 MiB memory reserve and460 MiB/OOM stop. Original evaluators and the three failed
+410 MiB memory reserve and460 MiB/OOM stop. Original evaluators and the prior failed
 hosted receipts are unchanged; none is reclassified as passed.
 
 Each phase offers 300s load with 450s external observation and 470s active phase
@@ -56,3 +56,15 @@ at that stage; application logs, DB files and fixture contents are excluded.
 Prepared source checks and unit plans are not hosted acceptance. Actual workload,
 rollback, installed-client, Clerk/provider-network and production rollback
 checks remain not run for this new check. A failure remains a release hold.
+
+The previous source run38185521041 completed both workloads but failed the
+100 ms read limit and the retained liveness p99 ratio. Its rollback startup
+probe expired before read/fingerprint reconciliation; it remains failed.
+The candidate now contains the reviewed Recipes card projection and bounded
+export CPU work. No latency improvement is claimed before a new measurement.
+The driver retires terminal polls and performs exactly one intentional
+same-ID acceptance replay per import, instead of repeatedly accepting a
+finished import. Both phases keep the original Recipes cadence, fixtures,
+reader count, durations and workload outcomes. Fresh and rollback startup use
+the same existing 12-second total deadline, with closed readiness metadata
+retained even on failure. No acceptance threshold is raised.
