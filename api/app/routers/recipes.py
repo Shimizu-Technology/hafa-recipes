@@ -9,7 +9,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from sqlalchemy import String, delete, desc, func, or_, select
+from sqlalchemy import Row, String, and_, case, cast, delete, desc, func, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -644,8 +645,47 @@ def _build_edited_extracted(
     )
 
 
+def recipe_card_columns():
+    """Project card/review inputs in PostgreSQL, before asyncpg decodes JSON.
+
+    Keep missing keys and explicit JSON null distinct. Legacy diagnostic notes
+    remain available whenever the existing review code may inspect them,
+    including a source method recovered from persisted evidence.
+    """
+    fields = func.jsonb_each(Recipe.extracted).table_valued("key", "value")
+    needs_notes = or_(
+        and_(Recipe.extraction_method.is_not(None), Recipe.extraction_method != "manual"),
+        and_(Recipe.extraction_method.is_(None), Recipe.review_state.is_not(None),
+             Recipe.extraction_evidence.is_not(None)),
+    )
+    projected = (
+        select(func.jsonb_object_agg(fields.c.key, fields.c.value))
+        .where(or_(
+            fields.c.key.in_((
+                "title", "servings", "times", "tags", "mealTypes", "sourceIncomplete",
+                "components", "ingredients", "steps", "lowConfidence", "confidenceWarning",
+            )),
+            and_(fields.c.key == "notes", needs_notes),
+        ))
+        .correlate(Recipe)
+        .scalar_subquery()
+    )
+    extracted = case(
+        (func.jsonb_typeof(Recipe.extracted) == "object",
+         func.coalesce(projected, cast({}, JSONB))),
+        else_=Recipe.extracted,
+    ).label("extracted")
+    return (
+        Recipe.id, Recipe.user_id, Recipe.source_url, Recipe.source_type,
+        Recipe.thumbnail_url, Recipe.extraction_method, Recipe.extraction_quality,
+        Recipe.has_audio_transcript, Recipe.created_at, Recipe.is_public,
+        Recipe.extractor_display_name, Recipe.moderation_status, Recipe.review_state,
+        Recipe.extraction_evidence, Recipe.content_revision, extracted,
+    )
+
+
 def recipe_to_list_item(
-    recipe: Recipe,
+    recipe: Recipe | Row,
     viewer_user_id: str | None = None,
     *,
     is_saved: bool | None = None,
@@ -1114,9 +1154,10 @@ async def get_my_recipes(
 
     # Execute paginated query
     result = await db.execute(
-        base_query.order_by(Recipe.created_at.desc()).offset(offset).limit(limit)
+        base_query.with_only_columns(*recipe_card_columns())
+        .order_by(Recipe.created_at.desc()).offset(offset).limit(limit)
     )
-    recipes = result.scalars().all()
+    recipes = result.all()
 
     items = [recipe_to_list_item(r, user.id) for r in recipes]
     has_more = offset + len(items) < total_count
@@ -1428,9 +1469,10 @@ async def search_recipes(
 
     # Execute paginated query
     result = await db.execute(
-        base_query.order_by(Recipe.created_at.desc()).offset(offset).limit(limit)
+        base_query.with_only_columns(*recipe_card_columns())
+        .order_by(Recipe.created_at.desc()).offset(offset).limit(limit)
     )
-    recipes = list(result.scalars().all())
+    recipes = result.all()
 
     items = [recipe_to_list_item(r, user.id) for r in recipes]
     has_more = offset + len(items) < total_count
