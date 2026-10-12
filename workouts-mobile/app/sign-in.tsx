@@ -11,10 +11,10 @@ import { useEffect, useRef, useState } from "react";
 import { AppState, View, Platform } from "react-native";
 import { useSignIn, useSignUp } from "@clerk/expo/legacy";
 import { useSSO } from "@clerk/expo";
-import * as AppleAuthentication from "expo-apple-authentication";
 import * as WebBrowser from "expo-web-browser";
 import { Button, Card, Choice, Copy, Field, Notice, Screen, useColors } from "@/components/ui";
 import { callbackUrl, socialSignIn } from "@/lib/social";
+import { nativeAppleSignIn } from "@/lib/native-apple-sign-in";
 WebBrowser.maybeCompleteAuthSession();
 type Mode = "signin" | "signup" | "recover";
 export default function SignIn() {
@@ -185,14 +185,8 @@ export default function SignIn() {
         if (result.createdSessionId && result.setActive) await result.setActive({ session: result.createdSessionId });
         else setError("Account creation was not completed. You can use email instead.");
       } else if (strategy === "oauth_apple" && Platform.OS === "ios") {
-        const credential = await AppleAuthentication.signInAsync({
-          requestedScopes: [
-            AppleAuthentication.AppleAuthenticationScope.EMAIL,
-            AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-          ],
-        });
-        if (credential.identityToken)
-          await finish(await signIn.create({ strategy: "oauth_token_apple", token: credential.identityToken }));
+        const result = await nativeAppleSignIn(signIn);
+        if (result) await finish(result);
       } else {
         const result = await socialSignIn(signIn, strategy);
         if (result) await finish(result);
