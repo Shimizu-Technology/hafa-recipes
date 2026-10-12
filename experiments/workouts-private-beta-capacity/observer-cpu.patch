@@ -1,9 +1,6 @@
 --- a/host_monitor.py
 +++ b/host_monitor.py
-@@ -106,7 +106,18 @@
-             events[fields[0]] = int(fields[1])
-     if not {"oom", "oom_kill"} <= events.keys():
-         raise MonitorError("missing_oom_events")
+@@ -109 +109,12 @@
 -    return {"memory_current": int(lines[0]), "memory_peak": int(lines[1]), **events}
 +    cpu_keys = {"usage_usec", "nr_periods", "nr_throttled", "throttled_usec"}
 +    cpu = {}
@@ -17,14 +14,5 @@
 +        raise MonitorError("missing_cpu_counter")
 +    return {"memory_current": int(lines[0]), "memory_peak": int(lines[1]), **events,
 +            "cpu": cpu or None}
- 
- 
- def processes(raw):
-@@ -239,6 +250,7 @@
-                     "/sys/fs/cgroup/memory.current",
-                     "/sys/fs/cgroup/memory.peak",
-                     "/sys/fs/cgroup/memory.events",
+@@ -241,0 +253 @@
 +                    "/sys/fs/cgroup/cpu.stat",
-                 ]
-             )
-         )
