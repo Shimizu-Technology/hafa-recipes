@@ -39,7 +39,8 @@ async def get_snapshot(snapshot_id: UUID, user: User, generation: Generation):
 async def get_snapshot_page(
     snapshot_id: UUID, page: Annotated[int, Path(ge=0, lt=512)], user: User, generation: Generation
 ):
-    return await private_exports.read(user, generation, snapshot_id, page=page)
+    body = await private_exports.read(user, generation, snapshot_id, page=page, encoded=True)
+    return Response(body, media_type="application/json", headers={"Cache-Control": "no-store"})
 
 
 @router.delete("/{snapshot_id}", status_code=204)

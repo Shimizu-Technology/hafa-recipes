@@ -3,12 +3,13 @@
 import asyncio
 import base64
 import importlib
+import threading
 from datetime import timedelta
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi import APIRouter, HTTPException, Response
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import delete, event, func, select, text, update
 from sqlalchemy.exc import DBAPIError
 
 from app.domains.workouts import export_service, security
@@ -740,3 +741,124 @@ async def test_cancelled_creation_releases_global_admission(snapshots):
     async with api.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 0
     assert (await api.exports.create(user("other"), 1)).generation == 1
+
+
+@pytest.mark.parametrize("ending", ["cancel", "revoke", "generation", "failure"])
+async def test_cpu_build_settlement_preserves_source_and_publication_fences(
+    snapshots, monkeypatch, ending
+):
+    api = snapshots
+    await add(api)
+    loop = asyncio.get_running_loop()
+    entered, release = asyncio.Event(), threading.Event()
+    captured = []
+    prepare = export_service.SnapshotSourceContext.prepare.__func__
+    encode = export_service.encode_page
+
+    async def capture(cls, *args):
+        context = await prepare(cls, *args)
+        captured.append(context)
+        return context
+
+    def held(*args):
+        # No DB/ORM/context inputs are passed to the worker; DB remains on loop.
+        assert export_service.source_context.get() is None
+        loop.call_soon_threadsafe(entered.set)
+        assert release.wait(5)
+        if ending == "failure":
+            raise ValueError("Private synthetic serialization failure")
+        return encode(*args)
+
+    monkeypatch.setattr(export_service.SnapshotSourceContext, "prepare", classmethod(capture))
+    monkeypatch.setattr(export_service, "encode_page", held)
+    pending = asyncio.create_task(api.exports.create(user(), 1))
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        assert not captured[0]._closed
+        if ending == "cancel":
+            pending.cancel()
+            await asyncio.sleep(0)
+            pending.cancel()
+            await asyncio.sleep(0)
+            assert not pending.done() and not captured[0]._closed
+        elif ending in {"revoke", "generation"}:
+            async with api.sessions.begin() as db:
+                member = await membership_for(db, "owner", generation=1, write=True)
+                await invalidate_export_snapshots(db, "owner", 1)
+                if ending == "generation":
+                    member.status = "deleted"
+                    member.generation += 1
+        async with api.sessions.begin() as db:
+            assert not await db.scalar(
+                text("SELECT pg_try_advisory_xact_lock(:slot)"), {"slot": export_service.BUILD_LOCK}
+            )
+        release.set()
+        if ending == "cancel":
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(pending, 5)
+        else:
+            await assert_error(
+                asyncio.wait_for(pending, 5),
+                {"revoke": 410, "generation": 409, "failure": 503}[ending],
+            )
+        assert captured[0]._closed and captured[0].static_metadata() is None
+        async with api.sessions() as db:
+            assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 0
+            assert await db.scalar(select(func.count()).select_from(WorkoutsExportPage)) == 0
+        monkeypatch.setattr(export_service, "encode_page", encode)
+        assert (await api.exports.create(user("other"), 1)).generation == 1
+    finally:
+        release.set()
+        if not pending.done():
+            await asyncio.gather(pending, return_exceptions=True)
+
+
+async def test_cancelled_cpu_read_retains_read_slot_until_real_worker_settles(
+    snapshots, monkeypatch
+):
+    api = snapshots
+    await add(api)
+    first = await api.exports.create(user(), 1)
+    other = await api.exports.create(user("other"), 1)
+    loop = asyncio.get_running_loop()
+    entered, release = asyncio.Event(), threading.Event()
+    decode = export_service.decode_page
+    loop_thread = threading.get_ident()
+
+    def on_database_call(*_):
+        assert threading.get_ident() == loop_thread
+
+    event.listen(api.engine.sync_engine, "before_cursor_execute", on_database_call)
+
+    def held(*args):
+        assert all(isinstance(value, (bytes, UUID, int, bool)) for value in args)
+        assert export_service.source_context.get() is None
+        loop.call_soon_threadsafe(entered.set)
+        assert release.wait(5)
+        return decode(*args)
+
+    monkeypatch.setattr(export_service, "decode_page", held)
+    pending = asyncio.create_task(api.exports.read(user(), 1, first.id, page=0, encoded=True))
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        pending.cancel()
+        await asyncio.sleep(0)
+        assert not pending.done()
+        async with api.sessions() as db:
+            with pytest.raises(DBAPIError):
+                await db.scalar(
+                    select(AppUser.id).where(AppUser.id == "owner").with_for_update(nowait=True)
+                )
+        await assert_error(
+            api.exports.read(user("other"), 1, other.id, page=0), 429, "export_snapshot_busy"
+        )
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(pending, 5)
+        monkeypatch.setattr(export_service, "decode_page", decode)
+        assert (await api.exports.read(user("other"), 1, other.id, page=0)).snapshot_id == other.id
+    finally:
+        release.set()
+        if not pending.done():
+            await asyncio.gather(pending, return_exceptions=True)
+        event.remove(api.engine.sync_engine, "before_cursor_execute", on_database_call)
