@@ -18,6 +18,8 @@ export function safeAuthFailure(error: unknown, verification: Verification | nul
     value.code,
     ...(Array.isArray(value.errors) ? value.errors.slice(0, 12).map((item) => item?.code) : []),
   ].filter((code) => typeof code === "string" && code.length <= 64);
+  if (codes.includes("apple_credential_missing"))
+    return "Apple did not return a sign-in credential. Try signing in with Apple again.";
   if (verification && codes.some((code) => ["verification_expired", "form_code_expired"].includes(String(code))))
     return verification === "totp"
       ? "That code expired. Use the current code from your authenticator app."
