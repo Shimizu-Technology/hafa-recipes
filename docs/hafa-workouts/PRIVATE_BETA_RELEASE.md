@@ -26,7 +26,7 @@ Both runs used a bounded 512MiB / 0.5-core local Docker API, matching OFF baseli
 
 ## Controlled production rollout
 
-Apply only optional 034–044 in a bounded one-off process while the serving Workouts master remains off. Require the verified production-parent Neon recovery branch and fork LSN, exact source/restore ledger, core033, and startup schema readiness. The operator defaults to read-only and never replays core016–033. Recovery metadata was verified ready with zero compute endpoints; an actual restore has not been executed.
+Apply only optional 034–044 in a bounded one-off process while the serving Workouts master remains off. Require the verified production-parent Neon recovery branch and fork LSN, exact source/restore ledger, core033, and startup schema readiness. The operator defaults to read-only and never replays core016–033. Render predeploy now runs only the grocery repair dry-run; startup schema checks still gate readiness. New migrations require an explicit reviewed one-off application after a recovery point. Recovery metadata was verified ready with zero compute endpoints; an actual restore has not been executed.
 
 Merge the reviewed integration through the protected main branch, verify the resulting Render commit and Recipes health, then enable Workouts for named stable AppUser IDs with a persistent sharing/export encryption key. Bind the explicit AI authority to the existing production database and verify the shared $5 rolling-day admission policy before enabling imports and coaching. Use a legitimate disposable QA account, preserve charges and delete its account/data afterward. Keep public access and health sync off.
 
