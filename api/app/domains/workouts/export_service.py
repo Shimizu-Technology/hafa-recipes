@@ -19,6 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.config import get_settings
 from app.db.database import AsyncSessionLocal
 from app.domains.workouts.export_context import SnapshotSourceContext, source_context
+from app.domains.workouts.export_cpu import freeze_payload, run_cpu, thaw_payload
 from app.domains.workouts.export_models import (
     EXPORT_TABLES,
     WorkoutsExportEpoch,
@@ -89,12 +90,38 @@ def aad(snapshot, page):
 
 
 def seal(key, snapshot, page, content):
+    return seal_bytes(key, aad(snapshot, page), content)
+
+
+def seal_bytes(key, associated_data, content):
     nonce = os.urandom(12)
-    return nonce + AESGCM(key).encrypt(nonce, content, aad(snapshot, page))
+    return nonce + AESGCM(key).encrypt(nonce, content, associated_data)
 
 
 def unseal(key, snapshot, page, ciphertext):
-    return AESGCM(key).decrypt(ciphertext[:12], ciphertext[12:], aad(snapshot, page))
+    return unseal_bytes(key, aad(snapshot, page), ciphertext)
+
+
+def unseal_bytes(key, associated_data, ciphertext):
+    return AESGCM(key).decrypt(ciphertext[:12], ciphertext[12:], associated_data)
+
+
+def encode_page(payload, key, associated_data, page_limit, remaining_bytes):
+    """Pure conversion/encryption, with the original plaintext byte boundaries."""
+    content = ExportResponse.model_validate(thaw_payload(payload)).model_dump_json().encode()
+    if len(content) > page_limit or len(content) > remaining_bytes:
+        raise error("export_snapshot_too_large", 413)
+    return len(content), seal_bytes(key, associated_data, content)
+
+
+def decode_page(key, associated_data, ciphertext, snapshot_id, number, page_count, encoded):
+    projected = ExportResponse.model_validate_json(unseal_bytes(key, associated_data, ciphertext))
+    if number is None:
+        return projected
+    result = ExportSnapshotPage(
+        snapshot_id=snapshot_id, page=number, page_count=page_count, export=projected
+    )
+    return result.model_dump_json().encode() if encoded else result
 
 
 async def try_export_slot(db, lock_id):
@@ -384,7 +411,7 @@ class PrivateExportService:
                     ):
                         raise error("export_snapshot_unavailable")
                     context = None
-                    projected = content = ciphertext = None
+                    projected = payload = ciphertext = None
                     try:
                         context = (
                             await SnapshotSourceContext.prepare(source, user.id, generation)
@@ -407,23 +434,30 @@ class PrivateExportService:
                                     raise error("export_snapshot_too_large", 413)
                             elif totals != projected.totals:
                                 raise error("export_snapshot_unavailable", 503)
-                            content = projected.model_dump_json().encode()
-                            total_bytes += len(content)
-                            if len(content) > MAX_PAGE_BYTES or total_bytes > MAX_TOTAL_BYTES:
-                                raise error("export_snapshot_too_large", 413)
                             finished = not any(projected.has_more.values())
-                            ciphertext = seal(key, snapshot, page, content)
+                            payload = freeze_payload(projected.model_dump())
+                            projected = None
+                            size, ciphertext = await run_cpu(
+                                encode_page,
+                                payload,
+                                key,
+                                aad(snapshot, page),
+                                MAX_PAGE_BYTES,
+                                MAX_TOTAL_BYTES - total_bytes,
+                            )
+                            total_bytes += size
+                            payload = None
                             await self._write_page(
                                 user, generation, snapshot, key, page, ciphertext
                             )
                             # Do not retain the previous page while the next query waits.
-                            projected = content = ciphertext = None
+                            projected = payload = ciphertext = None
                             if finished:
                                 break
                         else:
                             raise error("export_snapshot_too_large", 413)
                     finally:
-                        del projected, content, ciphertext
+                        del projected, payload, ciphertext
                         if context is not None:
                             context.close()
                     # Release global build slot only after all source JSON is gone.
@@ -469,7 +503,7 @@ class PrivateExportService:
         )
 
     @redacted
-    async def read(self, user, generation, snapshot_id, *, page=None):
+    async def read(self, user, generation, snapshot_id, *, page=None, encoded=False):
         key = self.authorize(user, generation)
         if not isinstance(snapshot_id, UUID) or (
             page is not None and (type(page) is not int or not 0 <= page < MAX_PAGES)
@@ -506,19 +540,17 @@ class PrivateExportService:
                 stored = await db.get(WorkoutsExportPage, (snapshot.id, number))
                 if stored is None:
                     raise error("export_snapshot_unavailable", 503)
-                projected = ExportResponse.model_validate_json(
-                    unseal(key, snapshot, number, stored.ciphertext)
+                projected = await run_cpu(
+                    decode_page,
+                    key,
+                    aad(snapshot, number),
+                    bytes(stored.ciphertext),
+                    snapshot.id,
+                    page,
+                    snapshot.page_count,
+                    encoded,
                 )
-                result = (
-                    self._manifest(snapshot, projected.totals)
-                    if page is None
-                    else ExportSnapshotPage(
-                        snapshot_id=snapshot.id,
-                        page=number,
-                        page_count=snapshot.page_count,
-                        export=projected,
-                    )
-                )
+                result = self._manifest(snapshot, projected.totals) if page is None else projected
         if failure:
             raise failure
         return result

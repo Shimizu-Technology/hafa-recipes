@@ -1,16 +1,17 @@
 """Real mounted private exports and parent privacy hooks on the full optional chain."""
 
+import asyncio
 import base64
 import importlib
 from datetime import timedelta
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import event, select
+from sqlalchemy import event, select, text
 
 from app.domains.workouts import export_response_gate, export_router
 from app.domains.workouts.export_models import WorkoutsExportPage, WorkoutsExportSnapshot
-from app.domains.workouts.export_service import PrivateExportService
+from app.domains.workouts.export_service import ExportSnapshotPage, PrivateExportService
 from app.domains.workouts.lifecycle import membership_for, now
 from app.domains.workouts.measurement_service import reset_measurement_context
 from tests.test_workouts_data_integration import (
@@ -19,6 +20,7 @@ from tests.test_workouts_data_integration import (
     data_api,  # noqa: F401
     enroll,
     settings,
+    user,
 )
 
 
@@ -77,6 +79,16 @@ async def test_actual_mount_and_legacy_export_preserve_projection_and_privacy(as
     assert result.status_code == 200, result.text
     assert result.json()["snapshot_id"] == captured["id"]
     assert result.json()["export"]["datasets"]["workouts"][0]["id"] == saved.json()["id"]
+    direct = await export_router.private_exports.read(
+        user(),
+        1,
+        UUID(captured["id"]),
+        page=0,
+    )
+    assert isinstance(direct, ExportSnapshotPage)
+    assert ExportSnapshotPage.model_validate_json(result.content) == direct
+    assert result.headers["Cache-Control"] == "no-store"
+    assert result.headers["Content-Type"] == "application/json"
     legacy = await api.client.get("/api/v1/workouts/export")
     assert legacy.status_code == 200 and legacy.headers["Cache-Control"] == "no-store"
     missing = await api.client.get(f"/api/v1/workouts/export/snapshots/{captured['id']}/pages/0")
@@ -86,6 +98,73 @@ async def test_actual_mount_and_legacy_export_preserve_projection_and_privacy(as
         headers=GENERATION | {"X-Test-User": "other"},
     )
     assert foreign.status_code in {404, 409}
+
+
+async def test_encoded_mounted_page_holds_response_slot_through_cancelled_body_send(
+    assembled_exports,
+):
+    api = assembled_exports
+    saved = await api.client.post("/api/v1/workouts/library", headers=GENERATION, json=WORKOUT)
+    assert saved.status_code == 201
+    captured = await manifest(api)
+    path = f"/api/v1/workouts/export/snapshots/{captured['id']}/pages/0"
+    entered = asyncio.Event()
+    messages = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def blocked_send(message):
+        messages.append(message)
+        if message["type"] == "http.response.body":
+            entered.set()
+            await asyncio.Event().wait()
+
+    pending = asyncio.create_task(
+        api.app(
+            {
+                "type": "http",
+                "http_version": "1.1",
+                "method": "GET",
+                "scheme": "http",
+                "path": path,
+                "raw_path": path.encode(),
+                "query_string": b"",
+                "root_path": "",
+                "headers": [(b"x-workouts-generation", b"1")],
+                "server": ("fixture.test", 80),
+                "client": ("127.0.0.1", 1),
+            },
+            receive,
+            blocked_send,
+        )
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        start = next(row for row in messages if row["type"] == "http.response.start")
+        body = next(row["body"] for row in messages if row["type"] == "http.response.body")
+        assert start["status"] == 200
+        assert (b"cache-control", b"no-store") in start["headers"]
+        assert ExportSnapshotPage.model_validate_json(body).snapshot_id == UUID(captured["id"])
+        async with api.sessions.begin() as db:
+            assert not await db.scalar(
+                text("SELECT pg_try_advisory_xact_lock(:slot)"),
+                {"slot": export_response_gate.RESPONSE_LOCK},
+            )
+        denied = await api.client.get(path, headers=GENERATION)
+        assert denied.status_code == 429 and denied.headers["Cache-Control"] == "no-store"
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(pending, 5)
+        async with api.sessions.begin() as db:
+            assert await db.scalar(
+                text("SELECT pg_try_advisory_xact_lock(:slot)"),
+                {"slot": export_response_gate.RESPONSE_LOCK},
+            )
+    finally:
+        if not pending.done():
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
 
 
 @pytest.mark.parametrize(
