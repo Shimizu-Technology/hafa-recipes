@@ -67,6 +67,7 @@ cleanup() {
   if [[ -n "$network" ]]; then
     [[ "$(limited 10 docker network inspect --format '{{index .Labels "hafa.capacity.run"}}' "$network")" == "$run" ]] && limited 10 docker network rm "$network" >/dev/null || cleanup_ok=false
   fi
+  python3 "$beta/numeric_trace.py" "$work" || cleanup_ok=false
   python3 - "$work" "$cleanup_ok" "$status" "$stage" "$failure_line" <<'PY'
 import json,sys
 from pathlib import Path
@@ -132,6 +133,7 @@ cp "$GITHUB_WORKSPACE/workflow/experiments/workouts-capacity/capacity/statistics
 cp "$beta/private_report.py" "$work/context/capacity/private_beta_report.py"
 cp "$beta/rollback_smoke.py" "$work/context/capacity/rollback_smoke.py"
 (cd "$work/context/capacity" && patch --fuzz=0 -p1 < "$beta/private-beta.patch")
+(cd "$work/context/capacity" && patch --fuzz=0 -p1 < "$beta/observer-cpu.patch")
 mkdir "$work/off-adapter"
 cp -R "$work/context/capacity" "$work/off-adapter/capacity"
 (cd "$work/off-adapter/capacity" && patch --fuzz=0 -p1 < "$control/recipes-only.patch")
@@ -275,7 +277,7 @@ assert r['completed'] and not r['failure_code'] and not r['failure_type']
 assert int(sys.argv[3])==0 and r['local_memory_gate']=='passed'
 PY
   [[ "$(timeout 5s docker inspect --format '{{.State.Running}}/{{.State.OOMKilled}}' "$api")" == true/false ]] || exit 1
-  timeout 5s docker exec "$api" cat /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.peak /sys/fs/cgroup/memory.events >"$result/final-cgroup.txt"
+  timeout 5s docker exec "$api" cat /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.peak /sys/fs/cgroup/memory.events /sys/fs/cgroup/cpu.stat >"$result/final-cgroup.txt"
   PYTHONPATH="$work/context" python3 - "$result" "$phase" <<'PY'
 import json,sys,time
 from pathlib import Path

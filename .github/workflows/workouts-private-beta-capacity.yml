@@ -44,6 +44,7 @@ jobs:
           name: workouts-private-beta-numeric
           path: |
             ${{ runner.temp }}/workouts-private-beta-${{ github.run_id }}-${{ github.run_attempt }}/receipt.json
+            ${{ runner.temp }}/workouts-private-beta-${{ github.run_id }}-${{ github.run_attempt }}/numeric-trace.json
             ${{ runner.temp }}/workouts-private-beta-${{ github.run_id }}-${{ github.run_attempt }}/pg-setup.log
           if-no-files-found: error
           retention-days: 1

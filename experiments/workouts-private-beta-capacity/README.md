@@ -68,3 +68,21 @@ finished import. Both phases keep the original Recipes cadence, fixtures,
 reader count, durations and workload outcomes. Fresh and rollback startup use
 the same existing 12-second total deadline, with closed readiness metadata
 retained even on failure. No acceptance threshold is raised.
+
+The numeric diagnostic retains the existing protected-read, export, import-submit/poll and coach request
+spans, media-stage timestamps, memory samples and API cgroup CPU usage/throttling
+counters. It includes sub-100 ms liveness spans and every protected route; the
+older liveness-only timeline filter would miss the observed 51 ms ratio failure.
+The observer reads CPU counters in its existing `cat` probe without changing
+sampling cadence or API traffic. Request numbers, process IDs, paths, headers,
+SQL, bodies and fixture contents are excluded from the retained diagnostic.
+
+`numeric-trace.json` is a separate artifact bounded at1 MiB: each phase admits
+at most1024 selected spans,1024 observer samples and256 media events; raw inputs
+are limited to8 MiB/8192 records. A representative two-phase bound case retains900 samples and1023 spans in
+each phase (including305 import polls); its output exceeds512 KiB and fits1 MiB.
+A single missing input or invalid/oversized evidence produces a closed
+unavailable marker, never a partial success or raw error message. Interrupted
+requests retain their known start and an explicit missing end/duration. Existing
+acceptance results and failures retain their meaning; the diagnostic supplies
+causal evidence rather than claiming a cause or changing a threshold.

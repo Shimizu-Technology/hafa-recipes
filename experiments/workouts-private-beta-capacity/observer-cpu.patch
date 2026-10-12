@@ -1,0 +1,30 @@
+--- a/host_monitor.py
++++ b/host_monitor.py
+@@ -106,7 +106,18 @@
+             events[fields[0]] = int(fields[1])
+     if not {"oom", "oom_kill"} <= events.keys():
+         raise MonitorError("missing_oom_events")
+-    return {"memory_current": int(lines[0]), "memory_peak": int(lines[1]), **events}
++    cpu_keys = {"usage_usec", "nr_periods", "nr_throttled", "throttled_usec"}
++    cpu = {}
++    for line in lines[2:]:
++        key, value = line.split()
++        if key in cpu_keys:
++            if key in cpu:
++                raise MonitorError("duplicate_cpu_counter")
++            cpu[key] = int(value)
++    if cpu and set(cpu) != cpu_keys:
++        raise MonitorError("missing_cpu_counter")
++    return {"memory_current": int(lines[0]), "memory_peak": int(lines[1]), **events,
++            "cpu": cpu or None}
+ 
+ 
+ def processes(raw):
+@@ -239,6 +250,7 @@
+                     "/sys/fs/cgroup/memory.current",
+                     "/sys/fs/cgroup/memory.peak",
+                     "/sys/fs/cgroup/memory.events",
++                    "/sys/fs/cgroup/cpu.stat",
+                 ]
+             )
+         )
