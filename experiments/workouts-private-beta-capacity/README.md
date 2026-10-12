@@ -86,3 +86,6 @@ unavailable marker, never a partial success or raw error message. Interrupted
 requests retain their known start and an explicit missing end/duration. Existing
 acceptance results and failures retain their meaning; the diagnostic supplies
 causal evidence rather than claiming a cause or changing a threshold.
+Collector execution has its own `numeric_trace_ok` receipt flag and shares the
+existing cleanup deadline, with at most20 seconds available. A collector failure
+fails the run while resource cleanup status continues to describe resources only.

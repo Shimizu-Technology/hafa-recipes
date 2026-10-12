@@ -162,3 +162,27 @@ def test_full_two_phase_fixture_retains_every_span_and_900_samples_within_bound(
         assert len(phase["requests"]) == sum(counts.values()) == 1023
         for route, count in counts.items():
             assert sum(row["route"] == route for row in phase["requests"]) == count
+
+
+@pytest.mark.parametrize("collector,initial,expected", [(0, 0, 0), (1, 0, 1), (1, 7, 7)])
+def test_collector_failure_has_own_flag_preserves_status_and_resource_cleanup(tmp_path, collector, initial, expected):
+    source = (BETA / "run.sh").read_text()
+    block = source.split("  trace_ok=true\n", 1)[1].split("  python3 - ", 1)[0]
+    result = subprocess.run(["/bin/bash", "-c",
+                             f'limited() {{ return {collector}; }}; status={initial}; cleanup_ok=true; trace_ok=true; beta=x; work=x;\n'
+                             + block + '\nprintf "%s %s %s" "$cleanup_ok" "$trace_ok" "$status"'],
+                            capture_output=True, text=True, check=True)
+    assert result.stdout == f'true {"true" if collector == 0 else "false"} {expected}'
+    assert 'limited 20 python3' in block
+    receipt_code = source.split('"$failure_line" "$trace_ok" <<\'PY\'\n', 1)[1].split('\nPY\n', 1)[0]
+    (tmp_path / "receipt.json").write_text(json.dumps({"passed": True}))
+    namespace = {"__name__": "__main__"}
+    import sys
+    from unittest.mock import patch
+    with patch.object(sys, "argv", ["receipt", str(tmp_path), "true", str(expected),
+                                    "final_comparison", "0", "true" if collector == 0 else "false"]):
+        exec(compile(receipt_code, str(BETA / "run.sh"), "exec"), namespace)  # noqa: S102
+    value = json.loads((tmp_path / "receipt.json").read_text())
+    assert value["cleaned_owned_resources"] is True
+    assert value["numeric_trace_ok"] is (collector == 0)
+    assert value["exit_code"] == expected and value["passed"] is (expected == 0)
