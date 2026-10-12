@@ -99,6 +99,25 @@ def select(candidates, recipe=None, platform="tiktok"):
     )
 
 
+def test_oriented_cover_preparation_keeps_original_candidate_and_metadata_free_crop_contract():
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    exif[0x010E] = "private photo metadata"
+    with Image.open(io.BytesIO(photo(size=(400, 800)))) as image, io.BytesIO() as output:
+        image.save(output, format="JPEG", quality=90, exif=exif)
+        data = output.getvalue()
+    original = covers.CoverCandidate("original", data, "platform_thumbnail")
+    prepared = covers._prepare([original], "youtube", 8)
+    assert len(prepared) == 1 and prepared[0].candidate is original
+    assert original.image_data == data
+    for url, expected in zip(prepared[0].images, [(768, 432), (384, 384)]):
+        assert url.startswith("data:image/jpeg;base64,")
+        with Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1]))) as image:
+            image.load()
+            assert image.format == "JPEG" and image.mode == "RGB" and image.size == expected
+            assert not image.getexif() and "icc_profile" not in image.info
+
+
 def test_selects_clear_improvement_and_records_only_safe_provenance(environment):
     _, post, records = environment
     old = candidate("old", 2, "platform_thumbnail")

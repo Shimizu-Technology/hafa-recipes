@@ -19,6 +19,7 @@ from PIL import Image, ImageFilter, ImageOps, ImageStat
 
 from app.ai_governance import PROMPT_VERSIONS, AIInvocationTracker
 from app.config import get_settings
+from app.image_validation import bounded_still_image
 
 MAX_INPUTS = 32
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -108,44 +109,44 @@ def _prepare(candidates: list[CoverCandidate], platform: str, maximum: int) -> l
                     or getattr(opened, "n_frames", 1) != 1
                 ):
                     continue
-                opened.load()
-                image = ImageOps.exif_transpose(opened).convert("RGB")
-            image.thumbnail((1024, 1024))
-            gray = image.convert("L")
-            stats = ImageStat.Stat(gray)
-            # Only reject near-solid/blank and extreme blur; model judges borderline food photos.
-            sharpness = ImageStat.Stat(
-                gray.filter(ImageFilter.FIND_EDGES).crop((2, 2, gray.width - 2, gray.height - 2))
-            ).mean[0]
-            if stats.stddev[0] < 2 or sharpness < 0.3:
-                continue
-            pixels = list(gray.resize((9, 8), Image.Resampling.LANCZOS).get_flattened_data())
-            fingerprint = sum(
-                (1 << (y * 8 + x))
-                for y in range(8)
-                for x in range(8)
-                if pixels[y * 9 + x] > pixels[y * 9 + x + 1]
-            )
-            mean = tuple(ImageStat.Stat(image).mean)
-            if any(
-                (fingerprint ^ prior.fingerprint).bit_count() <= 2
-                and max(abs(a - b) for a, b in zip(mean, prior.mean)) < 8
-                # A sharper capture of the same dish remains a meaningful
-                # challenger, especially when the incumbent is blurry.
-                and not (sharpness > prior.sharpness * 1.5 and sharpness - prior.sharpness > 1)
-                for prior in prepared
-            ):
-                continue
-            crops = []
-            hero_size = (768, 432) if platform.lower() == "youtube" else (640, 480)
-            for size in (hero_size, (384, 384)):
-                crop = ImageOps.fit(image, size, method=Image.Resampling.LANCZOS)
-                output = io.BytesIO()
-                crop.save(output, format="JPEG", quality=78)
-                crops.append(
-                    "data:image/jpeg;base64," + base64.b64encode(output.getvalue()).decode("ascii")
-                )
-            prepared.append(_Prepared(candidate, tuple(crops), fingerprint, mean, sharpness))
+                with bounded_still_image(
+                    opened, 1024, mode="RGB", resample=Image.Resampling.BICUBIC
+                ) as image, image.convert("L") as gray:
+                    stats = ImageStat.Stat(gray)
+                    # Only reject near-solid/blank and extreme blur; model judges borderline food photos.
+                    with gray.filter(ImageFilter.FIND_EDGES) as edges:
+                        with edges.crop((2, 2, gray.width - 2, gray.height - 2)) as interior:
+                            sharpness = ImageStat.Stat(interior).mean[0]
+                    if stats.stddev[0] < 2 or sharpness < 0.3:
+                        continue
+                    with gray.resize((9, 8), Image.Resampling.LANCZOS) as fingerprint_image:
+                        pixels = list(fingerprint_image.get_flattened_data())
+                    fingerprint = sum(
+                        (1 << (y * 8 + x))
+                        for y in range(8)
+                        for x in range(8)
+                        if pixels[y * 9 + x] > pixels[y * 9 + x + 1]
+                    )
+                    mean = tuple(ImageStat.Stat(image).mean)
+                    if any(
+                        (fingerprint ^ prior.fingerprint).bit_count() <= 2
+                        and max(abs(a - b) for a, b in zip(mean, prior.mean)) < 8
+                        # A sharper capture of the same dish remains a meaningful
+                        # challenger, especially when the incumbent is blurry.
+                        and not (sharpness > prior.sharpness * 1.5 and sharpness - prior.sharpness > 1)
+                        for prior in prepared
+                    ):
+                        continue
+                    crops = []
+                    hero_size = (768, 432) if platform.lower() == "youtube" else (640, 480)
+                    for size in (hero_size, (384, 384)):
+                        with ImageOps.fit(image, size, method=Image.Resampling.LANCZOS) as crop:
+                            with io.BytesIO() as output:
+                                crop.save(output, format="JPEG", quality=78)
+                                crops.append(
+                                    "data:image/jpeg;base64," + base64.b64encode(output.getvalue()).decode("ascii")
+                                )
+                    prepared.append(_Prepared(candidate, tuple(crops), fingerprint, mean, sharpness))
         except (OSError, ValueError, SyntaxError, Image.DecompressionBombError):
             continue
     # Spread the shortlist over the source rather than spending every slot on early frames.

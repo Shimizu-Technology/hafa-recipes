@@ -1,0 +1,51 @@
+# Provider admission integration
+
+The production extraction and coach adapters now reserve durable Workouts AI budget before each actual provider call. Their default guard uses the current server settings and its own authority database transaction. Successful reservation commits before HTTP transport or the audio SDK enters the provider call. The existing AIInvocationTracker still supplies the actual routed model, canary selection and invocation analytics.
+
+An extraction primary attempt and its fallback each require a separate reservation. A denied primary or fallback reservation returns its safe budget error code and cannot send that request. There is no fallback around a budget denial. Each coach provider turn, including a function-result round and final reply, similarly requires its own reservation. Function schemas count within the budget envelope; unsupported hosted tools fail admission before a request is sent.
+
+Extraction sets `max_completion_tokens=6000`, and coach sets `max_output_tokens=1800`. Each reservation uses the same output limit and the selected `invocation.model` that the request sends. Both request `service_tier=default`, use the explicit OpenAI endpoint, preserve `store=false`, and construct an HTTP transport with `retries=0`. The audio SDK also uses `max_retries=0` and an explicit OpenAI base URL. Only the configured extraction fallback adds another intentional request, with another reservation.
+
+Transcription independently probes the downloaded file through the existing bounded ffprobe helper. It accepts only a finite positive duration within the configured video limit and the budget envelope's 1800-second maximum. Missing, invalid, excessive or failed probes return `audio_duration_unverified` without constructing an audio client or reserving budget. The envelope uses the verified duration rounded up to a whole second; the budget layer applies its documented audio pricing bound. Source metadata and client-supplied duration are never used for this reservation.
+
+A successful validated provider response records a successful admission outcome
+and retains its full bound for 24 hours after the later of admission and durable finish. HTTP failure, invalid output, refusal, SDK failure or cancellation retains the reservation and records failure/cancellation where possible. Outcome-write failure leaves the previously committed unknown reservation consumed indefinitely.
+Failed/cancelled outcomes also hold indefinitely: local await completion does not
+prove upstream billing completion. There are no refunds for failed or uncertain provider attempts. Existing token usage analytics remain in AIInvocationTracker; this integration does not invent audio usage or lower reserved amounts based on estimated billing.
+
+Budget denial and provider failure may leave an incomplete manual source draft with no extracted exercises. Such a draft is not a usable extraction and must not consume the user's successful-import allowance. Root owns the separate import-usage helper, fallback and backfill predicates that enforce this distinction. A partial extraction containing actual exercises may still be reviewed and saved.
+
+## Integration and acceptance
+
+Root owns budget settings, migration 040 registration/readiness, router configuration, account consent/grants and lifecycle assembly. Unconfigured default admission remains fail-closed. Optional constructor injection of `budget_guard` exists for explicit isolated test wiring and must not be exposed as a client option or deployment bypass.
+
+Tests use synthetic HTTP/audio clients and an exact disposable PostgreSQL database. They cover zero provider calls after denial, independent fallback admission, selected canary models, exact output/tier envelopes, explicit retry limits, separate coach rounds, invalid/probe-failed audio, audio cancellation, safe SDK errors, committed admission visible before transport, unknown model/hosted-tool denial and nonusable failure drafts. No real provider, network media or paid AI calls were made. Real audio acquisition, complete application integration, actual paid-model quality and device acceptance remain separate gates.
+
+The official [Responses API reference](https://developers.openai.com/api/reference/resources/responses/methods/create) defines output limits and the standard service tier. The official [transcription reference](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create) defines the audio request. Model/pricing bounds and their limits remain documented in [AI_ADMISSION_BUDGET.md](AI_ADMISSION_BUDGET.md).
+
+Historical provider-integration gate: `uv run pytest tests/test_workouts_provider_budgets.py tests/test_workout_extraction.py tests/test_workout_coach.py tests/test_workouts_ai_budget.py -q --tb=short` passed 116 cases. Ruff and Git whitespace checks passed. The exact owned `hafa_workouts_provider_budget_test` database was dropped after testing; the borrowed PostgreSQL container stayed running. These results predate the October 12 context-bound correction and do not verify the new combined source.
+
+Local real-provider evaluation requires a separately issued development key in ignored `WORKOUTS_DEVELOPMENT_AI_API_KEY`, `ALLOW_PAID_AI_IN_DEVELOPMENT=true`, the explicit capability flags, a positive admission budget and explicit `WORKOUTS_AI_BUDGET_DATABASE_URL`. This SecretStr is never substituted with the shared production OpenAI credential in development. Production continues its existing provider credential binding. No development key has been provisioned and no real evaluation calls have been executed by this integration. Public capability projection hides AI actions when the operational budget is zero.
+
+Leon authorized at most $5 per day combined across Workouts testing and beta. All
+paid environments must use ONE durable shared admission authority; this
+is not a $5 allowance for each environment. Static allocations across independent
+ledgers are insufficient during transfers. Testing and beta may both use paid
+processing after their same-authority inventory is verified; unverified or
+independent ledgers stay budget zero and paid capabilities off. The committed operational budget
+remains 0 and production capabilities remain off; the dedicated development key
+is still unavailable. No actual paid call has occurred.
+
+Under the current conservative admission envelope, one Luna extraction reserves
+$0.5358 (535800 microUSD), and a Luna coach turn reserves $0.52824 (528240 microUSD).
+Terra extraction's bound is $5.358 (5358000 microUSD), so it cannot be admitted
+even as the first attempt under the unchanged $5 maximum attempt and shared
+budget. A selected Terra primary/canary or fallback fails before its database
+reservation or transport. A preceding failed Luna extraction keeps its full
+reservation indefinitely; manual completion remains available. The former
+922,000-token input assumption is documented as historical in the admission
+budget; the current bound reserves the full documented context plus the actual
+output cap. Prepared regression tests and the complete engineering gate for
+this corrected source have not run yet. Do not
+increase the budget automatically to accommodate fallback; any later envelope
+change requires independent verification and the same combined spending ceiling.
