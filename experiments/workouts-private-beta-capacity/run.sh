@@ -67,7 +67,12 @@ cleanup() {
   if [[ -n "$network" ]]; then
     [[ "$(limited 10 docker network inspect --format '{{index .Labels "hafa.capacity.run"}}' "$network")" == "$run" ]] && limited 10 docker network rm "$network" >/dev/null || cleanup_ok=false
   fi
-  python3 - "$work" "$cleanup_ok" "$status" "$stage" "$failure_line" <<'PY'
+  trace_ok=true
+  limited 20 python3 "$beta/numeric_trace.py" "$work" || {
+    trace_ok=false
+    if [[ "$status" == 0 ]]; then status=1; fi
+  }
+  python3 - "$work" "$cleanup_ok" "$status" "$stage" "$failure_line" "$trace_ok" <<'PY'
 import json,sys
 from pathlib import Path
 w=Path(sys.argv[1]); p=w/'receipt.json'
@@ -87,9 +92,10 @@ for name in ['comparison','rollback']:
 f=w/'rollback/readiness.json'
 if f.exists():r['rollback_startup_readiness']=json.loads(f.read_text())
 r['cleaned_owned_resources']=sys.argv[2]=='true';r['exit_code']=int(sys.argv[3])
+r['numeric_trace_ok']=sys.argv[6]=='true'
 r['last_stage']=sys.argv[4];r['failure_line']=int(sys.argv[5])
 r['setup_metadata']={f.stem:json.loads(f.read_text()) for name in ['api-state.json','pg-state.json','load-state.json','finite-state.json','finite-errors.json'] if (f:=w/name).exists() and f.stat().st_size}
-r['passed']=r.get('passed',False) and r['cleaned_owned_resources'] and r['exit_code']==0
+r['passed']=r.get('passed',False) and r['cleaned_owned_resources'] and r['numeric_trace_ok'] and r['exit_code']==0
 p.write_text(json.dumps(r,indent=2)+'\n')
 PY
   [[ "$cleanup_ok" == true ]] || status=1
@@ -132,6 +138,7 @@ cp "$GITHUB_WORKSPACE/workflow/experiments/workouts-capacity/capacity/statistics
 cp "$beta/private_report.py" "$work/context/capacity/private_beta_report.py"
 cp "$beta/rollback_smoke.py" "$work/context/capacity/rollback_smoke.py"
 (cd "$work/context/capacity" && patch --fuzz=0 -p1 < "$beta/private-beta.patch")
+(cd "$work/context/capacity" && patch --fuzz=0 -p1 < "$beta/observer-cpu.patch")
 mkdir "$work/off-adapter"
 cp -R "$work/context/capacity" "$work/off-adapter/capacity"
 (cd "$work/off-adapter/capacity" && patch --fuzz=0 -p1 < "$control/recipes-only.patch")
@@ -275,7 +282,7 @@ assert r['completed'] and not r['failure_code'] and not r['failure_type']
 assert int(sys.argv[3])==0 and r['local_memory_gate']=='passed'
 PY
   [[ "$(timeout 5s docker inspect --format '{{.State.Running}}/{{.State.OOMKilled}}' "$api")" == true/false ]] || exit 1
-  timeout 5s docker exec "$api" cat /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.peak /sys/fs/cgroup/memory.events >"$result/final-cgroup.txt"
+  timeout 5s docker exec "$api" cat /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.peak /sys/fs/cgroup/memory.events /sys/fs/cgroup/cpu.stat >"$result/final-cgroup.txt"
   PYTHONPATH="$work/context" python3 - "$result" "$phase" <<'PY'
 import json,sys,time
 from pathlib import Path
