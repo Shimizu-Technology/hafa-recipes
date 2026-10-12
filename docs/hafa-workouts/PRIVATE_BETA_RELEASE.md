@@ -4,7 +4,7 @@ This release adds Håfa Workouts to the existing Recipes API. It preserves the s
 
 ## Source and mobile delivery
 
-The runtime integration is `0d5893b04dd2a35d7efc43a928b1b481756f3ca0`, with API tree `89b5ee5ad64a17a3af293efb2d85188a8b660f51` and Workouts native tree `84000f3f45f2b04381ef08da5443eedf22d389e6`. Later release documentation does not change either runtime tree. The integration begins at production commit `823986f48e4eb5de3075969a742f834036b5d473`; Recipes mobile and website runtime trees remain unchanged.
+The runtime integration is `0d5893b04dd2a35d7efc43a928b1b481756f3ca0`, with API tree `89b5ee5ad64a17a3af293efb2d85188a8b660f51` and Workouts native tree `84000f3f45f2b04381ef08da5443eedf22d389e6`. The later deployment-contract test changes only API test bytes; application/runtime files remain byte-identical to that tested API tree. Release documentation and the Render predeploy command do not change the native tree. The integration begins at production commit `823986f48e4eb5de3075969a742f834036b5d473`; Recipes mobile and website runtime trees remain unchanged.
 
 The API includes the reviewed Recipes card projection (PR159) and bounded private-export CPU work (PR160). The native client includes the Recipes-compatible Apple nonce flow (PR158) and one-button Today service recovery (PR161). Core migrations remain through 033; optional Workouts migrations are 034–044. Migration 045 and durable export jobs are absent. Successful capability discovery selects the legacy 201 snapshot/page/save/delete export flow; failed discovery does not select fallback. The [initial API provenance](../../api/docs/PRIVATE_BETA_API_SOURCE.md) records the earlier assembly; this release document supplies the current integration evidence below.
 

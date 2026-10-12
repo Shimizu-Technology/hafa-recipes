@@ -55,20 +55,16 @@ async def test_runner_stops_at_first_failed_migration(monkeypatch):
     assert calls == list(migration_runner.ACTIVE_MIGRATIONS[:3])
 
 
-def test_render_runs_the_locked_repair_before_the_versioned_migration_runner():
+def test_render_predeploy_is_readonly_and_migrations_require_explicit_application():
+    """Deploying a client-compatible API must not replay historical data work."""
     render_config = (
         Path(__file__).resolve().parents[2] / "render.yaml"
     ).read_text(encoding="utf-8")
 
-    repair = "python -m app.grocery_membership_repair"
-    migration_runner_command = "&& python -m migrations.run"
-    assert repair in render_config
-    assert migration_runner_command in render_config
-    assert render_config.index(repair) < render_config.index(migration_runner_command)
-    assert "--repair-id grocery-empty-list-dedup-2026-08-22" in render_config
-    assert "--expected-users 11" in render_config
-    assert "--expected-memberships 31" in render_config
-    assert "python -m migrations.022_add_admin_moderation" not in render_config
+    assert "preDeployCommand: python -m app.grocery_membership_repair" in render_config
+    assert "--apply" not in render_config
+    assert "--repair-id" not in render_config
+    assert "python -m migrations." not in render_config
 
 
 def test_render_never_runs_remote_thumbnail_backfill_during_deploy():
