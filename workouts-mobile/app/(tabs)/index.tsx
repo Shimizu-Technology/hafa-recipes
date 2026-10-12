@@ -1,6 +1,6 @@
 import { completedProgramSessions, programSessionKey } from "@/lib/program-session-identity";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { router } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { AccountButton, Button, Card, Copy, Empty, Notice, Screen, useColors } from "@/components/ui";
@@ -9,11 +9,13 @@ import { useTraining, useOfflineTraining } from "@/lib/context";
 import { dateInTimezone } from "@/lib/training";
 import { goalLabels, type Program, type ScheduledSession } from "@/lib/models";
 export default function Today() {
-  const { api, owner, enrollment, enrollmentQuery } = useTraining();
+  const { api, owner, enrollment, enrollmentQuery, isCurrentAccount, storage } = useTraining();
   const offline = useOfflineTraining();
   const c = useColors();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [retryBusy, setRetryBusy] = useState(false);
+  const retrying = useRef(false);
   const enabled = !!enrollment?.enrolled;
   const profile = useQuery({ queryKey: [owner, "profile", enrollment?.generation], queryFn: api.profile, enabled });
   const programs = useQuery({ queryKey: [owner, "programs", enrollment?.generation], queryFn: api.programs, enabled });
@@ -25,6 +27,20 @@ export default function Today() {
     .flatMap((p) =>
       p.sessions.filter((s) => s.date === date && !completed.has(programSessionKey(p.id, s.id)!)).map((s) => ({ program: p, session: s }))
     )[0];
+  async function retryToday() {
+    if (retrying.current || !isCurrentAccount() || !storage.isCurrent()) return;
+    retrying.current = true;
+    setRetryBusy(true);
+    try {
+      const checked = await enrollmentQuery.refetch();
+      if (!isCurrentAccount() || !storage.isCurrent() || checked.error ||
+        !checked.data?.enrolled || checked.data.generation !== enrollment?.generation) return;
+      await Promise.all([profile.refetch(), programs.refetch(), sessions.refetch()]);
+    } finally {
+      retrying.current = false;
+      setRetryBusy(false);
+    }
+  }
   async function start(program: Program, session: ScheduledSession) {
     if (!offline.store || !offline.ready || program.schedule_state?.status === "paused") return;
     setBusy(true);
@@ -108,10 +124,10 @@ export default function Today() {
       ) : (
         <>
           <QueryState
-            loading={profile.isPending}
-            error={profile.error}
+            loading={retryBusy || profile.isPending || programs.isPending || sessions.isPending}
+            error={enrollmentQuery.error ?? profile.error ?? programs.error ?? sessions.error}
             retry={() => {
-              void profile.refetch();
+              void retryToday();
             }}
           >
             {!profile.data ? (
@@ -149,7 +165,6 @@ export default function Today() {
               </Card>
             )}
           </QueryState>
-          {programs.error && <Notice error>{programs.error.message}</Notice>}
           <Button
             title="Choose a saved workout"
             secondary
