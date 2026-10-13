@@ -120,5 +120,5 @@ export function importIsTerminal(status: ImportJob["status"]) {
 /** Only an unchanged complete extraction can skip the missing-details review. */
 export function canSaveAutomatically(job: ImportJob) {
   return !job.accepted_workout_id && job.status === "ready" && job.result?.status === "ready" &&
-    !!job.result.workout && job.result.warnings.length === 0 && job.result.source.coverage_notes.length === 0;
+    !!job.result.workout && job.result.warnings.length === 0;
 }

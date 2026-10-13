@@ -14,7 +14,7 @@ import * as Crypto from "expo-crypto";
 import { createPrivateDraftSlot, type PrivateDraftSnapshot } from "@/lib/private-form";
 import type { AuthoredWorkout } from "@/lib/models";
 import { usePublishingDisclosure } from "@/components/publishing-disclosure";
-import { DECLINED, INCOMPLETE_MESSAGE, defaultShareToDiscover, isIncomplete, publishable } from "@/lib/discover";
+import { DECLINED, INCOMPLETE_MESSAGE, defaultShareToDiscover, isIncomplete, publishable, prescriptionLine } from "@/lib/discover";
 export default function ImportReview() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
@@ -350,14 +350,7 @@ export default function ImportReview() {
                           <Copy key={index}>
                             <Copy kind="label">{e.name}</Copy>
                             {" · "}
-                            <Copy tone={e.sets == null ? "accent" : "default"}>{e.sets ?? "Unspecified"} sets</Copy>
-                            {" · "}
-                            <Copy tone={e.reps_min == null ? "accent" : "default"}>
-                              {e.reps_min ?? "Unspecified"}
-                              {e.reps_max != null && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ""} reps
-                            </Copy>
-                            {e.duration_seconds != null ? ` · ${e.duration_seconds}s` : ""}
-                            {e.per_side ? " · each side" : ""}
+                            <Copy>{prescriptionLine(e)}</Copy>
                           </Copy>
                         ))}
                       </Card>
