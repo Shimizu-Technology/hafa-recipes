@@ -40,10 +40,15 @@ async def require_ai_consent(db, user_id, generation, *, expected=None):
     return consent
 
 
-async def create_import(db, user_id, generation, request_id, request):
+async def create_import(
+    db, user_id, generation, request_id, request, *, auto_save=False, is_public=False,
+    display_name="Håfa member",
+):
     await membership_for(db, user_id, generation=generation, write=True)
     consent = await require_ai_consent(db, user_id, generation)
     content = request.model_dump(mode="json")
+    if auto_save:
+        content["_save"] = {"is_public": is_public, "display_name": display_name[:100]}
     digest = content_digest(content)
     existing = await db.scalar(
         select(WorkoutImport).where(
@@ -71,6 +76,39 @@ async def create_import(db, user_id, generation, request_id, request):
     db.add(row)
     await db.commit()
     return row
+
+
+async def save_import_result(db, row, result, preferences):
+    """Save once under the worker's owner/generation lock, without a live client."""
+    if preferences is None or row.accepted_workout_id or result.workout is None:
+        return
+    from app.auth import ClerkUser
+    from app.domains.workouts.automation_router import store_workout
+    from app.domains.workouts.discover import discover_ready, set_publication
+    from app.domains.workouts.library_organization_service import refresh_optional_source_metadata
+    from app.domains.workouts.router import validated_workout
+
+    if result.status not in {"ready", "incomplete"}:
+        return
+    result.workout.extraction_warnings = list(result.warnings)
+    content = validated_workout(result.workout, authored=False)
+    saved = store_workout(db, row.app_user_id, row.generation, content)
+    await refresh_optional_source_metadata(db, saved)
+    # Insufficient or uncertain sources remain private, regardless of the
+    # capture preference. A revoked disclosure cannot discard the private save.
+    if preferences.get("is_public") and result.status == "ready" and not result.warnings:
+        if await discover_ready(db):
+            actor = ClerkUser(
+                id=row.app_user_id, clerk_user_id="workouts-import", clerk_issuer="workouts-import",
+                clerk_environment="workouts-import", first_name=preferences.get("display_name"),
+            )
+            try:
+                await set_publication(db, saved, actor, True)
+            except HTTPException:
+                pass  # Save privately if publishing no longer qualifies.
+    row.accepted_workout_id = saved.id
+    row.accepted_content_hash = content_digest(content)
+    row.payload = None
 
 
 async def cancel_imports(db, user_id):
@@ -234,7 +272,9 @@ class WorkoutImportWorker:
                 if row is None or row.lease_token != token or row.status != "processing":
                     return
                 await require_ai_consent(db, owner, generation, expected=row.ai_accepted_at)
-                request = ExtractionRequest.model_validate(row.payload)
+                source = dict(row.payload)
+                preferences = source.pop("_save", None)
+                request = ExtractionRequest.model_validate(source)
                 await db.rollback()
             except HTTPException:
                 await db.rollback()
@@ -269,6 +309,7 @@ class WorkoutImportWorker:
                 else:
                     await charge_usable_import(db, row, result)
                     row.status = result.status
+                    await save_import_result(db, row, result, preferences)
                     row.result = result.model_dump(mode="json")
                     # Private raw capture survives until review, cancellation
                     # or expiry so another device can inspect visual evidence.
