@@ -1,8 +1,9 @@
 import { expect, it, vi } from "vitest";
-import { selectProgressSessions, missingProgressParents, loadProgressAncestry } from "./progress-selection";
+import { selectProgressSessions, missingProgressParents, loadProgressAncestry, effectiveTrainingHistory } from "./progress-selection";
 import { activityFrequency } from "./activity-log";
 import { createTrainingStore, type SavedLocalSession } from "./training";
 import type { TrainingSession, Workout } from "./models";
+import { previousActual, stepsFor } from "./training";
 
 const workout: Workout = { id: "workout", generation: 1, revision: 1, title: "Strength", kind: "session", provenance: "user",
   blocks: [{ id: "main", label: "Strength", grouping: "sequential", exercises: [{ name: "Row", sets: 2, reps_min: 8, reps_max: 8 }] }] };
@@ -12,13 +13,33 @@ function saved(id = "A", previous?: string): TrainingSession {
     content: { client_session_id: `client-${id}`, workout_id: workout.id, workout_revision: 1,
       started_at: "2026-10-10T00:00:00Z", finished_at: "2026-10-10T00:02:00Z", status: "completed",
       prescription_snapshot: workout, ...(previous ? { supersedes_session_id: previous } : {}),
-      actuals: [8, 7].map((reps, i) => ({ block_id: "main", exercise_index: 0, round_index: 1, set_index: i + 1, reps, completed: true })) } };
+      actuals: [8, 7].map((reps, i) => ({ block_id: "main", exercise_index: 0, round_index: 1, set_index: i + 1, side: null, reps, completed: true })) } };
 }
 function local(record: TrainingSession, state: SavedLocalSession["state"] = "synced"): SavedLocalSession {
   const { prescription_snapshot, ...request } = record.content;
   return { generation: record.generation, workout: prescription_snapshot, request, state,
     ...(state === "synced" ? { synced_id: record.id } : {}), ...(state === "blocked" ? { problem: "Review the conflict" } : {}) };
 }
+it("last performance uses the latest other-device result and excludes rejected/pending corrections", () => {
+  const old = saved(), corrected = saved("C", "omitted-intermediate"), pending = saved("pending", "A");
+  corrected.content.actuals[1].reps = 12; pending.content.actuals[1].reps = 99;
+  corrected.content.actuals.forEach((actual) => { delete actual.side; }); // Older records may omit the optional side.
+  const history = effectiveTrainingHistory([local(pending, "blocked"), local(old)], [corrected], 1);
+  expect(history).toHaveLength(1);
+  expect(previousActual(workout, stepsFor(workout)[0], history.map((h) => ({ workout: h.workout, actuals: h.request.actuals })))?.reps).toBe(12);
+  expect(effectiveTrainingHistory([local(pending, "queued"), local(old)], [corrected], 1)).toEqual(history);
+});
+it("offline history keeps the accepted correction and orders new on-device work by training date", () => {
+  const old = saved(), correction = saved("B", "A"), newer = saved("newer");
+  newer.content.started_at = "2026-10-12T00:00:00Z";
+  const selected = effectiveTrainingHistory([local(correction), local(old), local(newer, "queued")], undefined, 1);
+  expect(selected.map((h) => h.request.client_session_id)).toEqual(["client-newer", "client-B"]);
+});
+it("a newly acknowledged result stays effective until the server cache catches up", () => {
+  const result = local(saved()); result.synced_at = 200;
+  expect(effectiveTrainingHistory([result], [], 1, 100)).toHaveLength(1);
+  expect(effectiveTrainingHistory([result], [], 1, 300)).toHaveLength(0);
+});
 const frequency = (selection: ReturnType<typeof selectProgressSessions>) =>
   activityFrequency([], selection.sessions, "UTC", "2026-10-04", "2026-10-10");
 

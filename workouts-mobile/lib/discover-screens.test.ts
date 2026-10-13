@@ -118,6 +118,16 @@ import { ImportList } from "../components/import-list";
 let renderer: ReactTestRenderer | undefined, cache: QueryClient;
 const nodes = (type: string) => renderer!.root.findAll((n) => String(n.type) === type);
 const button = (title: string) => nodes("Button").find((n) => n.props.title === title);
+it("a saved workout enters planning with that workout selected", async () => {
+  fixture.params = { id: "saved-1" };
+  fixture.workout.mockResolvedValue({ id: "saved-1", revision: 1, generation: 1, title: "Saved session",
+    kind: "session", provenance: "user", blocks: [], equipment_required: [] });
+  await mount(WorkoutDetail);
+  const action = nodes("ListRow").find((n) => n.props.title === "Add to a plan");
+  expect(action).toBeDefined();
+  await act(async () => action!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/build-plan", params: { include: "saved-1" } });
+});
 const choice = (label: string) => nodes("Choice").find((n) => n.props.label === label);
 async function settle() {
   for (let i = 0; i < 6; i++) await act(async () => void (await new Promise((done) => setTimeout(done, 5))));

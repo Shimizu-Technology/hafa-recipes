@@ -2,17 +2,17 @@ import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { Enrollment, Program, TrainingProfile } from "./models";
+import type { Enrollment, Program, TrainingProfile, Workout } from "./models";
 
 const fixture = vi.hoisted(() => ({
   owner: "owner-A", generation: 1, enrolled: true, current: true, epoch: 0, available: false,
-  enrollment: vi.fn(), profile: vi.fn(), programs: vi.fn(), sessions: vi.fn(), start: vi.fn(),
+  enrollment: vi.fn(), profile: vi.fn(), programs: vi.fn(), sessions: vi.fn(), start: vi.fn(), updateProgram: vi.fn(),
   active: null as null | { workout: { title: string }; actuals: { completed: boolean }[] },
   drafts: new Map<string, string>(),
 }));
 vi.mock("@/lib/context", async () => {
   const { useQuery } = await import("@tanstack/react-query");
-  const api = { profile: fixture.profile, programs: fixture.programs, sessions: fixture.sessions };
+  const api = { profile: fixture.profile, programs: fixture.programs, sessions: fixture.sessions, updateProgram: fixture.updateProgram };
   return {
     useTraining: () => {
       const owner = fixture.owner, epoch = fixture.epoch;
@@ -26,15 +26,18 @@ vi.mock("@/lib/context", async () => {
     useOfflineTraining: () => ({ state: { active: fixture.active, history: [] }, error: "", ready: true, store: { start: fixture.start } }),
   };
 });
-vi.mock("react-native", () => ({ ActivityIndicator: "ActivityIndicator" }));
+vi.mock("react-native", () => ({ ActivityIndicator: "ActivityIndicator", View: "View" }));
+vi.mock("@/constants/theme", () => ({ radii: { md: 12 } }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
 vi.mock("expo-crypto", () => ({ randomUUID: vi.fn(() => "synthetic-session") }));
 vi.mock("@/components/ui", () => ({
   Screen: "Screen", Card: "Card", Copy: "Copy", Empty: "Empty", Notice: "Notice", Button: "Button", AccountButton: "AccountButton",
   Chip: "Chip", ChipRow: "ChipRow", ListGroup: "ListGroup", ListRow: "ListRow", SectionHeader: "SectionHeader", WeekStrip: "WeekStrip",
+  Grow: "Grow", IconButton: "IconButton", Row: "Row", Sheet: "Sheet", Field: "Field",
   useColors: () => ({ action: "green", muted: "gray" }),
 }));
 import Today from "../app/(tabs)/index";
+import Plan from "../app/(tabs)/plan";
 import { dateInTimezone } from "./training";
 
 let cache: QueryClient, renderer: ReactTestRenderer | undefined;
@@ -55,13 +58,47 @@ beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   fixture.owner = "owner-A"; fixture.generation = 1; fixture.enrolled = true; fixture.current = true;
   fixture.epoch = 0; fixture.available = false; fixture.active = null; fixture.drafts.clear();
-  for (const mock of [fixture.enrollment, fixture.profile, fixture.programs, fixture.sessions, fixture.start]) mock.mockReset();
+  for (const mock of [fixture.enrollment, fixture.profile, fixture.programs, fixture.sessions, fixture.start, fixture.updateProgram]) mock.mockReset();
   const available = () => { if (!fixture.available) throw Error("The training service is unavailable. Your draft is safe."); };
   fixture.enrollment.mockImplementation(async () => { available(); return member(); });
   fixture.profile.mockImplementation(async () => { available(); return profile; });
   fixture.programs.mockImplementation(async () => { available(); return []; });
   fixture.sessions.mockImplementation(async () => { available(); return []; });
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+});
+it("Plan distinguishes partial work and permits inspecting and explicitly moving a missed session", async () => {
+  fixture.available = true;
+  const workout: Workout = { id: "workout", revision: 1, generation: 1, title: "Strength", kind: "session", provenance: "source",
+    blocks: [{ id: "main", label: "Work", grouping: "sequential", rounds: 1,
+      exercises: [{ name: "Row", sets: 3, reps_min: 8, rest_seconds: 30, notes: "Keep your back steady" }] }] };
+  const program: Program = { id: "plan", title: "My plan", generation: 1, revision: 1, status: "ready", questions: [], warnings: [],
+    assumptions: [], source_ids: [], rule_version: "test", sessions: [{ id: "missed", date: "2020-01-01", purpose: "Strength day", workout }] };
+  const otherPlan = { ...program, id: "another-plan", sessions: [{ ...program.sessions[0], id: "future", date: "2099-01-01" }] };
+  fixture.programs.mockResolvedValue([program, otherPlan]);
+  fixture.sessions.mockResolvedValue([{ id: "saved", client_session_id: "client", generation: 1,
+    content: { client_session_id: "client", program_id: "plan", program_session_id: "missed", status: "partial",
+      started_at: "2020-01-01T00:00:00Z", actuals: [{ completed: true }], prescription_snapshot: workout } }]);
+  fixture.updateProgram.mockImplementation(async (updated) => ({ ...updated, revision: 2 }));
+  await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Plan))); }); await settle();
+  expect(text()).toContain("Partially recorded"); expect(text()).not.toContain("Done. Nice work.");
+  await act(async () => buttons("Inspect session instructions")[0].props.onPress());
+  expect(text()).toContain("Keep your back steady"); expect(text()).toContain("30s rest");
+  expect(fixture.start).not.toHaveBeenCalled();
+  await act(async () => buttons("Choose a new date")[0].props.onPress());
+  const field = renderer!.root.findAllByType("Field" as never).find((n) => n.props.label === "New date · YYYY-MM-DD")!;
+  expect(field.props.value).toBe(dateInTimezone(new Date(), "UTC"));
+  await act(async () => field.props.onChange("2099-02-30"));
+  await act(async () => buttons("Save new date")[0].props.onPress());
+  expect(fixture.updateProgram).not.toHaveBeenCalled();
+  expect(text()).toContain("Choose today or a future date");
+  await act(async () => field.props.onChange("2099-01-01"));
+  await act(async () => buttons("Save new date")[0].props.onPress());
+  expect(fixture.updateProgram).not.toHaveBeenCalled();
+  expect(text()).toContain("That day already has a planned session");
+  await act(async () => field.props.onChange(dateInTimezone(new Date(), "UTC")));
+  await act(async () => buttons("Save new date")[0].props.onPress()); await settle();
+  expect(fixture.updateProgram).toHaveBeenCalledWith(expect.objectContaining({ sessions: [expect.objectContaining({ date: dateInTimezone(new Date(), "UTC") })] }));
+  expect(program.sessions[0].date).toBe("2020-01-01");
 });
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; cache.clear(); });
 
@@ -92,10 +129,23 @@ it("a sessions-only failure has a retry and recovering actuals prevents offering
   await mount();
   expect(notices()).toHaveLength(1); expect(buttons("Try again")).toHaveLength(1);
   expect(buttons("Start this session")).toHaveLength(0);
-  fixture.sessions.mockResolvedValue([{ content: { program_id: "plan", program_session_id: "today" } }]);
+  fixture.sessions.mockResolvedValue([{ id: "saved", client_session_id: "client", generation: 1,
+    content: { client_session_id: "client", program_id: "plan", program_session_id: "today", status: "completed",
+      started_at: new Date().toISOString(), actuals: [{ completed: true }], prescription_snapshot: { blocks: [] } } }]);
   await retry();
   expect(notices()).toHaveLength(0); expect(buttons("Start this session")).toHaveLength(0);
   expect(text()).toContain("Build strength");
+  expect(fixture.start).not.toHaveBeenCalled();
+});
+it("missed sessions remain visible with explicit recovery and no silent date changes", async () => {
+  fixture.available = true;
+  const program = { id: "plan", generation: 1, revision: 1, status: "ready", sessions: [{ id: "missed", date: "2020-01-01",
+    purpose: "Saved plan", workout: { title: "Missed strength" } }] } as Program;
+  fixture.programs.mockResolvedValue([program]);
+  await mount();
+  expect(buttons("Review missed sessions")).toHaveLength(1);
+  expect(text()).toContain("sessions are never stacked automatically");
+  expect(program.sessions[0].date).toBe("2020-01-01");
   expect(fixture.start).not.toHaveBeenCalled();
 });
 

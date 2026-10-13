@@ -26,6 +26,7 @@ import {
 } from "@/components/ui";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { sessionsQuery } from "@/lib/session-query";
+import { effectiveTrainingHistory } from "@/lib/progress-selection";
 import { remainingSeconds, summaryOf, previousActual, actualIdentity, draftStructureWarning } from "@/lib/training";
 import type { ActualSet } from "@/lib/models";
 export default function Training() {
@@ -111,8 +112,8 @@ export default function Training() {
     input.load_unit === "kg" || input.load_unit === "lb" ? input.load_unit : units === "imperial" ? "lb" : "kg";
   const previous = step
     ? previousActual(d.workout, step, [
-        ...state.history.map((h) => ({ workout: h.workout, actuals: h.request.actuals })),
-        ...(past.data ?? []).map((h) => ({ workout: h.content.prescription_snapshot, actuals: h.content.actuals })),
+        ...effectiveTrainingHistory(state.history, past.data, enrollment?.generation ?? 0, past.dataUpdatedAt)
+          .map((h) => ({ workout: h.workout, actuals: h.request.actuals })),
       ])
     : null;
   const rest = remainingSeconds(d.rest_until, now);
@@ -247,6 +248,7 @@ export default function Training() {
           active training.
         </Notice>
       )}
+      {past.error && <Notice>Previous performance could not be refreshed. Any last result shown comes from saved history.</Notice>}
       {rest > 0 && (
         <Card>
           <RestTimer
