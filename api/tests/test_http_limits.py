@@ -138,3 +138,29 @@ async def test_oembed_requests_encode_the_user_url(monkeypatch):
     assert seen[0].params["url"] == user_url
     assert seen[0].params["format"] == "json"
     assert seen[0].params.get_list("format") == ["json"]
+
+
+@pytest.mark.asyncio
+async def test_get_limited_follows_redirects_without_reading_redirect_bodies_whole():
+    def handler(request):
+        if request.url.path == "/hop":
+            # A redirect with an oversized declared body must not be buffered.
+            return httpx.Response(
+                302, headers={"location": "/final", "content-length": "999999"}
+            )
+        if request.url.path == "/loop":
+            return httpx.Response(302, headers={"location": "/loop"})
+        return httpx.Response(200, text="done")
+
+    async with _client(handler) as client:
+        response = await get_limited(client, "https://example.com/hop", max_bytes=64)
+        with pytest.raises(httpx.TooManyRedirects):
+            await get_limited(client, "https://example.com/loop", max_bytes=64)
+        manual = await get_limited(
+            client, "https://example.com/hop", max_bytes=64, max_redirects=0
+        )
+
+    assert response.text == "done"
+    assert [hop.status_code for hop in response.history] == [302]
+    assert manual.status_code == 302
+    assert manual.headers["location"] == "/final"

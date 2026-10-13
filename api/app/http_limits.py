@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urljoin
 
 import httpx
 
@@ -83,13 +84,33 @@ async def get_limited(
     max_bytes: int,
     headers: Mapping[str, str] | None = None,
     params: Mapping[str, str] | None = None,
-    follow_redirects: bool | None = None,
+    max_redirects: int = 5,
 ) -> httpx.Response:
-    """GET ``url`` with a capped, fully buffered body."""
+    """GET ``url`` with a capped, fully buffered body.
+
+    Redirects are followed here rather than by httpx, because httpx reads each
+    intermediate redirect body in full before any cap could apply. With
+    ``max_redirects=0`` a redirect response is returned for the caller to
+    validate and follow itself.
+    """
     request = client.build_request("GET", url, headers=headers, params=params)
-    return await send_limited(
-        client, request, max_bytes=max_bytes, follow_redirects=follow_redirects
-    )
+    history: list[httpx.Response] = []
+    while True:
+        response = await send_limited(
+            client, request, max_bytes=max_bytes, follow_redirects=False
+        )
+        location = response.headers.get("location")
+        if not response.is_redirect or not location or len(history) >= max_redirects:
+            if history and response.is_redirect and max_redirects:
+                raise httpx.TooManyRedirects(
+                    f"Too many redirects fetching {url}", request=request
+                )
+            response.history = history
+            return response
+        history.append(response)
+        request = client.build_request(
+            "GET", urljoin(str(request.url), location), headers=headers
+        )
 
 
 def _buffered_copy(response: httpx.Response, body: bytes) -> httpx.Response:

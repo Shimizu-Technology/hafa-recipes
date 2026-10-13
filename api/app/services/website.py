@@ -313,7 +313,7 @@ class WebsiteService:
                 current_url,
                 headers=headers,
                 max_bytes=MAX_HTML_BYTES,
-                follow_redirects=False,
+                max_redirects=0,
             )
 
             if not response.is_redirect:
@@ -373,6 +373,9 @@ class WebsiteService:
                 except HTTPException as e2:
                     print(f"❌ Retry blocked unsupported URL: {e2.detail}")
                     return None, "invalid_url"
+                except ResponseTooLarge:
+                    print(f"❌ Page exceeded {MAX_HTML_BYTES} bytes: {url}")
+                    return None, "fetch_too_large"
                 except Exception as e2:
                     print(f"❌ Retry also failed: {e2}")
                     return None, "fetch_403"
