@@ -17,6 +17,7 @@ import sentry_sdk
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
+from app.http_limits import MAX_HTML_BYTES, ResponseTooLarge, get_limited
 from app.security import PublicHTTPTransport, assert_public_http_url
 
 try:
@@ -48,6 +49,7 @@ class WebsiteExtractionResult:
 
 # User-friendly error messages
 ERROR_MESSAGES = {
+    "fetch_too_large": "This page is too large to import. Try a direct link to the recipe page.",
     "fetch_failed": "We couldn't reach this website. It may be temporarily unavailable or blocking automated access.",
     "fetch_403": "This website is blocking our access. We've been notified and will work on adding support.",
     "fetch_404": "This page doesn't exist or has been moved.",
@@ -306,7 +308,13 @@ class WebsiteService:
         current_url = url
 
         for _ in range(max_redirects + 1):
-            response = await client.get(current_url, headers=headers, follow_redirects=False)
+            response = await get_limited(
+                client,
+                current_url,
+                headers=headers,
+                max_bytes=MAX_HTML_BYTES,
+                follow_redirects=False,
+            )
 
             if not response.is_redirect:
                 return response
@@ -383,6 +391,10 @@ class WebsiteService:
         except httpx.TimeoutException:
             print(f"❌ Timeout fetching {url}")
             return None, "fetch_timeout"
+
+        except ResponseTooLarge:
+            print(f"❌ Page exceeded {MAX_HTML_BYTES} bytes: {url}")
+            return None, "fetch_too_large"
             
         except Exception as e:
             print(f"❌ Failed to fetch {url}: {e}")
