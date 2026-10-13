@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Linking } from "react-native";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -24,7 +25,7 @@ import {
 import { QueryState } from "@/components/query-state";
 import { usePublishingDisclosure } from "@/components/publishing-disclosure";
 import { useTraining, useOfflineTraining } from "@/lib/context";
-import { DECLINED, INCOMPLETE_MESSAGE, discoverKeys, isIncomplete } from "@/lib/discover";
+import { DECLINED, INCOMPLETE_MESSAGE, discoverKeys, isIncomplete, prescriptionLine, formatSeconds } from "@/lib/discover";
 import type { Workout } from "@/lib/models";
 export default function WorkoutDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -185,6 +186,7 @@ export default function WorkoutDetail() {
                   {block.label ? `${block.label} · ` : ""}
                   {block.grouping}
                   {block.rounds ? ` · ${block.rounds} rounds` : ""}
+                  {block.rest_between_rounds_seconds != null ? ` · ${formatSeconds(block.rest_between_rounds_seconds)} between rounds` : ""}
                 </Copy>
                 {block.exercises.map((e, i) => (
                   <Row key={i} gap={14} align="flex-start">
@@ -194,19 +196,18 @@ export default function WorkoutDetail() {
                     <Copy kind="label" style={{ flex: 1 }}>
                       {e.name}
                       {"\n"}
-                      <Copy kind="small" tone={e.sets == null || e.reps_min == null ? "accent" : "muted"}>
-                        {e.sets == null ? "Sets not specified" : `${e.sets} sets`} ·{" "}
-                        {e.reps_min == null
-                          ? "Reps not specified"
-                          : e.reps_max != null && e.reps_max !== e.reps_min
-                            ? `${e.reps_min}–${e.reps_max} reps`
-                            : `${e.reps_min} reps`}
-                      </Copy>
+                      <Copy kind="small" tone="muted">{prescriptionLine(e)}</Copy>
+                      {e.notes ? <Copy kind="small">{"\n"}{e.notes}</Copy> : null}
                     </Copy>
                   </Row>
                 ))}
               </Card>
             ))}
+            {workout.source_url && /^https?:\/\//i.test(workout.source_url) && (
+              <Button title="Open original source" icon="open-outline" secondary onPress={() => {
+                void Linking.openURL(workout.source_url!).catch(() => setError("Could not open the original source."));
+              }} />
+            )}
             <SectionHeader title="Make it yours" />
             <ListGroup>
               <ListRow

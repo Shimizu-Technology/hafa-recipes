@@ -222,13 +222,23 @@ export function prescriptionLine(e: ExercisePrescription) {
       : e.reps_max != null
         ? `up to ${e.reps_max} reps`
         : null;
-  const work = reps ?? (e.duration_seconds != null ? formatSeconds(e.duration_seconds) : e.distance_meters != null ? `${e.distance_meters} m` : null);
-  if (e.sets != null && work) parts.push(`${e.sets} × ${work}`);
+  const targets = [
+    reps,
+    e.duration_seconds != null ? formatSeconds(e.duration_seconds) : null,
+    e.distance_meters != null ? `${e.distance_meters} m` : null,
+  ].filter((target): target is string => target != null);
+  if (e.sets != null && targets.length) parts.push(`${e.sets} × ${targets[0]}`);
   else if (e.sets != null) parts.push(`${e.sets} sets`);
-  else if (work) parts.push(work);
-  if (reps && e.duration_seconds != null) parts.push(formatSeconds(e.duration_seconds));
+  else if (targets.length) parts.push(targets[0]);
+  parts.push(...targets.slice(1));
   if (e.per_side) parts.push("each side");
   if (e.rest_seconds != null) parts.push(`${formatSeconds(e.rest_seconds)} rest`);
+  if (e.load != null) {
+    const convention = { total: "total", per_hand: "per hand", added: "added", assistance: "assistance" };
+    parts.push(`${e.provenance === "source" ? "Source load" : "Load"}: ${e.load} ${e.load_unit ?? "unit unspecified"}${e.load_convention ? ` ${convention[e.load_convention]}` : " · convention unspecified"}`);
+  }
+  if (e.tempo) parts.push(`Tempo ${e.tempo}`);
+  if (e.effort) parts.push(e.effort);
   return parts.join(" · ") || "Details not specified";
 }
 export function formatSeconds(seconds: number) {

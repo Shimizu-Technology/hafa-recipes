@@ -91,6 +91,11 @@ describe("discover rules", () => {
     expect(prescriptionLine({ name: "Plank", sets: 2, duration_seconds: 60, rest_seconds: 90 })).toBe("2 × 1 min · 1m 30s rest");
     expect(prescriptionLine({ name: "Lunge", reps_min: 8, per_side: true })).toBe("8 reps · each side");
     expect(prescriptionLine({ name: "Mystery" })).toBe("Details not specified");
+    expect(prescriptionLine({ name: "Run", sets: 3, duration_seconds: 90, distance_meters: 400 })).toBe("3 × 1m 30s · 400 m");
+    expect(prescriptionLine({ name: "Run", distance_meters: 1200 })).toBe("1200 m");
+    expect(prescriptionLine({ name: "Squat", provenance: "source", reps_min: 5, load: 20, load_unit: "kg", load_convention: "per_hand", tempo: "3-1-1", effort: "Comfortable" })).toBe("5 reps · Source load: 20 kg per hand · Tempo 3-1-1 · Comfortable");
+    expect(prescriptionLine({ name: "Unknown load", load: 10 })).toBe("Load: 10 unit unspecified · convention unspecified");
+    expect(prescriptionLine({ name: "Distance", reps_max: 8, duration_seconds: 60, distance_meters: 100, rest_seconds: 0 })).toBe("up to 8 reps · 1 min · 100 m · 0s rest");
     expect(creatorCredit(card)).toBe("Coach Nani on TikTok");
     expect(creatorCredit({ source_creator: null, source_platform: "youtube" })).toBe("From YouTube");
     expect(creatorCredit({ source_creator: null, source_platform: null })).toBeNull();
