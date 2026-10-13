@@ -143,6 +143,35 @@ def test_chat_rejects_foreign_history_image(monkeypatch):
     assert getattr(error.value, "status_code", None) == 422
 
 
+def test_chat_history_images_reach_the_provider_only_as_signed_urls(monkeypatch):
+    owned = "https://bucket.s3.us-west-2.amazonaws.com/chat-images/user_test/a.png"
+    monkeypatch.setattr(
+        "app.routers.chat.storage_service.is_owned_chat_image_url",
+        lambda _url, _user_id: True,
+    )
+    monkeypatch.setattr(
+        "app.routers.chat.storage_service.chat_image_provider_url",
+        lambda url, _user_id: f"{url}?X-Amz-Signature=signed" if url == owned else None,
+    )
+    history = [
+        ChatMessage(role="user", content="first photo", image_url=owned),
+        ChatMessage(role="assistant", content="looks good"),
+        ChatMessage(
+            role="user",
+            content="unsignable photo",
+            image_url="https://bucket.s3.us-west-2.amazonaws.com/chat-images/user_test/b.png",
+        ),
+        ChatMessage(role="assistant", content="ok"),
+    ]
+
+    messages = _build_client_messages(
+        history=history, message="next", image_base64=None, user_id="user_test"
+    )
+
+    assert messages[0]["content"][1]["image_url"]["url"] == f"{owned}?X-Amz-Signature=signed"
+    assert messages[2] == {"role": "user", "content": "unsignable photo"}
+
+
 def test_chat_validates_image_bytes_before_provider_use():
     encoded = base64.b64encode(_png_bytes()).decode("ascii")
     assert _validated_image_data_url(encoded).startswith("data:image/png;base64,")
@@ -286,6 +315,26 @@ async def test_rate_limiter_enforces_concurrency_and_request_window():
 async def test_public_liveness_has_no_environment_or_dependency_detail():
     response = await liveness_check()
     assert response.model_dump() == {"status": "ok"}
+
+
+def test_workouts_imports_use_the_shared_instagram_session(monkeypatch, capsys):
+    from app.ai_governance import ai_request_context
+    from app.services.video import _media_log
+
+    monkeypatch.setattr(
+        video_settings,
+        "instagram_cookies",
+        "# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\ttest",
+    )
+    service = VideoService()
+
+    with ai_request_context(route="/api/v1/workouts/imports"):
+        credential = service._create_instagram_cookies_file()
+        _media_log("private workout source URL")
+
+    assert credential is not None
+    credential.cleanup()
+    assert "private workout source URL" not in capsys.readouterr().out
 
 
 def test_raw_instagram_credentials_use_unique_restrictive_temp_files(monkeypatch):

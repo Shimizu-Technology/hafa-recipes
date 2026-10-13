@@ -16,8 +16,9 @@ export default function Settings() {
     setBusy(true);
     setError("");
     try {
-      cache.clear();
       await clerk.signOut();
+      // Clear cached account data only once sign-out succeeded; a failed attempt keeps the screen usable.
+      cache.clear();
     } catch {
       setError("Could not sign out. Your private drafts remain saved for this account. Try again.");
     } finally {

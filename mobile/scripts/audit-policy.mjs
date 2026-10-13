@@ -146,8 +146,8 @@ const reviewedBuildToolAdvisories = {
         "integrity": "sha512-LarFH0+6VfriEhqMMcLX2F7SwSXeWwnEAJEsYm5QKWchiVYVvJyV9v7UDvUv+w5HO23ZpQTXDv/GxdDdMyOuoQ=="
       },
       "node_modules/@expo/cli": {
-        "version": "57.0.28",
-        "integrity": "sha512-4969gk/B2JyP3kAv2ftpwU1f9dLG2j9TsQuYCTTjfnyRx0O49Jwu1O1mie2c3HmKXbwfNA6QTS+3i3sNetMTag=="
+        "version": "57.0.29",
+        "integrity": "sha512-OBmtg+74j6dEEQjKTgRDjQBvLSkKyP2cDTuGIrJTdgG4gZ1HCEBZj18Kyk9UfdYRXgJdixSVAQMCZK6/Q6l2QQ=="
       },
       "node_modules/@expo/code-signing-certificates": {
         "version": "0.0.6",

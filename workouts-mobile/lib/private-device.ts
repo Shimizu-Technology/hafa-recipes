@@ -43,24 +43,57 @@ export async function erasePrivateDeviceData(owner: string, binding: string) {
   await AsyncStorage.removeItem(`hafa-workouts:v1:${encodeURIComponent(binding)}:verified-identity`);
   await AsyncStorage.removeItem(key);
 }
-export async function recoverPrivateDeviceCleanup() {
+/** A cleanup record that cannot be read. Repair removes data only for the account named by its storage key. */
+export class DamagedCleanupRecordError extends Error {}
+// A damaged record loses its sign-in binding, so find the verified mapping that points at this owner.
+async function forgetOwnerIdentity(owner: string) {
+  for (const key of await AsyncStorage.getAllKeys()) {
+    if (!key.startsWith("hafa-workouts:v1:") || !key.endsWith(":verified-identity")) continue;
+    try {
+      const value = JSON.parse((await AsyncStorage.getItem(key)) ?? "null") as { id?: unknown; binding?: unknown } | null;
+      if (value?.id === owner && typeof value.binding === "string" &&
+        key === `hafa-workouts:v1:${encodeURIComponent(value.binding)}:verified-identity`)
+        await AsyncStorage.removeItem(key);
+    } catch {
+      // Unreadable mappings are not proven to belong to this owner; leave them.
+    }
+  }
+}
+export async function recoverPrivateDeviceCleanup(options: { repairDamaged?: boolean } = {}) {
   await recoverCaptureCleanup();
   for (const key of await AsyncStorage.getAllKeys()) {
     if (!key.startsWith(markerPrefix)) continue;
     const raw = await AsyncStorage.getItem(key);
     if (!raw) continue;
-    let entry: { owner: string; binding: string };
+    let entry: { owner?: unknown; binding?: unknown } | null = null;
     try {
       entry = JSON.parse(raw);
     } catch {
-      throw Error("Device cleanup could not be restored. Contact support before opening private training.");
+      // Handled below as a damaged record.
     }
     if (
-      typeof entry.owner !== "string" ||
-      typeof entry.binding !== "string" ||
-      key !== markerPrefix + encodeURIComponent(entry.owner)
-    )
-      throw Error("Device cleanup metadata is invalid. Contact support.");
-    await erasePrivateDeviceData(entry.owner, entry.binding);
+      typeof entry?.owner === "string" &&
+      typeof entry.binding === "string" &&
+      key === markerPrefix + encodeURIComponent(entry.owner)
+    ) {
+      await erasePrivateDeviceData(entry.owner, entry.binding);
+      continue;
+    }
+    if (!options.repairDamaged)
+      throw new DamagedCleanupRecordError("A device cleanup record is damaged. Finish cleanup to continue.");
+    // Only erasePrivateDeviceData writes this key, and it encodes the account being erased.
+    // Trust the key, never the damaged contents, so no other account's data can be targeted.
+    let owner = "";
+    try {
+      owner = decodeURIComponent(key.slice(markerPrefix.length));
+    } catch {
+      owner = "";
+    }
+    if (owner && key === markerPrefix + encodeURIComponent(owner)) {
+      privateRegistry.retire(owner);
+      await clean(owner);
+      await forgetOwnerIdentity(owner);
+    }
+    await AsyncStorage.removeItem(key);
   }
 }
