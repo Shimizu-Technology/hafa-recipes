@@ -12,7 +12,7 @@ export async function commitTrainingSetup(deps: {
   owner: string;
   expected_generation: number | null;
   member: Enrollment;
-  profile: TrainingProfile;
+  profile?: TrainingProfile;
   units: UnitSystem;
   draft_scope: string;
   cache: QueryClient;
@@ -47,7 +47,7 @@ export async function commitTrainingSetup(deps: {
   if (replaced) await deps.cleanPrevious();
   else {
     await deps.drafts.remove(owner, deps.draft_scope);
-    if (deps.draft_scope !== `profile:${generation}`) await deps.drafts.remove(owner, `profile:${generation}`);
+    if (deps.profile !== undefined && deps.draft_scope !== `profile:${generation}`) await deps.drafts.remove(owner, `profile:${generation}`);
   }
   guardCache();
   const fresh = deps.freshDrafts();
@@ -62,7 +62,7 @@ export async function commitTrainingSetup(deps: {
   await cache.cancelQueries({ queryKey: [owner, "enrollment"], exact: true });
   guardCache();
   if (!fresh.isCurrent()) throw Error("Private training state was retired while setup finished.");
-  // Profile must exist under the actual query key before enrollment enables Today.
+  // A training profile is optional. Enrollment activates saving and offline training.
   // Mark the handled generation before observers publish to prevent a second erasure.
   deps.rememberGeneration(generation);
   cache.removeQueries({
@@ -71,7 +71,7 @@ export async function commitTrainingSetup(deps: {
       q.queryKey[1] !== "enrollment" &&
       !(q.queryKey[1] === "profile" && q.queryKey[2] === generation),
   });
-  cache.setQueryData(profileKey(owner, generation), deps.profile);
+  if (deps.profile !== undefined) cache.setQueryData(profileKey(owner, generation), deps.profile);
   cache.setQueryData([owner, "enrollment"], member);
   deps.ready(units, member, replaced);
 }
@@ -123,6 +123,37 @@ export async function saveTrainingSetup(deps: {
     await deps.complete(current, saved);
   } catch (error) {
     await setup?.fail();
+    throw error;
+  }
+}
+
+/** Join without inventing training context; later profile creation keeps its own revision. */
+export async function saveAccountSetup(deps: {
+  adultConfirmed: boolean;
+  sharedDeletionAcknowledged: boolean;
+  expectedGeneration: number | null;
+  guard(): void;
+  setup: EnrollmentSetupLease;
+  api: Pick<Parameters<typeof saveTrainingSetup>[0]["api"], "enroll" | "enrollment">;
+  complete(member: Enrollment): Promise<void>;
+}) {
+  try {
+    if (!deps.adultConfirmed || !deps.sharedDeletionAcknowledged)
+      throw Error("Confirm you are 18 or older and acknowledge the shared-account policy.");
+    deps.guard();
+    deps.setup.guard();
+    const member = await deps.api.enroll(true, deps.expectedGeneration);
+    if (!member.adult_confirmed || !member.shared_account_deletion_acknowledged)
+      throw Error("The service did not acknowledge your account choices. Refresh before continuing.");
+    const scope = await deps.setup.acknowledge(member);
+    scope.guard();
+    const current = await deps.api.enrollment();
+    scope.guard();
+    if (!current.enrolled || current.generation !== member.generation)
+      throw Error("Your Workouts enrollment changed. Refresh before continuing.");
+    await deps.complete(current);
+  } catch (error) {
+    await deps.setup.fail();
     throw error;
   }
 }

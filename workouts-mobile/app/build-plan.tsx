@@ -135,6 +135,10 @@ export default function BuildPlan() {
       router.replace("/(tabs)/plan");
     });
   }
+  if (!enrollment?.enrolled || (q.isSuccess && !q.data?.profile)) return <Screen back title="Make a plan from your workouts." subtitle="A little context helps the plan fit your life.">
+    <Copy>Choose a goal, your equipment and the days you can train. Measurements and other personal details are optional.</Copy>
+    <Button title={enrollment?.enrolled ? "Set up training" : "Join Workouts"} onPress={() => router.push({ pathname: enrollment?.enrolled ? "/profile" : "/onboarding", params: { return_to: "build-plan", ...(include ? { include } : {}) } })} />
+  </Screen>;
   return (
     <Screen
       back
@@ -143,7 +147,7 @@ export default function BuildPlan() {
     >
       {q.error && <Notice error>{q.error.message}</Notice>}
       {!q.data?.profile && (
-        <Button title="Set up training profile" secondary onPress={() => router.push("/onboarding")} />
+        <Button title="Set up training profile" secondary onPress={() => router.push({ pathname: "/profile", params: { return_to: "build-plan", ...(include ? { include } : {}) } })} />
       )}
       <Field label="Plan name" value={draft.title} onChange={(title) => update({ title })} />
       <Field label="Start date · YYYY-MM-DD" value={draft.date} onChange={(date) => update({ date })} />

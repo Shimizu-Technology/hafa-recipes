@@ -1,14 +1,14 @@
 import { View } from "react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { AccountButton, Button, Empty, Notice, Screen } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { createPrivateForm } from "@/lib/private-form";
 import { ProfileForm } from "@/components/profile-form";
 import { useTraining } from "@/lib/context";
 import { profileMeasurementErrors } from "@/lib/measurements";
-import { profileErrors, type TrainingProfile } from "@/lib/models";
+import { initialProfile, profileErrors, type TrainingProfile } from "@/lib/models";
 import type { ProfileSnapshot } from "@/lib/api";
 interface ProfileEdit {
   value: TrainingProfile;
@@ -16,6 +16,17 @@ interface ProfileEdit {
   generation: number;
 }
 export default function Profile() {
+  const params = useLocalSearchParams<{ return_to?: string; include?: string; workout_id?: string; program_id?: string; session_id?: string; revision?: string }>();
+  function continueAfterSave() {
+    if (params.return_to === "build-plan") router.replace({ pathname: "/build-plan", params: params.include ? { include: params.include } : {} });
+    else if (params.return_to === "coach") router.replace({ pathname: "/coach", params: {
+      ...(params.workout_id ? { workout_id: params.workout_id } : {}),
+      ...(params.program_id ? { program_id: params.program_id } : {}),
+      ...(params.session_id ? { session_id: params.session_id } : {}),
+      ...(params.revision ? { revision: params.revision } : {}),
+    } });
+  }
+
   const { storage, api, owner, enrollment, isCurrentAccount } = useTraining();
   const cache = useQueryClient();
   const q = useQuery({
@@ -84,7 +95,7 @@ export default function Profile() {
   useEffect(() => {
     // Background refetch may update the comparison baseline, never a live/pending draft.
     if (loaded && !value && !command && q.data) {
-      setValue(q.data.profile);
+      setValue(q.data.profile ?? { ...initialProfile(), adult_confirmed: true });
       setRevision(q.data.revision);
     }
   }, [loaded, value, command, resolved, q.data]);
@@ -119,9 +130,10 @@ export default function Profile() {
       current();
       await form.reset();
       current();
-      if (fresh.profile) await form.save({ value: fresh.profile, revision: fresh.revision, generation });
+      const next = fresh.profile ?? { ...initialProfile(), adult_confirmed: true };
+      await form.save({ value: next, revision: fresh.revision, generation });
       current();
-      setValue(fresh.profile);
+      setValue(next);
       setRevision(fresh.revision);
       setCommand(null);
       setResolved(false);
@@ -162,6 +174,7 @@ export default function Profile() {
       cacheSnapshot(p);
       setConflict(false);
       setMessage("Your training profile is saved.");
+      continueAfterSave();
     } catch (e) {
       if (mounted.current) {
         if ((e as { status?: number }).status === 409) setConflict(true);
@@ -175,8 +188,8 @@ export default function Profile() {
   return (
     <Screen
       back
-      title="Your training profile."
-      subtitle="The context you have chosen to share. Edit or remove optional details any time."
+      title={q.data?.profile ? "Your training profile." : "Make training fit your life."}
+      subtitle="Choose your goal, equipment and usual schedule. Personal details are optional."
       action={<AccountButton />}
     >
       <QueryState
@@ -244,8 +257,8 @@ export default function Profile() {
           <Empty
             icon="person-outline"
             title="Set your training foundation"
-            description="Start with a goal and a schedule that fits your life."
-            action={<Button title="Set up my training" onPress={() => router.push("/onboarding")} />}
+            description="Join Workouts to save workouts. Set up training whenever you want."
+            action={<Button title="Join Workouts" onPress={() => router.push("/onboarding")} />}
           />
         )}
       </QueryState>

@@ -14,6 +14,7 @@ export default function Layout() {
   });
   return (
     <Tabs
+      initialRouteName="library"
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: c.accentText,

@@ -33,7 +33,7 @@ interface ContextValue {
   beginSetup(expectedGeneration: number | null): EnrollmentSetupLease;
   completeSetup(
     member: Enrollment,
-    profile: TrainingProfile,
+    profile: TrainingProfile | undefined,
     expectedGeneration: number | null,
     draftScope: string
   ): Promise<void>;
@@ -258,7 +258,7 @@ export function TrainingProvider({ children }: PropsWithChildren) {
   }
   async function completeSetup(
     member: Enrollment,
-    profile: TrainingProfile,
+    profile: TrainingProfile | undefined,
     expectedGeneration: number | null,
     draftScope: string
   ) {
@@ -313,7 +313,7 @@ export function TrainingProvider({ children }: PropsWithChildren) {
         setUnitValue(selectedUnits);
         setLocalEpoch((value) => value + 1);
         throw Error(
-          "Your profile was saved, but device setup needs another attempt. Reload your enrollment before retrying; old drafts stay retired."
+          "Your account setup needs another device check. Reload your enrollment before retrying; old drafts stay retired."
         );
       }
       throw error;
