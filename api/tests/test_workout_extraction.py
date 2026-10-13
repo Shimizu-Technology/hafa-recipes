@@ -1071,3 +1071,56 @@ async def test_model_cannot_supply_server_owned_warnings_or_durable_cover():
         "extraction_warnings" not in schema["properties"]
         and "source_thumbnail_url" not in schema["properties"]
     )
+
+
+@pytest.mark.asyncio
+async def test_aggregate_media_deadline_keeps_complete_caption_and_skips_later_download(
+    monkeypatch,
+):
+    import app.domains.workouts.extraction as module
+
+    service = await mock_video_acquirer(monkeypatch)
+    calls = []
+
+    async def stalled_audio(url):
+        calls.append("audio")
+        await asyncio.Event().wait()
+
+    async def frames(url):
+        calls.append("frames")
+        return SimpleNamespace(success=False, frames=[])
+
+    service.download_audio, service.extract_video_frames = stalled_audio, frames
+    monkeypatch.setattr(module, "MAX_ACQUISITION_SECONDS", 0.01)
+    result = await WorkoutExtractor(FakeProvider(complete_workout("caption"))).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
+    )
+    assert calls == ["audio"]
+    assert result.status == "ready" and result.warnings == []
+    assert result.workout.source_title == "Creator workout" and result.workout.blocks
+    assert len(result.source.coverage_notes) == 2
+    assert all("time limit" in note for note in result.source.coverage_notes)
+
+
+@pytest.mark.asyncio
+async def test_transcription_deadline_cleans_audio_and_preserves_caption(monkeypatch):
+    import app.domains.workouts.extraction as module
+
+    service = await mock_video_acquirer(monkeypatch)
+    cleaned = []
+
+    async def audio(url):
+        return SimpleNamespace(success=True, file_path="synthetic-no-real-file")
+
+    async def transcribe(path):
+        await asyncio.Event().wait()
+
+    service.download_audio, service.cleanup_audio_file = audio, cleaned.append
+    provider = FakeProvider(complete_workout("caption"))
+    provider.transcribe = transcribe
+    monkeypatch.setattr(module, "MAX_ACQUISITION_SECONDS", 0.01)
+    result = await WorkoutExtractor(provider).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
+    )
+    assert cleaned == ["synthetic-no-real-file"]
+    assert result.status == "ready" and result.workout.source_creator == "Creator"

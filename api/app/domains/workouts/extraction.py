@@ -38,6 +38,7 @@ MAX_EXTRACTION_IMAGE_PIXELS = 4_000_000
 MAX_TOTAL_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_IMAGES = 8
 MAX_WEB_BYTES = 2 * 1024 * 1024
+MAX_ACQUISITION_SECONDS = 90
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 PROMPT_VERSION = "workout-extraction-evidence-v2"
 SCHEMA_VERSION = "workout-prescription-v1"
@@ -472,12 +473,15 @@ class ProductionSourceAcquirer:
     async def acquire(self, url: str, provider: ExtractionProvider) -> SourceBundle:
         from app.services.video import video_service
 
-        await assert_public_http_url(url)
+        deadline = asyncio.get_running_loop().time() + MAX_ACQUISITION_SECONDS
+        await self._within_deadline(assert_public_http_url(url), deadline)
         platform = video_service.detect_platform(url)
         if platform == "web":
-            return await self._website(url)
-        normalized = _safe_url(await video_service.normalize_url(url))
-        await assert_public_http_url(normalized)
+            return await self._within_deadline(self._website(url), deadline)
+        normalized = _safe_url(
+            await self._within_deadline(video_service.normalize_url(url), deadline)
+        )
+        await self._within_deadline(assert_public_http_url(normalized), deadline)
         canonical = canonicalize_source(normalized)
         if canonical.key is None or not canonical.key.startswith(f"{platform}:"):
             raise ExtractionFailure("unsupported_video_url")
@@ -485,7 +489,9 @@ class ProductionSourceAcquirer:
         from app.services.video import VideoMetadata
 
         try:
-            metadata = await video_service.get_video_metadata_ytdlp(normalized)
+            metadata = await self._within_deadline(
+                video_service.get_video_metadata_ytdlp(normalized), deadline
+            )
         except Exception:
             metadata = VideoMetadata()
         # Recipes already has bounded platform oEmbed readers. Merge fields
@@ -495,7 +501,9 @@ class ProductionSourceAcquirer:
             for key in ("title", "description", "uploader", "thumbnail")
         ):
             try:
-                fallback = await video_service.fetch_oembed(normalized, platform)
+                fallback = await self._within_deadline(
+                    video_service.fetch_oembed(normalized, platform), deadline
+                )
                 for key in ("title", "description", "uploader", "thumbnail"):
                     if not getattr(metadata, key, None):
                         setattr(metadata, key, getattr(fallback, key, None))
@@ -506,7 +514,9 @@ class ProductionSourceAcquirer:
             for key in ("title", "description", "uploader", "thumbnail")
         ):
             try:
-                fallback = await self._public_video_metadata(normalized)
+                fallback = await self._within_deadline(
+                    self._public_video_metadata(normalized), deadline
+                )
                 for key, value in fallback.items():
                     if not getattr(metadata, key, None):
                         setattr(metadata, key, value)
@@ -539,16 +549,22 @@ class ProductionSourceAcquirer:
                 source.warnings.append("Caption text was truncated to the extraction limit.")
         if video_service.is_tiktok_photo_post(normalized):
             try:
-                urls = await video_service.fetch_tiktok_photo_images(normalized)
-                source.images = await self._download_images(urls[:MAX_IMAGES])
+                urls = await self._within_deadline(
+                    video_service.fetch_tiktok_photo_images(normalized), deadline
+                )
+                source.images = await self._within_deadline(
+                    self._download_images(urls[:MAX_IMAGES]), deadline
+                )
             except Exception:
                 source.metadata.coverage_notes.append(
                     "Source images unavailable; available captions remain usable."
                 )
         else:
-            await self._audio(source, normalized, provider, video_service)
+            await self._audio(source, normalized, provider, video_service, deadline)
             try:
-                frames = await video_service.extract_video_frames(normalized)
+                frames = await self._within_deadline(
+                    video_service.extract_video_frames(normalized), deadline
+                )
                 if not frames.success or not frames.frames:
                     raise ExtractionFailure("source_frames_unavailable")
                 for index, frame in enumerate(frames.frames[:MAX_IMAGES]):
@@ -566,6 +582,10 @@ class ProductionSourceAcquirer:
                     source.metadata.coverage_notes.append(
                         f"image:{index} sampled at {frame.timestamp_seconds:g}s; samples do not cover every frame."
                     )
+            except asyncio.TimeoutError:
+                source.metadata.coverage_notes.append(
+                    "Frame processing reached the import time limit; available captions remain usable."
+                )
             except Exception:
                 source.metadata.coverage_notes.append(
                     "Visual frames unavailable; visual-only instructions may be missing."
@@ -575,23 +595,32 @@ class ProductionSourceAcquirer:
         return source
 
     @staticmethod
+    async def _within_deadline(operation, deadline):
+        remaining = max(0, deadline - asyncio.get_running_loop().time())
+        return await asyncio.wait_for(operation, timeout=remaining)
+
+    @staticmethod
     def _metadata_text(value, limit):
         if not isinstance(value, str):
             return None
         return value.strip()[:limit] or None
 
-    async def _audio(self, source, url, provider, video_service):
+    async def _audio(self, source, url, provider, video_service, deadline):
         audio = None
         try:
-            audio = await video_service.download_audio(url)
+            audio = await self._within_deadline(video_service.download_audio(url), deadline)
             transcribe = getattr(provider, "transcribe", None)
             if not audio.success or not audio.file_path or transcribe is None:
                 raise ExtractionFailure("source_audio_unavailable")
-            text = await transcribe(audio.file_path)
+            text = await self._within_deadline(transcribe(audio.file_path), deadline)
             if not text.strip():
                 raise ExtractionFailure("empty_transcription")
             source.parts.append(SourcePart("transcript", text[:18_000]))
             source.metadata.channels.append("transcript")
+        except asyncio.TimeoutError:
+            source.metadata.coverage_notes.append(
+                "Audio processing reached the import time limit; available captions/frames remain usable."
+            )
         except Exception:
             source.metadata.coverage_notes.append(
                 "Audio unavailable; available captions/frames remain usable."
