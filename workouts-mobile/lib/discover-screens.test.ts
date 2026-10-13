@@ -308,7 +308,7 @@ it("on a disclosure 409 asks once, records acceptance and retries the shared acc
   fixture.capabilities.mockResolvedValue(caps(true));
   fixture.importJob.mockResolvedValue(importJob("url"));
   fixture.acceptImport
-    .mockRejectedValueOnce(new ApiError("conflict", 409, "Accept the current publishing disclosure before sharing recipes"))
+    .mockRejectedValueOnce(new ApiError("conflict", 409, false, "Accept the current publishing disclosure before sharing recipes"))
     .mockResolvedValueOnce(saved);
   fixture.publishingDisclosure.mockResolvedValue({ current_version: 1, accepted_version: 0, requires_acceptance: true });
   fixture.acceptPublishingDisclosure.mockResolvedValue({ current_version: 1, accepted_version: 1, requires_acceptance: false });
@@ -326,7 +326,7 @@ it("keeps the import private and unsaved when the person declines the disclosure
   fixture.capabilities.mockResolvedValue(caps(true));
   fixture.importJob.mockResolvedValue(importJob("url"));
   fixture.acceptImport.mockRejectedValueOnce(
-    new ApiError("conflict", 409, "Accept the current publishing disclosure before sharing recipes")
+    new ApiError("conflict", 409, false, "Accept the current publishing disclosure before sharing recipes")
   );
   fixture.publishingDisclosure.mockResolvedValue({ current_version: 1, accepted_version: 0, requires_acceptance: true });
   await mount(ImportReview);

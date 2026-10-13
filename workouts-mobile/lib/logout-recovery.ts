@@ -33,17 +33,22 @@ function checked(value: unknown): LogoutAcknowledgement {
     throw Error("The saved account sign-out needs support before private training can open.");
   return { version: 1, owner: record.owner, binding: record.binding, subject: record.subject, sessionId: record.sessionId };
 }
+const damagedMessage = "A saved sign-out record on this device is damaged. Finish cleanup to sign out the deleted account and remove only its data from this device.";
 export interface LogoutRecoveryState {
   ready: boolean;
   records: readonly LogoutAcknowledgement[];
+  /** Storage keys of acknowledgements that could not be read. */
+  damaged: readonly string[];
   busy: string | null;
   error: string;
 }
 export function createLogoutRecovery(deps: {
   storage: Storage & { getAllKeys(): Promise<readonly string[]> };
   cleanup(owner: string, binding: string): Promise<void>;
+  /** The verified device mapping for a sign-in binding, used when a damaged record lost its owner. */
+  owner?(binding: string): Promise<string | null>;
 }) {
-  let state: LogoutRecoveryState = { ready: false, records: [], busy: null, error: "" };
+  let state: LogoutRecoveryState = { ready: false, records: [], damaged: [], busy: null, error: "" };
   const listeners = new Set<() => void>();
   let loading: Promise<void> | null = null;
   let work: Promise<void> | null = null;
@@ -64,15 +69,23 @@ export function createLogoutRecovery(deps: {
       loading = (async () => {
         try {
           const records = [...state.records];
+          const damaged: string[] = [];
           for (const key of await deps.storage.getAllKeys()) {
             if (!key.startsWith(logoutRecoveryPrefix)) continue;
             const raw = await deps.storage.getItem(key);
             if (!raw) continue;
-            const record = checked(JSON.parse(raw));
-            if (key !== logoutRecoveryKey(record.binding)) throw Error("Invalid sign-out recovery binding.");
+            let record: LogoutAcknowledgement;
+            try {
+              record = checked(JSON.parse(raw));
+              if (key !== logoutRecoveryKey(record.binding)) throw Error("Invalid sign-out recovery binding.");
+            } catch {
+              // Keep private training closed, but offer repair instead of a permanent lockout.
+              if (!records.some((item) => logoutRecoveryKey(item.binding) === key)) damaged.push(key);
+              continue;
+            }
             if (!records.some((item) => item.binding === record.binding)) records.push(record);
           }
-          emit({ ready: true, records, error: "" });
+          emit({ ready: true, records, damaged, error: damaged.length ? damagedMessage : "" });
         } catch {
           emit({ error: "Could not restore account sign-out recovery. Retry before opening private training." });
         } finally { loading = null; }
@@ -94,6 +107,37 @@ export function createLogoutRecovery(deps: {
         emit({ error: "Your server account was deleted. The sign-out acknowledgement still needs saving on this device. Retry cleanup and sign-out; do not delete again." });
         throw Error(state.error);
       }
+    },
+    // Finish a damaged acknowledgement using only what its storage key proves: the
+    // deleted sign-in binding. Never touch a different signed-in account's session.
+    repair(ops: { auth(): LogoutAuth; signOut(options: { sessionId: string }): Promise<void> }) {
+      if (work) return work;
+      if (!state.damaged.length) return Promise.resolve();
+      emit({ busy: "repair", error: "" });
+      work = (async () => {
+        try {
+          for (const key of [...state.damaged]) {
+            let binding: string | null = null;
+            try { binding = decodeURIComponent(key.slice(logoutRecoveryPrefix.length)); } catch { binding = null; }
+            if (!binding || logoutRecoveryKey(binding) !== key) binding = null;
+            const auth = ops.auth();
+            if (!auth.loaded) throw Error("Wait for your sign-in state.");
+            if (binding && auth.binding === binding && auth.sessionId) {
+              await ops.signOut({ sessionId: auth.sessionId });
+              const after = ops.auth();
+              // Finish after fresh auth confirms the deleted account's session is gone.
+              if (!after.loaded || (after.binding === binding && after.sessionId === auth.sessionId)) return;
+            }
+            const owner = binding ? await deps.owner?.(binding) : null;
+            if (owner && binding) await deps.cleanup(owner, binding);
+            await deps.storage.removeItem(key);
+            emit({ damaged: state.damaged.filter((item) => item !== key) });
+          }
+        } catch {
+          emit({ error: `${damagedMessage} The last attempt did not finish; try again.` });
+        } finally { emit({ busy: null }); work = null; }
+      })();
+      return work;
     },
     retry(record: LogoutAcknowledgement, ops: {
       auth(): LogoutAuth;

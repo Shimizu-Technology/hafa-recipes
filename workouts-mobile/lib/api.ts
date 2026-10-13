@@ -51,6 +51,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** Stopped on this device (account switch or retired request); the server did not reject it. */
+    readonly local = false,
     /** Server `detail` text, for classifying a response. Never shown to people. */
     readonly detail?: string
   ) {
@@ -170,7 +172,7 @@ export function createWorkoutsApi(
 ) {
   function guardAccount() {
     if (account && account.currentBinding() !== account.binding)
-      throw new ApiError("The signed-in account changed. This request was stopped.", 409);
+      throw new ApiError("The signed-in account changed. This request was stopped.", 409, true);
   }
   let membership: Enrollment | null = null;
   let membershipEpoch = 0;
@@ -213,7 +215,7 @@ export function createWorkoutsApi(
         }
       );
       guardAccount();
-      if (controller.signal.aborted) throw new ApiError("This request was retired. Refresh before continuing.", 409);
+      if (controller.signal.aborted) throw new ApiError("This request was retired. Refresh before continuing.", 409, true);
       if (!response.ok) {
         const message =
           response.status === 401
@@ -233,11 +235,11 @@ export function createWorkoutsApi(
                         : response.status === 428
                           ? "Reload the saved record before editing; a revision is required."
                           : "The training service could not finish this request. Please try again.";
-        throw new ApiError(message, response.status, await errorDetail(response));
+        throw new ApiError(message, response.status, false, await errorDetail(response));
       }
       const data = response.status === 204 ? (undefined as T) : ((await response.json()) as T);
       guardAccount();
-      if (controller.signal.aborted) throw new ApiError("This request was retired. Refresh before continuing.", 409);
+      if (controller.signal.aborted) throw new ApiError("This request was retired. Refresh before continuing.", 409, true);
       return { data, headers: response.headers };
     } catch (error) {
       if (error instanceof ApiError) throw error;

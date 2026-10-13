@@ -81,10 +81,10 @@ describe("discover rules", () => {
     expect(publishable({ blocks: [block([{ name: "Squat", reps_min: 5 }, { name: "Plank", duration_seconds: 30 }, { name: "Run", distance_meters: 400 }])] })).toBe(true);
   });
   it("only treats the publishing disclosure 409 as a disclosure request", () => {
-    expect(isDisclosureRequired(new ApiError("x", 409, "Accept the current publishing disclosure before sharing recipes"))).toBe(true);
-    expect(isDisclosureRequired(new ApiError("x", 409, "Import already accepted with different content"))).toBe(false);
+    expect(isDisclosureRequired(new ApiError("x", 409, false, "Accept the current publishing disclosure before sharing recipes"))).toBe(true);
+    expect(isDisclosureRequired(new ApiError("x", 409, false, "Import already accepted with different content"))).toBe(false);
     expect(isDisclosureRequired(new ApiError("x", 409))).toBe(false);
-    expect(isDisclosureRequired(new ApiError("x", 422, "publishing disclosure"))).toBe(false);
+    expect(isDisclosureRequired(new ApiError("x", 422, false, "publishing disclosure"))).toBe(false);
   });
   it("formats prescriptions, credits and card meta", () => {
     expect(prescriptionLine({ name: "Squat", sets: 3, reps_min: 10, reps_max: 12, rest_seconds: 45 })).toBe("3 × 10–12 reps · 45s rest");
@@ -100,7 +100,7 @@ describe("discover rules", () => {
 });
 
 describe("publishing disclosure retry", () => {
-  const required = new ApiError("conflict", 409, "Accept the current publishing disclosure before sharing recipes");
+  const required = new ApiError("conflict", 409, false, "Accept the current publishing disclosure before sharing recipes");
   const pending = { current_version: 2, accepted_version: 1, requires_acceptance: true };
   it("asks, records the current version and retries once", async () => {
     const attempt = vi.fn().mockRejectedValueOnce(required).mockResolvedValueOnce("published");

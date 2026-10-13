@@ -181,20 +181,41 @@ A fresh audit retains 32 inherited package findings, the same six advisory IDs,
 zero critical and zero unexpected findings. The expiry remains 2026-11-03.
 No runtime package upgrade or new advisory exception is included.
 
-## 2026-10-13 lock update: design-system dependencies and SDK 57 patches
 
-`expo-haptics ~57.0.3`, `expo-image ~57.0.5` and `react-native-svg 15.15.4`
-were added with `expo install` (SDK 57 versions) for the Workouts design system.
-Expo also published SDK 57 patch releases that made `expo-doctor` fail on every
-branch, so `expo install --fix` moved `expo` 57.0.28, `expo-router` 57.0.26,
-`@expo/ui` 57.0.23, `expo-auth-session` 57.0.15, `expo-crypto` 57.0.4,
-`expo-dev-client` 57.0.20, `expo-sharing` 57.0.23 and `expo-splash-screen`
-57.0.10 (patch level only).
+## Expo SDK 57 patch refresh (2026-10-13)
 
-`npm audit --omit=dev` before and after reports the same 32 inherited findings
-(5 moderate, 27 high, 0 critical) and exactly the six reviewed advisories above;
-no new advisory. `check:native-bundles` still finds Expo Router's fork
-`getStateFromPath` and native Clerk selected in both Hermes bundles, so the
-decode-uri-component reasoning above still applies to Router 57.0.26. The reviewed
-lock hash in `scripts/audit-runtime.mjs` was renewed for this lockfile only; the
-expiry date is unchanged.
+`npx expo install --fix` (Node 22.22.2, npm 10.9.7) aligned SDK 57 patch releases:
+expo 57.0.28, @expo/cli 57.0.29, expo-router 57.0.26, @expo/ui 57.0.23,
+expo-auth-session 57.0.15, expo-crypto 57.0.4, expo-dev-client 57.0.20,
+expo-sharing 57.0.23 and expo-splash-screen 57.0.10, plus their Expo-internal
+transitive patches. npm now nests @expo/cli (and its private dependencies) under
+`expo/node_modules`; `expo` is its only dependent and `npm ls` is clean. mime-db
+was re-hoisted (1.54.0 top-level, 1.52.0 under mime-types). No SDK or React Native
+version changed.
+
+A fresh audit retains 32 inherited package findings, the same six advisory IDs,
+zero critical and zero unexpected findings. Vulnerable package versions are
+unchanged (braces 3.0.3, decode-uri-component 0.2.2 via expo-router 57.0.26 →
+query-string 7.1.3, node-forge 1.4.0 via @expo/cli 57.0.29, stream-json 1.9.1).
+Fresh iOS/Android Hermes source maps compared with `origin/main` add one module
+each (`@expo/ui` searchable modifier on iOS, matchContents util on Android) and
+remove none; the native bundle selection gate passes. The renewed lock SHA-256 is
+`6b82daf952d9208c568e9033899503eac31cb9c82245fbfd96191436397428c9`.
+The expiry remains 2026-11-03. No new advisory exception is included.
+
+## 2026-10-13 lock update: Workouts design-system dependencies
+
+On top of the SDK 57 patch refresh above, `npx expo install` (Node 22.22.2) added
+`expo-haptics ~57.0.3`, `expo-image ~57.0.5` and `react-native-svg 15.15.4` (the
+SDK 57 versions) for the Workouts design system. The lock gains only those three
+packages and react-native-svg's pure-JS CSS helpers (css-select, css-tree,
+css-what, domutils, domhandler, dom-serializer, domelementtype, entities, boolbase,
+nth-check, mdn-data); no existing package version moved.
+
+`npm audit --omit=dev` still reports the same 32 inherited findings (5 moderate,
+27 high, 0 critical) and exactly the six reviewed advisories above; no new
+advisory. `check:native-bundles` still finds Expo Router's fork `getStateFromPath`
+and native Clerk selected in both Hermes bundles. The reviewed lock SHA-256 in
+`scripts/audit-runtime.mjs` is renewed to
+`21aa387ac1907783caa565d105190149c5a5121261a976a9f3569538a0a55d4d` for this
+lockfile only. The expiry remains 2026-11-03. No new advisory exception is included.

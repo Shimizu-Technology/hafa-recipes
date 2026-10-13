@@ -242,3 +242,104 @@ it("crash recovery preserves last checkpoint timing and never counts the process
   ]);
   expect(recovered.snapshot().history[0].request.active_seconds).toBe(2);
 });
+
+describe("sync queue and local history size", () => {
+  async function queued(store: TrainingStore, id: string) {
+    await store.start(fixture(), { workout_id: "workout", workout_revision: 3 }, id);
+    await store.activityType("strength_training");
+    await store.log(next(store));
+    await store.finish("partial");
+  }
+  function failure(status: number) {
+    return Object.assign(Error(`status ${status}`), { status });
+  }
+  it("marks a permanently rejected result for attention and keeps syncing the rest", async () => {
+    const store = createTrainingStore(memory(), "owner", 1);
+    await store.load();
+    await queued(store, "older");
+    await queued(store, "deleted-source");
+    await queued(store, "newer");
+    const send = vi.fn(async (request: { client_session_id: string }) => {
+      if (request.client_session_id === "deleted-source") throw failure(404);
+      return { id: `cloud-${request.client_session_id}` } as TrainingSession;
+    });
+    await store.sync(send);
+    expect(send).toHaveBeenCalledTimes(3);
+    const byId = (id: string) => store.snapshot().history.find((h) => h.request.client_session_id === id)!;
+    expect(byId("older").state).toBe("synced");
+    expect(byId("newer").state).toBe("synced");
+    expect(byId("deleted-source").state).toBe("blocked");
+    expect(byId("deleted-source").problem).toContain("may have been deleted");
+    await expect(store.dismiss("older")).rejects.toThrow("Only results that need attention");
+    await store.dismiss("deleted-source");
+    expect(store.snapshot().history.map((h) => h.request.client_session_id)).toEqual(["newer", "older"]);
+  });
+  it("keeps results queued when two in a row are rejected the same way or the request stopped on this device", async () => {
+    const store = createTrainingStore(memory(), "owner", 1);
+    await store.load();
+    await queued(store, "first");
+    await queued(store, "second");
+    await queued(store, "third");
+    const outage = vi.fn().mockRejectedValue(failure(404));
+    await store.sync(outage);
+    expect(outage).toHaveBeenCalledTimes(2);
+    expect(store.snapshot().history.map((h) => h.state)).toEqual(["blocked", "queued", "queued"]);
+    expect(store.snapshot().history[0].problem).toContain("may have been deleted");
+    await store.retry("third");
+    const switched = vi.fn().mockRejectedValue(Object.assign(failure(409), { local: true }));
+    await store.sync(switched);
+    expect(switched).toHaveBeenCalledTimes(1);
+    expect(store.snapshot().history.map((h) => h.state)).toEqual(["queued", "queued", "queued"]);
+  });
+  it("concurrent sync callers wait for the same pass", async () => {
+    const store = createTrainingStore(memory(), "owner", 1);
+    await store.load();
+    await queued(store, "only");
+    let release!: () => void;
+    const send = vi.fn(() => new Promise<TrainingSession>((done) => { release = () => done({ id: "cloud" } as TrainingSession); }));
+    const first = store.sync(send);
+    const second = store.sync(send);
+    await Promise.resolve(); await Promise.resolve();
+    release();
+    await second;
+    expect(store.snapshot().history[0].state).toBe("synced");
+    await first;
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+  it.each([0, 401, 408, 429, 500, 503])("stops on retryable status %i and keeps every result queued", async (status) => {
+    const store = createTrainingStore(memory(), "owner", 1);
+    await store.load();
+    await queued(store, "first");
+    await queued(store, "second");
+    const send = vi.fn().mockRejectedValue(failure(status));
+    await store.sync(send);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(store.snapshot().history.map((h) => h.state)).toEqual(["queued", "queued"]);
+    expect(store.snapshot().history[0].problem).toBe(`status ${status}`);
+  });
+  it("keeps only recent synced history on load and on every save, never queued or blocked work", async () => {
+    const storage = memory();
+    const item = (id: string, state: "queued" | "synced" | "blocked") => ({
+      generation: 1, workout: fixture(), state, cell_identity_version: 2 as const,
+      request: { client_session_id: id, workout_id: "workout", workout_revision: 3, started_at: "2026-10-10T00:00:00Z",
+        finished_at: "2026-10-10T00:10:00Z", status: "partial" as const, actuals: [] },
+      ...(state === "synced" ? { synced_id: `cloud-${id}` } : {}),
+    });
+    const history = [
+      item("queued", "queued"),
+      ...Array.from({ length: 30 }, (_, i) => item(`synced-${i}`, "synced")),
+      item("blocked", "blocked"),
+    ];
+    storage.data.set("hafa-workouts:training:v1:owner:1", JSON.stringify({ version: 1, generation: 1, active: null, history }));
+    const store = createTrainingStore(storage, "owner", 1);
+    await store.load();
+    const ids = store.snapshot().history.map((h) => h.request.client_session_id);
+    expect(ids).toHaveLength(22);
+    expect(ids).toContain("queued");
+    expect(ids).toContain("blocked");
+    expect(ids).toContain("synced-19");
+    expect(ids).not.toContain("synced-20");
+    await store.notes("");
+    expect(JSON.parse(storage.data.get("hafa-workouts:training:v1:owner:1")!).history).toHaveLength(22);
+  });
+});
