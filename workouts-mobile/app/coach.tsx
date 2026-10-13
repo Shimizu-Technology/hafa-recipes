@@ -1,10 +1,10 @@
 import { createCoachDraftStore } from "@/lib/coach-drafts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppState } from "react-native";
+import { AppState, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
+import { Bubble, Button, Card, Chip, ChipRow, Copy, Field, ListGroup, ListRow, Notice, Screen, SectionHeader } from "@/components/ui";
 import { useTraining } from "@/lib/context";
 import { coachFocusErrors, type CoachFocus, type PendingCoachMessage } from "@/lib/coach";
 export default function Coach() {
@@ -215,15 +215,11 @@ export default function Coach() {
     <Screen
       back
       title="Talk through your training."
-      subtitle="Your current profile and recent work, with changes you review first."
+      subtitle="Your profile and recent work, with any change shown to you first."
     >
-      <Notice>
-        AI coaching uses your chosen profile and bounded recent training context. Imported Health activity currently
-        stays excluded. Suggestions are reviewed separately before any change is applied.
-      </Notice>
       {(params.workout_id || params.program_id || params.session_id) && (
-        <Card>
-          <Copy kind="heading">This conversation has a specific focus</Copy>
+        <Card tone="accent" compact>
+          <Copy kind="caption" tone="accent">This conversation has a specific focus</Copy>
           <Copy>
             {params.workout_id
               ? "The selected workout and its saved revision"
@@ -231,56 +227,10 @@ export default function Coach() {
                 ? "The selected plan and its saved revision"
                 : "The selected actual training session"}
           </Copy>
-          <Button title="Start a general conversation instead" secondary onPress={() => router.replace("/coach")} />
+          <Button title="Start a general conversation instead" variant="ghost" size="sm" inline onPress={() => router.replace("/coach")} />
         </Card>
       )}
       {!enrollment?.enrolled && <Button title="Set up my training" onPress={() => router.push("/onboarding")} />}
-      {enrollment?.enrolled && (
-        <>
-          <Button
-            title={showCheckIn ? "Hide today’s check-in" : "Check in before planning or returning"}
-            secondary
-            onPress={() => setShowCheckIn(!showCheckIn)}
-          />
-          {showCheckIn && (
-            <Card>
-              <Copy kind="heading">How are you feeling today?</Copy>
-              {(["ready", "limited", "unknown"] as const).map((value) => (
-                <Choice
-                  key={value}
-                  label={
-                    value === "ready"
-                      ? "Ready for general training"
-                      : value === "limited"
-                        ? "I need to take it easier"
-                        : "Unsure / prefer not to say"
-                  }
-                  selected={readiness === value}
-                  disabled={busy}
-                  onPress={() => setReadiness(value)}
-                />
-              ))}
-              <Button
-                title="Save today’s check-in"
-                busy={busy}
-                onPress={() => {
-                  void saveCheckIn();
-                }}
-              />
-              {checkIn.data?.confirmed_at && (
-                <Copy>Last check-in · {new Date(checkIn.data.confirmed_at).toLocaleString()}</Copy>
-              )}
-              {checkIn.data?.expires_at && (
-                <Copy>Valid until · {new Date(checkIn.data.expires_at).toLocaleString()}</Copy>
-              )}
-              <Copy>
-                This check-in expires. Returning from a pause also requires reviewing your current comfortable baseline.
-              </Copy>
-            </Card>
-          )}
-        </>
-      )}
-      <Button title="Inspect AI sharing preferences" secondary onPress={() => router.push("/ai-preferences")} />
       {capabilities.data && !capabilities.data.coach && (
         <Notice>
           Coach messages are unavailable for this build. Manual training, saved libraries and profile controls remain
@@ -306,12 +256,17 @@ export default function Coach() {
         )}
         <Button
           title={pending ? "Retry this saved message" : "Send message"}
+          icon="send"
           busy={busy}
           disabled={!loaded || !enrollment?.enrolled || !capabilities.data?.coach || !consent.data?.accepted}
           onPress={() => {
             void send();
           }}
         />
+        <Copy kind="small" tone="muted">
+          AI coaching uses your chosen profile and bounded recent training context. Imported Health activity currently
+          stays excluded. Suggestions are reviewed separately before any change is applied.
+        </Copy>
       </Card>
       {!!error && <Notice error>{error}</Notice>}
       {clearedRequest && pending && (
@@ -326,6 +281,58 @@ export default function Coach() {
           }}
         />
       )}
+      {enrollment?.enrolled && (
+        <ListGroup>
+          <ListRow
+            icon="pulse-outline"
+            title={showCheckIn ? "Hide today’s check-in" : "Check in before planning or returning"}
+            onPress={() => setShowCheckIn(!showCheckIn)}
+            trailing="none"
+          />
+          <ListRow icon="shield-checkmark-outline" title="Inspect AI sharing preferences" onPress={() => router.push("/ai-preferences")} />
+        </ListGroup>
+      )}
+      {!enrollment?.enrolled && (
+        <ListRow icon="shield-checkmark-outline" title="Inspect AI sharing preferences" onPress={() => router.push("/ai-preferences")} />
+      )}
+      {enrollment?.enrolled && showCheckIn && (
+        <Card>
+          <Copy kind="heading">How are you feeling today?</Copy>
+          <ChipRow wrap label="How are you feeling today?">
+            {(["ready", "limited", "unknown"] as const).map((value) => (
+              <Chip
+                key={value}
+                label={
+                  value === "ready"
+                    ? "Ready for general training"
+                    : value === "limited"
+                      ? "I need to take it easier"
+                      : "Unsure / prefer not to say"
+                }
+                selected={readiness === value}
+                disabled={busy}
+                onPress={() => setReadiness(value)}
+              />
+            ))}
+          </ChipRow>
+          <Button
+            title="Save today’s check-in"
+            busy={busy}
+            onPress={() => {
+              void saveCheckIn();
+            }}
+          />
+          {checkIn.data?.confirmed_at && (
+            <Copy kind="small" tone="muted">Last check-in · {new Date(checkIn.data.confirmed_at).toLocaleString()}</Copy>
+          )}
+          {checkIn.data?.expires_at && (
+            <Copy kind="small" tone="muted">Valid until · {new Date(checkIn.data.expires_at).toLocaleString()}</Copy>
+          )}
+          <Copy kind="small" tone="muted">
+            This check-in expires. Returning from a pause also requires reviewing your current comfortable baseline.
+          </Copy>
+        </Card>
+      )}
       {q.error && (
         <>
           <Notice error>{q.error.message}</Notice>
@@ -338,18 +345,16 @@ export default function Coach() {
           />
         </>
       )}
+      {!!history.length && <SectionHeader title="Conversation" />}
       {history.map((item) => (
-        <Card key={item.id}>
-          <Copy kind="small">
-            {new Date(item.created_at).toLocaleString()} · {item.state}
-          </Copy>
-          <Copy kind="label">You</Copy>
-          <Copy>{item.user_message}</Copy>
+        <View key={item.id} style={{ gap: 10 }}>
+          <Bubble from="you" meta={`${new Date(item.created_at).toLocaleString()} · ${item.state}`}>
+            <Copy>{item.user_message}</Copy>
+          </Bubble>
           {item.assistant_message && (
-            <>
-              <Copy kind="label">Your AI coach</Copy>
+            <Bubble from="coach">
               <Copy>{item.assistant_message}</Copy>
-            </>
+            </Bubble>
           )}
           {item.state === "pending" && (
             <Notice>
@@ -358,24 +363,29 @@ export default function Coach() {
           )}
           {item.state === "failed" && <Notice>The request failed without applying a change.</Notice>}
           {item.actions.map((action) => (
-            <Button
-              key={action.proposal_id}
-              title={`${action.state === "accepted" ? "Inspect or undo" : action.state === "undone" ? "Inspect undone" : "Review"} ${action.kind.replaceAll("_", " ")} suggestion`}
-              secondary
-              onPress={() =>
-                router.push({
-                  pathname: "/coach-action/[id]",
-                  params: { id: action.proposal_id, generation: String(item.generation), state: action.state },
-                })
-              }
-            />
+            <Card key={action.proposal_id} tone="accent" compact>
+              <Copy kind="caption" tone="accent">
+                {action.state === "accepted" ? "Applied" : action.state === "undone" ? "Undone" : "Suggested change"}
+              </Copy>
+              <Button
+                title={`${action.state === "accepted" ? "Inspect or undo" : action.state === "undone" ? "Inspect undone" : "Review"} ${action.kind.replaceAll("_", " ")} suggestion`}
+                variant={action.state === "proposed" ? "primary" : "secondary"}
+                size="sm"
+                onPress={() =>
+                  router.push({
+                    pathname: "/coach-action/[id]",
+                    params: { id: action.proposal_id, generation: String(item.generation), state: action.state },
+                  })
+                }
+              />
+            </Card>
           ))}
-        </Card>
+        </View>
       ))}
       {q.hasNextPage && (
         <Button
           title="Load earlier messages"
-          secondary
+          variant="ghost"
           busy={q.isFetchingNextPage}
           onPress={() => {
             void q.fetchNextPage();
@@ -384,26 +394,27 @@ export default function Coach() {
       )}
       <Button
         title="Clear saved coach conversation"
-        secondary
+        variant="ghost"
+        icon="trash-outline"
         disabled={busy || !enrollment?.enrolled}
         onPress={() => setClearConfirm(true)}
       />
       {clearConfirm && (
-        <>
-          <Notice>
+        <Card tone="sunken">
+          <Copy kind="small">
             This removes retained conversation and related pending suggestions. Accepted workouts/plans remain saved.
             Short content-free request/quota receipts stay temporarily to prevent replay and allowance resets.
-          </Notice>
+          </Copy>
           <Button
             title="Clear conversation and pending suggestions"
-            secondary
+            variant="destructive"
             busy={busy}
             onPress={() => {
               void clear();
             }}
           />
           <Button title="Keep conversation" secondary disabled={busy} onPress={() => setClearConfirm(false)} />
-        </>
+        </Card>
       )}
     </Screen>
   );

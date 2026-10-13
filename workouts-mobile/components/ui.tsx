@@ -28,6 +28,7 @@ export {
   type IconName,
 } from "./design/controls";
 export {
+  Bubble,
   Card,
   Empty,
   ListGroup,
@@ -49,6 +50,7 @@ export {
   RestTimer,
   SetRow,
   StatTile,
+  StepBar,
   TabIcon,
   WeekStrip,
   formatClock,

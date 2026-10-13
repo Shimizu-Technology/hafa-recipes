@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { AppState, Image, Linking } from "react-native";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Choice, Copy, Empty, Notice, Screen } from "@/components/ui";
+import { Button, Card, Chip, ChipRow, Choice, Copy, Empty, ListRow, Notice, Screen, SectionHeader, Skeleton } from "@/components/ui";
 import { WorkoutEditor } from "@/components/workout-editor";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
@@ -210,12 +210,7 @@ export default function ImportReview() {
   const result = q.data?.result;
   const workout = (routeReady ? edited : null) ?? result?.workout;
   return (
-    <Screen back title="Review the workout." subtitle="Keep source facts, missing details, and your corrections clear.">
-      <Notice>
-        Uploaded photos and documents are temporary: they are cleared after acceptance, cancellation or expiry. Your
-        library keeps the prescription, evidence and source link where available. An incomplete private draft may stay
-        incomplete.
-      </Notice>
+    <Screen back title="Review the workout." subtitle="Check what the source says, fill any gaps, then save it.">
       <QueryState
         loading={q.isPending}
         error={q.error}
@@ -225,8 +220,11 @@ export default function ImportReview() {
       >
         {q.data && ["queued", "processing"].includes(q.data.status) && (
           <Card>
+            <Copy kind="caption" tone="accent">{q.data.status === "queued" ? "Saved" : "Working on it"}</Copy>
             <Copy kind="heading">{q.data.status === "queued" ? "Your source is saved" : "Reading the source"}</Copy>
-            <Copy>You can leave this screen. The import continues in the background.</Copy>
+            <Skeleton height={14} width="85%" />
+            <Skeleton height={14} width="60%" />
+            <Copy tone="muted">You can leave this screen. The import continues in the background.</Copy>
             <Button title="Back to my library" secondary onPress={() => router.replace("/(tabs)/library")} />
           </Card>
         )}
@@ -253,15 +251,22 @@ export default function ImportReview() {
         {result && (
           <>
             <Card>
+              <Copy kind="caption" tone="accent">Source</Copy>
               <Copy kind="heading">{result.source.title ?? "Original source"}</Copy>
-              {!!result.source.creator && <Copy>By {result.source.creator}</Copy>}
-              <Copy>
-                {result.source.platform} · {result.source.channels.join(", ") || "No source channels available"}
-              </Copy>
+              {!!result.source.creator && <Copy tone="muted">By {result.source.creator}</Copy>}
+              <ChipRow wrap>
+                <Chip label={result.source.platform} icon="globe-outline" />
+                {result.source.channels.length ? (
+                  result.source.channels.map((channel) => <Chip key={channel} label={channel} />)
+                ) : (
+                  <Chip label="No source channels available" />
+                )}
+              </ChipRow>
               {!!result.source.url && (
-                <Button
+                <ListRow
+                  icon="open-outline"
                   title="Open source"
-                  secondary
+                  trailing="external"
                   onPress={() => {
                     void Linking.openURL(result.source.url!).catch(() => setError("Could not open the source."));
                   }}
@@ -290,16 +295,16 @@ export default function ImportReview() {
               )}
             </Card>
             {result.warnings.map((warning, index) => (
-              <Notice key={index}>{warning}</Notice>
+              <Notice key={index} tone="warning">{warning}</Notice>
             ))}
             {result.source.coverage_notes.map((note, index) => (
               <Notice key={`coverage-${index}`}>{note}</Notice>
             ))}
             {!!result.evidence.length && (
-              <Card>
-                <Copy kind="heading">What the source supports</Copy>
+              <Card tone="sunken">
+                <Copy kind="subheading">What the source supports</Copy>
                 {result.evidence.map((e, index) => (
-                  <Copy key={index}>
+                  <Copy key={index} kind="small">
                     {e.field} · {e.wording}
                     {e.location ? ` (${e.location})` : ""}
                   </Copy>
@@ -312,18 +317,30 @@ export default function ImportReview() {
                   <WorkoutEditor value={workout} onChange={update} />
                 ) : (
                   <>
-                    <Copy kind="heading">{workout.title}</Copy>
-                    <Copy>Equipment · {workout.equipment_required?.join(", ") || "Not specified"}</Copy>
+                    <SectionHeader title={workout.title} />
+                    <ChipRow wrap>
+                      {workout.equipment_required?.length ? (
+                        workout.equipment_required.map((item) => <Chip key={item} label={item} icon="barbell-outline" />)
+                      ) : (
+                        <Chip label="Equipment not specified" tone="accent" />
+                      )}
+                    </ChipRow>
                     {workout.blocks.map((block) => (
                       <Card key={block.id}>
-                        <Copy kind="heading">{block.label}</Copy>
-                        <Copy>
+                        <Copy kind="subheading">{block.label}</Copy>
+                        <Copy kind="small" tone={block.rounds == null ? "accent" : "muted"}>
                           {block.grouping} · {block.rounds == null ? "Rounds not specified" : `${block.rounds} rounds`}
                         </Copy>
                         {block.exercises.map((e, index) => (
                           <Copy key={index}>
-                            {e.name} · {e.sets ?? "Unspecified"} sets · {e.reps_min ?? "Unspecified"}
-                            {e.reps_max != null && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ""} reps
+                            <Copy kind="label">{e.name}</Copy>
+                            {" · "}
+                            <Copy tone={e.sets == null ? "accent" : "default"}>{e.sets ?? "Unspecified"} sets</Copy>
+                            {" · "}
+                            <Copy tone={e.reps_min == null ? "accent" : "default"}>
+                              {e.reps_min ?? "Unspecified"}
+                              {e.reps_max != null && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ""} reps
+                            </Copy>
                             {e.duration_seconds != null ? ` · ${e.duration_seconds}s` : ""}
                             {e.per_side ? " · each side" : ""}
                           </Copy>
@@ -335,6 +352,7 @@ export default function ImportReview() {
                 <Button
                   title={routeReady && editing ? "Show workout summary" : "Correct workout details"}
                   secondary
+                  icon={routeReady && editing ? "eye-outline" : "create-outline"}
                   disabled={busy}
                   onPress={() => {
                     if (routeReady && isCurrent()) setEditing(!editing);
@@ -349,6 +367,8 @@ export default function ImportReview() {
                 />
                 <Button
                   title="Save privately to my library"
+                  icon="lock-closed-outline"
+                  size="lg"
                   busy={busy}
                   disabled={!routeReady || !reviewed || !!q.data?.accepted_workout_id}
                   onPress={() => {
@@ -362,7 +382,7 @@ export default function ImportReview() {
         {q.data && !["cancelled", "expired"].includes(q.data.status) && !q.data.accepted_workout_id && (
           <Button
             title="Cancel import and clear source upload"
-            secondary
+            variant="destructive"
             busy={busy}
             onPress={() => {
               void cancel();
@@ -371,6 +391,11 @@ export default function ImportReview() {
         )}
       </QueryState>
       {!!error && <Notice error>{error}</Notice>}
+      <Notice>
+        Uploaded photos and documents are temporary: they are cleared after acceptance, cancellation or expiry. Your
+        library keeps the prescription, evidence and source link where available. An incomplete private draft may stay
+        incomplete.
+      </Notice>
     </Screen>
   );
 }

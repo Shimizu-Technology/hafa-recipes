@@ -14,7 +14,8 @@ vi.mock("@/lib/context", () => {
 vi.mock("react-native", () => ({ AppState: { addEventListener: () => ({ remove() {} }) } }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn() }, useFocusEffect() {} }));
 vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy", Notice: "Notice", Button: "Button",
-  AccountButton: "AccountButton", Empty: "Empty", useColors: () => ({ muted: "gray" }) }));
+  AccountButton: "AccountButton", Empty: "Empty", IconButton: "IconButton", ListGroup: "ListGroup", ListRow: "ListRow",
+  Row: "Row", SectionHeader: "SectionHeader", Skeleton: "Skeleton", useColors: () => ({ muted: "gray" }) }));
 import Progress from "../app/(tabs)/progress";
 let renderer: ReactTestRenderer | undefined, cache: QueryClient;
 const workout: Workout = { id: "workout", generation: 1, revision: 1, title: "Strength", kind: "session", provenance: "user",

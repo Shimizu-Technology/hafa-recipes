@@ -2,13 +2,33 @@ import { ImportList } from "@/components/import-list";
 import { useEffect, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { AccountButton, Button, Card, Choice, Copy, Empty, Field, Notice, Screen, useColors } from "@/components/ui";
+import {
+  AccountButton,
+  Button,
+  Chip,
+  ChipRow,
+  Choice,
+  Copy,
+  Empty,
+  Field,
+  IconButton,
+  ListRow,
+  MediaCard,
+  Notice,
+  Row,
+  Screen,
+  Sheet,
+  SkeletonCard,
+} from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
 import { tagsFromText, type LibraryFilters } from "@/lib/organization";
+import type { Workout } from "@/lib/models";
+
+const kindIcons = { exercise: "fitness-outline", accessory: "body-outline", session: "barbell-outline", program: "calendar-outline" } as const;
+const kindLabels: Record<Workout["kind"], string> = { exercise: "Exercises", accessory: "Accessory", session: "Sessions", program: "Programs" };
 export default function Library() {
   const { api, owner, enrollment } = useTraining();
-  const c = useColors();
   const [search, setSearch] = useState("");
   const [settledSearch, setSettledSearch] = useState("");
   const [equipment, setEquipment] = useState("");
@@ -48,78 +68,61 @@ export default function Library() {
     ...new Map(q.data?.pages.flatMap((page) => page.items).map((workout) => [workout.id, workout]) ?? []).values(),
   ];
   const narrowed = search || equipment || tags || kind || favorite || archived || collection;
+  const advanced = [equipment, tags, collection].filter(Boolean).length;
+  function clear() {
+    setSearch("");
+    setEquipment("");
+    setTags("");
+    setKind(undefined);
+    setFavorite(false);
+    setArchived(false);
+    setCollection(undefined);
+  }
   return (
     <Screen
-      title={"Your inspiration,\norganized."}
-      subtitle="A private home for the workouts you want to use."
-      action={<AccountButton />}
+      title="Your library."
+      subtitle="Workouts you’ve saved, ready when you are."
+      action={
+        <Row gap={8}>
+          <IconButton
+            icon="add"
+            label="Add a workout"
+            variant="primary"
+            disabled={!enrollment?.enrolled}
+            onPress={() => router.push("/capture")}
+          />
+          <AccountButton />
+        </Row>
+      }
     >
-      <Button
-        title="Add a workout"
-        disabled={!enrollment?.enrolled}
-        icon="add"
-        onPress={() => router.push("/capture")}
-      />
       <Field label="Search workouts" value={search} onChange={setSearch} placeholder="Title or training focus" />
+      <ChipRow label="Quick filters">
+        <Chip label="Favorites" icon="heart-outline" selected={favorite} onPress={() => setFavorite(!favorite)} />
+        {(["session", "exercise", "program", "accessory"] as const).map((value) => (
+          <Chip key={value} label={kindLabels[value]} selected={kind === value} onPress={() => setKind(kind === value ? undefined : value)} />
+        ))}
+        <Chip label="Archived" icon="archive-outline" selected={archived} onPress={() => setArchived(!archived)} />
+        <Chip
+          label={advanced ? `More filters · ${advanced}` : "More filters"}
+          icon="options-outline"
+          selected={!!advanced}
+          onPress={() => setFilters(true)}
+        />
+      </ChipRow>
       <ImportList />
-      <Button title={filters ? "Hide filters" : "Filter workouts"} secondary onPress={() => setFilters(!filters)} />
-      {filters && (
-        <Card>
-          <Copy kind="heading">Find your next session</Copy>
-          <Choice label="Favorites only" selected={favorite} onPress={() => setFavorite(!favorite)} />
-          <Choice
-            label="Archived workouts"
-            detail="Archived items stay saved and out of the default library."
-            selected={archived}
-            onPress={() => setArchived(!archived)}
-          />
-          <Choice label="All workout types" selected={!kind} onPress={() => setKind(undefined)} />
-          {(["exercise", "accessory", "session", "program"] as const).map((value) => (
-            <Choice key={value} label={value} selected={kind === value} onPress={() => setKind(value)} />
-          ))}
-          <Field
-            label="Equipment filter"
-            value={equipment}
-            onChange={setEquipment}
-            placeholder="Dumbbells, bodyweight…"
-            optional
-          />
-          <Field label="Tag filter" value={tags} onChange={setTags} placeholder="Separate tags with commas" optional />
-          <Choice label="All collections" selected={!collection} onPress={() => setCollection(undefined)} />
-          {collections.data?.map((item) => (
-            <Choice
-              key={item.id}
-              label={item.title}
-              detail={`${item.workout_count} workouts`}
-              selected={collection === item.id}
-              onPress={() => setCollection(item.id)}
-            />
-          ))}
-          {collections.error && <Notice error>{collections.error.message}</Notice>}
-          <Button title="Manage collections" secondary onPress={() => router.push("/collections")} />
-          <Button
-            title="Clear filters"
-            secondary
-            onPress={() => {
-              setSearch("");
-              setEquipment("");
-              setTags("");
-              setKind(undefined);
-              setFavorite(false);
-              setArchived(false);
-              setCollection(undefined);
-            }}
-          />
-        </Card>
-      )}
       <QueryState
-        loading={q.isPending && !!enrollment?.enrolled}
+        loading={false}
         error={q.error}
         retry={() => {
           void q.refetch();
         }}
       >
-        {!visible.length ? (
+        {q.isPending && !!enrollment?.enrolled ? (
+          <>
+            <SkeletonCard label="Loading your workouts" />
+            <SkeletonCard lines={1} label="Loading your workouts" />
+          </>
+        ) : !visible.length ? (
           <Empty
             icon="albums-outline"
             title={narrowed ? "No matching workouts" : "Build your own library"}
@@ -128,31 +131,34 @@ export default function Library() {
                 ? "Try a shorter search or clear the filters."
                 : "Save a favorite session to get started. Workouts are private until you choose to share them."
             }
+            action={
+              narrowed ? (
+                <Button title="Clear filters" secondary onPress={clear} />
+              ) : (
+                <Button title="Add a workout" icon="add" disabled={!enrollment?.enrolled} onPress={() => router.push("/capture")} />
+              )
+            }
           />
         ) : (
           <>
-            <Copy kind="small" color={c.muted}>
+            <Copy kind="small" tone="muted">
               {q.data?.pages[0].total} {archived ? "archived " : ""}workouts · {visible.length} shown
             </Copy>
             {visible.map((w) => (
-              <Card key={w.id}>
-                <Copy kind="small" color={c.muted}>
-                  {w.kind.toUpperCase()} · {w.organization?.favorite ? "FAVORITE · " : ""}
-                  {w.provenance === "suggestion"
-                    ? "SUGGESTED"
-                    : w.provenance === "source"
-                      ? "FROM A SOURCE"
-                      : "YOUR WORKOUT"}
-                </Copy>
-                <Copy kind="heading">{w.title}</Copy>
-                {!!w.equipment_required?.length && <Copy color={c.muted}>{w.equipment_required.join(" · ")}</Copy>}
-                {!!w.organization?.tags.length && <Copy kind="small">{w.organization.tags.join(" · ")}</Copy>}
-                <Button
-                  title="View workout"
-                  secondary
-                  onPress={() => router.push({ pathname: "/workout/[id]", params: { id: w.id } })}
-                />
-              </Card>
+              <MediaCard
+                key={w.id}
+                title={w.title}
+                icon={kindIcons[w.kind]}
+                badge={w.organization?.favorite ? "Favorite" : undefined}
+                meta={[
+                  w.kind,
+                  w.provenance === "suggestion" ? "suggested" : w.provenance === "source" ? "from a source" : "your workout",
+                  ...(w.organization?.tags ?? []),
+                ].join(" · ")}
+                chips={w.equipment_required ?? []}
+                accessibilityLabel={`View workout ${w.title}`}
+                onPress={() => router.push({ pathname: "/workout/[id]", params: { id: w.id } })}
+              />
             ))}
             {q.hasNextPage && (
               <Button
@@ -167,6 +173,40 @@ export default function Library() {
           </>
         )}
       </QueryState>
+      <Sheet visible={filters} onClose={() => setFilters(false)} title="Find your next session">
+        <Field
+          label="Equipment filter"
+          value={equipment}
+          onChange={setEquipment}
+          placeholder="Dumbbells, bodyweight…"
+          optional
+        />
+        <Field label="Tag filter" value={tags} onChange={setTags} placeholder="Separate tags with commas" optional />
+        <Copy kind="label">Collection</Copy>
+        <Choice label="All collections" selected={!collection} onPress={() => setCollection(undefined)} />
+        {collections.data?.map((item) => (
+          <Choice
+            key={item.id}
+            label={item.title}
+            detail={`${item.workout_count} workouts`}
+            selected={collection === item.id}
+            onPress={() => setCollection(item.id)}
+          />
+        ))}
+        {collections.error && <Notice error>{collections.error.message}</Notice>}
+        <ListRow
+          icon="folder-open-outline"
+          title="Manage collections"
+          onPress={() => {
+            setFilters(false);
+            router.push("/collections");
+          }}
+        />
+        <Row gap={10}>
+          <Button title="Clear filters" secondary inline onPress={clear} />
+          <Button title="Show workouts" inline onPress={() => setFilters(false)} />
+        </Row>
+      </Sheet>
     </Screen>
   );
 }

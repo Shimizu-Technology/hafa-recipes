@@ -2,7 +2,7 @@ import { View } from "react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Button, Empty, Notice, Screen } from "@/components/ui";
+import { AccountButton, Button, Empty, Notice, Screen } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { createPrivateForm } from "@/lib/private-form";
 import { ProfileForm } from "@/components/profile-form";
@@ -177,7 +177,7 @@ export default function Profile() {
       back
       title="Your training profile."
       subtitle="The context you have chosen to share. Edit or remove optional details any time."
-      action={<Button title="Account" secondary onPress={() => router.push("/settings")} />}
+      action={<AccountButton />}
     >
       <QueryState
         loading={!loaded || (q.isPending && !!enrollment?.enrolled && !value)}

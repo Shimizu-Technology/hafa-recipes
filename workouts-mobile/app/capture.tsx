@@ -4,7 +4,7 @@ import { Image, View } from "react-native";
 import { router } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Card, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
+import { Button, Card, Choice, Copy, Field, Grow, Notice, Row, Screen, SectionHeader } from "@/components/ui";
 import { useTraining } from "@/lib/context";
 import { captureErrors, type CaptureDraft, type CaptureKind, type CaptureFile } from "@/lib/capture";
 import { createPrivateDraftSlot, type PrivateDraftSnapshot } from "@/lib/private-form";
@@ -353,12 +353,6 @@ export default function Capture() {
   const locked = busy || stale || !ready || !!draft.pending_import;
   return (
     <Screen back title="Keep the inspiration." subtitle="Share a source, review the workout, then make it yours.">
-      <Button
-        title="Write a workout manually"
-        secondary
-        icon="create-outline"
-        onPress={() => router.push("/add-workout")}
-      />
       {stale && <Notice>A newer source is saved. Load it before changing this draft.</Notice>}
       {(stale || !ready) && (
         <Button
@@ -375,10 +369,11 @@ export default function Capture() {
       {capabilities.data && !capabilities.data.imports && (
         <Notice>Automatic extraction is not enabled for this build. You can write a workout manually.</Notice>
       )}
-      <Copy kind="heading">Choose your source</Copy>
+      <SectionHeader title="Where’s the workout from?" />
       {(["url", "text", "images", "document"] as const).map((kind) => (
         <Choice
           key={kind}
+          icon={({ url: "link-outline", text: "document-text-outline", images: "images-outline", document: "document-attach-outline" } as const)[kind]}
           label={
             {
               url: "A link",
@@ -443,23 +438,31 @@ export default function Capture() {
       )}
       {draft.kind === "images" && (
         <>
-          <Button
-            title="Choose up to four images"
-            secondary
-            busy={busy}
-            disabled={locked}
-            onPress={() => {
-              void pick("images");
-            }}
-          />
-          <Button
-            title="Take a photo"
-            secondary
-            disabled={locked}
-            onPress={() => {
-              void pick("images", true);
-            }}
-          />
+          <Row gap={10}>
+            <Grow>
+              <Button
+                title="Choose up to four images"
+                secondary
+                icon="images-outline"
+                busy={busy}
+                disabled={locked}
+                onPress={() => {
+                  void pick("images");
+                }}
+              />
+            </Grow>
+            <Grow>
+              <Button
+                title="Take a photo"
+                secondary
+                icon="camera-outline"
+                disabled={locked}
+                onPress={() => {
+                  void pick("images", true);
+                }}
+              />
+            </Grow>
+          </Row>
           {draft.files.map((file) => (
             <Card key={file.uri}>
               <SourceImage uri={file.uri} label={file.name} />
@@ -477,6 +480,7 @@ export default function Capture() {
           <Button
             title="Choose PDF or text document"
             secondary
+            icon="document-attach-outline"
             busy={busy}
             disabled={locked}
             onPress={() => {
@@ -491,6 +495,7 @@ export default function Capture() {
           </Notice>
         </>
       )}
+      <SectionHeader title="Before you extract" />
       <Notice>
         AI extraction sends the source you choose to OpenAI to identify workout details. Review the results; missing
         information stays missing. Your training profile is not included in this source import. Health-data coaching
@@ -504,7 +509,7 @@ export default function Capture() {
         onPress={() => setConsent(!consent)}
       />
       {capabilities.data && (
-        <Copy kind="small">
+        <Copy kind="small" tone="muted">
           Free beta · up to {capabilities.data.limits.successful_or_pending_imports_per_rolling_day} successful or
           pending imports in each rolling day.
         </Copy>
@@ -596,11 +601,19 @@ export default function Capture() {
       )}
       <Button
         title={draft.pending_import ? "Retry extracting this source" : "Extract workout"}
+        icon="sparkles-outline"
+        size="lg"
         busy={busy}
         disabled={stale || !ready || !capabilities.data?.imports || !enrollment?.enrolled || !!draft.job_id}
         onPress={() => {
           void submit();
         }}
+      />
+      <Button
+        title="Write a workout manually"
+        variant="ghost"
+        icon="create-outline"
+        onPress={() => router.push("/add-workout")}
       />
     </Screen>
   );

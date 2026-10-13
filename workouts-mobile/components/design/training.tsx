@@ -314,3 +314,21 @@ export function usePrevious<T>(value: T) {
   }, [value]);
   return ref.current;
 }
+
+/** Segmented step indicator (onboarding, multi-step forms). */
+export function StepBar({ step, total, label }: { step: number; total: number; label?: string }) {
+  const c = useColors();
+  return (
+    <View
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel={label ?? `Step ${step + 1} of ${total}`}
+      accessibilityValue={{ min: 1, max: total, now: step + 1 }}
+      style={{ flexDirection: "row", gap: 6 }}
+    >
+      {Array.from({ length: total }, (_, i) => (
+        <View key={i} style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: i <= step ? c.accent : c.sunken }} />
+      ))}
+    </View>
+  );
+}

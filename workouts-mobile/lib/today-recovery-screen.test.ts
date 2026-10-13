@@ -31,6 +31,7 @@ vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
 vi.mock("expo-crypto", () => ({ randomUUID: vi.fn(() => "synthetic-session") }));
 vi.mock("@/components/ui", () => ({
   Screen: "Screen", Card: "Card", Copy: "Copy", Empty: "Empty", Notice: "Notice", Button: "Button", AccountButton: "AccountButton",
+  Chip: "Chip", ChipRow: "ChipRow", ListGroup: "ListGroup", ListRow: "ListRow", SectionHeader: "SectionHeader", WeekStrip: "WeekStrip",
   useColors: () => ({ action: "green", muted: "gray" }),
 }));
 import Today from "../app/(tabs)/index";
