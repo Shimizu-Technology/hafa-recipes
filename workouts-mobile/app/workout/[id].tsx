@@ -179,6 +179,11 @@ export default function WorkoutDetail() {
       {workout && (
         <Sheet visible={more} onClose={() => setMore(false)} title="Workout">
           <ListRow
+            icon="chatbubble-ellipses-outline"
+            title="Chat about this workout"
+            onPress={() => go({ pathname: "/coach", params: { workout_id: workout.id, revision: String(workout.revision) } })}
+          />
+          <ListRow
             icon="share-outline"
             title="Share selected workout"
             detail={workout.kind === "program" ? "Programs can’t be shared as one workout" : undefined}

@@ -253,7 +253,6 @@ export default function Training() {
         <Card>
           <RestTimer
             remaining={rest}
-            restKey={d.rest_until ?? 0}
             onAdd={() => {
               void run(() => store.timer("rest", rest + 15));
             }}
@@ -535,17 +534,6 @@ export default function Training() {
             onPress={() => {
               setMore(false);
               void run(() => store.undo());
-            }}
-          />
-        )}
-        {canFinish && step && (
-          <ListRow
-            icon="checkmark-done-outline"
-            title="Finish and save session"
-            disabled={busy}
-            onPress={() => {
-              setMore(false);
-              void run(() => finish("completed"));
             }}
           />
         )}

@@ -22,7 +22,9 @@ import {
 } from "@/components/ui";
 import { radii } from "@/constants/theme";
 import { View } from "react-native";
-
+import { QueryState } from "@/components/query-state";
+import { useTraining, useOfflineTraining } from "@/lib/context";
+import type { Program, ScheduledSession } from "@/lib/models";
 function DateBadge({ date, done }: { date: string; done: boolean }) {
   const c = useColors();
   const at = new Date(`${date}T12:00:00Z`);
@@ -46,9 +48,6 @@ function DateBadge({ date, done }: { date: string; done: boolean }) {
     </View>
   );
 }
-import { QueryState } from "@/components/query-state";
-import { useTraining, useOfflineTraining } from "@/lib/context";
-import type { Program, ScheduledSession } from "@/lib/models";
 export default function Plan() {
   const { api, owner, enrollment } = useTraining();
   const offline = useOfflineTraining();
