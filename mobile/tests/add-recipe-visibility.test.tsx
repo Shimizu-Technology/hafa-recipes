@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   alert: vi.fn(),
+  isPending: false,
   back: vi.fn(),
   createManualRecipe: vi.fn(async (payload: { is_public: boolean }) => ({
     id: 'recipe-1',
@@ -75,7 +76,7 @@ vi.mock('@tanstack/react-query', () => ({
     onSuccess: (result: unknown) => void;
     onError: (error: Error) => void;
   }) => ({
-    isPending: false,
+    isPending: mocks.isPending,
     mutate: () => {
       void options.mutationFn().then(options.onSuccess).catch(options.onError);
     },
@@ -186,6 +187,7 @@ describe('AddRecipeScreen visibility', () => {
     mocks.params.isPublic = 'false';
     mocks.params.captureSource = 'text';
     mocks.params.initialImageUri = undefined;
+    mocks.isPending = false;
     mocks.alert.mockClear();
     mocks.back.mockClear();
     mocks.createManualRecipe.mockClear();
@@ -287,4 +289,74 @@ describe('AddRecipeScreen visibility', () => {
     expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
   });
 
+});
+
+describe('AddRecipeScreen accessibility', () => {
+  beforeEach(() => {
+    mocks.params.initialData = JSON.stringify({
+      title: 'Red Rice',
+      ingredients: [
+        { name: 'rice', quantity: '2', unit: 'cups' },
+        { name: 'achiote', quantity: '1', unit: 'tbsp' },
+      ],
+      steps: ['Cook the rice.'],
+    });
+    mocks.params.isPublic = 'false';
+    mocks.params.captureSource = 'text';
+    mocks.params.initialImageUri = undefined;
+    mocks.isPending = false;
+  });
+
+  function button(renderer: ReactTestRenderer, label: string) {
+    return renderer.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType)
+      .find((node) => node.props.accessibilityLabel === label);
+  }
+
+  it('labels the icon-only photo, ingredient, unit, and step controls', async () => {
+    const renderer = await renderRecipe();
+
+    for (const label of [
+      'Add recipe photo',
+      'Remove ingredient 1',
+      'Remove ingredient 2',
+      'Choose unit for ingredient 1',
+      'Choose unit for ingredient 2',
+      'Remove step 1',
+    ]) {
+      expect(button(renderer, label)?.props.accessibilityRole, label).toBe('button');
+    }
+    // The only step cannot be removed, and assistive tech is told so.
+    expect(button(renderer, 'Remove step 1')!.props.disabled).toBe(true);
+    expect(button(renderer, 'Remove step 1')!.props.accessibilityState).toEqual({ disabled: true });
+
+    const save = headerAction(renderer, 'Save private');
+    expect(save.props.accessibilityRole).toBe('button');
+    expect(save.props.accessibilityState).toEqual({ disabled: false, busy: false });
+  });
+
+  it('enables step removal once there is more than one step', async () => {
+    mocks.params.initialData = JSON.stringify({ title: 'Rice', ingredients: [], steps: ['Rinse.', 'Cook.'] });
+    const renderer = await renderRecipe();
+
+    expect(button(renderer, 'Remove step 1')!.props.accessibilityState).toEqual({ disabled: false });
+    expect(button(renderer, 'Remove step 2')!.props.accessibilityState).toEqual({ disabled: false });
+  });
+
+  it('labels the photo control as a change once a photo is attached', async () => {
+    mocks.params.initialImageUri = 'file:///recipe-card.jpg';
+    const renderer = await renderRecipe();
+
+    expect(button(renderer, 'Change recipe photo')?.props.accessibilityRole).toBe('button');
+    expect(button(renderer, 'Add recipe photo')).toBeUndefined();
+  });
+
+  it('announces the header save action as busy while saving', async () => {
+    mocks.isPending = true;
+    const renderer = await renderRecipe();
+
+    const save = button(renderer, 'Saving recipe')!;
+    expect(save.props.accessibilityRole).toBe('button');
+    expect(save.props.disabled).toBe(true);
+    expect(save.props.accessibilityState).toEqual({ disabled: true, busy: true });
+  });
 });

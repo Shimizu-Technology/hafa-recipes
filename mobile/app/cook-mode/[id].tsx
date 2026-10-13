@@ -32,12 +32,17 @@ import { CookIngredientsList } from '@/components/CookIngredientsList';
 import { lightHaptic, mediumHaptic, successHaptic, heavyHaptic } from '@/utils/haptics';
 import { brand, spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { RecipeComponent } from '@/types/recipe';
+import { COOK_MODE_STEP_KEY, useCookModeStepPersistence } from '@/hooks/useCookModeStepPersistence';
+import {
+  findNewlyCompletedTimers,
+  shouldAlertInApp,
+  syncTimersToClock,
+  type AwayWindow,
+  type CookTimerState,
+} from '@/lib/cookModeTimers';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.2;
-
-// Key for persisting cook mode step progress
-const COOK_MODE_STEP_KEY = (recipeId: string) => `cook_mode_step_${recipeId}`;
 
 async function replayAudio(player: AudioPlayer | null): Promise<void> {
   if (!player) return;
@@ -52,12 +57,7 @@ interface CookingStep {
   totalSteps: number;
 }
 
-interface TimerState {
-  remaining: number;
-  total: number;
-  isPaused: boolean;
-  endTime: number; // Unix timestamp when timer will complete
-}
+type TimerState = CookTimerState;
 
 // Extract time patterns from step text
 function extractTimeFromStep(step: string): { time: number; unit: string; display: string } | null {
@@ -170,8 +170,8 @@ export default function CookModeScreen() {
     cancelAllTimerNotifications,
     pauseTimerNotification,
     resumeTimerNotification,
-    getRemainingTime,
-  } = useBackgroundTimer();
+    hasScheduledNotification,
+  } = useBackgroundTimer(id ? `cook-mode:${id}` : 'cook-mode');
   
   // Track app state for syncing timers
   const appState = useRef<AppStateStatus>(AppState.currentState);
@@ -298,7 +298,7 @@ export default function CookModeScreen() {
       });
       
       if (restoredTimers.size > 0) {
-        console.log(`Restored ${restoredTimers.size} timer(s) from previous session`);
+        if (__DEV__) console.log(`Restored ${restoredTimers.size} timer(s) from previous session`);
         setActiveTimers(restoredTimers);
       }
     }
@@ -325,43 +325,9 @@ export default function CookModeScreen() {
     syncTimersRef.current(contextTimers);
   }, [activeTimers, steps]);
 
-  // Load saved step on mount (once recipe loads and we know the total steps)
-  useEffect(() => {
-    if (!id || steps.length === 0) return;
-    
-    const loadSavedStep = async () => {
-      try {
-        const savedStep = await AsyncStorage.getItem(COOK_MODE_STEP_KEY(id));
-        if (savedStep !== null) {
-          const stepIndex = parseInt(savedStep, 10);
-          // Only restore if valid and not the first step (no point restoring step 0)
-          if (!isNaN(stepIndex) && stepIndex > 0 && stepIndex < steps.length) {
-            console.log(`Resuming cook mode at step ${stepIndex + 1}`);
-            setCurrentStepIndex(stepIndex);
-          }
-        }
-      } catch (error) {
-        console.warn('Failed to load saved cook mode step:', error);
-      }
-    };
-    
-    loadSavedStep();
-  }, [id, steps.length]);
-
-  // Save step whenever it changes
-  useEffect(() => {
-    if (!id) return;
-    
-    const saveStep = async () => {
-      try {
-        await AsyncStorage.setItem(COOK_MODE_STEP_KEY(id), currentStepIndex.toString());
-      } catch (error) {
-        console.warn('Failed to save cook mode step:', error);
-      }
-    };
-    
-    saveStep();
-  }, [id, currentStepIndex]);
+  // Restore the saved step once steps are known; saving waits for the restore
+  // so a cold open cannot overwrite saved progress with step 0.
+  useCookModeStepPersistence(id, steps.length, currentStepIndex, setCurrentStepIndex);
 
   // Clear saved step when recipe is completed
   const clearSavedStep = useCallback(async () => {
@@ -390,7 +356,7 @@ export default function CookModeScreen() {
         const sound = createAudioPlayer(soundFile);
         soundRef.current = sound;
       } catch (e) {
-        console.log('Timer sound not available');
+        if (__DEV__) console.log('Timer sound not available');
       }
     };
     loadSound();
@@ -400,43 +366,22 @@ export default function CookModeScreen() {
     };
   }, [soundPreference]);
 
+  // Track when the app was away so timers that finished in the background
+  // (and already alerted through their scheduled notification) don't alert again.
+  const awayWindowRef = useRef<AwayWindow>({ leftAt: null, returnedAt: null });
+
   // Handle app state changes - sync timers when coming back from background
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
-      if (
-        appState.current.match(/inactive|background/) &&
-        nextAppState === 'active'
-      ) {
+      const wasAway = appState.current.match(/inactive|background/);
+      if (!wasAway && nextAppState.match(/inactive|background/)) {
+        awayWindowRef.current = { leftAt: Date.now(), returnedAt: null };
+      } else if (wasAway && nextAppState === 'active') {
+        awayWindowRef.current = { ...awayWindowRef.current, returnedAt: Date.now() };
         // App has come to foreground - sync timer remaining times
-        console.log('App foregrounded - syncing timers');
-        setActiveTimers(prev => {
-          const newTimers = new Map(prev);
-          let changed = false;
-          
-          newTimers.forEach((timer, stepIndex) => {
-            if (!timer.isPaused && timer.remaining > 0) {
-              // Calculate actual remaining time based on endTime
-              const now = Date.now();
-              const actualRemaining = Math.max(0, Math.floor((timer.endTime - now) / 1000));
-              
-              if (actualRemaining !== timer.remaining) {
-                newTimers.set(stepIndex, { ...timer, remaining: actualRemaining });
-                changed = true;
-                console.log(`Synced step ${stepIndex}: ${timer.remaining}s → ${actualRemaining}s`);
-              }
-              
-              // If timer completed while in background
-              if (actualRemaining === 0 && timer.remaining > 0) {
-                // Play sound and vibrate
-                heavyHaptic();
-                Vibration.vibrate([0, 500, 200, 500, 200, 500]);
-                replayAudio(soundRef.current).catch(() => {});
-              }
-            }
-          });
-          
-          return changed ? newTimers : prev;
-        });
+        if (__DEV__) console.log('App foregrounded - syncing timers');
+        const now = Date.now();
+        setActiveTimers(prev => syncTimersToClock(prev, now));
       }
       appState.current = nextAppState;
     });
@@ -449,41 +394,29 @@ export default function CookModeScreen() {
   // Timer countdown effect - uses endTime for accurate tracking
   useEffect(() => {
     const interval = setInterval(() => {
-      setActiveTimers(prev => {
-        const newTimers = new Map(prev);
-        let changed = false;
-        let timerJustCompleted = false;
-        
-        newTimers.forEach((timer, stepIndex) => {
-          if (timer.remaining > 0 && !timer.isPaused) {
-            // Calculate remaining based on endTime for accuracy
-            const now = Date.now();
-            const newRemaining = Math.max(0, Math.floor((timer.endTime - now) / 1000));
-            
-            if (newRemaining !== timer.remaining) {
-              newTimers.set(stepIndex, { ...timer, remaining: newRemaining });
-              changed = true;
-              
-              if (newRemaining === 0) {
-                timerJustCompleted = true;
-              }
-            }
-          }
-        });
-        
-        if (timerJustCompleted) {
-          // Play sound and vibrate
-          heavyHaptic();
-          Vibration.vibrate([0, 500, 200, 500, 200, 500]);
-          replayAudio(soundRef.current).catch(() => {});
-        }
-        
-        return changed ? newTimers : prev;
-      });
+      const now = Date.now();
+      setActiveTimers(prev => syncTimersToClock(prev, now));
     }, 1000);
 
     return () => clearInterval(interval);
   }, []);
+
+  // Alert once per finished timer, after the state change is committed.
+  // Side effects stay out of the setActiveTimers updaters above.
+  const previousTimersRef = useRef(activeTimers);
+  useEffect(() => {
+    const previous = previousTimersRef.current;
+    previousTimersRef.current = activeTimers;
+    const completed = findNewlyCompletedTimers(previous, activeTimers).map((stepIndex) => ({
+      stepIndex,
+      endTime: activeTimers.get(stepIndex)!.endTime,
+    }));
+    if (completed.length === 0) return;
+    if (!shouldAlertInApp(completed, awayWindowRef.current, hasScheduledNotification)) return;
+    heavyHaptic();
+    Vibration.vibrate([0, 500, 200, 500, 200, 500]);
+    replayAudio(soundRef.current).catch(() => {});
+  }, [activeTimers, hasScheduledNotification]);
 
   const animateTransition = (direction: 'next' | 'prev', callback: () => void) => {
     const toValue = direction === 'next' ? -SCREEN_WIDTH : SCREEN_WIDTH;
@@ -789,7 +722,12 @@ export default function CookModeScreen() {
 
       {/* Header */}
       <RNView style={[styles.header, { paddingTop: insets.top + spacing.xs }]}>
-        <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
+        <TouchableOpacity
+          onPress={handleClose}
+          style={styles.headerButton}
+          accessibilityRole="button"
+          accessibilityLabel="Exit cook mode"
+        >
           <Ionicons name="close" size={26} color="#ffffff" />
         </TouchableOpacity>
         
@@ -799,7 +737,12 @@ export default function CookModeScreen() {
           </Text>
         </RNView>
 
-        <TouchableOpacity onPress={() => setShowIngredients(true)} style={styles.headerButton}>
+        <TouchableOpacity
+          onPress={() => setShowIngredients(true)}
+          style={styles.headerButton}
+          accessibilityRole="button"
+          accessibilityLabel="Show ingredients"
+        >
           <Ionicons name="list-outline" size={24} color="#ffffff" />
         </TouchableOpacity>
       </RNView>
@@ -877,22 +820,37 @@ export default function CookModeScreen() {
                 <RNView style={styles.timerControls}>
                   {currentTimer.remaining > 0 ? (
                     <>
-                      <TouchableOpacity onPress={togglePauseTimer} style={styles.timerControlButton}>
+                      <TouchableOpacity
+                        onPress={togglePauseTimer}
+                        style={styles.timerControlButton}
+                        accessibilityRole="button"
+                        accessibilityLabel={currentTimer.isPaused ? 'Resume timer' : 'Pause timer'}
+                      >
                         <Ionicons 
                           name={currentTimer.isPaused ? "play" : "pause"} 
                           size={22} 
                           color="#ffffff" 
                         />
                       </TouchableOpacity>
-                      <TouchableOpacity onPress={resetTimer} style={styles.timerControlButton}>
+                      <TouchableOpacity
+                        onPress={resetTimer}
+                        style={styles.timerControlButton}
+                        accessibilityRole="button"
+                        accessibilityLabel="Restart timer"
+                      >
                         <Ionicons name="refresh" size={22} color="#ffffff" />
                       </TouchableOpacity>
-                      <TouchableOpacity onPress={stopTimer} style={styles.timerControlButton}>
+                      <TouchableOpacity
+                        onPress={stopTimer}
+                        style={styles.timerControlButton}
+                        accessibilityRole="button"
+                        accessibilityLabel="Stop timer"
+                      >
                         <Ionicons name="stop" size={22} color="#ffffff" />
                       </TouchableOpacity>
                     </>
                   ) : (
-                    <TouchableOpacity onPress={resetTimer} style={styles.timerRestartButton}>
+                    <TouchableOpacity onPress={resetTimer} style={styles.timerRestartButton} accessibilityRole="button">
                       <Ionicons name="refresh" size={20} color="#ffffff" />
                       <Text style={styles.timerRestartText}>Restart Timer</Text>
                     </TouchableOpacity>
@@ -901,16 +859,21 @@ export default function CookModeScreen() {
               </RNView>
           ) : detectedTime ? (
               <RNView style={styles.detectedTimerRow}>
-                <TouchableOpacity onPress={startTimer} style={styles.timerButton}>
+                <TouchableOpacity onPress={startTimer} style={styles.timerButton} accessibilityRole="button">
                   <Ionicons name="timer-outline" size={22} color="#ffffff" />
                   <Text style={styles.timerButtonText}>Start {detectedTime.display} timer</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={openEditTimer} style={styles.editTimerButton}>
+                <TouchableOpacity
+                  onPress={openEditTimer}
+                  style={styles.editTimerButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit timer duration"
+                >
                   <Ionicons name="pencil" size={18} color="#ffffff" />
                 </TouchableOpacity>
               </RNView>
           ) : (
-            <TouchableOpacity onPress={() => setShowCustomTimer(true)} style={styles.addTimerButton}>
+            <TouchableOpacity onPress={() => setShowCustomTimer(true)} style={styles.addTimerButton} accessibilityRole="button">
               <Ionicons name="add-circle-outline" size={22} color="#888" />
               <Text style={styles.addTimerButtonText}>Add Timer</Text>
             </TouchableOpacity>
@@ -924,6 +887,9 @@ export default function CookModeScreen() {
           onPress={goToPrevStep}
           style={[styles.navButton, currentStepIndex === 0 && styles.navButtonDisabled]}
           disabled={currentStepIndex === 0}
+          accessibilityRole="button"
+          accessibilityLabel="Previous step"
+          accessibilityState={{ disabled: currentStepIndex === 0 }}
         >
           <Ionicons name="chevron-back" size={28} color={currentStepIndex === 0 ? '#444' : '#ffffff'} />
           <Text style={[styles.navButtonText, currentStepIndex === 0 && styles.navButtonTextDisabled]}>
@@ -950,6 +916,8 @@ export default function CookModeScreen() {
         <TouchableOpacity
           onPress={goToNextStep}
           style={[styles.navButton, styles.navButtonNext]}
+          accessibilityRole="button"
+          accessibilityLabel={isLastStep ? 'Finish recipe' : 'Next step'}
         >
           <Text style={styles.navButtonText}>
             {isLastStep ? 'Finish' : 'Next'}
@@ -981,7 +949,7 @@ export default function CookModeScreen() {
             <Text style={styles.completeMessage}>
               Great job! You've finished all {steps.length} steps.
             </Text>
-            <TouchableOpacity onPress={handleFinish} style={styles.completeButton}>
+            <TouchableOpacity onPress={handleFinish} style={styles.completeButton} accessibilityRole="button">
               <Text style={styles.completeButtonText}>Done Cooking</Text>
             </TouchableOpacity>
           </RNView>
@@ -998,6 +966,9 @@ export default function CookModeScreen() {
           style={styles.modalOverlay} 
           activeOpacity={1} 
           onPress={() => setShowIngredients(false)}
+          // Backdrop wraps the sheet: keep it out of the accessibility tree so
+          // screen readers can reach the controls inside.
+          accessible={false}
         >
           <RNView 
             style={[styles.ingredientsCard, { paddingBottom: insets.bottom + spacing.lg }]}
@@ -1010,7 +981,12 @@ export default function CookModeScreen() {
                   <Text style={styles.ingredientsSubtitle}>{currentServings} servings (scaled)</Text>
                 )}
               </RNView>
-              <TouchableOpacity onPress={() => setShowIngredients(false)} style={styles.closeIngredients}>
+              <TouchableOpacity
+                onPress={() => setShowIngredients(false)}
+                style={styles.closeIngredients}
+                accessibilityRole="button"
+                accessibilityLabel="Close ingredients"
+              >
                 <Ionicons name="close" size={28} color="#ffffff" />
               </TouchableOpacity>
             </RNView>
@@ -1039,6 +1015,9 @@ export default function CookModeScreen() {
             style={styles.modalOverlayTouch} 
             activeOpacity={1} 
             onPress={() => setShowCustomTimer(false)}
+            // Backdrop wraps the sheet: keep it out of the accessibility tree so
+            // screen readers can reach the controls inside.
+            accessible={false}
           >
             <RNView style={styles.customTimerCard} onStartShouldSetResponder={() => true}>
               <Text style={styles.customTimerTitle}>Set Timer</Text>
@@ -1050,6 +1029,10 @@ export default function CookModeScreen() {
                     key={minutes}
                     style={styles.timerPresetButton}
                     onPress={() => startCustomTimer(minutes)}
+                    accessibilityRole="button"
+                    accessibilityLabel={minutes >= 60
+                      ? `Start ${minutes / 60} hour timer`
+                      : `Start ${minutes} minute timer`}
                   >
                     <Text style={styles.timerPresetValue}>
                       {minutes >= 60 ? `${minutes / 60}` : minutes}
@@ -1111,6 +1094,8 @@ export default function CookModeScreen() {
                 ]} 
                 onPress={handleStartCustomInput}
                 disabled={!customHours && !customMinutes && !customSeconds}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !customHours && !customMinutes && !customSeconds }}
               >
                 <Ionicons name="play" size={18} color="#ffffff" />
                 <Text style={styles.startCustomButtonText}>Start Timer</Text>
@@ -1146,6 +1131,9 @@ export default function CookModeScreen() {
             style={styles.modalOverlayTouch} 
             activeOpacity={1} 
             onPress={() => setShowEditTimer(false)}
+            // Backdrop wraps the sheet: keep it out of the accessibility tree so
+            // screen readers can reach the controls inside.
+            accessible={false}
           >
             <RNView style={styles.customTimerCard} onStartShouldSetResponder={() => true}>
               <Text style={styles.customTimerTitle}>Edit Timer</Text>
@@ -1201,6 +1189,8 @@ export default function CookModeScreen() {
                 ]} 
                 onPress={handleStartCustomInput}
                 disabled={!customHours && !customMinutes && !customSeconds}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !customHours && !customMinutes && !customSeconds }}
               >
                 <Ionicons name="play" size={18} color="#ffffff" />
                 <Text style={styles.startCustomButtonText}>Start Timer</Text>
