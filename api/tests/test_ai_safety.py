@@ -288,6 +288,26 @@ async def test_public_liveness_has_no_environment_or_dependency_detail():
     assert response.model_dump() == {"status": "ok"}
 
 
+def test_workouts_imports_use_the_shared_instagram_session(monkeypatch, capsys):
+    from app.ai_governance import ai_request_context
+    from app.services.video import _media_log
+
+    monkeypatch.setattr(
+        video_settings,
+        "instagram_cookies",
+        "# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\ttest",
+    )
+    service = VideoService()
+
+    with ai_request_context(route="/api/v1/workouts/imports"):
+        credential = service._create_instagram_cookies_file()
+        _media_log("private workout source URL")
+
+    assert credential is not None
+    credential.cleanup()
+    assert "private workout source URL" not in capsys.readouterr().out
+
+
 def test_raw_instagram_credentials_use_unique_restrictive_temp_files(monkeypatch):
     monkeypatch.setattr(
         video_settings,

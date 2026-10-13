@@ -19,6 +19,15 @@ from app.recipe_review import review_response_fields
 from app.services.storage import storage_service
 
 router = APIRouter(prefix="/api/collections", tags=["collections"])
+PREVIEW_THUMBNAILS_PER_COLLECTION = 4
+
+
+def _parse_id(value: str, resource: str) -> uuid.UUID:
+    """Parse a client-supplied ID; a malformed ID names nothing, so it is a 404."""
+    try:
+        return uuid.UUID(value)
+    except (ValueError, TypeError, AttributeError) as error:
+        raise HTTPException(status_code=404, detail=f"{resource} not found") from error
 
 
 # ============================================================
@@ -108,26 +117,47 @@ async def get_collections(
     
     result = await db.execute(query)
     collections_with_counts = result.all()
-    
-    response = []
-    for collection, recipe_count in collections_with_counts:
-        # Get preview thumbnails (first 4 recipes)
-        preview_query = (
-            select(Recipe.thumbnail_url)
-            .join(CollectionRecipe, Recipe.id == CollectionRecipe.recipe_id)
+
+    # Preview thumbnails (newest four accessible recipes per collection) in one
+    # query instead of one query per collection.
+    collection_ids = [collection.id for collection, _count in collections_with_counts]
+    previews: dict[uuid.UUID, list[Optional[str]]] = {}
+    if collection_ids:
+        preview_rank = (
+            func.row_number()
+            .over(
+                partition_by=CollectionRecipe.collection_id,
+                order_by=(CollectionRecipe.added_at.desc(), CollectionRecipe.recipe_id),
+            )
+            .label("preview_rank")
+        )
+        ranked = (
+            select(
+                CollectionRecipe.collection_id,
+                Recipe.thumbnail_url,
+                preview_rank,
+            )
+            .join(Recipe, Recipe.id == CollectionRecipe.recipe_id)
             .where(
-                CollectionRecipe.collection_id == collection.id,
+                CollectionRecipe.collection_id.in_(collection_ids),
                 *accessible_recipe_conditions(user_id),
             )
-            .order_by(CollectionRecipe.added_at.desc())
-            .limit(4)
+            .subquery()
         )
-        preview_result = await db.execute(preview_query)
-        thumbnails = [
-            storage_service.thumbnail_delivery_url(row[0], variant="list")
-            for row in preview_result.all()
-        ]
-        
+        preview_result = await db.execute(
+            select(ranked.c.collection_id, ranked.c.thumbnail_url)
+            .where(ranked.c.preview_rank <= PREVIEW_THUMBNAILS_PER_COLLECTION)
+            .order_by(ranked.c.collection_id, ranked.c.preview_rank)
+        )
+        for collection_id, thumbnail_url in preview_result.all():
+            previews.setdefault(collection_id, []).append(
+                storage_service.thumbnail_delivery_url(thumbnail_url, variant="list")
+            )
+
+    response = []
+    for collection, recipe_count in collections_with_counts:
+        thumbnails = previews.get(collection.id, [])
+
         response.append(CollectionWithRecipesResponse(
             id=str(collection.id),
             name=collection.name,
@@ -188,7 +218,7 @@ async def get_collection(
         )
         .outerjoin(CollectionRecipe, Collection.id == CollectionRecipe.collection_id)
         .outerjoin(Recipe, Recipe.id == CollectionRecipe.recipe_id)
-        .where(Collection.id == uuid.UUID(collection_id))
+        .where(Collection.id == _parse_id(collection_id, "Collection"))
         .where(Collection.user_id == user_id)
         .group_by(Collection.id)
     )
@@ -222,7 +252,7 @@ async def update_collection(
     user_id = current_user.id
     
     query = select(Collection).where(
-        Collection.id == uuid.UUID(collection_id),
+        Collection.id == _parse_id(collection_id, "Collection"),
         Collection.user_id == user_id
     )
     result = await db.execute(query)
@@ -271,7 +301,7 @@ async def delete_collection(
     user_id = current_user.id
     
     query = select(Collection).where(
-        Collection.id == uuid.UUID(collection_id),
+        Collection.id == _parse_id(collection_id, "Collection"),
         Collection.user_id == user_id
     )
     result = await db.execute(query)
@@ -301,7 +331,7 @@ async def get_collection_recipes(
     
     # Verify collection belongs to user
     collection_query = select(Collection).where(
-        Collection.id == uuid.UUID(collection_id),
+        Collection.id == _parse_id(collection_id, "Collection"),
         Collection.user_id == user_id
     )
     collection_result = await db.execute(collection_query)
@@ -313,7 +343,7 @@ async def get_collection_recipes(
         select(Recipe, CollectionRecipe.added_at)
         .join(CollectionRecipe, Recipe.id == CollectionRecipe.recipe_id)
         .where(
-            CollectionRecipe.collection_id == uuid.UUID(collection_id),
+            CollectionRecipe.collection_id == _parse_id(collection_id, "Collection"),
             *accessible_recipe_conditions(user_id),
         )
         .order_by(CollectionRecipe.added_at.desc())
@@ -352,7 +382,7 @@ async def get_collection_recipe_ids(
     
     # Verify collection belongs to user
     collection_query = select(Collection).where(
-        Collection.id == uuid.UUID(collection_id),
+        Collection.id == _parse_id(collection_id, "Collection"),
         Collection.user_id == user_id
     )
     collection_result = await db.execute(collection_query)
@@ -363,7 +393,7 @@ async def get_collection_recipe_ids(
         select(CollectionRecipe.recipe_id)
         .join(Recipe, Recipe.id == CollectionRecipe.recipe_id)
         .where(
-            CollectionRecipe.collection_id == uuid.UUID(collection_id),
+            CollectionRecipe.collection_id == _parse_id(collection_id, "Collection"),
             *accessible_recipe_conditions(user_id),
         )
     )
@@ -386,7 +416,7 @@ async def add_recipe_to_collection(
     
     # Verify collection belongs to user
     collection_query = select(Collection).where(
-        Collection.id == uuid.UUID(collection_id),
+        Collection.id == _parse_id(collection_id, "Collection"),
         Collection.user_id == user_id
     )
     collection_result = await db.execute(collection_query)
@@ -394,7 +424,7 @@ async def add_recipe_to_collection(
         raise HTTPException(status_code=404, detail="Collection not found")
     
     # Verify recipe exists and passes the same policy used by every public view.
-    recipe_query = select(Recipe).where(Recipe.id == uuid.UUID(data.recipe_id))
+    recipe_query = select(Recipe).where(Recipe.id == _parse_id(data.recipe_id, "Recipe"))
     recipe_result = await db.execute(recipe_query)
     recipe = recipe_result.scalar_one_or_none()
     
@@ -406,8 +436,8 @@ async def add_recipe_to_collection(
     
     # Check if already in collection
     existing_query = select(CollectionRecipe).where(
-        CollectionRecipe.collection_id == uuid.UUID(collection_id),
-        CollectionRecipe.recipe_id == uuid.UUID(data.recipe_id)
+        CollectionRecipe.collection_id == _parse_id(collection_id, "Collection"),
+        CollectionRecipe.recipe_id == _parse_id(data.recipe_id, "Recipe")
     )
     existing_result = await db.execute(existing_query)
     if existing_result.scalar_one_or_none():
@@ -415,8 +445,8 @@ async def add_recipe_to_collection(
     
     # Add to collection
     collection_recipe = CollectionRecipe(
-        collection_id=uuid.UUID(collection_id),
-        recipe_id=uuid.UUID(data.recipe_id)
+        collection_id=_parse_id(collection_id, "Collection"),
+        recipe_id=_parse_id(data.recipe_id, "Recipe")
     )
     db.add(collection_recipe)
     await db.commit()
@@ -436,7 +466,7 @@ async def remove_recipe_from_collection(
     
     # Verify collection belongs to user
     collection_query = select(Collection).where(
-        Collection.id == uuid.UUID(collection_id),
+        Collection.id == _parse_id(collection_id, "Collection"),
         Collection.user_id == user_id
     )
     collection_result = await db.execute(collection_query)
@@ -445,8 +475,8 @@ async def remove_recipe_from_collection(
     
     # Delete the relationship
     delete_query = delete(CollectionRecipe).where(
-        CollectionRecipe.collection_id == uuid.UUID(collection_id),
-        CollectionRecipe.recipe_id == uuid.UUID(recipe_id)
+        CollectionRecipe.collection_id == _parse_id(collection_id, "Collection"),
+        CollectionRecipe.recipe_id == _parse_id(recipe_id, "Recipe")
     )
     await db.execute(delete_query)
     await db.commit()
@@ -466,13 +496,18 @@ async def get_recipe_collections(
 ):
     """Get all collection IDs that contain a specific recipe (for the current user)."""
     user_id = current_user.id
-    
+    try:
+        parsed_recipe_id = uuid.UUID(recipe_id)
+    except ValueError:
+        # Unknown and malformed IDs both belong to no collection.
+        return []
+
     query = (
         select(CollectionRecipe.collection_id)
         .join(Collection, CollectionRecipe.collection_id == Collection.id)
         .join(Recipe, Recipe.id == CollectionRecipe.recipe_id)
         .where(
-            CollectionRecipe.recipe_id == uuid.UUID(recipe_id),
+            CollectionRecipe.recipe_id == parsed_recipe_id,
             Collection.user_id == user_id,
             *accessible_recipe_conditions(user_id),
         )
