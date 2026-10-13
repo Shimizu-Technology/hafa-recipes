@@ -13,6 +13,8 @@ import { cleanupCaptureFiles } from "@/lib/capture-io";
 import * as Crypto from "expo-crypto";
 import { createPrivateDraftSlot, type PrivateDraftSnapshot } from "@/lib/private-form";
 import type { AuthoredWorkout } from "@/lib/models";
+import { usePublishingDisclosure } from "@/components/publishing-disclosure";
+import { DECLINED, INCOMPLETE_MESSAGE, defaultShareToDiscover, isIncomplete, publishable } from "@/lib/discover";
 export default function ImportReview() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
@@ -58,6 +60,10 @@ export default function ImportReview() {
   const [reviewed, setReviewed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  /** null = the default for this source (link imports public, everything else private). */
+  const [shareChoice, setShareChoice] = useState<boolean | null>(null);
+  const [notice, setNotice] = useState("");
+  const disclosure = usePublishingDisclosure();
   const [stateEpoch, setStateEpoch] = useState(epoch);
   const routeReady = stateEpoch === epoch;
   const originalSource =
@@ -88,6 +94,8 @@ export default function ImportReview() {
     setReviewed(false);
     setBusy(false);
     setError("");
+    setShareChoice(null);
+    setNotice("");
     void slot
       .load(current)
       .then((saved) => {
@@ -159,10 +167,21 @@ export default function ImportReview() {
     }
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       current();
-      const saved = await api.acceptImport(id, edited ?? q.data.result.workout, q.data.generation);
+      const content = edited ?? q.data.result.workout;
+      const importGeneration = q.data.generation;
+      const accepted = sharing
+        ? await disclosure.run(() => api.acceptImport(id, content, importGeneration, true))
+        : await api.acceptImport(id, content, importGeneration);
       current();
+      if (accepted === DECLINED) {
+        setShareChoice(false);
+        setNotice("Kept private. Save when you’re ready; you can share it later from the workout.");
+        return;
+      }
+      const saved = accepted;
       await cache.invalidateQueries({ queryKey: [owner, "library"] });
       current();
       cache.removeQueries({ queryKey: [owner, "import-source", id] });
@@ -179,7 +198,7 @@ export default function ImportReview() {
       current();
       router.replace({ pathname: "/workout/[id]", params: { id: saved.id } });
     } catch (e) {
-      if (isCurrent()) setError((e as Error).message);
+      if (isCurrent()) setError(isIncomplete(e) && sharing ? INCOMPLETE_MESSAGE : (e as Error).message);
     } finally {
       if (isCurrent()) setBusy(false);
     }
@@ -207,8 +226,19 @@ export default function ImportReview() {
     enabled: !!q.data && ["ready", "incomplete", "failed"].includes(q.data.status) && !q.data.accepted_workout_id,
     staleTime: 60000
   });
+  const capabilities = useQuery({
+    queryKey: [owner, "capabilities", generation],
+    queryFn: api.capabilities,
+    staleTime: 60000,
+  });
   const result = q.data?.result;
   const workout = (routeReady ? edited : null) ?? result?.workout;
+  const discoverOn = capabilities.data?.discover === true;
+  // The server refuses to publish an incomplete extraction accepted unchanged.
+  const shareable =
+    !!workout && publishable(workout) && !(q.data?.status === "incomplete" && !(routeReady && edited));
+  const wantsShare = shareChoice ?? defaultShareToDiscover(result?.workout?.capture_kind ?? originalSource?.kind);
+  const sharing = discoverOn && shareable && wantsShare;
   return (
     <Screen back title="Review the workout." subtitle="Check what the source says, fill any gaps, then save it.">
       <QueryState
@@ -358,6 +388,22 @@ export default function ImportReview() {
                     if (routeReady && isCurrent()) setEditing(!editing);
                   }}
                 />
+                {discoverOn && (
+                  <Choice
+                    icon="globe-outline"
+                    label="Share to Discover"
+                    detail={
+                      shareable
+                        ? "Anyone using Håfa Workouts can find and save this workout, credited to the original creator. Your notes and training stay private."
+                        : INCOMPLETE_MESSAGE
+                    }
+                    selected={sharing}
+                    disabled={!shareable || busy}
+                    onPress={() => {
+                      if (routeReady && isCurrent()) setShareChoice(!sharing);
+                    }}
+                  />
+                )}
                 <Choice
                   label="I reviewed the source, missing details and warnings"
                   selected={routeReady && reviewed}
@@ -365,9 +411,10 @@ export default function ImportReview() {
                     if (routeReady && isCurrent()) setReviewed(!reviewed);
                   }}
                 />
+                {!!notice && <Notice>{notice}</Notice>}
                 <Button
-                  title="Save privately to my library"
-                  icon="lock-closed-outline"
+                  title={sharing ? "Save and share to Discover" : "Save privately to my library"}
+                  icon={sharing ? "globe-outline" : "lock-closed-outline"}
                   size="lg"
                   busy={busy}
                   disabled={!routeReady || !reviewed || !!q.data?.accepted_workout_id}
@@ -396,6 +443,7 @@ export default function ImportReview() {
         library keeps the prescription, evidence and source link where available. An incomplete private draft may stay
         incomplete.
       </Notice>
+      {disclosure.sheet}
     </Screen>
   );
 }

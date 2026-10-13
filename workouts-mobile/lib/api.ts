@@ -29,6 +29,15 @@ import type { ProviderName, HealthConnection, HealthChoices, SyncBody, ExportInt
 import type { HealthObservation, ExportReceipt } from "./health/types";
 import type { ShareKind, SharePreview, OwnerShare } from "./sharing";
 import type { Capabilities, ImportJob, ExtractionRequest } from "./capture";
+import {
+  discoverQuery,
+  type DiscoverDetail,
+  type DiscoverFilters,
+  type DiscoverPage,
+  type Publication,
+  type PublishingDisclosureStatus,
+  type ReportCategory,
+} from "./discover";
 import type {
   TrainingProfile,
   Workout,
@@ -41,9 +50,20 @@ import type {
 export class ApiError extends Error {
   constructor(
     message: string,
-    readonly status: number
+    readonly status: number,
+    /** Server `detail` text, for classifying a response. Never shown to people. */
+    readonly detail?: string
   ) {
     super(message);
+  }
+}
+/** Reads FastAPI's `{"detail": "..."}` without trusting or exposing anything else. */
+async function errorDetail(response: Response) {
+  try {
+    const body = (await response.json()) as { detail?: unknown };
+    return typeof body?.detail === "string" ? body.detail.slice(0, 300) : undefined;
+  } catch {
+    return undefined;
   }
 }
 export interface ProfileSnapshot<T extends TrainingProfile | null = TrainingProfile | null> {
@@ -66,6 +86,7 @@ interface RecordEnvelope<T> {
   created_at: string;
   updated_at: string;
   organization?: Organization;
+  publication?: Publication | null;
 }
 interface SessionEnvelope {
   id: string;
@@ -88,6 +109,7 @@ function workoutRecord(row: RecordEnvelope<Workout>): Workout {
     generation: row.generation,
     revision: row.revision,
     ...(row.organization ? { organization: row.organization } : {}),
+    ...(row.publication !== undefined ? { publication: row.publication } : {}),
   };
 }
 export function authoredWorkout(workout: AuthoredWorkout | Workout): AuthoredWorkout {
@@ -98,6 +120,7 @@ export function authoredWorkout(workout: AuthoredWorkout | Workout): AuthoredWor
     version: _version,
     parent_version_id: _parent,
     organization: _organization,
+    publication: _publication,
     ...body
   } = workout as Workout;
   return body;
@@ -210,7 +233,7 @@ export function createWorkoutsApi(
                         : response.status === 428
                           ? "Reload the saved record before editing; a revision is required."
                           : "The training service could not finish this request. Please try again.";
-        throw new ApiError(message, response.status);
+        throw new ApiError(message, response.status, await errorDetail(response));
       }
       const data = response.status === 204 ? (undefined as T) : ((await response.json()) as T);
       guardAccount();
@@ -656,6 +679,67 @@ export function createWorkoutsApi(
     async capabilities() {
       return (await request<Capabilities>("/capabilities")).data;
     },
+    async discover(filters: DiscoverFilters, offset = 0, signal?: AbortSignal) {
+      return (await request<DiscoverPage>(`/discover?${discoverQuery(filters, offset)}`, "GET", undefined, { signal })).data;
+    },
+    async discoverWorkout(id: string, signal?: AbortSignal) {
+      return (await request<DiscoverDetail>(`/discover/${encodeURIComponent(id)}`, "GET", undefined, { signal })).data;
+    },
+    /** Saves a private copy. Saving again returns the same copy. */
+    async saveDiscovered(id: string, generation: number) {
+      const { data } = await request<RecordEnvelope<Workout>>(
+        `/discover/${encodeURIComponent(id)}/save`,
+        "POST",
+        undefined,
+        { generation }
+      );
+      return workoutRecord(data);
+    },
+    async reportDiscovered(id: string, category: ReportCategory, details?: string) {
+      return (
+        await request<{ id: string; status: string; created_at: string }>(
+          `/discover/${encodeURIComponent(id)}/report`,
+          "POST",
+          { category, ...(details?.trim() ? { details: details.trim().slice(0, 900) } : {}) }
+        )
+      ).data;
+    },
+    async blockDiscoverContributor(id: string) {
+      return (
+        await request<{ contributor_id: string; display_name: string }>(
+          `/discover/${encodeURIComponent(id)}/block`,
+          "POST"
+        )
+      ).data;
+    },
+    async publishWorkout(id: string, generation: number) {
+      return (
+        await request<Publication>(`/library/${encodeURIComponent(id)}/publish`, "POST", undefined, { generation })
+      ).data;
+    },
+    async unpublishWorkout(id: string, generation: number) {
+      return (
+        await request<Publication>(`/library/${encodeURIComponent(id)}/unpublish`, "POST", undefined, { generation })
+      ).data;
+    },
+    /** Shared Håfa account disclosure (same endpoint Recipes uses). */
+    async publishingDisclosure() {
+      return (
+        await request<PublishingDisclosureStatus>("/api/users/me/publishing-disclosure", "GET", undefined, {
+          timeout_ms: 10000,
+        })
+      ).data;
+    },
+    async acceptPublishingDisclosure(version: number) {
+      return (
+        await request<PublishingDisclosureStatus>(
+          "/api/users/me/publishing-disclosure",
+          "POST",
+          { version },
+          { timeout_ms: 10000 }
+        )
+      ).data;
+    },
     async aiConsent() {
       return (
         await request<{ accepted: boolean; disclosure_version: number; accepted_at: string | null }>("/ai-consent")
@@ -682,13 +766,14 @@ export function createWorkoutsApi(
     async importJob(id: string) {
       return (await request<ImportJob>(`/imports/${encodeURIComponent(id)}`)).data;
     },
-    async acceptImport(id: string, workout: AuthoredWorkout, generation: number) {
+    async acceptImport(id: string, workout: AuthoredWorkout, generation: number, isPublic = false) {
       return workoutRecord(
         (
           await request<RecordEnvelope<Workout>>(
             `/imports/${encodeURIComponent(id)}/accept`,
             "POST",
-            { workout: authoredWorkout(workout), acknowledge_warnings: true },
+            // is_public is only sent when sharing, so the server's private default stays authoritative.
+            { workout: authoredWorkout(workout), acknowledge_warnings: true, ...(isPublic ? { is_public: true } : {}) },
             { generation }
           )
         ).data

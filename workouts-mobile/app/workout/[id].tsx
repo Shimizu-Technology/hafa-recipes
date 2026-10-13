@@ -1,7 +1,7 @@
 import { useState } from "react";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams } from "expo-router";
 import {
   Button,
@@ -19,9 +19,13 @@ import {
   Sheet,
   StatTile,
   Row,
+  useToast,
 } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
+import { usePublishingDisclosure } from "@/components/publishing-disclosure";
 import { useTraining, useOfflineTraining } from "@/lib/context";
+import { DECLINED, INCOMPLETE_MESSAGE, discoverKeys, isIncomplete } from "@/lib/discover";
+import type { Workout } from "@/lib/models";
 export default function WorkoutDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { api, owner, enrollment } = useTraining();
@@ -35,6 +39,43 @@ export default function WorkoutDetail() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [more, setMore] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const cache = useQueryClient();
+  const toast = useToast();
+  const disclosure = usePublishingDisclosure();
+  const capabilities = useQuery({
+    queryKey: [owner, "capabilities", enrollment?.generation],
+    queryFn: api.capabilities,
+    staleTime: 60000,
+  });
+  const discoverOn = capabilities.data?.discover === true;
+  const publication = workout?.publication;
+  const isPublic = !!publication?.is_public;
+  async function setShared(share: boolean) {
+    if (!workout || publishing) return;
+    setMore(false);
+    setPublishing(true);
+    setError("");
+    try {
+      const result = share
+        ? await disclosure.run(() => api.publishWorkout(workout.id, workout.generation))
+        : await api.unpublishWorkout(workout.id, workout.generation);
+      if (result === DECLINED) {
+        toast("Kept private", "info");
+        return;
+      }
+      cache.setQueryData<Workout>([owner, "workout", id, enrollment?.generation], (old) =>
+        old ? { ...old, publication: result } : old
+      );
+      void cache.invalidateQueries({ queryKey: discoverKeys.all(owner) });
+      void cache.invalidateQueries({ queryKey: [owner, "library"] });
+      toast(share ? "Shared to Discover" : "Removed from Discover");
+    } catch (e) {
+      setError(share && isIncomplete(e) ? INCOMPLETE_MESSAGE : (e as Error).message);
+    } finally {
+      setPublishing(false);
+    }
+  }
   async function start() {
     if (!workout || !offline.store) return;
     setBusy(true);
@@ -59,7 +100,7 @@ export default function WorkoutDetail() {
   return (
     <Screen
       back
-      eyebrow={workout ? `${workout.kind} · private library` : "Private library"}
+      eyebrow={workout ? `${workout.kind} · ${isPublic ? "shared to Discover" : "private library"}` : "Private library"}
       title={workout?.title ?? "Your workout."}
       action={workout ? <IconButton icon="ellipsis-horizontal" label="More workout actions" onPress={() => setMore(true)} /> : undefined}
     >
@@ -96,6 +137,11 @@ export default function WorkoutDetail() {
             onPress={() => router.push({ pathname: "/review-plan", params: { workout_id: workout.id } })}
           />
         </Card>
+      )}
+      {publication?.is_public && publication.moderation_status === "hidden" && (
+        <Notice tone="warning">
+          This workout was hidden from Discover after a review. It’s still in your library.
+        </Notice>
       )}
       {workout?.organization?.archived && (
         <Notice>This workout is archived. Restore it in Organize when you want it back in the default library.</Notice>
@@ -172,6 +218,26 @@ export default function WorkoutDetail() {
                 title="Edit workout details"
                 onPress={() => router.push({ pathname: "/edit-workout/[id]", params: { id: workout.id } })}
               />
+              {discoverOn && (
+                <ListRow
+                  icon={isPublic ? "eye-off-outline" : "globe-outline"}
+                  title={isPublic ? "Remove from Discover" : "Share to Discover"}
+                  detail={
+                    isPublic
+                      ? "People who already saved it keep their copy"
+                      : "Anyone using Håfa Workouts can find and save it"
+                  }
+                  disabled={publishing}
+                  onPress={() => void setShared(!isPublic)}
+                />
+              )}
+              {discoverOn && publication?.discover_visible && (
+                <ListRow
+                  icon="compass-outline"
+                  title="See it in Discover"
+                  onPress={() => router.push({ pathname: "/discover/[id]", params: { id: workout.id } })}
+                />
+              )}
             </ListGroup>
           </>
         )}
@@ -190,6 +256,14 @@ export default function WorkoutDetail() {
             disabled={workout.kind === "program"}
             onPress={() => go({ pathname: "/share", params: { id: workout.id, kind: "workout" } })}
           />
+          {discoverOn && (
+            <ListRow
+              icon={isPublic ? "eye-off-outline" : "globe-outline"}
+              title={isPublic ? "Remove from Discover" : "Share to Discover"}
+              disabled={publishing}
+              onPress={() => void setShared(!isPublic)}
+            />
+          )}
           <ListRow
             icon="folder-open-outline"
             title="Organize or duplicate workout"
@@ -202,6 +276,7 @@ export default function WorkoutDetail() {
           />
         </Sheet>
       )}
+      {disclosure.sheet}
     </Screen>
   );
 }
