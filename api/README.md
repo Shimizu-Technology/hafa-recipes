@@ -395,6 +395,11 @@ reconciliation procedure.
 **Build Command:** `pip install -r requirements.txt`  
 **Start Command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 
+`requirements.txt` is exported from `uv.lock` so Render installs exactly the
+versions CI tests. After changing dependencies, run `uv lock`, then
+`uv export --frozen --no-dev --no-hashes --no-emit-project --format requirements-txt --output-file requirements.txt`.
+CI fails when the two drift (`scripts/check_requirements_lock.py`).
+
 The checked-in Blueprint uses `api/` as its root directory. A legacy service
 whose Render root is still the repository root must use
 `cd api && python -m migrations.run`; do not copy the numbered migration list
