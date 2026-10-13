@@ -164,6 +164,7 @@ export function MediaCard({
   accessibilityLabel?: string;
 }) {
   const c = useColors();
+  const reduced = useReducedMotion();
   const stacked = layout === "stacked";
   const thumb = (
     <View
@@ -181,7 +182,7 @@ export function MediaCard({
         <Image
           source={{ uri: image }}
           contentFit="cover"
-          transition={motion.base}
+          transition={reduced ? 0 : motion.base}
           style={{ width: "100%", height: "100%" }}
           accessibilityIgnoresInvertColors
         />

@@ -235,10 +235,10 @@ export function Chip({
     );
   return (
     <Pressable
-      accessibilityRole="button"
+      accessibilityRole="togglebutton"
       accessibilityLabel={label}
-      accessibilityState={{ selected, disabled }}
-      aria-selected={selected}
+      accessibilityState={{ checked: selected, disabled }}
+      aria-pressed={selected}
       disabled={disabled}
       hitSlop={4}
       onPress={() => {

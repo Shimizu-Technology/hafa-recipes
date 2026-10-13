@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, View, type ColorValue } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -118,25 +118,24 @@ export function formatClock(seconds: number) {
  */
 export function RestTimer({
   remaining,
-  restKey,
   onSkip,
   onAdd,
 }: {
   remaining: number;
-  /** Changes when a new rest starts (e.g. the rest_until timestamp). */
-  restKey: string | number;
+  /** @deprecated no longer needed; the ring tracks the longest remaining time while mounted. */
+  restKey?: string | number;
   onSkip(): void;
   onAdd?: () => void;
 }) {
-  const total = useRef({ key: restKey, max: remaining });
-  if (total.current.key !== restKey) total.current = { key: restKey, max: remaining };
-  if (remaining > total.current.max) total.current.max = remaining;
+  // Full ring = longest remaining time seen while this timer is shown (+15 sec extends it, no jump).
+  const [max, setMax] = useState(remaining);
+  useEffect(() => setMax((m) => (remaining > m ? remaining : m)), [remaining]);
   const minutes = Math.floor(remaining / 60);
   const secs = remaining % 60;
   return (
     <View style={{ alignItems: "center", gap: spacing.md }}>
       <ProgressRing
-        progress={total.current.max ? remaining / total.current.max : 0}
+        progress={max ? remaining / Math.max(max, remaining) : 0}
         size={168}
         stroke={14}
         accessibilityLabel={`Rest, ${minutes ? `${minutes} minute${minutes === 1 ? "" : "s"} ` : ""}${secs} seconds remaining`}
