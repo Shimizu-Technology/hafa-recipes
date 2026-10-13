@@ -483,7 +483,8 @@ export default function HistoryScreen() {
     } else if (hasMoreServer) {
       // Then, fetch more from the server
       if (hasActiveFilters && hasMoreSearchResults) {
-        fetchNextSearchResults();
+        // Don't page the previous query while a new one is still debouncing.
+        if (isServerSearchCurrent) fetchNextSearchResults();
       } else if (hasMoreRecipes) {
         fetchNextRecipes();
       }
@@ -916,7 +917,7 @@ export default function HistoryScreen() {
         )}
 
         {/* Search loading indicator - shows when server is fetching more results */}
-        {hasActiveFilters && isSearchFetching && (
+        {hasActiveFilters && (isSearchFetching || !isServerSearchCurrent) && (
           <RNView style={styles.searchLoadingRow}>
             <ActivityIndicator size="small" color={colors.tint} />
             <Text style={[styles.searchLoadingText, { color: colors.textMuted }]}>
