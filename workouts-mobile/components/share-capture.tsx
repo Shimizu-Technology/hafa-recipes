@@ -109,7 +109,7 @@ export function ShareCapture() {
         await slot.save(registeredDraft.revision, draft, guard);
         guard();
         resetShareIntent();
-        if (mounted) router.push("/capture");
+        if (mounted) router.push({ pathname: "/capture", params: { shared: "1", request_id: draft.request_id } });
       } catch (e) {
         if ((e as { captureRegistrationUncertain?: boolean }).captureRegistrationUncertain) registered = true;
         let current = true;

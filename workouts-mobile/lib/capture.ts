@@ -16,6 +16,7 @@ export interface CaptureDraft {
   cleanup_files?: CaptureFile[];
   job_id?: string;
   pending_import?: boolean;
+  auto_save?: boolean;
   created_at: string;
 }
 /** Supplied by the original account/enrollment/screen; native helpers stay UI-free. */
@@ -97,4 +98,9 @@ export function boundedSource(source: ExtractionRequest): ExtractionRequest {
 }
 export function importIsTerminal(status: ImportJob["status"]) {
   return !["queued", "processing"].includes(status);
+}
+/** Only an unchanged complete extraction can skip the missing-details review. */
+export function canSaveAutomatically(job: ImportJob) {
+  return !job.accepted_workout_id && job.status === "ready" && job.result?.status === "ready" &&
+    !!job.result.workout && job.result.warnings.length === 0 && job.result.source.coverage_notes.length === 0;
 }

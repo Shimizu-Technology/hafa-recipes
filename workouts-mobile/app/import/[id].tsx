@@ -8,7 +8,7 @@ import { Button, Card, Chip, ChipRow, Choice, Copy, Empty, ListRow, Notice, Scre
 import { WorkoutEditor } from "@/components/workout-editor";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
-import { importIsTerminal, type CaptureDraft } from "@/lib/capture";
+import { canSaveAutomatically, importIsTerminal, type CaptureDraft } from "@/lib/capture";
 import { cleanupCaptureFiles } from "@/lib/capture-io";
 import * as Crypto from "expo-crypto";
 import { createPrivateDraftSlot, type PrivateDraftSnapshot } from "@/lib/private-form";
@@ -16,7 +16,7 @@ import type { AuthoredWorkout } from "@/lib/models";
 import { usePublishingDisclosure } from "@/components/publishing-disclosure";
 import { DECLINED, INCOMPLETE_MESSAGE, defaultShareToDiscover, isIncomplete, publishable } from "@/lib/discover";
 export default function ImportReview() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, auto } = useLocalSearchParams<{ id: string; auto?: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const generation = enrollment?.generation;
   const slot = useMemo(
@@ -57,7 +57,10 @@ export default function ImportReview() {
   const [original, setOriginal] = useState<PrivateDraftSnapshot<CaptureDraft> | null>(null);
   const [edited, setEdited] = useState<AuthoredWorkout | null>(null);
   const [editing, setEditing] = useState(false);
-  const [reviewed, setReviewed] = useState(false);
+  const [sourceDetails, setSourceDetails] = useState(false);
+  const [restored, setRestored] = useState(false);
+  const saving = useRef(false);
+  const autoAttempt = useRef<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   /** null = the default for this source (link imports public, everything else private). */
@@ -91,14 +94,14 @@ export default function ImportReview() {
     setOriginal(null);
     setEdited(null);
     setEditing(false);
-    setReviewed(false);
+    setSourceDetails(false);
+    setRestored(false);
     setBusy(false);
     setError("");
     setShareChoice(null);
     setNotice("");
     disclosure.dismiss();
-    void slot
-      .load(current)
+    const sourceLoad = slot.load(current)
       .then((saved) => {
         if (valid && isCurrent() && saved.value?.job_id === id && saved.value.generation === generation)
           setOriginal(saved);
@@ -106,14 +109,16 @@ export default function ImportReview() {
       .catch(() => {
         if (valid && isCurrent()) setError("Could not restore the original source for cleanup.");
       });
-    void localDrafts
-      .load<AuthoredWorkout>(owner, `import-edit:${generation}:${id}`)
+    const editLoad = localDrafts.load<AuthoredWorkout>(owner, `import-edit:${generation}:${id}`)
       .then((value) => {
         if (valid && isCurrent()) setEdited(value);
       })
       .catch(() => {
         if (valid && isCurrent()) setError("Could not restore your corrections for this import.");
       });
+    void Promise.all([sourceLoad, editLoad]).then(() => {
+      if (valid && isCurrent()) setRestored(true);
+    });
     return () => {
       valid = false;
     };
@@ -121,7 +126,6 @@ export default function ImportReview() {
   function update(value: AuthoredWorkout) {
     if (!routeReady || !isCurrent()) return;
     setEdited(value);
-    setReviewed(false);
     void localDrafts.save(owner, `import-edit:${generation}:${id}`, value).catch(() => {
       if (isCurrent()) setError("Could not keep your corrections on this device. Stay here until saved.");
     });
@@ -159,13 +163,15 @@ export default function ImportReview() {
     await cleanupCaptureFiles(retained, true);
     await slot.remove(retirement.revision, current);
   }
-  async function accept() {
-    if (!routeReady || !isCurrent() || !q.data?.result?.workout || !reviewed) return;
+  async function accept(automatic = false) {
+    if (saving.current || !routeReady || !restored || !isCurrent() || !q.data?.result?.workout) return;
+    if (automatic && (edited || !canSaveAutomatically(q.data))) return;
     const errors = workoutErrors(edited ?? q.data.result.workout);
     if (errors.length) {
       setError(errors.join(" "));
       return;
     }
+    saving.current = true;
     setBusy(true);
     setError("");
     setNotice("");
@@ -177,13 +183,13 @@ export default function ImportReview() {
         ? await disclosure.run(() => {
             // The retry runs after the disclosure sheet; never send it for a changed import or account.
             current();
-            return api.acceptImport(id, content, importGeneration, true);
+            return api.acceptImport(id, content, importGeneration, true, !automatic);
           })
-        : await api.acceptImport(id, content, importGeneration);
+        : await api.acceptImport(id, content, importGeneration, false, !automatic);
       current();
       if (accepted === DECLINED) {
         setShareChoice(false);
-        setNotice("Kept private. Save when you’re ready; you can share it later from the workout.");
+        setNotice("Sharing is off. Save this workout privately, or share it later.");
         return;
       }
       const saved = accepted;
@@ -210,6 +216,7 @@ export default function ImportReview() {
             : (e as Error).message
         );
     } finally {
+      saving.current = false;
       if (isCurrent()) setBusy(false);
     }
   }
@@ -249,8 +256,14 @@ export default function ImportReview() {
     !!workout && publishable(workout) && !(q.data?.status === "incomplete" && !(routeReady && edited));
   const wantsShare = shareChoice ?? defaultShareToDiscover(result?.workout?.capture_kind ?? originalSource?.kind);
   const sharing = discoverOn && shareable && wantsShare;
+  useEffect(() => {
+    if ((auto !== "1" && !originalSource?.auto_save) || !routeReady || !restored || !q.data || edited || editing ||
+      error || !visible || !active || !capabilities.data || !canSaveAutomatically(q.data) || autoAttempt.current === epoch) return;
+    autoAttempt.current = epoch;
+    void accept(true);
+  }, [auto, originalSource?.auto_save, routeReady, restored, q.data, edited, editing, error, visible, active, capabilities.data, epoch]);
   return (
-    <Screen back title="Review the workout." subtitle="Check what the source says, fill any gaps, then save it.">
+    <Screen back title="Your workout." subtitle={busy ? "Saving your workout…" : "Check the exercises or make a quick edit."}>
       <QueryState
         loading={q.isPending}
         error={q.error}
@@ -290,67 +303,12 @@ export default function ImportReview() {
         )}
         {result && (
           <>
-            <Card>
-              <Copy kind="caption" tone="accent">Source</Copy>
-              <Copy kind="heading">{result.source.title ?? "Original source"}</Copy>
-              {!!result.source.creator && <Copy tone="muted">By {result.source.creator}</Copy>}
-              <ChipRow wrap>
-                <Chip label={result.source.platform} icon="globe-outline" />
-                {result.source.channels.length ? (
-                  result.source.channels.map((channel) => <Chip key={channel} label={channel} />)
-                ) : (
-                  <Chip label="No source channels available" />
-                )}
-              </ChipRow>
-              {!!result.source.url && (
-                <ListRow
-                  icon="open-outline"
-                  title="Open source"
-                  trailing="external"
-                  onPress={() => {
-                    void Linking.openURL(result.source.url!).catch(() => setError("Could not open the source."));
-                  }}
-                />
-              )}
-              {originalSource?.kind === "text" && <Copy>{originalSource.text}</Copy>}
-              {!source.data?.images?.length &&
-                originalSource?.files
-                  .filter((f) => f.mime_type.startsWith("image/"))
-                  .map((file) => (
-                    <SourceImage key={file.uri} uri={file.uri} label={`Original source image: ${file.name}`} />
-                  ))}
-              {source.data?.images?.map((image, index) => (
-                <SourceImage
-                  key={index}
-                  uri={`data:${image.mime_type};base64,${image.base64_data}`}
-                  label={`Original source image ${index + 1}`}
-                />
-              ))}
-              {!!(!originalSource?.text && source.data?.text) && <Copy>{source.data.text}</Copy>}
-              {source.error && (
-                <Notice error>
-                  The original upload is no longer available here. Check the source yourself before accepting this
-                  draft.
-                </Notice>
-              )}
-            </Card>
             {result.warnings.map((warning, index) => (
               <Notice key={index} tone="warning">{warning}</Notice>
             ))}
             {result.source.coverage_notes.map((note, index) => (
               <Notice key={`coverage-${index}`}>{note}</Notice>
             ))}
-            {!!result.evidence.length && (
-              <Card tone="sunken">
-                <Copy kind="subheading">What the source supports</Copy>
-                {result.evidence.map((e, index) => (
-                  <Copy key={index} kind="small">
-                    {e.field} · {e.wording}
-                    {e.location ? ` (${e.location})` : ""}
-                  </Copy>
-                ))}
-              </Card>
-            )}
             {workout && (
               <>
                 {routeReady && editing ? (
@@ -414,26 +372,80 @@ export default function ImportReview() {
                     }}
                   />
                 )}
-                <Choice
-                  label="I reviewed the source, missing details and warnings"
-                  selected={routeReady && reviewed}
-                  onPress={() => {
-                    if (routeReady && isCurrent()) setReviewed(!reviewed);
-                  }}
-                />
+                {q.data?.status === "incomplete" && <Notice tone="warning">
+                  Some details were not in the source. You can edit them or save this workout with the gaps clearly marked.
+                </Notice>}
                 {!!notice && <Notice>{notice}</Notice>}
                 <Button
-                  title={sharing ? "Save and share to Discover" : "Save privately to my library"}
+                  title={sharing ? "Save and share to Discover" : "Save workout"}
                   icon={sharing ? "globe-outline" : "lock-closed-outline"}
                   size="lg"
                   busy={busy}
-                  disabled={!routeReady || !reviewed || !!q.data?.accepted_workout_id}
+                  disabled={!routeReady || !restored || busy || !!q.data?.accepted_workout_id}
                   onPress={() => {
                     void accept();
                   }}
                 />
               </>
             )}
+            <Button title={sourceDetails ? "Hide source details" : "Source details"} variant="ghost" onPress={() => setSourceDetails(!sourceDetails)} />
+            {sourceDetails && <>
+            <Card>
+              <Copy kind="caption" tone="accent">Source</Copy>
+              <Copy kind="heading">{result.source.title ?? "Original source"}</Copy>
+              {!!result.source.creator && <Copy tone="muted">By {result.source.creator}</Copy>}
+              <ChipRow wrap>
+                <Chip label={result.source.platform} icon="globe-outline" />
+                {result.source.channels.length ? (
+                  result.source.channels.map((channel) => <Chip key={channel} label={channel} />)
+                ) : (
+                  <Chip label="No source channels available" />
+                )}
+              </ChipRow>
+              {!!result.source.url && (
+                <ListRow
+                  icon="open-outline"
+                  title="Open source"
+                  trailing="external"
+                  onPress={() => {
+                    void Linking.openURL(result.source.url!).catch(() => setError("Could not open the source."));
+                  }}
+                />
+              )}
+              {originalSource?.kind === "text" && <Copy>{originalSource.text}</Copy>}
+              {!source.data?.images?.length &&
+                originalSource?.files
+                  .filter((f) => f.mime_type.startsWith("image/"))
+                  .map((file) => (
+                    <SourceImage key={file.uri} uri={file.uri} label={`Original source image: ${file.name}`} />
+                  ))}
+              {source.data?.images?.map((image, index) => (
+                <SourceImage
+                  key={index}
+                  uri={`data:${image.mime_type};base64,${image.base64_data}`}
+                  label={`Original source image ${index + 1}`}
+                />
+              ))}
+              {!!(!originalSource?.text && source.data?.text) && <Copy>{source.data.text}</Copy>}
+              {source.error && (
+                <Notice error>
+                  The original upload is no longer available here. Check the source yourself before accepting this
+                  draft.
+                </Notice>
+              )}
+            </Card>
+            {!!result.evidence.length && (
+              <Card tone="sunken">
+                <Copy kind="subheading">What the source supports</Copy>
+                {result.evidence.map((e, index) => (
+                  <Copy key={index} kind="small">
+                    {e.field} · {e.wording}
+                    {e.location ? ` (${e.location})` : ""}
+                  </Copy>
+                ))}
+              </Card>
+            )}
+            </>}
           </>
         )}
         {q.data && !["cancelled", "expired"].includes(q.data.status) && !q.data.accepted_workout_id && (

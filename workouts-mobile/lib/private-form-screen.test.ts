@@ -9,7 +9,7 @@ const fixture = vi.hoisted(() => ({
   map: new Map<string, string>(),
   owner: "owner-initial",
   run: 0,
-  params: {} as { id?: string },
+  params: {} as { id?: string; shared?: string; request_id?: string; auto?: string },
   revision: 1,
   saveWorkout: vi.fn(),
   persist: vi.fn(),
@@ -34,6 +34,7 @@ const fixture = vi.hoisted(() => ({
   sourceFor: vi.fn(),
   startImport: vi.fn(),
   setAiConsent: vi.fn(),
+  aiConsent: vi.fn(),
   current: true,
   next: 0,
   profile: vi.fn(),
@@ -71,6 +72,7 @@ vi.mock("@/lib/context", () => {
     duplicateSources: async () => ({ matches: [] }),
     startImport: fixture.startImport,
     setAiConsent: fixture.setAiConsent,
+    aiConsent: fixture.aiConsent,
     saveWorkout: fixture.saveWorkout,
     importJob: fixture.importJob,
     cancelImport: fixture.cancelImport,
@@ -248,6 +250,7 @@ beforeEach(() => {
   fixture.share = false;
   fixture.intent = { webUrl: "", text: "", files: [] };
   for (const value of Object.values(fixture)) if (typeof value === "function") value.mockReset();
+  fixture.aiConsent.mockResolvedValue({ accepted: true, disclosure_version: 1 });
   fixture.persist.mockImplementation(async (key: string, value: string) => {
     fixture.map.set(key, value);
   });
@@ -320,7 +323,7 @@ it("mounted Capture and ShareCapture keep the shared source when an older same-a
   const accepted = fixture.map.get(draftKey(fixture.owner, "capture:1"))!;
   expect(JSON.parse(accepted)).toMatchObject({ text: "B caption", files: [b] });
   expect(JSON.parse(accepted).cleanup_files ?? []).toEqual([]);
-  expect(fixture.push).toHaveBeenCalledWith("/capture");
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/capture", params: { shared: "1", request_id: expect.any(String) } });
   const late = {
     uri: "file:///cache/hafa-workouts-capture/late-A.jpg",
     name: "Late A",
@@ -396,7 +399,7 @@ it("same-slot compare/save stays serialized through delayed storage and an inten
   await act(async () => fixture.alert.mock.calls[0][2][1].onPress());
   await settle();
   expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!).source_url).toBe("https://example.test/B");
-  expect(fixture.push).toHaveBeenCalledWith("/capture");
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/capture", params: { shared: "1", request_id: expect.any(String) } });
 });
 
 it("a changed share intent during an acknowledged storage write never deletes its still-registered source", async () => {
@@ -461,7 +464,7 @@ it("a committed capture-slot write with a lost local acknowledgement preserves r
   await mount(ShareCapture);
   expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!).files).toEqual([b]);
   expect(fixture.cleanup.mock.calls.flatMap((call) => call[0]).some((file) => file.uri === b.uri)).toBe(false);
-  expect(fixture.push).toHaveBeenCalledWith("/capture");
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/capture", params: { shared: "1", request_id: expect.any(String) } });
 });
 
 it("old import cancellation conditionally retires its source without removing a newer same-slot shared draft", async () => {
@@ -566,23 +569,13 @@ it("reused ImportReview route clears A source, corrections and review state befo
   const sameSource = fixture.map.get(key);
   await click("Correct workout details");
   await act(async () => find("WorkoutEditor").props.onChange({ ...workout, title: "A private correction" }));
-  await act(async () =>
-    nodes("Choice")
-      .find((n) => n.props.label === "I reviewed the source, missing details and warnings")!
-      .props.onPress()
-  );
   fixture.params = { id: "job-B" };
   await rerender(ImportReview);
   expect(nodes("SourceImage")).toHaveLength(0);
   expect(nodes("WorkoutEditor")).toHaveLength(0);
-  expect(button("Save privately to my library").props.disabled).toBe(true);
-  await act(async () =>
-    nodes("Choice")
-      .find((n) => n.props.label === "I reviewed the source, missing details and warnings")!
-      .props.onPress()
-  );
-  await click("Save privately to my library");
-  expect(fixture.acceptImport).toHaveBeenCalledWith("job-B", bWorkout, 1);
+  expect(button("Save workout").props.disabled).toBe(false);
+  await click("Save workout");
+  expect(fixture.acceptImport).toHaveBeenCalledWith("job-B", bWorkout, 1, false, true);
   expect(fixture.cleanup).not.toHaveBeenCalled();
   expect(fixture.map.get(key)).toBe(sameSource);
   expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "saved-B" } });
@@ -773,6 +766,7 @@ it("a newer mounted shared source proceeds while the superseded replacement call
 
 it("mounted capture cleans an exact late picker result after its owner retires, without registering or transmitting it", async () => {
   await mount(Capture);
+  await click("Other ways to add a workout");
   const choice = nodes("Choice").find((n) => n.props.label === "Photos or screenshots")!;
   await act(async () => choice.props.onPress());
   await settle();
@@ -803,11 +797,6 @@ it("mounted source import freezes its request UUID/source through lost acknowled
       .props.onChange("https://example.test/original")
   );
   const stale = nodes("Field").find((n) => n.props.label === "Source link")!.props.onChange;
-  await act(async () =>
-    nodes("Choice")
-      .find((n) => n.props.label === "Use AI to extract this source")!
-      .props.onPress()
-  );
   fixture.startImport.mockRejectedValueOnce(Error("lost acknowledgment"));
   await click("Extract workout");
   await act(async () => stale("https://example.test/new-intent"));
@@ -815,13 +804,8 @@ it("mounted source import freezes its request UUID/source through lost acknowled
   await unmount();
   await mount(Capture);
   expect(nodes("Field")[0].props.value).toBe("https://example.test/original");
-  await act(async () =>
-    nodes("Choice")
-      .find((n) => n.props.label === "Use AI to extract this source")!
-      .props.onPress()
-  );
   fixture.startImport.mockResolvedValueOnce({ id: "saved-import" });
-  await click("Retry extracting this source");
+  await click("Retry extraction");
   expect(fixture.startImport.mock.calls[1]).toEqual(original);
   expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!)).toMatchObject({
     pending_import: true,
@@ -830,16 +814,12 @@ it("mounted source import freezes its request UUID/source through lost acknowled
 });
 
 it("mounted source import checks owner retirement again after asynchronous consent before sending the source", async () => {
+  fixture.aiConsent.mockResolvedValue({ accepted: false, disclosure_version: 1 });
   await mount(Capture);
   await act(async () => nodes("Field")[0].props.onChange("https://example.test/original"));
-  await act(async () =>
-    nodes("Choice")
-      .find((n) => n.props.label === "Use AI to extract this source")!
-      .props.onPress()
-  );
   const consent = deferred<void>();
   fixture.setAiConsent.mockReturnValueOnce(consent.promise);
-  await click("Extract workout");
+  await click("Agree and extract");
   fixture.current = false;
   await act(async () => consent.resolve());
   await settle();
@@ -1322,4 +1302,37 @@ it("corrects an API microsecond timestamp without changing the original measurem
   expect(fixture.saveMeasurement.mock.calls[0][1]).toMatchObject({ value: 76, recorded_at });
   await click("Retry this measurement change");
   expect(fixture.saveMeasurement.mock.calls[1]).toEqual(fixture.saveMeasurement.mock.calls[0]);
+});
+
+function sharedLinkDraft(request = "shared-link") {
+  fixture.params = { shared: "1", request_id: request };
+  fixture.map.set(draftKey(fixture.owner, "capture:1"), JSON.stringify({ request_id: request, generation: 1,
+    kind: "url", source_url: "https://example.test/shared", text: "Original caption", files: [], created_at: "2026-10-13T00:00:00Z" }));
+}
+it("a shared link with existing consent starts once without a capture confirmation and preserves its caption", async () => {
+  sharedLinkDraft();
+  fixture.startImport.mockResolvedValue({ id: "shared-job" });
+  await mount(Capture);
+  await settle();
+  expect(fixture.startImport).toHaveBeenCalledTimes(1);
+  expect(fixture.startImport.mock.calls[0][0]).toBe("shared-link");
+  expect(fixture.sourceFor.mock.calls[0][0].text).toBe("Original caption");
+  expect(fixture.setAiConsent).not.toHaveBeenCalled();
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/import/[id]", params: { id: "shared-job", auto: "1" } });
+});
+it("a first shared link waits for one explicit AI disclosure action", async () => {
+  sharedLinkDraft();
+  fixture.aiConsent.mockResolvedValue({ accepted: false, disclosure_version: 1 });
+  fixture.startImport.mockResolvedValue({ id: "first-job" });
+  await mount(Capture);
+  expect(fixture.startImport).not.toHaveBeenCalled();
+  await click("Agree and extract");
+  expect(fixture.setAiConsent).toHaveBeenCalledWith(true, 1);
+  expect(fixture.startImport).toHaveBeenCalledTimes(1);
+});
+it("a different saved source cannot be automatically submitted for an older share route", async () => {
+  sharedLinkDraft("newer-source");
+  fixture.params.request_id = "older-source";
+  await mount(Capture);
+  expect(fixture.startImport).not.toHaveBeenCalled();
 });
