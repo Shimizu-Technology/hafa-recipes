@@ -399,7 +399,12 @@ async def discover(
         if equipment.lower() in {"none", "bodyweight"}:
             filters.append(func.jsonb_array_length(content["equipment_required"]) == 0)
         else:
-            filters.append(required.contains(f'"{equipment.lower()}"', autoescape=True))
+            # Match singular/plural and qualified names: "dumbbells" finds
+            # "Dumbbell" and "Adjustable dumbbells".
+            term = equipment.strip().lower()
+            if len(term) > 3 and term.endswith("s"):
+                term = term[:-1]
+            filters.append(required.contains(term, autoescape=True))
     if platform:
         filters.append(LIBRARY.c.source_platform == platform)
     minutes = cast(content["estimated_minutes"].astext, Integer)

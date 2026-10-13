@@ -337,6 +337,8 @@ async def test_dedupe_save_and_filters(discover_api):
         ("?q=COUCH", 1),
         ("?q=%25", 0),
         ("?equipment=dumbbell", 1),
+        ("?equipment=Dumbbells", 1),
+        ("?equipment=kettlebell", 0),
         ("?equipment=none", 1),
         ("?platform=youtube", 1),
         ("?min_minutes=20", 1),
