@@ -2,6 +2,7 @@ import hashlib
 import io
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from PIL import Image
@@ -721,3 +722,34 @@ async def test_prefix_cleanup_purges_versioned_account_objects(monkeypatch):
     assert deleted == 3
     assert fake_s3.versions == []
     assert fake_s3.delete_markers == []
+
+
+def test_chat_image_provider_url_is_short_lived_sigv4_on_the_regional_host(monkeypatch):
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_enabled=True,
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+            aws_access_key_id="AKIDEXAMPLE",
+            aws_secret_access_key="secret",
+        ),
+    )
+    service = StorageService()
+    owned = "https://recipe-images.s3.us-west-2.amazonaws.com/chat-images/stable-user/photo.png"
+
+    signed = service.chat_image_provider_url(owned, "stable-user")
+
+    assert signed is not None
+    parsed = urlparse(signed)
+    query = parse_qs(parsed.query)
+    assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == owned
+    assert query["X-Amz-Algorithm"] == ["AWS4-HMAC-SHA256"]
+    assert query["X-Amz-Expires"] == [str(storage.CHAT_IMAGE_PROVIDER_URL_SECONDS)]
+    assert "/us-west-2/s3/" in query["X-Amz-Credential"][0]
+    assert service.chat_image_provider_url(
+        "https://recipe-images.s3.us-west-2.amazonaws.com/chat-images/other/photo.png",
+        "stable-user",
+    ) is None
+    assert service.chat_image_provider_url(signed, "stable-user") is None

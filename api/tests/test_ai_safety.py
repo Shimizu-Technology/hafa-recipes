@@ -143,6 +143,35 @@ def test_chat_rejects_foreign_history_image(monkeypatch):
     assert getattr(error.value, "status_code", None) == 422
 
 
+def test_chat_history_images_reach_the_provider_only_as_signed_urls(monkeypatch):
+    owned = "https://bucket.s3.us-west-2.amazonaws.com/chat-images/user_test/a.png"
+    monkeypatch.setattr(
+        "app.routers.chat.storage_service.is_owned_chat_image_url",
+        lambda _url, _user_id: True,
+    )
+    monkeypatch.setattr(
+        "app.routers.chat.storage_service.chat_image_provider_url",
+        lambda url, _user_id: f"{url}?X-Amz-Signature=signed" if url == owned else None,
+    )
+    history = [
+        ChatMessage(role="user", content="first photo", image_url=owned),
+        ChatMessage(role="assistant", content="looks good"),
+        ChatMessage(
+            role="user",
+            content="unsignable photo",
+            image_url="https://bucket.s3.us-west-2.amazonaws.com/chat-images/user_test/b.png",
+        ),
+        ChatMessage(role="assistant", content="ok"),
+    ]
+
+    messages = _build_client_messages(
+        history=history, message="next", image_base64=None, user_id="user_test"
+    )
+
+    assert messages[0]["content"][1]["image_url"]["url"] == f"{owned}?X-Amz-Signature=signed"
+    assert messages[2] == {"role": "user", "content": "unsignable photo"}
+
+
 def test_chat_validates_image_bytes_before_provider_use():
     encoded = base64.b64encode(_png_bytes()).decode("ascii")
     assert _validated_image_data_url(encoded).startswith("data:image/png;base64,")
