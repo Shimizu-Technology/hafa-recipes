@@ -844,3 +844,30 @@ async def test_copied_program_review_rejects_changed_copy_and_foreign_owner(auto
         json={"program_revision": 2, "profile_revision": 1},
     )
     assert foreign.status_code == 404
+
+
+async def test_malformed_provider_structure_retains_source_instead_of_cancelling(automation_api):
+    api = automation_api
+    await consent(api)
+    provider = Provider()
+
+    async def duplicate(source):
+        content = await provider.extract(source)
+        content["blocks"].append(dict(content["blocks"][0]))
+        return content
+
+    api.worker.extractor.provider.extract = duplicate
+    queued = await api.client.post("/api/v1/workouts/imports", headers=GENERATION, json={
+        "request_id": str(uuid4()), "auto_save": True,
+        "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+    })
+    assert queued.status_code == 202
+    await api.worker.tick()
+    job = (await api.client.get("/api/v1/workouts/imports/" + queued.json()["id"])).json()
+    assert job["status"] == "incomplete" and job["accepted_workout_id"] is None
+    assert job["result"]["error_code"] == "workout_needs_correction"
+    assert len(job["result"]["workout"]["blocks"]) == 2
+    async with api.sessions() as db:
+        assert (await db.get(WorkoutImport, queued.json()["id"])).payload["text"] == TEXT
+        assert await db.scalar(select(func.count()).select_from(WorkoutRecord)) == 0
+

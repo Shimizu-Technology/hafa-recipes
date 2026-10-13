@@ -98,7 +98,16 @@ async def save_import_result(db, row, result, preferences):
             "Some exercises are missing rounds, sets, reps, time, or distance. Missing values stay unspecified."
         )
     result.workout.extraction_warnings = list(result.warnings)
-    content = validated_workout(result.workout, authored=False)
+    try:
+        content = validated_workout(result.workout, authored=False)
+    except HTTPException as error:
+        if error.status_code != 422:
+            raise
+        result.status = "incomplete"
+        result.error_code = "workout_needs_correction"
+        result.warnings.append("The extracted workout needs correction before saving. Your source remains available.")
+        result.workout.extraction_warnings = list(result.warnings)
+        return
     saved = store_workout(db, row.app_user_id, row.generation, content)
     await refresh_optional_source_metadata(db, saved)
     # Insufficient or uncertain sources remain private, regardless of the
@@ -315,8 +324,8 @@ class WorkoutImportWorker:
                     row.next_attempt_at = current + timedelta(seconds=15 * row.attempt_count)
                 else:
                     await charge_usable_import(db, row, result)
-                    row.status = result.status
                     await save_import_result(db, row, result, preferences)
+                    row.status = result.status
                     row.result = result.model_dump(mode="json")
                     # Private raw capture survives until review, cancellation
                     # or expiry so another device can inspect visual evidence.
