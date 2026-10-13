@@ -81,6 +81,15 @@ async def create_import(
     return row
 
 
+def saved_warning_projection(warnings):
+    unique = list(dict.fromkeys(warnings))
+    if len(unique) <= 100:
+        return unique
+    return unique[:99] + [
+        f"{len(unique) - 99} more extraction warnings. Check the full source details before training."
+    ]
+
+
 async def save_import_result(db, row, result, preferences):
     """Save once under the worker's owner/generation lock, without a live client."""
     if preferences is None or row.accepted_workout_id or result.workout is None:
@@ -97,7 +106,7 @@ async def save_import_result(db, row, result, preferences):
         result.warnings.append(
             "Some exercises are missing rounds, sets, reps, time, or distance. Missing values stay unspecified."
         )
-    result.workout.extraction_warnings = list(result.warnings)
+    result.workout.extraction_warnings = saved_warning_projection(result.warnings)
     try:
         content = validated_workout(result.workout, authored=False)
     except HTTPException as error:
@@ -106,7 +115,7 @@ async def save_import_result(db, row, result, preferences):
         result.status = "incomplete"
         result.error_code = "workout_needs_correction"
         result.warnings.append("The extracted workout needs correction before saving. Your source remains available.")
-        result.workout.extraction_warnings = list(result.warnings)
+        result.workout.extraction_warnings = saved_warning_projection(result.warnings)
         return
     saved = store_workout(db, row.app_user_id, row.generation, content)
     await refresh_optional_source_metadata(db, saved)

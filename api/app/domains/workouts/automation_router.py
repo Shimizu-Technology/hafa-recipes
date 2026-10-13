@@ -281,13 +281,20 @@ async def accept_import(
     ):
         raise HTTPException(422, "An import cannot claim generated coaching provenance")
     content = validated_workout(workout, authored=False)
-    original_content = validated_workout(
-        WorkoutContent.model_validate(row.result["workout"]), authored=False
-    )
-    if content_digest(content) != content_digest(original_content):
+    try:
+        original_content = validated_workout(
+            WorkoutContent.model_validate(row.result["workout"]), authored=False
+        )
+    except HTTPException as error:
+        if error.status_code != 422 or request.workout is None:
+            raise
+        # Keep the bounded original in the import result for inspection, while
+        # storing only the user's valid correction as a restorable version.
+        original_content = None
+    if original_content is None or content_digest(content) != content_digest(original_content):
         content["provenance"] = "user"
         original_exercises = {
-            block["id"]: block["exercises"] for block in original_content["blocks"]
+            block["id"]: block["exercises"] for block in (original_content or {}).get("blocks", [])
         }
         for block in content["blocks"]:
             original = original_exercises.get(block["id"], [])
@@ -305,7 +312,7 @@ async def accept_import(
         )
     if request.is_public:
         await require_discover(db)
-        if row.status == "incomplete" and digest == content_digest(original_content):
+        if original_content is not None and row.status == "incomplete" and digest == content_digest(original_content):
             raise HTTPException(
                 422, "Complete the missing workout details before sharing to Discover"
             )
