@@ -1346,3 +1346,11 @@ it("a stale accepted consent display cannot silently re-enable revoked AI consen
   expect(fixture.startImport).not.toHaveBeenCalled();
   expect(button("Agree and extract")).toBeDefined();
 });
+it("a social app's text-only shared link uses URL extraction and keeps its caption", async () => {
+  fixture.share = true;
+  fixture.intent = { webUrl: "", text: "Try this workout https://youtu.be/qa-video Three rounds", files: [] };
+  await mount(ShareCapture);
+  const captured = JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!);
+  expect(captured).toMatchObject({ kind: "url", source_url: "https://youtu.be/qa-video", text: fixture.intent.text });
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/capture", params: { shared: "1", request_id: captured.request_id } });
+});

@@ -18,6 +18,12 @@ export function updateImportReferences(storage: ReturnType<typeof drafts>, owner
   return next;
 }
 export type CaptureKind = "url" | "text" | "images" | "document";
+/** Match Recipes: social apps may share a link inside caption text or URL metadata. */
+export function sharedWorkoutURL(webUrl?: string | null, text?: string | null, metadataUrl?: string | null) {
+  const direct = webUrl?.trim() || metadataUrl?.trim();
+  if (direct && /^https?:\/\//i.test(direct)) return direct;
+  return text?.match(/https?:\/\/[^\s<>"']+/i)?.[0] ?? null;
+}
 export interface CaptureFile {
   uri: string;
   mime_type: string;
