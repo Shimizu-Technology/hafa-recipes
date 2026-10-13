@@ -6,6 +6,7 @@ import * as Crypto from "expo-crypto";
 import { AccountButton, Button, Card, Copy, Empty, Field, Notice, Screen, useColors } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { useTraining, useOfflineTraining } from "@/lib/context";
+import { sessionsQuery } from "@/lib/session-query";
 import type { Program, ScheduledSession } from "@/lib/models";
 export default function Plan() {
   const { api, owner, enrollment } = useTraining();
@@ -16,11 +17,7 @@ export default function Plan() {
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [date, setDate] = useState("");
-  const actuals = useQuery({
-    queryKey: [owner, "sessions", enrollment?.generation],
-    queryFn: api.sessions,
-    enabled: !!enrollment?.enrolled,
-  });
+  const actuals = useQuery(sessionsQuery(api, owner, enrollment));
   const completed = completedProgramSessions(actuals.data, offline.state.history);
   const q = useQuery({
     queryKey: [owner, "programs", enrollment?.generation],

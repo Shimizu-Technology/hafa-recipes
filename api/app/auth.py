@@ -1,6 +1,9 @@
 """Issuer-scoped Clerk authentication resolved to stable application users."""
 
+import asyncio
 import logging
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -50,7 +53,9 @@ class ClerkUser(BaseModel):
 
     @property
     def is_admin(self) -> bool:
-        return self.role == "admin"
+        return self.role == "admin" and settings.clerk_admin_allowed_for(
+            self.clerk_environment
+        )
 
     @property
     def display_name(self) -> str:
@@ -74,19 +79,68 @@ class VerifiedClerkToken(BaseModel):
     claims: dict[str, Any]
 
 
+# A token naming an unknown ``kid`` forces a JWKS refetch. Allow at most one
+# forced refetch per issuer in this interval so forged tokens cannot turn every
+# request into an outbound call to Clerk. A real key rotation is picked up by
+# the first refetch after the new key is published, so at worst tokens signed
+# with a just-rotated key see 401s for one interval.
+JWKS_UNKNOWN_KID_REFRESH_INTERVAL_SECONDS = 30.0
+JWKS_FETCH_TIMEOUT_SECONDS = 5.0
+
+
+class ThrottledPyJWKClient(PyJWKClient):
+    """PyJWKClient that rate-limits forced refreshes for unknown key IDs."""
+
+    def __init__(
+        self,
+        uri: str,
+        *,
+        min_refresh_interval: float = JWKS_UNKNOWN_KID_REFRESH_INTERVAL_SECONDS,
+        clock=time.monotonic,
+        **kwargs: Any,
+    ) -> None:
+        self._min_refresh_interval = min_refresh_interval
+        self._clock = clock
+        self._refresh_lock = threading.Lock()
+        self._last_forced_refresh: float | None = None
+        super().__init__(uri, **kwargs)
+
+    def _claim_forced_refresh(self) -> bool:
+        with self._refresh_lock:
+            now = self._clock()
+            if (
+                self._last_forced_refresh is not None
+                and now - self._last_forced_refresh < self._min_refresh_interval
+            ):
+                return False
+            self._last_forced_refresh = now
+            return True
+
+    def get_signing_key(self, kid: str):  # type: ignore[override]
+        signing_key = self.match_kid(self.get_signing_keys(), kid)
+        if signing_key is None and self._claim_forced_refresh():
+            signing_key = self.match_kid(self.get_signing_keys(refresh=True), kid)
+        if signing_key is None:
+            raise PyJWKClientError(f'Unable to find a signing key that matches: "{kid}"')
+        return signing_key
+
+
 _jwks_clients: dict[str, PyJWKClient] = {}
+_jwks_clients_lock = threading.Lock()
 
 
 def _get_jwks_client(environment: ClerkEnvironment) -> PyJWKClient:
-    client = _jwks_clients.get(environment.issuer)
-    if client is None:
-        client = PyJWKClient(
-            environment.jwks_url,
-            cache_keys=True,
-            lifespan=3600,
-        )
-        _jwks_clients[environment.issuer] = client
-    return client
+    with _jwks_clients_lock:
+        client = _jwks_clients.get(environment.issuer)
+        if client is None:
+            client = ThrottledPyJWKClient(
+                environment.jwks_url,
+                cache_keys=True,
+                lifespan=3600,
+                timeout=JWKS_FETCH_TIMEOUT_SECONDS,
+            )
+            _jwks_clients[environment.issuer] = client
+        return client
 
 
 def _unauthorized(detail: str = "Invalid or expired token") -> HTTPException:
@@ -163,6 +217,15 @@ def verify_clerk_token(token: str) -> VerifiedClerkToken:
     except (jwt.InvalidTokenError, PyJWKClientError, ValueError, TypeError) as error:
         logger.warning("Clerk token verification failed: %s", type(error).__name__)
         raise _unauthorized() from error
+
+
+async def verify_clerk_token_async(token: str) -> VerifiedClerkToken:
+    """Verify a token without blocking the event loop.
+
+    JWKS lookups may fetch keys over blocking HTTP, and RSA verification is
+    CPU work, so both run in a worker thread.
+    """
+    return await asyncio.to_thread(verify_clerk_token, token)
 
 
 async def _find_identity(
@@ -321,7 +384,7 @@ async def get_current_user(
     if credentials is None:
         raise _unauthorized("Not authenticated")
 
-    token = verify_clerk_token(credentials.credentials)
+    token = await verify_clerk_token_async(credentials.credentials)
     identity, profile = await _resolve_identity(db, token)
     public_metadata = token.claims.get("public_metadata") or {}
     if not isinstance(public_metadata, dict):

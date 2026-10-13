@@ -1,5 +1,7 @@
 """Health check endpoint."""
 
+import os
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +24,13 @@ settings = get_settings()
 async def liveness_check():
     """Report only whether the API process can serve requests."""
     return HealthResponse()
+
+
+@router.get("/release")
+async def release():
+    """Report the deployed source commit so a deploy can be verified."""
+    commit = os.environ.get("RENDER_GIT_COMMIT", "")
+    return {"commit": commit[:12] or None}
 
 
 @router.get("/api/admin/diagnostics", response_model=DiagnosticResponse)

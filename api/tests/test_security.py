@@ -156,3 +156,24 @@ async def test_public_transport_keeps_validated_ips_out_of_response_urls(monkeyp
     assert str(response.history[0].url) == "https://short.example/t/abc"
     assert resolved_hosts == ["short.example", "www.tiktok.com"]
     assert requested_hosts == ["93.184.216.34", "23.61.202.36"]
+
+
+@pytest.mark.parametrize(
+    ("address", "blocked"),
+    [
+        ("100.64.0.1", True),  # carrier-grade NAT
+        ("100.127.255.254", True),
+        ("192.0.0.8", True),  # IETF protocol assignments
+        ("198.18.0.1", True),  # benchmarking
+        ("::ffff:127.0.0.1", True),  # IPv4-mapped loopback
+        ("::ffff:10.0.0.1", True),
+        ("fc00::1", True),  # unique local
+        ("93.184.216.34", False),
+        ("100.128.0.1", False),
+        ("2606:4700:4700::1111", False),
+    ],
+)
+def test_outbound_fetches_block_non_global_addresses(address, blocked):
+    import ipaddress
+
+    assert security._ip_is_blocked(ipaddress.ip_address(address)) is blocked

@@ -19,6 +19,14 @@ from PIL import Image
 
 from app.ai_governance import current_ai_context
 from app.config import get_settings
+from app.http_limits import (
+    MAX_HTML_BYTES,
+    MAX_OEMBED_BYTES,
+    MAX_REMOTE_IMAGE_BYTES,
+    MAX_REMOTE_IMAGES_TOTAL_BYTES,
+    ResponseTooLarge,
+    get_limited,
+)
 from app.security import PublicHTTPTransport
 from app.source_urls import canonicalize_source
 
@@ -494,8 +502,8 @@ class VideoService:
                     headers=headers,
                     transport=PublicHTTPTransport(),
                 ) as client:
-                    response = await client.get(url)
-                    
+                    response = await get_limited(client, url, max_bytes=MAX_HTML_BYTES)
+
                     if response.status_code == 200:
                         html = response.text
                         _media_log(f"📄 Fetched page with UA #{ua_idx + 1} ({len(html)} chars)")
@@ -667,19 +675,31 @@ class VideoService:
             },
             transport=PublicHTTPTransport(),
         ) as client:
+            total_bytes = 0
             for i, url in enumerate(image_urls[:20]):  # Limit to 20 images
+                remaining = MAX_REMOTE_IMAGES_TOTAL_BYTES - total_bytes
+                if remaining <= 0:
+                    _media_log("⚠️ Slideshow image byte budget reached; skipping the rest")
+                    break
                 try:
                     _media_log(f"📥 Downloading image {i+1}/{len(image_urls)}: {url[:80]}...")
-                    response = await client.get(url)
-                    
+                    response = await get_limited(
+                        client,
+                        url,
+                        max_bytes=min(MAX_REMOTE_IMAGE_BYTES, remaining),
+                    )
+
                     if response.status_code == 200:
                         image_data = response.content
+                        total_bytes += len(image_data)
                         base64_str = base64.b64encode(image_data).decode('utf-8')
                         base64_images.append(base64_str)
                         _media_log(f"✅ Downloaded image {i+1} ({len(image_data)} bytes)")
                     else:
                         _media_log(f"⚠️ Failed to download image {i+1}: HTTP {response.status_code}")
-                        
+
+                except ResponseTooLarge as e:
+                    _media_log(f"⚠️ Skipped image {i+1}: larger than {e.max_bytes} bytes")
                 except Exception as e:
                     _media_log(f"⚠️ Error downloading image {i+1}: {e}")
         
@@ -703,8 +723,12 @@ class VideoService:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 if platform == "youtube":
-                    endpoint = f"https://www.youtube.com/oembed?format=json&url={url}"
-                    response = await client.get(endpoint)
+                    response = await get_limited(
+                        client,
+                        "https://www.youtube.com/oembed",
+                        params={"format": "json", "url": url},
+                        max_bytes=MAX_OEMBED_BYTES,
+                    )
                     if response.status_code == 200:
                         data = response.json()
                         return VideoMetadata(
@@ -714,8 +738,12 @@ class VideoService:
                         )
                 
                 elif platform == "tiktok":
-                    endpoint = f"https://www.tiktok.com/oembed?url={url}"
-                    response = await client.get(endpoint)
+                    response = await get_limited(
+                        client,
+                        "https://www.tiktok.com/oembed",
+                        params={"url": url},
+                        max_bytes=MAX_OEMBED_BYTES,
+                    )
                     if response.status_code == 200:
                         data = response.json()
                         return VideoMetadata(
@@ -729,8 +757,12 @@ class VideoService:
                     if not token:
                         _media_log("⚠️ Instagram oEmbed token not configured")
                         return VideoMetadata()
-                    endpoint = f"https://graph.facebook.com/v17.0/instagram_oembed?url={url}&access_token={token}"
-                    response = await client.get(endpoint)
+                    response = await get_limited(
+                        client,
+                        "https://graph.facebook.com/v17.0/instagram_oembed",
+                        params={"url": url, "access_token": token},
+                        max_bytes=MAX_OEMBED_BYTES,
+                    )
                     if response.status_code == 200:
                         data = response.json()
                         return VideoMetadata(
@@ -740,7 +772,9 @@ class VideoService:
                         )
         
         except Exception as e:
-            _media_log(f"❌ oEmbed fetch failed for {platform}: {e}")
+            # Exception text can include the request URL, which carries the
+            # Instagram access token, so log only the error type.
+            _media_log(f"❌ oEmbed fetch failed for {platform}: {type(e).__name__}")
         
         return VideoMetadata()
     
@@ -762,8 +796,9 @@ class VideoService:
         write it to a caller-owned temporary file. Existing configured paths are
         never deleted by the application.
         """
-        if (current_ai_context().route or "").startswith("/api/v1/workouts"):
-            return None  # Workouts does not inherit an operator's private Instagram session.
+        # Workouts and Recipes share one Instagram session and proxy so both
+        # products can import the same public posts. Workouts logs stay
+        # redacted by ``_media_log``.
         cookies = settings.instagram_cookies
         if not cookies:
             return None

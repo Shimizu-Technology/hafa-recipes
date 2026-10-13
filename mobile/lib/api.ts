@@ -147,6 +147,24 @@ function waitForTokenRetry(signal?: AbortSignal): Promise<void> {
   });
 }
 
+/**
+ * Extract a short, machine-readable error code from an API error body for
+ * telemetry. Free-text messages and other body fields are deliberately dropped.
+ */
+export function getSafeApiErrorCode(data: unknown): string | undefined {
+  const body = data as { code?: unknown; error_code?: unknown; detail?: unknown } | null | undefined;
+  const detail = body?.detail as { code?: unknown } | null | undefined;
+  const candidates = [
+    body?.code,
+    body?.error_code,
+    detail && typeof detail === 'object' ? detail.code : undefined,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && /^[A-Za-z0-9_.:-]{1,64}$/.test(candidate)) return candidate;
+  }
+  return undefined;
+}
+
 class ApiClient {
   private client: AxiosInstance;
   private getTokenFn: TokenGetter | null = null;
@@ -233,25 +251,21 @@ class ApiClient {
           });
         } else if (status && status >= 500) {
           // Server errors - definitely want to track these
+          // Never forward response bodies: they can contain user content.
           captureError(error, {
             tags: { endpoint, method, status: String(status) },
-            extra: {
-              responseData: error.response?.data,
-            },
+            extra: { status, errorCode: getSafeApiErrorCode(error.response?.data) },
           });
         } else if (status !== 401 && status !== 404) {
           // Other client errors (except 401/404 which are often expected)
           captureMessage(`API error: ${status}`, 'error', {
             tags: { endpoint, method },
-            extra: {
-              status,
-              responseData: error.response?.data,
-            },
+            extra: { status, errorCode: getSafeApiErrorCode(error.response?.data) },
           });
         }
         
         // Console logging for development
-        if (!isNetworkError && status !== 401) {
+        if (!isNetworkError && status !== 401 && __DEV__) {
           console.warn('API Error:', error.response?.data || error.message);
         }
         if (isNetworkError && __DEV__) {
@@ -345,8 +359,10 @@ class ApiClient {
     sourceType?: string,
     timeFilter?: string,
     tags?: string[],
+    signal?: AbortSignal,
   ): Promise<PaginatedRecipes> {
     const { data } = await this.client.get('/api/recipes/search', {
+      signal,
       params: { 
         q: query || undefined, 
         limit,
@@ -553,8 +569,10 @@ class ApiClient {
     tags?: string[],
     extractorId?: string,
     mealType?: string,
+    signal?: AbortSignal,
   ): Promise<PaginatedRecipes> {
     const { data } = await this.client.get('/api/recipes/discover/search', {
+      signal,
       params: { 
         q: query || undefined, 
         limit,
