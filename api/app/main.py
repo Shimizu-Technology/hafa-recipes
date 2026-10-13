@@ -38,6 +38,7 @@ from app.domains.workouts.privacy import (
 )
 from app.domains.workouts.router import router as workouts_router
 from app.domains.workouts.runtime import verify_workouts_schema
+from app.domains.workouts.share_router import router as workouts_share_router
 from app.domains.workouts.source_planning import compose_coach_sources
 from app.grocery_sync import verify_grocery_sync_schema
 from app.job_worker import job_worker
@@ -117,6 +118,7 @@ app.include_router(platform_router)
 app.include_router(workouts_library_router)
 app.include_router(workouts_measurements_router)
 app.include_router(workouts_router)
+app.include_router(workouts_share_router)
 app.include_router(workouts_automation_router)
 app.include_router(workouts_imports_router)
 app.include_router(workouts_connections_router)

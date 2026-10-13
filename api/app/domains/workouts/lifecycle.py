@@ -69,6 +69,10 @@ async def erase_product_data(db, membership, requested_generation: int):
     if requested_generation != membership.generation or membership.status != "active":
         raise HTTPException(409, "Workouts data generation changed; refresh before deleting")
     owner = membership.app_user_id
+    if await optional_table_exists(db, "workouts_share_credentials"):
+        from app.domains.workouts.share_models import WorkoutShareCredential
+
+        await db.execute(delete(WorkoutShareCredential).where(WorkoutShareCredential.app_user_id == owner))
     if await optional_table_exists(db, "workouts_health_connections"):
         from app.domains.workouts.health_models import HEALTH_TABLES
         from app.domains.workouts.health_service import erase_health_product_data
