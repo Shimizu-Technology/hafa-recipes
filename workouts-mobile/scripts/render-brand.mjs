@@ -116,16 +116,18 @@ function renderAssets() {
   svgToPng(iconSvg(draw, "mono", { mode: "glyph", scale: 0.78 }), join(assets, "adaptive-monochrome.png"), 1024);
   strip(join(assets, "adaptive-monochrome.png"));
 
-  // Splash: mark only (expo-splash-screen sizes it to imageWidth on a brand background).
-  svgToPng(glyphLight, join(assets, "splash.png"), 512);
+  // Tight crop around the artwork (same box as components/brand-mark.tsx and the website mark).
+  const crop = (svg) => svg.replace('width="1024" height="1024" viewBox="0 0 1024 1024"', 'width="764" height="464" viewBox="130 300 764 464"');
+
+  // Splash: cropped mark so imageWidth (180pt) is the mark's real width.
+  svgToPng(crop(glyphLight), join(assets, "splash.png"), 764, 464);
   strip(join(assets, "splash.png"));
-  svgToPng(glyphDark, join(assets, "splash-dark.png"), 512);
+  svgToPng(crop(glyphDark), join(assets, "splash-dark.png"), 764, 464);
   strip(join(assets, "splash-dark.png"));
 
   // Web: mark, favicons, apple-touch and Open Graph image.
   const web = join(repo, "workouts-web/public");
-  // Website header mark: tight crop around the artwork (same box as components/brand-mark.tsx).
-  const crop = (svg) => svg.replace('width="1024" height="1024" viewBox="0 0 1024 1024"', 'width="764" height="464" viewBox="130 300 764 464"');
+  // Website header mark uses the same tight crop.
   writeFileSync(join(web, "mark.svg"), crop(glyphLight));
   writeFileSync(join(web, "mark-dark.svg"), crop(glyphDark));
   writeFileSync(join(web, "favicon.svg"), iconSvg(draw, "light", { mode: "icon" }));
