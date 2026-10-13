@@ -1,11 +1,12 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { dark, hafa, light, markColors, workouts, type ColorTokens } from "@/constants/theme";
 import { markShapes as geometryShapes, concepts, palettes } from "../scripts/brand-geometry.mjs";
 import { markShapes } from "@/components/brand-mark-shapes";
 
-const root = new URL("..", import.meta.url).pathname;
+const root = fileURLToPath(new URL("..", import.meta.url));
 const repo = join(root, "..");
 
 function luminance(hex: string) {

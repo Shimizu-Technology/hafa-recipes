@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type PropsWithChildren, type ReactNode } from "react";
+import { Children, createContext, Fragment, isValidElement, useCallback, useContext, useEffect, useRef, useState, type PropsWithChildren, type ReactElement, type ReactNode } from "react";
 import {
   Animated,
   KeyboardAvoidingView,
@@ -310,7 +310,14 @@ export function ListRow({
 /** Groups ListRows inside one card with hairline separators. */
 export function ListGroup({ children }: PropsWithChildren) {
   const c = useColors();
-  const items = (Array.isArray(children) ? children : [children]).filter(Boolean);
+  // Flatten arrays and fragments so every row gets its own separator.
+  const flatten = (nodes: ReactNode): ReactNode[] =>
+    Children.toArray(nodes).flatMap((child) =>
+      isValidElement(child) && child.type === Fragment
+        ? flatten((child as ReactElement<{ children?: ReactNode }>).props.children)
+        : [child]
+    );
+  const items = flatten(children);
   return (
     <View
       style={{
@@ -323,7 +330,7 @@ export function ListGroup({ children }: PropsWithChildren) {
       }}
     >
       {items.map((child, i) => (
-        <View key={i} style={i ? { borderTopWidth: 1, borderTopColor: c.border } : null}>
+        <View key={(isValidElement(child) && child.key) || i} style={i ? { borderTopWidth: 1, borderTopColor: c.border } : null}>
           {child}
         </View>
       ))}
