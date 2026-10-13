@@ -233,9 +233,9 @@ def _add_audit(
 
 
 async def _resolve_admin_contributor(db: AsyncSession, contributor_id: str) -> str | None:
-    candidates = (
-        await db.execute(select(Recipe.user_id).where(Recipe.user_id.isnot(None)).distinct())
-    ).scalars().all()
+    # Any account can publish (Recipes or Workouts Discover), so resolve
+    # against stable application users rather than recipe owners only.
+    candidates = (await db.execute(select(AppUser.id))).scalars().all()
     return next(
         (
             candidate

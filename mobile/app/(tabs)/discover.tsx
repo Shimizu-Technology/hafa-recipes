@@ -719,6 +719,8 @@ export default function DiscoverScreen() {
           toggleViewMode();
         }}
         activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={isGrid ? 'Show recipes as a list' : 'Show recipes as a grid'}
       >
         <Ionicons
           name={isGrid ? 'list-outline' : 'grid-outline'}
@@ -822,10 +824,12 @@ export default function DiscoverScreen() {
         <Pressable
           style={styles.surpriseModalOverlay}
           onPress={() => setShowSurpriseModal(false)}
+          accessible={false}
         >
           <Pressable
             style={[styles.surpriseModalContent, { backgroundColor: colors.card }]}
             onPress={(e) => e.stopPropagation()}
+            accessible={false}
           >
             <RNView style={styles.surpriseModalHeader}>
               <Ionicons name="shuffle" size={24} color={colors.warning} />
@@ -939,6 +943,8 @@ export default function DiscoverScreen() {
               },
             ]}
             onPress={() => setShowFilterModal(true)}
+            accessibilityRole="button"
+            accessibilityLabel={activeFilterCount > 0 ? `Filters, ${activeFilterCount} active` : 'Filters'}
           >
             <Ionicons
               name="options-outline"
@@ -1031,6 +1037,8 @@ export default function DiscoverScreen() {
               <TouchableOpacity
                 style={[styles.activeFilterChip, styles.extractorFilterChip, { backgroundColor: colors.tint }]}
                 onPress={clearExtractorFilter}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove filter: recipes by ${selectedExtractor.name}`}
               >
                 <Text style={[styles.activeFilterText, { color: '#FFFFFF' }]}>
                   by {selectedExtractor.name}{searchTotal > 0 ? ` (${searchTotal})` : ''}
@@ -1132,6 +1140,8 @@ export default function DiscoverScreen() {
                         borderColor: isSelected ? colors.tint : colors.border
                       }
                     ]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
                     onPress={() => {
                       haptics.light();
                       if (isSelected) {
@@ -1171,7 +1181,7 @@ export default function DiscoverScreen() {
                 );
               })}
               </ScrollView>
-              <TouchableOpacity onPress={() => setShowAllContributors(true)}>
+              <TouchableOpacity onPress={() => setShowAllContributors(true)} accessibilityRole="button">
                 <Text style={[styles.seeAllText, { color: colors.tint }]}>See all contributors</Text>
               </TouchableOpacity>
             </>}

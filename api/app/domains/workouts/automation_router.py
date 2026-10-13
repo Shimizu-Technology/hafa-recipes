@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.domains.workouts.automation_models import WorkoutImport, WorkoutProposal, WorkoutReadiness
+from app.domains.workouts.discover import discover_ready, require_discover, set_publication
 from app.domains.workouts.extraction import ExtractionRequest, WorkoutExtractionResult
 from app.domains.workouts.imports import MAX_IMPORTS_PER_DAY, create_import, workout_import_worker
 from app.domains.workouts.lifecycle import membership_for, now
@@ -70,6 +71,7 @@ async def capabilities(user: User, db: Database):
         and bool(configured.workouts_ai_budget_database_url)
         and configured.is_ai_capability_enabled("workout_coach"),
         "health_sync": configured.workouts_health_sync_enabled,
+        "discover": await discover_ready(db),
         "limits": {
             "successful_or_pending_imports_per_rolling_day": MAX_IMPORTS_PER_DAY,
             "coach_messages_per_rolling_day": 50,
@@ -163,6 +165,9 @@ async def cancel_import(import_id: UUID, user: User, db: Database, generation: G
 class AcceptImport(DomainModel):
     workout: WorkoutContent | None = None
     acknowledge_warnings: StrictBool = False
+    # Server default stays private so older clients never publish implicitly.
+    # Clients preselect True for link imports (capture_kind "url"), as Recipes does.
+    is_public: StrictBool = False
 
 
 def store_workout(
@@ -270,6 +275,12 @@ async def accept_import(
         return record_response(
             await owned_record(db, WorkoutRecord, row.accepted_workout_id, user.id, generation)
         )
+    if request.is_public:
+        await require_discover(db)
+        if row.status == "incomplete" and digest == content_digest(original_content):
+            raise HTTPException(
+                422, "Complete the missing workout details before sharing to Discover"
+            )
     saved = store_workout(db, user.id, generation, content, original_content=original_content)
     row.payload = None
     row.accepted_workout_id = saved.id
@@ -277,6 +288,8 @@ async def accept_import(
     from app.domains.workouts.library_organization_service import refresh_optional_source_metadata
 
     await refresh_optional_source_metadata(db, saved)
+    if request.is_public:
+        await set_publication(db, saved, user, True)
     await db.commit()
     return record_response(saved)
 
