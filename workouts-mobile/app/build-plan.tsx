@@ -135,6 +135,7 @@ export default function BuildPlan() {
       router.replace("/(tabs)/plan");
     });
   }
+  if (enrollment?.enrolled && q.isPending) return <Screen back title="Make a plan from your workouts."><Copy>Loading your training preferences…</Copy></Screen>;
   if (!enrollment?.enrolled || (q.isSuccess && !q.data?.profile)) return <Screen back title="Make a plan from your workouts." subtitle="A little context helps the plan fit your life.">
     <Copy>Choose a goal, your equipment and the days you can train. Measurements and other personal details are optional.</Copy>
     <Button title={enrollment?.enrolled ? "Set up training" : "Join Workouts"} onPress={() => router.push({ pathname: enrollment?.enrolled ? "/profile" : "/onboarding", params: { return_to: "build-plan", ...(include ? { include } : {}) } })} />
