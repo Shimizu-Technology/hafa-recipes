@@ -205,13 +205,13 @@ export default function SignIn() {
       subtitle="Two apps. One Håfa account."
     >
       <Card tone="hero">
-        <Copy kind="label" color="#DDEBCB">
+        <Copy kind="caption" tone="muted">
           HÅFA WORKOUTS · FREE BETA
         </Copy>
-        <Copy kind="heading" color="#FFFFFF">
+        <Copy kind="heading">
           From saved inspiration to a routine that fits.
         </Copy>
-        <Copy color="#E1EDD9">Already use Håfa Recipes? Use the same account and sign-in method.</Copy>
+        <Copy tone="muted">Already use Håfa Recipes? Use the same account and sign-in method.</Copy>
       </Card>
       <Notice>
         Recipes and training data stay separate unless you connect them. Deleting your whole Håfa account—including from

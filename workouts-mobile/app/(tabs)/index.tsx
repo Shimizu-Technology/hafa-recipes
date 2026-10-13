@@ -75,13 +75,13 @@ export default function Today() {
     >
       {offline.state.active && (
         <Card tone="hero">
-          <Copy kind="label" color="#DDEBCB">
+          <Copy kind="caption" tone="muted">
             YOUR SAVED SESSION
           </Copy>
-          <Copy kind="heading" color="#FFFFFF">
+          <Copy kind="heading">
             {offline.state.active.workout.title}
           </Copy>
-          <Copy color="#E1EDD9">
+          <Copy tone="muted">
             {offline.state.active.actuals.filter((a) => a.completed).length} recorded {offline.state.active.actuals.filter((a) => a.completed).length === 1 ? "set" : "sets"} · your progress is on this
             device.
           </Copy>
@@ -139,13 +139,13 @@ export default function Today() {
               />
             ) : (
               <Card tone="hero">
-                <Copy kind="label" color="#DDEBCB">
+                <Copy kind="caption" tone="muted">
                   {planned ? "TODAY’S SESSION" : "YOUR TRAINING FOCUS"}
                 </Copy>
-                <Copy kind="title" color="#FFFFFF">
+                <Copy kind="title">
                   {planned?.session.workout.title ?? goalLabels[profile.data.primary_goal]}
                 </Copy>
-                <Copy color="#E1EDD9">
+                <Copy tone="muted">
                   {planned?.session.purpose ??
                     "A good training week includes recovery. Choose a saved workout or review your plan."}
                 </Copy>

@@ -26,13 +26,13 @@ One Håfa account."
       subtitle="Cook well. Train your way."
     >
       <Card tone="hero">
-        <Copy kind="label" color="#DDEBCB">
+        <Copy kind="caption" tone="muted">
           THE HÅFA FAMILY
         </Copy>
-        <Copy kind="heading" color="#FFFFFF">
+        <Copy kind="heading">
           Useful routines for everyday life.
         </Copy>
-        <Copy color="#E1EDD9">
+        <Copy tone="muted">
           Recipes organizes your cooking inspiration. Workouts turns training inspiration into a routine you can follow.
         </Copy>
       </Card>
