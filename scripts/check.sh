@@ -5,6 +5,7 @@ repository_root="$(cd "$(dirname "$0")/.." && pwd)"
 
 (
   cd "$repository_root/api"
+  python3 scripts/check_requirements_lock.py
   uv run ruff check app migrations tests
 )
 
