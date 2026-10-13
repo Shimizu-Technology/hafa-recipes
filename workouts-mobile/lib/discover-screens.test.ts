@@ -457,3 +457,17 @@ it("background completion cleans its source after the user leaves while acceptan
   const captured = JSON.parse(fixture.map.get(draftKey("owner", "capture:1"))!);
   expect(captured.value ?? captured).toMatchObject({ source_url: "", text: "", files: [] });
 });
+it("a cold return reconciles an already saved import without another acceptance", async () => {
+  const { draftKey } = await import("./drafts");
+  fixture.focus = true;
+  fixture.map.set("imports:1", JSON.stringify([{ id: "job", label: "Link", generation: 1, auto_save: true }]));
+  fixture.map.set(draftKey("owner", "capture:1"), JSON.stringify({ request_id: "request", generation: 1, job_id: "job",
+    kind: "url", source_url: "https://example.test/workout", text: "", files: [], created_at: "2026-10-13T00:00:00Z" }));
+  fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.importJob.mockResolvedValue({ ...importJob("url"), accepted_workout_id: saved.id });
+  await mount(ImportList); await settle();
+  expect(fixture.acceptImport).not.toHaveBeenCalled();
+  expect(JSON.parse(fixture.map.get("imports:1")!)).toEqual([]);
+  const captured = JSON.parse(fixture.map.get(draftKey("owner", "capture:1"))!);
+  expect(captured.value ?? captured).toMatchObject({ source_url: "", text: "", files: [] });
+});

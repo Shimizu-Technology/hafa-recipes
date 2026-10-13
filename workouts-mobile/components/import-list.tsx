@@ -65,8 +65,9 @@ function ImportCard({ id, label, autoSave }: { id: string; label: string; autoSa
     enabled: !!enrollment?.enrolled && visible && !!autoSave, staleTime: 60000 });
   useEffect(() => {
     const job = q.data;
-    if (!autoSave || !visible || !active || !job || job.result?.workout?.capture_kind !== "url" || !canSaveAutomatically(job) ||
-      !capabilities.data || attempted.current || workoutErrors(job.result!.workout!).length) return;
+    const alreadySaved = !!job?.accepted_workout_id;
+    if (!autoSave || !visible || !active || !job || job.result?.workout?.capture_kind !== "url" ||
+      (!alreadySaved && (!canSaveAutomatically(job) || !capabilities.data || workoutErrors(job.result!.workout!).length)) || attempted.current) return;
     attempted.current = true;
     let alive = true;
     let acceptStarted = false;
@@ -78,21 +79,24 @@ function ImportCard({ id, label, autoSave }: { id: string; label: string; autoSa
       if (!storage.isCurrent() || !isCurrentAccount()) throw Error("This account changed. Open your current imports.");
     };
     void (async () => {
-      // Never accept the original over corrections the person has already started.
-      const edits = await localDrafts.load(owner, `import-edit:${generation}:${id}`);
-      guard();
-      if (edits) return;
-      const preference = await localDrafts.load<boolean>(owner, `import-visibility:${generation}:${id}`);
-      guard();
-      const sharing = capabilities.data!.discover === true && (preference ?? job.result!.workout!.capture_kind === "url");
-      if (sharing) {
-        const disclosure = await api.publishingDisclosure();
+      if (!alreadySaved) {
+        // Never accept the original over corrections the person has already started.
+        const edits = await localDrafts.load(owner, `import-edit:${generation}:${id}`);
         guard();
-        // A first publishing choice stays interactive; never open a surprise sheet from Library.
-        if (disclosure.requires_acceptance) return;
+        if (edits) return;
+        const preference = await localDrafts.load<boolean>(owner, `import-visibility:${generation}:${id}`);
+        guard();
+        const sharing = capabilities.data!.discover === true && (preference ?? job.result!.workout!.capture_kind === "url");
+        if (sharing) {
+          const disclosure = await api.publishingDisclosure();
+          guard();
+          // A first publishing choice stays interactive; never open a surprise sheet from Library.
+          if (disclosure.requires_acceptance) return;
+        }
+        acceptStarted = true;
+        await api.acceptImport(id, job.result!.workout!, generation, sharing, false);
       }
       acceptStarted = true;
-      await api.acceptImport(id, job.result!.workout!, generation, sharing, false);
       accountGuard();
       const slot = createPrivateDraftSlot<CaptureDraft>(storage, owner, `capture:${generation}`, Crypto.randomUUID);
       const captured = await slot.load(accountGuard);
