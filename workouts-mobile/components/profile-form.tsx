@@ -9,7 +9,7 @@ import { useTraining } from "@/lib/context";
 import { displayLoad, canonicalLoad, displayHeight, canonicalHeight, type UnitSystem } from "@/lib/training";
 import { RecordedTime } from "./recorded-time";
 import { View } from "react-native";
-import { Button, Choice, Copy, Field } from "./ui";
+import { Button, Chip, ChipRow, Choice, Copy, Field } from "./ui";
 import { goalLabels, type TrainingProfile, type Goal } from "@/lib/models";
 const dayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const equipment = ["dumbbells", "barbell", "bench", "pull_up_bar", "bands", "kettlebell", "machines"];
@@ -60,14 +60,15 @@ export function ProfileForm({
             />
           ))}
           <Copy kind="heading">Anything else you want to work toward?</Copy>
-          <Copy>Optional secondary goals help describe your priorities. Your main goal still guides the plan.</Copy>
+          <Copy tone="muted">Optional secondary goals help describe your priorities. Your main goal still guides the plan.</Copy>
+          <ChipRow wrap label="Secondary goals">
           {(Object.entries(goalLabels) as Array<[Goal, string]>)
             .filter(([goal]) => goal !== value.primary_goal)
             .map(([goal, label]) => (
-              <Choice
+              <Chip
                 disabled={disabled}
                 key={`secondary:${goal}`}
-                label={`Also: ${label}`}
+                label={label}
                 selected={!!value.secondary_goals?.includes(goal)}
                 onPress={() =>
                   set({
@@ -78,6 +79,7 @@ export function ProfileForm({
                 }
               />
             ))}
+          </ChipRow>
           {!!value.secondary_goals?.length && (
             <Button
               disabled={disabled}
@@ -269,14 +271,15 @@ export function ProfileForm({
         <>
           <EquipmentLocations disabled={disabled} value={value} update={update} />
           <Copy kind="heading">What can you train with?</Copy>
-          <Choice
+          <ChipRow wrap label="Equipment">
+          <Chip
             disabled={disabled}
             label="Bodyweight / no equipment"
             selected={value.equipment?.length === 0}
             onPress={() => set({ equipment: [] })}
           />
           {!value.equipment_locations?.length && (
-            <Choice
+            <Chip
               disabled={disabled}
               label="Decide later"
               selected={value.equipment === null}
@@ -284,7 +287,7 @@ export function ProfileForm({
             />
           )}
           {equipment.map((item) => (
-            <Choice
+            <Chip
               disabled={disabled}
               key={item}
               label={item.replaceAll("_", " ")}
@@ -292,9 +295,11 @@ export function ProfileForm({
               onPress={() => toggle(item)}
             />
           ))}
+          </ChipRow>
           <Copy kind="heading">Days you can usually train</Copy>
+          <ChipRow wrap label="Training days">
           {dayLabels.map((label, day) => (
-            <Choice
+            <Chip
               disabled={disabled}
               key={label}
               label={label}
@@ -308,6 +313,7 @@ export function ProfileForm({
               }
             />
           ))}
+          </ChipRow>
           <Field
             disabled={disabled}
             label="Session length · minutes"

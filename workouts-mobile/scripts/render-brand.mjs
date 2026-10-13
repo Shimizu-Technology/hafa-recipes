@@ -155,6 +155,12 @@ function renderAssets() {
     "-font", join(fonts, "dm-sans-regular.ttf"), "-pointsize", "36", "-fill", "#5E5046", "-annotate", "+90+340", "Save workouts you find. Train your way.",
     "-background", palettes.light.bg, "-alpha", "remove", "-alpha", "off", "-strip", ogPng,
   ]);
+  // "Håfa apps" screen: both family icons side by side. Recipes is rendered from its own master SVG.
+  svgToPng(iconSvg(draw, "light"), join(brandDir, "hafa-workouts-icon-240.png"), 240);
+  flatten(join(brandDir, "hafa-workouts-icon-240.png"), palettes.light.bg);
+  run("rsvg-convert", ["-w", "240", "-h", "240", join(repo, "mobile/assets/brand/hafa-recipes-icon.svg"), "-o", join(brandDir, "hafa-recipes-icon-240.png")]);
+  flatten(join(brandDir, "hafa-recipes-icon-240.png"), palettes.light.bg);
+
   // In-app mark geometry (react-native-svg). Generated so it can never drift from the master SVG.
   writeFileSync(
     join(mobile, "components/brand-mark-shapes.ts"),

@@ -283,7 +283,7 @@ export function Segmented<T extends string>({
   onChange,
   label,
 }: {
-  options: { value: T; label: string }[];
+  options: { value: NoInfer<T>; label: string }[];
   value: T;
   onChange(value: T): void;
   label: string;
@@ -406,6 +406,7 @@ export function Choice({
   onPress,
   disabled = false,
   busy = false,
+  icon,
 }: {
   label: string;
   detail?: string;
@@ -413,6 +414,8 @@ export function Choice({
   onPress(): void;
   disabled?: boolean;
   busy?: boolean;
+  /** Optional leading icon (e.g. source type). */
+  icon?: IconName;
 }) {
   const c = useColors();
   const reduced = useReducedMotion();
@@ -444,6 +447,7 @@ export function Choice({
         alignItems: "center",
       })}
     >
+      {!!icon && <Ionicons name={icon} size={22} color={selected ? c.action : c.muted} />}
       <View style={{ flex: 1, gap: 2 }}>
         <Copy kind="label">{label}</Copy>
         {!!detail && (

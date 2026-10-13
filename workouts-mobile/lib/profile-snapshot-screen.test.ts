@@ -29,7 +29,7 @@ vi.mock("@/lib/context", () => {
 });
 vi.mock("react-native", () => ({ View: "View" }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
-vi.mock("@/components/ui", () => ({ Screen: "Screen", Button: "Button", Notice: "Notice", Empty: "Empty" }));
+vi.mock("@/components/ui", () => ({ Screen: "Screen", Button: "Button", Notice: "Notice", Empty: "Empty", AccountButton: "AccountButton" }));
 vi.mock("@/components/query-state", () => ({ QueryState: "QueryState" }));
 vi.mock("@/components/profile-form", () => ({ ProfileForm: "ProfileForm" }));
 import Profile from "../app/profile";

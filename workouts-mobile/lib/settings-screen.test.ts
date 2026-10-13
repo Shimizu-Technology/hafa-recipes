@@ -11,6 +11,9 @@ vi.mock("@/components/ui", () => ({
   Copy: ({ children }: PropsWithChildren) => createElement("copy", null, children),
   Notice: ({ children }: PropsWithChildren) => createElement("notice", null, children),
   Button: ({ title, onPress }: { title: string; onPress(): void }) => createElement("button", { onClick: onPress }, title),
+  ListGroup: ({ children }: PropsWithChildren) => createElement("list", null, children),
+  ListRow: ({ title }: { title: string }) => createElement("row", null, title),
+  SectionHeader: ({ title }: { title: string }) => createElement("section", null, title),
 }));
 import Settings from "../app/settings";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

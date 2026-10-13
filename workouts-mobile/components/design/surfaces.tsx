@@ -153,10 +153,13 @@ export function MediaCard({
   onPress,
   layout = "row",
   accessibilityLabel,
+  icon,
 }: {
   title: string;
   meta?: string;
   image?: string | null;
+  /** Placeholder glyph when there's no thumbnail (defaults to the brand mark). */
+  icon?: IconName;
   chips?: string[];
   badge?: string;
   onPress?: () => void;
@@ -173,7 +176,7 @@ export function MediaCard({
         height: stacked ? 168 : 92,
         borderRadius: radii.lg - 4,
         overflow: "hidden",
-        backgroundColor: c.sunken,
+        backgroundColor: image ? c.sunken : c.actionSoft,
         alignItems: "center",
         justifyContent: "center",
       }}
@@ -186,6 +189,8 @@ export function MediaCard({
           style={{ width: "100%", height: "100%" }}
           accessibilityIgnoresInvertColors
         />
+      ) : icon ? (
+        <Ionicons name={icon} size={stacked ? 40 : 30} color={c.onActionSoft} />
       ) : (
         <BrandMark height={stacked ? 40 : 26} />
       )}
@@ -573,5 +578,44 @@ export function ToastProvider({ children }: PropsWithChildren) {
         </Animated.View>
       )}
     </ToastContext.Provider>
+  );
+}
+
+/** Chat bubble for coach conversations. */
+export function Bubble({ from, children, meta }: PropsWithChildren<{ from: "you" | "coach"; meta?: string }>) {
+  const c = useColors();
+  const you = from === "you";
+  return (
+    <View style={{ alignItems: you ? "flex-end" : "flex-start", gap: 4 }}>
+      <View
+        style={{
+          maxWidth: "88%",
+          paddingVertical: 12,
+          paddingHorizontal: 16,
+          gap: 6,
+          borderRadius: radii.lg,
+          borderBottomRightRadius: you ? 6 : radii.lg,
+          borderBottomLeftRadius: you ? radii.lg : 6,
+          backgroundColor: you ? c.actionSoft : c.surface,
+          borderWidth: you ? 0 : 1,
+          borderColor: c.border,
+        }}
+      >
+        {!you && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <BrandMark height={12} />
+            <Copy kind="caption" tone="muted">
+              Your AI coach
+            </Copy>
+          </View>
+        )}
+        {children}
+      </View>
+      {!!meta && (
+        <Copy kind="small" tone="muted" style={{ fontSize: 12 }}>
+          {meta}
+        </Copy>
+      )}
+    </View>
   );
 }

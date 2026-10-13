@@ -131,7 +131,19 @@ vi.mock("@/components/ui", () => ({
   Choice: "Choice",
   Notice: "Notice",
   Button: "Button",
-  Empty: "Empty"
+  Empty: "Empty",
+  AccountButton: "AccountButton",
+  Chip: "Chip",
+  ChipRow: "ChipRow",
+  Grow: "Grow",
+  IconButton: "IconButton",
+  ListGroup: "ListGroup",
+  ListRow: "ListRow",
+  Row: "Row",
+  SectionHeader: "SectionHeader",
+  Segmented: "Segmented",
+  Skeleton: "Skeleton",
+  Stack: "Stack"
 }));
 vi.mock("@/components/query-state", () => ({ QueryState: "QueryState" }));
 vi.mock("@/components/profile-form", () => ({ ProfileForm: "ProfileForm" }));

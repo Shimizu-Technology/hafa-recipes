@@ -78,7 +78,7 @@ export function WorkoutEditor({
             }
           />
           {block.exercises.map((e, ei) => (
-            <Card key={`${block.id}:${ei}`}>
+            <Card key={`${block.id}:${ei}`} tone="sunken" compact>
               <Field
                 disabled={disabled}
                 label="Exercise name"
