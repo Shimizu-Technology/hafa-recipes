@@ -93,6 +93,10 @@ async def save_import_result(db, row, result, preferences):
 
     if result.status not in {"ready", "incomplete"}:
         return
+    if result.status == "incomplete" and not result.warnings:
+        result.warnings.append(
+            "Some exercises are missing rounds, sets, reps, time, or distance. Missing values stay unspecified."
+        )
     result.workout.extraction_warnings = list(result.warnings)
     content = validated_workout(result.workout, authored=False)
     saved = store_workout(db, row.app_user_id, row.generation, content)
