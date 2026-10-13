@@ -69,9 +69,13 @@ function ImportCard({ id, label, autoSave }: { id: string; label: string; autoSa
       !capabilities.data || attempted.current || workoutErrors(job.result!.workout!).length) return;
     attempted.current = true;
     let alive = true;
+    let acceptStarted = false;
     const generation = job.generation;
     const guard = () => {
       if (!alive || !storage.isCurrent() || !isCurrentAccount()) throw Error("This account changed. Open your current imports.");
+    };
+    const accountGuard = () => {
+      if (!storage.isCurrent() || !isCurrentAccount()) throw Error("This account changed. Open your current imports.");
     };
     void (async () => {
       // Never accept the original over corrections the person has already started.
@@ -87,25 +91,26 @@ function ImportCard({ id, label, autoSave }: { id: string; label: string; autoSa
         // A first publishing choice stays interactive; never open a surprise sheet from Library.
         if (disclosure.requires_acceptance) return;
       }
+      acceptStarted = true;
       await api.acceptImport(id, job.result!.workout!, generation, sharing, false);
-      guard();
+      accountGuard();
       const slot = createPrivateDraftSlot<CaptureDraft>(storage, owner, `capture:${generation}`, Crypto.randomUUID);
-      const captured = await slot.load(guard);
-      guard();
+      const captured = await slot.load(accountGuard);
+      accountGuard();
       if (captured.value?.job_id === id && captured.value.generation === generation &&
         !captured.value.files.length && !captured.value.cleanup_files?.length) {
         try {
           await slot.save(captured.revision, { request_id: Crypto.randomUUID(), generation, kind: "url",
-            source_url: "", text: "", files: [], created_at: new Date().toISOString() }, guard);
+            source_url: "", text: "", files: [], created_at: new Date().toISOString() }, accountGuard);
         } catch (error) {
           if (!(error as { captureDraftConflict?: boolean }).captureDraftConflict) throw error;
         }
       }
-      await updateImportReferences(localDrafts, owner, generation, guard, (items) => items.filter((item) => item.id !== id));
+      await updateImportReferences(localDrafts, owner, generation, accountGuard, (items) => items.filter((item) => item.id !== id));
       await cache.invalidateQueries({ queryKey: [owner, "library"] });
       await q.refetch();
     })().catch(() => { if (alive && storage.isCurrent()) setSaveError("Could not finish saving. Open this import to retry."); });
-    return () => { alive = false; };
+    return () => { alive = false; if (!acceptStarted) attempted.current = false; };
   }, [autoSave, visible, active, q.data, capabilities.data, owner, id, storage]);
   if (q.data?.accepted_workout_id) return null;
   return (

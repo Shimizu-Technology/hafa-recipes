@@ -22,7 +22,12 @@ export type CaptureKind = "url" | "text" | "images" | "document";
 export function sharedWorkoutURL(webUrl?: string | null, text?: string | null, metadataUrl?: string | null) {
   const direct = webUrl?.trim() || metadataUrl?.trim();
   if (direct && /^https?:\/\//i.test(direct)) return direct;
-  return text?.match(/https?:\/\/[^\s<>"']+/i)?.[0] ?? null;
+  const match = text?.match(/https?:\/\/[^\s<>"']+/i);
+  if (!match) return null;
+  const wrapper = text?.[(match.index ?? 0) - 1];
+  const suffix = wrapper === "(" ? match[0].match(/\)[.,!?;:]*$/) : wrapper === "[" ? match[0].match(/\][.,!?;:]*$/) : null;
+  // Only remove an explicit outer wrapper. Bare terminal punctuation may be a valid URL character.
+  return suffix ? match[0].slice(0, -suffix[0].length) : match[0];
 }
 export interface CaptureFile {
   uri: string;

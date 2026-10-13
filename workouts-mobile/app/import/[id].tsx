@@ -59,6 +59,7 @@ export default function ImportReview() {
   const [editing, setEditing] = useState(false);
   const [sourceDetails, setSourceDetails] = useState(false);
   const [restored, setRestored] = useState(false);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
   const [autoAllowed, setAutoAllowed] = useState(false);
   const saving = useRef(false);
   const visibilityWrites = useRef<Promise<void>>(Promise.resolve());
@@ -109,15 +110,17 @@ export default function ImportReview() {
         if (valid && isCurrent() && saved.value?.job_id === id && saved.value.generation === generation)
           setOriginal(saved);
       })
-      .catch(() => {
+      .catch((error) => {
         if (valid && isCurrent()) setError("Could not restore the original source for cleanup.");
+        throw error;
       });
     const editLoad = localDrafts.load<AuthoredWorkout>(owner, `import-edit:${generation}:${id}`)
       .then((value) => {
         if (valid && isCurrent()) setEdited(value);
       })
-      .catch(() => {
+      .catch((error) => {
         if (valid && isCurrent()) setError("Could not restore your corrections for this import.");
+        throw error;
       });
     const visibilityLoad = localDrafts.load<boolean>(owner, `import-visibility:${generation}:${id}`).then((value) => {
       if (valid && isCurrent() && typeof value === "boolean") setShareChoice(value);
@@ -128,11 +131,11 @@ export default function ImportReview() {
     });
     void Promise.all([sourceLoad, editLoad, visibilityLoad, referencesLoad]).then(() => {
       if (valid && isCurrent()) setRestored(true);
-    }).catch(() => { if (valid && isCurrent()) setError("Could not restore sharing preferences. Reopen this import to retry."); });
+    }).catch(() => { if (valid && isCurrent()) setError("Could not restore this import’s saved choices. Try loading again before saving."); });
     return () => {
       valid = false;
     };
-  }, [owner, id, generation, slot, epoch]);
+  }, [owner, id, generation, slot, epoch, restoreAttempt]);
   function update(value: AuthoredWorkout) {
     if (!routeReady || !isCurrent()) return;
     setEdited(value);
@@ -140,7 +143,8 @@ export default function ImportReview() {
       if (isCurrent()) setError("Could not keep your corrections on this device. Stay here until saved.");
     });
   }
-  function chooseVisibility(value: boolean) {
+  function chooseVisibility(value: boolean, fromDisclosure = false) {
+    if (saving.current && !fromDisclosure) return Promise.resolve();
     setShareChoice(value);
     const next = visibilityWrites.current.catch(() => undefined).then(async () => {
       current();
@@ -210,7 +214,7 @@ export default function ImportReview() {
         : await api.acceptImport(id, content, importGeneration, false, !automatic);
       current();
       if (accepted === DECLINED) {
-        await chooseVisibility(false);
+        await chooseVisibility(false, true);
         current();
         accepted = await api.acceptImport(id, content, importGeneration, false, !automatic);
         current();
@@ -361,7 +365,7 @@ export default function ImportReview() {
                   title={routeReady && editing ? "Show workout summary" : "Correct workout details"}
                   secondary
                   icon={routeReady && editing ? "eye-outline" : "create-outline"}
-                  disabled={busy}
+                  disabled={busy || !restored}
                   onPress={() => {
                     if (routeReady && isCurrent()) setEditing(!editing);
                   }}
@@ -472,6 +476,9 @@ export default function ImportReview() {
         )}
       </QueryState>
       {!!error && <Notice error>{error}</Notice>}
+      {!restored && !!error && <Button title="Try loading again" secondary disabled={busy} onPress={() => {
+        setError(""); setRestoreAttempt((value) => value + 1); void q.refetch();
+      }} />}
       <Notice>
         Uploaded photos and documents are temporary: they are cleared after acceptance, cancellation or expiry. Your
         library keeps the prescription, evidence and source link where available. An incomplete private draft may stay

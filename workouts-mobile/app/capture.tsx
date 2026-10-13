@@ -332,7 +332,8 @@ export default function Capture() {
         current();
       }
       const original = draftRef.current;
-      const pending = { ...original, pending_import: true, auto_save: true };
+      const pending = { ...original, pending_import: true,
+        auto_save: original.pending_import ? original.auto_save === true : original.kind === "url" };
       // Persist original UUID/fields before any transport; retries stay frozen.
       const frozen = await persist(pending);
       const source = await sourceFor(frozen, current);
@@ -342,7 +343,7 @@ export default function Capture() {
         {
           id: job.id,
           generation: frozen.generation,
-          auto_save: true,
+          auto_save: frozen.auto_save === true,
           label:
             frozen.kind === "url"
               ? frozen.source_url

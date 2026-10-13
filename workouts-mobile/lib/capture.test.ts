@@ -596,3 +596,11 @@ it("concurrent import completion and intake keep the newer reference", async () 
   ]);
   expect(await local.load("reference-owner", "imports:1")).toEqual([{ id: "B", label: "Newer" }]);
 });
+
+it("shared-link caption wrappers are removed while literal URL punctuation is preserved", async () => {
+  const { sharedWorkoutURL } = await import("./capture");
+  expect(sharedWorkoutURL(null, "Watch (https://youtu.be/qa-video)." )).toBe("https://youtu.be/qa-video");
+  expect(sharedWorkoutURL(null, "Read [https://example.test/a_(b)]." )).toBe("https://example.test/a_(b)");
+  expect(sharedWorkoutURL(null, "https://example.test/a." )).toBe("https://example.test/a.");
+  expect(sharedWorkoutURL("https://example.test/a;", "Caption")).toBe("https://example.test/a;");
+});

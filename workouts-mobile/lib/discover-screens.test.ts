@@ -89,7 +89,7 @@ vi.mock("expo-router", async () => {
   const { useEffect } = await import("react");
   return ({
   router: { push: fixture.push, replace: fixture.replace, back: vi.fn(), navigate: vi.fn() },
-  useFocusEffect(callback: () => (() => void) | void) { useEffect(() => fixture.focus ? callback() : undefined, [callback]); },
+  useFocusEffect(callback: () => (() => void) | void) { useEffect(() => fixture.focus ? callback() : undefined, [callback, fixture.focus]); },
   useLocalSearchParams: () => fixture.params,
 }); });
 vi.mock("expo-crypto", () => ({ randomUUID: () => "uuid" }));
@@ -426,4 +426,34 @@ it("informational sampled-frame metadata does not add a confirmation to a comple
   fixture.acceptImport.mockResolvedValue(saved);
   await mount(ImportReview);
   expect(fixture.acceptImport).toHaveBeenCalledWith("job", expect.anything(), 1, false, false);
+});
+
+it("a failed saved-choice restore stays closed and can be retried explicitly", async () => {
+  fixture.focus = true; fixture.params = { id: "job", auto: "1" };
+  const healthy = fixture.load.getMockImplementation()!;
+  fixture.load.mockImplementation(async (...args) => { if (args[1].startsWith("import-visibility:")) throw Error("device read failed"); return healthy(...args); });
+  fixture.capabilities.mockResolvedValue(caps(false)); fixture.importJob.mockResolvedValue(importJob("url"));
+  fixture.acceptImport.mockResolvedValue(saved); await mount(ImportReview);
+  expect(fixture.acceptImport).not.toHaveBeenCalled();
+  expect(button("Save workout")!.props.disabled).toBe(true);
+  expect(button("Try loading again")).toBeDefined();
+  fixture.load.mockImplementation(healthy); await act(async () => button("Try loading again")!.props.onPress()); await settle();
+  expect(fixture.acceptImport).toHaveBeenCalledTimes(1);
+});
+it("background completion cleans its source after the user leaves while acceptance is in flight", async () => {
+  const { draftKey } = await import("./drafts");
+  fixture.focus = true;
+  fixture.map.set("imports:1", JSON.stringify([{ id: "job", label: "Link", generation: 1, auto_save: true }]));
+  fixture.map.set("import-visibility:1:job", "false");
+  fixture.map.set(draftKey("owner", "capture:1"), JSON.stringify({ request_id: "request", generation: 1, job_id: "job",
+    kind: "url", source_url: "https://example.test/workout", text: "", files: [], created_at: "2026-10-13T00:00:00Z" }));
+  fixture.capabilities.mockResolvedValue(caps(false)); fixture.importJob.mockResolvedValue(importJob("url"));
+  let finish!: (value: Workout) => void; fixture.acceptImport.mockImplementation(() => new Promise<Workout>((resolve) => { finish = resolve; }));
+  await mount(ImportList); expect(fixture.acceptImport).toHaveBeenCalledTimes(1); fixture.focus = false;
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(ImportList)))); await settle();
+  await act(async () => finish(saved)); await settle();
+  expect(fixture.acceptImport).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(fixture.map.get("imports:1")!)).toEqual([]);
+  const captured = JSON.parse(fixture.map.get(draftKey("owner", "capture:1"))!);
+  expect(captured.value ?? captured).toMatchObject({ source_url: "", text: "", files: [] });
 });

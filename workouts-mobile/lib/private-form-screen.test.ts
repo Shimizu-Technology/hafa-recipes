@@ -1354,3 +1354,14 @@ it("a social app's text-only shared link uses URL extraction and keeps its capti
   expect(captured).toMatchObject({ kind: "url", source_url: "https://youtu.be/qa-video", text: fixture.intent.text });
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/capture", params: { shared: "1", request_id: captured.request_id } });
 });
+it("photo imports keep an explicit review step even when extraction succeeds", async () => {
+  fixture.map.set(draftKey(fixture.owner, "capture:1"), JSON.stringify({ request_id: "photo-request", generation: 1,
+    kind: "images", source_url: "", text: "", files: [{ uri: "file:///cache/qa.jpg", name: "QA image", mime_type: "image/jpeg", owned: true }],
+    created_at: "2026-10-13T00:00:00Z" }));
+  fixture.startImport.mockResolvedValue({ id: "photo-job" });
+  await mount(Capture); await click("Extract workout");
+  const captured = JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!);
+  expect(captured.auto_save).toBe(false);
+  const references = JSON.parse(fixture.map.get(draftKey(fixture.owner, "imports:1"))!);
+  expect(references[0]).toMatchObject({ id: "photo-job", auto_save: false });
+});
