@@ -68,4 +68,20 @@ describe('cook mode step persistence', () => {
       await act(async () => root.unmount());
     }
   });
+
+  it('does not carry the previous recipe position into another recipe', async () => {
+    storage.getItem.mockImplementation(async (key: string) => (key.endsWith('a') ? '2' : null));
+    const root = createRoot();
+    try {
+      await act(async () => root.render(<Harness id="a" stepCount={5} />));
+      expect(step).toBe(2);
+      storage.setItem.mockClear();
+      await act(async () => root.render(<Harness id="b" stepCount={5} />));
+      expect(step).toBe(0);
+      expect(storage.setItem).not.toHaveBeenCalledWith('cook_mode_step_b', '2');
+      expect(storage.setItem).toHaveBeenLastCalledWith('cook_mode_step_b', '0');
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
 });

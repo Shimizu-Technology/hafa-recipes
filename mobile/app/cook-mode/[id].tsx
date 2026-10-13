@@ -171,7 +171,7 @@ export default function CookModeScreen() {
     pauseTimerNotification,
     resumeTimerNotification,
     hasScheduledNotification,
-  } = useBackgroundTimer();
+  } = useBackgroundTimer(id ? `cook-mode:${id}` : 'cook-mode');
   
   // Track app state for syncing timers
   const appState = useRef<AppStateStatus>(AppState.currentState);

@@ -28,6 +28,21 @@ interface ScheduledNotification {
   endTime: number; // Unix timestamp when timer ends
 }
 
+// Scheduled notification IDs live at module scope, keyed by scope (the recipe
+// in cook mode), so leaving and re-entering cook mode — which remounts the
+// screen while its timers keep running — can still pause, cancel, and
+// recognize notifications that were scheduled before the remount.
+const scheduledByScope = new Map<string, Map<number, ScheduledNotification>>();
+
+function scheduledFor(scope: string): Map<number, ScheduledNotification> {
+  let scheduled = scheduledByScope.get(scope);
+  if (!scheduled) {
+    scheduled = new Map();
+    scheduledByScope.set(scope, scheduled);
+  }
+  return scheduled;
+}
+
 /**
  * Request notification permissions
  */
@@ -45,9 +60,15 @@ export async function requestNotificationPermissions(): Promise<boolean> {
 /**
  * Hook to manage background timer notifications
  */
-export function useBackgroundTimer() {
+export function useBackgroundTimer(scope = 'default') {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const scheduledNotifications = useRef<Map<number, ScheduledNotification>>(new Map());
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  const scheduledNotifications = useRef({
+    get current() {
+      return scheduledFor(scopeRef.current);
+    },
+  }).current;
   const appState = useRef<AppStateStatus>(AppState.currentState);
   
   // Check permissions on mount

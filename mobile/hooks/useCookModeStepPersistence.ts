@@ -22,6 +22,9 @@ export function useCookModeStepPersistence(
   useEffect(() => {
     if (!recipeId || stepCount === 0 || restoredFor === recipeId) return;
     let cancelled = false;
+    // A different recipe in the same screen instance starts from its own saved
+    // step (or the first step), never the previous recipe's position.
+    if (restoredFor !== null) setCurrentStepIndex(0);
 
     (async () => {
       try {
