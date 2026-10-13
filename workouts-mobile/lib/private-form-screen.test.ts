@@ -1,8 +1,8 @@
-import { createElement, Fragment, useLayoutEffect, type ComponentType } from "react";
+import { createElement, Fragment, useLayoutEffect, useState, type ComponentType } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { initialProfile, type Workout } from "./models";
+import { initialProfile, type AuthoredWorkout, type Workout } from "./models";
 import { draftKey } from "./drafts";
 import type { Measurement } from "./measurements";
 const fixture = vi.hoisted(() => ({
@@ -1346,6 +1346,66 @@ it("a stale accepted consent display cannot silently re-enable revoked AI consen
   expect(fixture.startImport).not.toHaveBeenCalled();
   expect(button("Agree and extract")).toBeDefined();
 });
+
+async function mountRealWorkoutEditor(content: AuthoredWorkout, disabled = false) {
+  const { WorkoutEditor } = await vi.importActual<typeof import("@/components/workout-editor")>("@/components/workout-editor");
+  function Controlled() {
+    const [value, setValue] = useState(content);
+    return createElement(WorkoutEditor, { value, disabled, onChange(next: AuthoredWorkout) { fixture.updateWorkout(next); setValue(next); } });
+  }
+  await mount(Controlled);
+}
+it("keeps unknowns and less common prescription values intact through simple editing and expansion", async () => {
+  const content: AuthoredWorkout = { ...workout, provenance: "source", blocks: [{
+    id: "main", label: "Strength", grouping: "circuit", rounds: 3, rest_between_rounds_seconds: 60,
+    exercises: [{ name: "Row", provenance: "source", reps_min: null, reps_max: null, rest_seconds: 45,
+      load: 10, load_unit: "kg", load_convention: "per_hand", tempo: "3-1-1", notes: "Control the movement", per_side: null }],
+  }] };
+  await mountRealWorkoutEditor(content);
+  expect(nodes("Field").map((n) => n.props.label)).toEqual(["Workout title", "Required equipment · comma separated", "Exercise name", "Sets", "Reps"]);
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+  await click("More details for Row");
+  expect(nodes("Field").find((n) => n.props.label === "Rest · seconds")!.props.value).toBe("45");
+  expect(nodes("Field").find((n) => n.props.label === "Source load · kg")!.props.value).toBe("10");
+  expect(nodes("Field").find((n) => n.props.label === "Tempo")!.props.value).toBe("3-1-1");
+  await click("Hide details for Row");
+  await click("Show block settings: Strength");
+  expect(nodes("Field").find((n) => n.props.label === "Rounds · separate from exercise sets")!.props.value).toBe("3");
+  await click("Hide block settings: Strength");
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+  await act(async () => nodes("Field").find((n) => n.props.label === "Sets")!.props.onChange("2"));
+  const corrected = fixture.updateWorkout.mock.calls[0][0];
+  expect(corrected.blocks[0]).toEqual({ ...content.blocks[0], exercises: [{ ...content.blocks[0].exercises[0], sets: 2, provenance: "user" }] });
+  expect(corrected.blocks[0].exercises[0].reps_min).toBeNull();
+  expect(corrected.blocks[0].exercises[0].reps_max).toBeNull();
+});
+it("shows existing time and distance without making optional numeric fields into zero", async () => {
+  await mountRealWorkoutEditor({ ...workout, blocks: [{ ...workout.blocks[0], exercises: [{ name: "Run", duration_seconds: 60, distance_meters: 400 }] }] });
+  expect(nodes("Field").find((n) => n.props.label === "Time · seconds")!.props.value).toBe("60");
+  expect(nodes("Field").find((n) => n.props.label === "Distance · metres")!.props.value).toBe("400");
+  expect(nodes("Field").find((n) => n.props.label === "Reps")!.props.value).toBe("");
+  await act(async () => nodes("Field").find((n) => n.props.label === "Time · seconds")!.props.onChange(""));
+  const correction = fixture.updateWorkout.mock.calls[0][0].blocks[0].exercises[0];
+  expect(correction.duration_seconds).toBeNull();
+  expect(correction.distance_meters).toBe(400);
+  expect(correction.reps_min).toBeUndefined();
+});
+it("keeps invalid optional values visible for correction", async () => {
+  await mountRealWorkoutEditor({ ...workout, blocks: [{ ...workout.blocks[0], exercises: [{ name: "Row", load: 10, rest_seconds: -1 }] }] });
+  expect(nodes("Field").find((n) => n.props.label === "Rest · seconds")!.props.value).toBe("-1");
+  expect(nodes("Field").find((n) => n.props.label === "Source load · select a unit")!.props.value).toBe("10");
+  expect(nodes("Choice").find((n) => n.props.label === "kg")).toBeDefined();
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+});
+it("does not change or expand a disabled workout editor", async () => {
+  await mountRealWorkoutEditor(workout, true);
+  expect(nodes("Field").every((n) => n.props.disabled)).toBe(true);
+  await act(async () => nodes("Field").find((n) => n.props.label === "Exercise name")!.props.onChange("Changed"));
+  await click("More details for Row");
+  expect(nodes("Field").find((n) => n.props.label === "Tempo")).toBeUndefined();
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+});
+
 it("a social app's text-only shared link uses URL extraction and keeps its caption", async () => {
   fixture.share = true;
   fixture.intent = { webUrl: "", text: "Try this workout https://youtu.be/qa-video Three rounds", files: [] };

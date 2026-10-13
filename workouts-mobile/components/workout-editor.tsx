@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { Button, Card, Choice, Copy, Field, Notice } from "./ui";
+import { prescriptionLine } from "@/lib/discover";
 import type { AuthoredWorkout, ExercisePrescription } from "@/lib/models";
 export function WorkoutEditor({
   value,
@@ -11,8 +12,14 @@ export function WorkoutEditor({
   onChange(value: AuthoredWorkout): void;
   disabled?: boolean;
 }) {
+  const [expandedBlocks, setExpandedBlocks] = useState<string[]>([]);
+  const [expandedExercises, setExpandedExercises] = useState<string[]>([]);
+  function update(next: AuthoredWorkout) { if (!disabled) onChange(next); }
+  function toggle(key: string, selected: string[], set: (keys: string[]) => void) {
+    if (!disabled) set(selected.includes(key) ? selected.filter((item) => item !== key) : [...selected, key]);
+  }
   function exercise(block: number, index: number, change: Partial<ExercisePrescription>) {
-    onChange({
+    update({
       ...value,
       blocks: value.blocks.map((b, i) =>
         i === block
@@ -27,7 +34,7 @@ export function WorkoutEditor({
         disabled={disabled}
         label="Workout title"
         value={value.title}
-        onChange={(title) => onChange({ ...value, title })}
+        onChange={(title) => update({ ...value, title })}
       />
       <Field
         disabled={disabled}
@@ -35,7 +42,7 @@ export function WorkoutEditor({
         optional
         value={value.equipment_required?.join(", ") ?? ""}
         onChange={(text) =>
-          onChange({
+          update({
             ...value,
             equipment_required: text
               .split(",")
@@ -48,14 +55,21 @@ export function WorkoutEditor({
         Missing facts can remain blank. Changes below are your corrections; they are not newly discovered creator
         instructions.
       </Notice>
-      {value.blocks.map((block, bi) => (
+      {value.blocks.map((block, bi) => {
+        const blockInvalid = !block.label.trim() || (block.rounds != null && (!Number.isInteger(block.rounds) || block.rounds < 1 || block.rounds > 100));
+        const blockExpanded = expandedBlocks.includes(block.id) || blockInvalid;
+        return (
         <Card key={block.id}>
+          <Copy kind="heading">{block.label || "Workout block"}</Copy>
+          <Copy kind="small" tone="muted">{block.grouping}{block.rounds != null ? ` · ${block.rounds} rounds` : ""}</Copy>
+          <Button title={`${blockExpanded ? "Hide" : "Show"} block settings: ${block.label || "Workout block"}`} variant="ghost" disabled={disabled} onPress={() => toggle(block.id, expandedBlocks, setExpandedBlocks)} />
+          {blockExpanded && <>
           <Field
             disabled={disabled}
             label="Block name"
             value={block.label}
             onChange={(label) =>
-              onChange({ ...value, blocks: value.blocks.map((b, i) => (i === bi ? { ...b, label } : b)) })
+              update({ ...value, blocks: value.blocks.map((b, i) => (i === bi ? { ...b, label } : b)) })
             }
           />
           {(["sequential", "circuit", "superset", "interval"] as const).map((grouping) => (
@@ -65,7 +79,7 @@ export function WorkoutEditor({
               label={grouping}
               selected={block.grouping === grouping}
               onPress={() =>
-                onChange({ ...value, blocks: value.blocks.map((b, i) => (i === bi ? { ...b, grouping } : b)) })
+                update({ ...value, blocks: value.blocks.map((b, i) => (i === bi ? { ...b, grouping } : b)) })
               }
             />
           ))}
@@ -74,11 +88,19 @@ export function WorkoutEditor({
             label="Rounds · separate from exercise sets"
             value={block.rounds}
             onChange={(rounds) =>
-              onChange({ ...value, blocks: value.blocks.map((b, i) => (i === bi ? { ...b, rounds } : b)) })
+              update({ ...value, blocks: value.blocks.map((b, i) => (i === bi ? { ...b, rounds } : b)) })
             }
           />
-          {block.exercises.map((e, ei) => (
-            <Card key={`${block.id}:${ei}`} tone="sunken" compact>
+          </>}
+          {block.exercises.map((e, ei) => {
+            const key = `${block.id}:${ei}`;
+            const invalidLoad = e.load != null && (!Number.isFinite(e.load) || e.load < 0 || !e.load_unit || !e.load_convention);
+            const invalidRest = e.rest_seconds != null && (!Number.isInteger(e.rest_seconds) || e.rest_seconds < 0 || e.rest_seconds > 7200);
+            const expanded = expandedExercises.includes(key) || invalidLoad || invalidRest;
+            const range = e.reps_max != null && e.reps_max !== e.reps_min;
+            return (
+            <Card key={key} tone="sunken" compact>
+              <Copy kind="small" tone="muted">{prescriptionLine(e)}</Copy>
               <Field
                 disabled={disabled}
                 label="Exercise name"
@@ -93,28 +115,30 @@ export function WorkoutEditor({
               />
               <NumberField
                 disabled={disabled}
-                label="Minimum reps"
+                label={range ? "Minimum reps" : "Reps"}
                 value={e.reps_min}
-                onChange={(reps_min) => exercise(bi, ei, { reps_min })}
+                onChange={(reps_min) => exercise(bi, ei, { reps_min, ...(!range && e.reps_max != null ? { reps_max: reps_min } : {}) })}
               />
-              <NumberField
+              {(range || expanded) && <NumberField
                 disabled={disabled}
                 label="Maximum reps"
                 value={e.reps_max}
                 onChange={(reps_max) => exercise(bi, ei, { reps_max })}
-              />
-              <NumberField
+              />}
+              {(e.duration_seconds != null || expanded) && <NumberField
                 disabled={disabled}
                 label="Time · seconds"
                 value={e.duration_seconds}
                 onChange={(duration_seconds) => exercise(bi, ei, { duration_seconds })}
-              />
-              <NumberField
+              />}
+              {(e.distance_meters != null || expanded) && <NumberField
                 disabled={disabled}
                 label="Distance · metres"
                 value={e.distance_meters}
                 onChange={(distance_meters) => exercise(bi, ei, { distance_meters })}
-              />
+              />}
+              <Button title={`${expanded ? "Hide" : "More"} details for ${e.name || "exercise"}`} variant="ghost" disabled={disabled} onPress={() => toggle(key, expandedExercises, setExpandedExercises)} />
+              {expanded && <>
               <NumberField
                 disabled={disabled}
                 label="Rest · seconds"
@@ -170,13 +194,14 @@ export function WorkoutEditor({
                   ))}
                 </>
               )}
+              </>}
               {block.exercises.length > 1 && (
                 <Button
                   disabled={disabled}
                   title={`Remove ${e.name || "exercise"}`}
                   secondary
                   onPress={() =>
-                    onChange({
+                    update({
                       ...value,
                       blocks: value.blocks.map((b, i) =>
                         i === bi ? { ...b, exercises: b.exercises.filter((_, j) => j !== ei) } : b
@@ -186,13 +211,13 @@ export function WorkoutEditor({
                 />
               )}
             </Card>
-          ))}
+          ); })}
           <Button
             disabled={disabled}
             title="Add exercise to this block"
             secondary
             onPress={() =>
-              onChange({
+              update({
                 ...value,
                 blocks: value.blocks.map((b, i) =>
                   i === bi ? { ...b, exercises: [...b.exercises, { name: "", provenance: "user" }] } : b
@@ -201,13 +226,13 @@ export function WorkoutEditor({
             }
           />
         </Card>
-      ))}
+      ); })}
       <Button
         disabled={disabled}
         title="Add another block"
         secondary
         onPress={() =>
-          onChange({
+          update({
             ...value,
             blocks: [
               ...value.blocks,

@@ -1,3 +1,4 @@
+import WorkoutDetail from "../app/workout/[id]";
 import { createElement, type ComponentType } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -51,6 +52,7 @@ vi.mock("@/lib/context", () => {
     acceptPublishingDisclosure: fixture.acceptPublishingDisclosure,
   };
   return {
+    useOfflineTraining: () => ({ ready: true, state: { active: null }, store: { start: vi.fn() } }),
     useTraining: () => ({
       api,
       owner: "owner",
@@ -470,4 +472,21 @@ it("a cold return reconciles an already saved import without another acceptance"
   expect(JSON.parse(fixture.map.get("imports:1")!)).toEqual([]);
   const captured = JSON.parse(fixture.map.get(draftKey("owner", "capture:1"))!);
   expect(captured.value ?? captured).toMatchObject({ source_url: "", text: "", files: [] });
+});
+
+it("shows the saved timed prescription, source details and cues without missing-reps noise", async () => {
+  fixture.params = { id: "saved-run" };
+  fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.workout.mockResolvedValue({ ...saved, source_url: "https://example.test/run", blocks: [{
+    id: "intervals", label: "Intervals", grouping: "interval", rounds: 3, rest_between_rounds_seconds: 60,
+    exercises: [{ name: "Run", provenance: "source", sets: 2, duration_seconds: 90, distance_meters: 400,
+      rest_seconds: 45, load: 5, load_unit: "kg", load_convention: "total", tempo: "Controlled", notes: "Stay comfortable" }],
+  }] });
+  await mount(WorkoutDetail);
+  const text = nodes("Copy").flatMap((node) => node.children.filter((child) => typeof child === "string")).join(" ");
+  expect(text).toContain("2 × 1m 30s · 400 m · 45s rest · Source load: 5 kg total · Tempo Controlled");
+  expect(text).toContain("1 min between rounds");
+  expect(text).toContain("Stay comfortable");
+  expect(text).not.toContain("Reps not specified");
+  expect(button("Open original source")).toBeDefined();
 });
