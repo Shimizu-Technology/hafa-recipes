@@ -1,6 +1,11 @@
 import { readFile, mkdir, writeFile, rm } from "node:fs/promises";
 import { render, publicApiBase, configuredPublicApiBase } from "../.ssr/prerender.js";
-const template = await readFile("dist/index.html", "utf8");
+// Social crawlers need an absolute og:image URL; Netlify provides the site URL as URL at build time.
+const site = (process.env.URL ?? "").replace(/\/$/, "");
+const template = (await readFile("dist/index.html", "utf8")).replace(
+  'content="/og-image.png"',
+  `content="${site}/og-image.png"`
+);
 for (const [path, title] of [
   ["/", "Håfa Workouts · Train your way"],
   ["/support", "Support · Håfa Workouts"],

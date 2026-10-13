@@ -8,6 +8,30 @@ feel modern and easy to use mid-workout, and have a logo that reads as
 
 Related: [ROADMAP.md](ROADMAP.md). Build the Discover tab in the new design.
 
+## Decisions (D1, 2026-10-13)
+
+Leon delegated the D1 choices ("whatever is clean and nice"). These are now in effect:
+
+| Question | Decision |
+|---|---|
+| Logo | **Concept A, latte-stone barbell.** The tåsa cap is the bar, with sunrise-coral plates on each end and the halagi pillar below. |
+| Accent | **Sunrise coral** `#E8643C`, used for graphics, rings and the active tab. Text uses `#AD401C` on light and `#F07A52` on dark so it passes AA. Reef green `#155C52` stays the action colour. |
+| Light/dark | Follow the system setting. Light (cream) is the primary design. |
+| Voice | Warm and plain, with an occasional "Håfa adai". No body-transformation or clinical claims. |
+
+**Why A.** All three concepts were drawn on the Recipes icon grid (1024 canvas, 380px halo, 94px tåsa cap, same pillar curve) and rendered at 256, 180, 60 and 29px in light, dark and mono ([logo-concepts.png](design/logo-concepts.png); per concept: [A](design/logo-concept-A.png), [B](design/logo-concept-B.png), [C](design/logo-concept-C.png)).
+- At 29px and in the single-colour (tinted or themed) icon, **A is the only one that reads instantly as fitness**. The barbell silhouette survives, and the cap and pillar still read as a latte stone.
+- **C** (kettlebell) was simplest. But its monochrome silhouette reads as a padlock or lantern at small sizes, even after widening the handle.
+- **B**'s motion arcs turn to noise below 60px, and the tilted stone looks like a hammer.
+- A also mirrors Recipes' structure, where something sits on the latte stone (bowl → barbell). It reuses the same reef, deep-reef and cream values, so the two icons look like siblings on a home screen.
+
+**Source of truth.** All assets are generated from `workouts-mobile/scripts/brand-geometry.mjs` by `node workouts-mobile/scripts/render-brand.mjs` (needs `rsvg-convert` and ImageMagick). That covers the iOS light, dark and tinted icons, the Android adaptive foreground and monochrome icons, the light and dark splash, the website mark, favicons, apple-touch icon and OG image, and the in-app `components/brand-mark-shapes.ts`. Concept sheets: `node workouts-mobile/scripts/render-brand.mjs --concepts`.
+
+**Tokens.** `workouts-mobile/constants/theme.ts` is the only file allowed to hold raw colours. `lib/theme.test.ts` enforces this and also checks:
+- WCAG contrast for every pair the components render;
+- parity with `mobile/constants/Colors.ts` (shared Håfa values);
+- parity with the website CSS variables, the app config and the icon palettes.
+
 ## Where it stands today
 
 ### Logo

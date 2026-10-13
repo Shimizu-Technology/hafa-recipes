@@ -202,3 +202,20 @@ each (`@expo/ui` searchable modifier on iOS, matchContents util on Android) and
 remove none; the native bundle selection gate passes. The renewed lock SHA-256 is
 `6b82daf952d9208c568e9033899503eac31cb9c82245fbfd96191436397428c9`.
 The expiry remains 2026-11-03. No new advisory exception is included.
+
+## 2026-10-13 lock update: Workouts design-system dependencies
+
+On top of the SDK 57 patch refresh above, `npx expo install` (Node 22.22.2) added
+`expo-haptics ~57.0.3`, `expo-image ~57.0.5` and `react-native-svg 15.15.4` (the
+SDK 57 versions) for the Workouts design system. The lock gains only those three
+packages and react-native-svg's pure-JS CSS helpers (css-select, css-tree,
+css-what, domutils, domhandler, dom-serializer, domelementtype, entities, boolbase,
+nth-check, mdn-data); no existing package version moved.
+
+`npm audit --omit=dev` still reports the same 32 inherited findings (5 moderate,
+27 high, 0 critical) and exactly the six reviewed advisories above; no new
+advisory. `check:native-bundles` still finds Expo Router's fork `getStateFromPath`
+and native Clerk selected in both Hermes bundles. The reviewed lock SHA-256 in
+`scripts/audit-runtime.mjs` is renewed to
+`21aa387ac1907783caa565d105190149c5a5121261a976a9f3569538a0a55d4d` for this
+lockfile only. The expiry remains 2026-11-03. No new advisory exception is included.

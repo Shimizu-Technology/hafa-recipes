@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Linking } from "react-native";
 import { router } from "expo-router";
-import { Button, Card, Choice, Copy, Empty, Field, Notice, Screen, useColors } from "@/components/ui";
+import { Button, Card, Choice, Copy, Empty, Field, Notice, Screen, haptics, useColors } from "@/components/ui";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { sessionsQuery } from "@/lib/session-query";
 import { remainingSeconds, summaryOf, previousActual, actualIdentity, draftStructureWarning } from "@/lib/training";
@@ -121,9 +121,11 @@ export default function Training() {
       notes: inputRef.current.notes || null,
     };
     await store.log(actual);
+    if (completed) haptics.light();
   }
   async function finish(status: "completed" | "partial") {
     await store!.finish(status);
+    haptics.success();
     void store!.sync(api.saveSession).then(() => cache.invalidateQueries({ queryKey: [owner, "sessions"] }));
     router.replace("/(tabs)/progress");
   }
@@ -154,10 +156,10 @@ export default function Training() {
       )}
       {rest > 0 && (
         <Card tone="hero">
-          <Copy kind="label" color="#DDEBCB">
+          <Copy kind="caption" tone="muted">
             REST
           </Copy>
-          <Copy kind="title" color="#FFFFFF">
+          <Copy kind="title">
             {Math.floor(rest / 60)}:{String(rest % 60).padStart(2, "0")}
           </Copy>
           <Button

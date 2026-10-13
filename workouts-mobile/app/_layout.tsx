@@ -15,7 +15,7 @@ import { useFonts } from "expo-font";
 import { ActivityIndicator, View, Platform } from "react-native";
 import { configuration, checkAuthConfiguration } from "@/lib/config";
 import { TrainingProvider } from "@/lib/context";
-import { Screen, Copy, Notice, Button, useColors } from "@/components/ui";
+import { Screen, Copy, Notice, Button, ToastProvider, useColors } from "@/components/ui";
 import { LogoutRecoveryBoundary } from "@/components/logout-recovery-boundary";
 import { logoutRecovery } from "@/lib/logout-recovery-native";
 import { logoutBinding, clearLogoutQueries } from "@/lib/logout-recovery";
@@ -119,6 +119,7 @@ function Routes() {
   );
 }
 export default function Root() {
+  const c = useColors();
   const [cleanupReady, setCleanupReady] = useState(false);
   const [cleanupError, setCleanupError] = useState("");
   const [cleanupDamaged, setCleanupDamaged] = useState(false);
@@ -151,6 +152,7 @@ export default function Root() {
   );
   return (
     <SafeAreaProvider>
+      <ToastProvider>
       <StatusBar style="auto" />
       {!cleanupReady ? (
         <Screen title="Restore private device state.">
@@ -169,7 +171,7 @@ export default function Root() {
           )}
         </Screen>
       ) : !fontsLoaded && !fontError ? (
-        <View style={{ flex: 1, backgroundColor: "#F6F3EC", justifyContent: "center" }}>
+        <View style={{ flex: 1, backgroundColor: c.background, justifyContent: "center" }}>
           <ActivityIndicator accessibilityLabel="Loading Håfa Workouts" />
         </View>
       ) : error ? (
@@ -188,6 +190,7 @@ export default function Root() {
           </ClerkProvider>
         </ShareIntentProvider>
       )}
+      </ToastProvider>
     </SafeAreaProvider>
   );
 }
