@@ -81,9 +81,10 @@ class VerifiedClerkToken(BaseModel):
 
 # A token naming an unknown ``kid`` forces a JWKS refetch. Allow at most one
 # forced refetch per issuer in this interval so forged tokens cannot turn every
-# request into an outbound call to Clerk. A real key rotation is still picked
-# up by the first refetch after the new key is published.
-JWKS_UNKNOWN_KID_REFRESH_INTERVAL_SECONDS = 60.0
+# request into an outbound call to Clerk. A real key rotation is picked up by
+# the first refetch after the new key is published, so at worst tokens signed
+# with a just-rotated key see 401s for one interval.
+JWKS_UNKNOWN_KID_REFRESH_INTERVAL_SECONDS = 30.0
 JWKS_FETCH_TIMEOUT_SECONDS = 5.0
 
 
