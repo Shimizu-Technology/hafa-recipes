@@ -62,6 +62,7 @@ async def capabilities(user: User, db: Database):
     return {
         "generation": membership.generation,
         "public_beta": configured.workouts_public_access_enabled,
+        "server_auto_save": True,
         "imports": configured.workouts_imports_enabled
         and configured.workouts_ai_budget_24h_microusd > 0
         and bool(configured.workouts_ai_budget_database_url)
