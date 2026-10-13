@@ -1,9 +1,13 @@
 import { router } from "expo-router";
-import { Linking, Platform } from "react-native";
+import { Image, Linking, Platform } from "react-native";
 import { useState } from "react";
-import { Button, Card, Copy, Notice, Screen, useColors } from "@/components/ui";
+import { Card, Copy, ListGroup, ListRow, Notice, Row, Screen, Stack } from "@/components/ui";
+import { radii } from "@/constants/theme";
+
+const recipesIcon = require("@/assets/brand/hafa-recipes-icon-240.png");
+const workoutsIcon = require("@/assets/brand/hafa-workouts-icon-240.png");
+const icon = { width: 76, height: 76, borderRadius: radii.lg - 2 };
 export default function HafaApps() {
-  const c = useColors();
   const [error, setError] = useState("");
   async function openRecipes() {
     try {
@@ -21,47 +25,50 @@ export default function HafaApps() {
   return (
     <Screen
       back
-      title="Two apps.
-One Håfa account."
+      title={"Two apps.\nOne Håfa account."}
       subtitle="Cook well. Train your way."
     >
-      <Card tone="hero">
-        <Copy kind="label" color="#DDEBCB">
-          THE HÅFA FAMILY
-        </Copy>
-        <Copy kind="heading" color="#FFFFFF">
+      <Card tone="sunken">
+        <Row gap={20} justify="center">
+          <Stack gap={8} align="center">
+            <Image source={recipesIcon} style={icon} accessibilityLabel="Håfa Recipes icon" />
+            <Copy kind="label">Recipes</Copy>
+          </Stack>
+          <Stack gap={8} align="center">
+            <Image source={workoutsIcon} style={icon} accessibilityLabel="Håfa Workouts icon" />
+            <Copy kind="label">Workouts</Copy>
+          </Stack>
+        </Row>
+        <Copy kind="heading" align="center">
           Useful routines for everyday life.
         </Copy>
-        <Copy color="#E1EDD9">
+        <Copy tone="muted" align="center">
           Recipes organizes your cooking inspiration. Workouts turns training inspiration into a routine you can follow.
         </Copy>
       </Card>
-      <Card>
-        <Copy kind="heading">Håfa Recipes</Copy>
-        <Copy color={c.muted}>
-          Keep recipes, plan meals, and organize your groceries. Use the same sign-in method as Workouts.
-        </Copy>
-        <Button
+      <ListGroup>
+        <ListRow
+          icon="restaurant-outline"
           title="Open Håfa Recipes"
-          secondary
-          icon="arrow-up-right-box"
+          detail="Keep recipes, plan meals, and organize your groceries. Use the same sign-in method as Workouts."
+          trailing="external"
           onPress={() => {
             void openRecipes();
           }}
         />
-      </Card>
+        <ListRow
+          icon="git-compare-outline"
+          title="Choose Recipes connection permissions"
+          onPress={() => router.push("/recipes-connection")}
+        />
+        <ListRow icon="download-outline" title="Export or remove account data" onPress={() => router.push("/account-data")} />
+      </ListGroup>
       <Notice>
         Sharing an account does not share your training profile, health information, or recipe library. Any data
         connection needs your separate permission.
       </Notice>
-      <Button
-        title="Choose Recipes connection permissions"
-        secondary
-        onPress={() => router.push("/recipes-connection")}
-      />
-      <Button title="Export or remove account data" secondary onPress={() => router.push("/account-data")} />
-      <Copy kind="heading">You're in control</Copy>
-      <Copy>
+      <Copy kind="subheading">You're in control</Copy>
+      <Copy tone="muted">
         Deleting the whole Håfa account erases both apps’ data. Removing only one product’s data preserves your login
         and the other product.
       </Copy>

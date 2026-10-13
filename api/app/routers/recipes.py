@@ -20,6 +20,7 @@ from app.cover_jobs import cover_pending_until
 from app.database_invariants import next_recipe_version_number
 from app.db import get_db
 from app.deletion_cleanup import deletion_cleanup_worker
+from app.extraction_quota import consume_extraction_quota
 from app.image_validation import ImageValidationError, ValidatedImage, validate_image_bytes
 from app.media_lifecycle import acquire_recipe_media_lock
 from app.models.deletion import DeletionCleanupJob
@@ -2892,6 +2893,8 @@ async def re_extract_recipe(
             status_code=400,
             detail="Cannot re-extract manual recipes. Please edit them directly."
         )
+
+    await consume_extraction_quota(user)
 
     # Run extraction
     try:

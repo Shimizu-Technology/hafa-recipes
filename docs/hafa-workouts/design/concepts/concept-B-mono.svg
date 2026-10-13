@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <title>Håfa Workouts</title>
+  <g>
+  <g transform="rotate(7 560 600)">
+    <path d="M418 556C432 502 592 502 606 556L650 718C657 746 635 773 606 773H418C389 773 367 746 374 718L418 556Z" fill="#FFFFFF"/>
+    
+    <rect x="290" y="400" width="444" height="94" rx="47" fill="#FFFFFF"/>
+    
+  </g>
+  <path d="M132 452C178 432 218 430 252 438" stroke="#FFFFFF" stroke-width="28" stroke-linecap="round" fill="none"/>
+  <path d="M104 556C164 534 222 532 268 542" stroke="#FFFFFF" stroke-width="32" stroke-linecap="round" fill="none"/>
+  <path d="M150 660C190 642 228 640 262 648" stroke="#FFFFFF" stroke-width="28" stroke-linecap="round" fill="none"/>
+  </g>
+</svg>

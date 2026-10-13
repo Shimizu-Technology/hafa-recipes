@@ -68,7 +68,7 @@ function MenuItem({ icon, label, value, onPress, colors }: MenuItemProps) {
 
   if (onPress) {
     return (
-      <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
+      <TouchableOpacity onPress={onPress} activeOpacity={0.7} accessibilityRole="button">
         {content}
       </TouchableOpacity>
     );
@@ -344,7 +344,11 @@ export default function SettingsScreen() {
                 {isCountError ? 'Couldn’t load recipe count' : 'Recipes Saved'}
               </Text>
               {isCountError && (
-                <TouchableOpacity onPress={() => void refetchCount()}>
+                <TouchableOpacity
+                  onPress={() => void refetchCount()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Try loading your recipe count again"
+                >
                   <Text style={styles.statLabel}>Tap to try again</Text>
                 </TouchableOpacity>
               )}
@@ -389,6 +393,9 @@ export default function SettingsScreen() {
                   <TouchableOpacity
                     key={theme.key}
                     onPress={() => setThemePreference(theme.key)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${theme.label === 'Auto' ? 'Automatic' : theme.label} theme`}
+                    accessibilityState={{ selected: themePreference === theme.key }}
                     style={[
                       styles.segmentedOption,
                       themePreference === theme.key && { backgroundColor: colors.tint },
@@ -422,6 +429,9 @@ export default function SettingsScreen() {
                   <TouchableOpacity
                     key={size.key}
                     onPress={() => setTextSize(size.key)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Text size ${size.key.replace('-', ' ')}`}
+                    accessibilityState={{ selected: textSize === size.key }}
                     style={[
                       styles.segmentedOption,
                       textSize === size.key && { backgroundColor: colors.tint },
@@ -451,6 +461,7 @@ export default function SettingsScreen() {
               style={styles.pickerRow}
               onPress={() => setShowTimerSoundPicker(true)}
               activeOpacity={0.7}
+              accessibilityRole="button"
             >
               <RNView style={styles.pickerLeft}>
                 <Ionicons name="notifications-outline" size={20} color={colors.tint} style={styles.pickerIcon} />
@@ -471,6 +482,7 @@ export default function SettingsScreen() {
               style={styles.pickerRow}
               onPress={() => setShowVoicePicker(true)}
               activeOpacity={0.7}
+              accessibilityRole="button"
             >
               <RNView style={styles.pickerLeft}>
                 <Ionicons name="mic-outline" size={20} color={colors.tint} style={styles.pickerIcon} />
@@ -497,12 +509,16 @@ export default function SettingsScreen() {
             style={styles.modalOverlay}
             activeOpacity={1}
             onPress={() => setShowTimerSoundPicker(false)}
+            // Backdrop wraps the picker; keep its options reachable by screen readers.
+            accessible={false}
           >
             <RNView style={[styles.pickerModal, { backgroundColor: colors.card }]}>
               <Text style={[styles.pickerModalTitle, { color: colors.text }]}>Timer Sound</Text>
               {TIMER_SOUNDS.map((sound) => (
                 <TouchableOpacity
                   key={sound.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: soundPreference === sound.id }}
                   style={[
                     styles.pickerOption,
                     soundPreference === sound.id && { backgroundColor: colors.tint + '15' },
@@ -547,6 +563,8 @@ export default function SettingsScreen() {
             style={styles.modalOverlay}
             activeOpacity={1}
             onPress={() => setShowVoicePicker(false)}
+            // Backdrop wraps the picker; keep its options reachable by screen readers.
+            accessible={false}
           >
             <RNView style={[styles.pickerModal, { backgroundColor: colors.card }]}>
               <Text style={[styles.pickerModalTitle, { color: colors.text }]}>AI Voice</Text>
@@ -554,6 +572,8 @@ export default function SettingsScreen() {
                 {TTS_VOICES.map((voiceOption) => (
                   <TouchableOpacity
                     key={voiceOption.id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: ttsVoice === voiceOption.id }}
                     style={[
                       styles.pickerOption,
                       ttsVoice === voiceOption.id && { backgroundColor: colors.tint + '15' },
@@ -588,6 +608,8 @@ export default function SettingsScreen() {
               style={[styles.menuItem, { backgroundColor: colors.backgroundSecondary }]}
               onPress={() => setShowDeveloper(!showDeveloper)}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: showDeveloper }}
             >
               <RNView style={styles.menuItemLeft}>
                 <RNView style={[styles.menuIconCircle, { backgroundColor: colors.tint + '15' }]}>
@@ -801,13 +823,16 @@ export default function SettingsScreen() {
         >
           {/* Modal Header */}
           <RNView style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-            <TouchableOpacity onPress={() => setShowProfileModal(false)}>
+            <TouchableOpacity onPress={() => setShowProfileModal(false)} accessibilityRole="button">
               <Text style={[styles.modalCancel, { color: colors.tint }]}>Cancel</Text>
             </TouchableOpacity>
             <Text style={[styles.modalTitle, { color: colors.text }]}>Edit Profile</Text>
             <TouchableOpacity
               onPress={handleSaveProfile}
               disabled={isSavingProfile}
+              accessibilityRole="button"
+              accessibilityLabel={isSavingProfile ? 'Saving profile' : 'Save profile'}
+              accessibilityState={{ disabled: isSavingProfile, busy: isSavingProfile }}
             >
               {isSavingProfile ? (
                 <ActivityIndicator size="small" color={colors.tint} />

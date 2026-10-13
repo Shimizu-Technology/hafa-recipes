@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <title>Håfa Workouts</title><rect width="1024" height="1024" fill="#FFF7EC"/><circle cx="512" cy="512" r="380" fill="#F8EFE3"/>
+  <g>
+  <rect x="140" y="423" width="744" height="40" rx="20" fill="#0F4942"/>
+  <rect x="140" y="354" width="50" height="178" rx="25" fill="#E8643C"/>
+  <rect x="200" y="312" width="66" height="262" rx="33" fill="#E8643C"/>
+  <rect x="834" y="354" width="50" height="178" rx="25" fill="#E8643C"/>
+  <rect x="758" y="312" width="66" height="262" rx="33" fill="#E8643C"/>
+  <path d="M418 536C432 482 592 482 606 536L650 698C657 726 635 753 606 753H418C389 753 367 726 374 698L418 536Z" fill="#155C52"/>
+  <path d="M330 464H694C673 522 604 564 512 564C420 564 351 522 330 464Z" fill="#0F4942"/>
+  <rect x="290" y="396" width="444" height="94" rx="47" fill="#155C52"/>
+  </g>
+</svg>

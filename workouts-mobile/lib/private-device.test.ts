@@ -24,7 +24,7 @@ vi.mock("./capture-io", () => ({ cleanupCaptureFiles: f.files, recoverCaptureCle
 vi.mock("./notifications-adapter", () => ({
   nativeNotifications: async () => ({ list: async () => f.scheduled, cancel: f.cancel })
 }));
-import { erasePrivateDeviceData, recoverPrivateDeviceCleanup } from "./private-device";
+import { DamagedCleanupRecordError, erasePrivateDeviceData, recoverPrivateDeviceCleanup } from "./private-device";
 beforeEach(() => {
   f.map.clear();
   f.files.mockReset();
@@ -74,4 +74,22 @@ it("product erasure retries original-owner capture journals after removing draft
   expect(f.map.has("hafa-workouts:v1:B:capture%3A2")).toBe(true);
   await recoverPrivateDeviceCleanup();
   expect(f.journals).toHaveBeenCalledWith();
+});
+it.each([
+  ["unreadable", "{not json"],
+  ["mismatched", JSON.stringify({ owner: "B", binding: "binding-B" })],
+])("a %s cleanup record stops startup, and repair erases only the account named by its key", async (_, raw) => {
+  f.map.set("hafa-workouts:device-cleanup:v1:A", raw);
+  f.map.set("hafa-workouts:v1:A:profile%3A2", "PRIVATE_A");
+  f.map.set("hafa-workouts:v1:B:profile%3A2", "PRIVATE_B");
+  f.map.set("hafa-workouts:v1:binding-A:verified-identity", JSON.stringify({ id: "A", binding: "binding-A" }));
+  f.map.set("hafa-workouts:v1:binding-B:verified-identity", JSON.stringify({ id: "B", binding: "binding-B" }));
+  await expect(recoverPrivateDeviceCleanup()).rejects.toBeInstanceOf(DamagedCleanupRecordError);
+  expect(f.map.get("hafa-workouts:v1:A:profile%3A2")).toBe("PRIVATE_A");
+  await recoverPrivateDeviceCleanup({ repairDamaged: true });
+  expect([...f.map.keys()].sort()).toEqual([
+    "hafa-workouts:v1:B:profile%3A2",
+    "hafa-workouts:v1:binding-B:verified-identity",
+  ]);
+  await recoverPrivateDeviceCleanup();
 });

@@ -1,6 +1,6 @@
 import { SavedSourcePicker } from "@/components/saved-source-picker";
 import { useEffect, useRef, useState } from "react";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
 import { ProgramPreview } from "@/components/program-preview";
@@ -21,6 +21,8 @@ interface Draft {
 }
 export default function BuildPlan() {
   const { localDrafts, api, owner, enrollment } = useTraining();
+  // A saved workout to start from (e.g. "Add to a plan" after saving from Discover).
+  const { include } = useLocalSearchParams<{ include?: string }>();
   const generation = enrollment?.generation ?? 0;
   const scope = `plan-builder:${generation}`;
   const cache = useQueryClient();
@@ -52,12 +54,16 @@ export default function BuildPlan() {
       .load<Draft>(owner, scope)
       .then((value) => {
         if (active) {
-          if (value?.generation === generation) setDraft(value);
+          const restored = value?.generation === generation ? value : null;
+          if (restored) setDraft(restored);
+          if (include && !(restored?.selected ?? []).includes(include))
+            setDraft((current) => ({ ...current, selected: [...current.selected, include], receipt: null }));
           setLoaded(true);
         }
       })
       .catch(() => {
         if (active) {
+          if (include) setDraft((current) => (current.selected.includes(include) ? current : { ...current, selected: [...current.selected, include] }));
           setLoaded(true);
           setError("Could not restore your plan draft. You can review a new proposal.");
         }
@@ -65,7 +71,7 @@ export default function BuildPlan() {
     return () => {
       active = false;
     };
-  }, [owner, scope, generation]);
+  }, [owner, scope, generation, include]);
   useEffect(() => {
     if (loaded)
       void localDrafts

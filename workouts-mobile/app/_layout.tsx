@@ -3,7 +3,7 @@ import { router } from "expo-router";
 import { pendingShare } from "@/lib/sharing";
 import { ShareIntentProvider } from "expo-share-intent";
 import { ShareCapture } from "@/components/share-capture";
-import { recoverPrivateDeviceCleanup } from "@/lib/private-device";
+import { DamagedCleanupRecordError, recoverPrivateDeviceCleanup } from "@/lib/private-device";
 import { useEffect, useRef, useState } from "react";
 import { ClerkProvider, useAuth, useClerk } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
@@ -15,12 +15,14 @@ import { useFonts } from "expo-font";
 import { ActivityIndicator, View, Platform } from "react-native";
 import { configuration, checkAuthConfiguration } from "@/lib/config";
 import { TrainingProvider } from "@/lib/context";
-import { Screen, Copy, Notice, Button, useColors } from "@/components/ui";
+import { Screen, Copy, Notice, Button, ToastProvider, useColors } from "@/components/ui";
 import { LogoutRecoveryBoundary } from "@/components/logout-recovery-boundary";
 import { logoutRecovery } from "@/lib/logout-recovery-native";
 import { logoutBinding, clearLogoutQueries } from "@/lib/logout-recovery";
 
-const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1 } } });
+// Screens share cached reads for 30 seconds instead of refetching on every mount.
+// Saves still invalidate or refetch the data they change.
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 30_000 } } });
 function AccountLogoutRecovery() {
   const { isLoaded, userId, sessionId } = useAuth();
   const clerk = useClerk();
@@ -79,6 +81,7 @@ function Routes() {
         <Stack.Screen name="settings" />
         <Stack.Screen name="add-workout" />
         <Stack.Screen name="workout/[id]" />
+        <Stack.Screen name="discover/[id]" />
         <Stack.Screen name="hafa-apps" />
         <Stack.Screen name="training" />
         <Stack.Screen name="capture" />
@@ -117,17 +120,22 @@ function Routes() {
   );
 }
 export default function Root() {
+  const c = useColors();
   const [cleanupReady, setCleanupReady] = useState(false);
   const [cleanupError, setCleanupError] = useState("");
-  async function recoverCleanup() {
+  const [cleanupDamaged, setCleanupDamaged] = useState(false);
+  async function recoverCleanup(repairDamaged = false) {
     setCleanupError("");
     try {
-      await recoverPrivateDeviceCleanup();
+      await recoverPrivateDeviceCleanup({ repairDamaged });
+      setCleanupDamaged(false);
       setCleanupReady(true);
-    } catch {
-      setCleanupError(
-        "Private device cleanup needs another attempt. Your saved server data has not been changed by this recovery."
-      );
+    } catch (e) {
+      const damaged = e instanceof DamagedCleanupRecordError;
+      setCleanupDamaged(damaged);
+      setCleanupError(damaged ?
+        "A device cleanup record is damaged. Finishing cleanup removes this device's data only for the account that was being cleaned up; other accounts and your saved server data are not changed." :
+        "Private device cleanup needs another attempt. Your saved server data has not been changed by this recovery.");
     }
   }
   useEffect(() => {
@@ -145,6 +153,7 @@ export default function Root() {
   );
   return (
     <SafeAreaProvider>
+      <ToastProvider>
       <StatusBar style="auto" />
       {!cleanupReady ? (
         <Screen title="Restore private device state.">
@@ -152,9 +161,9 @@ export default function Root() {
             <>
               <Notice error>{cleanupError}</Notice>
               <Button
-                title="Retry device cleanup"
+                title={cleanupDamaged ? "Finish device cleanup" : "Retry device cleanup"}
                 onPress={() => {
-                  void recoverCleanup();
+                  void recoverCleanup(cleanupDamaged);
                 }}
               />
             </>
@@ -163,7 +172,7 @@ export default function Root() {
           )}
         </Screen>
       ) : !fontsLoaded && !fontError ? (
-        <View style={{ flex: 1, backgroundColor: "#F6F3EC", justifyContent: "center" }}>
+        <View style={{ flex: 1, backgroundColor: c.background, justifyContent: "center" }}>
           <ActivityIndicator accessibilityLabel="Loading Håfa Workouts" />
         </View>
       ) : error ? (
@@ -182,6 +191,7 @@ export default function Root() {
           </ClerkProvider>
         </ShareIntentProvider>
       )}
+      </ToastProvider>
     </SafeAreaProvider>
   );
 }

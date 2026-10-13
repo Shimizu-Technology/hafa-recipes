@@ -21,6 +21,8 @@ from app.domains.workouts.coach_router import router as workouts_coach_router
 from app.domains.workouts.coach_router import send_router as workouts_coach_send_router
 from app.domains.workouts.connection_router import router as workouts_connections_router
 from app.domains.workouts.connection_runtime import verify_connections_schema
+from app.domains.workouts.discover import admin_router as workouts_discover_admin_router
+from app.domains.workouts.discover import router as workouts_discover_router
 from app.domains.workouts.export_router import read_router as workouts_export_read_router
 from app.domains.workouts.export_router import router as workouts_export_router
 from app.domains.workouts.health_router import router as workouts_health_router
@@ -125,6 +127,8 @@ app.include_router(workouts_budget_router)
 app.include_router(workouts_export_router)
 app.include_router(workouts_export_read_router)
 app.include_router(workouts_activity_log_router)
+app.include_router(workouts_discover_router)
+app.include_router(workouts_discover_admin_router)
 workout_coach.compose_library_program = compose_coach_sources
 app.include_router(admin_router)
 app.include_router(recipes_router)

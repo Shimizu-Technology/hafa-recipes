@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
+import { Button, Card, Choice, Copy, Field, ListGroup, ListRow, Notice, Screen } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { CoachActionPreview } from "@/components/coach-action-preview";
 import { useTraining } from "@/lib/context";
@@ -143,6 +143,8 @@ export default function CoachActionReview() {
                 )}
                 <Button
                   title="Accept this reviewed change"
+                  icon="checkmark"
+                  size="lg"
                   busy={busy}
                   disabled={!current || !title.trim() || !canAcceptCoach(q.data, reviewed, baseline)}
                   onPress={() => {
@@ -164,6 +166,7 @@ export default function CoachActionReview() {
               <Button
                 title="Review undoing this future change"
                 secondary
+                icon="arrow-undo-outline"
                 disabled={busy}
                 onPress={() => setUndoConfirm(true)}
               />
@@ -179,7 +182,7 @@ export default function CoachActionReview() {
           </Notice>
           <Button
             title="Undo this unused future change"
-            secondary
+            variant="destructive"
             busy={busy}
             onPress={() => {
               void undo();
@@ -195,8 +198,10 @@ export default function CoachActionReview() {
           <Button title="Ask for a fresh review with current context" secondary onPress={() => router.push("/coach")} />
         </>
       )}
-      <Button title="Open training plans" secondary onPress={() => router.push("/(tabs)/plan")} />
-      <Button title="Open private library" secondary onPress={() => router.push("/(tabs)/library")} />
+      <ListGroup>
+        <ListRow icon="calendar-outline" title="Open training plans" onPress={() => router.push("/(tabs)/plan")} />
+        <ListRow icon="albums-outline" title="Open private library" onPress={() => router.push("/(tabs)/library")} />
+      </ListGroup>
     </Screen>
   );
 }

@@ -2,7 +2,7 @@ import { AppState } from "react-native";
 import { useCallback, useEffect } from "react";
 import { useFocusEffect, router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Card, Copy, Notice } from "./ui";
+import { Button, Card, Copy, ListRow, Notice, Skeleton } from "./ui";
 import { useTraining } from "@/lib/context";
 import { activityFrequency, weekActivity } from "@/lib/activity-log";
 export function ActivityWeek({ sessions }: { sessions: Array<{ started_at: string; recorded: boolean }> }) {
@@ -28,9 +28,12 @@ export function ActivityWeek({ sessions }: { sessions: Array<{ started_at: strin
   const summary = q.data ? activityFrequency(q.data.items, sessions, q.data.timezone, q.data.from, q.data.to) : null;
   return (
     <Card>
-      <Copy kind="heading">Your last seven days</Copy>
+      <Copy kind="caption" tone="accent">Your last seven days</Copy>
       {q.isPending ? (
-        <Copy>Loading saved activity…</Copy>
+        <>
+          <Skeleton height={26} width="70%" />
+          <Copy tone="muted">Loading saved activity…</Copy>
+        </>
       ) : q.error ? (
         <>
           <Notice error>{q.error.message}</Notice>
@@ -45,15 +48,15 @@ export function ActivityWeek({ sessions }: { sessions: Array<{ started_at: strin
       ) : (
         summary && (
           <>
-            <Copy>
+            <Copy kind="title">
               {summary.days}
               {q.data?.complete ? "" : "+"} {summary.days === 1 && q.data?.complete ? "day" : "days"} with recorded training
             </Copy>
-            <Copy>
+            <Copy tone="muted">
               {summary.sessions} workout {summary.sessions === 1 ? "session" : "sessions"} with recorded actuals · {summary.activities}
               {q.data?.complete ? "" : "+"} confirmed activity {summary.activities === 1 && q.data?.complete ? "entry" : "entries"}
             </Copy>
-            <Copy kind="small">
+            <Copy kind="small" tone="muted">
               {q.data?.from} – {q.data?.to} · {q.data?.timezone}. Partial sessions with recorded sets count as activity;
               elapsed time alone does not.
             </Copy>
@@ -61,11 +64,11 @@ export function ActivityWeek({ sessions }: { sessions: Array<{ started_at: strin
           </>
         )
       )}
-      <Copy kind="small">
+      <Copy kind="small" tone="muted">
         Imported/legacy observations awaiting review stay separate from manual counts. Two genuine same-day activities
         stay two records; days are counted once.
       </Copy>
-      <Button title="Inspect completed activity" secondary onPress={() => router.push("/activity-log")} />
+      <ListRow icon="list-outline" title="Inspect completed activity" onPress={() => router.push("/activity-log")} />
     </Card>
   );
 }

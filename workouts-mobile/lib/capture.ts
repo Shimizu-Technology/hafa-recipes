@@ -67,6 +67,8 @@ export interface Capabilities {
   imports: boolean;
   coach: boolean;
   health_sync: boolean;
+  /** Absent on servers before Discover; only an explicit true shows Discover. */
+  discover?: boolean;
   limits: { successful_or_pending_imports_per_rolling_day: number; coach_messages_per_rolling_day: number };
   billing_active: boolean;
 }

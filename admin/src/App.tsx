@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AdminShell } from './components/AdminShell'
 import { AdminApiProvider } from './context/AdminApiContext'
-import { createAdminApi } from './lib/api'
+import { createAdminApi, templatedTokenGetter } from './lib/api'
 import { AuditPage } from './pages/AuditPage'
 import { ContributorsPage } from './pages/ContributorsPage'
 import { CleanupJobsPage } from './pages/CleanupJobsPage'
@@ -31,7 +31,7 @@ export function AdminRoutes({ preview = false }: { preview?: boolean }) {
 
 function AuthenticatedAdmin() {
   const { getToken, isLoaded, isSignedIn } = useAuth()
-  const api = useMemo(() => createAdminApi(getToken), [getToken])
+  const api = useMemo(() => createAdminApi(templatedTokenGetter(getToken)), [getToken])
 
   if (!isLoaded) {
     return (

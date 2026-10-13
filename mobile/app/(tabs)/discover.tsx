@@ -50,6 +50,7 @@ import {
 } from '@/lib/discoverResults';
 import { newlyExposedThumbnailUrls } from '@/lib/recipeImagePrefetch';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { useDebouncedSearchQuery } from '@/hooks/useDebouncedSearchQuery';
 
 import { useViewPreference } from '@/hooks/useViewPreference';
 import { SkeletonRecipeList } from '@/components/Skeleton';
@@ -399,6 +400,9 @@ export default function DiscoverScreen() {
   const insets = useSafeAreaInsets();
   const { userId, isSignedIn } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
+  // The input stays bound to searchQuery; server queries use the debounced value
+  // so typing does not fire a request per keystroke.
+  const debouncedSearchQuery = useDebouncedSearchQuery(searchQuery);
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showAllContributors, setShowAllContributors] = useState(false);
@@ -449,7 +453,7 @@ export default function DiscoverScreen() {
   // feed stays enabled and can continue paginating while the local view hides
   // the current user's cards.
   const hasServerFilters = hasServerDiscoverFilters({
-    query: searchQuery,
+    query: debouncedSearchQuery,
     sourceFilter,
     timeFilter,
     mealTypeFilter,
@@ -501,7 +505,7 @@ export default function DiscoverScreen() {
     isError: isSearchError,
     refetch: refetchSearch,
   } = useSearchPublicRecipes({
-    query: searchQuery,
+    query: debouncedSearchQuery,
     sourceType: sourceTypeParam,
     timeFilter: timeFilterParam,
     tags: selectedTags.length > 0 ? selectedTags : undefined,
@@ -539,20 +543,20 @@ export default function DiscoverScreen() {
 
   // Build current filter state for optimistic filtering
   const currentFilters: SearchFilters = useMemo(() => ({
-    query: searchQuery || undefined,
+    query: debouncedSearchQuery || undefined,
     sourceType: sourceTypeParam,
     timeFilter: timeFilterParam,
     tags: selectedTags.length > 0 ? selectedTags : undefined,
     extractorId: selectedExtractor?.id,
     extractorName: selectedExtractor?.name,
     mealType: mealTypeParam,
-  }), [searchQuery, sourceTypeParam, timeFilterParam, selectedTags, selectedExtractor, mealTypeParam]);
+  }), [debouncedSearchQuery, sourceTypeParam, timeFilterParam, selectedTags, selectedExtractor, mealTypeParam]);
 
   // Determine what to display:
   // - For text search: ONLY use server results (local can't search ingredients)
   // - For filters represented in cached cards: show accurate local matches
   // - For meal/contributor filters: wait for the authoritative server result
-  const hasTextSearch = !!searchQuery?.trim();
+  const hasTextSearch = !!debouncedSearchQuery?.trim();
   const canUseLocalFallback = canFilterDiscoverLocally({
     mealType: mealTypeParam,
     extractorId: selectedExtractor?.id,
@@ -715,6 +719,8 @@ export default function DiscoverScreen() {
           toggleViewMode();
         }}
         activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={isGrid ? 'Show recipes as a list' : 'Show recipes as a grid'}
       >
         <Ionicons
           name={isGrid ? 'list-outline' : 'grid-outline'}
@@ -818,10 +824,12 @@ export default function DiscoverScreen() {
         <Pressable
           style={styles.surpriseModalOverlay}
           onPress={() => setShowSurpriseModal(false)}
+          accessible={false}
         >
           <Pressable
             style={[styles.surpriseModalContent, { backgroundColor: colors.card }]}
             onPress={(e) => e.stopPropagation()}
+            accessible={false}
           >
             <RNView style={styles.surpriseModalHeader}>
               <Ionicons name="shuffle" size={24} color={colors.warning} />
@@ -935,6 +943,8 @@ export default function DiscoverScreen() {
               },
             ]}
             onPress={() => setShowFilterModal(true)}
+            accessibilityRole="button"
+            accessibilityLabel={activeFilterCount > 0 ? `Filters, ${activeFilterCount} active` : 'Filters'}
           >
             <Ionicons
               name="options-outline"
@@ -1027,6 +1037,8 @@ export default function DiscoverScreen() {
               <TouchableOpacity
                 style={[styles.activeFilterChip, styles.extractorFilterChip, { backgroundColor: colors.tint }]}
                 onPress={clearExtractorFilter}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove filter: recipes by ${selectedExtractor.name}`}
               >
                 <Text style={[styles.activeFilterText, { color: '#FFFFFF' }]}>
                   by {selectedExtractor.name}{searchTotal > 0 ? ` (${searchTotal})` : ''}
@@ -1128,6 +1140,8 @@ export default function DiscoverScreen() {
                         borderColor: isSelected ? colors.tint : colors.border
                       }
                     ]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
                     onPress={() => {
                       haptics.light();
                       if (isSelected) {
@@ -1167,7 +1181,7 @@ export default function DiscoverScreen() {
                 );
               })}
               </ScrollView>
-              <TouchableOpacity onPress={() => setShowAllContributors(true)}>
+              <TouchableOpacity onPress={() => setShowAllContributors(true)} accessibilityRole="button">
                 <Text style={[styles.seeAllText, { color: colors.tint }]}>See all contributors</Text>
               </TouchableOpacity>
             </>}

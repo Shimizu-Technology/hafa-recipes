@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { router } from "expo-router";
 import { saveTrainingSetup } from "@/lib/onboarding-state";
-import { Button, Choice, Copy, Notice, Screen } from "@/components/ui";
+import { Button, Choice, Copy, Grow, Notice, Row, Screen, StepBar } from "@/components/ui";
 import { ProfileForm } from "@/components/profile-form";
 import { useTraining } from "@/lib/context";
 import { initialProfile, profileErrors, type TrainingProfile } from "@/lib/models";
@@ -90,9 +90,11 @@ export default function Onboarding() {
   return (
     <Screen
       back
+      eyebrow={`Step ${step + 1} of 3`}
       title={["Training for you.", "Make it fit.", "A little more context."][step]}
-      subtitle={`Step ${step + 1} of 3 · Your draft stays on this device.`}
+      subtitle="Your draft stays on this device."
     >
+      <StepBar step={step} total={3} />
       {!loaded ? (
         <Copy>Loading your saved draft…</Copy>
       ) : (
@@ -129,17 +131,22 @@ export default function Onboarding() {
           />
         </>
       )}
-      <Button
-        title={step === 2 ? "Save my training profile" : "Continue"}
-        disabled={!loaded || enrollmentQuery.isPending || !enrollmentQuery.data}
-        busy={busy}
-        onPress={() => {
-          setError("");
-          if (step < 2) setStep(step + 1);
-          else void save();
-        }}
-      />
-      {step > 0 && <Button title="Previous step" secondary disabled={busy} onPress={() => setStep(step - 1)} />}
+      <Row gap={10}>
+        {step > 0 && <Button title="Previous step" variant="ghost" inline disabled={busy} onPress={() => setStep(step - 1)} />}
+        <Grow>
+          <Button
+            title={step === 2 ? "Save my training profile" : "Continue"}
+            icon={step === 2 ? "checkmark" : "arrow-forward"}
+            disabled={!loaded || enrollmentQuery.isPending || !enrollmentQuery.data}
+            busy={busy}
+            onPress={() => {
+              setError("");
+              if (step < 2) setStep(step + 1);
+              else void save();
+            }}
+          />
+        </Grow>
+      </Row>
     </Screen>
   );
 }

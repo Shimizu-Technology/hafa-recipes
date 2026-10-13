@@ -42,6 +42,7 @@ async def test_optional_full_chain_replays_and_keeps_legacy_schema(automation_ap
             "042_add_workouts_import_usage",
             "043_add_workouts_export_snapshots",
             "044_add_workouts_activity_log",
+            "045_add_workouts_discover",
         ):
             await importlib.import_module("migrations." + module).run_migration(
                 configured=configured, migration_engine=api.engine
@@ -58,7 +59,7 @@ async def test_optional_full_chain_replays_and_keeps_legacy_schema(automation_ap
                     text("SELECT version FROM workouts_schema_migrations ORDER BY version")
                 )
             ).scalars()
-        ) == [34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44]
+        ) == [34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45]
         assert await connection.scalar(text("SELECT max(version) FROM schema_migrations")) == 33
 
 

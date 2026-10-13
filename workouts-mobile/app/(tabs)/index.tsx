@@ -3,15 +3,30 @@ import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { router } from "expo-router";
 import * as Crypto from "expo-crypto";
-import { AccountButton, Button, Card, Copy, Empty, Notice, Screen, useColors } from "@/components/ui";
+import {
+  AccountButton,
+  Button,
+  Card,
+  Chip,
+  ChipRow,
+  Copy,
+  Empty,
+  ListGroup,
+  ListRow,
+  Notice,
+  Screen,
+  SectionHeader,
+  WeekStrip,
+} from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { useTraining, useOfflineTraining } from "@/lib/context";
+import { sessionsQuery } from "@/lib/session-query";
 import { dateInTimezone } from "@/lib/training";
+import { weekDays } from "@/lib/week-strip";
 import { goalLabels, type Program, type ScheduledSession } from "@/lib/models";
 export default function Today() {
   const { api, owner, enrollment, enrollmentQuery, isCurrentAccount, storage } = useTraining();
   const offline = useOfflineTraining();
-  const c = useColors();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [retryBusy, setRetryBusy] = useState(false);
@@ -19,14 +34,27 @@ export default function Today() {
   const enabled = !!enrollment?.enrolled;
   const profile = useQuery({ queryKey: [owner, "profile", enrollment?.generation], queryFn: api.profile, enabled });
   const programs = useQuery({ queryKey: [owner, "programs", enrollment?.generation], queryFn: api.programs, enabled });
-  const sessions = useQuery({ queryKey: [owner, "sessions", enrollment?.generation], queryFn: api.sessions, enabled });
-  const date = dateInTimezone(new Date(), profile.data?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const sessions = useQuery(sessionsQuery(api, owner, enrollment));
+  const timezone = profile.data?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const date = dateInTimezone(new Date(), timezone);
   const completed = completedProgramSessions(sessions.data, offline.state.history);
-  const planned = programs.data
-    ?.filter((p) => p.status === "ready" && p.schedule_state?.status !== "paused")
-    .flatMap((p) =>
+  const activePrograms = programs.data?.filter((p) => p.status === "ready" && p.schedule_state?.status !== "paused");
+  const planned = activePrograms
+    ?.flatMap((p) =>
       p.sessions.filter((s) => s.date === date && !completed.has(programSessionKey(p.id, s.id)!)).map((s) => ({ program: p, session: s }))
     )[0];
+  const dayOf = (iso: string | undefined) => {
+    const at = new Date(iso ?? "");
+    return Number.isNaN(at.getTime()) ? [] : [dateInTimezone(at, timezone)];
+  };
+  const week = weekDays(
+    date,
+    new Set([
+      ...(sessions.data ?? []).flatMap((s) => dayOf(s.started_at)),
+      ...offline.state.history.flatMap((h) => dayOf(h.request?.started_at)),
+    ]),
+    new Set(activePrograms?.flatMap((p) => p.sessions.map((s) => s.date)) ?? [])
+  );
   async function retryToday() {
     if (retrying.current || !isCurrentAccount() || !storage.isCurrent()) return;
     retrying.current = true;
@@ -62,10 +90,17 @@ export default function Today() {
       setBusy(false);
     }
   }
+  const active = offline.state.active;
+  const recorded = active?.actuals.filter((a) => a.completed).length ?? 0;
+  const workout = planned?.session.workout;
+  const meta = [
+    workout?.estimated_minutes ? `${workout.estimated_minutes} min` : null,
+    ...(workout?.equipment_required?.slice(0, 2) ?? []),
+  ].filter((x): x is string => !!x);
   return (
     <Screen
-      title="Make time for you."
-      subtitle={new Intl.DateTimeFormat(undefined, {
+      title="Håfa adai."
+      eyebrow={new Intl.DateTimeFormat(undefined, {
         weekday: "long",
         month: "long",
         day: "numeric",
@@ -73,54 +108,48 @@ export default function Today() {
       }).format(new Date())}
       action={<AccountButton />}
     >
-      {offline.state.active && (
+      {active && (
         <Card tone="hero">
-          <Copy kind="label" color="#DDEBCB">
-            YOUR SAVED SESSION
+          <Copy kind="caption" tone="accent">
+            Your saved session
           </Copy>
-          <Copy kind="heading" color="#FFFFFF">
-            {offline.state.active.workout.title}
+          <Copy kind="heading">{active.workout.title}</Copy>
+          <Copy tone="muted">
+            {recorded} recorded {recorded === 1 ? "set" : "sets"} · your progress is on this device.
           </Copy>
-          <Copy color="#E1EDD9">
-            {offline.state.active.actuals.filter((a) => a.completed).length} recorded {offline.state.active.actuals.filter((a) => a.completed).length === 1 ? "set" : "sets"} · your progress is on this
-            device.
-          </Copy>
-          <Button title="Resume session" secondary onPress={() => router.push("/training")} />
+          <Button title="Resume session" icon="play" size="lg" onPress={() => router.push("/training")} />
         </Card>
       )}
       {!!offline.error && <Notice error>{offline.error}</Notice>}
       {programs.data?.some((p) => p.schedule_state?.status === "paused") && (
-        <Card>
-          <Copy kind="heading">Your paused plan stays saved.</Copy>
-          <Copy>Review your current comfortable baseline before returning to the future queue.</Copy>
-          <Button title="Review paused training plans" secondary onPress={() => router.push("/(tabs)/plan")} />
+        <Card tone="sunken" compact>
+          <Copy kind="subheading">Your paused plan stays saved.</Copy>
+          <Copy kind="small" tone="muted">
+            Review your current comfortable baseline before returning to the future queue.
+          </Copy>
+          <Button title="Review paused training plans" variant="secondary" size="sm" inline onPress={() => router.push("/(tabs)/plan")} />
         </Card>
       )}
-      {enabled && (
-        <Button title="Log activity I completed" icon="walk-outline" onPress={() => router.push("/activity")} />
-      )}
-      {enabled && <Button title="Talk through today with my coach" secondary onPress={() => router.push("/coach")} />}
       {!enabled ? (
-        <>
-          <QueryState
-            loading={enrollmentQuery.isPending && !enrollment}
-            error={enrollmentQuery.error}
-            retry={() => {
-              void enrollmentQuery.refetch();
-            }}
-          >
-            <Empty
-              icon="sunny-outline"
-              title="Start with your real life"
-              description={
-                enrollment?.generation
-                  ? "Your earlier Workouts data was removed. You can explicitly start fresh with the same Håfa account."
-                  : "Tell us your goals, equipment and realistic schedule. Your Recipes data stays separate."
-              }
-              action={<Button title="Set up my training" onPress={() => router.push("/onboarding")} />}
-            />
-          </QueryState>
-        </>
+        <QueryState
+          loading={enrollmentQuery.isPending && !enrollment}
+          error={enrollmentQuery.error}
+          retry={() => {
+            void enrollmentQuery.refetch();
+          }}
+        >
+          <Empty
+            icon="sunny-outline"
+            mark
+            title="Start with your real life"
+            description={
+              enrollment?.generation
+                ? "Your earlier Workouts data was removed. You can explicitly start fresh with the same Håfa account."
+                : "Tell us your goals, equipment and realistic schedule. Your Recipes data stays separate."
+            }
+            action={<Button title="Set up my training" onPress={() => router.push("/onboarding")} />}
+          />
+        </QueryState>
       ) : (
         <>
           <QueryState
@@ -138,44 +167,62 @@ export default function Today() {
                 action={<Button title="Set up my profile" onPress={() => router.push("/onboarding")} />}
               />
             ) : (
-              <Card tone="hero">
-                <Copy kind="label" color="#DDEBCB">
-                  {planned ? "TODAY’S SESSION" : "YOUR TRAINING FOCUS"}
-                </Copy>
-                <Copy kind="title" color="#FFFFFF">
-                  {planned?.session.workout.title ?? goalLabels[profile.data.primary_goal]}
-                </Copy>
-                <Copy color="#E1EDD9">
-                  {planned?.session.purpose ??
-                    "A good training week includes recovery. Choose a saved workout or review your plan."}
-                </Copy>
-                {planned && !offline.state.active ? (
-                  <Button
-                    title="Start this session"
-                    secondary
-                    disabled={!offline.ready}
-                    busy={busy}
-                    onPress={() => {
-                      void start(planned.program, planned.session);
-                    }}
-                  />
-                ) : (
-                  <Button title="Open your plan" secondary onPress={() => router.push("/(tabs)/plan")} />
+              <>
+                {(
+                  <Card tone={active ? "plain" : "hero"}>
+                    <Copy kind="caption" tone="accent">
+                      {planned ? "Today’s session" : "Your training focus"}
+                    </Copy>
+                    <Copy kind={active ? "heading" : "title"}>{workout?.title ?? goalLabels[profile.data.primary_goal]}</Copy>
+                    <Copy tone="muted">
+                      {planned?.session.purpose ??
+                        "No session planned today. Rest counts too, or pick a saved workout when you feel like moving."}
+                    </Copy>
+                    {!!meta.length && (
+                      <ChipRow wrap>
+                        {meta.map((m) => (
+                          <Chip key={m} label={m} />
+                        ))}
+                      </ChipRow>
+                    )}
+                    {planned && !active ? (
+                      <Button
+                        title="Start this session"
+                        icon="play"
+                        size="lg"
+                        disabled={!offline.ready}
+                        busy={busy}
+                        onPress={() => {
+                          void start(planned.program, planned.session);
+                        }}
+                      />
+                    ) : (
+                      <Button title="Open your plan" variant="secondary" onPress={() => router.push("/(tabs)/plan")} />
+                    )}
+                  </Card>
                 )}
-              </Card>
+                <SectionHeader title="This week" action={{ label: "Plan", onPress: () => router.push("/(tabs)/plan") }} />
+                <Card compact>
+                  <WeekStrip days={week} />
+                </Card>
+              </>
             )}
           </QueryState>
-          <Button
-            title="Choose a saved workout"
-            secondary
-            icon="fitness-outline"
-            onPress={() => router.push("/(tabs)/library")}
-          />
-          <Button title="Add a workout" icon="add" onPress={() => router.push("/capture")} />
+          <ListGroup>
+            <ListRow
+              icon="chatbubble-ellipses-outline"
+              title="Adjust today with your coach"
+              detail="Not feeling 100%, short on time, or played last night?"
+              onPress={() => router.push("/coach")}
+            />
+            <ListRow icon="walk-outline" title="Log an activity you did" onPress={() => router.push("/activity")} />
+            <ListRow icon="albums-outline" title="Pick a saved workout" onPress={() => router.push("/(tabs)/library")} />
+            <ListRow icon="add-circle-outline" title="Add a workout" detail="From a link, screenshot or your own notes" onPress={() => router.push("/capture")} />
+          </ListGroup>
         </>
       )}
       {!!error && <Notice error>{error}</Notice>}
-      <Copy kind="small" color={c.muted}>
+      <Copy kind="small" tone="muted" align="center">
         Free during beta. Completed work counts; rest is part of the plan.
       </Copy>
     </Screen>

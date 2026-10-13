@@ -120,6 +120,10 @@ class Settings(BaseSettings):
     clerk_production_authorized_parties: str = ""
     clerk_production_require_authorized_party: bool = False
     clerk_primary_environment: str = "development"
+    # In production only these Clerk environments may grant the admin role.
+    # Development and legacy instances are easier to mint metadata on, so they
+    # are excluded unless an operator lists them explicitly.
+    clerk_admin_environments: str = "production"
 
     # AWS S3 (for thumbnail storage)
     aws_access_key_id: str | None = None
@@ -473,6 +477,13 @@ class Settings(BaseSettings):
             )
 
         return tuple(environments)
+
+    def clerk_admin_allowed_for(self, environment_name: str | None) -> bool:
+        """Return whether an admin role claim from this Clerk environment counts."""
+        if self.environment.strip().lower() != "production":
+            return True
+        allowed = {name.lower() for name in self._parse_csv(self.clerk_admin_environments)}
+        return (environment_name or "").strip().lower() in allowed
 
     def clerk_environment_for_issuer(self, issuer: str | None) -> ClerkEnvironment | None:
         normalized = (issuer or "").strip().rstrip("/")

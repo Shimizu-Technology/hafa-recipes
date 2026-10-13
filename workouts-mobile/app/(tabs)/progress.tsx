@@ -1,22 +1,19 @@
 import { ActivityWeek } from "@/components/activity-week";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { Alert } from "react-native";
 import { router } from "expo-router";
-import { AccountButton, Button, Card, Copy, Empty, Notice, Screen, useColors } from "@/components/ui";
+import { AccountButton, Button, Card, Copy, Empty, IconButton, ListGroup, ListRow, Notice, Row, Screen, SectionHeader } from "@/components/ui";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { summaryOf } from "@/lib/training";
+import { sessionsQuery } from "@/lib/session-query";
 import { missingProgressParents, loadProgressAncestry, selectProgressSessions } from "@/lib/progress-selection";
 export default function Progress() {
   const { api, owner, enrollment } = useTraining();
   const offline = useOfflineTraining();
-  const c = useColors();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const q = useQuery({
-    queryKey: [owner, "sessions", enrollment?.generation],
-    queryFn: api.sessions,
-    enabled: !!enrollment?.enrolled,
-  });
+  const q = useQuery(sessionsQuery(api, owner, enrollment));
   const generation = enrollment?.generation ?? 0;
   const parents = missingProgressParents(offline.state.history, q.data ?? [], generation);
   const needsAncestry = parents.length > 0 && selectProgressSessions(offline.state.history, q.data ?? [], generation).requiresAncestry;
@@ -31,11 +28,12 @@ export default function Progress() {
   const selected = selectProgressSessions(offline.state.history, q.data ?? [], generation, ancestry.data?.records);
   const { local, remote } = selected;
   const ancestryReady = !needsAncestry || ancestry.data?.complete === true;
-  async function sync() {
+  async function sync(before?: () => Promise<void>) {
     if (!offline.store) return;
     setBusy(true);
     setError("");
     try {
+      await before?.();
       await offline.store.sync(api.saveSession);
       await q.refetch();
     } catch (e) {
@@ -44,15 +42,34 @@ export default function Progress() {
       setBusy(false);
     }
   }
+  function discard(id: string) {
+    Alert.alert("Discard this result?", "It is removed from this device only. Nothing saved to your account changes.", [
+      { text: "Keep", style: "cancel" },
+      { text: "Discard", style: "destructive", onPress: () => {
+        void offline.store?.dismiss(id).catch((e: Error) => setError(e.message));
+      } },
+    ]);
+  }
   return (
-    <Screen title="See your work add up." subtitle="Recorded sessions, at your own pace." action={<AccountButton />}>
-      <Button title="Log completed activity" icon="add" onPress={() => router.push("/activity")} />
-      <Button title="Runs, walks & other activity history" secondary onPress={() => router.push("/activity-log")} />
+    <Screen
+      title="See your work add up."
+      subtitle="Recorded sessions, at your own pace. Rest days count too."
+      action={
+        <Row gap={8}>
+          <IconButton icon="add" label="Log completed activity" variant="primary" onPress={() => router.push("/activity")} />
+          <AccountButton />
+        </Row>
+      }
+    >
       {ancestryReady ? <ActivityWeek sessions={selected.sessions} /> : <Card>
         <Copy>{ancestry.isPending ? "Checking session corrections before counting your progress…" :
           "Correction history could not be fully verified. Session totals stay paused to avoid counting one workout twice. Your saved results remain below."}</Copy>
         {!ancestry.isPending && <Button title="Retry correction history" secondary onPress={() => { void ancestry.refetch(); }} />}
       </Card>}
+      <ListGroup>
+        <ListRow icon="add-circle-outline" title="Log completed activity" onPress={() => router.push("/activity")} />
+        <ListRow icon="walk-outline" title="Runs, walks & other activity history" onPress={() => router.push("/activity-log")} />
+      </ListGroup>
       {!!offline.error && <Notice error>{offline.error}</Notice>}
       {!!offline.state.history.filter((h) => h.state === "queued").length && (
         <Button
@@ -72,22 +89,23 @@ export default function Progress() {
           action={<Button title="Choose a workout" onPress={() => router.push("/(tabs)/library")} />}
         />
       ) : null}
+      {!!(remote.length || local.length) && <SectionHeader title="Recent sessions" />}
       {local
         .map((h) => (
           <Card key={h.request.client_session_id}>
-            <Copy kind="small" color={c.muted}>
+            <Copy kind="caption" tone="muted">
               {new Date(h.request.started_at).toLocaleDateString()} · {h.request.status} ·{" "}
               {h.state === "synced" ? "Synced" : h.state === "blocked" ? "Needs review" : "Saved on device"}
             </Copy>
             <Copy kind="heading">{h.workout.title}</Copy>
-            <Copy>
+            <Copy kind="numericSmall">
               {h.request.actuals.filter((a) => a.completed).length} completed sets ·{" "}
               {h.request.actuals.filter((a) => !a.completed).length} skipped
             </Copy>
             {h.request.actuals
               .filter((a) => a.completed)
               .map((a, index) => (
-                <Copy kind="small" key={index}>
+                <Copy kind="small" tone="muted" key={index}>
                   {h.workout.blocks.find((b) => b.id === a.block_id)?.exercises[a.exercise_index]?.name} ·{" "}
                   {summaryOf(a)}
                 </Copy>
@@ -111,41 +129,72 @@ export default function Progress() {
               />
             )}
             {h.state === "blocked" && (
-              <Notice>
-                This result keeps its original account generation and session identity. Review the conflict with
-                support; it is never silently rewritten into a new account.
-              </Notice>
+              <>
+                <Notice tone="warning">
+                  This result keeps its original account generation and session identity. It is never silently
+                  rewritten into a new account. Try again, or discard it from this device if it can no longer be saved.
+                </Notice>
+                <Row gap={8} wrap>
+                  <Button
+                    title="Try saving again"
+                    variant="secondary"
+                    size="sm"
+                    inline
+                    icon="refresh"
+                    busy={busy}
+                    onPress={() => {
+                      void sync(() => offline.store!.retry(h.request.client_session_id));
+                    }}
+                  />
+                  <Button
+                    title="Discard from this device"
+                    variant="destructive"
+                    size="sm"
+                    inline
+                    icon="trash-outline"
+                    disabled={busy}
+                    onPress={() => discard(h.request.client_session_id)}
+                  />
+                </Row>
+              </>
             )}
             {!!h.synced_id && (
               <Button
                 title="View saved session"
-                secondary
+                variant="ghost"
+                size="sm"
+                inline
+                icon="chevron-forward"
                 onPress={() => router.push({ pathname: "/session/[id]", params: { id: h.synced_id! } })}
               />
             )}
-            {!!h.request.supersedes_session_id && <Button title="View original saved session" secondary
+            {!!h.request.supersedes_session_id && <Button title="View original saved session" variant="ghost" size="sm" inline
               onPress={() => router.push({ pathname: "/session/[id]", params: { id: h.request.supersedes_session_id! } })} />}
           </Card>
         ))}
       {remote.map((s) => (
         <Card key={s.id}>
-          <Copy kind="small" color={c.muted}>
+          <Copy kind="caption" tone="muted">
             {new Date(s.started_at).toLocaleDateString()} · {s.status}
           </Copy>
           <Copy kind="heading">{s.title}</Copy>
-          <Copy>{s.content.actuals.filter((a) => a.completed).length} completed sets</Copy>
+          <Copy kind="numericSmall">{s.content.actuals.filter((a) => a.completed).length} completed sets</Copy>
           <Button
             title="View saved session"
-            secondary
+            variant="ghost"
+            size="sm"
+            inline
+            icon="chevron-forward"
             onPress={() => router.push({ pathname: "/session/[id]", params: { id: s.id } })}
           />
-          {!!s.content.supersedes_session_id && <Button title="View previous saved result" secondary
+          {!!s.content.supersedes_session_id && <Button title="View previous saved result" variant="ghost" size="sm" inline
             onPress={() => router.push({ pathname: "/session/[id]", params: { id: s.content.supersedes_session_id! } })} />}
         </Card>
       ))}
       <Button
         title="Refresh training history"
-        secondary
+        variant="ghost"
+        icon="refresh"
         busy={busy}
         onPress={() => {
           void q.refetch();
