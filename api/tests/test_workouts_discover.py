@@ -392,6 +392,13 @@ async def test_moderation_blocks_reports_and_hidden_users(discover_api):
     listed = await api.client.get("/api/v1/workouts/admin/discover?moderation_status=hidden")
     assert [item["id"] for item in listed.json()] == [row["id"]]
     await api.client.put(path, json={"moderation_status": "active", "reason": "appeal ok"})
+    private = await save(api, REEL)
+    assert (
+        await api.client.put(
+            f"/api/v1/workouts/admin/discover/{private['id']}/moderation",
+            json={"moderation_status": "hidden", "reason": "private"},
+        )
+    ).status_code == 404
     async with api.sessions.begin() as db:
         assert await db.scalar(select(func.count()).select_from(AdminAuditEvent)) == 2
         await db.execute(

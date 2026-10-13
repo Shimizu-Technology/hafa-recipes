@@ -632,7 +632,13 @@ async def admin_list(
 async def admin_moderate(workout_id: UUID, request: ModerationUpdate, admin: Admin, db: Database):
     await require_discover(db)
     before = await db.scalar(
-        select(LIBRARY.c.moderation_status).where(LIBRARY.c.id == workout_id).with_for_update()
+        select(LIBRARY.c.moderation_status)
+        .where(
+            LIBRARY.c.id == workout_id,
+            # Never surface a private, never-published workout to admins.
+            or_(LIBRARY.c.is_public.is_(True), LIBRARY.c.moderation_status == "hidden"),
+        )
+        .with_for_update()
     )
     if before is None:
         raise HTTPException(404, NOT_FOUND)
