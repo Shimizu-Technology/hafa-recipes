@@ -545,7 +545,7 @@ class ProductionSourceAcquirer:
         if caption:
             source.parts.append(SourcePart("caption", caption))
             source.metadata.channels.append("caption")
-            if len(metadata.description) > 12_000:
+            if len(metadata.description.strip()) > 12_000:
                 source.warnings.append("Caption text was truncated to the extraction limit.")
         if video_service.is_tiktok_photo_post(normalized):
             try:

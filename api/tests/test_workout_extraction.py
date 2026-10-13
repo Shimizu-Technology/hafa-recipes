@@ -912,6 +912,30 @@ async def test_video_duration_normalization_preserves_complete_caption(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("truncated", [False, True])
+async def test_caption_truncation_checks_normalized_content(monkeypatch, truncated):
+    service = await mock_video_acquirer(monkeypatch)
+    original = service.get_video_metadata_ytdlp
+    description = TEXT + "\n" + "x" * 12_000 if truncated else " " * 12_001 + TEXT + "\n" * 100
+
+    async def metadata(url):
+        value = await original(url)
+        value.description = description
+        return value
+
+    service.get_video_metadata_ytdlp = metadata
+    provider = FakeProvider(complete_workout("caption"))
+    result = await WorkoutExtractor(provider).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
+    )
+    assert provider.calls[0].parts[0].text == description.strip()[:12_000]
+    assert result.status == ("incomplete" if truncated else "ready")
+    assert result.warnings == (
+        ["Caption text was truncated to the extraction limit."] if truncated else []
+    )
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["audio", "frames"])
 async def test_optional_video_exceptions_keep_caption_and_metadata(monkeypatch, failure):
     await mock_video_acquirer(monkeypatch, failure=failure)
@@ -1066,11 +1090,23 @@ async def test_model_cannot_supply_server_owned_warnings_or_durable_cover():
     assert result.status == "ready" and result.warnings == []
     assert getattr(result.workout, "extraction_warnings", []) == []
     assert getattr(result.workout, "source_thumbnail_url", None) is None
+
+
+def test_provider_schema_filters_declared_server_owned_fields(monkeypatch):
+    import app.domains.workouts.extraction as module
+
+    class ServerOwnedWorkout(module.WorkoutContent):
+        extraction_warnings: list[str]
+        source_thumbnail_url: str | None
+
+    fields = {"extraction_warnings", "source_thumbnail_url"}
+    declared = ServerOwnedWorkout.model_json_schema()
+    assert fields <= declared["properties"].keys()
+    assert fields <= set(declared["required"])
+    monkeypatch.setattr(module, "WorkoutContent", ServerOwnedWorkout)
     schema = workout_response_format()["json_schema"]["schema"]
-    assert (
-        "extraction_warnings" not in schema["properties"]
-        and "source_thumbnail_url" not in schema["properties"]
-    )
+    assert fields.isdisjoint(schema["properties"])
+    assert fields.isdisjoint(schema["required"])
 
 
 @pytest.mark.asyncio
