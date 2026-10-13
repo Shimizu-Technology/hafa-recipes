@@ -12,3 +12,16 @@ os.environ.setdefault(
 )
 os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
 os.environ.setdefault("ENVIRONMENT", "test")
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _reset_ai_rate_limiter():
+    """Keep the process-wide AI budgets from leaking between tests."""
+    from app.rate_limit import ai_rate_limiter
+
+    ai_rate_limiter.reset()
+    yield
+    ai_rate_limiter.reset()
