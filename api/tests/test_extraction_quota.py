@@ -43,13 +43,17 @@ def _client(user: ClerkUser) -> TestClient:
 
 
 async def _exhaust(user_id: str) -> None:
-    hourly = EXTRACTION_QUOTA_WINDOWS[0].limit
-    for _ in range(hourly):
-        await ai_rate_limiter.consume_quota(
-            user_id=user_id,
-            capability=EXTRACTION_CAPABILITY,
-            windows=EXTRACTION_QUOTA_WINDOWS,
-        )
+    """Consume whatever remains of the user's hourly extraction budget."""
+    for _ in range(EXTRACTION_QUOTA_WINDOWS[0].limit + 1):
+        try:
+            await ai_rate_limiter.consume_quota(
+                user_id=user_id,
+                capability=EXTRACTION_CAPABILITY,
+                windows=EXTRACTION_QUOTA_WINDOWS,
+            )
+        except RateLimitExceeded:
+            return
+    raise AssertionError("extraction budget was never exhausted")
 
 
 def _png_bytes() -> bytes:
