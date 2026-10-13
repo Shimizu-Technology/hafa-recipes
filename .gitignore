@@ -51,3 +51,6 @@ mobile/android/
 *.tar
 *.tar.gz
 *.zip
+
+# Local agent handoffs, QA evidence and release notes
+.codex/

@@ -14,12 +14,15 @@ hard to find again.
 
 ```text
 .
-├── api/       # FastAPI service, database models, extraction pipeline, migrations
-├── mobile/    # Expo / React Native iOS and Android application
-├── web/       # React / Vite marketing, privacy, and support website
-├── docs/      # Architecture, migration, deployment, and operational decisions
-├── scripts/   # Repository-wide local development and verification commands
-└── .github/   # CI for all three independently deployable applications
+├── api/              # Shared Håfa API: FastAPI, models, extraction, migrations
+├── mobile/           # Håfa Recipes Expo / React Native app
+├── workouts-mobile/  # Håfa Workouts Expo / React Native app (TestFlight beta)
+├── web/              # Håfa Recipes marketing, privacy, and support website
+├── workouts-web/     # Håfa Workouts website and shared-workout pages
+├── admin/            # Moderation dashboard
+├── docs/             # Architecture, migration, deployment, and operational decisions
+├── scripts/          # Repository-wide local development and verification commands
+└── .github/          # CI for the independently deployable applications
 ```
 
 The applications intentionally keep separate dependency systems and lockfiles.
