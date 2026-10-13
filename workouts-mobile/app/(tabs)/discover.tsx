@@ -52,7 +52,7 @@ export default function Discover() {
   const ready = capabilities.data?.discover === true;
   const filters: DiscoverFilters = { q: settledSearch, equipment, duration, platform };
   const feed = useInfiniteQuery({
-    queryKey: discoverKeys.feed(owner, filters),
+    queryKey: discoverKeys.feed(owner, enrollment?.generation, filters),
     initialPageParam: 0,
     queryFn: ({ pageParam, signal }) => api.discover(filters, pageParam, signal),
     getNextPageParam: nextDiscoverOffset,
@@ -190,6 +190,7 @@ export default function Discover() {
                   <Button
                     title="Share a workout video"
                     icon="add"
+                    variant="secondary"
                     disabled={!enrollment?.enrolled}
                     onPress={() => router.push("/capture")}
                   />

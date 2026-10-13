@@ -59,7 +59,7 @@ export default function DiscoverWorkout() {
   const cache = useQueryClient();
   const toast = useToast();
   const q = useQuery({
-    queryKey: discoverKeys.detail(owner, id),
+    queryKey: discoverKeys.detail(owner, enrollment?.generation, id),
     queryFn: ({ signal }) => api.discoverWorkout(id, signal),
     staleTime: DISCOVER_STALE_MS,
     retry: (count, error) => ![404, 503].includes((error as { status?: number }).status ?? 0) && count < 1,
@@ -76,7 +76,7 @@ export default function DiscoverWorkout() {
   async function saveCopy(): Promise<Workout | null> {
     if (!item || generation == null) return null;
     const saved = await api.saveDiscovered(item.id, generation);
-    cache.setQueryData<DiscoverDetail>(discoverKeys.detail(owner, id), (old) =>
+    cache.setQueryData<DiscoverDetail>(discoverKeys.detail(owner, enrollment?.generation, id), (old) =>
       old ? { ...old, saved_workout_id: saved.id } : old
     );
     void cache.invalidateQueries({ queryKey: [owner, "discover", "feed"] });
@@ -150,9 +150,11 @@ export default function DiscoverWorkout() {
     try {
       const blocked = await api.blockDiscoverContributor(item.id);
       setSheet(null);
-      cache.removeQueries({ queryKey: discoverKeys.all(owner) });
       toast(`You won’t see ${blocked.display_name}’s workouts`);
       router.back();
+      // Refetch the mounted feed so the contributor's cards disappear; drop the stale detail.
+      cache.removeQueries({ queryKey: discoverKeys.detail(owner, enrollment?.generation, id) });
+      void cache.resetQueries({ queryKey: [owner, "discover", "feed"] });
     } catch (e) {
       setError((e as Error).message);
       setSheet(null);

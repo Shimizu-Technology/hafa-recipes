@@ -147,7 +147,7 @@ vi.mock("@/components/ui", () => ({
 }));
 vi.mock("@/components/query-state", () => ({ QueryState: "QueryState" }));
 vi.mock("@/components/publishing-disclosure", () => ({
-  usePublishingDisclosure: () => ({ run: (attempt: () => Promise<unknown>) => attempt(), sheet: null }),
+  usePublishingDisclosure: () => ({ run: (attempt: () => Promise<unknown>) => attempt(), sheet: null, dismiss() {} }),
 }));
 vi.mock("@/components/profile-form", () => ({ ProfileForm: "ProfileForm" }));
 vi.mock("@/components/workout-editor", () => ({ WorkoutEditor: "WorkoutEditor" }));

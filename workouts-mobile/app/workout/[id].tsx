@@ -53,7 +53,6 @@ export default function WorkoutDetail() {
   const isPublic = !!publication?.is_public;
   async function setShared(share: boolean) {
     if (!workout || publishing) return;
-    setMore(false);
     setPublishing(true);
     setError("");
     try {
@@ -71,7 +70,11 @@ export default function WorkoutDetail() {
       void cache.invalidateQueries({ queryKey: [owner, "library"] });
       toast(share ? "Shared to Discover" : "Removed from Discover");
     } catch (e) {
-      setError(share && isIncomplete(e) ? INCOMPLETE_MESSAGE : (e as Error).message);
+      setError(
+        share && isIncomplete(e) && /discover|shar/i.test((e as { detail?: string }).detail ?? "")
+          ? INCOMPLETE_MESSAGE
+          : (e as Error).message
+      );
     } finally {
       setPublishing(false);
     }
@@ -100,7 +103,7 @@ export default function WorkoutDetail() {
   return (
     <Screen
       back
-      eyebrow={workout ? `${workout.kind} · ${isPublic ? "shared to Discover" : "private library"}` : "Private library"}
+      eyebrow={workout ? `${workout.kind} · ${publication?.discover_visible ? "shared to Discover" : "private library"}` : "Private library"}
       title={workout?.title ?? "Your workout."}
       action={workout ? <IconButton icon="ellipsis-horizontal" label="More workout actions" onPress={() => setMore(true)} /> : undefined}
     >
@@ -261,7 +264,11 @@ export default function WorkoutDetail() {
               icon={isPublic ? "eye-off-outline" : "globe-outline"}
               title={isPublic ? "Remove from Discover" : "Share to Discover"}
               disabled={publishing}
-              onPress={() => void setShared(!isPublic)}
+              onPress={() => {
+                // Let this sheet finish dismissing before a disclosure sheet may open (iOS can't stack modals mid-dismiss).
+                setMore(false);
+                setTimeout(() => void setShared(!isPublic), 400);
+              }}
             />
           )}
           <ListRow

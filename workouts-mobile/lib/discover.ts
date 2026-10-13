@@ -118,18 +118,22 @@ export function normalizeFilters(filters: DiscoverFilters): DiscoverFilters {
 
 /**
  * Query keys. Everything is owner-scoped (the root layout drops a previous
- * owner's queries on account change). The feed isn't generation-scoped: reads
- * don't need enrollment and blocks/saves are per account.
+ * owner's queries on account change) and generation-scoped, because
+ * `saved_workout_id` points at a copy in the current Workouts generation.
  */
 export const discoverKeys = {
   all: (owner: string) => [owner, "discover"] as const,
-  feed: (owner: string, filters: DiscoverFilters) => [owner, "discover", "feed", normalizeFilters(filters)] as const,
-  detail: (owner: string, id: string) => [owner, "discover", "detail", id] as const,
+  feed: (owner: string, generation: number | null | undefined, filters: DiscoverFilters) =>
+    [owner, "discover", "feed", generation ?? null, normalizeFilters(filters)] as const,
+  detail: (owner: string, generation: number | null | undefined, id: string) =>
+    [owner, "discover", "detail", generation ?? null, id] as const,
 };
 
 /** Next offset for useInfiniteQuery, or undefined at the end. */
 export function nextDiscoverOffset(page: DiscoverPage) {
-  return page.has_more ? page.offset + page.items.length : undefined;
+  // Advance by the requested page size: the server can drop unreadable rows from
+  // a page, so items.length may be short (or zero) while has_more stays true.
+  return page.has_more ? page.offset + Math.max(page.limit, 1) : undefined;
 }
 
 /** Feed pages can shift while scrolling (new publications); never render the same card twice. */

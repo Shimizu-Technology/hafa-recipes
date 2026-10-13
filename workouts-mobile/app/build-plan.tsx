@@ -63,6 +63,7 @@ export default function BuildPlan() {
       })
       .catch(() => {
         if (active) {
+          if (include) setDraft((current) => (current.selected.includes(include) ? current : { ...current, selected: [...current.selected, include] }));
           setLoaded(true);
           setError("Could not restore your plan draft. You can review a new proposal.");
         }

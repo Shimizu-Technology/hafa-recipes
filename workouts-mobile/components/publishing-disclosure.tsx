@@ -61,5 +61,9 @@ export function usePublishingDisclosure() {
       </Stack>
     </Sheet>
   );
-  return { run, sheet };
+  /** Closes an open sheet as "keep private" (e.g. the screen switched to another record). */
+  const dismiss = useCallback(() => {
+    if (resolver.current) settle(false);
+  }, [settle]);
+  return { run, sheet, dismiss };
 }

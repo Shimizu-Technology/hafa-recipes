@@ -71,6 +71,7 @@ vi.mock("@/components/publishing-disclosure", async () => {
           },
         }),
       sheet: null,
+      dismiss() {},
     }),
   };
 });

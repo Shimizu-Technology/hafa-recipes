@@ -39,18 +39,23 @@ describe("discover query mapping", () => {
     expect(new URLSearchParams(discoverQuery({ q: "x".repeat(150) })).get("q")).toHaveLength(100);
   });
   it("gives equivalent searches one cache key, scoped to the owner", () => {
-    expect(discoverKeys.feed("me", { q: " legs ", equipment: "Dumbbell" })).toEqual(
-      discoverKeys.feed("me", { q: "legs", equipment: "dumbbell", platform: undefined })
+    expect(discoverKeys.feed("me", 1, { q: " legs ", equipment: "Dumbbell" })).toEqual(
+      discoverKeys.feed("me", 1, { q: "legs", equipment: "dumbbell", platform: undefined })
     );
-    expect(discoverKeys.feed("me", {})).not.toEqual(discoverKeys.feed("you", {}));
-    expect(discoverKeys.feed("me", {}).slice(0, 2)).toEqual(discoverKeys.all("me"));
-    expect(discoverKeys.detail("me", "a").slice(0, 2)).toEqual(discoverKeys.all("me"));
+    expect(discoverKeys.feed("me", 1, {})).not.toEqual(discoverKeys.feed("you", 1, {}));
+    // saved_workout_id belongs to a generation; a data reset must not reuse cached copies.
+    expect(discoverKeys.feed("me", 1, {})).not.toEqual(discoverKeys.feed("me", 2, {}));
+    expect(discoverKeys.detail("me", 1, "a")).not.toEqual(discoverKeys.detail("me", 2, "a"));
+    expect(discoverKeys.feed("me", 1, {}).slice(0, 2)).toEqual(discoverKeys.all("me"));
+    expect(discoverKeys.detail("me", 1, "a").slice(0, 2)).toEqual(discoverKeys.all("me"));
   });
   it("pages by offset and never shows a card twice", () => {
     const first: DiscoverPage = { items: [card, { ...card, id: "b" }], total: 3, limit: 2, offset: 0, has_more: true };
     const last: DiscoverPage = { items: [{ ...card, id: "b" }], total: 3, limit: 2, offset: 2, has_more: false };
     expect(nextDiscoverOffset(first)).toBe(2);
     expect(nextDiscoverOffset(last)).toBeUndefined();
+    // The server can drop unreadable rows; the offset must still advance past them.
+    expect(nextDiscoverOffset({ items: [], total: 60, limit: 20, offset: 20, has_more: true })).toBe(40);
     expect(uniqueCards([first, last]).map((item) => item.id)).toEqual(["a", "b"]);
   });
 });

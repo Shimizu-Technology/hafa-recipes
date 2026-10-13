@@ -96,6 +96,7 @@ export default function ImportReview() {
     setError("");
     setShareChoice(null);
     setNotice("");
+    disclosure.dismiss();
     void slot
       .load(current)
       .then((saved) => {
@@ -173,7 +174,11 @@ export default function ImportReview() {
       const content = edited ?? q.data.result.workout;
       const importGeneration = q.data.generation;
       const accepted = sharing
-        ? await disclosure.run(() => api.acceptImport(id, content, importGeneration, true))
+        ? await disclosure.run(() => {
+            // The retry runs after the disclosure sheet; never send it for a changed import or account.
+            current();
+            return api.acceptImport(id, content, importGeneration, true);
+          })
         : await api.acceptImport(id, content, importGeneration);
       current();
       if (accepted === DECLINED) {
@@ -198,7 +203,12 @@ export default function ImportReview() {
       current();
       router.replace({ pathname: "/workout/[id]", params: { id: saved.id } });
     } catch (e) {
-      if (isCurrent()) setError(isIncomplete(e) && sharing ? INCOMPLETE_MESSAGE : (e as Error).message);
+      if (isCurrent())
+        setError(
+          isIncomplete(e) && sharing && /discover|shar/i.test((e as { detail?: string }).detail ?? "")
+            ? INCOMPLETE_MESSAGE
+            : (e as Error).message
+        );
     } finally {
       if (isCurrent()) setBusy(false);
     }
