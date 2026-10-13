@@ -175,7 +175,9 @@ export default function WorkoutDetail() {
             )}
             <Copy kind="small" tone="muted">
               {workout.provenance === "source"
-                ? "Original source prescription. Missing details stay missing."
+                ? workout.blocks.some((block) => block.exercises.some((exercise) => exercise.provenance === "user"))
+                  ? "Saved source prescription with your corrections."
+                  : "Original source prescription. Missing details stay missing."
                 : workout.provenance === "suggestion"
                   ? "Suggested prescription. Review it before training."
                   : "Your manually entered workout."}
