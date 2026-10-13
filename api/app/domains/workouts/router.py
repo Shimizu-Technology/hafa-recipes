@@ -121,16 +121,34 @@ class LibraryOrganizationResponse(DomainModel):
     duplicate_of_revision: int | None
 
 
+class PublicationResponse(DomainModel):
+    is_public: bool
+    moderation_status: Literal["active", "hidden"]
+    published_at: datetime | None
+    discover_visible: bool
+
+
 class LibraryRecordResponse(RecordResponse):
     organization: LibraryOrganizationResponse | None = None
+    # Owner-only Discover state; null until optional migration 045 is applied.
+    publication: PublicationResponse | None = None
 
 
 async def library_responses(db, rows):
+    from app.domains.workouts.discover import publication_states
+
     if await optional_table_exists(db, "workouts_library_organization"):
         from app.domains.workouts.library_organization_service import overlay_organizations
 
-        return [LibraryRecordResponse(**item) for item in await overlay_organizations(db, rows)]
-    return [LibraryRecordResponse(**record_response(row).model_dump()) for row in rows]
+        responses = [
+            LibraryRecordResponse(**item) for item in await overlay_organizations(db, rows)
+        ]
+    else:
+        responses = [LibraryRecordResponse(**record_response(row).model_dump()) for row in rows]
+    states = await publication_states(db, [item.id for item in responses])
+    for item in responses:
+        item.publication = states.get(item.id)
+    return responses
 
 
 async def refresh_library_source(db, row):
@@ -492,6 +510,9 @@ async def update_workout(
     )
     await refresh_library_source(db, row)
     await db.flush()
+    from app.domains.workouts.discover import refresh_publication_after_edit
+
+    await refresh_publication_after_edit(db, row)
     result = (await library_responses(db, [row]))[0]
     await db.commit()
     return result
