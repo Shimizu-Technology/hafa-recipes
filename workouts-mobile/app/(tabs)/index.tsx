@@ -20,7 +20,7 @@ import {
 } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { useTraining, useOfflineTraining } from "@/lib/context";
-import { sessionsQuery } from "@/lib/session-query";
+import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import { dateInTimezone } from "@/lib/training";
 import { weekDays } from "@/lib/week-strip";
 import { goalLabels, type Program, type ScheduledSession } from "@/lib/models";
@@ -37,7 +37,7 @@ export default function Today() {
   const sessions = useQuery(sessionsQuery(api, owner, enrollment));
   const timezone = profile.data?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const date = dateInTimezone(new Date(), timezone);
-  const completed = completedProgramSessions(sessions.data, offline.state.history, enrollment?.generation ?? 0, sessions.dataUpdatedAt);
+  const completed = completedProgramSessions(sessions.data, offline.state.history, enrollment?.generation ?? 0, sessionReadStartedAt(sessions.data));
   const activePrograms = programs.data?.filter((p) => p.status === "ready" && p.schedule_state?.status !== "paused");
   const planned = activePrograms
     ?.flatMap((p) =>

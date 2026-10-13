@@ -27,7 +27,7 @@ import { PrescriptionPreview } from "@/components/program-preview";
 import { isISODate } from "@/lib/sharing";
 import { dateInTimezone } from "@/lib/training";
 import { useTraining, useOfflineTraining } from "@/lib/context";
-import { sessionsQuery } from "@/lib/session-query";
+import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import type { Program, ScheduledSession } from "@/lib/models";
 function DateBadge({ date, done }: { date: string; done: boolean }) {
   const c = useColors();
@@ -63,7 +63,7 @@ export default function Plan() {
   const [date, setDate] = useState("");
   const [inspecting, setInspecting] = useState<string | null>(null);
   const actuals = useQuery(sessionsQuery(api, owner, enrollment));
-  const statuses = programSessionStates(actuals.data, offline.state.history, enrollment?.generation ?? 0, actuals.dataUpdatedAt);
+  const statuses = programSessionStates(actuals.data, offline.state.history, enrollment?.generation ?? 0, sessionReadStartedAt(actuals.data));
   const profile = useQuery({ queryKey: [owner, "profile", enrollment?.generation], queryFn: api.profile, enabled: !!enrollment?.enrolled });
   const today = dateInTimezone(new Date(), profile.data?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
   const q = useQuery({

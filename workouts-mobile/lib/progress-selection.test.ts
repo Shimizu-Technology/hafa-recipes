@@ -1,9 +1,12 @@
 import { expect, it, vi } from "vitest";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { selectProgressSessions, missingProgressParents, loadProgressAncestry, effectiveTrainingHistory } from "./progress-selection";
 import { activityFrequency } from "./activity-log";
 import { createTrainingStore, type SavedLocalSession } from "./training";
 import type { TrainingSession, Workout } from "./models";
 import { previousActual, stepsFor } from "./training";
+import { sessionsQuery, sessionReadStartedAt } from "./session-query";
+import { completedProgramSessions, programSessionKey } from "./program-session-identity";
 
 const workout: Workout = { id: "workout", generation: 1, revision: 1, title: "Strength", kind: "session", provenance: "user",
   blocks: [{ id: "main", label: "Strength", grouping: "sequential", exercises: [{ name: "Row", sets: 2, reps_min: 8, reps_max: 8 }] }] };
@@ -39,6 +42,46 @@ it("a newly acknowledged result stays effective until the server cache catches u
   const result = local(saved()); result.synced_at = 200;
   expect(effectiveTrainingHistory([result], [], 1, 100)).toHaveLength(1);
   expect(effectiveTrainingHistory([result], [], 1, 300)).toHaveLength(0);
+});
+it("a late initial QueryObserver read cannot retire a real acknowledged save, including reused post-sync refetch", async () => {
+  let clock = 100, resolveRead!: (value: TrainingSession[]) => void;
+  const date = vi.spyOn(Date, "now").mockImplementation(() => clock);
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  const api = { sessions: vi.fn(() => new Promise<TrainingSession[]>((resolve) => { resolveRead = resolve; })) };
+  const observer = new QueryObserver(cache, sessionsQuery(api, "owner", { enrolled: true, generation: 1 }));
+  const unsubscribe = observer.subscribe(() => undefined);
+  try {
+    expect(api.sessions).toHaveBeenCalledTimes(1);
+    const map = new Map<string, string>();
+    const store = createTrainingStore({ getItem: async (key) => map.get(key) ?? null,
+      setItem: async (key, value) => { map.set(key, value); }, removeItem: async (key) => { map.delete(key); } }, "owner", 1, () => clock);
+    await store.load();
+    await store.start(workout, { program_id: "plan", program_revision: 1, program_session_id: "today" }, "real-client");
+    await store.activityType("strength_training");
+    for (const actual of saved().content.actuals) await store.log(actual);
+    await store.finish("completed");
+    clock = 200;
+    await store.sync(async (request) => ({ id: "server-saved", generation: 1,
+      client_session_id: request.client_session_id, title: workout.title, started_at: request.started_at, status: request.status,
+      content: { ...request, prescription_snapshot: workout } }));
+    expect(store.snapshot().history[0].synced_at).toBe(200);
+    const afterSync = observer.refetch(); // No cached data: React Query reuses the already-running GET.
+    expect(api.sessions).toHaveBeenCalledTimes(1);
+    clock = 300; resolveRead([]);
+    const stale = await afterSync;
+    expect(stale.dataUpdatedAt).toBe(300);
+    expect(sessionReadStartedAt(stale.data)).toBe(100);
+    const key = programSessionKey("plan", "today")!;
+    expect(completedProgramSessions(stale.data, store.snapshot().history, 1, sessionReadStartedAt(stale.data)).has(key)).toBe(true);
+    expect(effectiveTrainingHistory(store.snapshot().history, stale.data, 1, sessionReadStartedAt(stale.data))).toHaveLength(1);
+    // A genuinely later complete read can confirm removal/supersession. Even
+    // []→[] must replace the read boundary rather than structurally reuse it.
+    clock = 400; api.sessions.mockResolvedValueOnce([]);
+    const fresh = await observer.refetch();
+    expect(api.sessions).toHaveBeenCalledTimes(2);
+    expect(sessionReadStartedAt(fresh.data)).toBe(400);
+    expect(effectiveTrainingHistory(store.snapshot().history, fresh.data, 1, sessionReadStartedAt(fresh.data))).toHaveLength(0);
+  } finally { unsubscribe(); cache.clear(); date.mockRestore(); }
 });
 const frequency = (selection: ReturnType<typeof selectProgressSessions>) =>
   activityFrequency([], selection.sessions, "UTC", "2026-10-04", "2026-10-10");

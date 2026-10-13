@@ -25,7 +25,7 @@ import {
   haptics,
 } from "@/components/ui";
 import { useTraining, useOfflineTraining } from "@/lib/context";
-import { sessionsQuery } from "@/lib/session-query";
+import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import { effectiveTrainingHistory } from "@/lib/progress-selection";
 import { remainingSeconds, summaryOf, previousActual, actualIdentity, draftStructureWarning } from "@/lib/training";
 import type { ActualSet } from "@/lib/models";
@@ -112,7 +112,7 @@ export default function Training() {
     input.load_unit === "kg" || input.load_unit === "lb" ? input.load_unit : units === "imperial" ? "lb" : "kg";
   const previous = step
     ? previousActual(d.workout, step, [
-        ...effectiveTrainingHistory(state.history, past.data, enrollment?.generation ?? 0, past.dataUpdatedAt)
+        ...effectiveTrainingHistory(state.history, past.data, enrollment?.generation ?? 0, sessionReadStartedAt(past.data))
           .map((h) => ({ workout: h.workout, actuals: h.request.actuals })),
       ])
     : null;

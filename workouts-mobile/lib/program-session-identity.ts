@@ -21,7 +21,8 @@ export function programSessionStates(server: readonly TrainingSession[] | undefi
     const key = programSessionKey(request.program_id, request.program_session_id);
     if (!key || result.get(key) === "completed") continue;
     const status = request.actuals.some((actual) => actual.completed)
-      ? request.status === "completed" ? "completed" : "partial" : "skipped";
+      ? request.status === "completed" && request.actuals.every((actual) => actual.completed)
+        ? "completed" : "partial" : "skipped";
     // A separate partial retry never undoes an earlier complete session.
     // Corrections have already replaced their originals in the effective view.
     if (status !== "skipped" || !result.has(key)) result.set(key, status);

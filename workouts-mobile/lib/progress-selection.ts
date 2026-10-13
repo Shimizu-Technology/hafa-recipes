@@ -137,7 +137,8 @@ export function selectProgressSessions(
 }
 
 /** A complete server list replaces retained synced copies. Pending corrections
- * stay in Progress for review, but never masquerade as accepted performance. */
+ * stay in Progress for review, but never masquerade as accepted performance.
+ * Only a read that began after acknowledgement can retire a freshly saved event. */
 export function effectiveTrainingHistory(local: readonly SavedLocalSession[], remote: readonly TrainingSession[] | undefined, generation: number, serverReadAt = Infinity) {
   const eligible = local.filter((item) => item.state !== "blocked" &&
     (item.state === "synced" || !item.request.supersedes_session_id) &&
