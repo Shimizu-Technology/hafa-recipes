@@ -212,6 +212,7 @@ export default function Coach() {
       setBusy(false);
     }
   }
+  if (enrollment?.enrolled && profile.isPending) return <Screen back title="Your coach starts with you."><Copy>Loading your training preferences…</Copy></Screen>;
   if (!enrollment?.enrolled || (profile.isSuccess && !profile.data)) return <Screen back title="Your coach starts with you." subtitle="Set up your training preferences when you’re ready.">
     <Copy>Choose a goal, your equipment and a realistic schedule so the coach can use your saved workouts. Personal measurements are optional.</Copy>
     <Button title={enrollment?.enrolled ? "Set up training" : "Join Workouts"} onPress={() => router.push({ pathname: enrollment?.enrolled ? "/profile" : "/onboarding", params: { return_to: "coach", ...params } })} />
