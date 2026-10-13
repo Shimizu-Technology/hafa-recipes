@@ -100,7 +100,8 @@ class StorageService:
         if self._presign_client is None:
             settings = get_settings()
             if settings.s3_enabled:
-                self._presign_client = boto3.client(
+                # Own session: boto3's default session is not thread-safe.
+                self._presign_client = boto3.session.Session().client(
                     "s3",
                     aws_access_key_id=settings.aws_access_key_id,
                     aws_secret_access_key=settings.aws_secret_access_key,
@@ -741,6 +742,8 @@ class StorageService:
             keys.append(urlparse(image_url).path.removeprefix("/"))
 
         try:
+            # Resolve the lazy client on the loop thread, not in the worker.
+            _ = self.client
             await asyncio.to_thread(self._delete_chat_image_keys, keys)
             return len(keys)
         except StorageCleanupError:
