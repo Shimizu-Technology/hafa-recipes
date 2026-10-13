@@ -141,13 +141,13 @@ export default function Today() {
           <Empty
             icon="sunny-outline"
             mark
-            title="Start with your real life"
+            title="Start saving workouts"
             description={
               enrollment?.generation
                 ? "Your earlier Workouts data was removed. You can explicitly start fresh with the same Håfa account."
-                : "Tell us your goals, equipment and realistic schedule. Your Recipes data stays separate."
+                : "Save workout inspiration now. Add goals and a training plan later."
             }
-            action={<Button title="Set up my training" onPress={() => router.push("/onboarding")} />}
+            action={<Button title="Join Workouts" onPress={() => router.push("/onboarding")} />}
           />
         </QueryState>
       ) : (
@@ -164,7 +164,7 @@ export default function Today() {
                 icon="person-outline"
                 title="Give training a foundation"
                 description="Set your goal and availability so your plan can fit your life."
-                action={<Button title="Set up my profile" onPress={() => router.push("/onboarding")} />}
+                action={<><Button title="Save a workout" onPress={() => router.push("/capture")} /><Button title="Set up a training plan" secondary onPress={() => router.push({ pathname: "/profile", params: { return_to: "build-plan" } })} /></>}
               />
             ) : (
               <>

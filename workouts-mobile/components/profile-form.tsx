@@ -27,6 +27,8 @@ export function ProfileForm({
   baseline?: TrainingProfile | null;
 }) {
   const { units, setUnits } = useTraining();
+  const [showDetails, setShowDetails] = useState(false);
+  const expanded = section != null || showDetails;
   const set = (change: Partial<TrainingProfile>) => {
     if (disabled) return;
     const merged = { ...value, ...change };
@@ -59,6 +61,7 @@ export function ProfileForm({
               }
             />
           ))}
+          {expanded && <>
           <Copy kind="heading">Anything else you want to work toward?</Copy>
           <Copy tone="muted">Optional secondary goals help describe your priorities. Your main goal still guides the plan.</Copy>
           <ChipRow wrap label="Secondary goals">
@@ -255,6 +258,7 @@ export function ProfileForm({
               />
             </>
           )}
+          </>}
           <Copy kind="heading">Your training experience</Copy>
           {(["new", "returning", "regular"] as const).map((experience, index) => (
             <Choice
@@ -269,7 +273,7 @@ export function ProfileForm({
       )}
       {(section == null || section === 1) && (
         <>
-          <EquipmentLocations disabled={disabled} value={value} update={update} />
+          {expanded && <EquipmentLocations disabled={disabled} value={value} update={update} />}
           <Copy kind="heading">What can you train with?</Copy>
           <ChipRow wrap label="Equipment">
           <Chip
@@ -321,6 +325,7 @@ export function ProfileForm({
             value={String(value.session_minutes)}
             onChange={(text) => set({ session_minutes: text === "" ? 0 : Number(text) })}
           />
+          {expanded && <>
           <Field
             disabled={disabled}
             label="Timezone"
@@ -333,9 +338,11 @@ export function ProfileForm({
             timezone={value.timezone}
             onChange={(other_activities) => set({ other_activities })}
           />
+          </>}
         </>
       )}
-      {(section == null || section === 2) && (
+      {section == null && <Button title={showDetails ? "Hide optional details" : "Add optional details"} variant="ghost" disabled={disabled} onPress={() => setShowDetails(!showDetails)} />}
+      {expanded && (section == null || section === 2) && (
         <>
           <Copy kind="heading">Personal context</Copy>
           <Copy>These details are optional. Your profile stays private and you can remove information later.</Copy>

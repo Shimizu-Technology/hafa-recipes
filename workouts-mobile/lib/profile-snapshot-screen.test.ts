@@ -8,6 +8,8 @@ import { initialProfile, type TrainingProfile } from "./models";
 
 const f = vi.hoisted(() => ({
   owner: "", run: 0, current: true,
+  params: {} as Record<string, string | undefined>,
+  replace: vi.fn(),
   api: null as ReturnType<typeof createWorkoutsApi> | null,
   map: new Map<string, string>(),
   write: null as null | ((value: { terminal: boolean; input: unknown; command: unknown }) => Promise<void>)
@@ -28,7 +30,7 @@ vi.mock("@/lib/context", () => {
   }) };
 });
 vi.mock("react-native", () => ({ View: "View" }));
-vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
+vi.mock("expo-router", () => ({ router: { push: vi.fn(), replace: f.replace }, useLocalSearchParams: () => f.params }));
 vi.mock("@/components/ui", () => ({ Screen: "Screen", Button: "Button", Notice: "Notice", Empty: "Empty", AccountButton: "AccountButton" }));
 vi.mock("@/components/query-state", () => ({ QueryState: "QueryState" }));
 vi.mock("@/components/profile-form", () => ({ ProfileForm: "ProfileForm" }));
@@ -36,7 +38,7 @@ import Profile from "../app/profile";
 
 const original: TrainingProfile = { ...initialProfile(), adult_confirmed: true, limitations: ["Original"] };
 let renderer: ReactTestRenderer | undefined, cache: QueryClient;
-let server: ProfileSnapshot<TrainingProfile>;
+let server: ProfileSnapshot;
 let puts: Array<{ profile: TrainingProfile; revision: number; generation: string | undefined }>;
 let failBeforeCommit: boolean, loseCommittedAck: boolean;
 let wirePuts: Array<{ body: string; ifMatch: string; generation: string }>;
@@ -78,7 +80,7 @@ async function background(profile: TrainingProfile, revision: number, publish = 
 }
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  f.owner = `paired-profile-owner-${++f.run}`; f.current = true; f.map.clear(); f.write = null;
+  f.owner = `paired-profile-owner-${++f.run}`; f.current = true; f.map.clear(); f.write = null; f.params = {}; f.replace.mockClear();
   server = { profile: original, revision: 1 }; puts = []; failBeforeCommit = false; loseCommittedAck = false; wirePuts = []; measurementUpdate = null;
   const transport = vi.fn(async (url: RequestInfo | URL, options?: RequestInit) => {
     if (String(url).includes("/measurements") && measurementUpdate) {
@@ -225,4 +227,30 @@ it("recovers a committed PUT with lost acknowledgement only through explicit pai
   expect(reloaded.command).toBeNull();
   expect(reloaded.input).toEqual({ value: desired, revision: 2, generation: 1 });
   expect(wirePuts).toHaveLength(2); // Paired reload is a GET/reset, never an extra PUT.
+});
+
+
+it("creates an explicitly chosen profile from a null snapshot using revision zero", async () => {
+  server = { profile: null, revision: 0 };
+  cache.setQueryData(key(), server);
+  cache.setQueryData(legacyKey(), null);
+  await mount();
+  expect(puts).toHaveLength(0); // Joining never writes defaults.
+  const chosen = { ...node("ProfileForm").props.value, primary_goal: "strength", equipment: [] };
+  await act(async () => { node("ProfileForm").props.update(chosen); });
+  await click("Save profile");
+  expect(wirePuts[0].ifMatch).toBe('"0"');
+  expect(puts[0].profile).toEqual(chosen);
+  expect(server).toEqual({ profile: chosen, revision: 1 });
+});
+
+
+it.each([
+  { return_to: "build-plan", include: "saved-workout" },
+  { return_to: "coach", workout_id: "saved-workout", revision: "3" },
+])("returns to the selected feature with its source after profile setup: $return_to", async (params) => {
+  f.params = params;
+  await mount();
+  await click("Save profile");
+  expect(f.replace).toHaveBeenCalledWith({ pathname: params.return_to === "coach" ? "/coach" : "/build-plan", params: params.return_to === "coach" ? { workout_id: "saved-workout", revision: "3" } : { include: "saved-workout" } });
 });

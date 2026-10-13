@@ -88,8 +88,7 @@ export default function Library() {
             icon="add"
             label="Add a workout"
             variant="primary"
-            disabled={!enrollment?.enrolled}
-            onPress={() => router.push("/capture")}
+            onPress={() => router.push(enrollment?.enrolled ? "/capture" : "/onboarding")}
           />
           <AccountButton />
         </Row>
@@ -135,7 +134,8 @@ export default function Library() {
               narrowed ? (
                 <Button title="Clear filters" secondary onPress={clear} />
               ) : (
-                <Button title="Add a workout" icon="add" disabled={!enrollment?.enrolled} onPress={() => router.push("/capture")} />
+                <Button title={enrollment?.enrolled ? "Add a workout" : "Start saving workouts"} icon="add"
+                  onPress={() => router.push(enrollment?.enrolled ? "/capture" : "/onboarding")} />
               )
             }
           />

@@ -1,6 +1,6 @@
 import { it, expect, vi } from "vitest";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
-import { activeTrainingGeneration, commitTrainingSetup, profileKey, saveTrainingSetup } from "./onboarding-state";
+import { activeTrainingGeneration, commitTrainingSetup, profileKey, saveTrainingSetup, saveAccountSetup } from "./onboarding-state";
 import { drafts, draftKey } from "./drafts";
 import { createPrivateStorageRegistry } from "./private-storage";
 import { createTrainingStore } from "./training";
@@ -283,4 +283,71 @@ it("real QueryClient delayed pre-setup enrollment cannot replace a freshly publi
   expect(f.cache.getQueryData(profileKey("A", 3))).toEqual(profile);
   expect(api.generation()).toBe(3);
   f.cache.clear();
+});
+
+
+function accountSetupFixture(member = enrollment(1, true)) {
+  const complete = vi.fn(async (_member: Enrollment) => {});
+  const scope = { drafts: drafts(fixture().old), guard: vi.fn() };
+  const setup = { guard: vi.fn(), acknowledge: vi.fn(async () => scope), scope: () => scope, complete: vi.fn(), fail: vi.fn(async () => {}) };
+  const api = { enroll: vi.fn(async () => member), enrollment: vi.fn(async () => member) };
+  return { adultConfirmed: true, sharedDeletionAcknowledged: true, expectedGeneration: null, guard: vi.fn(), setup, api, complete };
+}
+it("joins without requesting or saving a training profile", async () => {
+  const f = fixture();
+  const member = enrollment(1, true);
+  const deps = accountSetupFixture(member);
+  deps.complete = vi.fn((saved) => commitTrainingSetup({ ...f.bridge(saved), profile: undefined }));
+  await saveAccountSetup(deps);
+  expect(deps.api.enroll).toHaveBeenCalledWith(true, null);
+  expect(f.cache.getQueryData(["A", "enrollment"])).toEqual(member);
+  expect(f.cache.getQueryData(profileKey("A", 1))).toBeUndefined();
+  expect(await drafts(f.registry.capture("A")).load("A", "profile:1")).toBeNull();
+});
+it("keeps the existing profile and unsaved profile draft on an enrolled account", async () => {
+  const f = fixture(1);
+  const member = enrollment(1, true);
+  f.cache.setQueryData(["A", "enrollment"], member);
+  f.cache.setQueryData(profileKey("A", 1), profile);
+  await drafts(f.old).save("A", "profile:1", profile);
+  await commitTrainingSetup({ ...f.bridge(member), profile: undefined, draft_scope: "account-setup" });
+  expect(f.cache.getQueryData(profileKey("A", 1))).toEqual(profile);
+  expect(await drafts(f.registry.capture("A")).load("A", "profile:1")).toEqual(profile);
+});
+it("does not finish joining after an enrollment conflict", async () => {
+  const deps = accountSetupFixture();
+  deps.api.enrollment.mockResolvedValue(enrollment(2, true));
+  await expect(saveAccountSetup(deps)).rejects.toThrow("enrollment changed");
+  expect(deps.complete).not.toHaveBeenCalled();
+  expect(deps.setup.fail).toHaveBeenCalledOnce();
+});
+it("retains explicit joining as the retry after a lost enrollment acknowledgment", async () => {
+  const deps = accountSetupFixture();
+  deps.api.enroll.mockRejectedValueOnce(Error("Acknowledgment lost"));
+  await expect(saveAccountSetup(deps)).rejects.toThrow("Acknowledgment lost");
+  expect(deps.complete).not.toHaveBeenCalled();
+  expect(deps.setup.acknowledge).not.toHaveBeenCalled();
+  expect(deps.setup.fail).toHaveBeenCalledOnce();
+  await saveAccountSetup(deps);
+  expect(deps.complete).toHaveBeenCalledOnce();
+  expect(deps.api.enroll).toHaveBeenCalledTimes(2);
+});
+it("does not enroll without both user acknowledgments", async () => {
+  const deps = accountSetupFixture();
+  await expect(saveAccountSetup({ ...deps, sharedDeletionAcknowledged: false })).rejects.toThrow("Confirm");
+  expect(deps.api.enroll).not.toHaveBeenCalled();
+});
+
+
+it("keeps joining closed when the acknowledged setup scope is retired", async () => {
+  const deps = accountSetupFixture();
+  deps.setup.scope().guard.mockImplementation(() => { throw Error("Account changed"); });
+  await expect(saveAccountSetup(deps)).rejects.toThrow("Account changed");
+  expect(deps.api.enrollment).not.toHaveBeenCalled();
+  expect(deps.complete).not.toHaveBeenCalled();
+});
+it("requires the service to acknowledge the shared-account policy", async () => {
+  const deps = accountSetupFixture({ ...enrollment(1, true), shared_account_deletion_acknowledged: false });
+  await expect(saveAccountSetup(deps)).rejects.toThrow("did not acknowledge");
+  expect(deps.complete).not.toHaveBeenCalled();
 });

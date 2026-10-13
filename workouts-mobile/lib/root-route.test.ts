@@ -7,9 +7,9 @@ it("cold root renders sign-in destination after Clerk resolves instead of shared
   auth.value = { isLoaded: true, isSignedIn: false };
   expect(RootDestination()?.props.href).toBe("/sign-in");
 });
-it("authenticated cold root renders Today via tabs and unresolved authentication never guesses a destination", () => {
+it("authenticated cold root opens the saved-workout Library and unresolved authentication never guesses a destination", () => {
   auth.value = { isLoaded: true, isSignedIn: true };
-  expect(RootDestination()?.props.href).toBe("/(tabs)");
+  expect(RootDestination()?.props.href).toBe("/(tabs)/library");
   auth.value = { isLoaded: false, isSignedIn: false };
   expect(RootDestination()).toBeNull();
 });

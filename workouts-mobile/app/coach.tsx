@@ -18,6 +18,7 @@ export default function Coach() {
   const drafts = useMemo(() => createCoachDraftStore(storage), [storage]);
   const generation = enrollment?.generation ?? 0;
   const cache = useQueryClient();
+  const profile = useQuery({ queryKey: [owner, "profile", generation], queryFn: api.profile, enabled: !!enrollment?.enrolled });
   const focus: CoachFocus = {
     ...(params.workout_id ? { context_workout_id: params.workout_id } : {}),
     ...(params.program_id ? { context_program_id: params.program_id } : {}),
@@ -211,6 +212,11 @@ export default function Coach() {
       setBusy(false);
     }
   }
+  if (enrollment?.enrolled && profile.isPending) return <Screen back title="Your coach starts with you."><Copy>Loading your training preferences…</Copy></Screen>;
+  if (!enrollment?.enrolled || (profile.isSuccess && !profile.data)) return <Screen back title="Your coach starts with you." subtitle="Set up your training preferences when you’re ready.">
+    <Copy>Choose a goal, your equipment and a realistic schedule so the coach can use your saved workouts. Personal measurements are optional.</Copy>
+    <Button title={enrollment?.enrolled ? "Set up training" : "Join Workouts"} onPress={() => router.push({ pathname: enrollment?.enrolled ? "/profile" : "/onboarding", params: { return_to: "coach", ...params } })} />
+  </Screen>;
   return (
     <Screen
       back
@@ -237,6 +243,7 @@ export default function Coach() {
           usable.
         </Notice>
       )}
+      {profile.error && <Notice error>{profile.error.message}</Notice>}
       {consent.error && <Notice error>{consent.error.message}</Notice>}
       <Card>
         <Field
@@ -258,7 +265,7 @@ export default function Coach() {
           title={pending ? "Retry this saved message" : "Send message"}
           icon="send"
           busy={busy}
-          disabled={!loaded || !enrollment?.enrolled || !capabilities.data?.coach || !consent.data?.accepted}
+          disabled={!loaded || !enrollment?.enrolled || !profile.data || !capabilities.data?.coach || !consent.data?.accepted}
           onPress={() => {
             void send();
           }}
