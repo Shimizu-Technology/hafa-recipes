@@ -188,6 +188,7 @@ export default function WorkoutDetail() {
                   {block.label ? `${block.label} · ` : ""}
                   {block.grouping}
                   {block.rounds ? ` · ${block.rounds} rounds` : ""}
+                  {block.rounds == null && block.grouping !== "sequential" ? " · Rounds not specified" : ""}
                   {block.rest_between_rounds_seconds != null ? ` · ${formatSeconds(block.rest_between_rounds_seconds)} between rounds` : ""}
                 </Copy>
                 {block.exercises.map((e, i) => (
