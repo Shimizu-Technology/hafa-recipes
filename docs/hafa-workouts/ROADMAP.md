@@ -101,7 +101,7 @@ Recipes is public on the App Store and shares this server, so this comes first.
 - [ ] **Install consistency in CI.** Check that `api/requirements.txt` matches `api/uv.lock`.
 - [ ] Small items:
   - invalid collection UUIDs return 400, not 500;
-  - block the CGNAT range `100.64/10` (or use `not ip.is_global`);
+  - block the CGNAT range `100.64.0.0/10` (or use `not ip.is_global`);
   - URL-encode the oEmbed `url=` parameter;
   - move the blocking S3 calls off the event loop.
 
@@ -152,8 +152,8 @@ Follow the Recipes model: `is_public`, `moderation_status` and `review_state` on
   - show a one-time publishing notice before the first publish (reuse the disclosure pattern).
 - [ ] Endpoints:
   - `GET /api/v1/workouts/discover` with search and filters for equipment, body area, duration and source, paginated;
-  - `GET /discover/{id}`;
-  - `POST /discover/{id}/save`, which copies the workout into the user's library;
+  - `GET /api/v1/workouts/discover/{id}`;
+  - `POST /api/v1/workouts/discover/{id}/save`, which copies the workout into the user's library;
   - publish and unpublish on the owner's workout.
 - [ ] Deduplication: if a public workout already exists for the same source video, Discover shows one card. The new import still saves privately for the importer.
 - [ ] Moderation: reuse report, hide and block, and the admin dashboard `require_admin` routes. A hidden user's workouts disappear from Discover.
