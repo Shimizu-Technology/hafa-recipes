@@ -47,6 +47,7 @@ import {
 
 import { useAuth } from '@clerk/expo';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { useDebouncedSearchQuery } from '@/hooks/useDebouncedSearchQuery';
 import { useViewPreference } from '@/hooks/useViewPreference';
 
 const ITEMS_PER_PAGE = 20;
@@ -278,6 +279,9 @@ export default function HistoryScreen() {
   const insets = useSafeAreaInsets();
   const { userId, isSignedIn } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
+  // Local filtering follows every keystroke; the server search uses the debounced value.
+  const debouncedSearchQuery = useDebouncedSearchQuery(searchQuery);
+  const isServerSearchCurrent = debouncedSearchQuery === searchQuery;
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showCreateCollectionModal, setShowCreateCollectionModal] = useState(false);
@@ -342,7 +346,7 @@ export default function HistoryScreen() {
     isError: isSearchError,
     refetch: refetchSearch,
   } = useSearchRecipes({
-    query: searchQuery,
+    query: debouncedSearchQuery,
     sourceType: sourceTypeParam,
     timeFilter: timeFilterParam,
     tags: selectedTags.length > 0 ? selectedTags : undefined,
@@ -400,7 +404,10 @@ export default function HistoryScreen() {
 
     if (hasActiveFilters) {
       // If search results are back, use them; otherwise filter cached data locally
-      ownRecipes = searchResults?.length ? searchResults : filterRecipesLocally(recipes, currentFilters);
+      // Server results for an older (pre-debounce) query would not match the input yet.
+      ownRecipes = isServerSearchCurrent && searchResults?.length
+        ? searchResults
+        : filterRecipesLocally(recipes, currentFilters);
     } else {
       ownRecipes = recipes;
     }
@@ -432,7 +439,7 @@ export default function HistoryScreen() {
 
     // Combine: own recipes first, then saved
     return [...ownRecipes, ...filteredSaved];
-  }, [recipes, searchResults, savedRecipes, ownershipFilter, hasActiveFilters, sourceTypeParam, currentFilters]);
+  }, [recipes, searchResults, isServerSearchCurrent, savedRecipes, ownershipFilter, hasActiveFilters, sourceTypeParam, currentFilters]);
 
   // Calculate total count based on ownership filter
   const totalCount = useMemo(() => {
@@ -476,7 +483,8 @@ export default function HistoryScreen() {
     } else if (hasMoreServer) {
       // Then, fetch more from the server
       if (hasActiveFilters && hasMoreSearchResults) {
-        fetchNextSearchResults();
+        // Don't page the previous query while a new one is still debouncing.
+        if (isServerSearchCurrent) fetchNextSearchResults();
       } else if (hasMoreRecipes) {
         fetchNextRecipes();
       }
@@ -909,7 +917,7 @@ export default function HistoryScreen() {
         )}
 
         {/* Search loading indicator - shows when server is fetching more results */}
-        {hasActiveFilters && isSearchFetching && (
+        {hasActiveFilters && (isSearchFetching || !isServerSearchCurrent) && (
           <RNView style={styles.searchLoadingRow}>
             <ActivityIndicator size="small" color={colors.tint} />
             <Text style={[styles.searchLoadingText, { color: colors.textMuted }]}>

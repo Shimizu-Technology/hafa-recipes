@@ -1,21 +1,19 @@
 import { ActivityWeek } from "@/components/activity-week";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { Alert } from "react-native";
 import { router } from "expo-router";
 import { AccountButton, Button, Card, Copy, Empty, IconButton, ListGroup, ListRow, Notice, Row, Screen, SectionHeader } from "@/components/ui";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { summaryOf } from "@/lib/training";
+import { sessionsQuery } from "@/lib/session-query";
 import { missingProgressParents, loadProgressAncestry, selectProgressSessions } from "@/lib/progress-selection";
 export default function Progress() {
   const { api, owner, enrollment } = useTraining();
   const offline = useOfflineTraining();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const q = useQuery({
-    queryKey: [owner, "sessions", enrollment?.generation],
-    queryFn: api.sessions,
-    enabled: !!enrollment?.enrolled,
-  });
+  const q = useQuery(sessionsQuery(api, owner, enrollment));
   const generation = enrollment?.generation ?? 0;
   const parents = missingProgressParents(offline.state.history, q.data ?? [], generation);
   const needsAncestry = parents.length > 0 && selectProgressSessions(offline.state.history, q.data ?? [], generation).requiresAncestry;
@@ -30,11 +28,12 @@ export default function Progress() {
   const selected = selectProgressSessions(offline.state.history, q.data ?? [], generation, ancestry.data?.records);
   const { local, remote } = selected;
   const ancestryReady = !needsAncestry || ancestry.data?.complete === true;
-  async function sync() {
+  async function sync(before?: () => Promise<void>) {
     if (!offline.store) return;
     setBusy(true);
     setError("");
     try {
+      await before?.();
       await offline.store.sync(api.saveSession);
       await q.refetch();
     } catch (e) {
@@ -42,6 +41,14 @@ export default function Progress() {
     } finally {
       setBusy(false);
     }
+  }
+  function discard(id: string) {
+    Alert.alert("Discard this result?", "It is removed from this device only. Nothing saved to your account changes.", [
+      { text: "Keep", style: "cancel" },
+      { text: "Discard", style: "destructive", onPress: () => {
+        void offline.store?.dismiss(id).catch((e: Error) => setError(e.message));
+      } },
+    ]);
   }
   return (
     <Screen
@@ -122,10 +129,34 @@ export default function Progress() {
               />
             )}
             {h.state === "blocked" && (
-              <Notice>
-                This result keeps its original account generation and session identity. Review the conflict with
-                support; it is never silently rewritten into a new account.
-              </Notice>
+              <>
+                <Notice tone="warning">
+                  This result keeps its original account generation and session identity. It is never silently
+                  rewritten into a new account. Try again, or discard it from this device if it can no longer be saved.
+                </Notice>
+                <Row gap={8} wrap>
+                  <Button
+                    title="Try saving again"
+                    variant="secondary"
+                    size="sm"
+                    inline
+                    icon="refresh"
+                    busy={busy}
+                    onPress={() => {
+                      void sync(() => offline.store!.retry(h.request.client_session_id));
+                    }}
+                  />
+                  <Button
+                    title="Discard from this device"
+                    variant="destructive"
+                    size="sm"
+                    inline
+                    icon="trash-outline"
+                    disabled={busy}
+                    onPress={() => discard(h.request.client_session_id)}
+                  />
+                </Row>
+              </>
             )}
             {!!h.synced_id && (
               <Button

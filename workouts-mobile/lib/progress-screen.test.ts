@@ -4,14 +4,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { TrainingSession, Workout } from "./models";
 import type { SavedLocalSession } from "./training";
-const fixture = vi.hoisted(() => ({ history: [] as SavedLocalSession[], remote: [] as TrainingSession[], session: vi.fn() }));
+const fixture = vi.hoisted(() => ({ history: [] as SavedLocalSession[], remote: [] as TrainingSession[], session: vi.fn(),
+  store: { sync: vi.fn(async () => {}), retry: vi.fn(async () => {}), dismiss: vi.fn(async () => {}) }, alert: vi.fn() }));
 vi.mock("@/lib/context", () => {
   const api = { sessions: async () => fixture.remote, session: fixture.session, saveSession: vi.fn(),
     activityLog: async () => ({ items: [], has_more: false, timezone: "UTC", today: "2026-10-10", limit: 50, offset: 0 }) };
   return { useTraining: () => ({ api, owner: "owner", enrollment: { enrolled: true, generation: 1 } }),
-    useOfflineTraining: () => ({ state: { history: fixture.history }, error: "", store: { sync: vi.fn() } }) };
+    useOfflineTraining: () => ({ state: { history: fixture.history }, error: "", store: fixture.store }) };
 });
-vi.mock("react-native", () => ({ AppState: { addEventListener: () => ({ remove() {} }) } }));
+vi.mock("react-native", () => ({ AppState: { addEventListener: () => ({ remove() {} }) }, Alert: { alert: fixture.alert } }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn() }, useFocusEffect() {} }));
 vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy", Notice: "Notice", Button: "Button",
   AccountButton: "AccountButton", Empty: "Empty", IconButton: "IconButton", ListGroup: "ListGroup", ListRow: "ListRow",
@@ -38,7 +39,8 @@ const text = () => renderer!.root.findAll((node) => String(node.type) === "Copy"
   .map((node) => node.children.filter((child) => typeof child === "string").join("")).join("\n");
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  fixture.history = []; fixture.remote = []; fixture.session.mockReset();
+  fixture.history = []; fixture.remote = []; fixture.session.mockReset(); fixture.alert.mockReset();
+  Object.values(fixture.store).forEach((fn) => fn.mockClear());
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
 });
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; cache.clear(); });
@@ -99,4 +101,21 @@ it("S05 queued 8/6 correction of synced 8/7 is one workout immediately on openin
   expect(text()).not.toContain("2 workout sessions with recorded actuals");
   expect(text()).toMatch(/1 workout sessions? with recorded actuals/);
   expect(text()).toContain("6 reps"); expect(text()).not.toContain("7 reps");
+});
+
+it("a result the server rejected can be retried or discarded from this device after confirmation", async () => {
+  const rejected = { ...local(saved("A"), "blocked"), problem: "The workout or plan for this session was deleted." };
+  fixture.history = [rejected];
+  await act(async () => { renderer = create(tree()); }); await settle();
+  expect(text()).toContain("was deleted");
+  const press = (title: string) => renderer!.root.findAll((node) => String(node.type) === "Button")
+    .find((node) => node.props.title === title)!.props.onPress();
+  await act(async () => { press("Try saving again"); }); await settle();
+  expect(fixture.store.retry).toHaveBeenCalledWith("client-A");
+  expect(fixture.store.sync).toHaveBeenCalledOnce();
+  await act(async () => { press("Discard from this device"); });
+  expect(fixture.store.dismiss).not.toHaveBeenCalled();
+  const buttons = fixture.alert.mock.calls[0][2] as Array<{ text: string; onPress?(): void }>;
+  await act(async () => { buttons.find((b) => b.text === "Discard")!.onPress!(); });
+  expect(fixture.store.dismiss).toHaveBeenCalledWith("client-A");
 });

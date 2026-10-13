@@ -19,6 +19,7 @@ from app.config import get_settings
 from app.cover_jobs import cover_job_worker, enqueue_cover_job
 from app.database_invariants import next_recipe_version_number
 from app.db import get_db
+from app.extraction_quota import consume_extraction_quota, refund_extraction_quota
 from app.image_validation import ImageValidationError, validate_image_bytes
 from app.job_worker import (
     ACTIVE_JOB_STATUSES,
@@ -578,7 +579,9 @@ async def extract_recipe(
             status_code=404,
             detail="Recipe not found"
         )
-    
+
+    await consume_extraction_quota(user)
+
     # Detect platform
     platform = video_service.detect_platform(url)
     
@@ -848,6 +851,8 @@ async def start_extraction_job(
                 "message": "Extraction already in progress"
             }
     
+    quota_token = await consume_extraction_quota(user)
+
     # Create new job record
     job_id = uuid4()
     
@@ -876,6 +881,8 @@ async def start_extraction_job(
         await db.commit()
     except IntegrityError:
         await db.rollback()
+        # A concurrent request already admitted this work; this one is a replay.
+        await refund_extraction_quota(user, quota_token)
         if idempotency_key:
             idempotent_result = await db.execute(
                 select(ExtractionJob).where(
@@ -1644,6 +1651,8 @@ async def start_re_extraction_job(
                 "message": "Re-extraction already in progress"
             }
     
+    quota_token = await consume_extraction_quota(user)
+
     # Create new job record
     job_id = uuid4()
     
@@ -1672,6 +1681,8 @@ async def start_re_extraction_job(
         await db.commit()
     except IntegrityError:
         await db.rollback()
+        # A concurrent request already admitted this work; this one is a replay.
+        await refund_extraction_quota(user, quota_token)
         if idempotency_key:
             idempotent_result = await db.execute(
                 select(ExtractionJob).where(
@@ -2130,6 +2141,7 @@ async def extract_recipe_from_text(
     user: ClerkUser = Depends(get_current_user),
 ):
     """Extract a reviewable recipe draft from pasted recipe text."""
+    await consume_extraction_quota(user)
     with ai_request_context(user_id=user.id, route="pasted_text"):
         result = await llm_service.extract_from_text(
             content=request.text,
@@ -2170,7 +2182,9 @@ async def extract_recipe_from_image(
     print(f"📁 File: {image.filename}, Content-Type: {image.content_type}")
     
     try:
-        image_bytes = await image.read()
+        # Read one byte past the cap so oversize uploads fail without
+        # buffering the whole spooled file in memory.
+        image_bytes = await image.read(MAX_OCR_IMAGE_BYTES + 1)
         validated = validate_image_bytes(
             image_bytes,
             max_bytes=MAX_OCR_IMAGE_BYTES,
@@ -2186,6 +2200,7 @@ async def extract_recipe_from_image(
             detail="Failed to read image",
         ) from e
     
+    await consume_extraction_quota(user)
     with ai_request_context(user_id=user.id, route="ocr_single"):
         classification = None
         if settings.image_input_classification_enabled:
@@ -2259,13 +2274,18 @@ async def extract_recipe_from_multiple_images(
         print(f"   Image {i+1}: {image.filename}, {image.content_type}")
         
         try:
-            image_bytes = await image.read()
+            image_bytes = await image.read(MAX_OCR_IMAGE_BYTES + 1)
             validated = validate_image_bytes(
                 image_bytes,
                 max_bytes=MAX_OCR_IMAGE_BYTES,
                 declared_content_type=image.content_type,
             )
             total_size += len(validated.data)
+            if total_size > MAX_OCR_TOTAL_BYTES:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Total image size too large. Maximum combined size is 40MB.",
+                )
             image_base64 = base64.b64encode(validated.data).decode("utf-8")
             images_base64.append(image_base64)
         except ImageValidationError as e:
@@ -2279,14 +2299,8 @@ async def extract_recipe_from_multiple_images(
             ) from e
     
     print(f"📦 Total size: {total_size // 1024}KB across {len(images)} images")
-    
-    # Check total size limit (50MB total)
-    if total_size > MAX_OCR_TOTAL_BYTES:
-        raise HTTPException(
-            status_code=422,
-            detail="Total image size too large. Maximum combined size is 40MB."
-        )
-    
+
+    await consume_extraction_quota(user)
     with ai_request_context(user_id=user.id, route="ocr_multi"):
         classification = None
         if settings.image_input_classification_enabled:

@@ -35,8 +35,14 @@ def _hostname_is_blocked(hostname: str) -> bool:
 
 
 def _ip_is_blocked(ip: ipaddress._BaseAddress) -> bool:
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        # ::ffff:127.0.0.1 reaches the IPv4 host, so judge the IPv4 address.
+        return _ip_is_blocked(ip.ipv4_mapped)
     return any(
         [
+            # Anything outside globally routable space: private, CGNAT
+            # (100.64.0.0/10), benchmarking, documentation, and similar ranges.
+            not ip.is_global,
             ip.is_private,
             ip.is_loopback,
             ip.is_link_local,

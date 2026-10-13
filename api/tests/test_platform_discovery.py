@@ -140,3 +140,15 @@ async def test_master_disable_preserves_recipes_surfaces_with_stale_enabled_chil
     assert up.json() == {"status": "ok"}
     assert discovery.json()["products"][0]["available"] is True
     assert discovery.json()["products"][1]["available"] is False
+
+
+async def test_release_reports_deployed_commit(monkeypatch):
+    from app.main import app
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
+        assert (await client.get("/release")).json() == {"commit": None}
+        monkeypatch.setenv("RENDER_GIT_COMMIT", "1c35bd1fec7bfd023ce48bf19253c626f10045ce")
+        assert (await client.get("/release")).json() == {"commit": "1c35bd1fec7b"}

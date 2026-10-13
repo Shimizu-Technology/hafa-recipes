@@ -201,3 +201,63 @@ it("a disposed recovery boundary cannot use its old auth hooks to sign out after
   expect(sdk).not.toHaveBeenCalled(); expect(f.cache.getQueryData(["B", "profile", 1])).toBe("PRIVATE_B");
   expect(f.map.has(logoutRecoveryKey(binding))).toBe(true); await next.close();
 });
+
+it("a damaged sign-out record offers repair that signs out only the deleted account and erases only its data", async () => {
+  const f = fixture(); let app: ReturnType<typeof mount>;
+  f.map.set(logoutRecoveryKey(binding), "{damaged");
+  controller = createLogoutRecovery({ storage: f.raw, cleanup: f.cleanup, owner: async (value) => value === binding ? "A" : null });
+  const sdk = vi.fn(async () => { app.setAuth(signedOut); });
+  app = mount(f, sdk); const tree = await app.start();
+  expect(app.mounts()).toBe(0); expect(sdk).not.toHaveBeenCalled();
+  expect(JSON.stringify(tree.toJSON())).toContain("damaged");
+  await act(async () => { button(tree, "Retry cleanup and sign-out").props.onClick(); }); await settle();
+  expect(sdk).toHaveBeenCalledOnce(); expect(sdk).toHaveBeenCalledWith({ sessionId: "session-A" });
+  expect(f.cleanup).toHaveBeenCalledWith("A", binding);
+  expect(f.map.has(logoutRecoveryKey(binding))).toBe(false);
+  expect(f.map.has("hafa-workouts:v1:A:profile")).toBe(false);
+  expect(f.map.get("hafa-workouts:v1:B:profile")).toBe("PRIVATE_B");
+  expect(tree.root.findAll((node) => String(node.type) === "signed-out")).toHaveLength(1);
+  expect(f.deleted).not.toHaveBeenCalled(); await app.close();
+});
+
+it("repairing a damaged sign-out record keeps another signed-in account's session and data", async () => {
+  const f = fixture();
+  f.map.set(logoutRecoveryKey(binding), JSON.stringify({ ...acknowledgement, version: 9 }));
+  controller = createLogoutRecovery({ storage: f.raw, cleanup: f.cleanup, owner: async (value) => value === binding ? "A" : null });
+  const sdk = vi.fn(async () => {});
+  const app = mount(f, sdk, { loaded: true, binding: "other-binding", subject: "subject-B", sessionId: "session-B" });
+  const tree = await app.start();
+  expect(tree.root.findAll((node) => String(node.type) === "other-account")).toHaveLength(0);
+  await act(async () => { button(tree, "Retry cleanup and sign-out").props.onClick(); }); await settle();
+  expect(sdk).not.toHaveBeenCalled(); expect(f.cleanup).toHaveBeenCalledWith("A", binding);
+  expect(f.map.get("hafa-workouts:v1:B:profile")).toBe("PRIVATE_B");
+  expect(f.cache.getQueryData(["B", "profile", 1])).toBe("PRIVATE_B");
+  expect(tree.root.findAll((node) => String(node.type) === "other-account")).toHaveLength(1); await app.close();
+});
+
+it("damaged-record repair waits for fresh auth after sign-out, then finishes without another tap", async () => {
+  const f = fixture();
+  f.map.set(logoutRecoveryKey(binding), "{damaged");
+  controller = createLogoutRecovery({ storage: f.raw, cleanup: f.cleanup, owner: async (value) => value === binding ? "A" : null });
+  const sdk = vi.fn(async () => {});
+  const app = mount(f, sdk); const tree = await app.start();
+  await act(async () => { button(tree, "Retry cleanup and sign-out").props.onClick(); }); await settle();
+  expect(sdk).toHaveBeenCalledOnce(); expect(f.cleanup).not.toHaveBeenCalled();
+  expect(f.map.has(logoutRecoveryKey(binding))).toBe(true);
+  await app.auth(signedOut);
+  expect(sdk).toHaveBeenCalledOnce(); expect(f.cleanup).toHaveBeenCalledWith("A", binding);
+  expect(f.map.has(logoutRecoveryKey(binding))).toBe(false); await app.close();
+});
+
+it("damaged-record repair with no verified owner removes only the damaged record", async () => {
+  const f = fixture();
+  f.map.set(logoutRecoveryKey(binding), "{damaged");
+  controller = createLogoutRecovery({ storage: f.raw, cleanup: f.cleanup, owner: async () => null });
+  const sdk = vi.fn(async () => {});
+  const app = mount(f, sdk, signedOut); const tree = await app.start();
+  await act(async () => { button(tree, "Retry cleanup and sign-out").props.onClick(); }); await settle();
+  expect(sdk).not.toHaveBeenCalled(); expect(f.cleanup).not.toHaveBeenCalled();
+  expect(f.map.has(logoutRecoveryKey(binding))).toBe(false);
+  expect(f.map.get("hafa-workouts:v1:A:profile")).toBe("PRIVATE_A");
+  expect(f.map.get("hafa-workouts:v1:B:profile")).toBe("PRIVATE_B"); await app.close();
+});
