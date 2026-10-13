@@ -6,6 +6,7 @@ import * as Crypto from "expo-crypto";
 import { AccountButton, Button, Card, Copy, Empty, Notice, Screen, useColors } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { useTraining, useOfflineTraining } from "@/lib/context";
+import { sessionsQuery } from "@/lib/session-query";
 import { dateInTimezone } from "@/lib/training";
 import { goalLabels, type Program, type ScheduledSession } from "@/lib/models";
 export default function Today() {
@@ -19,7 +20,7 @@ export default function Today() {
   const enabled = !!enrollment?.enrolled;
   const profile = useQuery({ queryKey: [owner, "profile", enrollment?.generation], queryFn: api.profile, enabled });
   const programs = useQuery({ queryKey: [owner, "programs", enrollment?.generation], queryFn: api.programs, enabled });
-  const sessions = useQuery({ queryKey: [owner, "sessions", enrollment?.generation], queryFn: api.sessions, enabled });
+  const sessions = useQuery(sessionsQuery(api, owner, enrollment));
   const date = dateInTimezone(new Date(), profile.data?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
   const completed = completedProgramSessions(sessions.data, offline.state.history);
   const planned = programs.data

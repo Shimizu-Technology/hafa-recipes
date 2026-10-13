@@ -1,20 +1,18 @@
 import { useReminders } from "@/components/reminders-provider";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Linking } from "react-native";
 import { router } from "expo-router";
 import { Button, Card, Choice, Copy, Empty, Field, Notice, Screen, haptics, useColors } from "@/components/ui";
 import { useTraining, useOfflineTraining } from "@/lib/context";
+import { sessionsQuery } from "@/lib/session-query";
 import { remainingSeconds, summaryOf, previousActual, actualIdentity, draftStructureWarning } from "@/lib/training";
 import type { ActualSet } from "@/lib/models";
 export default function Training() {
   const { api, units, owner, enrollment } = useTraining();
   const { store, state, ready, error: restoreError, retry } = useOfflineTraining();
-  const past = useQuery({
-    queryKey: [owner, "sessions", enrollment?.generation],
-    queryFn: api.sessions,
-    enabled: !!enrollment?.enrolled,
-  });
+  const past = useQuery(sessionsQuery(api, owner, enrollment));
+  const cache = useQueryClient();
   const c = useColors();
   const d = state.active;
   const reminders = useReminders();
@@ -128,7 +126,7 @@ export default function Training() {
   async function finish(status: "completed" | "partial") {
     await store!.finish(status);
     haptics.success();
-    void store!.sync(api.saveSession);
+    void store!.sync(api.saveSession).then(() => cache.invalidateQueries({ queryKey: [owner, "sessions"] }));
     router.replace("/(tabs)/progress");
   }
   return (

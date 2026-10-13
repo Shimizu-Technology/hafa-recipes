@@ -357,8 +357,8 @@ export function useInfiniteSearchRecipes(filters: SearchFilters, enabled = true)
   
   return useInfiniteQuery({
     queryKey: recipeKeys.infiniteSearch(filters),
-    queryFn: ({ pageParam = 0 }) => 
-      api.searchRecipes(query || '', PAGE_SIZE, pageParam, sourceType, timeFilter, tags),
+    queryFn: ({ pageParam = 0, signal }) =>
+      api.searchRecipes(query || '', PAGE_SIZE, pageParam, sourceType, timeFilter, tags, signal),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {
       if (!lastPage.has_more) return undefined;
@@ -1301,8 +1301,8 @@ export function useInfiniteSearchPublicRecipes(filters: SearchFilters, enabled =
   
   return useInfiniteQuery({
     queryKey: recipeKeys.discoverInfiniteSearch(normalizedFilters),
-    queryFn: ({ pageParam = 0 }) => 
-      api.searchPublicRecipes(query || '', PAGE_SIZE, pageParam, sourceType, timeFilter, tags, extractorId, mealType),
+    queryFn: ({ pageParam = 0, signal }) =>
+      api.searchPublicRecipes(query || '', PAGE_SIZE, pageParam, sourceType, timeFilter, tags, extractorId, mealType, signal),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {
       if (!lastPage.has_more) return undefined;
