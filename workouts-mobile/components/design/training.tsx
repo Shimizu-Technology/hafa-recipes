@@ -130,8 +130,9 @@ export function RestTimer({
   // Full ring = longest remaining time seen while this timer is shown (+15 sec extends it, no jump).
   const [max, setMax] = useState(remaining);
   useEffect(() => setMax((m) => (remaining > m ? remaining : m)), [remaining]);
-  const minutes = Math.floor(remaining / 60);
-  const secs = remaining % 60;
+  const whole = Math.max(0, Math.round(remaining));
+  const minutes = Math.floor(whole / 60);
+  const secs = whole % 60;
   return (
     <View style={{ alignItems: "center", gap: spacing.md }}>
       <ProgressRing
