@@ -269,10 +269,42 @@ describe("sync queue and local history size", () => {
     expect(byId("older").state).toBe("synced");
     expect(byId("newer").state).toBe("synced");
     expect(byId("deleted-source").state).toBe("blocked");
-    expect(byId("deleted-source").problem).toContain("was deleted");
+    expect(byId("deleted-source").problem).toContain("may have been deleted");
     await expect(store.dismiss("older")).rejects.toThrow("Only results that need attention");
     await store.dismiss("deleted-source");
     expect(store.snapshot().history.map((h) => h.request.client_session_id)).toEqual(["newer", "older"]);
+  });
+  it("keeps results queued when two in a row are rejected the same way or the request stopped on this device", async () => {
+    const store = createTrainingStore(memory(), "owner", 1);
+    await store.load();
+    await queued(store, "first");
+    await queued(store, "second");
+    await queued(store, "third");
+    const outage = vi.fn().mockRejectedValue(failure(404));
+    await store.sync(outage);
+    expect(outage).toHaveBeenCalledTimes(2);
+    expect(store.snapshot().history.map((h) => h.state)).toEqual(["blocked", "queued", "queued"]);
+    expect(store.snapshot().history[0].problem).toContain("may have been deleted");
+    await store.retry("third");
+    const switched = vi.fn().mockRejectedValue(Object.assign(failure(409), { local: true }));
+    await store.sync(switched);
+    expect(switched).toHaveBeenCalledTimes(1);
+    expect(store.snapshot().history.map((h) => h.state)).toEqual(["queued", "queued", "queued"]);
+  });
+  it("concurrent sync callers wait for the same pass", async () => {
+    const store = createTrainingStore(memory(), "owner", 1);
+    await store.load();
+    await queued(store, "only");
+    let release!: () => void;
+    const send = vi.fn(() => new Promise<TrainingSession>((done) => { release = () => done({ id: "cloud" } as TrainingSession); }));
+    const first = store.sync(send);
+    const second = store.sync(send);
+    await Promise.resolve(); await Promise.resolve();
+    release();
+    await second;
+    expect(store.snapshot().history[0].state).toBe("synced");
+    await first;
+    expect(send).toHaveBeenCalledTimes(1);
   });
   it.each([0, 401, 408, 429, 500, 503])("stops on retryable status %i and keeps every result queued", async (status) => {
     const store = createTrainingStore(memory(), "owner", 1);

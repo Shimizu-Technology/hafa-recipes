@@ -68,7 +68,7 @@ export function isTransientSyncError(status: number | undefined) {
 }
 function syncProblem(status: number | undefined, message: string) {
   if (status === 404 || status === 410)
-    return "The workout or plan for this session was deleted, so it cannot be saved to your account. Discard it from this device or keep it here for reference.";
+    return "The server could not find the workout or plan for this session; it may have been deleted. Try saving again later, or discard it from this device if the source is gone.";
   return message;
 }
 export function trainingKey(owner: string, generation: number) {
@@ -214,7 +214,7 @@ export function createTrainingStore(
   let state: TrainingState = { version: 1, generation, active: null, history: [] };
   let loaded = false;
   let operations = Promise.resolve();
-  let syncing = false;
+  let syncing: Promise<void> | null = null;
   const listeners = new Set<() => void>();
   const key = trainingKey(owner, generation);
   function update(work: (previous: TrainingState) => TrainingState) {
@@ -232,6 +232,44 @@ export function createTrainingStore(
       });
     operations = result;
     return result;
+  }
+  async function run(send: (request: SessionRequest, originalGeneration: number) => Promise<TrainingSession>) {
+    await operations;
+    const queue = state.history.filter((x) => x.state === "queued");
+    let previousRejection: number | null = null;
+    for (const item of queue) {
+      try {
+        const saved = await send(clone(item.request), item.generation);
+        previousRejection = null;
+        await update((s) => {
+          const local = s.history.find((x) => x.request.client_session_id === item.request.client_session_id);
+          if (local) {
+            local.state = "synced";
+            local.synced_id = saved.id;
+            const warning = historicalStructureWarning(local.workout, local.request.actuals, local.cell_identity_version);
+            if (warning) local.problem = warning;
+            else delete local.problem;
+          }
+          return s;
+        });
+      } catch (e) {
+        const { status, local: stoppedHere } = e as { status?: number; local?: boolean };
+        // Two results rejected the same way in a row look like a service-wide problem,
+        // not a problem with each result; keep the rest queued for a later retry.
+        const transient = stoppedHere === true || isTransientSyncError(status) || previousRejection === status;
+        await update((s) => {
+          const local = s.history.find((x) => x.request.client_session_id === item.request.client_session_id);
+          if (local) {
+            local.problem = syncProblem(status, e instanceof Error ? e.message : "Could not sync");
+            if (!transient) local.state = "blocked";
+          }
+          return s;
+        });
+        // A permanent rejection only needs attention for this result; keep sending the rest.
+        if (transient) break;
+        previousRejection = status ?? null;
+      }
+    }
   }
   return {
     subscribe(fn: () => void) {
@@ -471,44 +509,12 @@ export function createTrainingStore(
         return s;
       });
     },
-    async sync(send: (request: SessionRequest, originalGeneration: number) => Promise<TrainingSession>) {
-      if (syncing) return;
-      syncing = true;
-      try {
-        await operations;
-        const queue = state.history.filter((x) => x.state === "queued");
-        for (const item of queue) {
-          try {
-            const saved = await send(clone(item.request), item.generation);
-            await update((s) => {
-              const local = s.history.find((x) => x.request.client_session_id === item.request.client_session_id);
-              if (local) {
-                local.state = "synced";
-                local.synced_id = saved.id;
-                const warning = historicalStructureWarning(local.workout, local.request.actuals, local.cell_identity_version);
-                if (warning) local.problem = warning;
-                else delete local.problem;
-              }
-              return s;
-            });
-          } catch (e) {
-            const status = (e as { status?: number }).status;
-            const transient = isTransientSyncError(status);
-            await update((s) => {
-              const local = s.history.find((x) => x.request.client_session_id === item.request.client_session_id);
-              if (local) {
-                local.problem = syncProblem(status, e instanceof Error ? e.message : "Could not sync");
-                if (!transient) local.state = "blocked";
-              }
-              return s;
-            });
-            // A permanent rejection only needs attention for this result; keep sending the rest.
-            if (transient) break;
-          }
-        }
-      } finally {
-        syncing = false;
-      }
+    sync(send: (request: SessionRequest, originalGeneration: number) => Promise<TrainingSession>) {
+      // Concurrent callers wait for the same pass, so follow-up work sees its result.
+      syncing ??= run(send).finally(() => {
+        syncing = null;
+      });
+      return syncing;
     },
     correct(saved: TrainingSession, actuals: ActualSet[], notes: string, id: string) {
       return update((s) => {

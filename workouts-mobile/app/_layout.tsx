@@ -132,7 +132,7 @@ export default function Root() {
       const damaged = e instanceof DamagedCleanupRecordError;
       setCleanupDamaged(damaged);
       setCleanupError(damaged ?
-        "A cleanup record from a removed account is damaged. Finishing cleanup removes only that account's data from this device; other accounts and your saved server data are not changed." :
+        "A device cleanup record is damaged. Finishing cleanup removes this device's data only for the account that was being cleaned up; other accounts and your saved server data are not changed." :
         "Private device cleanup needs another attempt. Your saved server data has not been changed by this recovery.");
     }
   }

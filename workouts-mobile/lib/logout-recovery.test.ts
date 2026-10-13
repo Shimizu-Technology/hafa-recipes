@@ -234,3 +234,30 @@ it("repairing a damaged sign-out record keeps another signed-in account's sessio
   expect(f.cache.getQueryData(["B", "profile", 1])).toBe("PRIVATE_B");
   expect(tree.root.findAll((node) => String(node.type) === "other-account")).toHaveLength(1); await app.close();
 });
+
+it("damaged-record repair waits for fresh auth after sign-out, then finishes without another tap", async () => {
+  const f = fixture();
+  f.map.set(logoutRecoveryKey(binding), "{damaged");
+  controller = createLogoutRecovery({ storage: f.raw, cleanup: f.cleanup, owner: async (value) => value === binding ? "A" : null });
+  const sdk = vi.fn(async () => {});
+  const app = mount(f, sdk); const tree = await app.start();
+  await act(async () => { button(tree, "Retry cleanup and sign-out").props.onClick(); }); await settle();
+  expect(sdk).toHaveBeenCalledOnce(); expect(f.cleanup).not.toHaveBeenCalled();
+  expect(f.map.has(logoutRecoveryKey(binding))).toBe(true);
+  await app.auth(signedOut);
+  expect(sdk).toHaveBeenCalledOnce(); expect(f.cleanup).toHaveBeenCalledWith("A", binding);
+  expect(f.map.has(logoutRecoveryKey(binding))).toBe(false); await app.close();
+});
+
+it("damaged-record repair with no verified owner removes only the damaged record", async () => {
+  const f = fixture();
+  f.map.set(logoutRecoveryKey(binding), "{damaged");
+  controller = createLogoutRecovery({ storage: f.raw, cleanup: f.cleanup, owner: async () => null });
+  const sdk = vi.fn(async () => {});
+  const app = mount(f, sdk, signedOut); const tree = await app.start();
+  await act(async () => { button(tree, "Retry cleanup and sign-out").props.onClick(); }); await settle();
+  expect(sdk).not.toHaveBeenCalled(); expect(f.cleanup).not.toHaveBeenCalled();
+  expect(f.map.has(logoutRecoveryKey(binding))).toBe(false);
+  expect(f.map.get("hafa-workouts:v1:A:profile")).toBe("PRIVATE_A");
+  expect(f.map.get("hafa-workouts:v1:B:profile")).toBe("PRIVATE_B"); await app.close();
+});
