@@ -1,5 +1,6 @@
 """One-use mobile handoff from Clerk development to Clerk production."""
 
+import asyncio
 import hashlib
 import re
 import secrets
@@ -125,7 +126,7 @@ async def onboard_production_user(
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    token = verify_clerk_token(credentials.credentials)
+    token = await asyncio.to_thread(verify_clerk_token, credentials.credentials)
     production = _production_environment()
     if token.issuer != production.issuer or token.environment_name != "production":
         raise HTTPException(status_code=403, detail="Production authentication is required")
