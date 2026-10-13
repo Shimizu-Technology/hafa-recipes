@@ -21,7 +21,7 @@ from app.domains.workouts.extraction import (
     SourcePart,
 )
 from app.services.video import video_service
-from tests.test_workout_extraction import TEXT, complete_workout
+from tests.test_workout_extraction import TEXT, FakeAcquirer, complete_workout, evidence
 from tests.test_workouts_ai_budget import LUNA, budget_api, policy  # noqa: F401
 from tests.test_workouts_data_integration import DATABASE_URL, data_api, settings  # noqa: F401
 from tests.workouts_provider_fakes import FakeBudget
@@ -194,6 +194,89 @@ def install_http(monkeypatch, *, values=None, callback=None):
     return captured
 
 
+@pytest.mark.parametrize("optional", ["zero_load", "load", "reversed_reps", "both"])
+async def test_optional_dependencies_preserve_all_source_exercises(
+    provider_environment, monkeypatch, optional
+):
+    raw = complete_workout()
+    item = raw["blocks"][0]["exercises"][0]
+    item["duration_seconds"] = 20
+    item["evidence"].append(evidence("duration_seconds", "20 seconds"))
+    if optional in {"zero_load", "load", "both"}:
+        item.update(load=0 if optional == "zero_load" else 20, load_unit="kg", load_convention=None)
+        item["evidence"].append(evidence("load", "20kg"))
+    if optional in {"reversed_reps", "both"}:
+        item.update(reps_min=12, reps_max=8)
+    raw["blocks"][0]["exercises"] = [json.loads(json.dumps(item)) for _ in range(6)]
+    calls = install_http(monkeypatch, values=[completion(raw)])
+    guard = FakeBudget()
+    bundle = SourceBundle(
+        SourceMetadata(
+            url="https://www.instagram.com/reel/DecwoqXS9ts/",
+            title="Source workout",
+            creator="Creator",
+        ),
+        [SourcePart("provided_text", TEXT + "\n20 seconds; creator uses 20kg.")],
+    )
+    provider = ProductionExtractionProvider(budget_guard=guard, development_api_key="synthetic")
+    result = await extraction.WorkoutExtractor(provider, FakeAcquirer(bundle)).extract(
+        extraction.ExtractionRequest(kind="url", source_url=bundle.metadata.url, ai_consent=True)
+    )
+    assert result.status == "incomplete" and result.error_code is None
+    assert result.workout.source_creator == "Creator"
+    exercises = result.workout.blocks[0].exercises
+    assert len(exercises) == 6
+    assert all(
+        item.name == "Squat" and item.duration_seconds == 20 and item.sets == 3
+        for item in exercises
+    )
+    if optional in {"zero_load", "load", "both"}:
+        assert all(
+            item.load is item.load_unit is item.load_convention is None for item in exercises
+        )
+        assert any(entry.field == "load" and entry.wording == "20kg" for entry in result.evidence)
+    if optional in {"reversed_reps", "both"}:
+        assert all(item.reps_min is item.reps_max is None for item in exercises)
+    assert len(result.warnings) == (12 if optional == "both" else 6)
+    assert len(calls) == len(guard.reservations) == 1 and guard.outcomes == ["success"]
+
+
+@pytest.mark.parametrize(
+    "invalid", [{"name": ""}, {"sets": "invalid"}, {"load": -1}, {"unknown": 1}]
+)
+async def test_optional_repairs_do_not_hide_strict_invalid_fields(
+    provider_environment, monkeypatch, invalid
+):
+    raw = complete_workout()
+    raw["blocks"][0]["exercises"][0].update(
+        {"load": 20, "load_unit": None, "load_convention": None} | invalid
+    )
+    calls = install_http(monkeypatch, values=[completion(raw), completion(raw)])
+    bundle, guard = source(), FakeBudget()
+    with pytest.raises(ExtractionFailure, match="provider_invalid_response"):
+        await ProductionExtractionProvider(
+            budget_guard=guard, development_api_key="synthetic"
+        ).extract(bundle)
+    assert len(calls) == len(guard.reservations) == 2
+    assert guard.outcomes == ["failed", "failed"] and bundle.warnings == []
+
+
+async def test_denied_fallback_preserves_primary_validation_failure(
+    provider_environment, monkeypatch
+):
+    calls = install_http(monkeypatch, values=[completion({"ingredients": []})])
+    bundle, guard = source(), FakeBudget(deny_at=2)
+    with pytest.raises(ExtractionFailure, match="provider_invalid_response"):
+        await ProductionExtractionProvider(
+            budget_guard=guard, development_api_key="synthetic"
+        ).extract(bundle)
+    assert len(calls) == 1 and len(guard.reservations) == 2
+    assert bundle.metadata.coverage_notes == [
+        "Fallback extraction was not called: workouts_ai_budget_exceeded."
+    ]
+    assert Tracker.attempts[-1].status == "workouts_ai_budget_exceeded"
+
+
 @pytest.mark.parametrize("kind", ["extraction", "coach"])
 async def test_denied_admission_means_zero_http_calls(provider_environment, monkeypatch, kind):
     calls = install_http(monkeypatch)
@@ -234,7 +317,7 @@ async def test_each_fallback_has_separate_selected_model_envelope(
 async def test_denied_fallback_does_not_send_second_http_call(provider_environment, monkeypatch):
     calls = install_http(monkeypatch, values=[completion({"ingredients": []})])
     guard = FakeBudget(deny_at=2)
-    with pytest.raises(ExtractionFailure, match="workouts_ai_budget_exceeded"):
+    with pytest.raises(ExtractionFailure, match="provider_invalid_response"):
         await ProductionExtractionProvider(development_api_key="fake", budget_guard=guard).extract(
             source()
         )
@@ -479,7 +562,7 @@ async def test_real_guard_denies_terra_fallback_and_keeps_failed_luna_reservatio
 ):
     calls = install_http(monkeypatch, values=[completion({"ingredients": []})])
     guard = BudgetGuard(policy(), session_factory=budget_api.sessions)
-    with pytest.raises(ExtractionFailure, match="workouts_ai_attempt_cap_exceeded"):
+    with pytest.raises(ExtractionFailure, match="provider_invalid_response"):
         await ProductionExtractionProvider(development_api_key="fake", budget_guard=guard).extract(
             source()
         )

@@ -267,6 +267,45 @@ def workout_response_format() -> dict:
     }
 
 
+def _validate_provider_workout(raw: dict) -> list[str]:
+    """Repair only dependent optional values; core/type/range errors still fail."""
+    warnings = []
+    for _ in range(3):  # Reversed reps can hide the same exercise's ambiguous load.
+        try:
+            WorkoutContent.model_validate(raw)
+            return warnings
+        except ValidationError as error:
+            repairs = []
+            for issue in error.errors():
+                location = issue["loc"]
+                message = str(issue.get("ctx", {}).get("error", ""))
+                if (
+                    issue["type"] != "value_error"
+                    or len(location) != 4
+                    or location[0] != "blocks"
+                    or location[2] != "exercises"
+                    or message
+                    not in {
+                        "reps_min cannot exceed reps_max",
+                        "load requires a unit and load convention",
+                    }
+                ):
+                    raise
+                repairs.append((raw["blocks"][location[1]]["exercises"][location[3]], message))
+            for item, message in repairs:
+                if message == "reps_min cannot exceed reps_max":
+                    item["reps_min"] = item["reps_max"] = None
+                    warnings.append(
+                        f"Reversed reps range removed from {item['name']}; review the original source evidence."
+                    )
+                else:
+                    item["load"] = item["load_unit"] = item["load_convention"] = None
+                    warnings.append(
+                        f"Creator load for {item['name']} needs unit/convention review; original evidence remains available."
+                    )
+    raise ExtractionFailure("provider_invalid_response")
+
+
 class ProductionExtractionProvider:
     """Shares configured model routing/accounting, not Recipes prompts or schemas."""
 
@@ -363,12 +402,18 @@ class ProductionExtractionProvider:
                         ):
                             raise ExtractionFailure("provider_incomplete_response")
                         parsed = json.loads(choice["message"]["content"])
-                        WorkoutContent.model_validate(parsed)
+                        warnings = _validate_provider_workout(parsed)
                         paid.complete(outcome="success")
                         invocation.succeed(data)
+                        source.warnings.extend(warnings)
                         return parsed
                 except BudgetError as exc:
                     invocation.fail(exc.code)
+                    if index:
+                        source.metadata.coverage_notes.append(
+                            f"Fallback extraction was not called: {exc.code}."
+                        )
+                        raise ExtractionFailure(last_error) from None
                     raise ExtractionFailure(exc.code) from None
                 except asyncio.CancelledError:
                     invocation.fail("cancelled")
