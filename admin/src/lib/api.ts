@@ -56,6 +56,20 @@ function boundedDetail(value: unknown): string | null {
   return typeof detail === 'string' ? detail.slice(0, 240) : null
 }
 
+/**
+ * Clerk JWT template that adds `public_metadata` to the token. The API reads
+ * the admin role from `public_metadata.role`, which Clerk's default session
+ * token does not carry. Mobile uses the same template (see the Clerk
+ * production migration runbook).
+ */
+export const CLERK_TOKEN_TEMPLATE = 'recipe-extractor-public-metadata'
+
+export function templatedTokenGetter(
+  getToken: (options: { template: string }) => Promise<string | null>,
+): () => Promise<string | null> {
+  return () => getToken({ template: CLERK_TOKEN_TEMPLATE })
+}
+
 export function createAdminApi(
   getToken: () => Promise<string | null>,
   baseUrl = resolveApiBaseUrl(),

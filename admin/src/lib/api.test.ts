@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AdminApiError, createAdminApi, resolveApiBaseUrl } from './api'
+import { AdminApiError, CLERK_TOKEN_TEMPLATE, createAdminApi, resolveApiBaseUrl, templatedTokenGetter } from './api'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -65,5 +65,14 @@ describe('createAdminApi', () => {
 
     await expect(api.dashboard()).rejects.toMatchObject({ status: 401 })
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('templatedTokenGetter', () => {
+  it('requests the Clerk template that carries public_metadata.role', async () => {
+    const getToken = vi.fn().mockResolvedValue('template-token')
+    await expect(templatedTokenGetter(getToken)()).resolves.toBe('template-token')
+    expect(getToken).toHaveBeenCalledWith({ template: 'recipe-extractor-public-metadata' })
+    expect(CLERK_TOKEN_TEMPLATE).toBe('recipe-extractor-public-metadata')
   })
 })
