@@ -517,6 +517,9 @@ export default function AddRecipeScreen() {
               onPress={handleSubmit}
               disabled={createMutation.isPending}
               style={styles.saveButton}
+              accessibilityRole="button"
+              accessibilityLabel={createMutation.isPending ? 'Saving recipe' : undefined}
+              accessibilityState={{ disabled: createMutation.isPending, busy: createMutation.isPending }}
             >
               {createMutation.isPending ? (
                 <ActivityIndicator size="small" color={colors.tint} />
@@ -545,6 +548,8 @@ export default function AddRecipeScreen() {
               style={[styles.imageSection, { backgroundColor: colors.backgroundSecondary }]}
               onPress={showImageOptions}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={imageUri ? 'Change recipe photo' : 'Add recipe photo'}
             >
               {imageUri ? (
                 <Image source={{ uri: imageUri }} style={styles.recipeImage} />
@@ -636,6 +641,8 @@ export default function AddRecipeScreen() {
                       <TouchableOpacity
                         onPress={() => removeIngredient(ing.id)}
                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove ingredient ${index + 1}`}
                       >
                         <Ionicons name="trash-outline" size={18} color={colors.error} />
                       </TouchableOpacity>
@@ -670,6 +677,8 @@ export default function AddRecipeScreen() {
                       />
                       <TouchableOpacity
                         style={styles.unitDropdownButton}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Choose unit for ingredient ${index + 1}`}
                         onPress={() => {
                           Alert.alert(
                             'Select Unit',
@@ -705,6 +714,7 @@ export default function AddRecipeScreen() {
               <TouchableOpacity 
                 onPress={addIngredient} 
                 style={[styles.addButtonBottom, { borderColor: colors.tint }]}
+                accessibilityRole="button"
               >
                 <Ionicons name="add-circle-outline" size={20} color={colors.tint} />
                 <Text style={[styles.addButtonText, { color: colors.tint }]}>Add Ingredient</Text>
@@ -732,6 +742,9 @@ export default function AddRecipeScreen() {
                     onPress={() => removeStep(step.id)}
                     style={styles.removeButton}
                     disabled={steps.length === 1}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove step ${index + 1}`}
+                    accessibilityState={{ disabled: steps.length === 1 }}
                   >
                     <Ionicons
                       name="close-circle"
@@ -746,6 +759,7 @@ export default function AddRecipeScreen() {
               <TouchableOpacity 
                 onPress={addStep} 
                 style={[styles.addButtonBottom, { borderColor: colors.border }]}
+                accessibilityRole="button"
               >
                 <Ionicons name="add-circle-outline" size={20} color={colors.tint} />
                 <Text style={[styles.addButtonText, { color: colors.tint }]}>Add Step</Text>

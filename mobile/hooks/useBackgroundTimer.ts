@@ -77,7 +77,7 @@ export function useBackgroundTimer() {
     // Check permissions
     const granted = await requestNotificationPermissions();
     if (!granted) {
-      console.log('Notification permission not granted');
+      if (__DEV__) console.log('Notification permission not granted');
       setHasPermission(false);
       return null;
     }
@@ -113,7 +113,7 @@ export function useBackgroundTimer() {
         endTime,
       });
       
-      console.log(`Scheduled notification for step ${stepIndex} in ${remainingSeconds}s`);
+      if (__DEV__) console.log(`Scheduled notification for step ${stepIndex} in ${remainingSeconds}s`);
       return notificationId;
     } catch (error) {
       console.error('Failed to schedule notification:', error);
@@ -130,7 +130,7 @@ export function useBackgroundTimer() {
       try {
         await Notifications.cancelScheduledNotificationAsync(scheduled.notificationId);
         scheduledNotifications.current.delete(stepIndex);
-        console.log(`Cancelled notification for step ${stepIndex}`);
+        if (__DEV__) console.log(`Cancelled notification for step ${stepIndex}`);
       } catch (error) {
         console.error('Failed to cancel notification:', error);
       }
@@ -149,7 +149,7 @@ export function useBackgroundTimer() {
     });
     await Promise.all(promises);
     scheduledNotifications.current.clear();
-    console.log('Cancelled all timer notifications');
+    if (__DEV__) console.log('Cancelled all timer notifications');
   }, []);
 
   /**
@@ -228,14 +228,14 @@ export function useAppStateSync(
         nextAppState === 'active'
       ) {
         // App has come to foreground
-        console.log('App foregrounded');
+        if (__DEV__) console.log('App foregrounded');
         onForegrounded();
       } else if (
         appState.current === 'active' &&
         nextAppState.match(/inactive|background/)
       ) {
         // App is going to background
-        console.log('App backgrounded');
+        if (__DEV__) console.log('App backgrounded');
         onBackgrounded();
       }
       appState.current = nextAppState;
