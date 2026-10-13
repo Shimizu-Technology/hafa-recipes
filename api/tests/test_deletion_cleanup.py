@@ -62,6 +62,10 @@ def test_cleanup_prefixes_are_narrowly_allowlisted():
     assert is_allowed_cleanup_prefix("chat-images/") is False
     assert is_allowed_cleanup_prefix("chat-images/user/child/") is False
     assert is_allowed_cleanup_prefix("../") is False
+    assert is_allowed_cleanup_prefix(f"thumbnails/workouts-{recipe_id}/") is True
+    assert is_allowed_cleanup_prefix(f"thumbnails/workouts-{recipe_id}.") is False
+    assert is_allowed_cleanup_prefix("thumbnails/workouts-/") is False
+    assert is_allowed_cleanup_prefix(f"thumbnails/workouts-{recipe_id}/child/") is False
 
 
 def test_cleanup_failure_reporting_excludes_provider_details(monkeypatch):

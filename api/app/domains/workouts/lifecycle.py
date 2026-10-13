@@ -73,6 +73,9 @@ async def erase_product_data(db, membership, requested_generation: int):
         from app.domains.workouts.share_models import WorkoutShareCredential
 
         await db.execute(delete(WorkoutShareCredential).where(WorkoutShareCredential.app_user_id == owner))
+    from app.domains.workouts.source_media import erase_source_media
+
+    await erase_source_media(db, owner)
     if await optional_table_exists(db, "workouts_health_connections"):
         from app.domains.workouts.health_models import HEALTH_TABLES
         from app.domains.workouts.health_service import erase_health_product_data
@@ -136,10 +139,10 @@ async def erase_product_data(db, membership, requested_generation: int):
 
 
 def external_cleanup_targets(app_user_id: str) -> tuple[str, ...]:
-    """No external Workouts media exists yet; never return a broad storage prefix.
+    """Legacy synchronous hook; registered covers use async source_media cleanup.
 
-    Future media must register exact owned objects and durable cleanup intent in
-    the same deletion transaction, both here and in whole-Håfa-account deletion.
+    Never synthesize a broad prefix from the account ID. Product and account
+    deletion enumerate exact registered assets in their locked transactions.
     """
     del app_user_id
     return ()

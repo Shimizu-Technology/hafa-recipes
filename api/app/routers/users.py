@@ -219,6 +219,9 @@ async def delete_account(
             for prefix in storage_service.thumbnail_prefixes(recipe_id)
         ]
         storage_prefixes.append(f"chat-images/{user_id}/")
+        from app.domains.workouts.source_media import owned_cleanup_prefixes
+
+        storage_prefixes.extend(await owned_cleanup_prefixes(db, user_id))
 
         cleanup_job = DeletionCleanupJob(
             kind="account",

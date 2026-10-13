@@ -54,6 +54,10 @@ def is_allowed_cleanup_prefix(prefix: str) -> bool:
         return False
     if prefix.startswith("thumbnails/") and prefix[-1:] in {".", "/"}:
         recipe_id = prefix.removeprefix("thumbnails/")[:-1]
+        if recipe_id.startswith("workouts-"):
+            if not prefix.endswith("/"):
+                return False
+            recipe_id = recipe_id.removeprefix("workouts-")
         try:
             UUID(recipe_id)
         except (ValueError, TypeError):

@@ -753,3 +753,59 @@ def test_chat_image_provider_url_is_short_lived_sigv4_on_the_regional_host(monke
         "stable-user",
     ) is None
     assert service.chat_image_provider_url(signed, "stable-user") is None
+
+
+@pytest.mark.parametrize("suffix", ["", "?token=private", "/extra"])
+def test_workout_cover_parser_excludes_private_and_noncanonical_objects(monkeypatch, suffix):
+    from uuid import UUID
+
+    from app.domains.workouts import source_media
+
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_bucket_name="recipe-images", aws_region="us-west-2", recipe_media_base_url=None
+        ),
+    )
+    identifier = UUID("00000000-0000-4000-8000-000000000047")
+    base = "https://recipe-images.s3.us-west-2.amazonaws.com/"
+    cover = f"{base}thumbnails/workouts-{identifier}/{'a' * 64}/hero.webp"
+    assert source_media.asset_id(cover + suffix) == (identifier if not suffix else None)
+    assert source_media.asset_id(f"{base}thumbnails/{identifier}/{'a' * 64}/hero.webp") is None
+    assert source_media.asset_id(f"{base}chat-images/owner/photo.png") is None
+    assert source_media.asset_id(cover.replace("recipe-images.s3", "evil.example.s3")) is None
+
+
+@pytest.mark.asyncio
+async def test_workout_public_cover_reuses_validated_immutable_variants(monkeypatch):
+    from uuid import UUID
+
+    from app.image_validation import validate_image_bytes
+
+    fake_s3 = RecordingS3()
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_enabled=True,
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+            recipe_media_base_url=None,
+        ),
+    )
+    service = StorageService()
+    service._client = fake_s3
+    variants = await service.prepare_thumbnail_variants(
+        validate_image_bytes(_png_bytes("red"), max_bytes=storage.MAX_THUMBNAIL_BYTES)
+    )
+    identifier = UUID("00000000-0000-4000-8000-000000000047")
+    url = await service.store_prepared_thumbnail_variants_locked(variants, f"workouts-{identifier}")
+    assert len(fake_s3.puts) == 2 and url.endswith("/hero.webp")
+    assert all(
+        item["Key"].startswith(f"thumbnails/workouts-{identifier}/") for item in fake_s3.puts
+    )
+    assert all(item["ContentType"] == "image/webp" for item in fake_s3.puts)
+    assert all(
+        item["CacheControl"] == "public, max-age=31536000, immutable" for item in fake_s3.puts
+    )

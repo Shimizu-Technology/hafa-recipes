@@ -337,6 +337,9 @@ async def remove_workout(workout_id: UUID, user: User, db: Database, generation:
 
     await invalidate_export_snapshots(db, user.id, generation)
     await db.delete(row)
+    from app.domains.workouts.source_media import retire_unused_covers
+
+    await retire_unused_covers(db, user.id, generation)
     await db.commit()
 
 

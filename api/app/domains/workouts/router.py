@@ -238,6 +238,8 @@ def validated_workout(workout, *, authored=True):
     # optional server field existed.
     if not content.get("extraction_warnings"):
         content.pop("extraction_warnings", None)
+    if content.get("source_thumbnail_url") is None:
+        content.pop("source_thumbnail_url", None)
     return bounded_content(content)
 
 
@@ -438,6 +440,9 @@ async def create_workout(
 ):
     await membership_for(db, user.id, generation=generation, write=True)
     content = validated_workout(workout)
+    from app.domains.workouts.source_media import retain_source_cover
+
+    await retain_source_cover(db, user.id, generation, content.get("source_thumbnail_url"))
     digest = content_digest(content)
     existing = await replay_creation(
         db, WorkoutRecord, user.id, generation, idempotency_key, digest
@@ -495,6 +500,9 @@ async def update_workout(
     if row.revision != expected_revision:
         raise HTTPException(409, "Workout changed; refresh before saving")
     content = validated_workout(workout)
+    from app.domains.workouts.source_media import retain_source_cover
+
+    await retain_source_cover(db, user.id, generation, content.get("source_thumbnail_url"))
     prior = await db.scalar(
         select(WorkoutVersion.id).where(
             WorkoutVersion.workout_id == row.id, WorkoutVersion.revision == row.revision
