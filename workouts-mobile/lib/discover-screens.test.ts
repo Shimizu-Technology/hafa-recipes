@@ -24,6 +24,10 @@ const fixture = vi.hoisted(() => ({
   replace: vi.fn(),
   toast: vi.fn(),
   map: new Map<string, string>(),
+  focus: false,
+  current: true,
+  load: vi.fn(),
+  saveDraft: vi.fn(),
 }));
 vi.mock("@/lib/context", () => {
   const storage = {
@@ -32,7 +36,7 @@ vi.mock("@/lib/context", () => {
     getItem: async (key: string) => fixture.map.get(key) ?? null,
     setItem: async (key: string, value: string) => void fixture.map.set(key, value),
   };
-  const localDrafts = { load: async () => null, save: async () => undefined, remove: async () => undefined };
+  const localDrafts = { load: fixture.load, save: fixture.saveDraft, remove: async () => undefined };
   const api = {
     capabilities: fixture.capabilities,
     discover: fixture.discover,
@@ -53,7 +57,7 @@ vi.mock("@/lib/context", () => {
       enrollment: { enrolled: true, generation: 1 },
       storage,
       localDrafts,
-      isCurrentAccount: () => true,
+      isCurrentAccount: () => fixture.current,
     }),
   };
 });
@@ -81,11 +85,13 @@ vi.mock("react-native", () => ({
   AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
   Linking: { openURL: vi.fn(async () => undefined) },
 }));
-vi.mock("expo-router", () => ({
+vi.mock("expo-router", async () => {
+  const { useEffect } = await import("react");
+  return ({
   router: { push: fixture.push, replace: fixture.replace, back: vi.fn(), navigate: vi.fn() },
-  useFocusEffect() {},
+  useFocusEffect(callback: () => (() => void) | void) { useEffect(() => fixture.focus ? callback() : undefined, [callback, fixture.focus]); },
   useLocalSearchParams: () => fixture.params,
-}));
+}); });
 vi.mock("expo-crypto", () => ({ randomUUID: () => "uuid" }));
 vi.mock("@/components/ui", () => {
   const names = ["AccountButton", "Button", "Card", "Chip", "ChipRow", "Choice", "Copy", "Empty", "Field", "IconButton",
@@ -105,6 +111,7 @@ vi.mock("@/lib/capture-io", () => ({ cleanupCaptureFiles: vi.fn() }));
 import Discover from "../app/(tabs)/discover";
 import DiscoverWorkout from "../app/discover/[id]";
 import ImportReview from "../app/import/[id]";
+import { ImportList } from "../components/import-list";
 
 let renderer: ReactTestRenderer | undefined, cache: QueryClient;
 const nodes = (type: string) => renderer!.root.findAll((n) => String(n.type) === type);
@@ -136,12 +143,18 @@ const page = (items = [card]): DiscoverPage => ({ items, total: items.length, li
 const saved: Workout = { ...detail.workout, id: "copy-1", generation: 1, revision: 4 };
 
 beforeEach(() => {
+  fixture.map.clear();
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   for (const mock of [fixture.capabilities, fixture.discover, fixture.discoverWorkout, fixture.saveDiscovered, fixture.workout,
     fixture.importJob, fixture.importSource, fixture.acceptImport, fixture.publishingDisclosure, fixture.acceptPublishingDisclosure,
     fixture.push, fixture.replace, fixture.toast]) mock.mockReset();
   fixture.params = {};
+  fixture.focus = false;
+  fixture.current = true;
+  fixture.load.mockReset().mockImplementation(async (_owner, scope) => fixture.map.has(scope) ? JSON.parse(fixture.map.get(scope)!)
+    : scope.startsWith("imports:") && fixture.params.auto === "1" ? [{ id: "job", label: "Shared link", generation: 1, auto_save: true }] : null);
+  fixture.saveDraft.mockReset().mockImplementation(async (_owner, scope, value) => { fixture.map.set(scope, JSON.stringify(value)); });
   fixture.agree = true;
   fixture.asked = 0;
   fixture.importSource.mockResolvedValue({ images: [], text: "" });
@@ -256,7 +269,6 @@ function importJob(captureKind: Workout["capture_kind"], status: "ready" | "inco
   };
 }
 async function reviewAndSave(title: string) {
-  await act(async () => choice("I reviewed the source, missing details and warnings")!.props.onPress());
   await act(async () => button(title)!.props.onPress());
   await settle();
 }
@@ -269,7 +281,7 @@ it("defaults Share to Discover on for link imports and publishes on accept", asy
   await mount(ImportReview);
   expect(choice("Share to Discover")!.props.selected).toBe(true);
   await reviewAndSave("Save and share to Discover");
-  expect(fixture.acceptImport).toHaveBeenCalledWith("job", expect.objectContaining({ title: card.title }), 1, true);
+  expect(fixture.acceptImport).toHaveBeenCalledWith("job", expect.objectContaining({ title: card.title }), 1, true, true);
 });
 
 it("defaults Share to Discover off for photo imports and saves privately", async () => {
@@ -279,8 +291,8 @@ it("defaults Share to Discover off for photo imports and saves privately", async
   fixture.acceptImport.mockResolvedValue(saved);
   await mount(ImportReview);
   expect(choice("Share to Discover")!.props.selected).toBe(false);
-  await reviewAndSave("Save privately to my library");
-  expect(fixture.acceptImport).toHaveBeenCalledWith("job", expect.anything(), 1);
+  await reviewAndSave("Save workout");
+  expect(fixture.acceptImport).toHaveBeenCalledWith("job", expect.anything(), 1, false, true);
 });
 
 it("hides the toggle and saves privately when Discover is unavailable", async () => {
@@ -290,8 +302,8 @@ it("hides the toggle and saves privately when Discover is unavailable", async ()
   fixture.acceptImport.mockResolvedValue(saved);
   await mount(ImportReview);
   expect(choice("Share to Discover")).toBeUndefined();
-  await reviewAndSave("Save privately to my library");
-  expect(fixture.acceptImport).toHaveBeenCalledWith("job", expect.anything(), 1);
+  await reviewAndSave("Save workout");
+  expect(fixture.acceptImport).toHaveBeenCalledWith("job", expect.anything(), 1, false, true);
 });
 
 it("can't share an unchanged incomplete extraction", async () => {
@@ -300,7 +312,7 @@ it("can't share an unchanged incomplete extraction", async () => {
   fixture.importJob.mockResolvedValue(importJob("url", "incomplete"));
   await mount(ImportReview);
   expect(choice("Share to Discover")!.props).toMatchObject({ selected: false, disabled: true });
-  expect(button("Save privately to my library")).toBeDefined();
+  expect(button("Save workout")).toBeDefined();
 });
 
 it("on a disclosure 409 asks once, records acceptance and retries the shared accept", async () => {
@@ -320,20 +332,142 @@ it("on a disclosure 409 asks once, records acceptance and retries the shared acc
   expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "copy-1" } });
 });
 
-it("keeps the import private and unsaved when the person declines the disclosure", async () => {
+it("saves privately when the person declines the publishing disclosure", async () => {
   fixture.params = { id: "job" };
   fixture.agree = false;
   fixture.capabilities.mockResolvedValue(caps(true));
   fixture.importJob.mockResolvedValue(importJob("url"));
-  fixture.acceptImport.mockRejectedValueOnce(
+  fixture.acceptImport.mockResolvedValue(saved).mockRejectedValueOnce(
     new ApiError("conflict", 409, false, "Accept the current publishing disclosure before sharing recipes")
   );
   fixture.publishingDisclosure.mockResolvedValue({ current_version: 1, accepted_version: 0, requires_acceptance: true });
   await mount(ImportReview);
   await reviewAndSave("Save and share to Discover");
   expect(fixture.acceptPublishingDisclosure).not.toHaveBeenCalled();
-  expect(fixture.acceptImport).toHaveBeenCalledTimes(1);
-  expect(fixture.replace).not.toHaveBeenCalled();
+  expect(fixture.acceptImport).toHaveBeenCalledTimes(2);
+  expect(fixture.acceptImport).toHaveBeenLastCalledWith("job", expect.anything(), 1, false, true);
+  expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "copy-1" } });
   expect(choice("Share to Discover")!.props.selected).toBe(false);
-  expect(button("Save privately to my library")).toBeDefined();
+  expect(button("Save workout")).toBeDefined();
+});
+
+it("automatically saves a clean new extraction without accepting missing details", async () => {
+  fixture.focus = true;
+  fixture.params = { id: "job", auto: "1" };
+  fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.importJob.mockResolvedValue(importJob("url"));
+  fixture.acceptImport.mockResolvedValue(saved);
+  await mount(ImportReview);
+  expect(fixture.acceptImport).toHaveBeenCalledTimes(1);
+  expect(fixture.acceptImport).toHaveBeenCalledWith("job", expect.anything(), 1, false, false);
+  expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "copy-1" } });
+});
+it.each(["missing", "warning"])("keeps %s results for an explicit save rather than guessing", async (kind) => {
+  fixture.focus = true;
+  fixture.params = { id: "job", auto: "1" };
+  const job = importJob("url", kind === "missing" ? "incomplete" : "ready");
+  if (kind === "warning") job.result.warnings = ["Rounds unknown"] as never[];
+  fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.importJob.mockResolvedValue(job);
+  fixture.acceptImport.mockResolvedValue(saved);
+  await mount(ImportReview);
+  expect(fixture.acceptImport).not.toHaveBeenCalled();
+  await reviewAndSave("Save workout");
+  expect(fixture.acceptImport).toHaveBeenCalledWith("job", expect.anything(), 1, false, true);
+});
+it("an automatic save response arriving after account retirement cannot navigate or remove another account's drafts", async () => {
+  fixture.focus = true;
+  fixture.params = { id: "job", auto: "1" };
+  fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.importJob.mockResolvedValue(importJob("url"));
+  let finish!: (value: Workout) => void;
+  fixture.acceptImport.mockImplementation(() => new Promise<Workout>((resolve) => { finish = resolve; }));
+  await mount(ImportReview);
+  expect(fixture.acceptImport).toHaveBeenCalledTimes(1);
+  fixture.current = false;
+  await act(async () => finish(saved));
+  await settle();
+  expect(fixture.replace).not.toHaveBeenCalled();
+});
+
+it("background saving honors a persisted private choice even after publishing disclosure is accepted elsewhere", async () => {
+  fixture.focus = true;
+  fixture.map.set("imports:1", JSON.stringify([{ id: "job", label: "Link", generation: 1, auto_save: true }]));
+  fixture.map.set("import-visibility:1:job", "false");
+  fixture.capabilities.mockResolvedValue(caps(true));
+  let accepted = false;
+  fixture.importJob.mockImplementation(async () => ({ ...importJob("url"), accepted_workout_id: accepted ? saved.id : null }));
+  fixture.acceptImport.mockImplementation(async () => { accepted = true; return saved; });
+  fixture.publishingDisclosure.mockResolvedValue({ current_version: 1, accepted_version: 1, requires_acceptance: false });
+  await mount(ImportList);
+  await settle();
+  expect(fixture.acceptImport).toHaveBeenCalledTimes(1);
+  expect(fixture.acceptImport).toHaveBeenCalledWith("job", expect.anything(), 1, false, false);
+  expect(fixture.publishingDisclosure).not.toHaveBeenCalled();
+  expect(JSON.parse(fixture.map.get("imports:1")!)).toEqual([]);
+});
+it("an auto route parameter cannot authorize saving an older import without its persisted choice", async () => {
+  fixture.focus = true;
+  fixture.params = { id: "job", auto: "1" };
+  fixture.load.mockResolvedValue(null);
+  fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.importJob.mockResolvedValue(importJob("url"));
+  await mount(ImportReview);
+  expect(fixture.acceptImport).not.toHaveBeenCalled();
+});
+
+it("informational sampled-frame metadata does not add a confirmation to a complete extraction", async () => {
+  fixture.focus = true;
+  fixture.params = { id: "job", auto: "1" };
+  const job = importJob("url");
+  job.result.source.coverage_notes = ["Frames sampled; not every frame was inspected."] as never[];
+  fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.importJob.mockResolvedValue(job);
+  fixture.acceptImport.mockResolvedValue(saved);
+  await mount(ImportReview);
+  expect(fixture.acceptImport).toHaveBeenCalledWith("job", expect.anything(), 1, false, false);
+});
+
+it("a failed saved-choice restore stays closed and can be retried explicitly", async () => {
+  fixture.focus = true; fixture.params = { id: "job", auto: "1" };
+  const healthy = fixture.load.getMockImplementation()!;
+  fixture.load.mockImplementation(async (...args) => { if (args[1].startsWith("import-visibility:")) throw Error("device read failed"); return healthy(...args); });
+  fixture.capabilities.mockResolvedValue(caps(false)); fixture.importJob.mockResolvedValue(importJob("url"));
+  fixture.acceptImport.mockResolvedValue(saved); await mount(ImportReview);
+  expect(fixture.acceptImport).not.toHaveBeenCalled();
+  expect(button("Save workout")!.props.disabled).toBe(true);
+  expect(button("Try loading again")).toBeDefined();
+  fixture.load.mockImplementation(healthy); await act(async () => button("Try loading again")!.props.onPress()); await settle();
+  expect(fixture.acceptImport).toHaveBeenCalledTimes(1);
+});
+it("background completion cleans its source after the user leaves while acceptance is in flight", async () => {
+  const { draftKey } = await import("./drafts");
+  fixture.focus = true;
+  fixture.map.set("imports:1", JSON.stringify([{ id: "job", label: "Link", generation: 1, auto_save: true }]));
+  fixture.map.set("import-visibility:1:job", "false");
+  fixture.map.set(draftKey("owner", "capture:1"), JSON.stringify({ request_id: "request", generation: 1, job_id: "job",
+    kind: "url", source_url: "https://example.test/workout", text: "", files: [], created_at: "2026-10-13T00:00:00Z" }));
+  fixture.capabilities.mockResolvedValue(caps(false)); fixture.importJob.mockResolvedValue(importJob("url"));
+  let finish!: (value: Workout) => void; fixture.acceptImport.mockImplementation(() => new Promise<Workout>((resolve) => { finish = resolve; }));
+  await mount(ImportList); expect(fixture.acceptImport).toHaveBeenCalledTimes(1); fixture.focus = false;
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(ImportList)))); await settle();
+  await act(async () => finish(saved)); await settle();
+  expect(fixture.acceptImport).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(fixture.map.get("imports:1")!)).toEqual([]);
+  const captured = JSON.parse(fixture.map.get(draftKey("owner", "capture:1"))!);
+  expect(captured.value ?? captured).toMatchObject({ source_url: "", text: "", files: [] });
+});
+it("a cold return reconciles an already saved import without another acceptance", async () => {
+  const { draftKey } = await import("./drafts");
+  fixture.focus = true;
+  fixture.map.set("imports:1", JSON.stringify([{ id: "job", label: "Link", generation: 1, auto_save: true }]));
+  fixture.map.set(draftKey("owner", "capture:1"), JSON.stringify({ request_id: "request", generation: 1, job_id: "job",
+    kind: "url", source_url: "https://example.test/workout", text: "", files: [], created_at: "2026-10-13T00:00:00Z" }));
+  fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.importJob.mockResolvedValue({ ...importJob("url"), accepted_workout_id: saved.id });
+  await mount(ImportList); await settle();
+  expect(fixture.acceptImport).not.toHaveBeenCalled();
+  expect(JSON.parse(fixture.map.get("imports:1")!)).toEqual([]);
+  const captured = JSON.parse(fixture.map.get(draftKey("owner", "capture:1"))!);
+  expect(captured.value ?? captured).toMatchObject({ source_url: "", text: "", files: [] });
 });

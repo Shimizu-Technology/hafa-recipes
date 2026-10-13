@@ -1,15 +1,16 @@
 import { SourceImage } from "@/components/source-image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Image, View } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Card, Choice, Copy, Field, Grow, Notice, Row, Screen, SectionHeader } from "@/components/ui";
 import { useTraining } from "@/lib/context";
-import { captureErrors, type CaptureDraft, type CaptureKind, type CaptureFile } from "@/lib/capture";
+import { captureErrors, updateImportReferences, type CaptureDraft, type CaptureKind, type CaptureFile } from "@/lib/capture";
 import { createPrivateDraftSlot, type PrivateDraftSnapshot } from "@/lib/private-form";
 import { pickImages, pickDocument, sourceFor, cleanupCaptureFiles } from "@/lib/capture-io";
 export default function Capture() {
+  const { shared, request_id: sharedRequest } = useLocalSearchParams<{ shared?: string; request_id?: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const generation = enrollment?.generation ?? 0;
   const scope = `capture:${generation}`;
@@ -46,7 +47,9 @@ export default function Capture() {
     queryFn: () => api.duplicateSources(duplicateUrl, undefined, generation),
     enabled: !!enrollment?.enrolled && /^https?:\/\//i.test(duplicateUrl) && duplicateUrl.length <= 2000
   });
-  const [consent, setConsent] = useState(false);
+  const [otherSources, setOtherSources] = useState(false);
+  const [extraInstructions, setExtraInstructions] = useState(false);
+  const automatic = useRef<string | null>(null);
   const [error, setError] = useState("");
   const [abandon, setAbandon] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -103,6 +106,8 @@ export default function Capture() {
     queryFn: api.capabilities,
     enabled: !!enrollment?.enrolled
   });
+  const aiConsent = useQuery({ queryKey: [owner, "ai-consent", generation], queryFn: api.aiConsent,
+    enabled: !!enrollment?.enrolled });
   useEffect(() => {
     let active = true;
     readyRef.current = false;
@@ -299,10 +304,9 @@ export default function Capture() {
       if (mounted.current) setBusy(false);
     }
   }
-  async function submit() {
+  async function submit(fromShare = false, agree = false) {
     if (guard.current || !readyRef.current || stale) return;
     const errors = captureErrors(draftRef.current);
-    if (!consent) errors.push("Choose AI extraction consent, or use manual entry.");
     if (!enrollment?.enrolled || generation < 1) errors.push("Set up your Workouts account first.");
     if (errors.length) {
       setError(errors.join(" "));
@@ -313,36 +317,45 @@ export default function Capture() {
     setError("");
     try {
       await flush();
+      const consent = await api.aiConsent();
+      current();
+      if (!consent.accepted || consent.disclosure_version !== 1) {
+        if (fromShare || !agree) {
+          await aiConsent.refetch();
+          current();
+          setError("AI preferences changed. Review the disclosure before extracting.");
+          return;
+        }
+        await api.setAiConsent(true, generation);
+        current();
+        await aiConsent.refetch();
+        current();
+      }
       const original = draftRef.current;
-      const pending = { ...original, pending_import: true };
+      const pending = { ...original, pending_import: true,
+        auto_save: original.pending_import ? original.auto_save === true : original.kind === "url" };
       // Persist original UUID/fields before any transport; retries stay frozen.
       const frozen = await persist(pending);
       const source = await sourceFor(frozen, current);
-      await api.setAiConsent(true, generation);
-      current();
       const job = await api.startImport(frozen.request_id, source, frozen.generation);
       await persist({ ...frozen, job_id: job.id });
-      const prior =
-        (await localDrafts.load<Array<{ id: string; generation: number; label: string; created_at: string }>>(
-          owner,
-          `imports:${draft.generation}`
-        )) ?? [];
-      await localDrafts.save(owner, `imports:${draft.generation}`, [
+      await updateImportReferences(localDrafts, owner, frozen.generation, current, (prior) => [
         {
           id: job.id,
-          generation: draft.generation,
+          generation: frozen.generation,
+          auto_save: frozen.auto_save === true,
           label:
-            draft.kind === "url"
-              ? draft.source_url
-              : draft.kind === "text"
+            frozen.kind === "url"
+              ? frozen.source_url
+              : frozen.kind === "text"
                 ? "Pasted workout"
-                : draft.files.map((f) => f.name).join(", "),
+                : frozen.files.map((f) => f.name).join(", "),
           created_at: new Date().toISOString()
         },
         ...prior.filter((item) => item.id !== job.id)
       ]);
       current();
-      router.push({ pathname: "/import/[id]", params: { id: job.id } });
+      router.push({ pathname: "/import/[id]", params: { id: job.id, auto: "1" } });
     } catch (e) {
       if (mounted.current) setError((e as Error).message);
     } finally {
@@ -350,9 +363,17 @@ export default function Capture() {
       if (mounted.current) setBusy(false);
     }
   }
+  useEffect(() => {
+    if (shared !== "1" || !sharedRequest || automatic.current === sharedRequest || !ready || stale ||
+      draft.request_id !== sharedRequest || draft.pending_import || draft.job_id || !capabilities.data?.imports ||
+      !aiConsent.data?.accepted || aiConsent.data.disclosure_version !== 1) return;
+    automatic.current = sharedRequest;
+    void submit(true);
+  }, [shared, sharedRequest, ready, stale, draft.request_id, draft.pending_import, draft.job_id,
+    capabilities.data?.imports, aiConsent.data]);
   const locked = busy || stale || !ready || !!draft.pending_import;
   return (
-    <Screen back title="Keep the inspiration." subtitle="Share a source, review the workout, then make it yours.">
+    <Screen back title="Add a workout." subtitle="Paste a link or share one straight from your video app.">
       {stale && <Notice>A newer source is saved. Load it before changing this draft.</Notice>}
       {(stale || !ready) && (
         <Button
@@ -369,8 +390,9 @@ export default function Capture() {
       {capabilities.data && !capabilities.data.imports && (
         <Notice>Automatic extraction is not enabled for this build. You can write a workout manually.</Notice>
       )}
-      <SectionHeader title="Where’s the workout from?" />
-      {(["url", "text", "images", "document"] as const).map((kind) => (
+      <Button title={otherSources ? "Hide other ways to add" : "Other ways to add a workout"} variant="ghost"
+        disabled={locked} onPress={() => setOtherSources(!otherSources)} />
+      {(otherSources || draft.kind !== "url") && (["url", "text", "images", "document"] as const).map((kind) => (
         <Choice
           key={kind}
           icon={({ url: "link-outline", text: "document-text-outline", images: "images-outline", document: "document-attach-outline" } as const)[kind]}
@@ -416,7 +438,9 @@ export default function Capture() {
           {duplicateHint.data.has_more && <Copy>More saved matches may exist.</Copy>}
         </Card>
       )}
-      {draft.kind !== "text" && (
+      {draft.kind !== "text" && <Button title={extraInstructions ? "Hide extra instructions" : "Add extra instructions"}
+        variant="ghost" disabled={locked} onPress={() => setExtraInstructions(!extraInstructions)} />}
+      {draft.kind !== "text" && (extraInstructions || !!draft.text.trim()) && (
         <Field
           disabled={locked}
           label="Caption or extra source instructions"
@@ -495,19 +519,11 @@ export default function Capture() {
           </Notice>
         </>
       )}
-      <SectionHeader title="Before you extract" />
-      <Notice>
-        AI extraction sends the source you choose to OpenAI to identify workout details. Review the results; missing
-        information stays missing. Your training profile is not included in this source import. Health-data coaching
-        needs separate permission.
-      </Notice>
-      <Choice
-        disabled={busy}
-        label="Use AI to extract this source"
-        detail="You can use manual entry if you prefer not to send the source."
-        selected={consent}
-        onPress={() => setConsent(!consent)}
-      />
+      {aiConsent.error && <Notice error>Could not check AI preferences. Try again before extracting.</Notice>}
+      {!aiConsent.isPending && (!aiConsent.data?.accepted || aiConsent.data.disclosure_version !== 1) && <Notice>
+        Agree and extract sends this source to OpenAI to read the workout. Your training profile is not included.
+        Missing details stay marked. You can change AI preferences in Settings or write a workout manually.
+      </Notice>}
       {capabilities.data && (
         <Copy kind="small" tone="muted">
           Free beta · up to {capabilities.data.limits.successful_or_pending_imports_per_rolling_day} successful or
@@ -600,13 +616,14 @@ export default function Capture() {
         />
       )}
       <Button
-        title={draft.pending_import ? "Retry extracting this source" : "Extract workout"}
+        title={draft.pending_import ? "Retry extraction" : aiConsent.data?.accepted && aiConsent.data.disclosure_version === 1
+          ? "Extract workout" : "Agree and extract"}
         icon="sparkles-outline"
         size="lg"
         busy={busy}
-        disabled={stale || !ready || !capabilities.data?.imports || !enrollment?.enrolled || !!draft.job_id}
+        disabled={stale || !ready || aiConsent.isPending || !!aiConsent.error || !capabilities.data?.imports || !enrollment?.enrolled || !!draft.job_id}
         onPress={() => {
-          void submit();
+          void submit(false, !aiConsent.data?.accepted || aiConsent.data.disclosure_version !== 1);
         }}
       />
       <Button

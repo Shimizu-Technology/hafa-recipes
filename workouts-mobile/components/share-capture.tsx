@@ -4,13 +4,14 @@ import { router } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useShareIntentContext } from "expo-share-intent";
 import { useTraining } from "@/lib/context";
-import type { CaptureDraft } from "@/lib/capture";
+import { sharedWorkoutURL, type CaptureDraft } from "@/lib/capture";
 import { createPrivateDraftSlot } from "@/lib/private-form";
 import { normalizeImages, cleanupCaptureFiles } from "@/lib/capture-io";
 export function ShareCapture() {
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
   const { owner, enrollment, storage, isCurrentAccount } = useTraining();
-  const fingerprint = JSON.stringify([shareIntent.webUrl, shareIntent.text, shareIntent.files?.map((f) => f.path)]);
+  const sourceURL = sharedWorkoutURL(shareIntent.webUrl, shareIntent.text, shareIntent.meta?.url);
+  const fingerprint = JSON.stringify([sourceURL, shareIntent.text, shareIntent.files?.map((f) => f.path)]);
   const live = useRef({ owner, generation: enrollment?.generation, storage, fingerprint, hasShareIntent });
   live.current = { owner, generation: enrollment?.generation, storage, fingerprint, hasShareIntent };
   const handling = useRef<string | null>(null);
@@ -48,8 +49,8 @@ export function ShareCapture() {
         request_id: Crypto.randomUUID(),
         generation,
         created_at: new Date().toISOString(),
-        kind: shareIntent.webUrl ? "url" : "text",
-        source_url: shareIntent.webUrl ?? "",
+        kind: sourceURL ? "url" : "text",
+        source_url: sourceURL ?? "",
         text: shareIntent.text ?? "",
         files: []
       };
@@ -109,7 +110,7 @@ export function ShareCapture() {
         await slot.save(registeredDraft.revision, draft, guard);
         guard();
         resetShareIntent();
-        if (mounted) router.push("/capture");
+        if (mounted) router.push({ pathname: "/capture", params: { shared: "1", request_id: draft.request_id } });
       } catch (e) {
         if ((e as { captureRegistrationUncertain?: boolean }).captureRegistrationUncertain) registered = true;
         let current = true;

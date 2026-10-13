@@ -1,5 +1,34 @@
 import type { AuthoredWorkout } from "./models";
+import type { drafts } from "./drafts";
+export interface ImportReference { id: string; generation?: number; label: string; created_at?: string; auto_save?: boolean }
+const referenceWrites = new Map<string, Promise<void>>();
+/** Intake and completion share one queue so finishing A cannot erase a newer import B. */
+export function updateImportReferences(storage: ReturnType<typeof drafts>, owner: string, generation: number,
+  guard: CaptureGuard, update: (items: ImportReference[]) => ImportReference[]) {
+  const key = JSON.stringify([owner, generation]);
+  const next = (referenceWrites.get(key) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+    guard();
+    const prior = await storage.load<ImportReference[]>(owner, `imports:${generation}`) ?? [];
+    guard();
+    await storage.save(owner, `imports:${generation}`, update(prior));
+    guard();
+  });
+  referenceWrites.set(key, next);
+  void next.finally(() => { if (referenceWrites.get(key) === next) referenceWrites.delete(key); }).catch(() => undefined);
+  return next;
+}
 export type CaptureKind = "url" | "text" | "images" | "document";
+/** Match Recipes: social apps may share a link inside caption text or URL metadata. */
+export function sharedWorkoutURL(webUrl?: string | null, text?: string | null, metadataUrl?: string | null) {
+  const direct = webUrl?.trim() || metadataUrl?.trim();
+  if (direct && /^https?:\/\//i.test(direct)) return direct;
+  const match = text?.match(/https?:\/\/[^\s<>"']+/i);
+  if (!match) return null;
+  const wrapper = text?.[(match.index ?? 0) - 1];
+  const suffix = wrapper === "(" ? match[0].match(/\)[.,!?;:]*$/) : wrapper === "[" ? match[0].match(/\][.,!?;:]*$/) : null;
+  // Only remove an explicit outer wrapper. Bare terminal punctuation may be a valid URL character.
+  return suffix ? match[0].slice(0, -suffix[0].length) : match[0];
+}
 export interface CaptureFile {
   uri: string;
   mime_type: string;
@@ -16,6 +45,7 @@ export interface CaptureDraft {
   cleanup_files?: CaptureFile[];
   job_id?: string;
   pending_import?: boolean;
+  auto_save?: boolean;
   created_at: string;
 }
 /** Supplied by the original account/enrollment/screen; native helpers stay UI-free. */
@@ -97,4 +127,9 @@ export function boundedSource(source: ExtractionRequest): ExtractionRequest {
 }
 export function importIsTerminal(status: ImportJob["status"]) {
   return !["queued", "processing"].includes(status);
+}
+/** Only an unchanged complete extraction can skip the missing-details review. */
+export function canSaveAutomatically(job: ImportJob) {
+  return !job.accepted_workout_id && job.status === "ready" && job.result?.status === "ready" &&
+    !!job.result.workout && job.result.warnings.length === 0;
 }

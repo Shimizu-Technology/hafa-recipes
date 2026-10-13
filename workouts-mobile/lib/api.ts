@@ -768,14 +768,14 @@ export function createWorkoutsApi(
     async importJob(id: string) {
       return (await request<ImportJob>(`/imports/${encodeURIComponent(id)}`)).data;
     },
-    async acceptImport(id: string, workout: AuthoredWorkout, generation: number, isPublic = false) {
+    async acceptImport(id: string, workout: AuthoredWorkout, generation: number, isPublic = false, acknowledgeWarnings = true) {
       return workoutRecord(
         (
           await request<RecordEnvelope<Workout>>(
             `/imports/${encodeURIComponent(id)}/accept`,
             "POST",
             // is_public is only sent when sharing, so the server's private default stays authoritative.
-            { workout: authoredWorkout(workout), acknowledge_warnings: true, ...(isPublic ? { is_public: true } : {}) },
+            { workout: authoredWorkout(workout), acknowledge_warnings: acknowledgeWarnings, ...(isPublic ? { is_public: true } : {}) },
             { generation }
           )
         ).data
