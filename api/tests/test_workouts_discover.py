@@ -1,17 +1,21 @@
-"""Discover publishing: optional 045 rollout, allow-listed projection, owner
-publish rules and erasure, against real PostgreSQL."""
+"""Public Discover: optional 045 rollout, allow-listed projection, publish rules,
+dedupe, save, moderation and erasure, against real PostgreSQL."""
 
 import importlib
 import json
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import text, update
+from sqlalchemy import func, select, text, update
 
-from app.domains.workouts import automation_router, discover
+from app.auth import get_current_user
+from app.domains.workouts import automation_router, discover, security
 from app.domains.workouts.discover import verify_discover_schema
 from app.domains.workouts.optional_runtime import verify_optional_workouts_schema
 from app.models.identity import AppUser
+from app.models.moderation import AdminAuditEvent, ContentReport
+from app.moderation import require_admin
+from app.routers import community_safety
 from app.routers.users import delete_account
 from tests.test_workouts_automation_integration import (  # noqa: F401
     automation_api,
@@ -68,6 +72,11 @@ REEL = {
         }
     ],
 }
+CARD_KEYS = {
+    "id", "title", "kind", "estimated_minutes", "equipment_required", "equipment_optional",
+    "block_count", "exercise_count", "source_url", "source_platform", "source_creator",
+    "thumbnail_url", "published_at", "contributor", "is_owner", "saved_workout_id",
+}  # fmt: skip
 WORKOUT_KEYS = {
     "id", "version", "parent_version_id", "title", "kind", "provenance", "blocks", "source_url",
     "capture_kind", "source_creator", "source_title", "equipment_required", "equipment_optional",
@@ -91,6 +100,8 @@ EXERCISE_KEYS = {
 
 def mount(api):
     api.app.include_router(discover.router)
+    api.app.include_router(discover.admin_router)
+    api.app.include_router(community_safety.router)
 
 
 async def accept_disclosure(api, *owners):
@@ -125,6 +136,12 @@ async def publish(api, workout_id, headers=None, action="publish"):
     )
 
 
+async def feed(api, query="", headers=OTHER):
+    response = await api.client.get("/api/v1/workouts/discover" + query, headers=headers)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
 async def published_reel(api, workout=REEL, headers=None):
     row = await save(api, workout, headers)
     response = await publish(api, row["id"], headers)
@@ -147,8 +164,12 @@ async def test_code_runs_without_045_and_reports_discover_unavailable(assembled_
         headers=GENERATION,
     )
     assert edited.status_code == 200, edited.text
-    response = await publish(api, row["id"])
-    assert response.status_code == 503 and "not available" in response.json()["detail"]
+    for response in (
+        await api.client.get("/api/v1/workouts/discover"),
+        await api.client.get(f"/api/v1/workouts/discover/{row['id']}"),
+        await publish(api, row["id"]),
+    ):
+        assert response.status_code == 503 and "not available" in response.json()["detail"]
 
 
 async def test_capability_flag_follows_045(automation_api, monkeypatch):  # noqa: F811
@@ -226,6 +247,32 @@ async def test_public_projection_is_an_allow_list():
     assert discover.source_identity(SOURCE) == ("youtube:video:abcDEF12345", "youtube")
 
 
+async def test_feed_and_detail_responses_are_allow_listed(discover_api):
+    api = discover_api
+    row = await published_reel(api)
+    page = await feed(api)
+    assert page["total"] == 1 and set(page["items"][0]) == CARD_KEYS
+    card = page["items"][0]
+    assert card["source_platform"] == "youtube" and card["is_owner"] is False
+    assert card["contributor"]["contributor_id"].startswith("chef_")
+    detail = await api.client.get(f"/api/v1/workouts/discover/{row['id']}", headers=OTHER)
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+    workout = body["workout"]
+    assert set(body) == CARD_KEYS | {"workout"}
+    assert set(workout) <= WORKOUT_KEYS and workout["notes"] == []
+    assert workout["blocks"][0]["label"] == "Main circuit"
+    for block in workout["blocks"]:
+        assert set(block) <= BLOCK_KEYS and block["evidence"] == []
+        for exercise in block["exercises"]:
+            assert set(exercise) <= EXERCISE_KEYS
+            assert exercise["exercise_id"] is None and exercise["evidence"] == []
+            assert exercise["notes"] is None and exercise["effort"] is None
+    serialized = detail.text + json.dumps(page)
+    for private in (PRIVATE_NOTE, '"owner"', "generation", "app_user_id", "user_distinct_subject"):
+        assert private not in serialized
+
+
 async def test_publishing_requires_disclosure_completeness_and_ownership(discover_api):
     api = discover_api
     async with api.sessions.begin() as db:
@@ -252,8 +299,131 @@ async def test_publishing_requires_disclosure_completeness_and_ownership(discove
         headers=GENERATION,
     )
     assert edited.status_code == 200 and edited.json()["publication"]["is_public"] is False
+    assert (await feed(api))["total"] == 0
     unpublished = await publish(api, draft["id"], action="unpublish")
     assert unpublished.status_code == 200 and unpublished.json()["published_at"] is None
+
+
+async def test_dedupe_save_and_filters(discover_api):
+    api = discover_api
+    first = await published_reel(api)
+    # Same video, different URL form: the importer keeps a private copy, the
+    # feed keeps the earliest card, and the duplicate stays readable by id.
+    duplicate = await published_reel(
+        api, {**REEL, "source_url": "https://youtu.be/abcDEF12345"}, OTHER
+    )
+    page = await feed(api, headers={})
+    assert page["total"] == 1 and page["items"][0]["id"] == first["id"]
+    assert (await api.client.get(f"/api/v1/workouts/discover/{duplicate['id']}")).status_code == 200
+    bodyweight = {
+        **REEL,
+        "title": "Couch core",
+        "source_url": None,
+        "provenance": "user",
+        "capture_kind": None,
+        "equipment_required": [],
+        "estimated_minutes": 25,
+        "blocks": [
+            {
+                **REEL["blocks"][0],
+                "exercises": [{**REEL["blocks"][0]["exercises"][0], "provenance": "user"}],
+            }
+        ],
+    }
+    await published_reel(api, bodyweight)
+    assert (await feed(api))["total"] == 2
+    for query, expected in (
+        ("?q=goblet", 2),
+        ("?q=COUCH", 1),
+        ("?q=%25", 0),
+        ("?equipment=dumbbell", 1),
+        ("?equipment=Dumbbells", 1),
+        ("?equipment=kettlebell", 0),
+        ("?equipment=none", 1),
+        ("?platform=youtube", 1),
+        ("?min_minutes=20", 1),
+        ("?max_minutes=10", 1),
+        ("?limit=1", 2),
+    ):
+        assert (await feed(api, query))["total"] == expected, query
+    assert (await feed(api, "?limit=1"))["has_more"] is True
+
+    path = f"/api/v1/workouts/discover/{first['id']}/save"
+    saved = await api.client.post(path, headers=GENERATION | OTHER)
+    assert saved.status_code == 201, saved.text
+    copy = saved.json()
+    assert copy["id"] != first["id"] and copy["content"]["notes"] == []
+    assert copy["publication"]["is_public"] is False
+    assert PRIVATE_NOTE not in saved.text
+    replay = await api.client.post(path, headers=GENERATION | OTHER)
+    assert replay.status_code == 200 and replay.json()["id"] == copy["id"]
+    assert (await api.client.post(path, headers=GENERATION)).status_code == 409
+    cards = {item["id"]: item for item in (await feed(api))["items"]}
+    assert cards[first["id"]]["saved_workout_id"] == copy["id"]
+
+
+async def test_moderation_blocks_reports_and_hidden_users(discover_api):
+    api = discover_api
+    row = await published_reel(api)
+    report = await api.client.post(
+        f"/api/v1/workouts/discover/{row['id']}/report",
+        json={"category": "spam", "details": "Not a workout"},
+        headers=OTHER,
+    )
+    assert report.status_code == 201, report.text
+    async with api.sessions() as db:
+        stored = await db.scalar(select(ContentReport))
+        assert stored.target_type == "contributor" and stored.target_user_id == "owner"
+        assert stored.details.startswith(f"Workouts Discover {row['id']}")
+
+    blocked = await api.client.post(f"/api/v1/workouts/discover/{row['id']}/block", headers=OTHER)
+    assert blocked.status_code == 201
+    assert (await feed(api))["total"] == 0 and (await feed(api, headers={}))["total"] == 1
+    unblocked = await api.client.delete(
+        f"/api/blocks/{blocked.json()['contributor_id']}", headers=OTHER
+    )
+    assert unblocked.status_code == 204 and (await feed(api))["total"] == 1
+
+    api.app.dependency_overrides[require_admin] = lambda: user("moderator")
+    path = f"/api/v1/workouts/admin/discover/{row['id']}/moderation"
+    hidden = await api.client.put(path, json={"moderation_status": "hidden", "reason": "spam"})
+    assert hidden.status_code == 200 and hidden.json()["moderation_status"] == "hidden"
+    assert (await feed(api))["total"] == 0
+    owner_view = await api.client.get(f"/api/v1/workouts/library/{row['id']}")
+    assert owner_view.json()["publication"]["discover_visible"] is False
+    listed = await api.client.get("/api/v1/workouts/admin/discover?moderation_status=hidden")
+    assert [item["id"] for item in listed.json()] == [row["id"]]
+    await api.client.put(path, json={"moderation_status": "active", "reason": "appeal ok"})
+    private = await save(api, REEL)
+    assert (
+        await api.client.put(
+            f"/api/v1/workouts/admin/discover/{private['id']}/moderation",
+            json={"moderation_status": "hidden", "reason": "private"},
+        )
+    ).status_code == 404
+    async with api.sessions.begin() as db:
+        assert await db.scalar(select(func.count()).select_from(AdminAuditEvent)) == 2
+        await db.execute(
+            update(AppUser).where(AppUser.id == "owner").values(moderation_status="hidden")
+        )
+    assert (await feed(api))["total"] == 0
+
+
+async def test_discover_follows_tester_gate(discover_api, monkeypatch):
+    await published_reel(discover_api)
+    monkeypatch.setattr(
+        security,
+        "get_settings",
+        lambda: settings().model_copy(
+            update={"workouts_public_access_enabled": False, "workouts_tester_user_ids": "owner"}
+        ),
+    )
+    assert (
+        await discover_api.client.get("/api/v1/workouts/discover", headers=OTHER)
+    ).status_code == 403
+    assert (await discover_api.client.get("/api/v1/workouts/discover")).status_code == 200
+    del discover_api.app.dependency_overrides[get_current_user]
+    assert (await discover_api.client.get("/api/v1/workouts/discover")).status_code in {401, 403}
 
 
 async def test_data_and_account_deletion_remove_public_workouts(discover_api):
@@ -261,13 +431,14 @@ async def test_data_and_account_deletion_remove_public_workouts(discover_api):
     public = text("SELECT count(*) FROM workouts_library WHERE is_public")
     await published_reel(api)
     erased = await api.client.request("DELETE", "/api/v1/workouts/data", headers=GENERATION)
-    assert erased.status_code == 200
+    assert erased.status_code == 200 and (await feed(api))["total"] == 0
     await published_reel(api, headers=OTHER)
     async with api.sessions() as db:
         assert await db.scalar(public) == 1
         await delete_account(db=db, user=user("other"))
     async with api.sessions() as db:
         assert await db.scalar(public) == 0
+    assert (await feed(api, headers={}))["total"] == 0
 
 
 async def test_import_accept_can_request_public(automation_api, monkeypatch):  # noqa: F811
