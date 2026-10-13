@@ -584,3 +584,15 @@ it("a missing native process identity is not proof that an unfinished known writ
   expect(native.records.has(key)).toBe(true);
   expect(native.remove).not.toHaveBeenCalled();
 });
+it("concurrent import completion and intake keep the newer reference", async () => {
+  const { drafts } = await import("./drafts");
+  const { updateImportReferences } = await import("./capture");
+  const registry = createPrivateStorageRegistry(journalStorage());
+  const local = drafts(registry.capture("reference-owner"));
+  await local.save("reference-owner", "imports:1", [{ id: "A", label: "First" }]);
+  await Promise.all([
+    updateImportReferences(local, "reference-owner", 1, () => {}, (items) => items.filter((item) => item.id !== "A")),
+    updateImportReferences(local, "reference-owner", 1, () => {}, (items) => [{ id: "B", label: "Newer" }, ...items]),
+  ]);
+  expect(await local.load("reference-owner", "imports:1")).toEqual([{ id: "B", label: "Newer" }]);
+});
