@@ -1,4 +1,22 @@
 import type { AuthoredWorkout } from "./models";
+import type { drafts } from "./drafts";
+export interface ImportReference { id: string; generation?: number; label: string; created_at?: string; auto_save?: boolean }
+const referenceWrites = new Map<string, Promise<void>>();
+/** Intake and completion share one queue so finishing A cannot erase a newer import B. */
+export function updateImportReferences(storage: ReturnType<typeof drafts>, owner: string, generation: number,
+  guard: CaptureGuard, update: (items: ImportReference[]) => ImportReference[]) {
+  const key = JSON.stringify([owner, generation]);
+  const next = (referenceWrites.get(key) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+    guard();
+    const prior = await storage.load<ImportReference[]>(owner, `imports:${generation}`) ?? [];
+    guard();
+    await storage.save(owner, `imports:${generation}`, update(prior));
+    guard();
+  });
+  referenceWrites.set(key, next);
+  void next.finally(() => { if (referenceWrites.get(key) === next) referenceWrites.delete(key); }).catch(() => undefined);
+  return next;
+}
 export type CaptureKind = "url" | "text" | "images" | "document";
 export interface CaptureFile {
   uri: string;

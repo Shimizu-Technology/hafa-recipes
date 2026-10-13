@@ -6,7 +6,7 @@ import * as Crypto from "expo-crypto";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Card, Choice, Copy, Field, Grow, Notice, Row, Screen, SectionHeader } from "@/components/ui";
 import { useTraining } from "@/lib/context";
-import { captureErrors, type CaptureDraft, type CaptureKind, type CaptureFile } from "@/lib/capture";
+import { captureErrors, updateImportReferences, type CaptureDraft, type CaptureKind, type CaptureFile } from "@/lib/capture";
 import { createPrivateDraftSlot, type PrivateDraftSnapshot } from "@/lib/private-form";
 import { pickImages, pickDocument, sourceFor, cleanupCaptureFiles } from "@/lib/capture-io";
 export default function Capture() {
@@ -304,7 +304,7 @@ export default function Capture() {
       if (mounted.current) setBusy(false);
     }
   }
-  async function submit(fromShare = false) {
+  async function submit(fromShare = false, agree = false) {
     if (guard.current || !readyRef.current || stale) return;
     const errors = captureErrors(draftRef.current);
     if (!enrollment?.enrolled || generation < 1) errors.push("Set up your Workouts account first.");
@@ -320,8 +320,10 @@ export default function Capture() {
       const consent = await api.aiConsent();
       current();
       if (!consent.accepted || consent.disclosure_version !== 1) {
-        if (fromShare) {
+        if (fromShare || !agree) {
           await aiConsent.refetch();
+          current();
+          setError("AI preferences changed. Review the disclosure before extracting.");
           return;
         }
         await api.setAiConsent(true, generation);
@@ -336,22 +338,17 @@ export default function Capture() {
       const source = await sourceFor(frozen, current);
       const job = await api.startImport(frozen.request_id, source, frozen.generation);
       await persist({ ...frozen, job_id: job.id });
-      const prior =
-        (await localDrafts.load<Array<{ id: string; generation: number; label: string; created_at: string; auto_save?: boolean }>>(
-          owner,
-          `imports:${draft.generation}`
-        )) ?? [];
-      await localDrafts.save(owner, `imports:${draft.generation}`, [
+      await updateImportReferences(localDrafts, owner, frozen.generation, current, (prior) => [
         {
           id: job.id,
-          generation: draft.generation,
+          generation: frozen.generation,
           auto_save: true,
           label:
-            draft.kind === "url"
-              ? draft.source_url
-              : draft.kind === "text"
+            frozen.kind === "url"
+              ? frozen.source_url
+              : frozen.kind === "text"
                 ? "Pasted workout"
-                : draft.files.map((f) => f.name).join(", "),
+                : frozen.files.map((f) => f.name).join(", "),
           created_at: new Date().toISOString()
         },
         ...prior.filter((item) => item.id !== job.id)
@@ -625,7 +622,7 @@ export default function Capture() {
         busy={busy}
         disabled={stale || !ready || aiConsent.isPending || !!aiConsent.error || !capabilities.data?.imports || !enrollment?.enrolled || !!draft.job_id}
         onPress={() => {
-          void submit();
+          void submit(false, !aiConsent.data?.accepted || aiConsent.data.disclosure_version !== 1);
         }}
       />
       <Button

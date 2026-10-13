@@ -8,7 +8,7 @@ import { Button, Card, Chip, ChipRow, Choice, Copy, Empty, ListRow, Notice, Scre
 import { WorkoutEditor } from "@/components/workout-editor";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
-import { canSaveAutomatically, importIsTerminal, type CaptureDraft } from "@/lib/capture";
+import { canSaveAutomatically, importIsTerminal, updateImportReferences, type CaptureDraft, type ImportReference } from "@/lib/capture";
 import { cleanupCaptureFiles } from "@/lib/capture-io";
 import * as Crypto from "expo-crypto";
 import { createPrivateDraftSlot, type PrivateDraftSnapshot } from "@/lib/private-form";
@@ -16,7 +16,7 @@ import type { AuthoredWorkout } from "@/lib/models";
 import { usePublishingDisclosure } from "@/components/publishing-disclosure";
 import { DECLINED, INCOMPLETE_MESSAGE, defaultShareToDiscover, isIncomplete, publishable } from "@/lib/discover";
 export default function ImportReview() {
-  const { id, auto } = useLocalSearchParams<{ id: string; auto?: string }>();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const generation = enrollment?.generation;
   const slot = useMemo(
@@ -59,7 +59,9 @@ export default function ImportReview() {
   const [editing, setEditing] = useState(false);
   const [sourceDetails, setSourceDetails] = useState(false);
   const [restored, setRestored] = useState(false);
+  const [autoAllowed, setAutoAllowed] = useState(false);
   const saving = useRef(false);
+  const visibilityWrites = useRef<Promise<void>>(Promise.resolve());
   const autoAttempt = useRef<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -96,6 +98,7 @@ export default function ImportReview() {
     setEditing(false);
     setSourceDetails(false);
     setRestored(false);
+    setAutoAllowed(false);
     setBusy(false);
     setError("");
     setShareChoice(null);
@@ -116,9 +119,16 @@ export default function ImportReview() {
       .catch(() => {
         if (valid && isCurrent()) setError("Could not restore your corrections for this import.");
       });
-    void Promise.all([sourceLoad, editLoad]).then(() => {
-      if (valid && isCurrent()) setRestored(true);
+    const visibilityLoad = localDrafts.load<boolean>(owner, `import-visibility:${generation}:${id}`).then((value) => {
+      if (valid && isCurrent() && typeof value === "boolean") setShareChoice(value);
     });
+    const referencesLoad = localDrafts.load<ImportReference[]>(owner, `imports:${generation}`).then((items) => {
+      if (valid && isCurrent()) setAutoAllowed(items?.some((item) => item.id === id && item.auto_save === true &&
+        (item.generation == null || item.generation === generation)) ?? false);
+    });
+    void Promise.all([sourceLoad, editLoad, visibilityLoad, referencesLoad]).then(() => {
+      if (valid && isCurrent()) setRestored(true);
+    }).catch(() => { if (valid && isCurrent()) setError("Could not restore sharing preferences. Reopen this import to retry."); });
     return () => {
       valid = false;
     };
@@ -129,6 +139,16 @@ export default function ImportReview() {
     void localDrafts.save(owner, `import-edit:${generation}:${id}`, value).catch(() => {
       if (isCurrent()) setError("Could not keep your corrections on this device. Stay here until saved.");
     });
+  }
+  function chooseVisibility(value: boolean) {
+    setShareChoice(value);
+    const next = visibilityWrites.current.catch(() => undefined).then(async () => {
+      current();
+      await localDrafts.save(owner, `import-visibility:${generation}:${id}`, value);
+      current();
+    });
+    visibilityWrites.current = next;
+    return next;
   }
   async function retireOriginalSource() {
     current();
@@ -177,9 +197,11 @@ export default function ImportReview() {
     setNotice("");
     try {
       current();
+      await visibilityWrites.current;
+      current();
       const content = edited ?? q.data.result.workout;
       const importGeneration = q.data.generation;
-      const accepted = sharing
+      let accepted = sharing
         ? await disclosure.run(() => {
             // The retry runs after the disclosure sheet; never send it for a changed import or account.
             current();
@@ -188,9 +210,10 @@ export default function ImportReview() {
         : await api.acceptImport(id, content, importGeneration, false, !automatic);
       current();
       if (accepted === DECLINED) {
-        setShareChoice(false);
-        setNotice("Sharing is off. Save this workout privately, or share it later.");
-        return;
+        await chooseVisibility(false);
+        current();
+        accepted = await api.acceptImport(id, content, importGeneration, false, !automatic);
+        current();
       }
       const saved = accepted;
       await cache.invalidateQueries({ queryKey: [owner, "library"] });
@@ -198,13 +221,7 @@ export default function ImportReview() {
       cache.removeQueries({ queryKey: [owner, "import-source", id] });
       await localDrafts.remove(owner, `import-edit:${generation}:${id}`);
       current();
-      const imports = (await localDrafts.load<Array<{ id: string }>>(owner, `imports:${generation}`)) ?? [];
-      current();
-      await localDrafts.save(
-        owner,
-        `imports:${generation}`,
-        imports.filter((item) => item.id !== id)
-      );
+      await updateImportReferences(localDrafts, owner, importGeneration, current, (items) => items.filter((item) => item.id !== id));
       await retireOriginalSource();
       current();
       router.replace({ pathname: "/workout/[id]", params: { id: saved.id } });
@@ -257,11 +274,11 @@ export default function ImportReview() {
   const wantsShare = shareChoice ?? defaultShareToDiscover(result?.workout?.capture_kind ?? originalSource?.kind);
   const sharing = discoverOn && shareable && wantsShare;
   useEffect(() => {
-    if ((auto !== "1" && !originalSource?.auto_save) || !routeReady || !restored || !q.data || edited || editing ||
+    if ((!autoAllowed && !originalSource?.auto_save) || !routeReady || !restored || !q.data || edited || editing ||
       error || !visible || !active || !capabilities.data || !canSaveAutomatically(q.data) || autoAttempt.current === epoch) return;
     autoAttempt.current = epoch;
     void accept(true);
-  }, [auto, originalSource?.auto_save, routeReady, restored, q.data, edited, editing, error, visible, active, capabilities.data, epoch]);
+  }, [autoAllowed, originalSource?.auto_save, routeReady, restored, q.data, edited, editing, error, visible, active, capabilities.data, epoch]);
   return (
     <Screen back title="Your workout." subtitle={busy ? "Saving your workout…" : "Check the exercises or make a quick edit."}>
       <QueryState
@@ -312,7 +329,7 @@ export default function ImportReview() {
             {workout && (
               <>
                 {routeReady && editing ? (
-                  <WorkoutEditor value={workout} onChange={update} />
+                  <WorkoutEditor value={workout} onChange={update} disabled={busy} />
                 ) : (
                   <>
                     <SectionHeader title={workout.title} />
@@ -368,7 +385,9 @@ export default function ImportReview() {
                     selected={sharing}
                     disabled={!shareable || busy}
                     onPress={() => {
-                      if (routeReady && isCurrent()) setShareChoice(!sharing);
+                      if (routeReady && isCurrent()) void chooseVisibility(!sharing).catch(() => {
+                        if (isCurrent()) setError("Could not save your sharing choice. Try choosing it again before saving.");
+                      });
                     }}
                   />
                 )}

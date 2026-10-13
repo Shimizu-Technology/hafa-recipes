@@ -1336,3 +1336,13 @@ it("a different saved source cannot be automatically submitted for an older shar
   await mount(Capture);
   expect(fixture.startImport).not.toHaveBeenCalled();
 });
+it("a stale accepted consent display cannot silently re-enable revoked AI consent", async () => {
+  fixture.aiConsent.mockResolvedValueOnce({ accepted: true, disclosure_version: 1 })
+    .mockResolvedValue({ accepted: false, disclosure_version: 1 });
+  await mount(Capture);
+  await act(async () => nodes("Field")[0].props.onChange("https://example.test/source"));
+  await click("Extract workout");
+  expect(fixture.setAiConsent).not.toHaveBeenCalled();
+  expect(fixture.startImport).not.toHaveBeenCalled();
+  expect(button("Agree and extract")).toBeDefined();
+});

@@ -4,8 +4,11 @@ import { router, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Copy, Notice } from "./ui";
 import { useTraining } from "@/lib/context";
-import { canSaveAutomatically, importIsTerminal } from "@/lib/capture";
+import { canSaveAutomatically, importIsTerminal, updateImportReferences } from "@/lib/capture";
 import { workoutErrors } from "@/lib/library";
+import { createPrivateDraftSlot } from "@/lib/private-form";
+import type { CaptureDraft } from "@/lib/capture";
+import * as Crypto from "expo-crypto";
 export function ImportList() {
   const { localDrafts, owner, enrollment } = useTraining();
   const [items, setItems] = useState<Array<{ id: string; label: string; auto_save?: boolean }>>([]);
@@ -75,7 +78,9 @@ function ImportCard({ id, label, autoSave }: { id: string; label: string; autoSa
       const edits = await localDrafts.load(owner, `import-edit:${generation}:${id}`);
       guard();
       if (edits) return;
-      const sharing = capabilities.data!.discover === true && job.result!.workout!.capture_kind === "url";
+      const preference = await localDrafts.load<boolean>(owner, `import-visibility:${generation}:${id}`);
+      guard();
+      const sharing = capabilities.data!.discover === true && (preference ?? job.result!.workout!.capture_kind === "url");
       if (sharing) {
         const disclosure = await api.publishingDisclosure();
         guard();
@@ -84,6 +89,19 @@ function ImportCard({ id, label, autoSave }: { id: string; label: string; autoSa
       }
       await api.acceptImport(id, job.result!.workout!, generation, sharing, false);
       guard();
+      const slot = createPrivateDraftSlot<CaptureDraft>(storage, owner, `capture:${generation}`, Crypto.randomUUID);
+      const captured = await slot.load(guard);
+      guard();
+      if (captured.value?.job_id === id && captured.value.generation === generation &&
+        !captured.value.files.length && !captured.value.cleanup_files?.length) {
+        try {
+          await slot.save(captured.revision, { request_id: Crypto.randomUUID(), generation, kind: "url",
+            source_url: "", text: "", files: [], created_at: new Date().toISOString() }, guard);
+        } catch (error) {
+          if (!(error as { captureDraftConflict?: boolean }).captureDraftConflict) throw error;
+        }
+      }
+      await updateImportReferences(localDrafts, owner, generation, guard, (items) => items.filter((item) => item.id !== id));
       await cache.invalidateQueries({ queryKey: [owner, "library"] });
       await q.refetch();
     })().catch(() => { if (alive && storage.isCurrent()) setSaveError("Could not finish saving. Open this import to retry."); });

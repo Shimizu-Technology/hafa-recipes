@@ -149,7 +149,8 @@ beforeEach(() => {
   fixture.params = {};
   fixture.focus = false;
   fixture.current = true;
-  fixture.load.mockReset().mockResolvedValue(null);
+  fixture.load.mockReset().mockImplementation(async (_owner, scope) => scope.startsWith("imports:") && fixture.params.auto === "1"
+    ? [{ id: "job", label: "Shared link", generation: 1, auto_save: true }] : null);
   fixture.agree = true;
   fixture.asked = 0;
   fixture.importSource.mockResolvedValue({ images: [], text: "" });
@@ -327,20 +328,21 @@ it("on a disclosure 409 asks once, records acceptance and retries the shared acc
   expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "copy-1" } });
 });
 
-it("keeps the import private and unsaved when the person declines the disclosure", async () => {
+it("saves privately when the person declines the publishing disclosure", async () => {
   fixture.params = { id: "job" };
   fixture.agree = false;
   fixture.capabilities.mockResolvedValue(caps(true));
   fixture.importJob.mockResolvedValue(importJob("url"));
-  fixture.acceptImport.mockRejectedValueOnce(
+  fixture.acceptImport.mockResolvedValue(saved).mockRejectedValueOnce(
     new ApiError("conflict", 409, false, "Accept the current publishing disclosure before sharing recipes")
   );
   fixture.publishingDisclosure.mockResolvedValue({ current_version: 1, accepted_version: 0, requires_acceptance: true });
   await mount(ImportReview);
   await reviewAndSave("Save and share to Discover");
   expect(fixture.acceptPublishingDisclosure).not.toHaveBeenCalled();
-  expect(fixture.acceptImport).toHaveBeenCalledTimes(1);
-  expect(fixture.replace).not.toHaveBeenCalled();
+  expect(fixture.acceptImport).toHaveBeenCalledTimes(2);
+  expect(fixture.acceptImport).toHaveBeenLastCalledWith("job", expect.anything(), 1, false, true);
+  expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "copy-1" } });
   expect(choice("Share to Discover")!.props.selected).toBe(false);
   expect(button("Save workout")).toBeDefined();
 });
