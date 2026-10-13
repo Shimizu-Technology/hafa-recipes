@@ -1,6 +1,7 @@
 import { contextErrors } from "./profile-context";
 import { equipmentLocationErrors } from "./equipment";
 import type { Organization } from "./organization";
+import type { Publication } from "./discover";
 export type Goal = "general_fitness" | "strength" | "body_composition" | "running" | "athletic_conditioning";
 export type Experience = "new" | "returning" | "regular";
 export interface EquipmentLocation {
@@ -56,6 +57,8 @@ export interface Workout {
   revision: number;
   generation: number;
   organization?: Organization;
+  /** Owner-only Discover state; null until Discover is available on the server. */
+  publication?: Publication | null;
   version?: number;
   parent_version_id?: string | null;
   title: string;
@@ -97,7 +100,7 @@ export interface ExercisePrescription {
 }
 export type AuthoredWorkout = Omit<
   Workout,
-  "id" | "revision" | "generation" | "version" | "parent_version_id" | "organization"
+  "id" | "revision" | "generation" | "version" | "parent_version_id" | "organization" | "publication"
 >;
 export interface ScheduledSession {
   id: string;

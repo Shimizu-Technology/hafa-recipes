@@ -5,6 +5,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   View,
   type StyleProp,
@@ -32,6 +33,9 @@ export function Screen({
   back = false,
   action,
   footer,
+  refreshing,
+  onRefresh,
+  onEndReached,
 }: PropsWithChildren<{
   title: string;
   subtitle?: string;
@@ -40,6 +44,11 @@ export function Screen({
   back?: boolean;
   action?: ReactNode;
   footer?: ReactNode;
+  /** Pull to refresh. */
+  refreshing?: boolean;
+  onRefresh?: () => void;
+  /** Called when the person scrolls near the end (infinite feeds). */
+  onEndReached?: () => void;
 }>) {
   const c = useColors();
   const insets = useSafeAreaInsets();
@@ -50,6 +59,19 @@ export function Screen({
     >
       <ScrollView
         keyboardShouldPersistTaps="handled"
+        refreshControl={
+          onRefresh ? (
+            <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={c.action} colors={[c.action]} />
+          ) : undefined
+        }
+        scrollEventThrottle={onEndReached ? 200 : undefined}
+        onScroll={
+          onEndReached
+            ? ({ nativeEvent: { layoutMeasurement, contentOffset, contentSize } }) => {
+                if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 600) onEndReached();
+              }
+            : undefined
+        }
         contentContainerStyle={{
           paddingTop: insets.top + spacing.xs,
           paddingBottom: (footer ? spacing.lg : insets.bottom + spacing.xl),
@@ -154,12 +176,18 @@ export function MediaCard({
   layout = "row",
   accessibilityLabel,
   icon,
+  placeholder,
+  footer,
 }: {
   title: string;
   meta?: string;
   image?: string | null;
   /** Placeholder glyph when there's no thumbnail (defaults to the brand mark). */
   icon?: IconName;
+  /** Custom artwork when there's no thumbnail (fills the thumbnail frame). */
+  placeholder?: ReactNode;
+  /** Extra line under the chips (e.g. creator credit). */
+  footer?: ReactNode;
   chips?: string[];
   badge?: string;
   onPress?: () => void;
@@ -189,6 +217,8 @@ export function MediaCard({
           style={{ width: "100%", height: "100%" }}
           accessibilityIgnoresInvertColors
         />
+      ) : placeholder ? (
+        placeholder
       ) : icon ? (
         <Ionicons name={icon} size={stacked ? 40 : 30} color={c.onActionSoft} />
       ) : (
@@ -222,6 +252,7 @@ export function MediaCard({
               ))}
             </View>
           )}
+          {footer}
         </View>
       </View>
     </Card>

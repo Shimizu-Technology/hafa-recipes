@@ -3,10 +3,7 @@ import type { ColorValue } from "react-native";
 import { TabIcon, useColors } from "@/components/ui";
 import { fonts } from "@/constants/theme";
 
-// Tab order: Today · (Discover) · Library · Plan · Progress.
-// To add Discover, create app/(tabs)/discover.tsx and add
-// <Tabs.Screen name="discover" options={tab("Discover", "discover")} /> after "index".
-// TabIcon already has its icons.
+// Tab order: Today · Discover · Library · Plan · Progress.
 export default function Layout() {
   const c = useColors();
   const tab = (title: string, route: Parameters<typeof TabIcon>[0]["route"]) => ({
@@ -27,6 +24,7 @@ export default function Layout() {
       }}
     >
       <Tabs.Screen name="index" options={tab("Today", "index")} />
+      <Tabs.Screen name="discover" options={tab("Discover", "discover")} />
       <Tabs.Screen name="library" options={tab("Library", "library")} />
       <Tabs.Screen name="plan" options={tab("Plan", "plan")} />
       <Tabs.Screen name="progress" options={tab("Progress", "progress")} />

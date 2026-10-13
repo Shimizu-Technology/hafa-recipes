@@ -81,6 +81,7 @@ function Routes() {
         <Stack.Screen name="settings" />
         <Stack.Screen name="add-workout" />
         <Stack.Screen name="workout/[id]" />
+        <Stack.Screen name="discover/[id]" />
         <Stack.Screen name="hafa-apps" />
         <Stack.Screen name="training" />
         <Stack.Screen name="capture" />
