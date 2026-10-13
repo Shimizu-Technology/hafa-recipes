@@ -72,7 +72,7 @@ describe.each([
 
 describe("raw colours", () => {
   const hex = /#[0-9A-Fa-f]{3,8}\b/;
-  const rgb = /\brgba?\(/;
+  const rgb = /\b(rgba?|hsla?)\(|["'](white|black)["']/;
   function files(dir: string): string[] {
     return readdirSync(dir).flatMap((name) => {
       const path = join(dir, name);
@@ -80,7 +80,8 @@ describe("raw colours", () => {
     });
   }
   it("only constants/theme.ts may define hex or rgb colours", () => {
-    const offenders = ["app", "components", "lib"]
+    const offenders = ["app", "components", "lib", "modules", "plugins"]
+      .filter((dir) => { try { return statSync(join(root, dir)).isDirectory(); } catch { return false; } })
       .flatMap((dir) => files(join(root, dir)))
       .filter((path) => !path.endsWith(".test.ts"))
       .flatMap((path) =>
@@ -145,6 +146,8 @@ describe("one Håfa family", () => {
       ["hero", "hero"],
       ["on-hero", "onHero"],
       ["hero-muted", "heroMuted"],
+      ["hero-accent", "heroAccent"],
+      ["on-accent", "onAccent"],
       ["error", "error"],
       ["focus", "focus"],
     ];
