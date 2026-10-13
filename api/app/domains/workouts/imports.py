@@ -49,7 +49,10 @@ async def create_import(
     content = request.model_dump(mode="json")
     if auto_save:
         content["_save"] = {"is_public": is_public, "display_name": display_name[:100]}
-    digest = content_digest(content)
+    identity = dict(content)
+    if auto_save:
+        identity["_save"] = {"is_public": is_public}
+    digest = content_digest(identity)
     existing = await db.scalar(
         select(WorkoutImport).where(
             WorkoutImport.app_user_id == user_id,
