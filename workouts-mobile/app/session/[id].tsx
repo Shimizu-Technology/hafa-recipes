@@ -1,6 +1,6 @@
 import { HealthExport } from "@/components/health-export";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { Button, Card, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
@@ -12,6 +12,7 @@ export default function SessionDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { api, owner } = useTraining();
   const offline = useOfflineTraining();
+  const cache = useQueryClient();
   const q = useQuery({ queryKey: [owner, "session", id], queryFn: () => api.session(id) });
   const [editing, setEditing] = useState<ActualSet[] | null>(null);
   const [notes, setNotes] = useState("");
@@ -22,7 +23,7 @@ export default function SessionDetail() {
     setBusy(true);
     try {
       await offline.store.correct(q.data, editing, notes, Crypto.randomUUID());
-      void offline.store.sync(api.saveSession);
+      void offline.store.sync(api.saveSession).then(() => cache.invalidateQueries({ queryKey: [owner, "sessions"] }));
       router.replace("/(tabs)/progress");
     } catch (e) {
       setError((e as Error).message);

@@ -54,6 +54,23 @@ export interface TrainingState {
   history: SavedLocalSession[];
 }
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+// Synced results live on the server. Keep only the newest few on the device so
+// each local save stays small; queued and blocked results are always kept.
+export const syncedHistoryLimit = 20;
+export function pruneHistory(history: SavedLocalSession[]) {
+  let synced = 0;
+  return history.filter((item) => item.state !== "synced" || ++synced <= syncedHistoryLimit);
+}
+// Network failures, timeouts, rate limits, expired sign-in and server errors can
+// succeed later. Any other 4xx will fail the same way on every retry.
+export function isTransientSyncError(status: number | undefined) {
+  return status == null || status === 0 || status === 401 || status === 408 || status === 429 || status >= 500 || status < 400;
+}
+function syncProblem(status: number | undefined, message: string) {
+  if (status === 404 || status === 410)
+    return "The workout or plan for this session was deleted, so it cannot be saved to your account. Discard it from this device or keep it here for reference.";
+  return message;
+}
 export function trainingKey(owner: string, generation: number) {
   if (!owner || generation < 1) throw Error("A training draft needs an enrolled account generation.");
   return `hafa-workouts:training:v1:${encodeURIComponent(owner)}:${generation}`;
@@ -206,6 +223,7 @@ export function createTrainingStore(
       .then(async () => {
         if (!loaded) throw Error("Wait for your saved training to load.");
         const next = work(clone(state));
+        next.history = pruneHistory(next.history);
         if (next.active)
           next.active.checkpoint_at = Math.max(clock(), next.active.checkpoint_at, next.active.active_started_at ?? 0);
         await storage.setItem(key, JSON.stringify(next));
@@ -235,7 +253,7 @@ export function createTrainingStore(
           value.history.some((h) => h.generation !== generation)
         )
           throw Error("The local training record needs recovery. It has not been overwritten.");
-        state = value;
+        state = { ...value, history: pruneHistory(value.history) };
         for (const item of state.history) {
           const warning = historicalStructureWarning(item.workout, item.request.actuals, item.cell_identity_version);
           if (warning) item.problem = warning;
@@ -475,15 +493,17 @@ export function createTrainingStore(
             });
           } catch (e) {
             const status = (e as { status?: number }).status;
+            const transient = isTransientSyncError(status);
             await update((s) => {
               const local = s.history.find((x) => x.request.client_session_id === item.request.client_session_id);
               if (local) {
-                local.problem = e instanceof Error ? e.message : "Could not sync";
-                if (status === 403 || status === 409 || status === 422) local.state = "blocked";
+                local.problem = syncProblem(status, e instanceof Error ? e.message : "Could not sync");
+                if (!transient) local.state = "blocked";
               }
               return s;
             });
-            break;
+            // A permanent rejection only needs attention for this result; keep sending the rest.
+            if (transient) break;
           }
         }
       } finally {
@@ -504,6 +524,15 @@ export function createTrainingStore(
           supersedes_session_id: saved.id,
         };
         s.history.unshift({ request, workout: saved.content.prescription_snapshot, generation, state: "queued" });
+        return s;
+      });
+    },
+    // Only a result the server permanently rejected can be removed; queued work is never dropped.
+    dismiss(id: string) {
+      return update((s) => {
+        const item = s.history.find((x) => x.request.client_session_id === id);
+        if (!item || item.state !== "blocked") throw Error("Only results that need attention can be discarded.");
+        s.history = s.history.filter((x) => x !== item);
         return s;
       });
     },
