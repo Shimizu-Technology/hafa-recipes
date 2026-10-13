@@ -293,15 +293,15 @@ export function TabIcon({ route, focused, color }: { route: keyof typeof tabIcon
   return (
     <View
       style={{
-        width: 52,
-        height: 30,
+        width: 48,
+        height: 26,
         borderRadius: radii.full,
         alignItems: "center",
         justifyContent: "center",
         backgroundColor: focused ? c.accentSoft : "transparent",
       }}
     >
-      <Ionicons name={focused ? active : idle} size={22} color={color} />
+      <Ionicons name={focused ? active : idle} size={21} color={color} />
     </View>
   );
 }

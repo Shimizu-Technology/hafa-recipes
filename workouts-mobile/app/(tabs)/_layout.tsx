@@ -21,9 +21,8 @@ export default function Layout() {
         headerShown: false,
         tabBarActiveTintColor: c.accentText,
         tabBarInactiveTintColor: c.muted,
-        tabBarStyle: { backgroundColor: c.surface, borderTopColor: c.border, paddingTop: 6 },
-        tabBarItemStyle: { paddingTop: 2 },
-        tabBarLabelStyle: { fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.2, marginTop: 2 },
+        tabBarStyle: { backgroundColor: c.surface, borderTopColor: c.border },
+        tabBarLabelStyle: { fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.2 },
         sceneStyle: { backgroundColor: c.background },
       }}
     >

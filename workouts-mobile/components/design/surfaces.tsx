@@ -188,7 +188,7 @@ export function MediaCard({
       ) : (
         <BrandMark height={stacked ? 40 : 26} />
       )}
-      {!!badge && (
+      {!!badge && stacked && (
         <View style={{ position: "absolute", top: 8, left: 8 }}>
           <Chip label={badge} tone="accent" />
         </View>
@@ -208,8 +208,9 @@ export function MediaCard({
               {meta}
             </Copy>
           )}
-          {!!chips.length && (
+          {(!!chips.length || (!!badge && !stacked)) && (
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+              {!!badge && !stacked && <Chip label={badge} tone="accent" />}
               {chips.slice(0, 3).map((chip) => (
                 <Chip key={chip} label={chip} />
               ))}
