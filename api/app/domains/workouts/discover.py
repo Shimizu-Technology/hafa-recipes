@@ -99,7 +99,8 @@ async def verify_discover_schema(engine, settings):
             ).scalars()
         )
         constraints = await connection.scalar(
-            text("""SELECT count(*) FROM pg_constraint WHERE convalidated AND conname IN
+            text("""SELECT count(*) FROM pg_constraint WHERE convalidated
+            AND conrelid='public.workouts_library'::regclass AND conname IN
             ('ck_workouts_library_moderation_status','ck_workouts_library_public_published')""")
         )
         if not DISCOVER_COLUMNS <= columns or constraints != 2:

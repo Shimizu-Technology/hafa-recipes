@@ -294,3 +294,23 @@ async def test_import_accept_can_request_public(automation_api, monkeypatch):  #
     listed = await api.client.get(f"/api/v1/workouts/library/{private.json()['id']}")
     assert listed.json()["publication"]["is_public"] is False
     assert automation_router.AcceptImport().is_public is False
+
+
+async def test_045_retry_completes_a_committed_first_phase(data_api):  # noqa: F811
+    await migration035.run_migration(configured=settings(), migration_engine=data_api.engine)
+    async with data_api.engine.begin() as connection:
+        await connection.execute(text(migration045.COLUMNS))
+        await connection.execute(
+            text(
+                "ALTER TABLE workouts_library ADD CONSTRAINT ck_workouts_library_moderation_status"
+                " CHECK (moderation_status IN ('active','hidden')) NOT VALID"
+            )
+        )
+    await migration045.run_migration(configured=settings(), migration_engine=data_api.engine)
+    await verify_discover_schema(data_api.engine, settings())
+    async with data_api.engine.connect() as connection:
+        assert await connection.scalar(
+            text(
+                "SELECT bool_and(convalidated) FROM pg_constraint WHERE conname LIKE 'ck_workouts_library_%'"
+            )
+        )
