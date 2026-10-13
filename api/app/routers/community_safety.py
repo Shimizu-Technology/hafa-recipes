@@ -331,20 +331,15 @@ async def unblock_contributor(
     db: AsyncSession = Depends(get_db),
     user: ClerkUser = Depends(get_current_user),
 ):
-    target_user_id = await _resolve_contributor(
-        db,
-        contributor_id,
-        viewer_user_id=None,
-        require_visible=False,
+    # Resolve among the caller's own blocks so contributors blocked from
+    # Workouts Discover (who may have no recipes) can also be unblocked.
+    blocks = (
+        await db.execute(select(UserBlock).where(UserBlock.blocker_user_id == user.id))
+    ).scalars().all()
+    block = next(
+        (item for item in blocks if public_contributor_id(item.blocked_user_id) == contributor_id),
+        None,
     )
-    block = None
-    if target_user_id:
-        block = await db.scalar(
-            select(UserBlock).where(
-                UserBlock.blocker_user_id == user.id,
-                UserBlock.blocked_user_id == target_user_id,
-            )
-        )
     if block is not None:
         await db.delete(block)
         await db.commit()

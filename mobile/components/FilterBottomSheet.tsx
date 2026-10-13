@@ -153,7 +153,7 @@ export default function FilterBottomSheet({
       transparent
       onRequestClose={onClose}
     >
-      <Pressable style={styles.overlay} onPress={onClose}>
+      <Pressable style={styles.overlay} onPress={onClose} accessible={false}>
         <Pressable 
           style={[
             styles.sheet, 
@@ -163,6 +163,8 @@ export default function FilterBottomSheet({
             }
           ]}
           onPress={(e) => e.stopPropagation()}
+          // Containers only: keep the sheet's own controls reachable by screen readers.
+          accessible={false}
         >
           {/* Handle bar */}
           <RNView style={styles.handleContainer}>
@@ -172,7 +174,7 @@ export default function FilterBottomSheet({
           {/* Header */}
           <RNView style={styles.header}>
             <Text style={[styles.title, { color: colors.text }]}>Filters</Text>
-            <TouchableOpacity onPress={onClose}>
+            <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel="Close filters">
               <Ionicons name="close" size={24} color={colors.textMuted} />
             </TouchableOpacity>
           </RNView>
@@ -189,6 +191,8 @@ export default function FilterBottomSheet({
                   <TouchableOpacity
                     key={filter.key}
                     onPress={() => setSourceFilter(filter.key)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: sourceFilter === filter.key }}
                     style={[
                       styles.chip,
                       {
@@ -227,6 +231,8 @@ export default function FilterBottomSheet({
                   <TouchableOpacity
                     key={filter.key}
                     onPress={() => setTimeFilter(filter.key)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: timeFilter === filter.key }}
                     style={[
                       styles.chip,
                       {
@@ -266,6 +272,8 @@ export default function FilterBottomSheet({
                     <TouchableOpacity
                       key={filter.key}
                       onPress={() => setMealTypeFilter(filter.key)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: mealTypeFilter === filter.key }}
                       style={[
                         styles.chip,
                         {
@@ -308,6 +316,8 @@ export default function FilterBottomSheet({
                     <TouchableOpacity
                       key={item.tag}
                       onPress={() => toggleTag(item.tag)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: selectedTags.includes(item.tag) }}
                       style={[
                         styles.chip,
                         {
@@ -343,6 +353,8 @@ export default function FilterBottomSheet({
                     <TouchableOpacity
                       key={option.key}
                       onPress={() => setSortOrder(option.key)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: sortOrder === option.key }}
                       style={[
                         styles.chip,
                         {
@@ -380,6 +392,8 @@ export default function FilterBottomSheet({
                 <TouchableOpacity
                   style={[styles.toggleRow, { borderColor: colors.border }]}
                   onPress={() => setHideMyRecipes(!hideMyRecipes)}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: hideMyRecipes }}
                 >
                   <RNView style={styles.toggleLabel}>
                     <Ionicons 
@@ -418,6 +432,8 @@ export default function FilterBottomSheet({
                           }
                         ]}
                         onPress={() => onOwnershipFilterChange?.(filter.key)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isSelected }}
                       >
                         <Ionicons 
                           name={filter.icon as any} 
@@ -443,6 +459,7 @@ export default function FilterBottomSheet({
             <TouchableOpacity
               style={[styles.clearButton, { borderColor: colors.border }]}
               onPress={handleClear}
+              accessibilityRole="button"
             >
               <Text style={[styles.clearButtonText, { color: colors.text }]}>
                 Clear All
@@ -452,6 +469,7 @@ export default function FilterBottomSheet({
             <TouchableOpacity
               style={[styles.applyButton, { backgroundColor: colors.tint }]}
               onPress={handleApply}
+              accessibilityRole="button"
             >
               <Text style={styles.applyButtonText}>
                 Apply{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
