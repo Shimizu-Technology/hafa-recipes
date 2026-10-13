@@ -28,6 +28,9 @@ from app.media_lifecycle import recipe_media_upload_guard
 from app.security import PublicHTTPTransport
 
 MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024
+# Long enough for a model provider to fetch the image during one request, short
+# enough that a leaked provider log does not grant lasting access.
+CHAT_IMAGE_PROVIDER_URL_SECONDS = 10 * 60
 STORED_THUMBNAIL_QUALITY = 82
 MAX_CONCURRENT_THUMBNAIL_NORMALIZATIONS = 2
 MAX_CHAT_IMAGE_BYTES = 8 * 1024 * 1024
@@ -70,6 +73,7 @@ class StorageService:
     
     def __init__(self):
         self._client = None
+        self._presign_client = None
     
     @property
     def client(self):
@@ -86,6 +90,29 @@ class StorageService:
                 )
         return self._client
     
+    @property
+    def presign_client(self):
+        """S3 client that signs SigV4 URLs on the bucket's regional host.
+
+        The default client may fall back to legacy SigV2 URLs on the global
+        endpoint, which S3 can reject or redirect for regional buckets.
+        """
+        if self._presign_client is None:
+            settings = get_settings()
+            if settings.s3_enabled:
+                self._presign_client = boto3.client(
+                    "s3",
+                    aws_access_key_id=settings.aws_access_key_id,
+                    aws_secret_access_key=settings.aws_secret_access_key,
+                    region_name=settings.aws_region,
+                    endpoint_url=f"https://s3.{settings.aws_region}.amazonaws.com",
+                    config=Config(
+                        signature_version="s3v4",
+                        s3={"addressing_style": "virtual"},
+                    ),
+                )
+        return self._presign_client
+
     @property
     def bucket_name(self) -> Optional[str]:
         """Get bucket name from settings."""
@@ -680,14 +707,18 @@ class StorageService:
             # Upload to S3 under chat-images folder
             s3_key = f"chat-images/{user_id}/{uuid4().hex}.{extension}"
             
-            self.client.put_object(
+            await asyncio.to_thread(
+                self.client.put_object,
                 Bucket=self.bucket_name,
                 Key=s3_key,
                 Body=image_data,
                 ContentType=content_type,
             )
-            
-            # Generate public URL
+
+            # The canonical object URL is the stable identity clients keep in
+            # chat history and send back for ownership checks and deletion.
+            # The object itself stays private; providers receive short-lived
+            # signed URLs from ``chat_image_provider_url``.
             settings = get_settings()
             s3_url = f"https://{self.bucket_name}.s3.{settings.aws_region}.amazonaws.com/{s3_key}"
             
@@ -710,17 +741,21 @@ class StorageService:
             keys.append(urlparse(image_url).path.removeprefix("/"))
 
         try:
-            versioning = self.client.get_bucket_versioning(Bucket=self.bucket_name)
-            if versioning.get("Status") in {"Enabled", "Suspended"}:
-                for key in keys:
-                    self._delete_all_object_versions(key)
-            else:
-                self._delete_objects_confirmed([{"Key": key} for key in keys])
+            await asyncio.to_thread(self._delete_chat_image_keys, keys)
             return len(keys)
         except StorageCleanupError:
             raise
         except Exception as error:
             raise StorageCleanupError("Unable to delete chat images") from error
+
+    def _delete_chat_image_keys(self, keys: list[str]) -> None:
+        """Blocking S3 deletion for exact chat keys; run off the event loop."""
+        versioning = self.client.get_bucket_versioning(Bucket=self.bucket_name)
+        if versioning.get("Status") in {"Enabled", "Suspended"}:
+            for key in keys:
+                self._delete_all_object_versions(key)
+        else:
+            self._delete_objects_confirmed([{"Key": key} for key in keys])
 
     def _delete_objects_confirmed(self, objects: list[dict[str, str]]) -> None:
         """Delete a bounded object/version batch and verify every provider acknowledgement."""
@@ -807,6 +842,30 @@ class StorageService:
             ]
         ):
             raise StorageCleanupError("S3 retained a chat image object version")
+
+    def chat_image_provider_url(self, image_url: str, user_id: str) -> Optional[str]:
+        """Return a short-lived signed GET URL for an owned chat image.
+
+        Signing is local HMAC work, so this does not block on the network.
+        Returns ``None`` when the URL is not owned or signing is unavailable.
+        """
+        if not self.is_owned_chat_image_url(image_url, user_id):
+            return None
+        client = self.presign_client
+        if client is None:
+            return None
+        try:
+            return client.generate_presigned_url(
+                "get_object",
+                Params={
+                    "Bucket": self.bucket_name,
+                    "Key": urlparse(image_url).path.removeprefix("/"),
+                },
+                ExpiresIn=CHAT_IMAGE_PROVIDER_URL_SECONDS,
+            )
+        except Exception as error:
+            print(f"❌ Failed to sign chat image URL: {type(error).__name__}")
+            return None
 
     def is_owned_chat_image_url(self, image_url: str, user_id: str) -> bool:
         """Return whether a public URL points to this user's app-owned chat object."""

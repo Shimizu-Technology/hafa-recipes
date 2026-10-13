@@ -41,6 +41,8 @@ MAX_CHAT_MESSAGE_CHARS = 4_000
 # transcript do not fail validation. Only a small, turn-complete window is ever
 # forwarded to the model.
 MAX_CHAT_HISTORY_INPUT_ITEMS = 50
+# Matches the chat message budget: each photo normally precedes one AI turn.
+CHAT_IMAGE_UPLOADS_PER_MINUTE = 20
 MAX_CHAT_HISTORY_ITEMS = 10
 MAX_CHAT_HISTORY_CHARS = 16_000
 LEGACY_CHAT_ERROR_MESSAGE = "Sorry, I couldn't process that request. Please try again."
@@ -247,13 +249,20 @@ def _build_client_messages(
 
     messages: list[dict] = []
     for item in _select_chat_history(history):
-        if item.image_url:
+        # Chat objects are private. The provider gets a short-lived signed URL;
+        # if signing is unavailable the turn keeps its text so chat still works.
+        provider_image_url = (
+            storage_service.chat_image_provider_url(item.image_url, user_id)
+            if item.image_url
+            else None
+        )
+        if provider_image_url:
             messages.append(
                 {
                     "role": "user",
                     "content": [
                         {"type": "text", "text": item.content},
-                        {"type": "image_url", "image_url": {"url": item.image_url}},
+                        {"type": "image_url", "image_url": {"url": provider_image_url}},
                     ],
                 }
             )
@@ -717,12 +726,10 @@ async def upload_chat_image(
     request: UploadChatImageRequest, user: ClerkUser = Depends(get_current_user)
 ):
     """
-    Upload a chat image to S3 for persistent storage.
+    Upload a chat image to private S3 storage.
 
-    This allows images to be stored with permanent URLs that can be
-    included in chat history and re-sent to OpenAI for context.
-
-    Returns the S3 URL of the uploaded image.
+    Returns the image's stable object URL. Clients keep it in chat history and
+    send it back; the API re-signs it for the model on each request.
     """
     try:
         decode_and_validate_base64_image(
@@ -732,11 +739,27 @@ async def upload_chat_image(
     except ImageValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    # Upload to S3
-    s3_url = await storage_service.upload_chat_image(
-        image_base64=request.image_base64,
-        user_id=user.id,
-    )
+    try:
+        async with ai_rate_limiter.limit(
+            user_id=user.id,
+            capability="chat_image_upload",
+            requests_per_minute=CHAT_IMAGE_UPLOADS_PER_MINUTE,
+            max_concurrency=2,
+        ):
+            s3_url = await storage_service.upload_chat_image(
+                image_base64=request.image_base64,
+                user_id=user.id,
+            )
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "Another photo is still uploading. Please wait a moment."
+                if exc.reason == "concurrency_limit"
+                else "You've uploaded a lot of photos just now. Please try again shortly."
+            ),
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
 
     if not s3_url:
         raise HTTPException(status_code=500, detail="Failed to upload image. Please try again.")
