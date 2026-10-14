@@ -4,6 +4,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Crypto from "expo-crypto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Platform } from "react-native";
 import { createCaptureCleanupJournal, type CaptureCleanupLease, type CaptureAssetKind } from "./capture-cleanup";
 import {
   boundedSource,
@@ -57,7 +58,22 @@ async function normalized(
   guard();
   if (inputs.length > 4) throw Error("Choose up to four images.");
   const output: CaptureFile[] = [];
+  const { requireOptionalNativeModule } = await import("expo-modules-core");
+  const writer = Platform.OS === "ios" ? requireOptionalNativeModule<{
+    normalizeCaptureImage(source: string, destination: string): Promise<void>;
+  }>("HafaWorkoutsShare") : null;
+  if (Platform.OS === "ios" && !writer?.normalizeCaptureImage)
+    throw Error("Use an updated installed app to capture images.");
   for (const input of inputs) {
+    if (writer) {
+      const uri = `${ownedPrefix()}${Crypto.randomUUID()}.jpg`;
+      await lease.remember([{ uri, kind: "capture" }]); guard();
+      await FileSystem.makeDirectoryAsync(ownedPrefix(), { intermediates: true }); guard();
+      await lease.native("known", () => writer.normalizeCaptureImage(input.uri, uri), undefined, guard);
+      guard();
+      output.push({ uri, mime_type: "image/jpeg", name: input.name ?? "Workout image", owned: true });
+      continue;
+    }
     let image: ImageManipulator.ImageResult | null = null;
     for (const max of [1600, 1200, 900]) {
       guard();
