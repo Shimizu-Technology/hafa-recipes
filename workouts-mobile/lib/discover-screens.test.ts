@@ -604,3 +604,44 @@ it("shows the saved timed prescription, source details and cues without missing-
   expect(text).not.toContain("Reps not specified");
   expect(button("Open original source")).toBeDefined();
 });
+
+
+it.each(["native", "server"])("keeps an unsaved private %s receipt private after correction", async (source) => {
+  fixture.params = { id: "job" }; fixture.capabilities.mockResolvedValue(caps(true));
+  const job = importJob("url", "incomplete");
+  fixture.importJob.mockResolvedValue({ ...job, ...(source === "server" ? { source_is_public: false } : {}) });
+  if (source === "native") fixture.map.set("import-source-visibility:1:job", JSON.stringify(false));
+  fixture.map.set("import-edit:1:job", JSON.stringify({ ...job.result.workout, title: "Corrected workout" }));
+  fixture.acceptImport.mockResolvedValue(saved);
+  await mount(ImportReview);
+  expect(choice("Share to Discover")!.props).toMatchObject({ selected: false, disabled: false });
+  await reviewAndSave("Save workout");
+  expect(fixture.acceptImport).toHaveBeenCalledWith("job", expect.objectContaining({ title: "Corrected workout" }), 1, false, true);
+});
+
+it("keeps a deliberate later public choice ahead of the original private receipt", async () => {
+  fixture.params = { id: "job" }; fixture.capabilities.mockResolvedValue(caps(true));
+  fixture.importJob.mockResolvedValue({ ...importJob("url"), source_is_public: false });
+  fixture.map.set("import-source-visibility:1:job", JSON.stringify(false));
+  fixture.map.set("import-visibility:1:job", JSON.stringify(true));
+  await mount(ImportReview);
+  expect(choice("Share to Discover")!.props.selected).toBe(true);
+});
+
+it("waits for source visibility restoration before allowing a newer sharing choice", async () => {
+  fixture.params = { id: "job" }; fixture.capabilities.mockResolvedValue(caps(true));
+  fixture.importJob.mockResolvedValue(importJob("url"));
+  let restoreSource!: (value: boolean) => void;
+  const source = new Promise<boolean>((resolve) => { restoreSource = resolve; });
+  const healthy = fixture.load.getMockImplementation()!;
+  fixture.load.mockImplementation((...args) => args[1].startsWith("import-source-visibility:") ? source : healthy(...args));
+  await mount(ImportReview);
+  expect(choice("Share to Discover")!.props.disabled).toBe(true);
+  await act(async () => choice("Share to Discover")!.props.onPress());
+  expect(fixture.saveDraft).not.toHaveBeenCalled();
+  await act(async () => restoreSource(true));
+  expect(choice("Share to Discover")!.props).toMatchObject({ selected: true, disabled: false });
+  await act(async () => choice("Share to Discover")!.props.onPress());
+  expect(choice("Share to Discover")!.props.selected).toBe(false);
+  expect(fixture.map.get("import-visibility:1:job")).toBe("false");
+});

@@ -1,4 +1,4 @@
-import { createElement, Fragment, useLayoutEffect, useState, type ComponentType } from "react";
+import { createElement, Fragment, Suspense, startTransition, useLayoutEffect, useState, type ComponentType } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -405,6 +405,31 @@ it("mounted share checks the newly rendered fingerprint before the old passive e
   await settle();
   expect(fixture.map.get(draftKey(fixture.owner, "capture:1"))).toBe(accepted);
   expect(fixture.cleanup).toHaveBeenCalledWith(late, true);
+});
+
+it("a discarded owner render cannot delete files already registered by the committed share", async () => {
+  fixture.share = true;
+  fixture.intent = { webUrl: "", text: "", files: [{ path: "file:///user/A.jpg", mimeType: "image/jpeg", fileName: "A" }] };
+  const owner = fixture.owner;
+  const file = { uri: "file:///cache/hafa-workouts-capture/registered-A.jpg", name: "A", mime_type: "image/jpeg", owned: true };
+  fixture.normalizeImages.mockResolvedValueOnce([file]);
+  const cleanup = deferred<void>();
+  fixture.cleanup.mockReturnValueOnce(cleanup.promise);
+  let discard = false, attempts = 0;
+  const suspended = new Promise<void>(() => undefined);
+  function Blocker() { if (discard) { attempts++; throw suspended; } return null; }
+  function Source() { return createElement("CommittedSource", { owner: fixture.owner }, createElement(ShareCapture), createElement(Blocker)); }
+  function Harness() { return createElement(Suspense, { fallback: null }, createElement(Source)); }
+  await mount(Harness);
+  expect(JSON.parse(fixture.map.get(draftKey(owner, "capture:1"))!).files).toEqual([file]);
+  discard = true; fixture.owner = "speculative-owner";
+  await act(async () => { startTransition(() => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Harness)))); });
+  expect(attempts).toBeGreaterThan(0);
+  expect(nodes("CommittedSource")[0].props.owner).toBe(owner);
+  await act(async () => cleanup.reject(Error("retained cleanup failed")));
+  await settle();
+  expect(JSON.parse(fixture.map.get(draftKey(owner, "capture:1"))!).files).toEqual([file]);
+  expect(fixture.cleanup.mock.calls.flatMap(call => call[0]).some(asset => asset.uri === file.uri)).toBe(false);
 });
 
 it("same-slot compare/save stays serialized through delayed storage and an intentional shared replacement", async () => {
@@ -1549,4 +1574,123 @@ it("starting another source from a completed capture cannot overwrite a concurre
   expect(nodes("Notice").some(node => String(node.props.children).includes("A newer source is saved"))).toBe(true);
   await click("Load saved source");
   expect(nodes("Field")[0].props.value).toBe("https://example.test/newer");
+});
+
+
+it("native fallback keeps the capture identity and private visibility before acknowledging only that saved source", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  const capture = { captureKey: "native-A", captureId: "request-A", ownerId: fixture.owner, generation: 1,
+    url: "https://instagram.com/reel/example", text: "caption", files: [], isPublic: false };
+  fixture.nativeCaptures.mockResolvedValueOnce([capture]);
+  await mount(ShareCapture);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!)).toMatchObject({
+    request_id: "request-A", source_url: capture.url, is_public: false,
+  });
+  expect(fixture.nativeAck).toHaveBeenCalledWith("native-A");
+  expect(fixture.persist.mock.invocationCallOrder[0]).toBeLessThan(fixture.nativeAck.mock.invocationCallOrder[0]);
+});
+
+it("native server receipt persists recovery without opening Capture or starting the import again", async () => {
+  fixture.nativeAck.mockImplementationOnce(async () => {
+    expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "import-source-visibility:1:server-job"))!)).toBe(false);
+    return true;
+  });
+  cache.setQueryData([fixture.owner, "imports", 1], []);
+  cache.setQueryData([fixture.owner, "library"], []);
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([{ captureKey: "native-A", captureId: "request-A", ownerId: fixture.owner,
+    generation: 1, url: "https://instagram.com/reel/example", text: "", files: [], isPublic: false, jobId: "server-job" }]);
+  await mount(ShareCapture);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "imports:1"))!)[0].id).toBe("server-job");
+  expect(fixture.nativeAck).toHaveBeenCalledWith("native-A");
+  expect(cache.getQueryState([fixture.owner, "imports", 1])?.isInvalidated).toBe(true);
+  expect(cache.getQueryState([fixture.owner, "library"])?.isInvalidated).toBe(true);
+  expect(fixture.push).not.toHaveBeenCalled(); expect(fixture.startImport).not.toHaveBeenCalled();
+});
+
+it("keeps a native server receipt when its private source choice cannot be saved", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true; fixture.writeFailure = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([{ captureKey: "native-A", captureId: "request-A", ownerId: fixture.owner,
+    generation: 1, url: "https://instagram.com/reel/example", text: "", files: [], isPublic: false, jobId: "server-job" }]);
+  await mount(ShareCapture);
+  expect(fixture.nativeAck).not.toHaveBeenCalled(); expect(fixture.startImport).not.toHaveBeenCalled();
+});
+
+it("native captures never transfer between application owners or enrollment generations", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValue([{ captureKey: "other", ownerId: "another-owner", generation: 1 },
+    { captureKey: "retired", ownerId: fixture.owner, generation: 0 }]);
+  await mount(ShareCapture);
+  expect(fixture.nativeAck).not.toHaveBeenCalled(); expect(fixture.push).not.toHaveBeenCalled();
+  expect(fixture.map.has(draftKey(fixture.owner, "capture:1"))).toBe(false);
+});
+
+it("an advertised native PDF share becomes an owned document before its exact queue acknowledgement", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([{ captureKey: "pdf-capture", captureId: "pdf-request", ownerId: fixture.owner,
+    generation: 1, text: "PDF caption", files: [{ path: "file:///shared/source.pdf", mimeType: "application/pdf", fileName: "Workout.pdf" }], isPublic: false }]);
+  const owned = { uri: "file:///cache/hafa-workouts-capture/source.pdf", name: "Workout.pdf", mime_type: "application/pdf", owned: true };
+  fixture.normalizeDocument.mockResolvedValue([owned]); await mount(ShareCapture);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!)).toMatchObject({ kind: "document", files: [owned], is_public: false });
+  expect(fixture.nativeAck).toHaveBeenCalledWith("pdf-capture");
+  expect(fixture.persist.mock.invocationCallOrder[0]).toBeLessThan(fixture.nativeAck.mock.invocationCallOrder[0]);
+});
+
+const oversizedNativePDF = () => ({ captureKey: "oversized-pdf", captureId: "oversized-request", ownerId: fixture.owner,
+  generation: 1, text: "", files: [{ path: "file:///shared/large.pdf", mimeType: "application/pdf", fileName: "Large.pdf" }], isPublic: false });
+it("a rejected native PDF advances to the next receipt only after an explicit exact-source discard", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.normalizeDocument.mockRejectedValueOnce(Error("Documents must be 128 KB or smaller."));
+  fixture.nativeCaptures.mockResolvedValueOnce([oversizedNativePDF()]).mockResolvedValueOnce([{
+    captureKey: "next-receipt", captureId: "next-request", ownerId: fixture.owner, generation: 1,
+    text: "", files: [], isPublic: false, jobId: "next-job",
+  }]);
+  await mount(ShareCapture);
+  expect(fixture.nativeAck).not.toHaveBeenCalled();
+  expect(fixture.nativeCaptures).toHaveBeenCalledTimes(1);
+  const actions = fixture.alert.mock.calls[0][2];
+  expect(actions.map((action: { text: string }) => action.text)).toEqual(["Later", "Discard shared source"]);
+  await act(async () => actions[1].onPress()); await settle();
+  expect(fixture.nativeAck.mock.calls.map(call => call[0])).toEqual(["oversized-pdf", "next-receipt"]);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "imports:1"))!)[0].id).toBe("next-job");
+});
+it("Later keeps a rejected native source without acknowledging or immediately reloading it", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([oversizedNativePDF()]);
+  fixture.normalizeDocument.mockRejectedValueOnce(Error("Document too large"));
+  await mount(ShareCapture);
+  const actions = fixture.alert.mock.calls[0][2];
+  await act(async () => actions[0].onPress()); await settle();
+  await act(async () => actions[1].onPress()); await settle();
+  expect(fixture.nativeAck).not.toHaveBeenCalled();
+  expect(fixture.nativeCaptures).toHaveBeenCalledTimes(1); expect(fixture.alert).toHaveBeenCalledTimes(1);
+});
+it("a failed native discard retains its receipt and shows recovery without a retry loop", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([oversizedNativePDF()]);
+  fixture.normalizeDocument.mockRejectedValueOnce(Error("Document too large")); fixture.nativeAck.mockResolvedValue(false);
+  await mount(ShareCapture);
+  await act(async () => fixture.alert.mock.calls[0][2][1].onPress()); await settle();
+  expect(fixture.nativeAck).toHaveBeenCalledExactlyOnceWith("oversized-pdf");
+  expect(fixture.alert).toHaveBeenLastCalledWith("Could not clear shared source", expect.stringContaining("still saved"));
+  expect(fixture.nativeCaptures).toHaveBeenCalledTimes(1); expect(fixture.alert).toHaveBeenCalledTimes(2);
+});
+it("a native normalization failure arriving offscreen never acknowledges or asks to discard the source", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([oversizedNativePDF()]);
+  const pending = deferred<import("./capture").CaptureFile[]>(); fixture.normalizeDocument.mockReturnValueOnce(pending.promise);
+  await mount(ShareCapture); await unmount();
+  await act(async () => pending.reject(Error("Document too large"))); await settle();
+  expect(fixture.nativeAck).not.toHaveBeenCalled(); expect(fixture.alert).not.toHaveBeenCalled();
+});
+it.each(["account", "unmount"])("a native discard callback cannot acknowledge after %s retirement", async (retirement) => {
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([oversizedNativePDF()]);
+  fixture.normalizeDocument.mockRejectedValueOnce(Error("Document too large"));
+  await mount(ShareCapture);
+  const discard = fixture.alert.mock.calls[0][2][1].onPress;
+  if (retirement === "account") { fixture.owner = "new-owner"; await rerender(ShareCapture); }
+  else await unmount();
+  await act(async () => discard()); await settle();
+  expect(fixture.nativeAck).not.toHaveBeenCalled(); expect(fixture.alert).toHaveBeenCalledTimes(1);
 });

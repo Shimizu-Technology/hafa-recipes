@@ -20,6 +20,17 @@ describe("authenticated API boundary", () => {
     expect(transport.mock.calls[0][0]).toBe("https://example.test/api/v1/workouts/imports?limit=30");
     expect(transport.mock.calls[0][1].headers["X-Hafa-Account-ID"]).toBe("owner");
   });
+  it("provisions only the Workouts share capability under the original account and membership generation", async () => {
+    const transport = vi.fn(async () => new Response(JSON.stringify({ token: "hfws_v1.synthetic", generation: 7 }), { status: 201 }));
+    const api = createWorkoutsApi("https://example.test", async () => "synthetic", transport, {
+      owner: "owner", binding: "issuer:owner", currentBinding: () => "issuer:owner",
+    });
+    await api.createShareSession("installation", false, 7);
+    const [url, init] = transport.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://example.test/api/v1/workouts/share/session");
+    expect(JSON.parse(init.body as string)).toEqual({ installation_id: "installation", is_public: false });
+    expect(init.headers).toMatchObject({ "X-Hafa-Account-ID": "owner", "X-Workouts-Generation": "7" });
+  });
   it("uses durable export routes and original owner/generation across admission, lookup, cancel and pages", async () => {
     const transport = vi.fn().mockImplementation(async () => new Response("{}", { status: 202 }));
     const api = createWorkoutsApi("https://example.test", async () => "synthetic", transport, {

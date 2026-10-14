@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Copy, Notice, Screen } from "@/components/ui";
 import { useTraining } from "@/lib/context";
+import { updateNativeSharingConsent } from "@/lib/native-share-session";
 export default function AiPreferences() {
   const { api, owner, enrollment } = useTraining();
   const cache = useQueryClient();
@@ -15,7 +16,7 @@ export default function AiPreferences() {
   async function save(accepted: boolean) {
     setBusy(true);
     try {
-      await api.setAiConsent(accepted, enrollment?.generation ?? undefined);
+      await updateNativeSharingConsent(() => api.setAiConsent(accepted, enrollment?.generation ?? undefined));
       await cache.invalidateQueries({ queryKey: [owner, "ai-consent"] });
       await cache.invalidateQueries({ queryKey: [owner, "health-connection"] });
     } catch (e) {

@@ -77,6 +77,7 @@ it("assigns correct platform traits only to auth fields, keeping ordinary number
   });
   expect(inputTraits("current-password", "ios").textContentType).toBe("password");
   expect(inputTraits("new-password", "ios").textContentType).toBe("newPassword");
+  expect(inputTraits("url", "ios")).toMatchObject({ keyboardType: "url", textContentType: "URL", autoCorrect: false });
   expect(inputTraits(undefined, "ios", true)).toMatchObject({
     keyboardType: "decimal-pad",
     autoComplete: "off",
