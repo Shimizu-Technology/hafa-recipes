@@ -39,6 +39,7 @@ const config: ExpoConfig = {
     ["@kingstinct/react-native-healthkit", { background: false }],
     "react-native-health-connect",
     ["expo-share-intent", { iosActivationRules: { NSExtensionActivationSupportsWebURLWithMaxCount: 1, NSExtensionActivationSupportsText: true, NSExtensionActivationSupportsImageWithMaxCount: 4, NSExtensionActivationSupportsFileWithMaxCount: 1 }, androidIntentFilters: ["text/*", "image/*", "application/pdf"] }],
+    "./plugins/with-workouts-share.cjs",
     ["expo-image-picker", { photosPermission: "Choose workout screenshots or photos to review and import.", cameraPermission: "Photograph workout instructions for an optional private import.", microphonePermission: false }],
     "expo-document-picker",
     "expo-sharing",
