@@ -99,7 +99,10 @@ async def save_import_result(db, row, result, preferences):
                 "Some exercises are missing rounds, sets, reps, time, or distance. Missing values stay unspecified."
             )
         result.workout.extraction_warnings = saved_warning_projection(result.warnings)
-    if preferences is None or row.accepted_workout_id or result.workout is None:
+    if (preferences is None or row.accepted_workout_id or result.workout is None
+            or not any(block.exercises for block in result.workout.blocks)):
+        # Empty error/source drafts belong to the recoverable import inbox.
+        # Keep their result and temporary capture until explicit review or clear.
         return
     from app.auth import ClerkUser
     from app.domains.workouts.automation_router import store_workout

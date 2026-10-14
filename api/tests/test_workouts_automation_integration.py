@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 
 from app.domains.workouts import automation_router, imports, share_router
 from app.domains.workouts.automation_models import WorkoutImport, WorkoutProposal
-from app.domains.workouts.extraction import WorkoutExtractor
+from app.domains.workouts.extraction import ExtractionFailure, WorkoutExtractor
 from app.domains.workouts.lifecycle import now
 from app.domains.workouts.models import WorkoutRecord, WorkoutsMembership
 from tests.test_workouts_data_integration import (  # noqa: F401 -- shared isolated database fixture
@@ -1234,3 +1234,90 @@ async def test_corrected_import_url_does_not_inherit_original_credit_or_cover(au
     content = accepted.json()["content"]
     assert not any(content.get(field) for field in ("source_thumbnail_url", "source_title", "source_creator"))
     assert content["extraction_warnings"] == ["Review the source instructions"]
+
+
+@pytest.mark.parametrize("failure", ["empty", "empty_block", "provider_failed", "invalid_response", "timeout", "source_private"])
+async def test_zero_exercise_auto_import_remains_recoverable_until_explicit_corrected_save(automation_api, failure):
+    api = automation_api
+    await consent(api)
+
+    async def unusable(source):
+        if failure == "provider_failed":
+            raise ExtractionFailure("provider_failed")
+        if failure == "timeout":
+            raise asyncio.TimeoutError()
+        if failure == "invalid_response":
+            return {"ingredients": ["Not a workout response"]}
+        return {"title": "Source only", "blocks": [] if failure == "empty" else [
+            {"id": "empty", "label": "No instructions", "exercises": []}
+        ]}
+
+    api.worker.extractor.provider.extract = unusable
+    source = {"kind": "text", "text": TEXT, "ai_consent": True}
+    if failure == "source_private":
+        class UnavailableSource:
+            async def acquire(self, url, provider):
+                raise ExtractionFailure("source_private")
+        api.worker.extractor.acquirer = UnavailableSource()
+        source = {"kind": "url", "source_url": "https://www.instagram.com/reel/DdzUTq7NDRA/", "ai_consent": True}
+    body = {"request_id": str(uuid4()), "auto_save": True, "is_public": False, "source": source}
+    queued = await api.client.post("/api/v1/workouts/imports", headers=GENERATION, json=body)
+    assert queued.status_code == 202, queued.text
+    path = "/api/v1/workouts/imports/" + queued.json()["id"]
+    for _ in range(3 if failure == "timeout" else 1):
+        assert await api.worker.tick()
+        async with api.sessions() as db:
+            job = await db.get(WorkoutImport, queued.json()["id"])
+            if job.status == "queued":
+                job.next_attempt_at = now() - timedelta(seconds=1)
+                await db.commit()
+    job = (await api.client.get(path)).json()
+    assert job["status"] == "incomplete" and job["accepted_workout_id"] is None
+    assert not any(block["exercises"] for block in job["result"]["workout"]["blocks"])
+    capture = await api.client.get(path + "/source")
+    assert capture.status_code == 200 and all(capture.json()["source"][key] == value for key, value in source.items())
+    assert job["result"]["warnings"] and job["source_is_public"] is False
+    async with api.sessions() as db:
+        assert (await db.get(WorkoutImport, job["id"])).payload is not None
+        assert await db.scalar(select(func.count()).select_from(WorkoutRecord)) == 0
+    replay = await api.client.post("/api/v1/workouts/imports", headers=GENERATION, json=body)
+    assert replay.json()["id"] == job["id"] and replay.json()["accepted_workout_id"] is None
+    assert not await api.worker.tick()
+    # Older clients can still explicitly correct and accept the draft.
+    corrected = dict(job["result"]["workout"])
+    corrected["blocks"] = (await Provider().extract(None))["blocks"]
+    request = {"workout": corrected, "acknowledge_warnings": True}
+    accepted = await api.client.post(path + "/accept", headers=GENERATION, json=request)
+    assert accepted.status_code == 200, accepted.text
+    accepted_again = await api.client.post(path + "/accept", headers=GENERATION, json=request)
+    assert accepted_again.json()["id"] == accepted.json()["id"]
+    async with api.sessions() as db:
+        saved_job = await db.get(WorkoutImport, job["id"])
+        assert str(saved_job.accepted_workout_id) == accepted.json()["id"] and saved_job.payload is None
+        assert saved_job.result == job["result"]
+        assert await db.scalar(select(func.count()).select_from(WorkoutRecord)) == 1
+    assert (await api.client.get(path + "/source")).status_code == 410
+
+
+async def test_zero_exercise_auto_import_can_be_cleared_without_creating_a_workout(automation_api):
+    api = automation_api
+    await consent(api)
+
+    async def empty(source):
+        return {"title": "Source only", "blocks": []}
+    api.worker.extractor.provider.extract = empty
+    queued = await api.client.post("/api/v1/workouts/imports", headers=GENERATION, json={
+        "request_id": str(uuid4()), "auto_save": True,
+        "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+    })
+    assert queued.status_code == 202, queued.text
+    assert await api.worker.tick()
+    path = "/api/v1/workouts/imports/" + queued.json()["id"]
+    cleared = await api.client.delete(path, headers=GENERATION)
+    assert cleared.status_code == 200 and cleared.json()["status"] == "cancelled"
+    assert cleared.json()["accepted_workout_id"] is None
+    assert (await api.client.get(path + "/source")).status_code == 410
+    async with api.sessions() as db:
+        job = await db.get(WorkoutImport, queued.json()["id"])
+        assert job.payload is None
+        assert await db.scalar(select(func.count()).select_from(WorkoutRecord)) == 0
