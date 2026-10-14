@@ -10,9 +10,12 @@ import {
   displayHeight,
   historicalStructureWarning,
   type TrainingStore,
+  actualIdentity,
+  trainingKey,
 } from "./training";
 import type { Workout, ActualSet, TrainingSession } from "./models";
 import { timedCircuit, circuitRemaining, completedCircuitRounds } from "./timed-circuit";
+import { selectProgressSessions } from "./progress-selection";
 function fixture(): Workout {
   return {
     id: "workout",
@@ -481,12 +484,61 @@ it("elapsed time alone cannot complete a circuit and deliberate early/skip finis
   await expect(skipped.store.finish("completed")).rejects.toThrow("Skipped work");
   await skipped.store.finish("partial"); expect(skipped.store.snapshot().history[0].request.status).toBe("partial");
 });
-it("bounds dynamic rounds and actuals honestly, stopping at 100 rounds/1000 cells with partial recovery", async () => {
-  const { store, setTime } = await timedStore(); // Nine exercises, one performed on both sides = ten cells per round.
-  for (let cell = 0; cell < 1000; cell++) await store.log(next(store));
-  const draft = store.snapshot().active!;
-  expect(draft.actuals).toHaveLength(1000); expect(draft.steps).toHaveLength(1000);
-  expect(draft.timed_circuit!.limit_reached).toBe(true); expect(draft.steps.at(-1)!.round_index).toBe(100);
-  setTime(1210000); await expect(store.finish("completed")).rejects.toThrow("partial session");
-  await store.finish("partial"); expect(store.snapshot().history[0].request.actuals).toHaveLength(1000);
+it.each([[1, 100, 1000], [2, 90, 990]])(
+  "bounds a restored circuit with %i per-side movements at %i rounds/%i actuals", async (perSide, rounds, cells) => {
+    const workout = amrap();
+    workout.blocks[0].exercises.forEach((exercise, index) => { exercise.per_side = index < perSide; });
+    const { store, storage, time, setTime } = await timedStore(workout);
+    const draft = store.snapshot().active!;
+    const steps = Array.from({ length: rounds }, (_, index) => draft.steps.map((step) => {
+      const repeated = { ...step, round_index: index + 1 };
+      return { ...repeated, key: actualIdentity(repeated) };
+    })).flat();
+    const actuals = steps.slice(0, -1).map((step): ActualSet => ({
+      block_id: step.block_id, exercise_index: step.exercise_index, set_index: step.set_index,
+      round_index: step.round_index, side: step.side, reps: 10, completed: true,
+    }));
+    // Start at a realistic durable boundary; persistence throughput is not this test's subject.
+    await storage.setItem(trainingKey("owner", 1), JSON.stringify({ ...store.snapshot(),
+      active: { ...draft, steps, actuals, cursor: actuals.length } }));
+    const restored = createTrainingStore(storage, "owner", 1, time);
+    await restored.load(); await restored.pause(false); await restored.log(next(restored));
+    const bounded = restored.snapshot().active!;
+    expect(bounded.actuals).toHaveLength(cells); expect(bounded.steps).toHaveLength(cells);
+    expect(bounded.timed_circuit!.limit_reached).toBe(true); expect(bounded.steps.at(-1)!.round_index).toBe(rounds);
+    setTime(1210000); await expect(restored.finish("completed")).rejects.toThrow("partial session");
+    await restored.finish("partial"); expect(restored.snapshot().history[0].request.actuals).toHaveLength(cells);
+  }
+);
+
+
+it("a completed timed run corrected to skipped work becomes partial without altering its source or active clock", async () => {
+  const workout = amrap();
+  const { store, setTime } = await timedStore(workout);
+  await store.log({ ...next(store), reps: 10, duration_seconds: 12, distance_meters: 3,
+    effort: 6, difficulty: "manageable", pain_reported: false, notes: "Original actual note" });
+  setTime(1210000);
+  await store.finish("completed");
+  const completed = store.snapshot().history[0];
+  const saved: TrainingSession = { id: "saved-timed", generation: 1, title: workout.title,
+    client_session_id: completed.request.client_session_id, started_at: completed.request.started_at, status: "completed",
+    content: { ...completed.request, prescription_snapshot: workout } };
+  await store.sync(async () => saved);
+  await expect(store.correct(saved, [{ ...saved.content.actuals[0], notes: "x".repeat(2001) }],
+    "", "invalid-correction")).rejects.toThrow("Set notes must be 2000 characters or fewer");
+  expect(store.snapshot().history).toHaveLength(1);
+  await store.correct(saved, [{ ...saved.content.actuals[0], completed: false, reps: 8,
+    duration_seconds: 9, distance_meters: 2, effort: 7, difficulty: "hard", pain_reported: true,
+    notes: "Corrected actual note" }], "Corrected session note", "corrected-timed");
+  const correction = store.snapshot().history[0];
+  expect(correction.request).toMatchObject({ status: "partial", supersedes_session_id: saved.id, active_seconds: 1200 });
+  expect(correction.request.active_intervals).toEqual(saved.content.active_intervals);
+  expect(correction.request.actuals[0]).toMatchObject({ completed: false, reps: 8, duration_seconds: 9,
+    distance_meters: 2, effort: 7, difficulty: "hard", pain_reported: true, notes: "Corrected actual note" });
+  expect(correction.workout).toEqual(workout);
+  expect(selectProgressSessions(store.snapshot().history, [saved], 1).sessions).toEqual([
+    { started_at: saved.started_at, recorded: false },
+  ]);
+  expect(saved.status).toBe("completed");
+  expect(saved.content.actuals[0].completed).toBe(true);
 });

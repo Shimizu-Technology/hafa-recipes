@@ -171,6 +171,8 @@ export function actualErrors(actual: ActualSet) {
     errors.push("Load needs a valid value, unit and load convention.");
   if (actual.effort != null && (!Number.isFinite(actual.effort) || actual.effort < 0 || actual.effort > 10))
     errors.push("Effort must be from 0 to 10.");
+  if (actual.notes != null && actual.notes.length > 2000)
+    errors.push("Set notes must be 2000 characters or fewer.");
   if (actual.completed && actual.reps == null && actual.duration_seconds == null && actual.distance_meters == null)
     errors.push("Record actual reps, time or distance before completing a set.");
   return errors;
