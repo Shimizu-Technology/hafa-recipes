@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import { pendingShare } from "@/lib/sharing";
 import { ShareIntentProvider } from "expo-share-intent";
 import { ShareCapture } from "@/components/share-capture";
+import { NativeShareAccountGuard } from "@/components/native-share-session";
 import { DamagedCleanupRecordError, recoverPrivateDeviceCleanup } from "@/lib/private-device";
 import { useEffect, useRef, useState } from "react";
 import { ClerkProvider, useAuth, useClerk } from "@clerk/expo";
@@ -187,6 +188,7 @@ export default function Root() {
           <ClerkProvider publishableKey={configuration.clerkKey} tokenCache={tokenCache}>
             <QueryClientProvider client={queryClient}>
               <AccountLogoutRecovery />
+              <NativeShareAccountGuard />
             </QueryClientProvider>
           </ClerkProvider>
         </ShareIntentProvider>

@@ -1,17 +1,51 @@
-import { useEffect, useMemo, useRef } from "react";
-import { Alert } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Alert, AppState, Platform } from "react-native";
 import { router } from "expo-router";
+import { useQueryClient } from "@tanstack/react-query";
 import * as Crypto from "expo-crypto";
 import { useShareIntentContext } from "expo-share-intent";
 import { useTraining } from "@/lib/context";
-import { sharedWorkoutURL, type CaptureDraft } from "@/lib/capture";
+import { sharedWorkoutURL, updateImportReferences, type CaptureDraft } from "@/lib/capture";
 import { createPrivateDraftSlot } from "@/lib/private-form";
-import { normalizeImages, cleanupCaptureFiles } from "@/lib/capture-io";
+import { normalizeImages, normalizeDocument, cleanupCaptureFiles } from "@/lib/capture-io";
+import * as NativeShare from "@/modules/hafa-workouts-share/src";
+import { useNativeShareSession } from "./native-share-session";
 export function ShareCapture() {
-  const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
-  const { owner, enrollment, storage, isCurrentAccount } = useTraining();
+  const stock = useShareIntentContext();
+  const cache = useQueryClient();
+  const { owner, enrollment, storage, localDrafts, isCurrentAccount } = useTraining();
+  const [native, setNative] = useState<NativeShare.NativeCapture | null>(null);
+  const [queueVersion, setQueueVersion] = useState(0);
+  useNativeShareSession();
+  useEffect(() => {
+    if (Platform.OS !== "ios" || !NativeShare.nativeSharingAvailable || !enrollment?.generation) return;
+    let active = true;
+    const load = async () => {
+      const pending = (await NativeShare.captures()).find(capture =>
+        !capture.ownerId || (capture.ownerId === owner && capture.generation === enrollment.generation));
+      if (!active || !pending) return;
+      if (!pending.ownerId) {
+        const assign = await new Promise<boolean>(resolve => Alert.alert("Import your saved source?",
+          "This source was shared while no Workouts account was available. Save it to the account you are using now?",
+          [{ text: "Later", style: "cancel", onPress: () => resolve(false) },
+            { text: "Import to this account", onPress: () => resolve(true) }],
+          { cancelable: true, onDismiss: () => resolve(false) }));
+        if (!assign) return;
+      }
+      if (active) setNative(pending);
+    };
+    void load().catch(() => undefined);
+    const listener = AppState.addEventListener("change", state => { if (state === "active") void load().catch(() => undefined); });
+    return () => { active = false; listener.remove(); };
+  }, [owner, enrollment?.generation, queueVersion]);
+  const shareIntent = native ? { webUrl: native.url ?? null, text: native.text, files: native.files, meta: { url: native.url } } : stock.shareIntent;
+  const hasShareIntent = native ? true : Platform.OS === "ios" && NativeShare.nativeSharingAvailable ? false : stock.hasShareIntent;
+  const resetShareIntent = () => {
+    if (native) { setNative(null); setQueueVersion(value => value + 1); }
+    else stock.resetShareIntent();
+  };
   const sourceURL = sharedWorkoutURL(shareIntent.webUrl, shareIntent.text, shareIntent.meta?.url);
-  const fingerprint = JSON.stringify([sourceURL, shareIntent.text, shareIntent.files?.map((f) => f.path)]);
+  const fingerprint = JSON.stringify([native?.captureId, sourceURL, shareIntent.text, shareIntent.files?.map((f) => f.path)]);
   const live = useRef({ owner, generation: enrollment?.generation, storage, fingerprint, hasShareIntent });
   live.current = { owner, generation: enrollment?.generation, storage, fingerprint, hasShareIntent };
   const handling = useRef<string | null>(null);
@@ -46,20 +80,34 @@ export function ShareCapture() {
       }
       let registered = false;
       let draft: CaptureDraft = {
-        request_id: Crypto.randomUUID(),
+        request_id: native?.captureId ?? Crypto.randomUUID(),
         generation,
         created_at: new Date().toISOString(),
         kind: sourceURL ? "url" : "text",
         source_url: sourceURL ?? "",
         text: shareIntent.text ?? "",
-        files: []
+        files: [],
+        ...(native ? { is_public: native.isPublic } : {})
       };
       try {
+        if (native?.jobId) {
+          guard();
+          await localDrafts.save(owner, `import-source-visibility:${generation}:${native.jobId}`, native.isPublic); guard();
+          await updateImportReferences(localDrafts, owner, generation, guard, prior => [
+            { id: native.jobId!, generation, auto_save: true, label: sourceURL ?? "Shared workout", created_at: new Date().toISOString() },
+            ...prior.filter(item => item.id !== native.jobId)]);
+          guard();
+          await cache.invalidateQueries({ queryKey: [owner, "imports", generation] }); guard();
+          await cache.invalidateQueries({ queryKey: [owner, "library"] }); guard();
+          if (!(await NativeShare.acknowledge(native.captureKey))) throw Error("Your import is saved. Reopen Workouts to reconnect this share.");
+          guard(); resetShareIntent(); return;
+        }
         if (shareIntent.files?.length) {
-          if (shareIntent.files.some((f) => !f.mimeType.startsWith("image/")))
-            throw Error(
-              "This shared file is not an image. Choose its PDF or text file from the Capture screen instead."
-            );
+          if (shareIntent.files.some((f) => !f.mimeType.startsWith("image/"))) {
+            if (shareIntent.files.length !== 1) throw Error("Share one PDF or text document, or up to four images together.");
+            const file = shareIntent.files[0];
+            draft = { ...draft, kind: "document", files: await normalizeDocument({ uri: file.path, mimeType: file.mimeType, name: file.fileName }, guard, owner) };
+          } else {
           draft = {
             ...draft,
             kind: "images",
@@ -74,6 +122,7 @@ export function ShareCapture() {
               owner
             )
           };
+          }
         }
         guard();
         const saved = await slot.load(guard);
@@ -98,6 +147,8 @@ export function ShareCapture() {
         if (!replace) {
           await cleanupCaptureFiles(draft.files);
           guard();
+          if (native && !(await NativeShare.acknowledge(native.captureKey))) throw Error("Could not finish clearing this shared source. Reopen Workouts to retry.");
+          guard();
           resetShareIntent();
           return;
         }
@@ -108,6 +159,8 @@ export function ShareCapture() {
         guard();
         await cleanupCaptureFiles(retained, true);
         await slot.save(registeredDraft.revision, draft, guard);
+        guard();
+        if (native && !(await NativeShare.acknowledge(native.captureKey))) throw Error("Your source is saved. Reopen Workouts to reconnect this share.");
         guard();
         resetShareIntent();
         if (mounted) router.push({ pathname: "/capture", params: { shared: "1", request_id: draft.request_id } });
@@ -138,7 +191,9 @@ export function ShareCapture() {
             "Could not save shared source",
             problem instanceof Error ? problem.message : "Open Capture to choose the source again."
           );
-        if (current) resetShareIntent();
+        // Preserve the native capture on failure. Retry when foregrounded,
+        // rather than immediately redisplaying the same alert in a loop.
+        if (current) { if (native) setNative(null); else resetShareIntent(); }
       }
     })();
     return () => {

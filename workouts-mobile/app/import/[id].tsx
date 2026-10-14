@@ -124,7 +124,8 @@ export default function ImportReview() {
         if (valid && isCurrent()) setError("Could not restore your corrections for this import.");
         throw error;
       });
-    const visibilityLoad = localDrafts.load<boolean>(owner, `import-visibility:${generation}:${id}`).then((value) => {
+    const visibilityLoad = localDrafts.load<boolean>(owner, `import-visibility:${generation}:${id}`).then(async (chosen) => {
+      const value = typeof chosen === "boolean" ? chosen : await localDrafts.load<boolean>(owner, `import-source-visibility:${generation}:${id}`);
       if (valid && isCurrent() && typeof value === "boolean") setShareChoice(value);
     });
     const referencesLoad = localDrafts.load<ImportReference[]>(owner, `imports:${generation}`).then((items) => {
@@ -146,6 +147,7 @@ export default function ImportReview() {
     });
   }
   function chooseVisibility(value: boolean, fromDisclosure = false) {
+    if (!routeReady || !restored || !isCurrent()) return Promise.resolve();
     if (saving.current && !fromDisclosure) return Promise.resolve();
     setShareChoice(value);
     const next = visibilityWrites.current.catch(() => undefined).then(async () => {
@@ -277,7 +279,7 @@ export default function ImportReview() {
   // The server refuses to publish an incomplete extraction accepted unchanged.
   const shareable =
     !!workout && publishable(workout) && !(q.data?.status === "incomplete" && !(routeReady && edited));
-  const wantsShare = shareChoice ?? originalSource?.is_public ?? defaultShareToDiscover(result?.workout?.capture_kind ?? originalSource?.kind);
+  const wantsShare = shareChoice ?? originalSource?.is_public ?? q.data?.source_is_public ?? defaultShareToDiscover(result?.workout?.capture_kind ?? originalSource?.kind);
   const sharing = discoverOn && shareable && wantsShare;
   useEffect(() => {
     if ((!autoAllowed && !originalSource?.auto_save) || !routeReady || !restored || !q.data || edited || editing ||
@@ -405,7 +407,7 @@ export default function ImportReview() {
                         : INCOMPLETE_MESSAGE
                     }
                     selected={sharing}
-                    disabled={!shareable || busy}
+                    disabled={!routeReady || !restored || !shareable || busy}
                     onPress={() => {
                       if (routeReady && isCurrent()) void chooseVisibility(!sharing).catch(() => {
                         if (isCurrent()) setError("Could not save your sharing choice. Try choosing it again before saving.");

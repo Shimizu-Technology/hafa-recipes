@@ -92,6 +92,7 @@ export interface ImportJob {
     error_code?: string | null;
   } | null;
   expires_at: string;
+  source_is_public?: boolean | null;
   accepted_workout_id: string | null;
 }
 export interface Capabilities {

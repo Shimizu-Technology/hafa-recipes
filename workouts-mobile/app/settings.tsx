@@ -1,25 +1,38 @@
 import { useRef, useState } from "react";
-import { useClerk } from "@clerk/expo";
+import { useAuth, useClerk } from "@clerk/expo";
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Button, Copy, ListGroup, ListRow, Notice, Screen, SectionHeader } from "@/components/ui";
+import { suspendNativeSharing } from "@/lib/native-share-session";
+import { useTraining } from "@/lib/context";
+import { configuration } from "@/lib/config";
+import { logoutBinding } from "@/lib/logout-recovery";
 
 export default function Settings() {
   const clerk = useClerk();
+  const { sessionId, userId } = useAuth();
+  const { owner } = useTraining();
   const cache = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const signingOut = useRef(false);
   async function signOut() {
     if (signingOut.current) return;
+    if (!sessionId || !userId) { setError("Your sign-in session is still loading. Try signing out again."); return; }
+    const originalSession = sessionId;
+    const originalBinding = logoutBinding(configuration.clerkEnvironment, configuration.clerkKey, userId);
     signingOut.current = true;
     setBusy(true);
     setError("");
+    const sharing = suspendNativeSharing();
     try {
-      await clerk.signOut();
+      await sharing.clear;
+      await clerk.signOut({ sessionId: originalSession });
       // Clear cached account data only once sign-out succeeded; a failed attempt keeps the screen usable.
-      cache.clear();
+      cache.removeQueries({ predicate: query => query.queryKey[0] === owner ||
+        (query.queryKey[0] === "identity" && query.queryKey[1] === originalBinding) });
     } catch {
+      sharing.resume();
       setError("Could not sign out. Your private drafts remain saved for this account. Try again.");
     } finally {
       signingOut.current = false;

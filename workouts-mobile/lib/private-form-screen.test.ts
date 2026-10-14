@@ -1550,3 +1550,63 @@ it("starting another source from a completed capture cannot overwrite a concurre
   await click("Load saved source");
   expect(nodes("Field")[0].props.value).toBe("https://example.test/newer");
 });
+
+
+it("native fallback keeps the capture identity and private visibility before acknowledging only that saved source", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  const capture = { captureKey: "native-A", captureId: "request-A", ownerId: fixture.owner, generation: 1,
+    url: "https://instagram.com/reel/example", text: "caption", files: [], isPublic: false };
+  fixture.nativeCaptures.mockResolvedValueOnce([capture]);
+  await mount(ShareCapture);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!)).toMatchObject({
+    request_id: "request-A", source_url: capture.url, is_public: false,
+  });
+  expect(fixture.nativeAck).toHaveBeenCalledWith("native-A");
+  expect(fixture.persist.mock.invocationCallOrder[0]).toBeLessThan(fixture.nativeAck.mock.invocationCallOrder[0]);
+});
+
+it("native server receipt persists recovery without opening Capture or starting the import again", async () => {
+  fixture.nativeAck.mockImplementationOnce(async () => {
+    expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "import-source-visibility:1:server-job"))!)).toBe(false);
+    return true;
+  });
+  cache.setQueryData([fixture.owner, "imports", 1], []);
+  cache.setQueryData([fixture.owner, "library"], []);
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([{ captureKey: "native-A", captureId: "request-A", ownerId: fixture.owner,
+    generation: 1, url: "https://instagram.com/reel/example", text: "", files: [], isPublic: false, jobId: "server-job" }]);
+  await mount(ShareCapture);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "imports:1"))!)[0].id).toBe("server-job");
+  expect(fixture.nativeAck).toHaveBeenCalledWith("native-A");
+  expect(cache.getQueryState([fixture.owner, "imports", 1])?.isInvalidated).toBe(true);
+  expect(cache.getQueryState([fixture.owner, "library"])?.isInvalidated).toBe(true);
+  expect(fixture.push).not.toHaveBeenCalled(); expect(fixture.startImport).not.toHaveBeenCalled();
+});
+
+it("keeps a native server receipt when its private source choice cannot be saved", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true; fixture.writeFailure = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([{ captureKey: "native-A", captureId: "request-A", ownerId: fixture.owner,
+    generation: 1, url: "https://instagram.com/reel/example", text: "", files: [], isPublic: false, jobId: "server-job" }]);
+  await mount(ShareCapture);
+  expect(fixture.nativeAck).not.toHaveBeenCalled(); expect(fixture.startImport).not.toHaveBeenCalled();
+});
+
+it("native captures never transfer between application owners or enrollment generations", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValue([{ captureKey: "other", ownerId: "another-owner", generation: 1 },
+    { captureKey: "retired", ownerId: fixture.owner, generation: 0 }]);
+  await mount(ShareCapture);
+  expect(fixture.nativeAck).not.toHaveBeenCalled(); expect(fixture.push).not.toHaveBeenCalled();
+  expect(fixture.map.has(draftKey(fixture.owner, "capture:1"))).toBe(false);
+});
+
+it("an advertised native PDF share becomes an owned document before its exact queue acknowledgement", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([{ captureKey: "pdf-capture", captureId: "pdf-request", ownerId: fixture.owner,
+    generation: 1, text: "PDF caption", files: [{ path: "file:///shared/source.pdf", mimeType: "application/pdf", fileName: "Workout.pdf" }], isPublic: false }]);
+  const owned = { uri: "file:///cache/hafa-workouts-capture/source.pdf", name: "Workout.pdf", mime_type: "application/pdf", owned: true };
+  fixture.normalizeDocument.mockResolvedValue([owned]); await mount(ShareCapture);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!)).toMatchObject({ kind: "document", files: [owned], is_public: false });
+  expect(fixture.nativeAck).toHaveBeenCalledWith("pdf-capture");
+  expect(fixture.persist.mock.invocationCallOrder[0]).toBeLessThan(fixture.nativeAck.mock.invocationCallOrder[0]);
+});

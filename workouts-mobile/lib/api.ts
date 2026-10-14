@@ -761,6 +761,10 @@ export function createWorkoutsApi(
       policy?: { auto_save: boolean; is_public: boolean }) {
       return (await request<ImportJob>("/imports", "POST", { request_id, source, ...policy }, { generation })).data;
     },
+    async createShareSession(installation_id: string, is_public: boolean, generation: number) {
+      return (await request<import("@/modules/hafa-workouts-share/src").ShareSession>("/share/session", "POST",
+        { installation_id, is_public }, { generation })).data;
+    },
     async importSource(id: string) {
       return (
         await request<{ source: ExtractionRequest; expires_at: string }>(`/imports/${encodeURIComponent(id)}/source`)
