@@ -726,6 +726,7 @@ async def test_streamed_slideshow_images_bound_bytes_and_normalize(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("primary", ["malformed", "empty", "missing_dose", "missing_some_dose", "missing_movement",
+                                     "missing_dose_and_unsupported_movement",
                                      "partial_recovery_failed", "partial_recovery_denied",
                                      "partial_recovery_loses_context"])
 async def test_production_fallback_tracks_workout_schema_no_actual_provider(monkeypatch, primary):
@@ -789,6 +790,9 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
             else:
                 for exercise in value["blocks"][0]["exercises"]:
                     exercise["reps_min"] = exercise["reps_max"] = None
+                if primary == "missing_dose_and_unsupported_movement":
+                    value["blocks"][0]["exercises"].append({"name": "Invented Jump", "evidence": [
+                        evidence("name", "Invented Jump", "caption")]})
         elif primary == "partial_recovery_failed":
             value = {"title": "Empty recovery", "blocks": []}
         elif primary == "partial_recovery_loses_context":
@@ -1492,7 +1496,8 @@ def test_recovery_preserves_source_structure_repetitions_and_cues(lost):
     block = raw["blocks"][0]
     block.update(grouping="circuit", rounds=3, rest_between_rounds_seconds=60)
     block["exercises"][0]["per_side"] = True
-    block["exercises"].append({"name": "Press", "sets": 2, "reps_min": 5})
+    block["exercises"].append({"name": "Press", "sets": 2, "reps_min": 5,
+                               "evidence": [evidence("name", "Press")]})
     candidate = copy.deepcopy(raw)
     if lost == "order":
         candidate["blocks"][0]["exercises"].reverse()
@@ -1509,6 +1514,67 @@ def test_recovery_preserves_source_structure_repetitions_and_cues(lost):
     candidate = copy.deepcopy(raw)
     candidate["blocks"][0]["exercises"].append({"name": "Swing", "reps_min": 10})
     assert _prescription_preserves(WorkoutContent.model_validate(candidate), previous)
+
+
+def test_recovery_removes_unsupported_model_moves_and_keeps_grounded_squat_facts():
+    from app.domains.workouts.extraction import _prescription_preserves
+
+    source = SourceBundle(SourceMetadata(), [SourcePart("provided_text", TEXT)])
+    raw = complete_workout()
+    raw["blocks"][0]["exercises"][0]["reps_min"] = None
+    raw["blocks"][0]["exercises"][0]["reps_max"] = None
+    raw["blocks"][0]["grouping"] = "circuit"  # No source evidence establishes this grouping.
+    raw["blocks"][0]["exercises"].append({"name": "Invented Jump", "evidence": [
+        evidence("name", "Invented Jump")]})
+    raw["blocks"].append({"id": "invented-block", "label": "Invented circuit", "grouping": "circuit",
+        "evidence": [evidence("label", "Squat")], "exercises": [{"name": "Invented Jump"}]})
+    previous, _, _ = ground_workout(raw, source)
+    candidate, _, _ = ground_workout(complete_workout(), source)
+    assert _prescription_preserves(candidate, previous)
+    assert [(item.name, item.reps_min, item.reps_max, item.rest_seconds)
+            for item in candidate.blocks[0].exercises] == [("Squat", 8, 12, 90)]
+    candidate.blocks[0].exercises[0].rest_seconds = None
+    assert not _prescription_preserves(candidate, previous)
+
+
+@pytest.mark.parametrize("quote", ["whole_line", "movement", "side_count"])
+@pytest.mark.parametrize("squat_reps,squat_side,row_reps,row_side", [
+    (10, False, 10, True), (10, True, 5, True), (5, True, 10, False)])
+def test_combined_caption_side_count_belongs_only_to_its_own_movement(
+    quote, squat_reps, squat_side, row_reps, row_side
+):
+    caption = "10x Squat + 10x Row (5 each side)"
+    exercises = []
+    for name, reps, side in [("Squat", squat_reps, squat_side), ("Row", row_reps, row_side)]:
+        wording = caption if quote == "whole_line" else "10x Squat" if name == "Squat" else (
+            "5 each side" if quote == "side_count" else "10x Row (5 each side)")
+        exercises.append({"name": name, "reps_min": reps, "reps_max": reps, "per_side": side,
+            "evidence": [evidence("name", name), evidence("reps_min", wording),
+                         evidence("reps_max", wording), evidence("per_side", wording)]})
+    raw = {"title": "Source circuit", "blocks": [{"id": "main", "label": "Circuit", "exercises": exercises}]}
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", caption)]))
+    squat, row = workout.blocks[0].exercises
+    assert squat.reps_min in {10, None} and squat.reps_max in {10, None}
+    assert squat.per_side is not True
+    assert (row.reps_min, row.reps_max, row.per_side) == (5, 5, True)
+    if squat_reps == 10:
+        assert (squat.reps_min, squat.reps_max) == (10, 10)
+
+
+@pytest.mark.parametrize("reps,per_side", [(10, False), (5, True)])
+@pytest.mark.parametrize("negation", ["not", "never", "instead of", "rather than"])
+def test_negated_side_counts_do_not_become_source_prescription(reps, per_side, negation):
+    caption = f"10x Squat total reps ({negation} 5 each side)"
+    raw = {"title": "Source circuit", "blocks": [{"id": "main", "label": "Circuit", "exercises": [
+        {"name": "Squat", "reps_min": reps, "reps_max": reps, "per_side": per_side,
+         "evidence": [evidence("name", "Squat"), evidence("reps_min", caption),
+                      evidence("reps_max", caption), evidence("per_side", caption)]}]}]}
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", caption)]))
+    item = workout.blocks[0].exercises[0]
+    assert item.reps_min in {10, None} and item.reps_max in {10, None}
+    assert item.per_side is not True
+    if reps == 10:
+        assert (item.reps_min, item.reps_max, item.per_side) == (10, 10, False)
 
 
 @pytest.mark.asyncio

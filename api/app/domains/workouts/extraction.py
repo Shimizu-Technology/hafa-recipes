@@ -886,6 +886,15 @@ def _overall_minutes_supported(value: int, wording: str) -> bool:
     return False
 
 
+def _affirmative_side_counts(wording: str):
+    for match in re.finditer(
+        r"(?<![\w.\-–])(\d+)\s+(?:each|per)\s+(?:side|leg|arm|limb)\b", wording, re.I
+    ):
+        if not re.search(r"\b(?:not|never|no|without|instead\s+of|rather\s+than)\s*$",
+                         wording[:match.start()], re.I):
+            yield match
+
+
 def _numeric_supported(field_name: str, value: int | float, wording: str, exercise_name: str | None = None) -> bool:
     numbers = [float(number) for number in re.findall(r"(?<!\w)\d+(?:\.\d+)?", wording)]
     if field_name in {"duration_seconds", "rest_seconds", "rest_between_rounds_seconds", "estimated_minutes"}:
@@ -952,9 +961,7 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
             re.I,
         )
         explicit_reps = any(float(number) == value for group in reps for number in group if number)
-        per_side_reps = bool(re.search(
-            rf"(?<![\w.]){value:g}\s+(?:each|per)\s+(?:side|leg|arm|limb)\b", wording, re.I
-        ))
+        per_side_reps = any(float(match[1]) == value for match in _affirmative_side_counts(wording))
         # Spoken prescriptions often say "10 curls", without a reps suffix.
         # Require the actual grounded movement immediately after the count.
         movement_count = exercise_name is not None and bool(re.search(
@@ -998,10 +1005,13 @@ def _value_supported(field_name: str, value, wording: str, exercise_name: str | 
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return _numeric_supported(field_name, value, wording, exercise_name)
     if field_name == "per_side":
+        if value:
+            return any(not re.search(
+                r"\b(?:not|never|no|without|instead\s+of|rather\s+than)\s*(?:\d+\s*)?$",
+                wording[:match.start()], re.I,
+            ) for match in re.finditer(r"\b(?:each|per)\s+(?:side|leg|arm|limb)\b", wording, re.I))
         pattern = (
-            r"\b(?:each|per)\s+(?:side|leg|arm|limb)\b"
-            if value
-            else r"\b(?:both sides combined|total reps)\b"
+            r"\b(?:both sides combined|total reps)\b"
         )
         return bool(re.search(pattern, wording, re.I))
     if field_name == "load_unit":
@@ -1018,10 +1028,14 @@ def _value_supported(field_name: str, value, wording: str, exercise_name: str | 
     return str(value).casefold() in wording.casefold()
 
 
+def _grounded_movement(item) -> bool:
+    return any(entry.field == "name" and item.name.casefold() in entry.wording.casefold()
+               for entry in item.evidence)
+
+
 def _prescription_quality(workout: WorkoutContent) -> tuple[int, int]:
     named = [item for block in workout.blocks for item in block.exercises
-             if any(entry.field == "name" and item.name.casefold() in entry.wording.casefold()
-                    for entry in item.evidence)]
+             if _grounded_movement(item)]
     return len(named), sum(any(getattr(item, field) is not None for field in (
         "reps_min", "reps_max", "duration_seconds", "distance_meters"
     )) for item in named)
@@ -1042,14 +1056,17 @@ def _prescription_preserves(candidate: WorkoutContent, previous: WorkoutContent)
             value = getattr(old, field_name, None)
             if value is not None and getattr(new, field_name, None) != value:
                 return False
-        if new.grouping != old.grouping and (old.grouping != "sequential" or old.rounds is not None
+        if new.grouping != old.grouping and (old.rounds is not None or getattr(old, "execution", None) is not None
                 or any(entry.field == "grouping" for entry in old.evidence)):
             return False
         # Preserve order and separate repeated appearances of a movement. IDs
         # are model-generated, so they cannot identify a stable source item.
         remaining = iter(new.exercises)
         for item in old.exercises:
-            match = next((entry for entry in remaining if entry.name.casefold() == item.name.casefold()), None)
+            if not _grounded_movement(item):
+                continue  # An unsupported model movement is not a source fact to preserve.
+            match = next((entry for entry in remaining if _grounded_movement(entry)
+                          and entry.name.casefold() == item.name.casefold()), None)
             if match is None:
                 return False
             for field_name in fields:
@@ -1064,7 +1081,11 @@ def _prescription_preserves(candidate: WorkoutContent, previous: WorkoutContent)
         return True
 
     remaining = iter(candidate.blocks)
-    return all(any(block_preserves(block, old) for block in remaining) for old in previous.blocks)
+    return all(any(block_preserves(block, old) for block in remaining) for old in previous.blocks
+               if any(_grounded_movement(item) for item in old.exercises)
+               or old.rounds is not None or old.rest_between_rounds_seconds is not None
+               or getattr(old, "execution", None) is not None
+               or any(entry.field == "grouping" for entry in old.evidence))
 
 
 def _missing_source_movements(workout: WorkoutContent, source: SourceBundle) -> bool:
@@ -1078,23 +1099,37 @@ def _missing_source_movements(workout: WorkoutContent, source: SourceBundle) -> 
     return False
 
 
+def _movement_clauses(item, source: SourceBundle):
+    for part in source.parts:
+        for line in re.split(r"[;,\n]|[.!?](?:\s|$)", part.text):
+            # A single caption line may contain several separately dosed moves.
+            # Keep a side qualifier with its own movement, rather than lending
+            # Row's '(5 each side)' to the preceding '10x Squat +'.
+            for clause in re.split(r"(?<!\w)(?=\d+\s*[x×]\s+[A-Za-z])", line):
+                if item.name.casefold() in clause.casefold():
+                    yield part.location, line, clause
+
+
+def _prescription_wording(item, entry, source):
+    clauses = [clause for location, line, clause in _movement_clauses(item, source)
+               if location == entry.location and (entry.wording in line or line in entry.wording)]
+    return clauses or [entry.wording]
+
+
 def _normalize_side_counts(item, source: SourceBundle):
     """Keep a total-count caption from becoming twice that count per side."""
     candidates = []
-    for part in source.parts:
-        for line in re.split(r"[;,\n]|[.!?](?:\s|$)", part.text):
-            if item.name.casefold() not in line.casefold():
-                continue
-            match = re.search(r"(?<![\w.\-–])(\d+)\s+(?:each|per)\s+(?:side|leg|arm|limb)\b", line, re.I)
-            if match is None or not any(
-                entry.location == part.location and entry.wording in line
+    for location, line, clause in _movement_clauses(item, source):
+        for match in _affirmative_side_counts(clause):
+            if not any(
+                entry.location == location and (entry.wording in line or line in entry.wording)
                 and entry.field in {"reps_min", "reps_max", "per_side"}
                 for entry in item.evidence
             ):
                 continue
             count = int(match[1])
             if 1 <= count <= 1000:
-                candidates.append((count, line if len(line) <= 2000 else match[0], part.location))
+                candidates.append((count, clause if len(clause) <= 2000 else match[0], location))
     if not candidates or len({entry[0] for entry in candidates}) != 1:
         return
     count, quote, location = candidates[0]
@@ -1102,7 +1137,10 @@ def _normalize_side_counts(item, source: SourceBundle):
     # an unqualified total, or invent a missing reps field.
     fields = [field for field in ("reps_min", "reps_max")
               if getattr(item, field) is not None and any(
-                  entry.field == field and _numeric_supported(field, getattr(item, field), entry.wording, item.name)
+                  entry.field == field and any(
+                      _numeric_supported(field, getattr(item, field), wording, item.name)
+                      for wording in _prescription_wording(item, entry, source)
+                  )
                   for entry in item.evidence)]
     if not fields:
         return
@@ -1182,7 +1220,10 @@ def ground_workout(
                     continue
                 valid_evidence = [entry for entry in item.evidence if entry.field == field_name]
                 supported = any(
-                    _value_supported(field_name, value, entry.wording, item.name)
+                    any(_value_supported(field_name, value, wording, item.name) for wording in (
+                        _prescription_wording(item, entry, source)
+                        if field_name in {"reps_min", "reps_max", "per_side"} else [entry.wording]
+                    ))
                     and _time_evidence_supported(field_name, value, entry, source, item.name)
                     for entry in valid_evidence
                 )
