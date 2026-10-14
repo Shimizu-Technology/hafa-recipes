@@ -41,6 +41,7 @@ export default function EditWorkout() {
   const lock = useRef(false);
   const [value, setValue] = useState<Workout | null>(null);
   const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<"save" | "reload">("save");
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
@@ -87,6 +88,7 @@ export default function EditWorkout() {
   async function reloadSaved() {
     if (lock.current) return;
     lock.current = true;
+    setBusyAction("reload");
     setBusy(true);
     try {
       current();
@@ -116,6 +118,7 @@ export default function EditWorkout() {
       return;
     }
     lock.current = true;
+    setBusyAction("save");
     setBusy(true);
     try {
       current();
@@ -158,7 +161,7 @@ export default function EditWorkout() {
               <WorkoutEditor value={editedContent(value)} onChange={update} disabled={busy || !!command || resolved} />
             </View>
             <Button
-              title={command ? "Retry saving changes" : "Save new workout version"}
+              title={busy ? busyAction === "save" ? "Saving changes…" : "Reloading workout…" : command ? "Retry saving changes" : "Save new workout version"}
               disabled={resolved}
               busy={busy}
               onPress={() => {

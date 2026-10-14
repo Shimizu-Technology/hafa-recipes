@@ -37,7 +37,7 @@ function AccountLogoutRecovery() {
     renderRecovery={({ checking, loading, busy, error, retry }) => <Screen title={checking ? "Check account recovery." : "Finish account sign-out."}>
       <Copy>{checking ? "Checking this device for account recovery before opening private training." :
         "Your server account was deleted. Private training stays closed while this device finishes cleanup and sign-out. Retrying does not delete the account again."}</Copy>
-      {error && <Notice error>{error}</Notice>}
+      {!!error && <Notice error>{error}</Notice>}
       {loading ? <ActivityIndicator accessibilityLabel="Checking account recovery" /> :
         <Button title="Retry cleanup and sign-out" busy={busy} onPress={retry} />}
     </Screen>}

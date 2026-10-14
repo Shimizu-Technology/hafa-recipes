@@ -2,6 +2,7 @@ import { beforeEach, it, expect, vi } from "vitest";
 import { captureErrors, boundedSource, importIsTerminal, archiveCapturedImport, loadCapturedImport, submittedCaptureScope, retireCapturedImport, type CaptureDraft } from "./capture";
 import { createPrivateDraftSlot } from "./private-form";
 import { filterLibrary, workoutErrors, editedContent } from "./library";
+import { authoredWorkout } from "./api";
 import { isISODate, publicShareReader } from "./sharing";
 const native = vi.hoisted(() => ({
   files: new Map<string, string>(),
@@ -249,6 +250,18 @@ it("treats user edits as authored versions and rejects reversed rep ranges", () 
 it("rejects rollover calendar dates for recipient program copies", () => {
   expect(isISODate("2026-02-31")).toBe(false);
   expect(isISODate("2026-10-10")).toBe(true);
+});
+it("validates editable workout duration and instruction bounds before freezing a save", () => {
+  const workout = { title: "Circuit", kind: "session" as const, provenance: "user" as const, blocks: [] };
+  expect(workoutErrors({ ...workout, estimated_minutes: 20, notes: Array(100).fill("Rest as needed") }, true)).toEqual([]);
+  expect(workoutErrors({ ...workout, estimated_minutes: 20.5 }, true)).toContain("Workout duration must be whole minutes from 1 to 1440, or blank.");
+  expect(workoutErrors({ ...workout, estimated_minutes: NaN }, true)).toHaveLength(1);
+  expect(workoutErrors({ ...workout, notes: Array(101).fill("Instruction") }, true)).toContain("Keep workout instructions to 100 lines or fewer.");
+  expect(workoutErrors({ ...workout, notes: ["x".repeat(2001)] }, true)).toEqual([]);
+  const editing = editedContent({ ...workout, notes: ["  Rest after each round  ", "", "  "] });
+  expect(editing.notes).toEqual(["  Rest after each round  ", "", "  "]);
+  expect(authoredWorkout(editing).notes).toEqual(["Rest after each round"]);
+  expect(authoredWorkout(editedContent({ ...workout, notes: [""] })).notes).toEqual([]);
 });
 it("loads only the explicit public sharing route without private authorization", async () => {
   const calls: Array<[string, RequestInit | undefined]> = [];

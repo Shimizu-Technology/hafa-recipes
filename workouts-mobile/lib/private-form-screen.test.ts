@@ -902,6 +902,7 @@ it("mounted manual creation locks stale callbacks and replays identical body/key
   const pending = deferred<Workout>();
   fixture.saveWorkout.mockReturnValueOnce(pending.promise);
   await click("Save to my library");
+  expect(button("Saving workout…").props.busy).toBe(true);
   const original = fixture.saveWorkout.mock.calls[0];
   expect(original[0].title).toBe("Original");
   expect(original[1]).toMatch(/^command-/);
@@ -928,7 +929,15 @@ it("mounted manual creation locks stale callbacks and replays identical body/key
     command: null
   });
   await click("Start another workout");
+  const reset = deferred<void>();
+  fixture.persist.mockImplementationOnce(async (key: string, value: string) => {
+    await reset.promise;
+    fixture.map.set(key, value);
+  });
   await click("Start another workout and discard this draft");
+  expect(button("Starting another workout…").props.busy).toBe(true);
+  await act(async () => reset.resolve());
+  await settle();
   await act(async () => nodes("Field")[0].props.onChange("Separate deliberate workout"));
   await act(async () =>
     nodes("Field")
@@ -986,6 +995,19 @@ it("mounted profile retains the frozen revision and values across background ref
   expect(fixture.saveProfile).toHaveBeenCalledTimes(2);
 });
 
+it("mounted workout editing preserves spaces and newlines while instructions are being typed", async () => {
+  fixture.params = { id: "workout" };
+  await mount(EditWorkout);
+  for (const notes of [["Rest "], ["Rest after each round.", ""], ["Rest after each round.", "Repeat "]]) {
+    await act(async () => find("WorkoutEditor").props.onChange({ ...find("WorkoutEditor").props.value, notes }));
+    expect(find("WorkoutEditor").props.value.notes).toEqual(notes);
+  }
+  await act(async () => find("WorkoutEditor").props.onChange({ ...find("WorkoutEditor").props.value,
+    notes: ["Rest after each round.", "Repeat at your own pace."] }));
+  await click("Save new workout version");
+  expect(fixture.updateWorkout.mock.calls[0][0].notes).toEqual(["Rest after each round.", "Repeat at your own pace."]);
+});
+
 it("mounted workout editing preserves original content/revision across background query updates and lost acknowledgment", async () => {
   fixture.params = { id: "workout" };
   await mount(EditWorkout);
@@ -993,6 +1015,7 @@ it("mounted workout editing preserves original content/revision across backgroun
   const pending = deferred<Workout>();
   fixture.updateWorkout.mockReturnValueOnce(pending.promise);
   await click("Save new workout version");
+  expect(button("Saving changes…").props.busy).toBe(true);
   const original = fixture.updateWorkout.mock.calls[0][0];
   await act(async () => {
     cache.setQueryData([fixture.owner, "workout", "workout", 1], { ...workout, revision: 8, title: "Background" });
@@ -1012,6 +1035,13 @@ it("mounted workout editing preserves original content/revision across backgroun
   await mount(EditWorkout);
   expect(find("WorkoutEditor").props.disabled).toBe(true);
   expect(button("Reload saved workout and discard this draft")).toBeDefined();
+  const reloading = deferred<Workout>();
+  fixture.workout.mockReturnValueOnce(reloading.promise);
+  await click("Reload saved workout and discard this draft");
+  expect(button("Reloading workout…").props.busy).toBe(true);
+  await act(async () => reloading.resolve({ ...original, revision: 2 }));
+  await settle();
+  expect(find("WorkoutEditor").props.disabled).toBe(false);
 });
 
 it("mounted completed profile recovers its saved read-only view after remount and requires deliberate editing", async () => {
@@ -1465,7 +1495,7 @@ it("keeps unknowns and less common prescription values intact through simple edi
       load: 10, load_unit: "kg", load_convention: "per_hand", tempo: "3-1-1", notes: "Control the movement", per_side: null }],
   }] };
   await mountRealWorkoutEditor(content);
-  expect(nodes("Field").map((n) => n.props.label)).toEqual(["Workout title", "Required equipment · comma separated", "Exercise name", "Sets", "Reps"]);
+  expect(nodes("Field").map((n) => n.props.label)).toEqual(["Workout title", "Workout duration · minutes", "Workout instructions · one instruction per line", "Required equipment · comma separated", "Exercise name", "Sets", "Reps"]);
   expect(fixture.updateWorkout).not.toHaveBeenCalled();
   await click("More details for Row");
   expect(nodes("Field").find((n) => n.props.label === "Rest · seconds")!.props.value).toBe("45");
@@ -1481,6 +1511,18 @@ it("keeps unknowns and less common prescription values intact through simple edi
   expect(corrected.blocks[0]).toEqual({ ...content.blocks[0], exercises: [{ ...content.blocks[0].exercises[0], sets: 2, provenance: "user" }] });
   expect(corrected.blocks[0].exercises[0].reps_min).toBeNull();
   expect(corrected.blocks[0].exercises[0].reps_max).toBeNull();
+});
+it("corrects overall duration and instructions without changing the exercise prescription", async () => {
+  const content: AuthoredWorkout = { ...workout, estimated_minutes: null, notes: ["Repeat the circuit"], provenance: "source" };
+  await mountRealWorkoutEditor(content);
+  await act(async () => nodes("Field").find((n) => n.props.label === "Workout duration · minutes")!.props.onChange("20"));
+  await act(async () => nodes("Field").find((n) => n.props.label === "Workout instructions · one instruction per line")!.props.onChange("Repeat for 20 minutes\nRest after each round"));
+  const corrected = fixture.updateWorkout.mock.calls.at(-1)![0];
+  expect(corrected.estimated_minutes).toBe(20);
+  expect(corrected.notes).toEqual(["Repeat for 20 minutes", "Rest after each round"]);
+  expect(corrected.blocks).toEqual(content.blocks);
+  await act(async () => nodes("Field").find((n) => n.props.label === "Workout duration · minutes")!.props.onChange(""));
+  expect(fixture.updateWorkout.mock.calls.at(-1)![0].estimated_minutes).toBeNull();
 });
 it("shows existing time and distance without making optional numeric fields into zero", async () => {
   await mountRealWorkoutEditor({ ...workout, blocks: [{ ...workout.blocks[0], exercises: [{ name: "Run", duration_seconds: 60, distance_meters: 400 }] }] });

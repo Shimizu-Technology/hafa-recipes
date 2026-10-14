@@ -112,8 +112,6 @@ export default function WorkoutDetail() {
       title={workout?.title ?? "Your workout."}
       action={workout ? <IconButton icon="ellipsis-horizontal" label="More workout actions" onPress={() => setMore(true)} /> : undefined}
     >
-      {workout && <WorkoutSource source={workout} />}
-      <WorkoutInstructions notes={workout?.notes} />
       {workout && (
         <Row gap={10}>
           <StatTile value={workout.estimated_minutes ?? "–"} unit={workout.estimated_minutes ? "min" : undefined} label="Estimated time" />
@@ -183,6 +181,7 @@ export default function WorkoutDetail() {
           />
         ) : (
           <>
+            <WorkoutInstructions notes={workout.notes} />
             {!!workout.equipment_required?.length && (
               <ChipRow wrap label="Equipment">
                 {workout.equipment_required.map((item) => (
@@ -192,7 +191,7 @@ export default function WorkoutDetail() {
             )}
             <Copy kind="small" tone="muted">
               {workout.provenance === "source"
-                ? workout.blocks.some((block) => block.exercises.some((exercise) => exercise.provenance === "user"))
+                ? workout.revision > 1 || workout.blocks.some((block) => block.exercises.some((exercise) => exercise.provenance === "user"))
                   ? "Saved source prescription with your corrections."
                   : "Original source prescription. Missing details stay missing."
                 : workout.provenance === "suggestion"
@@ -223,6 +222,7 @@ export default function WorkoutDetail() {
                 ))}
               </Card>
             ))}
+            <WorkoutSource source={workout} />
             {workout.source_url && /^https?:\/\//i.test(workout.source_url) && (
               <Button title="Open original source" icon="open-outline" secondary onPress={() => {
                 void Linking.openURL(workout.source_url!).catch(() => setError("Could not open the original source."));

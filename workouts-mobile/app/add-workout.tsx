@@ -42,6 +42,7 @@ export default function AddWorkout() {
   const [draft, setDraft] = useState(blankWorkout);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<"save" | "reset">("save");
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
@@ -91,6 +92,7 @@ export default function AddWorkout() {
       return;
     }
     guard.current = true;
+    setBusyAction("save");
     setBusy(true);
     setError("");
     try {
@@ -222,6 +224,7 @@ export default function AddWorkout() {
             onPress={() => {
               if (guard.current) return;
               guard.current = true;
+              setBusyAction("reset");
               setBusy(true);
               void (async () => {
                 current();
@@ -248,7 +251,7 @@ export default function AddWorkout() {
         </Card>
       )}
       <Button
-        title={command ? "Retry saving workout" : "Save to my library"}
+        title={busy ? busyAction === "save" ? "Saving workout…" : "Starting another workout…" : command ? "Retry saving workout" : "Save to my library"}
         busy={busy}
         disabled={!loaded || resolved}
         onPress={() => {
