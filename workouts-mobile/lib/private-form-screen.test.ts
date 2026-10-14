@@ -47,6 +47,7 @@ const fixture = vi.hoisted(() => ({
   workout: vi.fn(),
   measurement: vi.fn(),
   writeFailure: false,
+  removeFailureScope: "",
   foreground: new Set<(state: string) => void>(),
   os: "android", nativeSharing: false, nativeCaptures: vi.fn(), nativeAck: vi.fn()
 }));
@@ -54,6 +55,7 @@ vi.mock("@/lib/context", () => {
   const storage = {
     isCurrent: () => fixture.current,
     removeItem: async (key: string) => {
+      if (fixture.removeFailureScope && key === draftKey(fixture.owner, fixture.removeFailureScope)) throw Error("device cleanup failed");
       fixture.map.delete(key);
     },
     getItem: async (key: string) => fixture.map.get(key) ?? null,
@@ -271,6 +273,7 @@ beforeEach(() => {
   fixture.params = {};
   fixture.revision = 1;
   fixture.writeFailure = false;
+  fixture.removeFailureScope = "";
   fixture.current = true;
   fixture.next = 0;
   fixture.share = false;
@@ -2054,4 +2057,37 @@ it("keeps an empty extraction in source recovery until exercises are added", asy
   await settle();
   expect(button("Save workout")).toBeDefined();
   expect(fixture.acceptImport).not.toHaveBeenCalled();
+});
+
+it.each(["caption cleanup", "navigation"])("reopens an acknowledged retry after %s fails without submitting another import", async failure => {
+  fixture.params = { id: "job-A" };
+  fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "failed", result: null });
+  fixture.importSource.mockResolvedValue({ kind: "text", text: "Squat 10 reps", ai_consent: true });
+  fixture.startImport.mockResolvedValue({ id: "existing-retry", generation: 1, status: "queued" });
+  if (failure === "caption cleanup") fixture.removeFailureScope = "import-retry-caption:1:job-A";
+  else fixture.replace.mockImplementationOnce(() => { throw Error("navigation interrupted"); });
+  await mount(ImportReview); await click("Retry this source");
+  expect(fixture.startImport).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "import-retry:1:job-A"))!)).toMatchObject({ saved_id: "existing-retry", request_id: fixture.startImport.mock.calls[0][0] });
+  await unmount(); fixture.removeFailureScope = "";
+  fixture.capabilities.mockResolvedValue({ ...serverCaps, imports: false });
+  await mount(ImportReview);
+  expect(button("Open retry import").props.disabled).toBe(false);
+  await click("Open retry import");
+  expect(fixture.startImport).toHaveBeenCalledTimes(1);
+  expect(fixture.replace).toHaveBeenLastCalledWith({ pathname: "/import/[id]", params: { id: "existing-retry" } });
+});
+
+it("explains a usage limit without blaming an available source caption", async () => {
+  fixture.params = { id: "limit-job" };
+  fixture.importJob.mockResolvedValue({ id: "limit-job", generation: 1, status: "incomplete", result: {
+    error_code: "workouts_ai_budget_exceeded", workout: { ...workout, blocks: [] },
+    warnings: ["Source extraction could not finish"], evidence: [], source: { platform: "text", channels: [], coverage_notes: [] }
+  } });
+  await mount(ImportReview);
+  const view = JSON.stringify(renderer!.toJSON());
+  expect(view).toContain("usage limit"); expect(view).not.toContain("Source extraction could not finish");
+  expect(button("Add exercises manually")).toBeDefined();
+  expect(nodes("Button").some(node => node.props.title === "Save workout")).toBe(false);
 });

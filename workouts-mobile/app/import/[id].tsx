@@ -73,7 +73,7 @@ export default function ImportReview() {
   const [notice, setNotice] = useState("");
   const [caption, setCaption] = useState("");
   const captionWrites = useRef<Promise<void>>(Promise.resolve());
-  const [retryCommand, setRetryCommand] = useState<{ request_id: string; source: ExtractionRequest; auto_save: boolean } | null>(null);
+  const [retryCommand, setRetryCommand] = useState<{ request_id: string; source: ExtractionRequest; auto_save: boolean; saved_id?: string } | null>(null);
   const disclosure = usePublishingDisclosure();
   const [stateEpoch, setStateEpoch] = useState(epoch);
   const routeReady = stateEpoch === epoch;
@@ -233,10 +233,15 @@ export default function ImportReview() {
     }
   }
   async function retryExtraction() {
-    if (saving.current || !routeReady || !restored || !isCurrent() || !q.data || !capabilities.data) return;
+    if (saving.current || !routeReady || !restored || !isCurrent() || !q.data) return;
     saving.current = true; setBusy(true); setError("");
     try {
       current();
+      if (retryCommand?.saved_id) {
+        router.replace({ pathname: "/import/[id]", params: { id: retryCommand.saved_id } });
+        return;
+      }
+      if (!capabilities.data) return;
       await captionWrites.current.catch(() => undefined); current();
       const consent = await api.aiConsent(); current();
       if (!consent.accepted || consent.disclosure_version !== 1) throw Error("Review AI preferences in Settings before retrying this source.");
@@ -258,12 +263,14 @@ export default function ImportReview() {
       }
       const next = await api.startImport(command.request_id, command.source, q.data.generation,
         { auto_save: command.auto_save, is_public: false }); current();
+      command = { ...command, saved_id: next.id };
+      await localDrafts.save(owner, `import-retry:${generation}:${id}`, command); current();
+      setRetryCommand(command);
       await localDrafts.save(owner, `import-visibility:${generation}:${next.id}`, false); current();
       await updateImportReferences(localDrafts, owner, q.data.generation, current, items => [
         { id: next.id, generation: next.generation, label: command!.source.source_url ?? "Workout from source text", auto_save: command!.auto_save },
         ...items.filter(item => item.id !== next.id) ]); current();
       await cache.invalidateQueries({ queryKey: [owner, "imports"] }); current();
-      await localDrafts.remove(owner, `import-retry:${generation}:${id}`); current();
       await localDrafts.remove(owner, `import-retry-caption:${generation}:${id}`); current();
       router.replace({ pathname: "/import/[id]", params: { id: next.id } });
     } catch (e) { if (isCurrent()) setError((e as Error).message); }
@@ -311,6 +318,7 @@ export default function ImportReview() {
   const result = q.data?.result;
   const workout = (routeReady ? edited : null) ?? result?.workout;
   const hasExercises = !!workout?.blocks.some(block => block.exercises.length);
+  const usageLimitReached = result?.error_code === "workouts_ai_budget_exceeded";
   const discoverOn = capabilities.data?.discover === true;
   // The server refuses to publish an incomplete extraction accepted unchanged.
   const shareable =
@@ -379,7 +387,8 @@ export default function ImportReview() {
           <>
             <WorkoutSource source={{ source_title: workout?.source_title ?? result.source.title,
               source_creator: workout?.source_creator ?? result.source.creator, source_thumbnail_url: workout?.source_thumbnail_url }} />
-            {result.warnings.map((warning, index) => (
+            {usageLimitReached && <Notice tone="warning">AI importing has reached its usage limit. Your source stays saved. Try again later, or add the exercises manually.</Notice>}
+            {!usageLimitReached && result.warnings.map((warning, index) => (
               <Notice key={index} tone="warning">{warning}</Notice>
             ))}
             {result.source.coverage_notes.map((note, index) => (
@@ -524,7 +533,7 @@ export default function ImportReview() {
         )}
         {q.data && ["incomplete", "failed", "expired"].includes(q.data.status) && <Card compact>
           <Copy kind="heading">Try reading the source again</Copy>
-          <Copy kind="small">Paste the creator’s caption or instructions if the video could not be read. This creates a separate private import; your original saved workout stays unchanged.</Copy>
+          <Copy kind="small">Paste the creator’s caption or instructions if the video could not be read. This creates a separate private import. Your saved workouts stay unchanged.</Copy>
           <Field label="Caption or source instructions" multiline optional value={caption} onChange={value => {
             if (!routeReady || !restored || saving.current || retryCommand || !isCurrent()) return;
             setCaption(value);
@@ -534,9 +543,9 @@ export default function ImportReview() {
             captionWrites.current = next;
             void next.catch(() => { if (isCurrent()) setError("Could not keep this caption on your device. Stay here until the retry is saved."); });
           }} disabled={!restored || busy || !!retryCommand} />
-          {!!retryCommand && <Copy kind="small">Retrying the same saved request. Its source and caption stay unchanged until the request is recovered.</Copy>}
-          <Button title={retryCommand ? "Reconnect retry" : caption.trim() ? "Retry with this caption" : "Retry this source"} secondary busy={busy}
-            disabled={!restored || !routeReady || !capabilities.data?.imports} onPress={() => { void retryExtraction(); }} />
+          {!!retryCommand && <Copy kind="small">{retryCommand.saved_id ? "This retry is already saved. Open its import to continue." : "Retrying the same saved request. Its source and caption stay unchanged until the request is recovered."}</Copy>}
+          <Button title={retryCommand?.saved_id ? "Open retry import" : retryCommand ? "Reconnect retry" : caption.trim() ? "Retry with this caption" : "Retry this source"} secondary busy={busy}
+            disabled={!restored || !routeReady || (!retryCommand?.saved_id && !capabilities.data?.imports)} onPress={() => { void retryExtraction(); }} />
         </Card>}
         {q.data && importIsTerminal(q.data.status) && <>
           <Copy kind="small" tone="muted">Dismiss clears this import and its temporary source. Saved workouts stay in your library.</Copy>
