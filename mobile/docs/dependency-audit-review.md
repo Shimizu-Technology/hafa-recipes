@@ -40,3 +40,30 @@ SHA-256: `d21214340bca40e865eb1fe79d6ce94f67acab8e1f7b31c1c860dc29e4c816b0`.
 Bundle SHA-256: `79e303c61cc0593bf0689c734e8f40cc6d8f3a1edde836fbef8dccda5198f5b7`.
 These artifacts remain outside Git; native QA and EAS release evidence are
 recorded separately in `docs/RECIPE-COVER-SELECTION.md`.
+
+## October 14 SDK 57 patch refresh
+
+Against `ffd9768` plus this dependency patch, official Expo install checks align
+Expo 57.0.29, asset 57.0.20, auth-session 57.0.16, constants 57.0.22,
+linking 57.0.13, notifications 57.0.23 and Router 57.0.27. Fresh Node 22.22.3
+installs apply the existing share-intent patch. No native app configuration,
+widget module, React Native version or advisory exception changes.
+
+Expo CLI advances to 57.0.30. Its installed signing helper and certificate
+utility are byte-identical to the previously installed versions. Forge 1.4.0
+and braces 3.0.3 remain unchanged and remain the latest registry versions on
+this review date. Their build/signing trust boundaries above still apply.
+Only the CLI's exact version/integrity fingerprint changes in the audit policy;
+additional parents, changed edges, nested copies and expiry still fail closed.
+
+Fresh iOS/Android Hermes exports contain 2,913/2,997 sources. Both select native
+Clerk and the Router fork; neither includes forge, braces, micromatch, stream-json,
+Jayson or Solana sources. Export used explicit preview configuration with a
+nonproduction fixture API URL; no authentication or device acceptance is claimed.
+The iOS map SHA-256 is `2b761d21165fc46d76683d37092292cb1277c1e8105b754f8ec55ae0a25faa3b`;
+Android is `fa6074c8627cb7100cb59d4c8952724a7531c9dba5f994d3df94f4e034f2e4e4`.
+
+Production audit retains 48 inherited findings, the same advisory IDs and zero
+critical or unexpected findings. All 831 tests, typecheck and Doctor 21/21 pass.
+The November 3 expiry remains unchanged. Fresh native builds and normal affected
+journeys remain release gates; these exports are dependency reachability evidence.

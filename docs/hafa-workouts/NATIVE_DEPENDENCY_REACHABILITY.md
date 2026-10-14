@@ -219,3 +219,32 @@ and native Clerk selected in both Hermes bundles. The reviewed lock SHA-256 in
 `scripts/audit-runtime.mjs` is renewed to
 `21aa387ac1907783caa565d105190149c5a5121261a976a9f3569538a0a55d4d` for this
 lockfile only. The expiry remains 2026-11-03. No new advisory exception is included.
+
+## Expo SDK 57 patch refresh (2026-10-14)
+
+Official Expo install checks against `ffd9768` plus this patch align Expo
+57.0.29, UI 57.0.24, auth-session 57.0.16, constants 57.0.22, linking 57.0.13,
+notifications 57.0.23 and Router 57.0.27. Transitive asset/core modules and Expo
+build tools also advance. Fresh Node 22.22.3 installs preserve the SDK 57 native
+configuration, React Native 0.86.3 and scoped overrides.
+
+The fresh production audit retains 32 inherited findings and the same six
+advisory IDs, with zero critical or unexpected findings. Vulnerable package
+versions remain unchanged. Expo CLI 57.0.30's signing helper is byte-identical
+to the previously installed version. The Router 57.0.27 active fork still parses
+queries through URLSearchParams; the legacy decoder remains bundled and is not
+claimed removed. Registry checks still report forge 1.4.0 and braces 3.0.3 as
+latest, so the existing build/signing trust constraints remain required.
+
+Fresh iOS/Android Hermes maps contain 1,816/1,815 sources, select native Clerk
+and the Router fork, and contain no forge, braces, micromatch, stream-json,
+Jayson or Solana source. The existing native bundle gate passes. Map SHA-256:
+iOS `c6170d01acc2f152ffcb07df91a090de55f8d6e0b97eecf1a6826ff5ab27d135`;
+Android `7a3ce3e67d5404f4a9abcb48b2a7ac6b81a066b134473ce36d486f4e7bbdc8a0`.
+Web export, typecheck, Doctor 21/21 and 693 tests pass; one existing test is skipped.
+
+The exact reviewed lock SHA-256 is renewed to
+`ea7153452d99577858a84ae41ecd610b01df922c82705bfd984acda7ef0e1dd6`.
+No advisory IDs or exceptions are added, and the 2026-11-03 expiry and all
+fail-closed checks remain unchanged. These are bundle/source checks; fresh native
+builds and cold/warm share, OAuth and navigation acceptance remain separate gates.
