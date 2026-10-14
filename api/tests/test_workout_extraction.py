@@ -726,6 +726,7 @@ async def test_streamed_slideshow_images_bound_bytes_and_normalize(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("primary", ["malformed", "empty", "missing_dose", "missing_some_dose", "missing_movement",
+                                     "missing_inline_movement",
                                      "missing_dose_and_unsupported_movement",
                                      "partial_recovery_failed", "partial_recovery_denied",
                                      "partial_recovery_loses_context"])
@@ -781,7 +782,7 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
                 value = {"ingredients": []}
             elif primary == "empty":
                 value = {"title": "Empty extraction", "blocks": []}
-            elif primary in {"missing_movement", "partial_recovery_failed", "partial_recovery_denied",
+            elif primary in {"missing_movement", "missing_inline_movement", "partial_recovery_failed", "partial_recovery_denied",
                              "partial_recovery_loses_context"}:
                 value["blocks"][0]["exercises"].pop()
             elif primary == "missing_some_dose":
@@ -818,7 +819,8 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
     partial = primary in {"partial_recovery_failed", "partial_recovery_denied", "partial_recovery_loses_context"}
     fallback_failed = primary == "partial_recovery_failed"
     budget = FakeBudget(deny_at=2 if denied else None)
-    source = SourceBundle(SourceMetadata(url=REEL), [SourcePart("caption", REEL_CAPTION)])
+    caption = REEL_CAPTION.replace("\n10 x", " + 10 x") if primary == "missing_inline_movement" else REEL_CAPTION
+    source = SourceBundle(SourceMetadata(url=REEL), [SourcePart("caption", caption)])
     result = await ProductionExtractionProvider(
         budget_guard=budget, development_api_key="explicit-budget-test-key"
     ).extract(source)
@@ -1535,6 +1537,31 @@ def test_recovery_removes_unsupported_model_moves_and_keeps_grounded_squat_facts
             for item in candidate.blocks[0].exercises] == [("Squat", 8, 12, 90)]
     candidate.blocks[0].exercises[0].rest_seconds = None
     assert not _prescription_preserves(candidate, previous)
+
+
+@pytest.mark.parametrize("separator", [" + ", "; ", "\n"])
+def test_every_explicit_dose_is_checked_after_headings_and_across_separators(separator):
+    from app.domains.workouts.extraction import _missing_source_movements, _text_prescription_usable
+
+    caption = "3 rounds: 10x Clean + Press" + separator + "10x Row"
+    source = SourceBundle(SourceMetadata(), [SourcePart("provided_text", caption)])
+    raw = {"title": "Source circuit", "blocks": [{"id": "main", "label": "Circuit", "grouping": "circuit",
+        "rounds": 3, "evidence": [evidence("rounds", "3 rounds")], "exercises": [
+            {"name": "Clean + Press", "reps_min": 10, "reps_max": 10, "evidence": [
+                evidence("name", "Clean + Press"), evidence("reps_min", "10x Clean + Press"),
+                evidence("reps_max", "10x Clean + Press")]}]}]}
+    partial, warnings, _ = ground_workout(raw, source)
+    assert _missing_source_movements(partial, source)
+    assert not _text_prescription_usable(partial, warnings, source)
+    raw["blocks"][0]["exercises"].append({"name": "Row", "reps_min": 10, "reps_max": 10, "evidence": [
+        evidence("name", "Row"), evidence("reps_min", "10x Row"), evidence("reps_max", "10x Row")]})
+    complete, warnings, _ = ground_workout(raw, source)
+    assert not _missing_source_movements(complete, source)
+    assert _text_prescription_usable(complete, warnings, source)
+    assert [item.name for item in complete.blocks[0].exercises] == ["Clean + Press", "Row"]
+    raw["blocks"][0]["exercises"][1]["evidence"] = []
+    unsupported, _, _ = ground_workout(raw, source)
+    assert _missing_source_movements(unsupported, source)
 
 
 @pytest.mark.parametrize("quote", ["whole_line", "movement", "side_count"])

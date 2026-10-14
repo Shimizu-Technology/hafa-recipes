@@ -1098,11 +1098,17 @@ def _prescription_preserves(candidate: WorkoutContent, previous: WorkoutContent)
 
 def _missing_source_movements(workout: WorkoutContent, source: SourceBundle) -> bool:
     """Explicit caption rows must not silently disappear in a schema-valid result."""
-    names = [item.name.casefold() for block in workout.blocks for item in block.exercises]
+    names = [item.name.casefold() for block in workout.blocks for item in block.exercises
+             if _grounded_movement(item)]
     for part in source.parts:
         for line in part.text.splitlines():
-            if re.match(r"^\s*\d+\s*[x×]\s+[A-Za-z]", line):
-                if not any(name in line.casefold() for name in names):
+            # Creators also list multiple doses on one line or after a round
+            # heading. Check each explicit dose, without splitting a compound
+            # movement name such as 'Clean + Press'.
+            doses = list(re.finditer(r"(?<!\w)\d+\s*[x×]\s+[A-Za-z]", line))
+            for index, dose in enumerate(doses):
+                end = doses[index + 1].start() if index + 1 < len(doses) else len(line)
+                if not any(name in line[dose.start():end].casefold() for name in names):
                     return True
     return False
 
