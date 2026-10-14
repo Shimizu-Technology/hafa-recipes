@@ -39,8 +39,45 @@ from app.models.ai import AIInvocation
 
 MAX_MESSAGES_PER_DAY = 50
 MAX_CONTEXT_BYTES = 60000
+SOURCE_FLOW_MAX_QUOTES = 6
+SOURCE_FLOW_MAX_CHARACTERS = 2000
 MAX_CALLS = 3
 PROMPT_VERSION = "workouts-coach-2"
+
+
+def source_flow_context(workout):
+    """Only retained source quotations may cross the private-notes boundary.
+
+    Extraction grounds these block evidence entries before storing them. A later
+    private edit is not a source instruction merely because provenance is source.
+    The provider still treats these quotations as data, never instructions.
+    """
+    if workout.get("provenance") != "source":
+        return []
+    notes = workout.get("notes", [])
+    if not isinstance(notes, list):
+        return []
+    retained = {note for note in notes if isinstance(note, str)}
+    result, remaining = [], SOURCE_FLOW_MAX_CHARACTERS
+    for block in workout.get("blocks", []):
+        for entry in block.get("evidence", []):
+            wording = entry.get("wording")
+            field = entry.get("field")
+            if not isinstance(wording, str) or wording not in retained or not entry.get("location"):
+                continue
+            if field != "workout_notes" and not (
+                field in {"label", "grouping"}
+                and re.search(r"\bamrap\b|\brepeat(?:ing)?\b", wording, re.I)
+            ):
+                continue
+            if wording in result:
+                continue
+            # Keep whole quotations: partial instructions can change the workout.
+            if len(wording) > remaining or len(result) == SOURCE_FLOW_MAX_QUOTES:
+                continue
+            result.append(wording)
+            remaining -= len(wording)
+    return result
 
 
 class CoachRequest(DomainModel):
@@ -276,6 +313,8 @@ async def build_context(db, user_id, generation, consent, *, focus=None):
             "actual_limit": 12,
             "actual_sets_per_session": 20,
             "program_sessions_per_plan": 36,
+            "source_instruction_limit": SOURCE_FLOW_MAX_QUOTES,
+            "source_instruction_characters": SOURCE_FLOW_MAX_CHARACTERS,
         },
     }
     for model, label, limit in ((WorkoutRecord, "library", 10), (WorkoutsProgram, "programs", 3)):
@@ -305,7 +344,10 @@ async def build_context(db, user_id, generation, consent, *, focus=None):
                         return [clean(item) for item in value]
                     return value
 
-                item = {"id": str(row.id), "revision": row.revision, "content": clean(content)}
+                projected = clean(content)
+                if label == "library":
+                    projected["source_instructions"] = source_flow_context(content)
+                item = {"id": str(row.id), "revision": row.revision, "content": projected}
                 if label == "programs":
                     sessions = content.get("proposal", {}).get("sessions", [])
                     item["content"] = {
@@ -349,6 +391,9 @@ async def build_context(db, user_id, generation, consent, *, focus=None):
                 "program_id": str(row.source_program_id) if row.source_program_id else None,
                 "started_at": content.get("started_at"),
                 "status": content.get("status"),
+                "active_seconds": content.get("active_seconds"),
+                "activity_type": content.get("activity_type"),
+                "source_instructions": source_flow_context(content.get("prescription_snapshot", {})),
                 "is_current": corrected_by is None,
                 "corrected_by_session_id": str(corrected_by) if corrected_by else None,
                 "actuals": [
@@ -361,6 +406,9 @@ async def build_context(db, user_id, generation, consent, *, focus=None):
                             "round_index",
                             "side",
                             "reps",
+                            "duration_seconds",
+                            "distance_meters",
+                            "effort",
                             "load",
                             "load_unit",
                             "load_convention",

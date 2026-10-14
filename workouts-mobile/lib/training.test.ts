@@ -214,6 +214,7 @@ describe("durable actual training", () => {
     expect(request.client_session_id).toBe("new-client");
     expect(request.supersedes_session_id).toBe("cloud-id");
     expect(request.workout_revision).toBe(2);
+    expect(request.status).toBe("partial");
     expect("prescription_snapshot" in request).toBe(false);
   });
   it("keeps imperial profile display reversible without modifying prescription values", () => {

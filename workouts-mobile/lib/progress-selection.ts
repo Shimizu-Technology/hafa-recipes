@@ -129,7 +129,7 @@ export function selectProgressSessions(
     })),
     local: visibleLocal.map((node) => node.local!),
     remote: visibleRemote.map((node) => node.remote!),
-    sessions: [...nodes.values()].filter((node) => chosen.has(node.key)).map((node) => ({
+    sessions: [...nodes.values()].filter((node) => chosen.has(node.key) && applicable(node)).map((node) => ({
       started_at: content(node).started_at,
       recorded: content(node).actuals.some((actual) => actual.completed),
     })),

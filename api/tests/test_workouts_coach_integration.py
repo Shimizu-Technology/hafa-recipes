@@ -788,3 +788,41 @@ async def test_coach_equipment_change_updates_selected_location_only(coach_api):
     assert current["equipment"] == ["dumbbell"]
     assert current["equipment_locations"][0]["equipment"] == ["dumbbell"]
     assert current["equipment_locations"][1]["equipment"] == ["barbell"]
+
+
+async def test_coach_receives_source_flow_and_timed_actuals_without_private_notes(coach_api):
+    api = coach_api
+    workout = await create_workout(api)
+    identifier, client_id = uuid4(), uuid4()
+    flow = "Repeat the circuit for 20 minutes."
+    async with api.sessions() as db:
+        row = await db.get(WorkoutRecord, UUID(workout["id"]))
+        content = json.loads(json.dumps(row.content))
+        content.update(provenance="source", notes=[flow, "PRIVATE WORKOUT NOTE"])
+        content["blocks"][0]["evidence"] = [
+            {"field": "workout_notes", "wording": flow, "location": "caption"}
+        ]
+        row.content = content
+        actual = {
+            "client_session_id": str(client_id), "workout_id": str(row.id),
+            "status": "partial", "started_at": now().isoformat(), "active_seconds": 125,
+            "activity_type": "running", "notes": "PRIVATE SESSION NOTE",
+            "prescription_snapshot": content,
+            "actuals": [{"block_id": "main", "exercise_index": 0, "set_index": 1,
+                         "completed": True, "duration_seconds": 125, "distance_meters": 400,
+                         "effort": 7, "notes": "PRIVATE SET NOTE"}],
+        }
+        db.add(WorkoutsSession(id=identifier, app_user_id="owner", generation=1,
+                              client_session_id=client_id, request_hash=content_digest(actual),
+                              source_workout_id=row.id, content=actual))
+        await db.commit()
+    assert (await send(api)).status_code == 200
+    context = json.loads(api.provider.sent[-1][1]["content"].split("\n", 1)[1])
+    assert context["library"][0]["content"]["source_instructions"] == [flow]
+    result = context["actuals"][0]
+    assert result["active_seconds"] == 125 and result["activity_type"] == "running"
+    assert result["source_instructions"] == [flow]
+    assert result["actuals"][0]["duration_seconds"] == 125
+    assert result["actuals"][0]["distance_meters"] == 400
+    assert result["actuals"][0]["effort"] == 7
+    assert "PRIVATE" not in json.dumps(context)

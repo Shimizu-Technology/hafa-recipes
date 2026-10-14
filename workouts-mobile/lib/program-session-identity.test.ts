@@ -53,7 +53,7 @@ it.each([false, true])("real training.correct changes completion from recorded a
   const actuals = original.content.actuals.map((actual, index) => ({ ...actual,
     completed: !allSkipped && index === 0, reps: !allSkipped && index === 0 ? 8 : null }));
   await store.correct(original, actuals, "Corrected skipped work", "correction-client");
-  expect(store.snapshot().history[0].request.status).toBe("completed"); // The real correction copies the prior status.
+  expect(store.snapshot().history[0].request.status).toBe("partial");
   expect(completedProgramSessions([original], store.snapshot().history, 1, 100).has(key)).toBe(true);
   const accepted: TrainingSession = { ...original, id: "corrected", client_session_id: "correction-client",
     content: { ...store.snapshot().history[0].request, prescription_snapshot: original.content.prescription_snapshot } };

@@ -538,6 +538,10 @@ export function createTrainingStore(
           ...prior,
           client_session_id: id,
           actuals: clone(actuals),
+          // A correction can remove completed work; editing recorded cells cannot
+          // prove that unrecorded work from a partial session was performed.
+          status: prior.status === "completed" && actuals.length > 0 && actuals.every((actual) => actual.completed)
+            ? "completed" : "partial",
           notes,
           supersedes_session_id: saved.id,
         };

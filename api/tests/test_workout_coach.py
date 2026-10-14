@@ -9,6 +9,7 @@ from app.domains.workouts.coach import (
     ProductionCoachProvider,
     normalize_usage,
     response_parts,
+    source_flow_context,
     validate_inspected_ids,
 )
 from app.domains.workouts.coach_actions import health_derived, tool_definitions
@@ -226,3 +227,35 @@ async def test_provider_error_never_exposes_response_details(monkeypatch):
     with pytest.raises(CoachFailure) as error:
         await ProductionCoachProvider(budget_guard=FakeBudget()).respond([], tools=[])
     assert str(error.value) == "provider_unavailable"
+
+
+def test_source_flow_preserves_only_grounded_retained_quotations_and_never_private_notes():
+    flow = "Repeat the circuit for 20 minutes."
+    workout = {
+        "provenance": "source",
+        "notes": [flow, "PRIVATE NOTE"],
+        "blocks": [{"evidence": [
+            {"field": "workout_notes", "wording": flow, "location": "caption"},
+            {"field": "notes", "wording": "PRIVATE NOTE", "location": "caption"},
+            {"field": "workout_notes", "wording": "UNRETAINED SOURCE", "location": "caption"},
+            {"field": "workout_notes", "wording": "PRIVATE NOTE", "location": None},
+        ]}],
+    }
+    before = json.dumps(workout)
+    assert source_flow_context(workout) == [flow]
+    assert json.dumps(workout) == before
+    assert source_flow_context(workout | {"provenance": "user"}) == []
+    assert source_flow_context(workout | {"provenance": "suggestion"}) == []
+    assert source_flow_context(workout | {"notes": []}) == []
+
+
+def test_source_flow_bounds_whole_quotes_and_supports_legacy_grouping_evidence():
+    notes = ["AMRAP: repeat for 20 minutes.", "x" * 2001] + [f"Repeat round {i}" for i in range(10)]
+    workout = {"provenance": "source", "notes": notes, "blocks": [{"evidence": [
+        {"field": "grouping" if i == 0 else "workout_notes", "wording": note, "location": "caption"}
+        for i, note in enumerate(notes)
+    ]}]}
+    result = source_flow_context(workout)
+    assert result[0] == notes[0] and notes[1] not in result
+    assert len(result) == 6 and sum(map(len, result)) <= 2000
+    assert all(quote in notes for quote in result)
