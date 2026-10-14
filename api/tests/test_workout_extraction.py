@@ -816,3 +816,347 @@ async def test_image_only_pdf_is_honest_and_never_invokes_model():
     )
     assert result.error_code == "document_needs_images"
     assert not provider.calls
+
+
+async def mock_video_acquirer(monkeypatch, *, duration=30, visual=False, failure=None, empty=False):
+    """Keep regression cases on actual acquisition/grounding with no external calls."""
+    from app.services.video import VideoMetadata
+
+    async def public(url):
+        return None
+
+    async def normalize(url):
+        return url
+
+    async def metadata(url):
+        return (
+            VideoMetadata()
+            if empty
+            else VideoMetadata(
+                title="Creator workout",
+                description=TEXT,
+                uploader="Creator",
+                duration=duration,
+                thumbnail="https://example.com/cover.jpg",
+            )
+        )
+
+    async def oembed(url, platform):
+        return VideoMetadata()
+
+    async def audio(url):
+        if failure == "audio":
+            raise RuntimeError("private acquisition details")
+        return SimpleNamespace(success=False, file_path=None)
+
+    async def frames(url):
+        if failure == "frames":
+            raise RuntimeError("private acquisition details")
+        return SimpleNamespace(
+            success=visual,
+            frames=[
+                SimpleNamespace(
+                    timestamp_seconds=10,
+                    image_base64=image_data(),
+                )
+            ]
+            if visual
+            else [],
+        )
+
+    service = SimpleNamespace(
+        detect_platform=lambda _: "instagram",
+        normalize_url=normalize,
+        get_video_metadata_ytdlp=metadata,
+        fetch_oembed=oembed,
+        is_tiktok_photo_post=lambda _: False,
+        download_audio=audio,
+        extract_video_frames=frames,
+    )
+    monkeypatch.setattr("app.services.video.video_service", service)
+    monkeypatch.setattr("app.domains.workouts.extraction.assert_public_http_url", public)
+    return service
+
+
+INSTAGRAM = "https://www.instagram.com/reel/DecwoqXS9ts/"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "duration,expected",
+    [
+        (30.5, 31),
+        (None, None),
+        (float("nan"), None),
+        (float("inf"), None),
+        (-1, None),
+        (0, None),
+        (True, None),
+    ],
+)
+async def test_video_duration_normalization_preserves_complete_caption(
+    monkeypatch, duration, expected
+):
+    await mock_video_acquirer(monkeypatch, duration=duration)
+    result = await WorkoutExtractor(FakeProvider(complete_workout("caption"))).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
+    )
+    assert result.status == "ready" and result.error_code is None
+    assert result.source.duration_seconds == expected
+    assert (
+        result.workout.source_title == "Creator workout"
+        and result.workout.source_creator == "Creator"
+    )
+    assert result.source.thumbnail_url == "https://example.com/cover.jpg"
+    assert result.warnings == [] and len(result.source.coverage_notes) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("truncated", [False, True])
+async def test_caption_truncation_checks_normalized_content(monkeypatch, truncated):
+    service = await mock_video_acquirer(monkeypatch)
+    original = service.get_video_metadata_ytdlp
+    description = TEXT + "\n" + "x" * 12_000 if truncated else " " * 12_001 + TEXT + "\n" * 100
+
+    async def metadata(url):
+        value = await original(url)
+        value.description = description
+        return value
+
+    service.get_video_metadata_ytdlp = metadata
+    provider = FakeProvider(complete_workout("caption"))
+    result = await WorkoutExtractor(provider).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
+    )
+    assert provider.calls[0].parts[0].text == description.strip()[:12_000]
+    assert result.status == ("incomplete" if truncated else "ready")
+    assert result.warnings == (
+        ["Caption text was truncated to the extraction limit."] if truncated else []
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["audio", "frames"])
+async def test_optional_video_exceptions_keep_caption_and_metadata(monkeypatch, failure):
+    await mock_video_acquirer(monkeypatch, failure=failure)
+    result = await WorkoutExtractor(FakeProvider(complete_workout("caption"))).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
+    )
+    assert result.status == "ready" and result.workout.blocks[0].exercises[0].sets == 3
+    assert result.source.title == "Creator workout" and result.workout.capture_kind == "url"
+    assert "private acquisition details" not in result.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_acquired_frames_do_not_downgrade_text_grounded_prescription(monkeypatch):
+    await mock_video_acquirer(monkeypatch, visual=True)
+    result = await WorkoutExtractor(FakeProvider(complete_workout("caption"))).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
+    )
+    assert result.status == "ready" and result.warnings == []
+    assert result.source.channels == ["caption", "visual"]
+    assert result.workout.blocks[0].exercises[0].rest_seconds == 90
+
+
+@pytest.mark.asyncio
+async def test_video_visual_dependent_prescription_still_requires_review(monkeypatch):
+    await mock_video_acquirer(monkeypatch, visual=True)
+    result = await WorkoutExtractor(FakeProvider(complete_workout("image:0"))).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
+    )
+    assert result.status == "incomplete" and result.workout.blocks
+    assert any("model-observed" in warning for warning in result.warnings)
+
+
+@pytest.mark.asyncio
+async def test_public_instagram_metadata_recovers_caption_when_downloads_fail(monkeypatch):
+    import app.domains.workouts.extraction as module
+
+    await mock_video_acquirer(monkeypatch, empty=True)
+    html = f"""<meta property="og:title" content="Creator on Instagram: Kettlebell workout">
+    <meta property="og:description" content="{TEXT}">
+    <meta property="og:image" content="https://example.com/cover.jpg">"""
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, headers={"content-type": "text/html"}, text=html)
+    )
+    monkeypatch.setattr(module, "PublicHTTPTransport", lambda: transport)
+    result = await WorkoutExtractor(FakeProvider(complete_workout("caption"))).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
+    )
+    assert result.status == "ready" and result.workout.source_creator == "Creator"
+    assert result.source.title == "Creator on Instagram: Kettlebell workout"
+    assert result.source.thumbnail_url == "https://example.com/cover.jpg"
+    assert result.workout.blocks[0].exercises[0].sets == 3
+
+
+@pytest.mark.asyncio
+async def test_oembed_fills_missing_metadata_without_replacing_known_caption(monkeypatch):
+    from app.services.video import VideoMetadata
+
+    service = await mock_video_acquirer(monkeypatch)
+
+    async def metadata(url):
+        return VideoMetadata(description=TEXT)
+
+    async def oembed(url, platform):
+        return VideoMetadata(
+            title="oEmbed title",
+            uploader="oEmbed creator",
+            thumbnail="https://example.com/oembed.jpg",
+        )
+
+    service.get_video_metadata_ytdlp, service.fetch_oembed = metadata, oembed
+    result = await WorkoutExtractor(FakeProvider(complete_workout("caption"))).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
+    )
+    assert result.status == "ready" and result.workout.source_title == "oEmbed title"
+    assert result.workout.source_creator == "oEmbed creator"
+
+
+@pytest.mark.asyncio
+async def test_instagram_login_redirect_is_not_treated_as_workout_metadata(monkeypatch):
+    import app.domains.workouts.extraction as module
+
+    await mock_video_acquirer(monkeypatch, empty=True)
+    transport = httpx.MockTransport(
+        lambda request: (
+            httpx.Response(302, headers={"location": "/accounts/login/"})
+            if request.url.path.startswith("/reel/")
+            else httpx.Response(
+                200,
+                headers={"content-type": "text/html"},
+                text='<meta property="og:title" content="Instagram login"><meta property="og:description" content="Squat 3 sets">',
+            )
+        )
+    )
+    monkeypatch.setattr(module, "PublicHTTPTransport", lambda: transport)
+    provider = FakeProvider(complete_workout("caption"))
+    result = await WorkoutExtractor(provider).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
+    )
+    assert result.error_code == "insufficient_source" and not provider.calls
+    assert result.source.title is None and result.workout.capture_kind == "url"
+
+
+@pytest.mark.asyncio
+async def test_provider_failure_draft_retains_capture_and_creator_context(monkeypatch):
+    await mock_video_acquirer(monkeypatch)
+    result = await WorkoutExtractor(
+        FakeProvider(error=ExtractionFailure("provider_failed"))
+    ).extract(ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True))
+    assert result.error_code == "provider_failed"
+    assert result.workout.capture_kind == "url"
+    assert (
+        result.workout.source_title == "Creator workout"
+        and result.workout.source_creator == "Creator"
+    )
+
+
+@pytest.mark.asyncio
+async def test_duration_limit_keeps_source_metadata_without_acquiring_media(monkeypatch):
+    await mock_video_acquirer(monkeypatch, duration=999999)
+    result = await WorkoutExtractor(FakeProvider()).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
+    )
+    assert result.error_code == "video_duration_limit" and not result.workout.blocks
+    assert (
+        result.workout.source_title == "Creator workout"
+        and result.workout.source_creator == "Creator"
+    )
+
+
+@pytest.mark.asyncio
+async def test_redundant_visual_evidence_does_not_override_complete_caption(monkeypatch):
+    await mock_video_acquirer(monkeypatch, visual=True)
+    raw = complete_workout("caption")
+    item = raw["blocks"][0]["exercises"][0]
+    item["evidence"] += [dict(entry, location="image:0") for entry in item["evidence"]]
+    result = await WorkoutExtractor(FakeProvider(raw)).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
+    )
+    assert result.status == "ready" and result.warnings == []
+
+
+@pytest.mark.asyncio
+async def test_model_cannot_supply_server_owned_warnings_or_durable_cover():
+    raw = complete_workout()
+    raw.update(
+        extraction_warnings=["Invented warning"],
+        source_thumbnail_url="https://example.com/spoof.jpg",
+    )
+    result = await WorkoutExtractor(FakeProvider(raw)).extract(
+        ExtractionRequest(kind="text", text=TEXT, ai_consent=True)
+    )
+    assert result.status == "ready" and result.warnings == []
+    assert getattr(result.workout, "extraction_warnings", []) == []
+    assert getattr(result.workout, "source_thumbnail_url", None) is None
+
+
+def test_provider_schema_filters_declared_server_owned_fields(monkeypatch):
+    import app.domains.workouts.extraction as module
+
+    class ServerOwnedWorkout(module.WorkoutContent):
+        extraction_warnings: list[str]
+        source_thumbnail_url: str | None
+
+    fields = {"extraction_warnings", "source_thumbnail_url"}
+    declared = ServerOwnedWorkout.model_json_schema()
+    assert fields <= declared["properties"].keys()
+    assert fields <= set(declared["required"])
+    monkeypatch.setattr(module, "WorkoutContent", ServerOwnedWorkout)
+    schema = workout_response_format()["json_schema"]["schema"]
+    assert fields.isdisjoint(schema["properties"])
+    assert fields.isdisjoint(schema["required"])
+
+
+@pytest.mark.asyncio
+async def test_aggregate_media_deadline_keeps_complete_caption_and_skips_later_download(
+    monkeypatch,
+):
+    import app.domains.workouts.extraction as module
+
+    service = await mock_video_acquirer(monkeypatch)
+    calls = []
+
+    async def stalled_audio(url):
+        calls.append("audio")
+        await asyncio.Event().wait()
+
+    async def frames(url):
+        calls.append("frames")
+        return SimpleNamespace(success=False, frames=[])
+
+    service.download_audio, service.extract_video_frames = stalled_audio, frames
+    monkeypatch.setattr(module, "MAX_ACQUISITION_SECONDS", 0.01)
+    result = await WorkoutExtractor(FakeProvider(complete_workout("caption"))).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
+    )
+    assert calls == ["audio"]
+    assert result.status == "ready" and result.warnings == []
+    assert result.workout.source_title == "Creator workout" and result.workout.blocks
+    assert len(result.source.coverage_notes) == 2
+    assert all("time limit" in note for note in result.source.coverage_notes)
+
+
+@pytest.mark.asyncio
+async def test_transcription_deadline_cleans_audio_and_preserves_caption(monkeypatch):
+    import app.domains.workouts.extraction as module
+
+    service = await mock_video_acquirer(monkeypatch)
+    cleaned = []
+
+    async def audio(url):
+        return SimpleNamespace(success=True, file_path="synthetic-no-real-file")
+
+    async def transcribe(path):
+        await asyncio.Event().wait()
+
+    service.download_audio, service.cleanup_audio_file = audio, cleaned.append
+    provider = FakeProvider(complete_workout("caption"))
+    provider.transcribe = transcribe
+    monkeypatch.setattr(module, "MAX_ACQUISITION_SECONDS", 0.01)
+    result = await WorkoutExtractor(provider).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
+    )
+    assert cleaned == ["synthetic-no-real-file"]
+    assert result.status == "ready" and result.workout.source_creator == "Creator"
