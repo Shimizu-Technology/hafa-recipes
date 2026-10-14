@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect, useRef } from "react";
+import { useCallback, useState, useEffect, useLayoutEffect, useRef } from "react";
 import { AppState } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,7 +19,8 @@ export function ImportList() {
   const cache = useQueryClient();
   const reconciled = useRef(new Set<string>());
   const reads = useRef(0);
-  const live = useRef({ scope, isCurrentAccount }); live.current = { scope, isCurrentAccount };
+  const live = useRef({ scope, isCurrentAccount });
+  useLayoutEffect(() => { live.current = { scope, isCurrentAccount }; }, [scope, isCurrentAccount]);
   const reloadDeviceImports = useCallback((alive: () => boolean) => {
     const read = ++reads.current;
     const current = () => alive() && read === reads.current && live.current.scope === scope && storage.isCurrent() && live.current.isCurrentAccount();
