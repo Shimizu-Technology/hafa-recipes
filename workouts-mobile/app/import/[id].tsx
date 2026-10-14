@@ -19,6 +19,7 @@ import type { AuthoredWorkout } from "@/lib/models";
 import { usePublishingDisclosure } from "@/components/publishing-disclosure";
 import { DECLINED, INCOMPLETE_MESSAGE, defaultShareToDiscover, isIncomplete, publishable, prescriptionLine, formatSeconds } from "@/lib/discover";
 import { WorkoutSource } from "@/components/workout-source";
+import { ImportProgress } from "@/components/import-progress";
 export default function ImportReview() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
@@ -337,20 +338,14 @@ export default function ImportReview() {
       subtitle={savedDraft ? "Saved privately in your library. Check the missing details before training." : savedId ? "Ready in your library. Check or edit the details whenever you need." : busy ? "Saving your workout…" : "Your source becomes a workout you can use."}>
       <QueryState
         loading={q.isPending}
-        error={q.error}
+        error={q.data && ["queued", "processing"].includes(q.data.status) ? null : q.error}
         retry={() => {
           void q.refetch();
         }}
       >
         {q.data && ["queued", "processing"].includes(q.data.status) && (
-          <Card>
-            <ActivityIndicator accessibilityLabel="Extracting your workout" />
-            <Copy kind="caption" tone="accent">{q.data.status === "queued" ? "Queued for extraction" : "Reading your workout"}</Copy>
-            <Copy kind="heading">{q.data.status === "queued" ? "Your source is queued" : "Finding exercises and instructions"}</Copy>
-            {q.data.attempt_count > 1 && <Copy kind="small" tone="muted">Retrying the source · attempt {q.data.attempt_count}</Copy>}
-            <Copy tone="muted">You can keep browsing. {capabilities.data?.server_auto_save ? "Your workout saves to your library when it is ready." : "The import continues in the background."}</Copy>
-            <Button title="Back to my library" secondary onPress={() => router.replace("/(tabs)/library")} />
-          </Card>
+          <ImportProgress job={q.data} autoSave={capabilities.data?.server_auto_save} connectionError={q.error} refreshing={q.isFetching} active={visible && active}
+            refresh={() => { void q.refetch(); }} openLibrary={() => router.replace("/(tabs)/library")} />
         )}
         {!!q.data?.accepted_workout_id && (
           <>

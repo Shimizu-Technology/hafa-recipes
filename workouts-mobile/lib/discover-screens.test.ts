@@ -427,7 +427,7 @@ it("Library cards retain the source cover and creator while marking unresolved s
 });
 it("saved detail retains source metadata and prevents starting a source-only draft with no exercises", async () => {
   fixture.params = { id: "source-only" }; fixture.capabilities.mockResolvedValue(caps(false));
-  fixture.workout.mockResolvedValue({ ...saved, blocks: [], source_title: "Original clip", source_creator: "Creator",
+  fixture.workout.mockResolvedValue({ ...saved, blocks: [], source_url: "https://example.test/source", source_title: "Original clip", source_creator: "Creator",
     source_thumbnail_url: "https://example.test/cover.jpg", extraction_warnings: ["No readable instructions"] });
   await mount(WorkoutDetail);
   expect(button("Start this workout")!.props.disabled).toBe(true);
@@ -435,6 +435,8 @@ it("saved detail retains source metadata and prevents starting a source-only dra
   expect(nodes("SourceImage")[0].props.uri).toBe("https://example.test/cover.jpg");
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
   expect(text).toContain("No readable instructions"); expect(button("Check details")).toBeDefined();
+  await act(async () => button("Recover from caption or source")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/recover-workout/[id]", params: { id: saved.id } });
 });
 
 it("defaults Share to Discover off for photo imports and saves privately", async () => {

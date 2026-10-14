@@ -188,6 +188,7 @@ vi.mock("expo-share-intent", () => ({
 }));
 import { ShareCapture } from "../components/share-capture";
 import ImportReview from "../app/import/[id]";
+import RecoverWorkout from "../app/recover-workout/[id]";
 import Capture from "../app/capture";
 import AddWorkout from "../app/add-workout";
 import Profile from "../app/profile";
@@ -1972,4 +1973,68 @@ it("restores caption recovery input after leaving an unfinished source", async (
   await act(async () => nodes("Field").find(node => node.props.label === "Caption or source instructions")!.props.onChange("Squat 10 reps"));
   await settle(); await unmount(); await mount(ImportReview);
   expect(nodes("Field").find(node => node.props.label === "Caption or source instructions")!.props.value).toBe("Squat 10 reps");
+});
+
+it("recovers a saved empty source privately without replacing the original workout or capture composer", async () => {
+  fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.workout.mockResolvedValue({ ...workout, source_url: "https://example.test/source", blocks: [] });
+  const originalCapture = JSON.stringify({ request_id: "another-source", generation: 1, kind: "text", text: "Unfinished source", files: [] });
+  fixture.map.set(draftKey(fixture.owner, "capture:1"), originalCapture);
+  fixture.startImport.mockResolvedValue({ id: "recovery-job", generation: 1, status: "queued" });
+  await mount(RecoverWorkout);
+  expect(nodes("Field").find(node => node.props.label === "Original source link")!.props.value).toBe("https://example.test/source");
+  await act(async () => nodes("Field").find(node => node.props.label === "Creator caption or transcript")!.props.onChange("10 squats for 20 minutes"));
+  await click("Recover as a private import");
+  expect(fixture.startImport).toHaveBeenCalledWith(expect.any(String), { kind: "url", source_url: "https://example.test/source", text: "10 squats for 20 minutes", ai_consent: true }, 1, { auto_save: true, is_public: false });
+  expect(fixture.map.get(draftKey(fixture.owner, "capture:1"))).toBe(originalCapture);
+  expect(fixture.updateWorkout).not.toHaveBeenCalled(); expect(fixture.acceptImport).not.toHaveBeenCalled();
+  expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/import/[id]", params: { id: "recovery-job" } });
+  await unmount(); await mount(RecoverWorkout);
+  expect(button("Open recovery import")).toBeDefined(); expect(fixture.startImport).toHaveBeenCalledTimes(1);
+});
+
+it("reconnects the exact private recovery request after remount even when saving capabilities change", async () => {
+  fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.workout.mockResolvedValue({ ...workout, source_url: "https://example.test/source", blocks: [] });
+  fixture.startImport.mockRejectedValueOnce(Error("Lost acknowledgement"));
+  await mount(RecoverWorkout); await click("Recover as a private import");
+  const original = fixture.startImport.mock.calls[0]; await unmount();
+  fixture.capabilities.mockResolvedValue({ ...serverCaps, server_auto_save: false });
+  fixture.startImport.mockResolvedValue({ id: "recovered-job", generation: 1, status: "queued" });
+  await mount(RecoverWorkout); expect(nodes("Field")[0].props.disabled).toBe(true); await click("Reconnect recovery");
+  expect(fixture.startImport.mock.calls[1]).toEqual(original);
+});
+
+it("does not silently restore revoked AI consent while recovering an existing source", async () => {
+  fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.workout.mockResolvedValue({ ...workout, source_url: "https://example.test/source" });
+  fixture.aiConsent.mockResolvedValueOnce({ accepted: true, disclosure_version: 1 }).mockResolvedValue({ accepted: false, disclosure_version: 1 });
+  await mount(RecoverWorkout); await click("Recover as a private import");
+  expect(fixture.setAiConsent).not.toHaveBeenCalled(); expect(fixture.startImport).not.toHaveBeenCalled();
+  expect(button("Agree and recover privately")).toBeDefined();
+});
+
+it("an old recovery cannot send after route A to B to A reuse", async () => {
+  fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.workout.mockResolvedValue({ ...workout, source_url: "https://example.test/source" });
+  const held = deferred<{ accepted: boolean; disclosure_version: number }>();
+  fixture.aiConsent.mockResolvedValueOnce({ accepted: true, disclosure_version: 1 }).mockReturnValueOnce(held.promise).mockResolvedValue({ accepted: true, disclosure_version: 1 });
+  await mount(RecoverWorkout); await click("Recover as a private import");
+  fixture.params = { id: "other" }; await rerender(RecoverWorkout);
+  fixture.params = { id: "workout" }; await rerender(RecoverWorkout);
+  await act(async () => held.resolve({ accepted: true, disclosure_version: 1 })); await settle();
+  expect(fixture.startImport).not.toHaveBeenCalled();
+});
+
+it("keeps cached import progress and offers reconnect when a status refresh loses connection", async () => {
+  fixture.params = { id: "job-A" };
+  const job = { id: "job-A", generation: 1, status: "processing", attempt_count: 2 };
+  cache.setQueryData([fixture.owner, "import", "job-A", 1], job);
+  fixture.importJob.mockRejectedValue(Error("Network unavailable"));
+  await mount(ImportReview);
+  expect(nodes("QueryState")[0].props.error).toBeNull();
+  expect(button("Reconnect to check progress")).toBeDefined();
+  expect(JSON.stringify(renderer!.toJSON())).toContain("Could not refresh progress");
+  fixture.importJob.mockResolvedValue(job); await click("Reconnect to check progress");
+  expect(button("Refresh import status")).toBeDefined(); expect(fixture.cancelImport).not.toHaveBeenCalled();
 });

@@ -88,6 +88,7 @@ function Routes() {
         <Stack.Screen name="capture" />
         <Stack.Screen name="import/[id]" />
         <Stack.Screen name="edit-workout/[id]" />
+        <Stack.Screen name="recover-workout/[id]" />
         <Stack.Screen name="coach" />
         <Stack.Screen name="coach-action/[id]" />
         <Stack.Screen name="build-plan" />
