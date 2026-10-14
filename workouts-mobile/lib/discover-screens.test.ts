@@ -28,6 +28,8 @@ const fixture = vi.hoisted(() => ({
   toast: vi.fn(),
   map: new Map<string, string>(),
   focus: false,
+  appState: "active",
+  appStateListeners: new Set<(state: string) => void>(),
   current: true,
   load: vi.fn(),
   saveDraft: vi.fn(),
@@ -89,7 +91,9 @@ vi.mock("react-native", () => ({
   ActivityIndicator: "ActivityIndicator",
   View: "View",
   Image: "Image",
-  AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
+  AppState: { get currentState() { return fixture.appState; }, addEventListener: (_event: string, listener: (state: string) => void) => {
+    fixture.appStateListeners.add(listener); return { remove() { fixture.appStateListeners.delete(listener); } };
+  } },
   Linking: { openURL: vi.fn(async () => undefined) },
 }));
 vi.mock("expo-router", async () => {
@@ -169,6 +173,7 @@ beforeEach(() => {
     fixture.push, fixture.replace, fixture.toast]) mock.mockReset();
   fixture.params = {};
   fixture.focus = false;
+  fixture.appState = "active"; fixture.appStateListeners.clear();
   fixture.current = true;
   fixture.load.mockReset().mockImplementation(async (_owner, scope) => fixture.map.has(scope) ? JSON.parse(fixture.map.get(scope)!)
     : scope.startsWith("imports:") && fixture.params.auto === "1" ? [{ id: "job", label: "Shared link", generation: 1, auto_save: true }] : null);
@@ -302,6 +307,47 @@ it("defaults Share to Discover on for link imports and publishes on accept", asy
   expect(choice("Share to Discover")!.props.selected).toBe(true);
   await reviewAndSave("Save and share to Discover");
   expect(fixture.acceptImport).toHaveBeenCalledWith("job", expect.objectContaining({ title: card.title }), 1, true, true);
+});
+it("refreshes a warm empty inbox and saved library after sharing while the focused app is backgrounded", async () => {
+  fixture.focus = true; fixture.capabilities.mockResolvedValue({ ...caps(false), server_auto_save: true });
+  fixture.searchLibrary.mockResolvedValue({ items: [], total: 0, has_more: false });
+  await mount(Library);
+  expect(fixture.importJobs).toHaveBeenCalledTimes(1); expect(nodes("MediaCard")).toHaveLength(0);
+  const change = async (state: string) => {
+    fixture.appState = state;
+    await act(async () => { for (const listener of [...fixture.appStateListeners]) listener(state); });
+    await settle();
+  };
+  await change("background");
+  const job = { ...importJob("url"), status: "processing", result: null };
+  fixture.importJobs.mockResolvedValue([job]); fixture.importJob.mockResolvedValue(job);
+  fixture.map.set("imports:1", JSON.stringify([{ id: "job", label: "Shared source" }]));
+  await change("active");
+  expect(fixture.importJobs).toHaveBeenCalledTimes(2); expect(button("Open import")).toBeDefined();
+  expect(fixture.load.mock.calls.filter(([, key]) => key === "imports:1")).toHaveLength(2);
+  await change("background");
+  fixture.importJobs.mockResolvedValue([{ ...importJob("url"), accepted_workout_id: saved.id }]);
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  await change("active");
+  expect(fixture.importJobs).toHaveBeenCalledTimes(3);
+  expect(fixture.searchLibrary).toHaveBeenCalledTimes(2); expect(nodes("MediaCard")).toHaveLength(1);
+  expect(button("Open import")).toBeUndefined();
+});
+it("reloads device imports on foreground only for the current account on legacy servers", async () => {
+  fixture.focus = true; fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.importJob.mockResolvedValue({ ...importJob("url"), status: "processing", result: null });
+  await mount(ImportList);
+  const change = async (state: string) => {
+    fixture.appState = state;
+    await act(async () => { for (const listener of [...fixture.appStateListeners]) listener(state); });
+    await settle();
+  };
+  await change("background");
+  fixture.map.set("imports:1", JSON.stringify([{ id: "job", label: "Device source" }]));
+  fixture.current = false; await change("active");
+  expect(button("Open import")).toBeUndefined();
+  fixture.current = true; await change("background"); await change("active");
+  expect(button("Open import")).toBeDefined(); expect(fixture.importJobs).not.toHaveBeenCalled();
 });
 it("recovers a pending server import on a device without local references", async () => {
   fixture.focus = true; fixture.capabilities.mockResolvedValue({ ...caps(true), server_auto_save: true });

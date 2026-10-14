@@ -18,32 +18,42 @@ export function ImportList() {
   const [active, setActive] = useState(AppState.currentState === "active");
   const cache = useQueryClient();
   const reconciled = useRef(new Set<string>());
+  const reads = useRef(0);
+  const live = useRef({ scope, isCurrentAccount }); live.current = { scope, isCurrentAccount };
+  const reloadDeviceImports = useCallback((alive: () => boolean) => {
+    const read = ++reads.current;
+    const current = () => alive() && read === reads.current && live.current.scope === scope && storage.isCurrent() && live.current.isCurrentAccount();
+    void localDrafts.load<Array<{ id: string; label: string; auto_save?: boolean }>>(owner, `imports:${enrollment?.generation}`)
+      .then(value => { if (current()) { setItems(value ?? []); setItemScope(scope); } })
+      .catch(() => { if (current()) setDeviceError("Could not restore this device’s imports. Server imports are still available when connected."); });
+  }, [localDrafts, owner, enrollment?.generation, scope, storage]);
   const capabilities = useQuery({ queryKey: [owner, "capabilities", enrollment?.generation], queryFn: api.capabilities,
     enabled: !!enrollment?.enrolled && visible, staleTime: 60000 });
   const server = useQuery({ queryKey: [owner, "imports", enrollment?.generation], queryFn: () => api.importJobs(),
     enabled: !!enrollment?.enrolled && visible && capabilities.data?.server_auto_save === true,
     refetchInterval: query => visible && active && query.state.data?.some(job => !importIsTerminal(job.status)) ? 4000 : false });
   useEffect(() => {
-    const listener = AppState.addEventListener("change", state => setActive(state === "active"));
-    return () => listener.remove();
-  }, []);
+    let alive = true;
+    const listener = AppState.addEventListener("change", state => {
+      setActive(state === "active");
+      if (state !== "active" || !alive || live.current.scope !== scope || !visible || !enrollment?.enrolled || !storage.isCurrent() || !live.current.isCurrentAccount()) return;
+      reloadDeviceImports(() => alive);
+      // An empty cached inbox has no polling timer. A source-app share can
+      // create its first server import while this library remains focused.
+      if (capabilities.data?.server_auto_save === true) void server.refetch();
+    });
+    return () => { alive = false; listener.remove(); };
+  }, [visible, scope, enrollment?.enrolled, reloadDeviceImports, capabilities.data?.server_auto_save, server.refetch, storage]);
   useFocusEffect(
     useCallback(() => {
       let active = true;
       setVisible(true); setItems([]); setDeviceError("");
-      void localDrafts
-        .load<Array<{ id: string; label: string; auto_save?: boolean }>>(owner, `imports:${enrollment?.generation}`)
-        .then((value) => {
-          if (active) { setItems(value ?? []); setItemScope(scope); }
-        })
-        .catch(() => {
-          if (active) setDeviceError("Could not restore this device’s imports. Server imports are still available when connected.");
-        });
+      reloadDeviceImports(() => active);
       return () => {
         active = false;
         setVisible(false);
       };
-    }, [owner, enrollment?.generation])
+    }, [reloadDeviceImports])
   );
   useEffect(() => {
     const completed = (server.data ?? []).filter(job => job.generation === enrollment?.generation && job.accepted_workout_id && !reconciled.current.has(`${owner}:${job.generation}:${job.id}`));
