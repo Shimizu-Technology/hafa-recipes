@@ -190,14 +190,32 @@ export function ShareCapture() {
             problem = cleanup;
           }
         }
-        if (current)
+        if (current && native) {
+          let decided = false;
+          const later = () => { try { guard(); if (!decided) { decided = true; setNative(null); } } catch {} };
+          const discard = async () => {
+            if (decided) return;
+            try {
+              guard(); decided = true;
+              if (!(await NativeShare.acknowledge(native.captureKey))) throw Error("Your shared source is still saved. Reopen Workouts to try clearing it again.");
+              guard(); resetShareIntent();
+            } catch (failure) {
+              try { guard(); } catch { return; }
+              Alert.alert("Could not clear shared source", failure instanceof Error ? failure.message : "Your shared source is still saved. Reopen Workouts to retry.");
+              setNative(null);
+            }
+          };
+          Alert.alert("Could not save shared source", problem instanceof Error ? problem.message : "Open Capture to choose the source again.",
+            [{ text: "Later", style: "cancel", onPress: later },
+              { text: "Discard shared source", style: "destructive", onPress: () => { void discard(); } }],
+            { cancelable: true, onDismiss: later });
+        } else if (current) {
           Alert.alert(
             "Could not save shared source",
             problem instanceof Error ? problem.message : "Open Capture to choose the source again."
           );
-        // Preserve the native capture on failure. Retry when foregrounded,
-        // rather than immediately redisplaying the same alert in a loop.
-        if (current) { if (native) setNative(null); else resetShareIntent(); }
+          resetShareIntent();
+        }
       }
     })();
     return () => {

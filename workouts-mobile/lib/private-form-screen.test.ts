@@ -1635,3 +1635,62 @@ it("an advertised native PDF share becomes an owned document before its exact qu
   expect(fixture.nativeAck).toHaveBeenCalledWith("pdf-capture");
   expect(fixture.persist.mock.invocationCallOrder[0]).toBeLessThan(fixture.nativeAck.mock.invocationCallOrder[0]);
 });
+
+const oversizedNativePDF = () => ({ captureKey: "oversized-pdf", captureId: "oversized-request", ownerId: fixture.owner,
+  generation: 1, text: "", files: [{ path: "file:///shared/large.pdf", mimeType: "application/pdf", fileName: "Large.pdf" }], isPublic: false });
+it("a rejected native PDF advances to the next receipt only after an explicit exact-source discard", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.normalizeDocument.mockRejectedValueOnce(Error("Documents must be 128 KB or smaller."));
+  fixture.nativeCaptures.mockResolvedValueOnce([oversizedNativePDF()]).mockResolvedValueOnce([{
+    captureKey: "next-receipt", captureId: "next-request", ownerId: fixture.owner, generation: 1,
+    text: "", files: [], isPublic: false, jobId: "next-job",
+  }]);
+  await mount(ShareCapture);
+  expect(fixture.nativeAck).not.toHaveBeenCalled();
+  expect(fixture.nativeCaptures).toHaveBeenCalledTimes(1);
+  const actions = fixture.alert.mock.calls[0][2];
+  expect(actions.map((action: { text: string }) => action.text)).toEqual(["Later", "Discard shared source"]);
+  await act(async () => actions[1].onPress()); await settle();
+  expect(fixture.nativeAck.mock.calls.map(call => call[0])).toEqual(["oversized-pdf", "next-receipt"]);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "imports:1"))!)[0].id).toBe("next-job");
+});
+it("Later keeps a rejected native source without acknowledging or immediately reloading it", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([oversizedNativePDF()]);
+  fixture.normalizeDocument.mockRejectedValueOnce(Error("Document too large"));
+  await mount(ShareCapture);
+  const actions = fixture.alert.mock.calls[0][2];
+  await act(async () => actions[0].onPress()); await settle();
+  await act(async () => actions[1].onPress()); await settle();
+  expect(fixture.nativeAck).not.toHaveBeenCalled();
+  expect(fixture.nativeCaptures).toHaveBeenCalledTimes(1); expect(fixture.alert).toHaveBeenCalledTimes(1);
+});
+it("a failed native discard retains its receipt and shows recovery without a retry loop", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([oversizedNativePDF()]);
+  fixture.normalizeDocument.mockRejectedValueOnce(Error("Document too large")); fixture.nativeAck.mockResolvedValue(false);
+  await mount(ShareCapture);
+  await act(async () => fixture.alert.mock.calls[0][2][1].onPress()); await settle();
+  expect(fixture.nativeAck).toHaveBeenCalledExactlyOnceWith("oversized-pdf");
+  expect(fixture.alert).toHaveBeenLastCalledWith("Could not clear shared source", expect.stringContaining("still saved"));
+  expect(fixture.nativeCaptures).toHaveBeenCalledTimes(1); expect(fixture.alert).toHaveBeenCalledTimes(2);
+});
+it("a native normalization failure arriving offscreen never acknowledges or asks to discard the source", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([oversizedNativePDF()]);
+  const pending = deferred<import("./capture").CaptureFile[]>(); fixture.normalizeDocument.mockReturnValueOnce(pending.promise);
+  await mount(ShareCapture); await unmount();
+  await act(async () => pending.reject(Error("Document too large"))); await settle();
+  expect(fixture.nativeAck).not.toHaveBeenCalled(); expect(fixture.alert).not.toHaveBeenCalled();
+});
+it.each(["account", "unmount"])("a native discard callback cannot acknowledge after %s retirement", async (retirement) => {
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([oversizedNativePDF()]);
+  fixture.normalizeDocument.mockRejectedValueOnce(Error("Document too large"));
+  await mount(ShareCapture);
+  const discard = fixture.alert.mock.calls[0][2][1].onPress;
+  if (retirement === "account") { fixture.owner = "new-owner"; await rerender(ShareCapture); }
+  else await unmount();
+  await act(async () => discard()); await settle();
+  expect(fixture.nativeAck).not.toHaveBeenCalled(); expect(fixture.alert).toHaveBeenCalledTimes(1);
+});
