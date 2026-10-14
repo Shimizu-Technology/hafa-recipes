@@ -175,6 +175,7 @@ class WorkoutImportWorker:
         self.task = None
         self.active_task = None
         self.active_owner = None
+        self.active_import_id = None
         self.wake = asyncio.Event()
 
     def enabled(self):
@@ -202,6 +203,7 @@ class WorkoutImportWorker:
                     await task
         self.task = self.active_task = None
         self.active_owner = None
+        self.active_import_id = None
 
     def notify(self):
         self.wake.set()
@@ -209,6 +211,10 @@ class WorkoutImportWorker:
     def cancel_owner(self, user_id):
         if self.active_owner == user_id and self.active_task:
             self.active_task.cancel()
+
+    def cancel_import(self, user_id, import_id):
+        if self.active_import_id == import_id:
+            self.cancel_owner(user_id)
 
     async def run(self):
         while self.maintenance_enabled():
@@ -292,6 +298,7 @@ class WorkoutImportWorker:
             row.updated_at = current
             await db.commit()
         self.active_owner = owner
+        self.active_import_id = identifier
         self.active_task = asyncio.create_task(self.process(identifier, owner, generation, token))
         try:
             await self.active_task
@@ -301,6 +308,7 @@ class WorkoutImportWorker:
         finally:
             self.active_task = None
             self.active_owner = None
+            self.active_import_id = None
         return True
 
     async def process(self, identifier, owner, generation, token):

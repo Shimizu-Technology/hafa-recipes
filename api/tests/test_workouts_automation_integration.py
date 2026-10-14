@@ -54,6 +54,37 @@ def test_import_status_additions_accept_an_older_response_without_timing_fields(
     assert response.next_attempt_at is None and response.max_attempts is None
 
 
+@pytest.mark.parametrize("owner,matching_import,cancelled", [
+    ("owner", True, True), ("owner", False, False),
+    ("other", True, False), ("other", False, False),
+])
+async def test_worker_single_import_cancellation_matches_owner_and_import(owner, matching_import, cancelled):
+    worker = imports.WorkoutImportWorker()
+    active = uuid4()
+    assert worker.active_import_id is None
+    worker.active_owner = "owner"
+    worker.active_import_id = active
+    worker.active_task = asyncio.create_task(asyncio.Event().wait())
+    try:
+        worker.cancel_import(owner, active if matching_import else uuid4())
+        assert bool(worker.active_task.cancelling()) is cancelled
+    finally:
+        await worker.stop()
+    assert worker.active_import_id is None and worker.active_owner is None and worker.active_task is None
+
+
+async def test_worker_owner_wide_cancellation_still_stops_active_import():
+    worker = imports.WorkoutImportWorker()
+    worker.active_owner = "owner"
+    worker.active_import_id = uuid4()
+    worker.active_task = asyncio.create_task(asyncio.Event().wait())
+    try:
+        worker.cancel_owner("owner")
+        assert worker.active_task.cancelling()
+    finally:
+        await worker.stop()
+
+
 class Provider:
     enabled = True
 
@@ -632,6 +663,50 @@ async def test_cancelled_inflight_provider_cannot_commit_after_erasure(automatio
     async with api.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(WorkoutImport)) == 0
         assert await db.scalar(select(func.count()).select_from(WorkoutRecord)) == 0
+
+
+@pytest.mark.parametrize("cancel_active", [False, True])
+async def test_cancelling_one_import_keeps_the_same_owners_other_import_intact(automation_api, cancel_active):
+    api = automation_api
+    await consent(api)
+    active = (await enqueue(api)).json()
+    queued = (await enqueue(api)).json()
+    started, finish = asyncio.Event(), asyncio.Event()
+    provider = Provider()
+    original = provider.extract
+
+    async def waiting(source):
+        started.set()
+        await finish.wait()
+        return await original(source)
+
+    provider.extract = waiting
+    api.worker.extractor = WorkoutExtractor(provider)
+    pending = asyncio.create_task(api.worker.tick())
+    try:
+        await asyncio.wait_for(started.wait(), timeout=10)
+        assert str(api.worker.active_import_id) == active["id"]
+        target = active if cancel_active else queued
+        response = await api.client.delete(f"/api/v1/workouts/imports/{target['id']}", headers=GENERATION)
+        assert response.status_code == 200 and response.json()["status"] == "cancelled"
+        if not cancel_active:
+            assert not api.worker.active_task.cancelling() and not pending.done()
+            assert (await api.client.get(f"/api/v1/workouts/imports/{active['id']}")).json()["status"] == "processing"
+        finish.set()
+        assert await asyncio.wait_for(pending, timeout=10)
+    finally:
+        finish.set()
+        if not pending.done():
+            pending.cancel()
+        await asyncio.gather(pending, return_exceptions=True)
+    assert api.worker.active_import_id is None
+    active_state = (await api.client.get(f"/api/v1/workouts/imports/{active['id']}")).json()
+    queued_state = (await api.client.get(f"/api/v1/workouts/imports/{queued['id']}")).json()
+    assert active_state["status"] == ("cancelled" if cancel_active else "ready")
+    assert queued_state["status"] == ("queued" if cancel_active else "cancelled")
+    async with api.sessions() as db:
+        row = await db.get(WorkoutImport, target["id"])
+        assert row.payload is None and row.lease_token is None and row.leased_until is None
 
 
 async def test_temporary_source_requires_owner_and_is_removed_after_acceptance(automation_api):

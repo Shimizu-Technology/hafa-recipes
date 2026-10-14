@@ -209,7 +209,7 @@ async def cancel_import(import_id: UUID, user: User, db: Database, generation: G
     row.leased_until = None
     row.updated_at = now()
     await db.commit()
-    workout_import_worker.cancel_owner(user.id)
+    workout_import_worker.cancel_import(user.id, row.id)
     return import_response(row)
 
 
