@@ -987,6 +987,19 @@ it("mounted profile retains the frozen revision and values across background ref
   expect(fixture.saveProfile).toHaveBeenCalledTimes(2);
 });
 
+it("mounted workout editing preserves spaces and newlines while instructions are being typed", async () => {
+  fixture.params = { id: "workout" };
+  await mount(EditWorkout);
+  for (const notes of [["Rest "], ["Rest after each round.", ""], ["Rest after each round.", "Repeat "]]) {
+    await act(async () => find("WorkoutEditor").props.onChange({ ...find("WorkoutEditor").props.value, notes }));
+    expect(find("WorkoutEditor").props.value.notes).toEqual(notes);
+  }
+  await act(async () => find("WorkoutEditor").props.onChange({ ...find("WorkoutEditor").props.value,
+    notes: ["Rest after each round.", "Repeat at your own pace."] }));
+  await click("Save new workout version");
+  expect(fixture.updateWorkout.mock.calls[0][0].notes).toEqual(["Rest after each round.", "Repeat at your own pace."]);
+});
+
 it("mounted workout editing preserves original content/revision across background query updates and lost acknowledgment", async () => {
   fixture.params = { id: "workout" };
   await mount(EditWorkout);

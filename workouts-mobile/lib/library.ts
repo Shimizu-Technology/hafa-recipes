@@ -4,6 +4,9 @@ export function editedContent(workout: Workout | AuthoredWorkout): AuthoredWorko
   const content = authoredWorkout(workout);
   return {
     ...content,
+    // Keep unfinished words and blank next lines in the controlled editor.
+    // The transport boundary normalizes instructions before saving.
+    notes: workout.notes,
     provenance: content.provenance === "suggestion" ? "user" : content.provenance,
     blocks: content.blocks.map((block) => ({
       ...block,
