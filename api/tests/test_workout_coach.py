@@ -7,6 +7,7 @@ import pytest
 from app.domains.workouts.coach import (
     CoachFailure,
     ProductionCoachProvider,
+    fit_source_flow_context,
     normalize_usage,
     response_parts,
     source_flow_context,
@@ -272,3 +273,27 @@ def test_title_only_edit_trimming_notes_preserves_original_creator_quote():
     edited = workout | {"title": "My title", "notes": [quote.strip()]}
     assert source_flow_context(edited) == [quote]
     assert source_flow_context(edited | {"notes": ["Repeat it for 15 minutes."]}) == []
+
+
+@pytest.mark.parametrize("quote", ["Repeat the circuit for 20 minutes.", "Repeat \u00e9 " * 200])
+def test_source_quotes_fit_remaining_serialized_item_budget_without_splitting_instructions(quote):
+    item = {"id": "workout", "revision": 1, "content": {"title": "Source circuit"}}
+    item["content"]["padding"] = "x" * (13999 - len(json.dumps(item | {"content": item["content"] | {"padding": ""}})))
+    original = json.loads(json.dumps(item))
+    workout = {"provenance": "source", "notes": [quote], "blocks": [{"evidence": [
+        {"field": "workout_notes", "wording": quote, "location": "caption"},
+    ]}]}
+    assert fit_source_flow_context(item, workout)
+    assert item == original and len(json.dumps(item)) == 13999
+
+
+def test_source_quote_budget_can_keep_a_later_whole_short_quote():
+    long_quote, short_quote = "Repeat \u00e9 " * 100, "Rest as needed."
+    workout = {"provenance": "source", "notes": [long_quote, short_quote], "blocks": [{"evidence": [
+        {"field": "workout_notes", "wording": quote, "location": "caption"}
+        for quote in [long_quote, short_quote]
+    ]}]}
+    item = {"id": "workout", "revision": 1, "content": {"padding": "x" * 13800}}
+    assert fit_source_flow_context(item, workout)
+    assert item["content"]["source_instructions"] == [short_quote]
+    assert len(json.dumps(item)) < 14000

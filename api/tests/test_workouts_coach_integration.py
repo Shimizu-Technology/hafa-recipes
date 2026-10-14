@@ -7,6 +7,7 @@ from datetime import timedelta
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import func, select
 
 from app.domains.workouts import automation_router, coach, coach_actions, coach_router
@@ -826,3 +827,20 @@ async def test_coach_receives_source_flow_and_timed_actuals_without_private_note
     assert result["actuals"][0]["distance_meters"] == 400
     assert result["actuals"][0]["effort"] == 7
     assert "PRIVATE" not in json.dumps(context)
+
+
+async def test_oversized_focused_workout_reports_missing_context_instead_of_silent_omission(coach_api):
+    api = coach_api
+    workout = await create_workout(api)
+    async with api.sessions() as db:
+        row = await db.get(WorkoutRecord, UUID(workout["id"]))
+        content = json.loads(json.dumps(row.content))
+        content["blocks"][0]["exercises"] *= 100
+        row.content = content
+        await db.commit()
+        accepted = await coach.require_ai_consent(db, "owner", 1)
+        with pytest.raises(HTTPException) as error:
+            await coach.build_context(db, "owner", 1, accepted, focus={"context_workout_id": workout["id"], "context_revision": 1})
+        assert error.value.status_code == 409
+        assert "selected training context is too large" in error.value.detail
+    assert api.provider.sent == []

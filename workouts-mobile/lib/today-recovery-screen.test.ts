@@ -244,3 +244,31 @@ it("saved-result correction exposes every captured actual and preserves imperial
   })], "", "synthetic-session");
   expect(JSON.stringify(original)).toBe(before);
 });
+
+it("Today pauses recorded-day markers for missing correction ancestry and retries successfully", async () => {
+  fixture.available = true;
+  const original = { ...recordedSession(), id: "A", client_session_id: "client-A",
+    content: { ...recordedSession().content, client_session_id: "client-A" } };
+  const correction = { ...original, id: "C", client_session_id: "client-C", content: {
+    ...original.content, client_session_id: "client-C", supersedes_session_id: "B",
+  } };
+  const { prescription_snapshot: workout, ...request } = original.content;
+  fixture.history = [{ generation: 1, state: "synced", synced_id: "A", request, workout }];
+  fixture.sessions.mockResolvedValue([correction]);
+  fixture.session.mockRejectedValue(Error("PRIVATE transport body"));
+  await mount();
+  const days = () => renderer!.root.findByType("WeekStrip" as never).props.days as Array<{ state: string }>;
+  expect(text()).toContain("Recorded-day markers are paused");
+  expect(text()).not.toContain("PRIVATE transport body");
+  expect(days().some(day => day.state === "done")).toBe(false);
+  expect(buttons("Retry correction history")).toHaveLength(1);
+  fixture.session.mockResolvedValue({ ...original, id: "B", client_session_id: "client-B", content: {
+    ...original.content, client_session_id: "client-B", supersedes_session_id: "A",
+  } });
+  await act(async () => buttons("Retry correction history")[0].props.onPress()); await settle();
+  expect(text()).not.toContain("Recorded-day markers are paused");
+  expect(buttons("Retry correction history")).toHaveLength(0);
+  expect(days().filter(day => day.state === "done")).toHaveLength(1);
+  expect(fixture.session.mock.calls).toEqual([["B"], ["B"]]);
+  expect(fixture.start).not.toHaveBeenCalled();
+});

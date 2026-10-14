@@ -66,3 +66,29 @@ it("keeps an invalid effort draft editable and clears optional values only when 
   await act(async () => button("Save correction").props.onPress()); await settle();
   expect(fixture.store!.snapshot().history[0].request.actuals[0]).toMatchObject({ effort: null, load: null, distance_meters: 1609.344 });
 });
+
+it("saves descriptive set corrections without changing the recorded source", async () => {
+  const original = JSON.stringify(saved);
+  const choose = (label: string) => renderer!.root.findAllByType("Choice" as never).find(node => node.props.label === label)!;
+  await act(async () => { choose("hard").props.onPress(); choose("Yes, pain reported").props.onPress();
+    field("Set notes").props.onChange("Stopped when the set became uncomfortable."); });
+  await act(async () => button("Save correction").props.onPress()); await settle();
+  expect(fixture.store!.snapshot().history[0].request.actuals[0]).toMatchObject({
+    difficulty: "hard", pain_reported: true, notes: "Stopped when the set became uncomfortable.",
+  });
+  expect(JSON.stringify(saved)).toBe(original);
+});
+
+it("clears selected difficulty and pain choices on a second tap and saves blank set notes as null", async () => {
+  const choose = (label: string) => renderer!.root.findAllByType("Choice" as never).find(node => node.props.label === label)!;
+  await act(async () => { choose("manageable").props.onPress(); choose("No pain reported").props.onPress(); });
+  expect(choose("manageable").props.selected).toBe(true);
+  expect(choose("No pain reported").props.selected).toBe(true);
+  await act(async () => { choose("manageable").props.onPress(); choose("No pain reported").props.onPress(); field("Set notes").props.onChange(""); });
+  expect(choose("manageable").props.selected).toBe(false);
+  expect(choose("No pain reported").props.selected).toBe(false);
+  await act(async () => button("Save correction").props.onPress()); await settle();
+  expect(fixture.store!.snapshot().history[0].request.actuals[0]).toMatchObject({
+    difficulty: null, pain_reported: null, notes: null,
+  });
+});
