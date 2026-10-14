@@ -15,6 +15,8 @@ const fixture = vi.hoisted(() => ({
   saveDiscovered: vi.fn(),
   workout: vi.fn(),
   importJob: vi.fn(),
+  importJobs: vi.fn(),
+  searchLibrary: vi.fn(), collections: vi.fn(),
   importSource: vi.fn(),
   acceptImport: vi.fn(),
   publishingDisclosure: vi.fn(),
@@ -45,6 +47,8 @@ vi.mock("@/lib/context", () => {
     saveDiscovered: fixture.saveDiscovered,
     workout: fixture.workout,
     importJob: fixture.importJob,
+    importJobs: fixture.importJobs,
+    searchLibrary: fixture.searchLibrary, collections: fixture.collections,
     importSource: fixture.importSource,
     acceptImport: fixture.acceptImport,
     cancelImport: vi.fn(),
@@ -82,6 +86,7 @@ vi.mock("@/components/publishing-disclosure", async () => {
   };
 });
 vi.mock("react-native", () => ({
+  ActivityIndicator: "ActivityIndicator",
   View: "View",
   Image: "Image",
   AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
@@ -97,7 +102,7 @@ vi.mock("expo-router", async () => {
 vi.mock("expo-crypto", () => ({ randomUUID: () => "uuid" }));
 vi.mock("@/components/ui", () => {
   const names = ["AccountButton", "Button", "Card", "Chip", "ChipRow", "Choice", "Copy", "Empty", "Field", "IconButton",
-    "ListGroup", "ListRow", "Notice", "Row", "Screen", "SectionHeader", "Sheet", "Skeleton", "SkeletonCard", "Stack", "StatTile"];
+    "ListGroup", "ListRow", "MediaCard", "Notice", "Row", "Screen", "SectionHeader", "Sheet", "Skeleton", "SkeletonCard", "Stack", "StatTile"];
   return { ...Object.fromEntries(names.map((name) => [name, name])), useToast: () => fixture.toast };
 });
 vi.mock("@/components/discover-card", () => ({
@@ -113,6 +118,7 @@ vi.mock("@/lib/capture-io", () => ({ cleanupCaptureFiles: vi.fn() }));
 import Discover from "../app/(tabs)/discover";
 import DiscoverWorkout from "../app/discover/[id]";
 import ImportReview from "../app/import/[id]";
+import Library from "../app/(tabs)/library";
 import { ImportList } from "../components/import-list";
 
 let renderer: ReactTestRenderer | undefined, cache: QueryClient;
@@ -170,6 +176,8 @@ beforeEach(() => {
   fixture.agree = true;
   fixture.asked = 0;
   fixture.importSource.mockResolvedValue({ images: [], text: "" });
+  fixture.importJobs.mockReset().mockResolvedValue([]);
+  fixture.collections.mockReset().mockResolvedValue([]); fixture.searchLibrary.mockReset();
 });
 afterEach(async () => {
   if (renderer) await act(async () => renderer!.unmount());
@@ -294,6 +302,58 @@ it("defaults Share to Discover on for link imports and publishes on accept", asy
   expect(choice("Share to Discover")!.props.selected).toBe(true);
   await reviewAndSave("Save and share to Discover");
   expect(fixture.acceptImport).toHaveBeenCalledWith("job", expect.objectContaining({ title: card.title }), 1, true, true);
+});
+it("recovers a pending server import on a device without local references", async () => {
+  fixture.focus = true; fixture.capabilities.mockResolvedValue({ ...caps(true), server_auto_save: true });
+  const job = { ...importJob("url"), status: "processing", result: null };
+  fixture.importJobs.mockResolvedValue([job]); fixture.importJob.mockResolvedValue(job);
+  await mount(ImportList);
+  expect(fixture.importJobs).toHaveBeenCalled(); expect(button("Open import")).toBeDefined();
+  await act(async () => button("Open import")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/import/[id]", params: { id: "job" } });
+  expect(fixture.acceptImport).not.toHaveBeenCalled();
+});
+it("shows a recoverable server inbox error while keeping device imports", async () => {
+  fixture.focus = true; fixture.capabilities.mockResolvedValue({ ...caps(true), server_auto_save: true });
+  fixture.map.set("imports:1", JSON.stringify([{ id: "job", label: "Saved source" }]));
+  fixture.importJobs.mockRejectedValue(Error("network offline")); fixture.importJob.mockResolvedValue({ ...importJob("url"), status: "processing", result: null });
+  await mount(ImportList);
+  expect(button("Retry imports")).toBeDefined(); expect(button("Open import")).toBeDefined();
+});
+it("a server-saved incomplete workout exposes credit, cover, timing and optional edits without another acceptance", async () => {
+  fixture.focus = true; fixture.params = { id: "job" }; fixture.capabilities.mockResolvedValue({ ...caps(true), server_auto_save: true });
+  const job = importJob("url", "incomplete");
+  fixture.importJob.mockResolvedValue({ ...job, accepted_workout_id: "saved", result: { ...job.result, warnings: ["Load was not specified"],
+    workout: { ...job.result.workout, source_title: "Six round circuit", source_creator: "Creator", source_thumbnail_url: "https://example.test/cover.jpg",
+      blocks: [{ ...job.result.workout.blocks[0], rounds: 6, rest_between_rounds_seconds: 120,
+        exercises: [{ name: "Squat", duration_seconds: 20, rest_seconds: 10, notes: "Keep control" }] }] } } });
+  await mount(ImportReview);
+  const rendered = JSON.stringify(renderer!.toJSON());
+  expect(rendered).toContain("Six round circuit"); expect(rendered).toContain("Creator"); expect(rendered).toContain("2 min between rounds"); expect(rendered).toContain("Keep control");
+  expect(nodes("SourceImage")[0].props.uri).toBe("https://example.test/cover.jpg");
+  expect(button("Save workout")).toBeUndefined(); expect(button("Save and share to Discover")).toBeUndefined();
+  expect(fixture.acceptImport).not.toHaveBeenCalled();
+  await act(async () => button("Check details")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: "saved" } });
+});
+it("Library cards retain the source cover and creator while marking unresolved source details", async () => {
+  fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.searchLibrary.mockResolvedValue({ items: [{ ...saved, source_thumbnail_url: "https://example.test/cover.jpg",
+    source_creator: "Creator", extraction_warnings: ["Rest unknown"] }], total: 1, has_more: false });
+  await mount(Library);
+  expect(nodes("MediaCard")[0].props).toMatchObject({ image: "https://example.test/cover.jpg", badge: "Check details" });
+  expect(nodes("MediaCard")[0].props.footer.props.children).toContain("Creator");
+});
+it("saved detail retains source metadata and prevents starting a source-only draft with no exercises", async () => {
+  fixture.params = { id: "source-only" }; fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.workout.mockResolvedValue({ ...saved, blocks: [], source_title: "Original clip", source_creator: "Creator",
+    source_thumbnail_url: "https://example.test/cover.jpg", extraction_warnings: ["No readable instructions"] });
+  await mount(WorkoutDetail);
+  expect(button("Start this workout")!.props.disabled).toBe(true);
+  await act(async () => button("Start this workout")!.props.onPress()); expect(fixture.push).not.toHaveBeenCalled();
+  expect(nodes("SourceImage")[0].props.uri).toBe("https://example.test/cover.jpg");
+  const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
+  expect(text).toContain("No readable instructions"); expect(button("Check details")).toBeDefined();
 });
 
 it("defaults Share to Discover off for photo imports and saves privately", async () => {
@@ -466,8 +526,7 @@ it("background completion cleans its source after the user leaves while acceptan
   await act(async () => finish(saved)); await settle();
   expect(fixture.acceptImport).toHaveBeenCalledTimes(1);
   expect(JSON.parse(fixture.map.get("imports:1")!)).toEqual([]);
-  const captured = JSON.parse(fixture.map.get(draftKey("owner", "capture:1"))!);
-  expect(captured.value ?? captured).toMatchObject({ source_url: "", text: "", files: [] });
+  expect(fixture.map.has(draftKey("owner", "capture:1"))).toBe(false);
 });
 it("a cold return reconciles an already saved import without another acceptance", async () => {
   const { draftKey } = await import("./drafts");
@@ -480,8 +539,7 @@ it("a cold return reconciles an already saved import without another acceptance"
   await mount(ImportList); await settle();
   expect(fixture.acceptImport).not.toHaveBeenCalled();
   expect(JSON.parse(fixture.map.get("imports:1")!)).toEqual([]);
-  const captured = JSON.parse(fixture.map.get(draftKey("owner", "capture:1"))!);
-  expect(captured.value ?? captured).toMatchObject({ source_url: "", text: "", files: [] });
+  expect(fixture.map.has(draftKey("owner", "capture:1"))).toBe(false);
 });
 
 it("shows the saved timed prescription, source details and cues without missing-reps noise", async () => {

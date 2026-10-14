@@ -148,8 +148,10 @@ export default function Library() {
               <MediaCard
                 key={w.id}
                 title={w.title}
+                image={w.source_thumbnail_url}
                 icon={kindIcons[w.kind]}
-                badge={w.organization?.favorite ? "Favorite" : undefined}
+                badge={w.extraction_warnings?.length ? "Check details" : w.organization?.favorite ? "Favorite" : undefined}
+                footer={w.source_creator ? <Copy kind="small" tone="muted">By {w.source_creator}</Copy> : undefined}
                 meta={[
                   w.kind,
                   w.provenance === "suggestion" ? "suggested" : w.provenance === "source" ? "from a source" : "your workout",

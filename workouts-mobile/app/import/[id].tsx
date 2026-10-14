@@ -1,7 +1,7 @@
 import { workoutErrors } from "@/lib/library";
 import { SourceImage } from "@/components/source-image";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { AppState, Image, Linking } from "react-native";
+import { ActivityIndicator, AppState, Image, Linking } from "react-native";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Chip, ChipRow, Choice, Copy, Empty, ListRow, Notice, Screen, SectionHeader, Skeleton } from "@/components/ui";
@@ -14,7 +14,8 @@ import * as Crypto from "expo-crypto";
 import { createPrivateDraftSlot, type PrivateDraftSnapshot } from "@/lib/private-form";
 import type { AuthoredWorkout } from "@/lib/models";
 import { usePublishingDisclosure } from "@/components/publishing-disclosure";
-import { DECLINED, INCOMPLETE_MESSAGE, defaultShareToDiscover, isIncomplete, publishable, prescriptionLine } from "@/lib/discover";
+import { DECLINED, INCOMPLETE_MESSAGE, defaultShareToDiscover, isIncomplete, publishable, prescriptionLine, formatSeconds } from "@/lib/discover";
+import { WorkoutSource } from "@/components/workout-source";
 export default function ImportReview() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
@@ -64,6 +65,7 @@ export default function ImportReview() {
   const saving = useRef(false);
   const visibilityWrites = useRef<Promise<void>>(Promise.resolve());
   const autoAttempt = useRef<number | null>(null);
+  const reconciledSave = useRef<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   /** null = the default for this source (link imports public, everything else private). */
@@ -275,16 +277,31 @@ export default function ImportReview() {
   // The server refuses to publish an incomplete extraction accepted unchanged.
   const shareable =
     !!workout && publishable(workout) && !(q.data?.status === "incomplete" && !(routeReady && edited));
-  const wantsShare = shareChoice ?? defaultShareToDiscover(result?.workout?.capture_kind ?? originalSource?.kind);
+  const wantsShare = shareChoice ?? originalSource?.is_public ?? defaultShareToDiscover(result?.workout?.capture_kind ?? originalSource?.kind);
   const sharing = discoverOn && shareable && wantsShare;
   useEffect(() => {
     if ((!autoAllowed && !originalSource?.auto_save) || !routeReady || !restored || !q.data || edited || editing ||
-      error || !visible || !active || !capabilities.data || !canSaveAutomatically(q.data) || autoAttempt.current === epoch) return;
+      error || !visible || !active || !capabilities.data || capabilities.data.server_auto_save || !canSaveAutomatically(q.data) || autoAttempt.current === epoch) return;
     autoAttempt.current = epoch;
     void accept(true);
   }, [autoAllowed, originalSource?.auto_save, routeReady, restored, q.data, edited, editing, error, visible, active, capabilities.data, epoch]);
+  useEffect(() => {
+    if (!q.data?.accepted_workout_id || !routeReady || !restored || reconciledSave.current === epoch) return;
+    reconciledSave.current = epoch;
+    void (async () => {
+      current(); await cache.invalidateQueries({ queryKey: [owner, "library"] }); current();
+      await updateImportReferences(localDrafts, owner, q.data!.generation, current, prior => prior.filter(item => item.id !== id));
+      await retireOriginalSource(); current();
+    })().catch(() => {
+      reconciledSave.current = null;
+      if (isCurrent()) setError("Your workout is saved. Try loading again to finish clearing its temporary source.");
+    });
+  }, [q.data?.accepted_workout_id, routeReady, restored, epoch, id]);
+  const savedId = q.data?.accepted_workout_id;
+  const savedDraft = savedId && q.data?.status === "incomplete";
   return (
-    <Screen back title="Your workout." subtitle={busy ? "Saving your workout…" : "Check the exercises or make a quick edit."}>
+    <Screen back title={savedDraft ? "Draft saved." : savedId ? "Workout saved." : "Your workout."}
+      subtitle={savedDraft ? "Saved privately in your library. Check the missing details before training." : savedId ? "Ready in your library. Check or edit the details whenever you need." : busy ? "Saving your workout…" : "Your source becomes a workout you can use."}>
       <QueryState
         loading={q.isPending}
         error={q.error}
@@ -294,21 +311,24 @@ export default function ImportReview() {
       >
         {q.data && ["queued", "processing"].includes(q.data.status) && (
           <Card>
-            <Copy kind="caption" tone="accent">{q.data.status === "queued" ? "Saved" : "Working on it"}</Copy>
-            <Copy kind="heading">{q.data.status === "queued" ? "Your source is saved" : "Reading the source"}</Copy>
-            <Skeleton height={14} width="85%" />
-            <Skeleton height={14} width="60%" />
-            <Copy tone="muted">You can leave this screen. The import continues in the background.</Copy>
+            <ActivityIndicator accessibilityLabel="Extracting your workout" />
+            <Copy kind="caption" tone="accent">{q.data.status === "queued" ? "Queued for extraction" : "Reading your workout"}</Copy>
+            <Copy kind="heading">{q.data.status === "queued" ? "Your source is queued" : "Finding exercises and instructions"}</Copy>
+            {q.data.attempt_count > 1 && <Copy kind="small" tone="muted">Retrying the source · attempt {q.data.attempt_count}</Copy>}
+            <Copy tone="muted">You can keep browsing. {capabilities.data?.server_auto_save ? "Your workout saves to your library when it is ready." : "The import continues in the background."}</Copy>
             <Button title="Back to my library" secondary onPress={() => router.replace("/(tabs)/library")} />
           </Card>
         )}
         {!!q.data?.accepted_workout_id && (
+          <>
           <Button
             title="Open saved workout"
             onPress={() => router.replace({ pathname: "/workout/[id]", params: { id: q.data!.accepted_workout_id! } })}
           />
+          <Button title="Check details" secondary onPress={() => router.push({ pathname: "/edit-workout/[id]", params: { id: savedId! } })} />
+          </>
         )}
-        {q.data && ["failed", "expired", "cancelled"].includes(q.data.status) && (
+        {q.data && (["failed", "expired", "cancelled"].includes(q.data.status) || (q.data.status === "incomplete" && !workout)) && (
           <Empty
             icon="document-text-outline"
             title={
@@ -318,12 +338,15 @@ export default function ImportReview() {
                   ? "Import cancelled"
                   : "Could not read this source"
             }
-            description="You can paste clearer instructions, choose screenshots, or write the workout manually."
-            action={<Button title="Write workout manually" secondary onPress={() => router.push("/add-workout")} />}
+            description="Your library has not received a usable workout from this source. Try clearer instructions or screenshots, or write it yourself."
+            action={<><Button title="Try another source" secondary onPress={() => router.push("/capture")} />
+              <Button title="Write workout manually" secondary onPress={() => router.push("/add-workout")} /></>}
           />
         )}
         {result && (
           <>
+            <WorkoutSource source={{ source_title: workout?.source_title ?? result.source.title,
+              source_creator: workout?.source_creator ?? result.source.creator, source_thumbnail_url: workout?.source_thumbnail_url }} />
             {result.warnings.map((warning, index) => (
               <Notice key={index} tone="warning">{warning}</Notice>
             ))}
@@ -332,7 +355,7 @@ export default function ImportReview() {
             ))}
             {workout && (
               <>
-                {routeReady && editing ? (
+                {routeReady && editing && !savedId ? (
                   <WorkoutEditor value={workout} onChange={update} disabled={busy} />
                 ) : (
                   <>
@@ -348,20 +371,22 @@ export default function ImportReview() {
                       <Card key={block.id}>
                         <Copy kind="subheading">{block.label}</Copy>
                         <Copy kind="small" tone={block.rounds == null ? "accent" : "muted"}>
-                          {block.grouping} · {block.rounds == null ? "Rounds not specified" : `${block.rounds} rounds`}
+                          {block.grouping}{block.rounds != null ? ` · ${block.rounds} rounds` : block.grouping !== "sequential" ? " · Rounds not specified" : ""}
+                          {block.rest_between_rounds_seconds != null ? ` · ${formatSeconds(block.rest_between_rounds_seconds)} between rounds` : ""}
                         </Copy>
                         {block.exercises.map((e, index) => (
                           <Copy key={index}>
                             <Copy kind="label">{e.name}</Copy>
                             {" · "}
                             <Copy>{prescriptionLine(e)}</Copy>
+                            {e.notes ? <Copy kind="small">{"\n"}{e.notes}</Copy> : null}
                           </Copy>
                         ))}
                       </Card>
                     ))}
                   </>
                 )}
-                <Button
+                {!savedId && <><Button
                   title={routeReady && editing ? "Show workout summary" : "Correct workout details"}
                   secondary
                   icon={routeReady && editing ? "eye-outline" : "create-outline"}
@@ -401,7 +426,7 @@ export default function ImportReview() {
                   onPress={() => {
                     void accept();
                   }}
-                />
+                /></>}
               </>
             )}
             <Button title={sourceDetails ? "Hide source details" : "Source details"} variant="ghost" onPress={() => setSourceDetails(!sourceDetails)} />

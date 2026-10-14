@@ -1,5 +1,6 @@
 import { beforeEach, it, expect, vi } from "vitest";
-import { captureErrors, boundedSource, importIsTerminal, type CaptureDraft } from "./capture";
+import { captureErrors, boundedSource, importIsTerminal, retireCapturedImport, type CaptureDraft } from "./capture";
+import { createPrivateDraftSlot } from "./private-form";
 import { filterLibrary, workoutErrors, editedContent } from "./library";
 import { isISODate, publicShareReader } from "./sharing";
 const native = vi.hoisted(() => ({
@@ -14,7 +15,8 @@ const native = vi.hoisted(() => ({
   manipulate: vi.fn(),
   copy: vi.fn(),
   remove: vi.fn(),
-  read: vi.fn()
+  read: vi.fn(),
+  size: 100
 }));
 vi.mock("@react-native-async-storage/async-storage", () => ({
   default: {
@@ -41,10 +43,10 @@ vi.mock("expo-file-system/legacy", () => ({
   copyAsync: native.copy,
   deleteAsync: native.remove,
   readAsStringAsync: native.read,
-  getInfoAsync: async (uri: string) => ({ exists: native.files.has(uri), isDirectory: false, size: 100 }),
+  getInfoAsync: async (uri: string) => ({ exists: native.files.has(uri), isDirectory: false, size: native.size }),
   EncodingType: { Base64: "base64" }
 }));
-import { normalizeImages, pickImages, pickDocument, sourceFor, recoverCaptureCleanup } from "./capture-io";
+import { normalizeImages, normalizeDocument, pickImages, pickDocument, sourceFor, recoverCaptureCleanup, cleanupCaptureFiles } from "./capture-io";
 import { createPrivateStorageRegistry } from "./private-storage";
 import { createCaptureCleanupJournal } from "./capture-cleanup";
 import { draftKey } from "./drafts";
@@ -73,6 +75,7 @@ beforeEach(() => {
   native.files.clear();
   native.records.clear();
   native.next = 0;
+  native.size = 100;
   vi.clearAllMocks();
   native.recordSet.mockImplementation(async (key: string, value: string) => {
     native.records.set(key, value);
@@ -103,6 +106,52 @@ const draft: CaptureDraft = {
   files: [],
   created_at: "2026-10-10T00:00:00Z"
 };
+it("copies a shared PDF into the owner journal without consuming its borrowed extension original", async () => {
+  const uri = "file:///shared/workout.pdf"; native.files.set(uri, "PDF contents");
+  const files = await normalizeDocument({ uri, mimeType: "application/pdf", name: "Workout.pdf" }, () => {}, "document-owner");
+  expect(files[0]).toMatchObject({ mime_type: "application/pdf", name: "Workout.pdf", owned: true });
+  expect(files[0].uri).toContain("hafa-workouts-capture/");
+  expect(native.files.get(files[0].uri)).toBe("PDF contents"); expect(native.files.get(uri)).toBe("PDF contents");
+});
+it("rejects oversized and unsupported shared documents before creating owned bytes", async () => {
+  const uri = "file:///shared/workout.pdf"; native.files.set(uri, "PDF"); native.size = 128 * 1024 + 1;
+  await expect(normalizeDocument({ uri, mimeType: "application/pdf", name: "Workout.pdf" }, () => {}, "owner")).rejects.toThrow("under 128 KB");
+  await expect(normalizeDocument({ uri, mimeType: "video/mp4", name: "video.mp4" }, () => {}, "owner")).rejects.toThrow("PDF or text");
+  expect(native.copy).not.toHaveBeenCalled(); expect(native.files.has(uri)).toBe(true);
+});
+it("a completed import cannot clear a newer source while its temporary file deletion finishes", async () => {
+  const owner = "completed-owner", storage = journalStorage();
+  const slot = createPrivateDraftSlot<CaptureDraft>(storage, owner, "capture:1", () => `revision-${++native.next}`);
+  const original = "file:///cache/hafa-workouts-capture/A.pdf", newer = "file:///cache/hafa-workouts-capture/B.pdf";
+  native.files.set(original, "A"); native.files.set(newer, "B");
+  await slot.save(null, { ...draft, generation: 1, job_id: "job-A", files: [{ uri: original, mime_type: "application/pdf", name: "A", owned: true }] }, () => {});
+  const held = deferred<void>();
+  native.remove.mockImplementation(async uri => { if (uri === original) await held.promise; native.files.delete(uri); });
+  const pending = retireCapturedImport(storage, owner, 1, "job-A", () => {}, cleanupCaptureFiles, () => `revision-${++native.next}`);
+  while (!native.remove.mock.calls.length) await new Promise(resolve => setTimeout(resolve, 0));
+  const retired = await slot.load(() => {});
+  await slot.save(retired.revision, { ...draft, request_id: "B", generation: 1, source_url: "https://example.test/B",
+    files: [{ uri: newer, mime_type: "application/pdf", name: "B", owned: true }], cleanup_files: retired.value!.cleanup_files }, () => {});
+  held.resolve(); await pending;
+  expect((await slot.load(() => {})).value?.request_id).toBe("B"); expect(native.files.has(newer)).toBe(true); expect(native.files.has(original)).toBe(false);
+});
+it("a completed import retains exact cleanup references when deletion fails and retries them safely", async () => {
+  const owner = "cleanup-owner", storage = journalStorage();
+  const slot = createPrivateDraftSlot<CaptureDraft>(storage, owner, "capture:1", () => `revision-${++native.next}`);
+  const file = { uri: "file:///cache/hafa-workouts-capture/import.pdf", mime_type: "application/pdf", name: "PDF", owned: true };
+  native.files.set(file.uri, "PDF"); await slot.save(null, { ...draft, generation: 1, job_id: "job", files: [file] }, () => {});
+  native.remove.mockRejectedValueOnce(Error("file locked"));
+  await expect(retireCapturedImport(storage, owner, 1, "job", () => {}, cleanupCaptureFiles, () => `revision-${++native.next}`)).rejects.toThrow("file locked");
+  expect((await slot.load(() => {})).value).toMatchObject({ files: [], cleanup_files: [file] });
+  await retireCapturedImport(storage, owner, 1, "job", () => {}, cleanupCaptureFiles, () => `revision-${++native.next}`);
+  expect((await slot.load(() => {})).value).toBeNull(); expect(native.files.has(file.uri)).toBe(false);
+});
+it("validates between-round rest without turning unknown rest into zero", () => {
+  const workout = { title: "Circuit", kind: "session" as const, provenance: "source" as const,
+    blocks: [{ id: "main", label: "Main", grouping: "circuit" as const, rest_between_rounds_seconds: -1, exercises: [] }] };
+  expect(workoutErrors(workout)).toContain("Rest between rounds must be whole seconds from 0 to 7200, or blank.");
+  expect(workoutErrors({ ...workout, blocks: [{ ...workout.blocks[0], rest_between_rounds_seconds: null }] })).toEqual([]);
+});
 it("rejects credentialed/non-web sources and preserves optional captions", () => {
   expect(captureErrors(draft)).toEqual([]);
   expect(captureErrors({ ...draft, source_url: "https://private:secret@example.test/workout" })).toHaveLength(1);

@@ -215,6 +215,21 @@ export async function pickDocument(guard: CaptureGuard, owner: string): Promise<
     throw error;
   }
 }
+/** Copy the shared document into the account-owned cleanup journal before acknowledging the extension. */
+export async function normalizeDocument(file: { uri: string; mimeType: string; name: string }, guard: CaptureGuard, owner: string): Promise<CaptureFile[]> {
+  guard();
+  if (!["application/pdf", "text/plain", "text/markdown"].includes(file.mimeType) || !/^(file|content):\/\//.test(file.uri))
+    throw Error("Share a PDF or text document, or choose clear screenshots instead.");
+  const info = await FileSystem.getInfoAsync(file.uri); guard();
+  if (!info.exists || info.isDirectory || info.size > 128 * 1024)
+    throw Error("Use an available document under 128 KB, paste its text, or share screenshots.");
+  const lease = await journal.begin(owner, Crypto.randomUUID());
+  try {
+    const uri = await ownFile(file.uri, file.mimeType === "application/pdf" ? "pdf" : "txt", guard, lease);
+    await lease.finish(); guard();
+    return [{ uri, mime_type: file.mimeType, name: file.name, owned: true }];
+  } catch (error) { try { await lease.finish(); } finally { await lease.cleanup(); } throw error; }
+}
 export async function sourceFor(draft: CaptureDraft, guard: CaptureGuard): Promise<ExtractionRequest> {
   guard();
   const source: ExtractionRequest = { kind: draft.kind, ai_consent: true };
