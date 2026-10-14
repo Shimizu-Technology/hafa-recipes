@@ -13,7 +13,7 @@ import {
 } from "react";
 import { useAuth, useClerk } from "@clerk/expo";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import { onlineManager, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { AppState } from "react-native";
 import { createWorkoutsApi, type WorkoutsApi } from "./api";
 import { configuration } from "./config";
@@ -23,6 +23,7 @@ import { commitTrainingSetup, activeTrainingGeneration } from "./onboarding-stat
 import { createEnrollmentBootstrap, createVerifiedIdentityCache, type BootstrapState, type EnrollmentSetupLease } from "./enrollment-bootstrap";
 import type { Enrollment, TrainingProfile } from "./models";
 import { createTrainingStore, type TrainingStore, type UnitSystem } from "./training";
+import { createTrainingSync } from "./training-sync";
 interface ContextValue {
   api: WorkoutsApi;
   storage: ReturnType<typeof privateRegistry.capture>;
@@ -74,6 +75,23 @@ function OfflineProvider({
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const training = useContext(Context)!;
+  const currentTraining = useRef(training);
+  currentTraining.current = training;
+  const cache = useQueryClient();
+  useEffect(() => {
+    if (!ready || !store) return;
+    const current = () => currentTraining.current.owner === owner &&
+      currentTraining.current.enrollment?.enrolled === true && currentTraining.current.enrollment.generation === generation &&
+      currentTraining.current.isCurrentAccount() && storage.isCurrent();
+    const sync = createTrainingSync({ store, send: training.api.saveSession, current,
+      foreground: AppState.currentState === "active", online: onlineManager.isOnline(),
+      onSaved: () => cache.invalidateQueries({ queryKey: [owner, "sessions", generation] }),
+    });
+    const app = AppState.addEventListener("change", (status) => sync.foreground(status === "active"));
+    const connection = onlineManager.subscribe((online) => sync.online(online));
+    return () => { sync.dispose(); app.remove(); connection(); };
+  }, [ready, store, owner, generation, storage, training.api, cache]);
   useEffect(() => {
     let active = true;
     setReady(false);

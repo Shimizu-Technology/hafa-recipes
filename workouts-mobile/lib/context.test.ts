@@ -28,7 +28,7 @@ const rawStorage = vi.hoisted(() => ({
 vi.mock("@react-native-async-storage/async-storage", () => ({ default: rawStorage }));
 vi.mock("react-native", () => ({
   ActivityIndicator: "ActivityIndicator",
-  AppState: { addEventListener: (_: string, listener: (state: string) => void) => {
+  AppState: { currentState: "active", addEventListener: (_: string, listener: (state: string) => void) => {
     fixture.foreground.add(listener);
     return { remove: () => fixture.foreground.delete(listener) };
   } },
@@ -286,4 +286,61 @@ it("a retained recovery callback cannot sign out a newly selected session", asyn
   expect(fixture.signOut).toHaveBeenCalledExactlyOnceWith({ sessionId: "session-B" });
   expect(mounts).toBe(0);
   expect(fixture.erase).not.toHaveBeenCalled();
+});
+
+
+async function finishLocalSession(store: NonNullable<Offline["store"]>) {
+  const workout: Workout = { id: "workout", revision: 1, generation: 1, title: "Offline strength", kind: "session", provenance: "user",
+    blocks: [{ id: "main", label: "Strength", grouping: "sequential", exercises: [{ name: "Row", sets: 1, reps_min: 8 }] }] };
+  await store.start(workout, { workout_id: "workout", workout_revision: 1 }, "offline-client");
+  await store.log({ block_id: "main", exercise_index: 0, round_index: 1, set_index: 1, side: null, completed: true, reps: 8 });
+  await store.activityType("strength_training"); await store.finish("completed");
+  return workout;
+}
+it("mounted provider automatically drains a device result on returning to the foreground with its original account and generation", async () => {
+  const baseline = transport.getMockImplementation()!, posts: Array<{ body: Record<string, unknown>; headers: Headers }> = [];
+  let available = false;
+  transport.mockImplementation(async (url, options) => {
+    if (String(url).endsWith("/sessions") && options?.method === "POST") {
+      const body = JSON.parse(String(options.body)); posts.push({ body, headers: new Headers(options.headers) });
+      if (!available) throw Error("offline fixture");
+      return new Response(JSON.stringify({ id: "server-result", generation: 1, client_session_id: body.client_session_id,
+        content: { ...body, prescription_snapshot: { title: "Offline strength", blocks: [] } } }));
+    }
+    return baseline(url, options);
+  });
+  await act(async () => { renderer = create(tree()); }); await settle();
+  await act(async () => { await finishLocalSession(observed!.offline.store!); }); await settle();
+  expect(posts).toHaveLength(1); expect(observed!.offline.state.history[0].state).toBe("queued");
+  const original = JSON.stringify(posts[0].body);
+  await act(async () => { fixture.foreground.forEach((listener) => listener("background")); });
+  available = true;
+  await act(async () => { fixture.foreground.forEach((listener) => listener("active")); }); await settle();
+  expect(posts).toHaveLength(2); expect(JSON.stringify(posts[1].body)).toBe(original);
+  expect(posts[1].headers.get("X-Hafa-Account-ID")).toBe("A");
+  expect(posts[1].headers.get("X-Workouts-Generation")).toBe("1");
+  expect(observed!.offline.state.history[0].state).toBe("synced");
+});
+it("a provider's held save cannot publish into another account after switching owners", async () => {
+  const baseline = transport.getMockImplementation()!;
+  let release!: (response: Response) => void, body: Record<string, unknown>;
+  transport.mockImplementation(async (url, options) => {
+    if (String(url).endsWith("/sessions") && options?.method === "POST") {
+      body = JSON.parse(String(options.body)); return new Promise<Response>((resolve) => { release = resolve; });
+    }
+    return baseline(url, options);
+  });
+  await act(async () => { renderer = create(tree()); }); await settle();
+  const originalStore = observed!.offline.store!;
+  await act(async () => { await finishLocalSession(originalStore); }); await settle();
+  fixture.subject = "subject-B"; fixture.sessionId = "session-B";
+  await act(async () => { renderer!.update(tree()); }); await settle();
+  expect(observed!.training.owner).toBe("B");
+  cache.setQueryData(["B", "sessions", 1], []);
+  await act(async () => { release(new Response(JSON.stringify({ id: "old-owner-result", generation: 1, client_session_id: body!.client_session_id,
+    content: { ...body!, prescription_snapshot: { title: "Offline strength", blocks: [] } } }))); }); await settle();
+  expect(observed!.offline.state.history).toEqual([]);
+  expect(originalStore.snapshot().history[0].state).toBe("queued");
+  expect(originalStore.snapshot().history[0].request.client_session_id).toBe("offline-client");
+  expect(cache.getQueryState(["B", "sessions", 1])?.isInvalidated).toBe(false);
 });

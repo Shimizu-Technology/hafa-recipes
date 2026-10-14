@@ -13,7 +13,8 @@ import {
   actualIdentity,
   trainingKey,
 } from "./training";
-import type { Workout, ActualSet, TrainingSession } from "./models";
+import type { Workout, ActualSet, TrainingSession, SessionRequest } from "./models";
+import { createTrainingSync } from "./training-sync";
 import { timedCircuit, circuitRemaining, completedCircuitRounds } from "./timed-circuit";
 import { selectProgressSessions } from "./progress-selection";
 function fixture(): Workout {
@@ -545,4 +546,99 @@ it("a completed timed run corrected to skipped work becomes partial without alte
   ]);
   expect(saved.status).toBe("completed");
   expect(saved.content.actuals[0].completed).toBe(true);
+});
+
+async function queuedTraining() {
+  const store = createTrainingStore(memory(), "owner", 1, () => 10000);
+  await store.load();
+  await store.start(fixture(), { workout_id: "workout", workout_revision: 3 }, "queued-client");
+  await store.log(next(store)); await store.activityType("strength_training"); await store.finish("partial");
+  return store;
+}
+function syncResponse(request: SessionRequest): TrainingSession {
+  return { id: `server-${request.client_session_id}`, client_session_id: request.client_session_id, generation: 1,
+    title: "Strength", status: request.status, started_at: request.started_at,
+    content: { ...request, prescription_snapshot: fixture() } };
+}
+it("foreground recovery retries offline work with its original UUID/generation and no background polling", async () => {
+  vi.useFakeTimers();
+  const store = await queuedTraining(), before = JSON.stringify(store.snapshot().history[0].request);
+  const send = vi.fn().mockRejectedValueOnce(Object.assign(Error("offline"), { status: 0 })).mockImplementation(async (request) => syncResponse(request));
+  const onSaved = vi.fn(), controller = createTrainingSync({ store, send, onSaved, current: () => true, foreground: true, online: true });
+  try {
+    await vi.advanceTimersByTimeAsync(0); expect(send).toHaveBeenCalledTimes(1);
+    controller.foreground(false); await vi.advanceTimersByTimeAsync(300000); expect(send).toHaveBeenCalledTimes(1);
+    controller.foreground(true); await vi.advanceTimersByTimeAsync(0);
+    expect(send).toHaveBeenCalledTimes(2); expect(send.mock.calls[0]).toEqual(send.mock.calls[1]);
+    expect(send.mock.calls[1][1]).toBe(1); expect(onSaved).toHaveBeenCalledOnce();
+    expect(store.snapshot().history[0].state).toBe("synced"); expect(JSON.stringify(store.snapshot().history[0].request)).toBe(before);
+  } finally { controller.dispose(); vi.useRealTimers(); }
+});
+it("bounded foreground retries recover reconnection even without native connectivity events", async () => {
+  vi.useFakeTimers(); const store = await queuedTraining();
+  const send = vi.fn().mockRejectedValue(Object.assign(Error("offline"), { status: 0 }));
+  const controller = createTrainingSync({ store, send, onSaved() {}, current: () => true, foreground: true, online: true });
+  try {
+    await vi.advanceTimersByTimeAsync(0);
+    for (const delay of [15000, 30000, 60000, 120000]) {
+      const count = send.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(delay - 1); expect(send).toHaveBeenCalledTimes(count);
+      await vi.advanceTimersByTimeAsync(1); expect(send).toHaveBeenCalledTimes(count + 1);
+    }
+    send.mockImplementation(async (request) => syncResponse(request));
+    await vi.advanceTimersByTimeAsync(120000); expect(store.snapshot().history[0].state).toBe("synced");
+    expect(vi.getTimerCount()).toBe(0);
+  } finally { controller.dispose(); vi.useRealTimers(); }
+});
+it("online events wake saved work but permanent rejects are never silently replayed", async () => {
+  vi.useFakeTimers(); const store = await queuedTraining();
+  const send = vi.fn().mockRejectedValue(Object.assign(Error("needs review"), { status: 422 }));
+  const controller = createTrainingSync({ store, send, onSaved() {}, current: () => true, foreground: true, online: false });
+  try {
+    await vi.advanceTimersByTimeAsync(60000); expect(send).not.toHaveBeenCalled();
+    controller.online(true); await vi.advanceTimersByTimeAsync(0);
+    expect(store.snapshot().history[0].state).toBe("blocked");
+    controller.foreground(true); controller.online(true); await vi.advanceTimersByTimeAsync(300000);
+    expect(send).toHaveBeenCalledOnce();
+  } finally { controller.dispose(); vi.useRealTimers(); }
+});
+it("automatic recovery joins a concurrent manual sync without duplicate transport", async () => {
+  vi.useFakeTimers(); const store = await queuedTraining();
+  let release!: (record: TrainingSession) => void, started!: () => void;
+  const entered = new Promise<void>((resolve) => { started = resolve; });
+  const manualSend = vi.fn((request: SessionRequest) => { started(); return new Promise<TrainingSession>((resolve) => { release = resolve; }); });
+  const manual = store.sync(manualSend); await entered;
+  const automaticSend = vi.fn(), controller = createTrainingSync({ store, send: automaticSend, onSaved() {}, current: () => true, foreground: true, online: true });
+  try {
+    await vi.advanceTimersByTimeAsync(0); expect(automaticSend).not.toHaveBeenCalled();
+    release(syncResponse(store.snapshot().history[0].request)); await manual; await vi.advanceTimersByTimeAsync(0);
+    expect(manualSend).toHaveBeenCalledOnce(); expect(store.snapshot().history[0].state).toBe("synced");
+  } finally { controller.dispose(); vi.useRealTimers(); }
+});
+it("a held acknowledgement cannot update caches or queue ownership after the account changes", async () => {
+  vi.useFakeTimers(); const store = await queuedTraining(); let current = true;
+  let release!: (record: TrainingSession) => void;
+  const send = vi.fn(() => new Promise<TrainingSession>((resolve) => { release = resolve; })), onSaved = vi.fn();
+  const before = JSON.stringify(store.snapshot().history[0].request);
+  const controller = createTrainingSync({ store, send, onSaved, current: () => current, foreground: true, online: true });
+  try {
+    await vi.advanceTimersByTimeAsync(0); expect(send).toHaveBeenCalledOnce(); current = false;
+    release(syncResponse(store.snapshot().history[0].request)); await vi.advanceTimersByTimeAsync(0);
+    expect(onSaved).not.toHaveBeenCalled(); expect(store.snapshot().history[0].state).toBe("queued");
+    expect(JSON.stringify(store.snapshot().history[0].request)).toBe(before);
+    await vi.advanceTimersByTimeAsync(300000); expect(send).toHaveBeenCalledOnce();
+  } finally { controller.dispose(); vi.useRealTimers(); }
+});
+
+it("a save acknowledged while backgrounded defers its cache refresh until foreground without replaying the save", async () => {
+  vi.useFakeTimers(); const store = await queuedTraining(); let release!: (record: TrainingSession) => void;
+  const send = vi.fn(() => new Promise<TrainingSession>((resolve) => { release = resolve; })), onSaved = vi.fn();
+  const controller = createTrainingSync({ store, send, onSaved, current: () => true, foreground: true, online: true });
+  try {
+    await vi.advanceTimersByTimeAsync(0); controller.foreground(false);
+    release(syncResponse(store.snapshot().history[0].request)); await vi.advanceTimersByTimeAsync(0);
+    expect(store.snapshot().history[0].state).toBe("synced"); expect(onSaved).not.toHaveBeenCalled();
+    controller.foreground(true); await vi.advanceTimersByTimeAsync(0);
+    expect(send).toHaveBeenCalledOnce(); expect(onSaved).toHaveBeenCalledOnce();
+  } finally { controller.dispose(); vi.useRealTimers(); }
 });
