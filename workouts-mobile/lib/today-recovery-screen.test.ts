@@ -312,3 +312,21 @@ it.each(["newer_revision", "retired_account"])("date recovery shares repeated ta
   await act(async () => finish({ ...requested, revision: 2 })); await settle();
   expect(cache.getQueryData(["owner-A", "programs", 1])).toEqual([change === "newer_revision" ? newer : program]);
   expect(cache.getQueryData(["owner-B", "programs", 1])).toBeUndefined();
+});
+
+it("Plan explains a recovery-spacing rejection and retains the date edit for correction", async () => {
+  fixture.available = true;
+  const program = { id: "plan", title: "Strength", generation: 1, revision: 1, status: "ready",
+    sessions: [{ id: "missed", date: "2020-01-01", purpose: "Strength", workout: { title: "Strength" } }] } as Program;
+  fixture.programs.mockResolvedValue([program]);
+  fixture.updateProgram.mockRejectedValue(Object.assign(new Error("Refresh the saved program."), {
+    status: 409, detail: "Keep session spacing and avoid stacking training",
+  }));
+  await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Plan))); }); await settle();
+  await act(async () => buttons("Choose a new date")[0].props.onPress());
+  await act(async () => buttons("Save new date")[0].props.onPress()); await settle();
+  expect(text()).toContain("Choose a date with a recovery day between demanding sessions.");
+  expect(text()).not.toContain("Refresh the saved program.");
+  expect(buttons("Save new date")).toHaveLength(1);
+  expect(cache.getQueryData(["owner-A", "programs", 1])).toEqual([program]);
+});

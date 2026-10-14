@@ -29,6 +29,7 @@ import { dateInTimezone } from "@/lib/training";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import type { Program, ScheduledSession } from "@/lib/models";
+import { programMoveError } from "@/lib/plans";
 function DateBadge({ date, done }: { date: string; done: boolean }) {
   const c = useColors();
   const at = new Date(`${date}T12:00:00Z`);
@@ -118,7 +119,7 @@ export default function Plan() {
       );
       setEditing(null);
     } catch (e) {
-      if (isCurrentAccount() && storage.isCurrent()) setError((e as Error).message);
+      if (isCurrentAccount() && storage.isCurrent()) setError(programMoveError(e));
     } finally {
       moving.current = false;
       if (isCurrentAccount() && storage.isCurrent()) setBusy(false);
