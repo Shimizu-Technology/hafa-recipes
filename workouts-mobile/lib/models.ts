@@ -71,6 +71,7 @@ export interface Workout {
     id: string;
     label: string;
     grouping: "sequential" | "circuit" | "superset" | "interval";
+    execution?: { mode: "amrap"; time_cap_seconds: number };
     rounds?: number | null;
     rest_between_rounds_seconds?: number | null;
     exercises: ExercisePrescription[];

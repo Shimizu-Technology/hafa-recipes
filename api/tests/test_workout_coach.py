@@ -7,8 +7,10 @@ import pytest
 from app.domains.workouts.coach import (
     CoachFailure,
     ProductionCoachProvider,
+    fit_source_flow_context,
     normalize_usage,
     response_parts,
+    source_flow_context,
     validate_inspected_ids,
 )
 from app.domains.workouts.coach_actions import health_derived, tool_definitions
@@ -226,3 +228,72 @@ async def test_provider_error_never_exposes_response_details(monkeypatch):
     with pytest.raises(CoachFailure) as error:
         await ProductionCoachProvider(budget_guard=FakeBudget()).respond([], tools=[])
     assert str(error.value) == "provider_unavailable"
+
+
+def test_source_flow_preserves_only_grounded_retained_quotations_and_never_private_notes():
+    flow = "Repeat the circuit for 20 minutes."
+    workout = {
+        "provenance": "source",
+        "notes": [flow, "PRIVATE NOTE"],
+        "blocks": [{"evidence": [
+            {"field": "workout_notes", "wording": flow, "location": "caption"},
+            {"field": "notes", "wording": "PRIVATE NOTE", "location": "caption"},
+            {"field": "workout_notes", "wording": "UNRETAINED SOURCE", "location": "caption"},
+            {"field": "workout_notes", "wording": "PRIVATE NOTE", "location": None},
+        ]}],
+    }
+    before = json.dumps(workout)
+    assert source_flow_context(workout) == [flow]
+    assert json.dumps(workout) == before
+    assert source_flow_context(workout | {"provenance": "user"}) == []
+    assert source_flow_context(workout | {"provenance": "suggestion"}) == []
+    assert source_flow_context(workout | {"notes": []}) == []
+
+
+def test_source_flow_bounds_whole_quotes_and_supports_legacy_grouping_evidence():
+    notes = ["AMRAP: repeat for 20 minutes.", "x" * 2001] + [f"Repeat round {i}" for i in range(10)]
+    workout = {"provenance": "source", "notes": notes, "blocks": [{"evidence": [
+        {"field": "grouping" if i == 0 else "workout_notes", "wording": note, "location": "caption"}
+        for i, note in enumerate(notes)
+    ]}]}
+    result = source_flow_context(workout)
+    assert result[0] == notes[0] and notes[1] not in result
+    assert len(result) == 6 and sum(map(len, result)) <= 2000
+    assert all(quote in notes for quote in result)
+
+
+def test_title_only_edit_trimming_notes_preserves_original_creator_quote():
+    quote = "  Repeat the circuit for 20 minutes.\n"
+    workout = {
+        "title": "Original title", "provenance": "source", "notes": [quote],
+        "blocks": [{"evidence": [
+            {"field": "workout_notes", "wording": quote, "location": "caption"},
+        ]}],
+    }
+    edited = workout | {"title": "My title", "notes": [quote.strip()]}
+    assert source_flow_context(edited) == [quote]
+    assert source_flow_context(edited | {"notes": ["Repeat it for 15 minutes."]}) == []
+
+
+@pytest.mark.parametrize("quote", ["Repeat the circuit for 20 minutes.", "Repeat \u00e9 " * 200])
+def test_source_quotes_fit_remaining_serialized_item_budget_without_splitting_instructions(quote):
+    item = {"id": "workout", "revision": 1, "content": {"title": "Source circuit"}}
+    item["content"]["padding"] = "x" * (13999 - len(json.dumps(item | {"content": item["content"] | {"padding": ""}})))
+    original = json.loads(json.dumps(item))
+    workout = {"provenance": "source", "notes": [quote], "blocks": [{"evidence": [
+        {"field": "workout_notes", "wording": quote, "location": "caption"},
+    ]}]}
+    assert fit_source_flow_context(item, workout)
+    assert item == original and len(json.dumps(item)) == 13999
+
+
+def test_source_quote_budget_can_keep_a_later_whole_short_quote():
+    long_quote, short_quote = "Repeat \u00e9 " * 100, "Rest as needed."
+    workout = {"provenance": "source", "notes": [long_quote, short_quote], "blocks": [{"evidence": [
+        {"field": "workout_notes", "wording": quote, "location": "caption"}
+        for quote in [long_quote, short_quote]
+    ]}]}
+    item = {"id": "workout", "revision": 1, "content": {"padding": "x" * 13800}}
+    assert fit_source_flow_context(item, workout)
+    assert item["content"]["source_instructions"] == [short_quote]
+    assert len(json.dumps(item)) < 14000

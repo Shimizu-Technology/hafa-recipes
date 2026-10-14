@@ -8,13 +8,15 @@ import { QueryState } from "@/components/query-state";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { summaryOf, actualIdentity, historicalStructureWarning } from "@/lib/training";
 import type { ActualSet } from "@/lib/models";
+type NumericActual = "reps" | "duration_seconds" | "distance_meters" | "load" | "effort";
 export default function SessionDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { api, owner } = useTraining();
+  const { api, owner, units } = useTraining();
   const offline = useOfflineTraining();
   const cache = useQueryClient();
   const q = useQuery({ queryKey: [owner, "session", id], queryFn: () => api.session(id) });
   const [editing, setEditing] = useState<ActualSet[] | null>(null);
+  const [numericDraft, setNumericDraft] = useState<Record<number, Partial<Record<NumericActual, string>>>>({});
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -22,7 +24,15 @@ export default function SessionDetail() {
     if (!q.data || !editing || !offline.store) return;
     setBusy(true);
     try {
-      await offline.store.correct(q.data, editing, notes, Crypto.randomUUID());
+      const actuals = editing.map((actual, index) => {
+        const result = { ...actual };
+        for (const key of Object.keys(numericDraft[index] ?? {}) as NumericActual[]) {
+          const value = numericDraft[index][key]!;
+          result[key] = value.trim() ? Number(value) * (key === "distance_meters" && units === "imperial" ? 1609.344 : 1) : null;
+        }
+        return result;
+      });
+      await offline.store.correct(q.data, actuals, notes, Crypto.randomUUID());
       void offline.store.sync(api.saveSession).then(() => cache.invalidateQueries({ queryKey: [owner, "sessions"] }));
       router.replace("/(tabs)/progress");
     } catch (e) {
@@ -33,6 +43,13 @@ export default function SessionDetail() {
   }
   function change(index: number, update: Partial<ActualSet>) {
     setEditing((old) => old?.map((actual, i) => (i === index ? { ...actual, ...update } : actual)) ?? null);
+  }
+  function numeric(actual: ActualSet, index: number, key: NumericActual) {
+    const value = actual[key];
+    return {
+      value: numericDraft[index]?.[key] ?? (value == null ? "" : String(key === "distance_meters" && units === "imperial" ? value / 1609.344 : value)),
+      onChange: (raw: string) => setNumericDraft((old) => ({ ...old, [index]: { ...old[index], [key]: raw } })),
+    };
   }
   return (
     <Screen
@@ -86,24 +103,26 @@ export default function SessionDetail() {
                       label="Actual reps"
                       optional
                       numeric
-                      value={a.reps == null ? "" : String(a.reps)}
-                      onChange={(v) => change(index, { reps: v.trim() ? Number(v) : null })}
+                      {...numeric(a, index, "reps")}
                     />
                     <Field
                       label="Actual seconds"
                       optional
                       numeric
-                      value={a.duration_seconds == null ? "" : String(a.duration_seconds)}
-                      onChange={(v) => change(index, { duration_seconds: v.trim() ? Number(v) : null })}
+                      {...numeric(a, index, "duration_seconds")}
+                    />
+                    <Field
+                      label={`Actual distance · ${units === "imperial" ? "miles" : "metres"}`}
+                      optional numeric
+                      {...numeric(a, index, "distance_meters")}
                     />
                     <Field
                       label={`Actual load · ${a.load_unit ?? "choose unit when adding load"}`}
                       optional
                       numeric
-                      value={a.load == null ? "" : String(a.load)}
-                      onChange={(v) => change(index, { load: v.trim() ? Number(v) : null })}
+                      {...numeric(a, index, "load")}
                     />
-                    {a.load != null && (
+                    {(numericDraft[index]?.load ?? (a.load == null ? "" : String(a.load))).trim() !== "" && (
                       <>
                         <Choice
                           label="kg"
@@ -125,6 +144,18 @@ export default function SessionDetail() {
                         ))}
                       </>
                     )}
+                    <Field label="Actual effort · 0 to 10" optional numeric
+                      {...numeric(a, index, "effort")} />
+                    <Copy kind="label">How did the set feel?</Copy>
+                    {(["easy", "manageable", "hard"] as const).map((value) => <Choice key={value} label={value}
+                      selected={a.difficulty === value}
+                      onPress={() => change(index, { difficulty: a.difficulty === value ? null : value })} />)}
+                    <Copy kind="label">Any pain during this set?</Copy>
+                    {([true, false] as const).map((value) => <Choice key={String(value)}
+                      label={value ? "Yes, pain reported" : "No pain reported"} selected={a.pain_reported === value}
+                      onPress={() => change(index, { pain_reported: a.pain_reported === value ? null : value })} />)}
+                    <Field label="Set notes" optional multiline value={a.notes ?? ""}
+                      onChange={(value) => change(index, { notes: value || null })} />
                     <Choice
                       label="This set was completed"
                       selected={a.completed}
@@ -158,6 +189,7 @@ export default function SessionDetail() {
                 secondary
                 onPress={() => {
                   setEditing(q.data!.content.actuals.map((a) => ({ ...a })));
+                  setNumericDraft({});
                   setNotes(q.data!.content.notes ?? "");
                 }}
               />

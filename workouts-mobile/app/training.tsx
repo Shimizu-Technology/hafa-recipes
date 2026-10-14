@@ -1,7 +1,7 @@
 import { useReminders } from "@/components/reminders-provider";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { Alert, Linking } from "react-native";
+import { Alert, AppState, Linking } from "react-native";
 import { router } from "expo-router";
 import {
   Button,
@@ -29,6 +29,7 @@ import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import { effectiveTrainingHistory } from "@/lib/progress-selection";
 import { remainingSeconds, summaryOf, previousActual, actualIdentity, draftStructureWarning } from "@/lib/training";
 import type { ActualSet } from "@/lib/models";
+import { circuitRemaining, completedCircuitRounds } from "@/lib/timed-circuit";
 export default function Training() {
   const { api, units, owner, enrollment } = useTraining();
   const { store, state, ready, error: restoreError, retry } = useOfflineTraining();
@@ -42,6 +43,8 @@ export default function Training() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const guard = useRef(false);
+  const checkpointing = useRef(false);
+  const backgroundPausePending = useRef(false);
   const [advanced, setAdvanced] = useState(false);
   const [more, setMore] = useState(false);
   const [metric, setMetric] = useState<"reps" | "time" | "distance">("reps");
@@ -49,6 +52,25 @@ export default function Training() {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
+  useEffect(() => {
+    const current = store?.snapshot().active;
+    if (!current?.timed_circuit || current.paused || checkpointing.current ||
+      (now - current.checkpoint_at < 5000 && circuitRemaining(current, now)! > 0)) return;
+    checkpointing.current = true;
+    void store!.checkpoint().catch(() => setError("Could not save the circuit timer on this device. Pause and retry."))
+      .finally(() => { checkpointing.current = false; });
+  }, [now, store, d?.id, d?.paused]);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (status) => {
+      const current = store?.snapshot().active;
+      if (status !== "active" && current?.timed_circuit && !current.paused && !backgroundPausePending.current) {
+        backgroundPausePending.current = true;
+        void store!.pause(true).catch(() => setError("Could not pause the circuit on this device. Review its saved timer before resuming."))
+          .finally(() => { backgroundPausePending.current = false; });
+      }
+    });
+    return () => sub.remove();
+  }, [store]);
   useEffect(() => {
     const restored = d?.input ?? {};
     setInput(restored);
@@ -151,9 +173,14 @@ export default function Training() {
     router.replace("/(tabs)/progress");
   }
   const recorded = d.actuals.filter((a) => a.completed).length;
+  const timed = d.timed_circuit;
+  const capRemaining = circuitRemaining(d, now);
+  const capReached = timed != null && capRemaining === 0;
+  const timedComplete = capReached && recorded > 0 && !timed.limit_reached && !d.actuals.some((a) => !a.completed);
+  const pendingEntry = Object.entries(input).some(([key, value]) => !["load_unit", "convention"].includes(key) && value.trim());
   const nextStep = d.steps[d.cursor + 1];
   const next = nextStep?.exercise;
-  const canFinish = !structureWarning && d.cursor === d.steps.length && !d.actuals.some((a) => !a.completed);
+  const canFinish = !timed && !structureWarning && d.cursor === d.steps.length && !d.actuals.some((a) => !a.completed);
   const target = e
     ? [
         e.reps_min != null
@@ -180,14 +207,14 @@ export default function Training() {
   return (
     <Screen
       back
-      eyebrow={`${recorded} ${recorded === 1 ? "set" : "sets"} recorded · saved on this device`}
+      eyebrow={`${recorded} ${timed ? (recorded === 1 ? "entry" : "entries") : (recorded === 1 ? "set" : "sets")} recorded · saved on this device`}
       title={d.workout.title}
       action={
         <Row gap={8}>
           <IconButton
             icon={d.paused ? "play" : "pause"}
-            label={d.paused ? "Resume session" : "Pause session"}
-            disabled={busy}
+            label={capReached ? "Time cap reached" : d.paused ? "Resume session" : "Pause session"}
+            disabled={busy || capReached}
             onPress={() => {
               void run(() => store.pause(!d.paused));
             }}
@@ -196,13 +223,16 @@ export default function Training() {
         </Row>
       }
       footer={
-        step && e ? (
+        timedComplete && !pendingEntry ? (
+          <Button title="Finish at time cap and save" icon="checkmark-done" size="lg" busy={busy}
+            onPress={() => { void run(() => finish("completed")); }} />
+        ) : step && e ? (
           <Button
-            title={step.side ? `Log ${step.side} side` : "Log this set"}
+            title={step.side ? `Log ${step.side} side` : timed ? "Log this exercise" : "Log this set"}
             icon="checkmark"
             size="lg"
             busy={busy}
-            disabled={d.paused || !!structureWarning}
+            disabled={(d.paused && !capReached) || !!structureWarning}
             onPress={() => {
               void run(() => log(true));
             }}
@@ -242,7 +272,17 @@ export default function Training() {
           )}
         </>
       )}
-      {d.paused && (
+      {timed && <Card tone="hero">
+        <Copy kind="caption" tone="accent">{formatClock(timed.time_cap_seconds)} source time cap</Copy>
+        <Copy kind="numeric">{formatClock(capRemaining ?? 0)}</Copy>
+        <Copy>Round {step?.round_index ?? Math.ceil(d.steps.length / timed.round_size)} · {completedCircuitRounds(d.actuals, timed.round_size)} complete rounds logged</Copy>
+        <Copy kind="small" tone="muted">Repeat the circuit until the time cap. Log each exercise as you go; pause when you need to step away.</Copy>
+        {capReached && <Notice>Time’s up. Log any final exercise, then save your session.</Notice>}
+        {timed.limit_reached && <Notice tone="warning">This session reached its tracking limit. Save the recorded work as a partial session.</Notice>}
+        {timedComplete && step && <Button title="Record final exercise before finishing" secondary disabled={busy}
+          onPress={() => { void run(() => log(true)); }} />}
+      </Card>}
+      {d.paused && !capReached && (
         <Notice tone="warning">
           Your session is paused. Restored sessions resume from the last saved checkpoint; time away is not counted as
           active training.
@@ -266,7 +306,7 @@ export default function Training() {
         <>
           <Card tone="hero">
             <Copy kind="caption" tone="accent">
-              {step.block_label} · {step.grouping} · round {step.round_index} · set {step.target_set}
+              {step.block_label} · round {step.round_index} · {timed ? `exercise ${step.exercise_index + 1}` : `set ${step.target_set}`}
               {step.side ? ` · ${step.side} side` : ""}
             </Copy>
             <Copy kind="display">{e.name}</Copy>
@@ -296,7 +336,7 @@ export default function Training() {
               />
             )}
           </Card>
-          {e.sets == null && (
+          {e.sets == null && !timed && (
             <Notice>The source does not specify sets. Log what you do; add another set if you choose additional work.</Notice>
           )}
           {!!next && (
@@ -463,8 +503,8 @@ export default function Training() {
       ) : (
         <Empty
           icon="checkmark-circle-outline"
-          title="You've reached the end"
-          description="Nice work. Review your recorded work below, then save the session. Skipped sets stay visible as partial training."
+          title={timed ? (timed.limit_reached ? "Tracking limit reached" : "Time cap reached") : "You've reached the end"}
+          description={timed ? "Review your recorded work, then explicitly save. Skipped work and tracking limits stay partial." : "Nice work. Review your recorded work below, then save the session. Skipped sets stay visible as partial training."}
         />
       )}
       {!!reminders.state.error && (
@@ -508,14 +548,14 @@ export default function Training() {
           <>
             <ListRow
               icon="play-skip-forward-outline"
-              title="Skip this set"
+              title={timed ? "Skip this exercise entry" : "Skip this set"}
               disabled={busy || d.paused || !!structureWarning}
               onPress={() => {
                 setMore(false);
                 void run(() => log(false));
               }}
             />
-            <ListRow
+            {!timed && <ListRow
               icon="add-circle-outline"
               title="Add another set of this exercise"
               disabled={busy || !!structureWarning}
@@ -523,13 +563,13 @@ export default function Training() {
                 setMore(false);
                 void run(() => store.addSet());
               }}
-            />
+            />}
           </>
         )}
         {!!d.actuals.length && (
           <ListRow
             icon="arrow-undo-outline"
-            title="Undo last set"
+            title={timed ? "Undo last exercise entry" : "Undo last set"}
             disabled={busy}
             onPress={() => {
               setMore(false);

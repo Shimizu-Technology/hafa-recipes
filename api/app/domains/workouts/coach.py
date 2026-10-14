@@ -39,8 +39,59 @@ from app.models.ai import AIInvocation
 
 MAX_MESSAGES_PER_DAY = 50
 MAX_CONTEXT_BYTES = 60000
+MAX_CONTEXT_ITEM_CHARACTERS = 14000
+SOURCE_FLOW_MAX_QUOTES = 6
+SOURCE_FLOW_MAX_CHARACTERS = 2000
 MAX_CALLS = 3
 PROMPT_VERSION = "workouts-coach-2"
+
+
+def source_flow_context(workout):
+    """Only retained source quotations may cross the private-notes boundary.
+
+    Extraction grounds these block evidence entries before storing them. A later
+    private edit is not a source instruction merely because provenance is source.
+    The provider still treats these quotations as data, never instructions.
+    """
+    if workout.get("provenance") != "source":
+        return []
+    notes = workout.get("notes", [])
+    if not isinstance(notes, list):
+        return []
+    retained = {note.strip() for note in notes if isinstance(note, str)}
+    result, remaining = [], SOURCE_FLOW_MAX_CHARACTERS
+    for block in workout.get("blocks", []):
+        for entry in block.get("evidence", []):
+            wording = entry.get("wording")
+            field = entry.get("field")
+            if not isinstance(wording, str) or wording.strip() not in retained or not entry.get("location"):
+                continue
+            if field != "workout_notes" and not (
+                field in {"label", "grouping"}
+                and re.search(r"\bamrap\b|\brepeat(?:ing)?\b", wording, re.I)
+            ):
+                continue
+            if wording in result:
+                continue
+            # Keep whole quotations: partial instructions can change the workout.
+            if len(wording) > remaining or len(result) == SOURCE_FLOW_MAX_QUOTES:
+                continue
+            result.append(wording)
+            remaining -= len(wording)
+    return result
+
+
+def fit_source_flow_context(item, workout):
+    """Fit whole source quotations without evicting an otherwise eligible item."""
+    quotations, retained = source_flow_context(workout), []
+    for wording in quotations:
+        item["content"]["source_instructions"] = [*retained, wording]
+        if len(json.dumps(item)) < MAX_CONTEXT_ITEM_CHARACTERS:
+            retained.append(wording)
+    item["content"]["source_instructions"] = retained
+    if not retained and len(json.dumps(item)) >= MAX_CONTEXT_ITEM_CHARACTERS:
+        item["content"].pop("source_instructions")
+    return len(retained) != len(quotations)
 
 
 class CoachRequest(DomainModel):
@@ -276,6 +327,8 @@ async def build_context(db, user_id, generation, consent, *, focus=None):
             "actual_limit": 12,
             "actual_sets_per_session": 20,
             "program_sessions_per_plan": 36,
+            "source_instruction_limit": SOURCE_FLOW_MAX_QUOTES,
+            "source_instruction_characters": SOURCE_FLOW_MAX_CHARACTERS,
         },
     }
     for model, label, limit in ((WorkoutRecord, "library", 10), (WorkoutsProgram, "programs", 3)):
@@ -306,6 +359,7 @@ async def build_context(db, user_id, generation, consent, *, focus=None):
                     return value
 
                 item = {"id": str(row.id), "revision": row.revision, "content": clean(content)}
+                omitted_source_instructions = label == "library" and fit_source_flow_context(item, content)
                 if label == "programs":
                     sessions = content.get("proposal", {}).get("sessions", [])
                     item["content"] = {
@@ -328,8 +382,12 @@ async def build_context(db, user_id, generation, consent, *, focus=None):
                             ),
                         },
                     }
-                if len(json.dumps(item)) < 14000:
+                if len(json.dumps(item)) < MAX_CONTEXT_ITEM_CHARACTERS:
                     context[label].append(item)
+                    if omitted_source_instructions:
+                        context["coverage"].setdefault("source_instructions_omitted", []).append(str(row.id))
+                elif focused_model is model and row.id == focused.id:
+                    raise HTTPException(409, "The selected training context is too large for coaching; choose a smaller context")
     actual_rows = (await current_actuals(db, user_id, generation))[:12]
     if focused_model is WorkoutsSession and all(row.id != focused.id for row in actual_rows):
         actual_rows = actual_rows[:11] + [focused]
@@ -349,6 +407,9 @@ async def build_context(db, user_id, generation, consent, *, focus=None):
                 "program_id": str(row.source_program_id) if row.source_program_id else None,
                 "started_at": content.get("started_at"),
                 "status": content.get("status"),
+                "active_seconds": content.get("active_seconds"),
+                "activity_type": content.get("activity_type"),
+                "source_instructions": source_flow_context(content.get("prescription_snapshot", {})),
                 "is_current": corrected_by is None,
                 "corrected_by_session_id": str(corrected_by) if corrected_by else None,
                 "actuals": [
@@ -361,6 +422,9 @@ async def build_context(db, user_id, generation, consent, *, focus=None):
                             "round_index",
                             "side",
                             "reps",
+                            "duration_seconds",
+                            "distance_meters",
+                            "effort",
                             "load",
                             "load_unit",
                             "load_convention",

@@ -2,42 +2,46 @@ import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { Enrollment, Program, TrainingProfile, Workout } from "./models";
+import type { Enrollment, Program, TrainingProfile, Workout, TrainingSession } from "./models";
+import type { SavedLocalSession } from "./training";
 
 const fixture = vi.hoisted(() => ({
   owner: "owner-A", generation: 1, enrolled: true, current: true, epoch: 0, available: false,
   enrollment: vi.fn(), profile: vi.fn(), programs: vi.fn(), sessions: vi.fn(), start: vi.fn(), updateProgram: vi.fn(),
   active: null as null | { workout: { title: string }; actuals: { completed: boolean }[] },
-  drafts: new Map<string, string>(),
+  drafts: new Map<string, string>(), history: [] as SavedLocalSession[], units: "metric" as "metric" | "imperial",
+  session: vi.fn(), correct: vi.fn(), sync: vi.fn(),
 }));
 vi.mock("@/lib/context", async () => {
   const { useQuery } = await import("@tanstack/react-query");
-  const api = { profile: fixture.profile, programs: fixture.programs, sessions: fixture.sessions, updateProgram: fixture.updateProgram };
+  const api = { profile: fixture.profile, programs: fixture.programs, sessions: fixture.sessions, updateProgram: fixture.updateProgram, session: fixture.session };
   return {
     useTraining: () => {
       const owner = fixture.owner, epoch = fixture.epoch;
       const member = { enrolled: fixture.enrolled, generation: fixture.generation,
         adult_confirmed: true, shared_account_deletion_acknowledged: true, disclosure_version: 1, enrolled_at: null };
       const enrollmentQuery = useQuery({ queryKey: [owner, "enrollment"], queryFn: fixture.enrollment, initialData: member });
-      return { api, owner, enrollment: member, enrollmentQuery,
+      return { api, owner, units: fixture.units, enrollment: member, enrollmentQuery,
         isCurrentAccount: () => fixture.current && fixture.owner === owner,
         storage: { isCurrent: () => fixture.epoch === epoch } };
     },
-    useOfflineTraining: () => ({ state: { active: fixture.active, history: [] }, error: "", ready: true, store: { start: fixture.start } }),
+    useOfflineTraining: () => ({ state: { active: fixture.active, history: fixture.history }, error: "", ready: true, store: { start: fixture.start, correct: fixture.correct, sync: fixture.sync } }),
   };
 });
 vi.mock("react-native", () => ({ ActivityIndicator: "ActivityIndicator", View: "View" }));
 vi.mock("@/constants/theme", () => ({ radii: { md: 12 } }));
-vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
+vi.mock("expo-router", () => ({ router: { push: vi.fn(), replace: vi.fn() }, useLocalSearchParams: () => ({ id: "saved-session" }) }));
+vi.mock("@/components/health-export", () => ({ HealthExport: "HealthExport" }));
 vi.mock("expo-crypto", () => ({ randomUUID: vi.fn(() => "synthetic-session") }));
 vi.mock("@/components/ui", () => ({
   Screen: "Screen", Card: "Card", Copy: "Copy", Empty: "Empty", Notice: "Notice", Button: "Button", AccountButton: "AccountButton",
   Chip: "Chip", ChipRow: "ChipRow", ListGroup: "ListGroup", ListRow: "ListRow", SectionHeader: "SectionHeader", WeekStrip: "WeekStrip",
-  Grow: "Grow", IconButton: "IconButton", Row: "Row", Sheet: "Sheet", Field: "Field",
+  Choice: "Choice", Grow: "Grow", IconButton: "IconButton", Row: "Row", Sheet: "Sheet", Field: "Field",
   useColors: () => ({ action: "green", muted: "gray" }),
 }));
 import Today from "../app/(tabs)/index";
 import Plan from "../app/(tabs)/plan";
+import SessionDetail from "../app/session/[id]";
 import { dateInTimezone } from "./training";
 
 let cache: QueryClient, renderer: ReactTestRenderer | undefined;
@@ -57,13 +61,14 @@ async function retry() { await act(async () => { buttons("Try again")[0].props.o
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   fixture.owner = "owner-A"; fixture.generation = 1; fixture.enrolled = true; fixture.current = true;
-  fixture.epoch = 0; fixture.available = false; fixture.active = null; fixture.drafts.clear();
-  for (const mock of [fixture.enrollment, fixture.profile, fixture.programs, fixture.sessions, fixture.start, fixture.updateProgram]) mock.mockReset();
+  fixture.epoch = 0; fixture.available = false; fixture.active = null; fixture.drafts.clear(); fixture.history = []; fixture.units = "metric";
+  for (const mock of [fixture.enrollment, fixture.profile, fixture.programs, fixture.sessions, fixture.start, fixture.updateProgram, fixture.session, fixture.correct, fixture.sync]) mock.mockReset();
   const available = () => { if (!fixture.available) throw Error("The training service is unavailable. Your draft is safe."); };
   fixture.enrollment.mockImplementation(async () => { available(); return member(); });
   fixture.profile.mockImplementation(async () => { available(); return profile; });
   fixture.programs.mockImplementation(async () => { available(); return []; });
   fixture.sessions.mockImplementation(async () => { available(); return []; });
+  fixture.correct.mockResolvedValue(undefined); fixture.sync.mockResolvedValue(undefined);
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
 });
 it("Plan distinguishes partial work and permits inspecting and explicitly moving a missed session", async () => {
@@ -183,5 +188,87 @@ it.each(["account", "generation", "retired_device"])("a held enrollment retry st
   for (const mock of [fixture.profile, fixture.programs, fixture.sessions]) expect(mock).toHaveBeenCalledTimes(1);
   expect(cache.getQueryData(["owner-A", "profile", 1])).toBeUndefined();
   expect(buttons("Try again")).toHaveLength(1);
+  expect(fixture.start).not.toHaveBeenCalled();
+});
+
+
+function recordedSession(): TrainingSession {
+  const today = dateInTimezone(new Date(), "UTC");
+  return { id: "saved-session", client_session_id: "saved-client", generation: 1, title: "Timed run", status: "completed",
+    started_at: `${today}T00:00:00Z`, content: { client_session_id: "saved-client", workout_id: "run", workout_revision: 1,
+      started_at: `${today}T00:00:00Z`, finished_at: `${today}T00:20:00Z`, status: "completed", actuals: [{
+        block_id: "main", exercise_index: 0, round_index: 1, set_index: 1, completed: true,
+        duration_seconds: 1200, distance_meters: 1609.344, effort: 7, difficulty: "hard", pain_reported: false, notes: "Original cue",
+      }], prescription_snapshot: { id: "run", revision: 1, generation: 1, title: "Timed run", provenance: "user", kind: "session",
+        blocks: [{ id: "main", label: "Run", grouping: "sequential", exercises: [{ name: "Run", sets: 1, duration_seconds: 1200 }] }] } } };
+}
+it("Today marks only effective recorded work and agrees with corrections, rejected uploads and old generations", async () => {
+  fixture.available = true;
+  const original = recordedSession();
+  fixture.sessions.mockResolvedValue([original]);
+  const { prescription_snapshot: workout, ...request } = original.content;
+  const skipped = { ...request, client_session_id: "correction", supersedes_session_id: original.id,
+    status: "partial" as const, actuals: [{ ...request.actuals[0], completed: false }] };
+  fixture.history = [
+    { generation: 1, state: "queued", request: skipped, workout },
+    { generation: 1, state: "blocked", request: { ...request, client_session_id: "rejected" }, workout },
+    { generation: 2, state: "queued", request: { ...request, client_session_id: "old" }, workout },
+  ];
+  await mount();
+  const strip = () => renderer!.root.findByType("WeekStrip" as never).props.days as Array<{ state: string }>;
+  expect(strip().some((day) => day.state === "done")).toBe(false);
+  fixture.history.unshift({ generation: 1, state: "queued", request: { ...request, client_session_id: "new", status: "partial" }, workout });
+  await act(async () => { renderer!.update(tree()); });
+  expect(strip().filter((day) => day.state === "done")).toHaveLength(1);
+});
+
+it("saved-result correction exposes every captured actual and preserves imperial distance and immutable source", async () => {
+  fixture.available = true; fixture.units = "imperial";
+  const original = recordedSession(), before = JSON.stringify(original);
+  fixture.session.mockResolvedValue(original);
+  await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(SessionDetail))); }); await settle();
+  await act(async () => { buttons("Correct these results")[0].props.onPress(); });
+  const field = (label: string) => renderer!.root.findAllByType("Field" as never).find((node) => node.props.label === label)!;
+  expect(field("Actual distance · miles").props.value).toBe("1");
+  await act(async () => {
+    field("Actual distance · miles").props.onChange("2");
+    field("Actual seconds").props.onChange("900");
+    field("Actual effort · 0 to 10").props.onChange("5");
+    field("Set notes").props.onChange("Corrected cue");
+  });
+  const choose = (label: string) => renderer!.root.findAllByType("Choice" as never).find((node) => node.props.label === label)!;
+  await act(async () => { choose("manageable").props.onPress(); choose("Yes, pain reported").props.onPress(); });
+  await act(async () => { buttons("Save correction")[0].props.onPress(); });
+  expect(fixture.correct).toHaveBeenCalledWith(original, [expect.objectContaining({
+    distance_meters: 3218.688, duration_seconds: 900, effort: 5, difficulty: "manageable", pain_reported: true, notes: "Corrected cue",
+  })], "", "synthetic-session");
+  expect(JSON.stringify(original)).toBe(before);
+});
+
+it("Today pauses recorded-day markers for missing correction ancestry and retries successfully", async () => {
+  fixture.available = true;
+  const original = { ...recordedSession(), id: "A", client_session_id: "client-A",
+    content: { ...recordedSession().content, client_session_id: "client-A" } };
+  const correction = { ...original, id: "C", client_session_id: "client-C", content: {
+    ...original.content, client_session_id: "client-C", supersedes_session_id: "B",
+  } };
+  const { prescription_snapshot: workout, ...request } = original.content;
+  fixture.history = [{ generation: 1, state: "synced", synced_id: "A", request, workout }];
+  fixture.sessions.mockResolvedValue([correction]);
+  fixture.session.mockRejectedValue(Error("PRIVATE transport body"));
+  await mount();
+  const days = () => renderer!.root.findByType("WeekStrip" as never).props.days as Array<{ state: string }>;
+  expect(text()).toContain("Recorded-day markers are paused");
+  expect(text()).not.toContain("PRIVATE transport body");
+  expect(days().some(day => day.state === "done")).toBe(false);
+  expect(buttons("Retry correction history")).toHaveLength(1);
+  fixture.session.mockResolvedValue({ ...original, id: "B", client_session_id: "client-B", content: {
+    ...original.content, client_session_id: "client-B", supersedes_session_id: "A",
+  } });
+  await act(async () => buttons("Retry correction history")[0].props.onPress()); await settle();
+  expect(text()).not.toContain("Recorded-day markers are paused");
+  expect(buttons("Retry correction history")).toHaveLength(0);
+  expect(days().filter(day => day.state === "done")).toHaveLength(1);
+  expect(fixture.session.mock.calls).toEqual([["B"], ["B"]]);
   expect(fixture.start).not.toHaveBeenCalled();
 });

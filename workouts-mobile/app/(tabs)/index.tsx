@@ -22,6 +22,7 @@ import { QueryState } from "@/components/query-state";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import { dateInTimezone } from "@/lib/training";
+import { missingProgressParents, loadProgressAncestry, selectProgressSessions } from "@/lib/progress-selection";
 import { weekDays } from "@/lib/week-strip";
 import { goalLabels, type Program, type ScheduledSession } from "@/lib/models";
 export default function Today() {
@@ -35,6 +36,19 @@ export default function Today() {
   const profile = useQuery({ queryKey: [owner, "profile", enrollment?.generation], queryFn: api.profile, enabled });
   const programs = useQuery({ queryKey: [owner, "programs", enrollment?.generation], queryFn: api.programs, enabled });
   const sessions = useQuery(sessionsQuery(api, owner, enrollment));
+  const generation = enrollment?.generation ?? 0;
+  const parents = missingProgressParents(offline.state.history, sessions.data ?? [], generation);
+  const needsAncestry = parents.length > 0 && selectProgressSessions(offline.state.history, sessions.data ?? [], generation).requiresAncestry;
+  const ancestry = useQuery({
+    queryKey: [owner, "progress-ancestry", generation, parents],
+    queryFn: ({ signal }) => loadProgressAncestry(parents, api.session, generation, 64, [
+      ...offline.state.history.filter((h) => h.generation === generation).flatMap((h) => h.synced_id ? [h.synced_id] : []),
+      ...(sessions.data?.filter((s) => s.generation === generation).map((s) => s.id) ?? []),
+    ], { signal }),
+    enabled: enabled && needsAncestry,
+  });
+  const recordedSessions = selectProgressSessions(offline.state.history, sessions.data ?? [], generation, ancestry.data?.records).sessions;
+  const ancestryReady = !needsAncestry || ancestry.data?.complete === true;
   const timezone = profile.data?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const date = dateInTimezone(new Date(), timezone);
   const completed = completedProgramSessions(sessions.data, offline.state.history, enrollment?.generation ?? 0, sessionReadStartedAt(sessions.data));
@@ -51,10 +65,7 @@ export default function Today() {
   };
   const week = weekDays(
     date,
-    new Set([
-      ...(sessions.data ?? []).flatMap((s) => dayOf(s.started_at)),
-      ...offline.state.history.flatMap((h) => dayOf(h.request?.started_at)),
-    ]),
+    new Set(ancestryReady ? recordedSessions.filter((s) => s.recorded).flatMap((s) => dayOf(s.started_at)) : []),
     new Set(activePrograms?.flatMap((p) => p.sessions.map((s) => s.date)) ?? [])
   );
   async function retryToday() {
@@ -211,6 +222,10 @@ export default function Today() {
                 <SectionHeader title="This week" action={{ label: "Plan", onPress: () => router.push("/(tabs)/plan") }} />
                 <Card compact>
                   <WeekStrip days={week} />
+                  {!ancestryReady && <>
+                    <Copy kind="small" tone="muted">Recorded-day markers are paused while correction history is checked. Your saved results remain in Progress.</Copy>
+                    {!ancestry.isPending && <Button title="Retry correction history" secondary onPress={() => { void ancestry.refetch(); }} />}
+                  </>}
                 </Card>
               </>
             )}
