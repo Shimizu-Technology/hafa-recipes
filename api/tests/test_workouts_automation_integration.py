@@ -161,6 +161,95 @@ async def test_import_requires_separate_ai_consent(automation_api):
         assert await db.scalar(select(func.count()).select_from(WorkoutImport)) == 0
 
 
+async def test_automatic_import_saves_without_client_acceptance_and_replays_once(automation_api):
+    api = automation_api
+    await consent(api)
+    body = {
+        "request_id": str(uuid4()), "auto_save": True,
+        "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+    }
+    queued = await api.client.post("/api/v1/workouts/imports", headers=GENERATION, json=body)
+    assert queued.status_code == 202, queued.text
+    assert await api.worker.tick()
+    # No accept request or foreground client is involved in creating the library record.
+    job = (await api.client.get("/api/v1/workouts/imports/" + queued.json()["id"])).json()
+    assert job["accepted_workout_id"]
+    async with api.sessions() as db:
+        saved = await db.get(WorkoutRecord, job["accepted_workout_id"])
+        assert saved.content["blocks"][0]["exercises"][0]["reps_min"] == 8
+        assert (await db.get(WorkoutImport, queued.json()["id"])).payload is None
+        assert await db.scalar(select(func.count()).select_from(WorkoutRecord)) == 1
+    replay = await api.client.post("/api/v1/workouts/imports", headers=GENERATION, json=body)
+    assert replay.json()["accepted_workout_id"] == job["accepted_workout_id"]
+    assert not await api.worker.tick()
+    changed = await api.client.post(
+        "/api/v1/workouts/imports", headers=GENERATION, json=body | {"auto_save": False}
+    )
+    assert changed.status_code == 409
+
+
+async def test_automatic_incomplete_draft_keeps_missing_values_and_warnings(automation_api):
+    api = automation_api
+    await consent(api)
+
+    async def partial(source):
+        return {"title": "Partial source", "blocks": [{
+            "id": "main", "label": "Main", "exercises": [{
+                "name": "Squat", "evidence": [{
+                    "field": "name", "wording": "Squat", "location": "provided_text",
+                }],
+            }],
+        }]}
+
+    api.worker.extractor.provider.extract = partial
+    response = await api.client.post(
+        "/api/v1/workouts/imports", headers=GENERATION, json={
+            "request_id": str(uuid4()), "auto_save": True,
+            "source": {"kind": "text", "text": "Squat", "ai_consent": True},
+        },
+    )
+    assert response.status_code == 202, response.text
+    assert await api.worker.tick()
+    job = (await api.client.get("/api/v1/workouts/imports/" + response.json()["id"])).json()
+    assert job["status"] == "incomplete" and job["accepted_workout_id"]
+    async with api.sessions() as db:
+        saved = await db.get(WorkoutRecord, job["accepted_workout_id"])
+        exercise = saved.content["blocks"][0]["exercises"][0]
+        assert exercise["sets"] is None and exercise["reps_min"] is None
+        assert saved.content["extraction_warnings"] == job["result"]["warnings"]
+
+
+async def test_server_import_inbox_is_owner_generation_scoped_and_never_returns_capture(automation_api):
+    api = automation_api
+    await consent(api)
+    queued = await enqueue(api)
+    inbox = await api.client.get("/api/v1/workouts/imports")
+    assert inbox.status_code == 200
+    assert [item["id"] for item in inbox.json()] == [queued.json()["id"]]
+    assert "payload" not in inbox.text and TEXT not in inbox.text
+    assert (await api.client.get("/api/v1/workouts/imports?limit=51")).status_code == 422
+    async with api.sessions() as db:
+        row = await db.get(WorkoutImport, queued.json()["id"])
+        row.app_user_id = "other"
+        await db.commit()
+    assert (await api.client.get("/api/v1/workouts/imports")).json() == []
+
+
+async def test_automatic_import_cannot_save_after_consent_revocation(automation_api):
+    await consent(automation_api)
+    queued = await automation_api.client.post(
+        "/api/v1/workouts/imports", headers=GENERATION, json={
+            "request_id": str(uuid4()), "auto_save": True,
+            "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+        },
+    )
+    await consent(automation_api, False)
+    await automation_api.worker.tick()
+    async with automation_api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutRecord)) == 0
+        assert (await db.get(WorkoutImport, queued.json()["id"])).accepted_workout_id is None
+
+
 async def test_source_job_retry_identity_and_private_projection(automation_api):
     api = automation_api
     await consent(api)
@@ -755,3 +844,83 @@ async def test_copied_program_review_rejects_changed_copy_and_foreign_owner(auto
         json={"program_revision": 2, "profile_revision": 1},
     )
     assert foreign.status_code == 404
+
+
+async def test_malformed_provider_structure_retains_source_instead_of_cancelling(automation_api):
+    api = automation_api
+    await consent(api)
+    provider = Provider()
+
+    async def duplicate(source):
+        content = await provider.extract(source)
+        content["blocks"].append(dict(content["blocks"][0]))
+        return content
+
+    api.worker.extractor.provider.extract = duplicate
+    queued = await api.client.post("/api/v1/workouts/imports", headers=GENERATION, json={
+        "request_id": str(uuid4()), "auto_save": True,
+        "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+    })
+    assert queued.status_code == 202
+    await api.worker.tick()
+    job = (await api.client.get("/api/v1/workouts/imports/" + queued.json()["id"])).json()
+    assert job["status"] == "incomplete" and job["accepted_workout_id"] is None
+    assert job["result"]["error_code"] == "workout_needs_correction"
+    assert len(job["result"]["workout"]["blocks"]) == 2
+    async with api.sessions() as db:
+        assert (await db.get(WorkoutImport, queued.json()["id"])).payload["text"] == TEXT
+        assert await db.scalar(select(func.count()).select_from(WorkoutRecord)) == 0
+
+
+    corrected = dict(job["result"]["workout"])
+    corrected["blocks"] = corrected["blocks"][:1]
+    request = {"workout": corrected, "acknowledge_warnings": True}
+    path = f"/api/v1/workouts/imports/{job['id']}/accept"
+    accepted = await api.client.post(path, headers=GENERATION, json=request)
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["content"]["provenance"] == "user"
+    assert accepted.json()["content"]["blocks"][0]["exercises"][0]["provenance"] == "user"
+    replay = await api.client.post(path, headers=GENERATION, json=request)
+    assert replay.status_code == 200 and replay.json()["id"] == accepted.json()["id"]
+    async with api.sessions() as db:
+        from app.domains.workouts.models import WorkoutVersion
+
+        assert (await db.get(WorkoutImport, job["id"])).payload is None
+        assert await db.scalar(select(func.count()).select_from(WorkoutVersion)) == 1
+
+
+async def test_many_grounding_warnings_do_not_break_saved_import_or_inbox(automation_api):
+    api = automation_api
+    await consent(api)
+    names = [f"Source exercise {i}" for i in range(15)]
+
+    async def uncertain(source):
+        return {"title": "Many uncertain instructions", "blocks": [{
+            "id": "main", "label": "Main", "exercises": [{
+                "name": name, "sets": 3, "reps_min": 8, "reps_max": 12,
+                "duration_seconds": 20, "distance_meters": 100,
+                "rest_seconds": 10, "tempo": "3010", "load": 20,
+                "load_unit": "kg", "load_convention": "total", "effort": "moderate",
+                "evidence": [{"field": "name", "wording": name, "location": "provided_text"}],
+            } for name in names],
+        }]}
+
+    api.worker.extractor.provider.extract = uncertain
+    queued = await api.client.post("/api/v1/workouts/imports", headers=GENERATION, json={
+        "request_id": str(uuid4()), "auto_save": True,
+        "source": {"kind": "text", "text": "\n".join(names), "ai_consent": True},
+    })
+    assert queued.status_code == 202, queued.text
+    await api.worker.tick()
+    response = await api.client.get("/api/v1/workouts/imports/" + queued.json()["id"])
+    assert response.status_code == 200, response.text
+    job = response.json()
+    assert job["status"] == "incomplete" and job["accepted_workout_id"]
+    assert len(job["result"]["warnings"]) > 100
+    projection = job["result"]["workout"]["extraction_warnings"]
+    assert len(projection) == 100 and "more extraction warnings" in projection[-1]
+    inbox = await api.client.get("/api/v1/workouts/imports")
+    assert inbox.status_code == 200 and inbox.json()[0]["id"] == job["id"]
+    library = await api.client.get("/api/v1/workouts/library/" + job["accepted_workout_id"])
+    assert library.status_code == 200
+    assert library.json()["content"]["extraction_warnings"] == projection

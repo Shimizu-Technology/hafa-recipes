@@ -78,6 +78,7 @@ class WorkoutContent(DomainModel):
     equipment_optional: list[str] = Field(default_factory=list, max_length=100)
     estimated_minutes: int | None = Field(default=None, ge=1, le=1440)
     notes: list[str] = Field(default_factory=list, max_length=100)
+    extraction_warnings: list[str] = Field(default_factory=list, max_length=100)
 
 
 class RunningBaseline(DomainModel):

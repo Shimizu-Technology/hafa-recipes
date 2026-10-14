@@ -233,7 +233,12 @@ def validated_workout(workout, *, authored=True):
                 raise HTTPException(
                     422, "Client-authored exercises cannot claim server suggestions"
                 )
-    return bounded_content(workout.model_dump(mode="json"))
+    content = workout.model_dump(mode="json")
+    # Keep accepted-content hashes compatible with imports saved before this
+    # optional server field existed.
+    if not content.get("extraction_warnings"):
+        content.pop("extraction_warnings", None)
+    return bounded_content(content)
 
 
 def expected_profile_revision(value):

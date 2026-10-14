@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import Field, StrictBool, model_validator
 from sqlalchemy import select
 
@@ -47,6 +47,7 @@ from app.domains.workouts.source_planning import (
     convert_program_source,
     review_copied_program,
 )
+from app.publishing import require_current_publishing_disclosure
 
 router = APIRouter(prefix="/api/v1/workouts", tags=["workouts"], route_class=WorkoutsRoute)
 imports_router = APIRouter(
@@ -61,6 +62,7 @@ async def capabilities(user: User, db: Database):
     return {
         "generation": membership.generation,
         "public_beta": configured.workouts_public_access_enabled,
+        "server_auto_save": True,
         "imports": configured.workouts_imports_enabled
         and configured.workouts_ai_budget_24h_microusd > 0
         and bool(configured.workouts_ai_budget_database_url)
@@ -83,6 +85,8 @@ async def capabilities(user: User, db: Database):
 class ImportRequest(DomainModel):
     request_id: UUID
     source: ExtractionRequest
+    auto_save: StrictBool = False
+    is_public: StrictBool = False
 
 
 class ImportResponse(DomainModel):
@@ -121,9 +125,33 @@ async def import_source(request: ImportRequest, user: User, db: Database, genera
         raise HTTPException(503, "AI importing is unavailable; manual workouts remain available")
     if not request.source.ai_consent:
         raise HTTPException(403, "Explicit AI processing consent is required")
-    row = await create_import(db, user.id, generation, request.request_id, request.source)
+    if request.is_public:
+        if not request.auto_save:
+            raise HTTPException(422, "Choose automatic saving before selecting Discover sharing")
+        await require_discover(db)
+        await require_current_publishing_disclosure(db, user.id)
+    row = await create_import(
+        db, user.id, generation, request.request_id, request.source,
+        auto_save=request.auto_save, is_public=request.is_public, display_name=user.display_name,
+    )
     workout_import_worker.notify()
     return import_response(row)
+
+
+@router.get("/imports", response_model=list[ImportResponse])
+async def list_imports(
+    user: User, db: Database, limit: Annotated[int, Query(ge=1, le=50)] = 30,
+):
+    membership = await membership_for(db, user.id)
+    rows = await db.scalars(
+        select(WorkoutImport).where(
+            WorkoutImport.app_user_id == user.id,
+            WorkoutImport.generation == membership.generation,
+            WorkoutImport.expires_at > now(),
+            WorkoutImport.status != "cancelled",
+        ).order_by(WorkoutImport.created_at.desc(), WorkoutImport.id.desc()).limit(limit)
+    )
+    return [import_response(row) for row in rows]
 
 
 @router.get("/imports/{import_id}", response_model=ImportResponse)
@@ -253,13 +281,20 @@ async def accept_import(
     ):
         raise HTTPException(422, "An import cannot claim generated coaching provenance")
     content = validated_workout(workout, authored=False)
-    original_content = validated_workout(
-        WorkoutContent.model_validate(row.result["workout"]), authored=False
-    )
-    if content_digest(content) != content_digest(original_content):
+    try:
+        original_content = validated_workout(
+            WorkoutContent.model_validate(row.result["workout"]), authored=False
+        )
+    except HTTPException as error:
+        if error.status_code != 422 or request.workout is None:
+            raise
+        # Keep the bounded original in the import result for inspection, while
+        # storing only the user's valid correction as a restorable version.
+        original_content = None
+    if original_content is None or content_digest(content) != content_digest(original_content):
         content["provenance"] = "user"
         original_exercises = {
-            block["id"]: block["exercises"] for block in original_content["blocks"]
+            block["id"]: block["exercises"] for block in (original_content or {}).get("blocks", [])
         }
         for block in content["blocks"]:
             original = original_exercises.get(block["id"], [])
@@ -277,7 +312,7 @@ async def accept_import(
         )
     if request.is_public:
         await require_discover(db)
-        if row.status == "incomplete" and digest == content_digest(original_content):
+        if original_content is not None and row.status == "incomplete" and digest == content_digest(original_content):
             raise HTTPException(
                 422, "Complete the missing workout details before sharing to Discover"
             )
