@@ -24,6 +24,7 @@ const fixture = vi.hoisted(() => ({
   removeMeasurement: vi.fn(),
   saveMeasurement: vi.fn(),
   normalizeImages: vi.fn(),
+  normalizeDocument: vi.fn(),
   share: false,
   intent: { webUrl: "", text: "", files: [] as { path: string; mimeType: string; fileName: string }[] },
   resetIntent: vi.fn(),
@@ -35,13 +36,16 @@ const fixture = vi.hoisted(() => ({
   startImport: vi.fn(),
   setAiConsent: vi.fn(),
   aiConsent: vi.fn(),
+  capabilities: vi.fn(), publishingDisclosure: vi.fn(), acceptPublishingDisclosure: vi.fn(), nativePreference: vi.fn(),
+  publishingRequired: false, publishingAgreed: true,
   current: true,
   next: 0,
   profile: vi.fn(),
   profileSnapshot: vi.fn(),
   workout: vi.fn(),
   measurement: vi.fn(),
-  writeFailure: false
+  writeFailure: false,
+  os: "android", nativeSharing: false, nativeCaptures: vi.fn(), nativeAck: vi.fn()
 }));
 vi.mock("@/lib/context", () => {
   const storage = {
@@ -68,7 +72,9 @@ vi.mock("@/lib/context", () => {
       )
   };
   const api = {
-    capabilities: async () => ({ imports: true, limits: { successful_or_pending_imports_per_rolling_day: 3 } }),
+    capabilities: fixture.capabilities,
+    publishingDisclosure: fixture.publishingDisclosure,
+    acceptPublishingDisclosure: fixture.acceptPublishingDisclosure,
     duplicateSources: async () => ({ matches: [] }),
     startImport: fixture.startImport,
     setAiConsent: fixture.setAiConsent,
@@ -106,15 +112,21 @@ vi.mock("@/lib/context", () => {
 });
 vi.mock("react-native", () => ({
   ActivityIndicator: "ActivityIndicator",
+  Platform: { get OS() { return fixture.os; } },
   View: "View",
   Image: "Image",
   Alert: { alert: fixture.alert },
   AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
   Linking: { openURL: vi.fn() }
 }));
+vi.mock("@/components/native-share-session", () => ({ useNativeShareSession() {} }));
+vi.mock("@/modules/hafa-workouts-share/src", () => ({
+  get nativeSharingAvailable() { return fixture.nativeSharing; }, captures: fixture.nativeCaptures, acknowledge: fixture.nativeAck,
+}));
 vi.mock("@/components/source-image", () => ({ SourceImage: "SourceImage" }));
 vi.mock("@/lib/capture-io", () => ({
   normalizeImages: fixture.normalizeImages,
+  normalizeDocument: fixture.normalizeDocument,
   pickImages: fixture.pickImages,
   pickDocument: fixture.pickDocument,
   cleanupCaptureFiles: fixture.cleanup,
@@ -149,8 +161,15 @@ vi.mock("@/components/ui", () => ({
   Stack: "Stack"
 }));
 vi.mock("@/components/query-state", () => ({ QueryState: "QueryState" }));
-vi.mock("@/components/publishing-disclosure", () => ({
-  usePublishingDisclosure: () => ({ run: (attempt: () => Promise<unknown>) => attempt(), sheet: null, dismiss() {} }),
+vi.mock("@/components/publishing-disclosure", async () => {
+  const { withPublishingDisclosure } = await import("./discover");
+  return { usePublishingDisclosure: () => ({ run: (attempt: () => Promise<unknown>) => withPublishingDisclosure(attempt, {
+    status: fixture.publishingDisclosure, accept: fixture.acceptPublishingDisclosure, ask: async () => fixture.publishingAgreed,
+  }), sheet: null, dismiss() {} }) };
+});
+vi.mock("@/lib/native-share-session", () => ({
+  setNativeShareVisibility: fixture.nativePreference,
+  updateNativeSharingConsent: (change: () => Promise<unknown>) => change(),
 }));
 vi.mock("@/components/profile-form", () => ({ ProfileForm: "ProfileForm" }));
 vi.mock("@/components/workout-editor", () => ({ WorkoutEditor: "WorkoutEditor" }));
@@ -249,9 +268,16 @@ beforeEach(() => {
   fixture.current = true;
   fixture.next = 0;
   fixture.share = false;
+  fixture.os = "android"; fixture.nativeSharing = false;
   fixture.intent = { webUrl: "", text: "", files: [] };
   for (const value of Object.values(fixture)) if (typeof value === "function") value.mockReset();
   fixture.aiConsent.mockResolvedValue({ accepted: true, disclosure_version: 1 });
+  fixture.capabilities.mockResolvedValue({ imports: true, limits: { successful_or_pending_imports_per_rolling_day: 3 } });
+  fixture.publishingRequired = false; fixture.publishingAgreed = true;
+  fixture.publishingDisclosure.mockImplementation(async () => ({ requires_acceptance: fixture.publishingRequired, current_version: 1 }));
+  fixture.acceptPublishingDisclosure.mockImplementation(async () => { fixture.publishingRequired = false; return {}; });
+  fixture.nativePreference.mockImplementation(async (_storage, _owner, _value, guard) => guard());
+  fixture.nativeCaptures.mockResolvedValue([]); fixture.nativeAck.mockResolvedValue(true);
   fixture.persist.mockImplementation(async (key: string, value: string) => {
     fixture.map.set(key, value);
   });
@@ -277,6 +303,9 @@ afterEach(async () => {
 });
 
 const overlappingCapture = () => createElement(Fragment, null, createElement(Capture), createElement(ShareCapture));
+
+
+
 const rerender = async (component: ComponentType) => {
   await act(async () => {
     renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(component)));
@@ -1310,6 +1339,49 @@ function sharedLinkDraft(request = "shared-link") {
   fixture.map.set(draftKey(fixture.owner, "capture:1"), JSON.stringify({ request_id: request, generation: 1,
     kind: "url", source_url: "https://example.test/shared", text: "Original caption", files: [], created_at: "2026-10-13T00:00:00Z" }));
 }
+const serverCaps = { imports: true, server_auto_save: true, discover: true, limits: { successful_or_pending_imports_per_rolling_day: 3 } };
+it("a native private link overrides the public link default and can save while the app is closed", async () => {
+  sharedLinkDraft("native-private");
+  const key = draftKey(fixture.owner, "capture:1");
+  fixture.map.set(key, JSON.stringify({ ...JSON.parse(fixture.map.get(key)!), is_public: false }));
+  fixture.capabilities.mockResolvedValue(serverCaps); fixture.publishingRequired = true;
+  fixture.startImport.mockResolvedValue({ id: "private-job" });
+  await mount(Capture);
+  expect(fixture.startImport).toHaveBeenCalledWith("native-private", expect.anything(), 1, { auto_save: true, is_public: false });
+  expect(fixture.acceptPublishingDisclosure).not.toHaveBeenCalled();
+  expect(fixture.nativePreference).not.toHaveBeenCalled();
+});
+it("a public link accepts the disclosure before admitting extraction and remembers the explicit choice", async () => {
+  fixture.capabilities.mockResolvedValue(serverCaps); fixture.publishingRequired = true;
+  fixture.startImport.mockResolvedValue({ id: "public-job" });
+  await mount(Capture);
+  await act(async () => nodes("Field").find(node => node.props.label === "Source link")!.props.onChange("https://example.test/source"));
+  await click("Extract workout");
+  expect(fixture.acceptPublishingDisclosure).toHaveBeenCalledWith(1);
+  expect(fixture.acceptPublishingDisclosure.mock.invocationCallOrder[0]).toBeLessThan(fixture.startImport.mock.invocationCallOrder[0]);
+  expect(fixture.startImport.mock.calls[0][3]).toEqual({ auto_save: true, is_public: true });
+  expect(fixture.nativePreference).toHaveBeenCalledWith(expect.anything(), fixture.owner, true, expect.any(Function));
+});
+it("declining publication still extracts and saves privately with the original source", async () => {
+  fixture.capabilities.mockResolvedValue(serverCaps); fixture.publishingRequired = true; fixture.publishingAgreed = false;
+  fixture.startImport.mockResolvedValue({ id: "private-job" });
+  await mount(Capture);
+  await act(async () => nodes("Field").find(node => node.props.label === "Source link")!.props.onChange("https://example.test/source"));
+  await click("Extract workout");
+  expect(fixture.acceptPublishingDisclosure).not.toHaveBeenCalled();
+  expect(fixture.startImport.mock.calls[0][3]).toEqual({ auto_save: true, is_public: false });
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!)).toMatchObject({ is_public: false, pending_import: true });
+});
+it("server-save retry preserves the original private policy after a lost acknowledgement", async () => {
+  sharedLinkDraft("private-retry"); const key = draftKey(fixture.owner, "capture:1");
+  fixture.map.set(key, JSON.stringify({ ...JSON.parse(fixture.map.get(key)!), is_public: false }));
+  fixture.capabilities.mockResolvedValue(serverCaps); fixture.startImport.mockRejectedValueOnce(Error("lost acknowledgement"));
+  await mount(Capture); const original = fixture.startImport.mock.calls[0]; await unmount();
+  fixture.capabilities.mockResolvedValue({ ...serverCaps, discover: false }); fixture.startImport.mockResolvedValue({ id: "recovered" });
+  await mount(Capture); await click("Retry extraction");
+  expect(fixture.startImport.mock.calls[1]).toEqual(original);
+});
+
 it("a shared link with existing consent starts once without a capture confirmation and preserves its caption", async () => {
   sharedLinkDraft();
   fixture.startImport.mockResolvedValue({ id: "shared-job" });
@@ -1436,4 +1508,45 @@ it("photo imports keep an explicit review step even when extraction succeeds", a
   expect(captured.auto_save).toBe(false);
   const references = JSON.parse(fixture.map.get(draftKey(fixture.owner, "imports:1"))!);
   expect(references[0]).toMatchObject({ id: "photo-job", auto_save: false });
+});
+
+
+it("returns from a saved incomplete import to the mounted capture and starts another source without loading a missing draft", async () => {
+  const key = draftKey(fixture.owner, "capture:1");
+  fixture.map.set(key, JSON.stringify({ request_id: "finished-source", generation: 1, kind: "url",
+    source_url: "https://example.test/finished", text: "", files: [], pending_import: true, job_id: "finished-job" }));
+  fixture.params = { id: "finished-job" };
+  fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.importJob.mockResolvedValue({ id: "finished-job", generation: 1, status: "incomplete", accepted_workout_id: "private-draft",
+    result: { status: "incomplete", workout: { ...workout, blocks: [] }, warnings: ["No readable exercises"], evidence: [],
+      source: { platform: "instagram", channels: [], coverage_notes: [] } } });
+  let reviewing = false;
+  const journey = () => createElement(Fragment, null, createElement(Capture), reviewing && createElement(ImportReview));
+  await mount(journey);
+  expect(button("Start another source draft")).toBeDefined();
+  reviewing = true; await rerender(journey);
+  expect(fixture.map.has(key)).toBe(false);
+  reviewing = false; await rerender(journey);
+  expect(nodes("Notice").some(node => String(node.props.children).includes("A newer source is saved"))).toBe(false);
+  await click("Start another source draft");
+  expect(JSON.parse(fixture.map.get(key)!)).toMatchObject({ generation: 1, source_url: "", files: [] });
+  expect(JSON.parse(fixture.map.get(key)!).job_id).toBeUndefined();
+  await act(async () => nodes("Field")[0].props.onChange("https://example.test/next"));
+  expect(JSON.parse(fixture.map.get(key)!).source_url).toBe("https://example.test/next");
+});
+
+it("starting another source from a completed capture cannot overwrite a concurrently shared newer source", async () => {
+  const key = draftKey(fixture.owner, "capture:1");
+  fixture.map.set(key, JSON.stringify({ request_id: "finished-source", generation: 1, kind: "url",
+    source_url: "https://example.test/finished", text: "", files: [], pending_import: true, job_id: "finished-job" }));
+  await mount(overlappingCapture);
+  fixture.share = true; fixture.intent = { webUrl: "https://example.test/newer", text: "A new share", files: [] };
+  await rerender(overlappingCapture);
+  const newer = fixture.map.get(key);
+  expect(JSON.parse(newer!).source_url).toBe("https://example.test/newer");
+  await click("Start another source draft");
+  expect(fixture.map.get(key)).toBe(newer);
+  expect(nodes("Notice").some(node => String(node.props.children).includes("A newer source is saved"))).toBe(true);
+  await click("Load saved source");
+  expect(nodes("Field")[0].props.value).toBe("https://example.test/newer");
 });

@@ -1,3 +1,4 @@
+import { updateNativeSharingConsent } from "@/lib/native-share-session";
 import { SourceImage } from "@/components/source-image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Image, View } from "react-native";
@@ -9,6 +10,10 @@ import { useTraining } from "@/lib/context";
 import { captureErrors, updateImportReferences, type CaptureDraft, type CaptureKind, type CaptureFile } from "@/lib/capture";
 import { createPrivateDraftSlot, type PrivateDraftSnapshot } from "@/lib/private-form";
 import { pickImages, pickDocument, sourceFor, cleanupCaptureFiles } from "@/lib/capture-io";
+import { ApiError } from "@/lib/api";
+import { DECLINED, defaultShareToDiscover } from "@/lib/discover";
+import { usePublishingDisclosure } from "@/components/publishing-disclosure";
+import { setNativeShareVisibility } from "@/lib/native-share-session";
 export default function Capture() {
   const { shared, request_id: sharedRequest } = useLocalSearchParams<{ shared?: string; request_id?: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
@@ -53,6 +58,7 @@ export default function Capture() {
   const [error, setError] = useState("");
   const [abandon, setAbandon] = useState(false);
   const [busy, setBusy] = useState(false);
+  const disclosure = usePublishingDisclosure();
   const guard = useRef(false);
   const mounted = useRef(true);
   const live = useRef({ owner, generation, storage });
@@ -79,13 +85,29 @@ export default function Capture() {
     if (view.current !== renderedView) throw Error("This source view changed. Use the loaded source before editing.");
     slot.assertCurrent(saved.current.revision);
   }
+  async function restoreClearedSource() {
+    const prior = saved.current, priorView = view.current;
+    // Only a submitted source can be retired behind this still-mounted screen.
+    // An existing replacement always requires an explicit load.
+    if (!prior.value?.job_id || pendingWrites.current) return;
+    const next = await slot.load(currentScope);
+    currentScope();
+    if (saved.current !== prior || view.current !== priorView || pendingWrites.current || next.value) return;
+    slot.assertCurrent(next.revision);
+    saved.current = next;
+    setStale(false);
+    setError("");
+  }
   function changed() {
     if (!readyRef.current || pendingWrites.current) return;
     try {
       currentScope();
       slot.assertCurrent(saved.current.revision);
     } catch {
-      if (mounted.current) setStale(true);
+      if (mounted.current) {
+        setStale(true);
+        void restoreClearedSource().catch(() => undefined);
+      }
     }
   }
   useEffect(() => slot.subscribe(changed), [slot]);
@@ -191,6 +213,8 @@ export default function Capture() {
     current();
   }
   async function replace(value: CaptureDraft) {
+    await writes.current.catch(() => undefined);
+    await restoreClearedSource();
     await flush();
     const prior = saved.current.value;
     const next = { ...value, cleanup_files: [...(prior?.cleanup_files ?? []), ...(prior?.files ?? [])] };
@@ -326,19 +350,42 @@ export default function Capture() {
           setError("AI preferences changed. Review the disclosure before extracting.");
           return;
         }
-        await api.setAiConsent(true, generation);
+        await updateNativeSharingConsent(() => api.setAiConsent(true, generation));
         current();
         await aiConsent.refetch();
         current();
       }
       const original = draftRef.current;
+      const serverSave = original.pending_import ? original.server_auto_save === true : capabilities.data?.server_auto_save === true;
+      let isPublic = original.is_public ?? defaultShareToDiscover(original.kind);
+      isPublic = isPublic && capabilities.data?.discover === true;
+      if (serverSave && isPublic) {
+        const allowed = await disclosure.run(async () => {
+          current(); const status = await api.publishingDisclosure(); current();
+          if (status.requires_acceptance) throw new ApiError("Review sharing before importing.", 409, false, "Publishing disclosure required");
+          return true;
+        });
+        current();
+        if (allowed === DECLINED) {
+          if (original.pending_import) throw Error("Retry the original sharing choice to recover this import, or start a separate private source.");
+          isPublic = false;
+        }
+      }
+      if (original.pending_import && original.is_public !== undefined) isPublic = original.is_public;
+      else if (serverSave && !fromShare) await setNativeShareVisibility(localDrafts, owner, isPublic, current);
+      current();
       const pending = { ...original, pending_import: true,
-        auto_save: original.pending_import ? original.auto_save === true : original.kind === "url" };
+        server_auto_save: serverSave, is_public: isPublic,
+        auto_save: original.pending_import ? original.auto_save === true : serverSave || original.kind === "url" };
       // Persist original UUID/fields before any transport; retries stay frozen.
       const frozen = await persist(pending);
       const source = await sourceFor(frozen, current);
-      const job = await api.startImport(frozen.request_id, source, frozen.generation);
+      const job = frozen.server_auto_save
+        ? await api.startImport(frozen.request_id, source, frozen.generation, { auto_save: frozen.auto_save === true, is_public: frozen.is_public === true })
+        : await api.startImport(frozen.request_id, source, frozen.generation);
       await persist({ ...frozen, job_id: job.id });
+      await localDrafts.save(owner, `import-visibility:${frozen.generation}:${job.id}`, frozen.is_public === true);
+      current();
       await updateImportReferences(localDrafts, owner, frozen.generation, current, (prior) => [
         {
           id: job.id,
@@ -372,6 +419,15 @@ export default function Capture() {
   }, [shared, sharedRequest, ready, stale, draft.request_id, draft.pending_import, draft.job_id,
     capabilities.data?.imports, aiConsent.data]);
   const locked = busy || stale || !ready || !!draft.pending_import;
+  async function visibility(value: boolean) {
+    if (locked || guard.current) return;
+    guard.current = true; setBusy(true); setError("");
+    try {
+      await flush(); await setNativeShareVisibility(localDrafts, owner, value, current);
+      await persist({ ...draftRef.current, is_public: value });
+    } catch (e) { if (mounted.current) setError((e as Error).message); }
+    finally { guard.current = false; if (mounted.current) setBusy(false); }
+  }
   return (
     <Screen back title="Add a workout." subtitle="Paste a link or share one straight from your video app.">
       {stale && <Notice>A newer source is saved. Load it before changing this draft.</Notice>}
@@ -418,8 +474,14 @@ export default function Capture() {
           value={draft.source_url}
           onChange={(source_url) => update({ source_url })}
           placeholder="https://…"
+          purpose="url"
         />
       )}
+      {draft.kind === "url" && <Copy kind="small" tone="muted">Instagram, TikTok, YouTube and workout websites</Copy>}
+      {capabilities.data?.server_auto_save && capabilities.data.discover && <Choice
+        label="Share to Discover" icon="globe-outline" selected={draft.is_public ?? defaultShareToDiscover(draft.kind)}
+        detail="Complete workouts can be found and saved by others. Your training stays private. Missing-detail drafts stay private."
+        disabled={locked} onPress={() => { void visibility(!(draft.is_public ?? defaultShareToDiscover(draft.kind))); }} />}
       {duplicateUrl === draft.source_url.trim() && !!duplicateHint.data?.matches.length && (
         <Card>
           <Copy kind="heading">You have saved this source before.</Copy>
@@ -495,7 +557,7 @@ export default function Capture() {
           ))}
           <Notice>
             Choose clear images where exercise names and on-screen instructions are readable. You will review them
-            before saving the extraction.
+            whenever you want to check the extracted workout.
           </Notice>
         </>
       )}
@@ -626,12 +688,14 @@ export default function Capture() {
           void submit(false, !aiConsent.data?.accepted || aiConsent.data.disclosure_version !== 1);
         }}
       />
+      {capabilities.data?.server_auto_save && <Copy kind="small" tone="muted">Your workout saves to your library when it is ready. You can check or edit the details afterward.</Copy>}
       <Button
         title="Write a workout manually"
         variant="ghost"
         icon="create-outline"
         onPress={() => router.push("/add-workout")}
       />
+      {disclosure.sheet}
     </Screen>
   );
 }
