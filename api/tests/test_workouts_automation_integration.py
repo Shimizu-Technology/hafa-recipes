@@ -9,7 +9,7 @@ import pytest
 from pydantic import SecretStr
 from sqlalchemy import func, select
 
-from app.domains.workouts import automation_router, imports
+from app.domains.workouts import automation_router, imports, share_router
 from app.domains.workouts.automation_models import WorkoutImport, WorkoutProposal
 from app.domains.workouts.extraction import WorkoutExtractor
 from app.domains.workouts.lifecycle import now
@@ -248,6 +248,106 @@ async def test_automatic_import_cannot_save_after_consent_revocation(automation_
     async with automation_api.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(WorkoutRecord)) == 0
         assert (await db.get(WorkoutImport, queued.json()["id"])).accepted_workout_id is None
+
+
+@pytest.fixture
+async def native_share_api(automation_api, monkeypatch):
+    migration = importlib.import_module("migrations.046_add_workouts_share_credentials")
+    configured = settings(workouts_imports_enabled=True, workouts_ai_enabled=True)
+    await migration.run_migration(configured=configured, migration_engine=automation_api.engine)
+    automation_api.app.include_router(share_router.router)
+    monkeypatch.setattr(share_router, "get_settings", lambda: configured)
+    monkeypatch.setattr(share_router, "workout_import_worker", automation_api.worker)
+    await consent(automation_api)
+    response = await automation_api.client.post(
+        "/api/v1/workouts/share/session", headers=GENERATION,
+        json={"installation_id": str(uuid4()), "is_public": False},
+    )
+    assert response.status_code == 201, response.text
+    automation_api.share = response.json()
+    automation_api.share_headers = {"Authorization": "Bearer " + response.json()["token"]}
+    return automation_api
+
+
+async def test_native_capability_only_enqueues_its_own_workouts_once(native_share_api):
+    api = native_share_api
+    body = {"capture_id": str(uuid4()), "url": "https://www.instagram.com/reel/DecwoqXS9ts/"}
+    first = await api.client.post("/api/v1/workouts/share/imports", headers=api.share_headers, json=body)
+    assert first.status_code == 202, first.text
+    replay = await api.client.post("/api/v1/workouts/share/imports", headers=api.share_headers, json=body)
+    assert replay.json()["job_id"] == first.json()["job_id"] and replay.json()["replayed"]
+    changed = await api.client.post(
+        "/api/v1/workouts/share/imports", headers=api.share_headers,
+        json=body | {"url": "https://www.instagram.com/reel/another/"},
+    )
+    assert changed.status_code == 409
+    assert (await api.client.post(
+        "/api/v1/workouts/share/imports", headers=api.share_headers, json=body | {"is_public": True}
+    )).status_code == 403
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutImport)) == 1
+        row = await db.get(WorkoutImport, first.json()["job_id"])
+        assert row.app_user_id == "owner" and row.payload["_save"]["is_public"] is False
+    assert (await api.client.post(
+        "/api/v1/workouts/share/imports",
+        headers={"Authorization": "Bearer " + api.share["token"].replace("hfws_v1", "hfs_v1")}, json=body,
+    )).status_code == 401
+
+
+async def test_wrong_share_secret_does_not_lock_account(native_share_api, monkeypatch):
+    api = native_share_api
+    calls = []
+    original = share_router.membership_for
+
+    async def observed(*args, **kwargs):
+        calls.append(True)
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(share_router, "membership_for", observed)
+    supplied = api.share["token"].rsplit(".", 1)[0] + "." + "x" * 43
+    body = {"capture_id": str(uuid4()), "url": "https://www.instagram.com/reel/DecwoqXS9ts/"}
+    response = await api.client.post(
+        "/api/v1/workouts/share/imports", headers={"Authorization": "Bearer " + supplied}, json=body,
+    )
+    assert response.status_code == 401
+    assert calls == []
+    valid = await api.client.post("/api/v1/workouts/share/imports", headers=api.share_headers, json=body)
+    assert valid.status_code == 202 and calls
+
+
+async def test_native_capability_rejects_bad_sources_and_revoked_consent(native_share_api):
+    api = native_share_api
+    body = {"capture_id": str(uuid4()), "url": "http://127.0.0.1/private"}
+    assert (await api.client.post(
+        "/api/v1/workouts/share/imports", headers=api.share_headers, json=body
+    )).status_code == 422
+    await consent(api, False)
+    body["url"] = "https://www.instagram.com/reel/DecwoqXS9ts/"
+    assert (await api.client.post(
+        "/api/v1/workouts/share/imports", headers=api.share_headers, json=body
+    )).status_code == 403
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutImport)) == 0
+
+
+async def test_native_capability_revocation_and_generation_fence(native_share_api):
+    api = native_share_api
+    revoked = await api.client.delete("/api/v1/workouts/share/session", headers=api.share_headers)
+    assert revoked.status_code == 204
+    body = {"capture_id": str(uuid4()), "url": "https://www.instagram.com/reel/DecwoqXS9ts/"}
+    assert (await api.client.post(
+        "/api/v1/workouts/share/imports", headers=api.share_headers, json=body
+    )).status_code == 401
+    renewed = await api.client.post(
+        "/api/v1/workouts/share/session", headers=GENERATION,
+        json={"installation_id": str(uuid4()), "is_public": False},
+    )
+    assert renewed.status_code == 201
+    assert (await api.client.delete("/api/v1/workouts/data", headers=GENERATION)).status_code == 200
+    assert (await api.client.post(
+        "/api/v1/workouts/share/imports",
+        headers={"Authorization": "Bearer " + renewed.json()["token"]}, json=body,
+    )).status_code == 401
 
 
 async def test_source_job_retry_identity_and_private_projection(automation_api):
