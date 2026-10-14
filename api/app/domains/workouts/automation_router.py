@@ -97,10 +97,11 @@ class ImportResponse(DomainModel):
     result: WorkoutExtractionResult | None
     expires_at: datetime
     accepted_workout_id: UUID | None
+    source_is_public: StrictBool | None = None
 
 
 def import_response(row):
-    return {
+    response = {
         key: getattr(row, key)
         for key in (
             "id",
@@ -112,6 +113,10 @@ def import_response(row):
             "accepted_workout_id",
         )
     }
+    preferences = row.payload.get("_save") if isinstance(row.payload, dict) else None
+    visibility = preferences.get("is_public") if isinstance(preferences, dict) else None
+    response["source_is_public"] = visibility if type(visibility) is bool else None
+    return response
 
 
 @imports_router.post("/imports", status_code=202, response_model=ImportResponse)

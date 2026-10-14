@@ -223,9 +223,11 @@ async def test_server_import_inbox_is_owner_generation_scoped_and_never_returns_
     api = automation_api
     await consent(api)
     queued = await enqueue(api)
+    assert queued.json()["source_is_public"] is None
     inbox = await api.client.get("/api/v1/workouts/imports")
     assert inbox.status_code == 200
     assert [item["id"] for item in inbox.json()] == [queued.json()["id"]]
+    assert inbox.json()[0]["source_is_public"] is None
     assert "payload" not in inbox.text and TEXT not in inbox.text
     assert (await api.client.get("/api/v1/workouts/imports?limit=51")).status_code == 422
     async with api.sessions() as db:
@@ -958,14 +960,18 @@ async def test_malformed_provider_structure_retains_source_instead_of_cancelling
 
     api.worker.extractor.provider.extract = duplicate
     queued = await api.client.post("/api/v1/workouts/imports", headers=GENERATION, json={
-        "request_id": str(uuid4()), "auto_save": True,
+        "request_id": str(uuid4()), "auto_save": True, "is_public": False,
         "source": {"kind": "text", "text": TEXT, "ai_consent": True},
     })
     assert queued.status_code == 202
+    assert queued.json()["source_is_public"] is False
     await api.worker.tick()
     job = (await api.client.get("/api/v1/workouts/imports/" + queued.json()["id"])).json()
     assert job["status"] == "incomplete" and job["accepted_workout_id"] is None
     assert job["result"]["error_code"] == "workout_needs_correction"
+    assert job["source_is_public"] is False
+    inbox = await api.client.get("/api/v1/workouts/imports")
+    assert inbox.status_code == 200 and inbox.json()[0]["source_is_public"] is False
     assert len(job["result"]["workout"]["blocks"]) == 2
     async with api.sessions() as db:
         assert (await db.get(WorkoutImport, queued.json()["id"])).payload["text"] == TEXT
