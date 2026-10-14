@@ -7,14 +7,14 @@ import type { SavedLocalSession } from "./training";
 
 const fixture = vi.hoisted(() => ({
   owner: "owner-A", generation: 1, enrolled: true, current: true, epoch: 0, available: false,
-  enrollment: vi.fn(), profile: vi.fn(), programs: vi.fn(), sessions: vi.fn(), start: vi.fn(), updateProgram: vi.fn(),
+  enrollment: vi.fn(), profile: vi.fn(), programs: vi.fn(), sessions: vi.fn(), start: vi.fn(), updateProgram: vi.fn(), archiveProgram: vi.fn(),
   active: null as null | { workout: { title: string }; actuals: { completed: boolean }[] },
   drafts: new Map<string, string>(), history: [] as SavedLocalSession[], units: "metric" as "metric" | "imperial",
   session: vi.fn(), correct: vi.fn(), sync: vi.fn(),
 }));
 vi.mock("@/lib/context", async () => {
   const { useQuery } = await import("@tanstack/react-query");
-  const api = { profile: fixture.profile, programs: fixture.programs, sessions: fixture.sessions, updateProgram: fixture.updateProgram, session: fixture.session };
+  const api = { profile: fixture.profile, programs: fixture.programs, sessions: fixture.sessions, updateProgram: fixture.updateProgram, session: fixture.session, archiveProgram: fixture.archiveProgram };
   return {
     useTraining: () => {
       const owner = fixture.owner, epoch = fixture.epoch;
@@ -62,7 +62,7 @@ beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   fixture.owner = "owner-A"; fixture.generation = 1; fixture.enrolled = true; fixture.current = true;
   fixture.epoch = 0; fixture.available = false; fixture.active = null; fixture.drafts.clear(); fixture.history = []; fixture.units = "metric";
-  for (const mock of [fixture.enrollment, fixture.profile, fixture.programs, fixture.sessions, fixture.start, fixture.updateProgram, fixture.session, fixture.correct, fixture.sync]) mock.mockReset();
+  for (const mock of [fixture.enrollment, fixture.profile, fixture.programs, fixture.sessions, fixture.start, fixture.updateProgram, fixture.session, fixture.correct, fixture.sync, fixture.archiveProgram]) mock.mockReset();
   const available = () => { if (!fixture.available) throw Error("The training service is unavailable. Your draft is safe."); };
   fixture.enrollment.mockImplementation(async () => { available(); return member(); });
   fixture.profile.mockImplementation(async () => { available(); return profile; });
@@ -329,4 +329,101 @@ it("Plan explains a recovery-spacing rejection and retains the date edit for cor
   expect(text()).not.toContain("Refresh the saved program.");
   expect(buttons("Save new date")).toHaveLength(1);
   expect(cache.getQueryData(["owner-A", "programs", 1])).toEqual([program]);
+});
+
+it("Plan archives and restores without losing its paused queue or changing dates", async () => {
+  fixture.available = true;
+  const paused: Program = { id: "plan", title: "Paused strength", generation: 1, revision: 1, status: "ready", sessions: [],
+    questions: [], warnings: [], assumptions: [], source_ids: [], rule_version: "test",
+    schedule_state: { status: "paused", paused_at: "2020-01-01", paused_sessions: [
+      { id: "queued", date: "2020-01-01", purpose: "Saved order", workout: { id: "queued-workout", generation: 1, revision: 1,
+        kind: "session", provenance: "source", title: "Queued strength", blocks: [] } }
+    ] } };
+  let programs = [paused];
+  fixture.programs.mockImplementation(async () => programs);
+  fixture.archiveProgram.mockImplementation(async (p, archived) => {
+    const saved = { ...p, revision: p.revision + 1, schedule_state: archived ?
+      { ...p.schedule_state, status: "paused", archived_at: "2026-10-10", archive_previous_status: "paused" } : paused.schedule_state };
+    programs = [saved]; return saved;
+  });
+  await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Plan))); }); await settle();
+  const menu = renderer!.root.findAllByType("IconButton" as never).find((n) => n.props.label === "More actions for Paused strength")!;
+  await act(async () => menu.props.onPress());
+  const archive = renderer!.root.findAllByType("ListRow" as never).find((n) => n.props.title === "Archive plan")!;
+  await act(async () => archive.props.onPress()); await settle();
+  expect(fixture.archiveProgram).toHaveBeenCalledWith(paused, true);
+  expect(buttons("Review returning to this plan")).toHaveLength(0);
+  expect(text()).toContain("Archived. Workout instructions and recorded training stay saved");
+  await act(async () => buttons("Active plans")[0].props.onPress());
+  expect(text()).not.toContain("Queued strength");
+  await act(async () => buttons("Archived plans")[0].props.onPress());
+  await act(async () => buttons("Restore plan")[0].props.onPress()); await settle();
+  expect(fixture.archiveProgram.mock.calls[1][0].revision).toBe(2);
+  expect(fixture.archiveProgram.mock.calls[1][1]).toBe(false);
+  expect(buttons("Review returning to this plan")).toHaveLength(1);
+  expect(text()).toContain("Queued strength");
+  expect(paused.schedule_state?.paused_sessions?.[0].date).toBe("2020-01-01");
+  expect(fixture.start).not.toHaveBeenCalled();
+});
+
+
+it("an in-flight archive stays with its original account and repeated taps share one request", async () => {
+  fixture.available = true;
+  const program: Program = { id: "plan", title: "Owner A plan", generation: 1, revision: 1, status: "ready", sessions: [],
+    questions: [], warnings: [], assumptions: [], source_ids: [], rule_version: "test" };
+  fixture.programs.mockResolvedValue([program]);
+  let finish!: (p: Program) => void;
+  fixture.archiveProgram.mockImplementation(() => new Promise<Program>((done) => { finish = done; }));
+  await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Plan))); }); await settle();
+  const menu = renderer!.root.findAllByType("IconButton" as never).find((n) => n.props.label === "More actions for Owner A plan")!;
+  await act(async () => menu.props.onPress());
+  const press = renderer!.root.findAllByType("ListRow" as never).find((n) => n.props.title === "Archive plan")!.props.onPress;
+  await act(async () => { press(); press(); });
+  expect(fixture.archiveProgram).toHaveBeenCalledTimes(1);
+  fixture.owner = "owner-B"; fixture.epoch += 1;
+  const archived = { ...program, revision: 2, schedule_state: { status: "paused" as const, archived_at: "2026-10-10" } };
+  await act(async () => finish(archived)); await settle();
+  expect(cache.getQueryData(["owner-A", "programs", 1])).toEqual([program]);
+  expect(cache.getQueryData(["owner-B", "programs", 1])).toBeUndefined();
+});
+
+it("a held archive acknowledgment cannot replace a newer restored revision when refreshing fails", async () => {
+  fixture.available = true;
+  const program: Program = { id: "plan", title: "Strength", generation: 1, revision: 1, status: "ready", sessions: [],
+    questions: [], warnings: [], assumptions: [], source_ids: [], rule_version: "test" };
+  fixture.programs.mockResolvedValue([program]);
+  let finish!: (p: Program) => void;
+  fixture.archiveProgram.mockImplementation(() => new Promise<Program>((done) => { finish = done; }));
+  await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Plan))); }); await settle();
+  await act(async () => renderer!.root.findAllByType("IconButton" as never).find(n => n.props.label === "More actions for Strength")!.props.onPress());
+  await act(async () => renderer!.root.findAllByType("ListRow" as never).find(n => n.props.title === "Archive plan")!.props.onPress());
+  const restored = { ...program, revision: 3 };
+  fixture.programs.mockRejectedValue(Error("History refresh unavailable"));
+  await act(async () => { cache.setQueryData(["owner-A", "programs", 1], [restored]); });
+  await act(async () => finish({ ...program, revision: 2, schedule_state: { status: "paused", archived_at: "2026-10-15" } })); await settle();
+  expect(cache.getQueryData(["owner-A", "programs", 1])).toEqual([restored]);
+  expect(buttons("Restore plan")).toHaveLength(0);
+  expect(text()).not.toContain("Archived. Workout instructions");
+});
+
+it.each(["move", "archive"])("a held %s prevents an overlapping plan mutation from stale callbacks", async (first) => {
+  fixture.available = true;
+  const program: Program = { id: "plan", title: "Strength", generation: 1, revision: 1, status: "ready", sessions: [{
+    id: "missed", date: "2020-01-01", purpose: "Strength", workout: { id: "w", title: "Strength", generation: 1, revision: 1,
+      kind: "session", provenance: "user", blocks: [{ id: "main", label: "Main", grouping: "sequential", exercises: [{ name: "Row", sets: 2, reps_min: 8 }] }] },
+  }], questions: [], warnings: [], assumptions: [], source_ids: [], rule_version: "test" };
+  fixture.programs.mockResolvedValue([program]);
+  let finish!: (p: Program) => void;
+  const held = () => new Promise<Program>(done => { finish = done; });
+  fixture.updateProgram.mockImplementation(held);
+  fixture.archiveProgram.mockImplementation(held);
+  await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Plan))); }); await settle();
+  await act(async () => buttons("Choose a new date")[0].props.onPress());
+  const move = buttons("Save new date")[0].props.onPress;
+  await act(async () => renderer!.root.findAllByType("IconButton" as never).find(n => n.props.label === "More actions for Strength")!.props.onPress());
+  const archive = renderer!.root.findAllByType("ListRow" as never).find(n => n.props.title === "Archive plan")!.props.onPress;
+  await act(async () => { if (first === "move") { move(); archive(); } else { archive(); move(); } });
+  expect(fixture.updateProgram).toHaveBeenCalledTimes(first === "move" ? 1 : 0);
+  expect(fixture.archiveProgram).toHaveBeenCalledTimes(first === "archive" ? 1 : 0);
+  await act(async () => finish({ ...program, revision: 2 })); await settle();
 });

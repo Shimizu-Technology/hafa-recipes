@@ -39,6 +39,7 @@ from app.domains.workouts.models import (
     WorkoutsSession,
     WorkoutVersion,
 )
+from app.domains.workouts.plan_archival import archive_content, is_archived, require_unarchived
 from app.domains.workouts.programming import RULE_VERSION, SOURCES
 from app.domains.workouts.schemas import (
     ActivityContext,
@@ -680,6 +681,7 @@ async def update_program(
     row = await owned_record(db, WorkoutsProgram, program_id, user.id, generation)
     if row.revision != expected_revision:
         raise HTTPException(409, "Program changed; refresh before saving")
+    require_unarchived(row.content)
     if row.content.get("schedule_state", {}).get("status") == "paused":
         raise HTTPException(409, "Review returning from the pause before editing this program")
     from app.domains.workouts.automation_router import effective_profile
@@ -727,6 +729,32 @@ async def update_program(
             content=row.content,
         )
     )
+    await db.commit()
+    return record_response(row)
+
+
+class ProgramArchiveRequest(DomainModel):
+    archived: StrictBool
+
+
+@router.put("/programs/{program_id}/archive", response_model=RecordResponse)
+async def archive_program(
+    program_id: UUID, request: ProgramArchiveRequest, user: User, db: Database,
+    generation: Generation, expected_revision: Revision,
+):
+    await membership_for(db, user.id, generation=generation, write=True)
+    row = await owned_record(db, WorkoutsProgram, program_id, user.id, generation)
+    if row.revision != expected_revision:
+        raise HTTPException(409, "Program changed; refresh before archiving or restoring")
+    if is_archived(row.content) == request.archived:
+        return record_response(row)
+    row.content = archive_content(row.content, request.archived, now())
+    row.revision += 1
+    row.updated_at = now()
+    db.add(WorkoutsProgramVersion(
+        app_user_id=user.id, generation=generation, program_id=row.id,
+        revision=row.revision, content=row.content,
+    ))
     await db.commit()
     return record_response(row)
 

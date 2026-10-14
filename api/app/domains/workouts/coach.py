@@ -376,6 +376,7 @@ async def build_context(db, user_id, generation, consent, *, focus=None):
                         ],
                         "schedule_state": {
                             "status": content.get("schedule_state", {}).get("status", "active"),
+                            "archived": bool(content.get("schedule_state", {}).get("archived_at")),
                             "paused_at": content.get("schedule_state", {}).get("paused_at"),
                             "paused_session_count": len(
                                 content.get("schedule_state", {}).get("paused_sessions", [])

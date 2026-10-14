@@ -18,6 +18,7 @@ from app.domains.workouts.coach_continuity import (
     running_progression,
     running_workout,
 )
+from app.domains.workouts.plan_archival import archive_content, require_unarchived
 from app.domains.workouts.schemas import (
     ActivityContext,
     RunningBaseline,
@@ -455,3 +456,21 @@ def test_recorded_date_move_undo_and_unrelated_changes_stay_frozen():
     after["proposal"]["sessions"][1]["purpose"] = "Changed unrelated prescription"
     with pytest.raises(HTTPException):
         date_move_guard(before, after, {"past"}, set(), profile(), TODAY)
+
+
+@pytest.mark.parametrize("state", [None, {"status": "active"}, {
+    "status": "paused", "paused_at": "2026-01-01T00:00:00+00:00",
+    "paused_sessions": [{"id": "queued", "date": "2026-10-12", "workout": {"title": "Saved"}}],
+}])
+def test_archive_restores_exact_previous_schedule_state_without_touching_prescriptions(state):
+    content = calendar()
+    if state is not None:
+        content["schedule_state"] = deepcopy(state)
+    before = deepcopy(content)
+    archived = archive_content(content, True, datetime(2026, 10, 10, tzinfo=timezone.utc))
+    assert content == before and archived["proposal"] == before["proposal"]
+    assert archived["schedule_state"]["status"] == "paused"
+    with pytest.raises(HTTPException):
+        require_unarchived(archived)
+    assert archive_content(archived, True, datetime.now(timezone.utc)) == archived
+    assert archive_content(archived, False, datetime.now(timezone.utc)) == before

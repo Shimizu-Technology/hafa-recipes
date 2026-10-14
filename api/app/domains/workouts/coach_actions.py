@@ -43,6 +43,7 @@ from app.domains.workouts.models import (
     WorkoutsSession,
     WorkoutVersion,
 )
+from app.domains.workouts.plan_archival import require_unarchived
 from app.domains.workouts.programming import REVIEW_NOTICE, adapt_workout, build_program
 from app.domains.workouts.router import content_digest, owned_record, validated_workout
 from app.domains.workouts.schedule import validate_other_program_dates
@@ -267,6 +268,7 @@ async def owned_program_hash(db, user_id, generation):
 
 async def safe_program(db, user_id, generation, identifier, revision):
     row = await owned_record(db, WorkoutsProgram, identifier, user_id, generation)
+    require_unarchived(row.content)
     if row.revision != revision or health_derived(row.content):
         raise HTTPException(409, "Program changed or needs provenance review")
     return row
@@ -341,6 +343,7 @@ async def prepare_action(db, user_id, generation, name, arguments, *, compose_li
         target_revision = source.revision
     elif isinstance(action, ScheduleAction):
         source = await owned_record(db, WorkoutsProgram, action.program_id, user_id, generation)
+        require_unarchived(source.content)
         if source.revision != action.expected_revision or health_derived(source.content):
             raise HTTPException(409, "Program changed or needs provenance review")
         content = deepcopy(source.content)
@@ -784,6 +787,7 @@ async def accept_action(
         saved.updated_at = now()
     else:
         saved = await owned_record(db, WorkoutsProgram, proposal.target_id, user_id, generation)
+        require_unarchived(saved.content)
         if saved.revision != proposal.target_revision:
             raise HTTPException(409, "Program changed; prepare a fresh schedule edit")
         today = now().astimezone(ZoneInfo(profile.timezone)).date()
@@ -893,6 +897,7 @@ async def undo_action(db, user_id, generation, proposal_id):
         saved = await owned_record(
             db, WorkoutsProgram, UUID(receipt["record_id"]), user_id, generation
         )
+        require_unarchived(saved.content)
         profile, _ = await effective_profile(db, user_id, generation)
         today = now().astimezone(ZoneInfo(profile.timezone)).date()
         ids = set(proposal.content.get("session_ids", [proposal.content.get("session_id")]))
