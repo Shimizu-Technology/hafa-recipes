@@ -3,7 +3,9 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { initialProfile, type AuthoredWorkout, type Workout } from "./models";
+import { ApiError } from "./api";
 import { draftKey } from "./drafts";
+import { createPrivateForm } from "./private-form";
 import { submittedCaptureScope } from "./capture";
 import type { Measurement } from "./measurements";
 const fixture = vi.hoisted(() => ({
@@ -12,10 +14,12 @@ const fixture = vi.hoisted(() => ({
   run: 0,
   params: {} as { id?: string; shared?: string; request_id?: string; auto?: string },
   revision: 1,
+  generation: 1,
   saveWorkout: vi.fn(),
   persist: vi.fn(),
   push: vi.fn(),
   replace: vi.fn(),
+  dismissTo: vi.fn(),
   importJob: vi.fn(),
   cancelImport: vi.fn(),
   acceptImport: vi.fn(),
@@ -46,6 +50,7 @@ const fixture = vi.hoisted(() => ({
   workout: vi.fn(),
   measurement: vi.fn(),
   writeFailure: false,
+  removeFailureScope: "",
   foreground: new Set<(state: string) => void>(),
   os: "android", nativeSharing: false, nativeCaptures: vi.fn(), nativeAck: vi.fn()
 }));
@@ -53,6 +58,7 @@ vi.mock("@/lib/context", () => {
   const storage = {
     isCurrent: () => fixture.current,
     removeItem: async (key: string) => {
+      if (fixture.removeFailureScope && key === draftKey(fixture.owner, fixture.removeFailureScope)) throw Error("device cleanup failed");
       fixture.map.delete(key);
     },
     getItem: async (key: string) => fixture.map.get(key) ?? null,
@@ -103,7 +109,7 @@ vi.mock("@/lib/context", () => {
   return {
     useTraining: () => ({
       owner: fixture.owner,
-      enrollment: { enrolled: true, generation: 1 },
+      enrollment: { enrolled: true, generation: fixture.generation },
       units: "metric",
       isCurrentAccount: () => fixture.current,
       storage,
@@ -137,7 +143,7 @@ vi.mock("@/lib/capture-io", () => ({
   sourceFor: fixture.sourceFor
 }));
 vi.mock("expo-router", () => ({
-  router: { push: fixture.push, replace: fixture.replace },
+  router: { push: fixture.push, replace: fixture.replace, dismissTo: fixture.dismissTo },
   useFocusEffect() {},
   useLocalSearchParams: () => fixture.params
 }));
@@ -187,6 +193,7 @@ vi.mock("expo-share-intent", () => ({
 }));
 import { ShareCapture } from "../components/share-capture";
 import ImportReview from "../app/import/[id]";
+import RecoverWorkout from "../app/recover-workout/[id]";
 import Capture from "../app/capture";
 import AddWorkout from "../app/add-workout";
 import Profile from "../app/profile";
@@ -268,7 +275,9 @@ beforeEach(() => {
   fixture.owner = `owner-${++fixture.run}`;
   fixture.params = {};
   fixture.revision = 1;
+  fixture.generation = 1;
   fixture.writeFailure = false;
+  fixture.removeFailureScope = "";
   fixture.current = true;
   fixture.next = 0;
   fixture.share = false;
@@ -1033,15 +1042,167 @@ it("mounted workout editing preserves original content/revision across backgroun
   await unmount();
   cache.clear();
   await mount(EditWorkout);
-  expect(find("WorkoutEditor").props.disabled).toBe(true);
-  expect(button("Reload saved workout and discard this draft")).toBeDefined();
-  const reloading = deferred<Workout>();
-  fixture.workout.mockReturnValueOnce(reloading.promise);
-  await click("Reload saved workout and discard this draft");
-  expect(button("Reloading workout…").props.busy).toBe(true);
-  await act(async () => reloading.resolve({ ...original, revision: 2 }));
+  expect(find("WorkoutEditor").props.disabled).toBe(false);
+  expect(find("WorkoutEditor").props.value.title).toBe("Desired correction");
+  expect(fixture.updateWorkout).toHaveBeenCalledTimes(2);
+  expect(fixture.dismissTo).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "workout" } });
+});
+
+it("mounted completed workout edits reopen the current server revision despite a stale cache and can save again", async () => {
+  fixture.params = { id: "workout" };
+  await mount(EditWorkout);
+  const corrected = { ...workout, revision: 2, title: "Saved correction" };
+  fixture.updateWorkout.mockResolvedValueOnce(corrected);
+  await click("Save new workout version");
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "workout-edit:1:workout"))!)).toMatchObject({
+    terminal: true, saved_id: "workout", input: null, command: null
+  });
+  await unmount();
+  cache.setQueryData([fixture.owner, "workout", "workout", 1], workout);
+  const fresh = deferred<Workout>();
+  fixture.workout.mockReturnValue(fresh.promise);
+  await mount(EditWorkout);
+  expect(nodes("WorkoutEditor")).toHaveLength(0);
+  await act(async () => fresh.resolve(corrected));
   await settle();
   expect(find("WorkoutEditor").props.disabled).toBe(false);
+  expect(find("WorkoutEditor").props.value.title).toBe("Saved correction");
+  await act(async () => find("WorkoutEditor").props.onChange({ ...corrected, title: "Second correction" }));
+  fixture.updateWorkout.mockResolvedValueOnce({ ...corrected, title: "Second correction", revision: 3 });
+  await click("Save new workout version");
+  expect(fixture.updateWorkout.mock.calls[1][0]).toMatchObject({ revision: 2, title: "Second correction" });
+  expect(fixture.dismissTo).toHaveBeenCalledTimes(2);
+  expect(fixture.replace).not.toHaveBeenCalled();
+});
+
+it("mounted completed workout edits keep their receipt when reopening is offline and recover without replaying a save", async () => {
+  fixture.params = { id: "workout" };
+  fixture.map.set(draftKey(fixture.owner, "workout-edit:1:workout"), JSON.stringify({
+    version: 1, terminal: true, removed: false, saved_id: "workout", input: null, command: null
+  }));
+  cache.setQueryData([fixture.owner, "workout", "workout", 1], workout);
+  fixture.workout.mockRejectedValue(Error("offline"));
+  await mount(EditWorkout);
+  expect(nodes("WorkoutEditor")).toHaveLength(0);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "workout-edit:1:workout"))!).terminal).toBe(true);
+  fixture.workout.mockResolvedValue({ ...workout, revision: 4, title: "Current saved version" });
+  await click("Load saved workout");
+  expect(find("WorkoutEditor").props.value.title).toBe("Current saved version");
+  expect(find("WorkoutEditor").props.disabled).toBe(false);
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+});
+
+it("mounted workout edit preserves its frozen command when saving succeeded but the local receipt write failed", async () => {
+  fixture.params = { id: "workout" };
+  await mount(EditWorkout);
+  fixture.updateWorkout.mockImplementationOnce(async (value) => {
+    fixture.writeFailure = true;
+    return { ...value, revision: 2 };
+  });
+  await click("Save new workout version");
+  const original = fixture.updateWorkout.mock.calls[0][0];
+  expect(fixture.dismissTo).not.toHaveBeenCalled();
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "workout-edit:1:workout"))!).command).toEqual(original);
+  fixture.writeFailure = false;
+  await unmount();
+  await mount(EditWorkout);
+  expect(find("WorkoutEditor").props.disabled).toBe(true);
+  fixture.updateWorkout.mockResolvedValueOnce({ ...original, revision: 2 });
+  await click("Retry saving changes");
+  expect(fixture.updateWorkout.mock.calls[1][0]).toEqual(original);
+  expect(fixture.dismissTo).toHaveBeenCalledTimes(1);
+});
+
+it("mounted completed workout edit cannot reopen after its owner changes during the fresh read", async () => {
+  fixture.params = { id: "workout" };
+  const oldOwner = fixture.owner, key = draftKey(oldOwner, "workout-edit:1:workout");
+  fixture.map.set(key, JSON.stringify({ version: 1, terminal: true, removed: false, saved_id: "workout", input: null, command: null }));
+  const fresh = deferred<Workout>();
+  fixture.workout.mockReturnValue(fresh.promise);
+  await mount(EditWorkout);
+  fixture.workout.mockResolvedValue(workout);
+  fixture.owner = "other-owner";
+  await rerender(EditWorkout);
+  await act(async () => fresh.resolve({ ...workout, revision: 7, title: "Old owner result" }));
+  await settle();
+  expect(JSON.parse(fixture.map.get(key)!).terminal).toBe(true);
+  expect(find("WorkoutEditor").props.value.title).not.toBe("Old owner result");
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+});
+
+it("mounted completed workout edit cannot move its receipt into a new enrollment during the fresh read", async () => {
+  fixture.params = { id: "workout" };
+  const key = draftKey(fixture.owner, "workout-edit:1:workout");
+  fixture.map.set(key, JSON.stringify({ version: 1, terminal: true, removed: false, saved_id: "workout", input: null, command: null }));
+  const fresh = deferred<Workout>();
+  fixture.workout.mockReturnValue(fresh.promise);
+  await mount(EditWorkout);
+  fixture.workout.mockResolvedValue({ ...workout, generation: 2, title: "New enrollment workout" });
+  fixture.generation = 2;
+  await rerender(EditWorkout);
+  await act(async () => fresh.resolve({ ...workout, revision: 7, title: "Old enrollment result" }));
+  await settle();
+  expect(JSON.parse(fixture.map.get(key)!).terminal).toBe(true);
+  expect(find("WorkoutEditor").props.value.title).toBe("New enrollment workout");
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+});
+
+it("mounted acknowledged workout edit keeps its completed receipt if returning to the detail fails", async () => {
+  fixture.params = { id: "workout" };
+  await mount(EditWorkout);
+  const saved = { ...workout, revision: 2, title: "Saved correction" };
+  fixture.updateWorkout.mockResolvedValueOnce(saved);
+  fixture.dismissTo.mockImplementationOnce(() => { throw Error("navigation unavailable"); });
+  await click("Save new workout version");
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "workout-edit:1:workout"))!).terminal).toBe(true);
+  expect(find("WorkoutEditor").props.disabled).toBe(true);
+  await unmount();
+  fixture.workout.mockResolvedValue(saved);
+  await mount(EditWorkout);
+  expect(find("WorkoutEditor").props.disabled).toBe(false);
+  expect(find("WorkoutEditor").props.value.title).toBe("Saved correction");
+  expect(fixture.updateWorkout).toHaveBeenCalledTimes(1);
+});
+
+it("mounted completed workout edit keeps its receipt if reopening cannot be persisted locally", async () => {
+  fixture.params = { id: "workout" };
+  const key = draftKey(fixture.owner, "workout-edit:1:workout");
+  fixture.map.set(key, JSON.stringify({ version: 1, terminal: true, removed: false, saved_id: "workout", input: null, command: null }));
+  fixture.writeFailure = true;
+  await mount(EditWorkout);
+  expect(nodes("WorkoutEditor")).toHaveLength(0);
+  expect(JSON.parse(fixture.map.get(key)!).terminal).toBe(true);
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+});
+
+it("mounted completed workout edit stops when removal occurs during its fresh read", async () => {
+  fixture.params = { id: "workout" };
+  const key = draftKey(fixture.owner, "workout-edit:1:workout");
+  fixture.map.set(key, JSON.stringify({ version: 1, terminal: true, removed: false, saved_id: "workout", input: null, command: null }));
+  const fresh = deferred<Workout>();
+  fixture.workout.mockReturnValue(fresh.promise);
+  await mount(EditWorkout);
+  await createPrivateForm({ getItem: async (k) => fixture.map.get(k) ?? null,
+    setItem: async (k, v) => { fixture.map.set(k, v); }, removeItem: async (k) => { fixture.map.delete(k); } },
+    fixture.owner, "workout-edit:1:workout").retire();
+  await act(async () => fresh.resolve({ ...workout, revision: 2 }));
+  await settle();
+  expect(nodes("WorkoutEditor")).toHaveLength(0);
+  expect(JSON.parse(fixture.map.get(key)!).removed).toBe(true);
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+});
+
+it("mounted removed workout edit cannot reset its tombstone or expose a cached workout", async () => {
+  fixture.params = { id: "workout" };
+  const key = draftKey(fixture.owner, "workout-edit:1:workout");
+  fixture.map.set(key, JSON.stringify({ version: 1, terminal: true, removed: true, input: null, command: null }));
+  cache.setQueryData([fixture.owner, "workout", "workout", 1], workout);
+  await mount(EditWorkout);
+  expect(nodes("WorkoutEditor")).toHaveLength(0);
+  await click("Load saved workout");
+  expect(nodes("WorkoutEditor")).toHaveLength(0);
+  expect(JSON.parse(fixture.map.get(key)!).removed).toBe(true);
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
 });
 
 it("mounted completed profile recovers its saved read-only view after remount and requires deliberate editing", async () => {
@@ -1495,7 +1656,7 @@ it("keeps unknowns and less common prescription values intact through simple edi
       load: 10, load_unit: "kg", load_convention: "per_hand", tempo: "3-1-1", notes: "Control the movement", per_side: null }],
   }] };
   await mountRealWorkoutEditor(content);
-  expect(nodes("Field").map((n) => n.props.label)).toEqual(["Workout title", "Workout duration · minutes", "Workout instructions · one instruction per line", "Required equipment · comma separated", "Exercise name", "Sets", "Reps"]);
+  expect(nodes("Field").map((n) => n.props.label)).toEqual(["Workout title", "Estimated duration · minutes", "Workout instructions · one instruction per line", "Required equipment · comma separated", "Exercise name", "Sets", "Reps"]);
   expect(fixture.updateWorkout).not.toHaveBeenCalled();
   await click("More details for Row");
   expect(nodes("Field").find((n) => n.props.label === "Rest · seconds")!.props.value).toBe("45");
@@ -1515,13 +1676,13 @@ it("keeps unknowns and less common prescription values intact through simple edi
 it("corrects overall duration and instructions without changing the exercise prescription", async () => {
   const content: AuthoredWorkout = { ...workout, estimated_minutes: null, notes: ["Repeat the circuit"], provenance: "source" };
   await mountRealWorkoutEditor(content);
-  await act(async () => nodes("Field").find((n) => n.props.label === "Workout duration · minutes")!.props.onChange("20"));
+  await act(async () => nodes("Field").find((n) => n.props.label === "Estimated duration · minutes")!.props.onChange("20"));
   await act(async () => nodes("Field").find((n) => n.props.label === "Workout instructions · one instruction per line")!.props.onChange("Repeat for 20 minutes\nRest after each round"));
   const corrected = fixture.updateWorkout.mock.calls.at(-1)![0];
   expect(corrected.estimated_minutes).toBe(20);
   expect(corrected.notes).toEqual(["Repeat for 20 minutes", "Rest after each round"]);
   expect(corrected.blocks).toEqual(content.blocks);
-  await act(async () => nodes("Field").find((n) => n.props.label === "Workout duration · minutes")!.props.onChange(""));
+  await act(async () => nodes("Field").find((n) => n.props.label === "Estimated duration · minutes")!.props.onChange(""));
   expect(fixture.updateWorkout.mock.calls.at(-1)![0].estimated_minutes).toBeNull();
 });
 it("shows existing time and distance without making optional numeric fields into zero", async () => {
@@ -1910,4 +2071,179 @@ it("retrying a registered native capture only acknowledges its receipt without c
   expect(fixture.nativeAck).toHaveBeenCalledExactlyOnceWith("queued-B"); expect(fixture.normalizeImages).not.toHaveBeenCalled();
   expect(fixture.cleanup).not.toHaveBeenCalled(); expect(fixture.alert).not.toHaveBeenCalled();
   expect(JSON.parse(fixture.map.get(key)!)).toMatchObject(current);
+});
+
+it("retries retained source with caption privately and reconnects the exact request after a transport failure", async () => {
+  fixture.params = { id: "job-A" };
+  fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "failed", result: null });
+  fixture.importSource.mockResolvedValue({ kind: "url", source_url: "https://example.test/workout", text: "Original instructions", ai_consent: true });
+  fixture.startImport.mockRejectedValueOnce(Error("Connection interrupted"));
+  fixture.startImport.mockResolvedValueOnce({ id: "retry-job", generation: 1, status: "queued" });
+  await mount(ImportReview);
+  await act(async () => nodes("Field").find(node => node.props.label === "Caption or source instructions")!.props.onChange("Squat 10 reps for 20 minutes"));
+  await click("Retry with this caption");
+  const first = fixture.startImport.mock.calls[0];
+  expect(first).toEqual([expect.any(String), { kind: "url", source_url: "https://example.test/workout", text: "Original instructions\n\nSquat 10 reps for 20 minutes", ai_consent: true }, 1, { auto_save: true, is_public: false }]);
+  await unmount(); await mount(ImportReview); await click("Reconnect retry");
+  expect(fixture.startImport.mock.calls[1]).toEqual(first);
+  expect(fixture.map.get(draftKey(fixture.owner, "import-visibility:1:retry-job"))).toBe("false");
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "imports:1"))!)[0].id).toBe("retry-job");
+  expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/import/[id]", params: { id: "retry-job" } });
+  expect(fixture.cancelImport).not.toHaveBeenCalled();
+});
+
+it("retries a saved source draft from its link without editing the original library workout", async () => {
+  fixture.params = { id: "job-A" };
+  fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "incomplete", accepted_workout_id: "saved-original", result: {
+    workout: { ...workout, blocks: [], source_url: "https://example.test/source" },
+    warnings: ["Missing exercises"], evidence: [], source: { platform: "web", url: "https://example.test/source", channels: [], coverage_notes: [] }
+  } });
+  fixture.importSource.mockRejectedValue(new ApiError("Source cleared after saving", 410));
+  fixture.startImport.mockResolvedValue({ id: "retry-job", generation: 1, status: "queued" });
+  await mount(ImportReview); await click("Retry this source");
+  expect(fixture.startImport).toHaveBeenCalledWith(expect.any(String), { kind: "url", source_url: "https://example.test/source", ai_consent: true }, 1, { auto_save: true, is_public: false });
+  expect(fixture.updateWorkout).not.toHaveBeenCalled(); expect(fixture.acceptImport).not.toHaveBeenCalled();
+});
+
+it("cancellation removes its reference and keeps the next source import", async () => {
+  fixture.params = { id: "job-A" };
+  fixture.map.set(draftKey(fixture.owner, "imports:1"), JSON.stringify([{ id: "job-A" }, { id: "job-B" }]));
+  fixture.cancelImport.mockResolvedValue(undefined);
+  await mount(ImportReview); await click("Cancel import and clear source upload");
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "imports:1"))!)).toEqual([{ id: "job-B" }]);
+});
+
+it("stops source recovery when the account changes during source retrieval", async () => {
+  fixture.params = { id: "job-A" }; fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "failed", result: null });
+  const held = deferred<{ kind: string; ai_consent: boolean; text: string }>();
+  fixture.importSource.mockReturnValue(held.promise);
+  await mount(ImportReview); await click("Retry this source");
+  fixture.current = false; await act(async () => held.resolve({ kind: "text", text: "Squat 10 reps", ai_consent: true })); await settle();
+  expect(fixture.startImport).not.toHaveBeenCalled();
+});
+
+it("restores caption recovery input after leaving an unfinished source", async () => {
+  fixture.params = { id: "job-A" }; fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "failed", result: null });
+  await mount(ImportReview);
+  await act(async () => nodes("Field").find(node => node.props.label === "Caption or source instructions")!.props.onChange("Squat 10 reps"));
+  await settle(); await unmount(); await mount(ImportReview);
+  expect(nodes("Field").find(node => node.props.label === "Caption or source instructions")!.props.value).toBe("Squat 10 reps");
+});
+
+it("recovers a saved empty source privately without replacing the original workout or capture composer", async () => {
+  fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.workout.mockResolvedValue({ ...workout, source_url: "https://example.test/source", blocks: [] });
+  const originalCapture = JSON.stringify({ request_id: "another-source", generation: 1, kind: "text", text: "Unfinished source", files: [] });
+  fixture.map.set(draftKey(fixture.owner, "capture:1"), originalCapture);
+  fixture.startImport.mockResolvedValue({ id: "recovery-job", generation: 1, status: "queued" });
+  await mount(RecoverWorkout);
+  expect(nodes("Field").find(node => node.props.label === "Original source link")!.props.value).toBe("https://example.test/source");
+  await act(async () => nodes("Field").find(node => node.props.label === "Creator caption or transcript")!.props.onChange("10 squats for 20 minutes"));
+  await click("Recover as a private import");
+  expect(fixture.startImport).toHaveBeenCalledWith(expect.any(String), { kind: "url", source_url: "https://example.test/source", text: "10 squats for 20 minutes", ai_consent: true }, 1, { auto_save: true, is_public: false });
+  expect(fixture.map.get(draftKey(fixture.owner, "capture:1"))).toBe(originalCapture);
+  expect(fixture.updateWorkout).not.toHaveBeenCalled(); expect(fixture.acceptImport).not.toHaveBeenCalled();
+  expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/import/[id]", params: { id: "recovery-job" } });
+  await unmount(); await mount(RecoverWorkout);
+  expect(button("Open recovery import")).toBeDefined(); expect(fixture.startImport).toHaveBeenCalledTimes(1);
+});
+
+it("reconnects the exact private recovery request after remount even when saving capabilities change", async () => {
+  fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.workout.mockResolvedValue({ ...workout, source_url: "https://example.test/source", blocks: [] });
+  fixture.startImport.mockRejectedValueOnce(Error("Lost acknowledgement"));
+  await mount(RecoverWorkout); await click("Recover as a private import");
+  const original = fixture.startImport.mock.calls[0]; await unmount();
+  fixture.capabilities.mockResolvedValue({ ...serverCaps, server_auto_save: false });
+  fixture.startImport.mockResolvedValue({ id: "recovered-job", generation: 1, status: "queued" });
+  await mount(RecoverWorkout); expect(nodes("Field")[0].props.disabled).toBe(true); await click("Reconnect recovery");
+  expect(fixture.startImport.mock.calls[1]).toEqual(original);
+});
+
+it("does not silently restore revoked AI consent while recovering an existing source", async () => {
+  fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.workout.mockResolvedValue({ ...workout, source_url: "https://example.test/source" });
+  fixture.aiConsent.mockResolvedValueOnce({ accepted: true, disclosure_version: 1 }).mockResolvedValue({ accepted: false, disclosure_version: 1 });
+  await mount(RecoverWorkout); await click("Recover as a private import");
+  expect(fixture.setAiConsent).not.toHaveBeenCalled(); expect(fixture.startImport).not.toHaveBeenCalled();
+  expect(button("Agree and recover privately")).toBeDefined();
+});
+
+it("an old recovery cannot send after route A to B to A reuse", async () => {
+  fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.workout.mockResolvedValue({ ...workout, source_url: "https://example.test/source" });
+  const held = deferred<{ accepted: boolean; disclosure_version: number }>();
+  fixture.aiConsent.mockResolvedValueOnce({ accepted: true, disclosure_version: 1 }).mockReturnValueOnce(held.promise).mockResolvedValue({ accepted: true, disclosure_version: 1 });
+  await mount(RecoverWorkout); await click("Recover as a private import");
+  fixture.params = { id: "other" }; await rerender(RecoverWorkout);
+  fixture.params = { id: "workout" }; await rerender(RecoverWorkout);
+  await act(async () => held.resolve({ accepted: true, disclosure_version: 1 })); await settle();
+  expect(fixture.startImport).not.toHaveBeenCalled();
+});
+
+it("keeps cached import progress and offers reconnect when a status refresh loses connection", async () => {
+  fixture.params = { id: "job-A" };
+  const job = { id: "job-A", generation: 1, status: "processing", attempt_count: 2 };
+  cache.setQueryData([fixture.owner, "import", "job-A", 1], job);
+  fixture.importJob.mockRejectedValue(Error("Network unavailable"));
+  await mount(ImportReview);
+  expect(nodes("QueryState")[0].props.error).toBeNull();
+  expect(button("Reconnect to check progress")).toBeDefined();
+  expect(JSON.stringify(renderer!.toJSON())).toContain("Could not refresh progress");
+  fixture.importJob.mockResolvedValue(job); await click("Reconnect to check progress");
+  expect(button("Refresh import status")).toBeDefined(); expect(fixture.cancelImport).not.toHaveBeenCalled();
+});
+
+it("keeps an empty extraction in source recovery until exercises are added", async () => {
+  fixture.params = { id: "empty-job" };
+  fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.importJob.mockResolvedValue({ id: "empty-job", generation: 1, status: "incomplete", result: {
+    workout: { ...workout, blocks: [], source_url: "https://example.test/source" },
+    warnings: ["Extraction was unavailable"], evidence: [], source: { platform: "web", url: "https://example.test/source", channels: [], coverage_notes: [] }
+  } });
+  await mount(ImportReview);
+  expect(nodes("Button").some(node => node.props.title === "Save workout")).toBe(false);
+  expect(button("Retry this source")).toBeDefined();
+  await click("Add exercises manually");
+  await act(async () => nodes("WorkoutEditor")[0].props.onChange(workout));
+  await settle();
+  expect(button("Save workout")).toBeDefined();
+  expect(fixture.acceptImport).not.toHaveBeenCalled();
+});
+
+it.each(["caption cleanup", "navigation"])("reopens an acknowledged retry after %s fails without submitting another import", async failure => {
+  fixture.params = { id: "job-A" };
+  fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "failed", result: null });
+  fixture.importSource.mockResolvedValue({ kind: "text", text: "Squat 10 reps", ai_consent: true });
+  fixture.startImport.mockResolvedValue({ id: "existing-retry", generation: 1, status: "queued" });
+  if (failure === "caption cleanup") fixture.removeFailureScope = "import-retry-caption:1:job-A";
+  else fixture.replace.mockImplementationOnce(() => { throw Error("navigation interrupted"); });
+  await mount(ImportReview); await click("Retry this source");
+  expect(fixture.startImport).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "import-retry:1:job-A"))!)).toMatchObject({ saved_id: "existing-retry", request_id: fixture.startImport.mock.calls[0][0] });
+  await unmount(); fixture.removeFailureScope = "";
+  fixture.capabilities.mockResolvedValue({ ...serverCaps, imports: false });
+  await mount(ImportReview);
+  expect(button("Open retry import").props.disabled).toBe(false);
+  await click("Open retry import");
+  expect(fixture.startImport).toHaveBeenCalledTimes(1);
+  expect(fixture.replace).toHaveBeenLastCalledWith({ pathname: "/import/[id]", params: { id: "existing-retry" } });
+});
+
+it("explains a usage limit without blaming an available source caption", async () => {
+  fixture.params = { id: "limit-job" };
+  fixture.importJob.mockResolvedValue({ id: "limit-job", generation: 1, status: "incomplete", result: {
+    error_code: "workouts_ai_budget_exceeded", workout: { ...workout, blocks: [] },
+    warnings: ["Source extraction could not finish"], evidence: [], source: { platform: "text", channels: [], coverage_notes: [] }
+  } });
+  await mount(ImportReview);
+  const view = JSON.stringify(renderer!.toJSON());
+  expect(view).toContain("usage limit"); expect(view).not.toContain("Source extraction could not finish");
+  expect(button("Add exercises manually")).toBeDefined();
+  expect(nodes("Button").some(node => node.props.title === "Save workout")).toBe(false);
 });

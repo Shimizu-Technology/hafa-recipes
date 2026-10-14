@@ -138,6 +138,11 @@ export default function WorkoutDetail() {
         <Button title="Review tracking details" secondary onPress={() => router.push({ pathname: "/edit-workout/[id]", params: { id: workout!.id } })} />
       </Card>}
       {workout && exercises === 0 && <Notice tone="warning">This source has no extracted exercises yet. Check the source and edit its details before training.</Notice>}
+      {workout && (exercises === 0 || !!workout.extraction_warnings?.length) && !!(workout.source_url || workout.capture_kind) && <Card compact>
+        <Copy kind="subheading">Recover the source</Copy>
+        <Copy kind="small">Try its link again or paste the creator’s caption or transcript. Your saved draft stays unchanged.</Copy>
+        <Button title="Recover from caption or source" secondary icon="refresh-outline" onPress={() => router.push({ pathname: "/recover-workout/[id]", params: { id: workout.id } })} />
+      </Card>}
       {!!workout?.extraction_warnings?.length && <Card compact tone="sunken">
         <Copy kind="subheading">Details to check</Copy>
         {workout.extraction_warnings.map((warning, index) => <Copy key={index} kind="small">{warning}</Copy>)}

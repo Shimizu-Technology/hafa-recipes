@@ -74,6 +74,11 @@ export interface ImportJob {
   generation: number;
   status: "queued" | "processing" | "ready" | "incomplete" | "failed" | "cancelled" | "expired";
   attempt_count: number;
+  /** Optional on servers before import progress metadata was added. */
+  created_at?: string | null;
+  updated_at?: string | null;
+  next_attempt_at?: string | null;
+  max_attempts?: number | null;
   result: {
     status: "ready" | "incomplete" | "failed";
     workout: AuthoredWorkout | null;

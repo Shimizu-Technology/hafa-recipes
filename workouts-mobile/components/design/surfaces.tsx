@@ -60,7 +60,8 @@ export function Screen({
       <View style={{ paddingHorizontal: spacing.lg - 4, paddingVertical: spacing.xs, width: "100%", maxWidth: contentWidth, alignSelf: "center" }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: 48 }}>
           {back ? (
-            <IconButton icon="chevron-back" label="Go back" variant="plain" onPress={() => router.back()} />
+            <IconButton icon="chevron-back" label="Go back" variant="plain"
+              onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/library")} />
           ) : (
             <BrandLockup />
           )}

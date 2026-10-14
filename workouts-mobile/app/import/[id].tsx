@@ -4,19 +4,22 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { ActivityIndicator, AppState, Image, Linking } from "react-native";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Chip, ChipRow, Choice, Copy, Empty, ListRow, Notice, Screen, SectionHeader, Skeleton } from "@/components/ui";
+import { Button, Card, Chip, ChipRow, Choice, Copy, Empty, Field, ListRow, Notice, Screen, SectionHeader, Skeleton } from "@/components/ui";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutEditor } from "@/components/workout-editor";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
 import { canSaveAutomatically, importIsTerminal, updateImportReferences, loadCapturedImport, retireCapturedImport, type CaptureDraft, type ImportReference } from "@/lib/capture";
-import { cleanupCaptureFiles } from "@/lib/capture-io";
+import { cleanupCaptureFiles, sourceFor } from "@/lib/capture-io";
+import { recoverySource } from "@/lib/import-recovery";
+import type { ExtractionRequest } from "@/lib/capture";
 import * as Crypto from "expo-crypto";
 import { type PrivateDraftSnapshot } from "@/lib/private-form";
 import type { AuthoredWorkout } from "@/lib/models";
 import { usePublishingDisclosure } from "@/components/publishing-disclosure";
 import { DECLINED, INCOMPLETE_MESSAGE, defaultShareToDiscover, isIncomplete, publishable, prescriptionLine, formatSeconds } from "@/lib/discover";
 import { WorkoutSource } from "@/components/workout-source";
+import { ImportProgress } from "@/components/import-progress";
 export default function ImportReview() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
@@ -68,6 +71,9 @@ export default function ImportReview() {
   /** null = the default for this source (link imports public, everything else private). */
   const [shareChoice, setShareChoice] = useState<boolean | null>(null);
   const [notice, setNotice] = useState("");
+  const [caption, setCaption] = useState("");
+  const captionWrites = useRef<Promise<void>>(Promise.resolve());
+  const [retryCommand, setRetryCommand] = useState<{ request_id: string; source: ExtractionRequest; auto_save: boolean; saved_id?: string } | null>(null);
   const disclosure = usePublishingDisclosure();
   const [stateEpoch, setStateEpoch] = useState(epoch);
   const routeReady = stateEpoch === epoch;
@@ -103,6 +109,8 @@ export default function ImportReview() {
     setError("");
     setShareChoice(null);
     setNotice("");
+    setCaption("");
+    setRetryCommand(null);
     disclosure.dismiss();
     const sourceLoad = loadCapturedImport(storage, owner, generation!, id, current, Crypto.randomUUID)
       .then((saved) => {
@@ -129,7 +137,13 @@ export default function ImportReview() {
       if (valid && isCurrent()) setAutoAllowed(items?.some((item) => item.id === id && item.auto_save === true &&
         (item.generation == null || item.generation === generation)) ?? false);
     });
-    void Promise.all([sourceLoad, editLoad, visibilityLoad, referencesLoad]).then(() => {
+    const retryLoad = localDrafts.load<NonNullable<typeof retryCommand>>(owner, `import-retry:${generation}:${id}`).then(value => {
+      if (valid && isCurrent()) setRetryCommand(value);
+    });
+    const captionLoad = localDrafts.load<string>(owner, `import-retry-caption:${generation}:${id}`).then(value => {
+      if (valid && isCurrent()) setCaption(value ?? "");
+    });
+    void Promise.all([sourceLoad, editLoad, visibilityLoad, referencesLoad, retryLoad, captionLoad]).then(() => {
       if (valid && isCurrent()) setRestored(true);
     }).catch(() => { if (valid && isCurrent()) setError("Could not restore this import’s saved choices. Try loading again before saving."); });
     return () => {
@@ -164,7 +178,10 @@ export default function ImportReview() {
   async function accept(automatic = false) {
     if (saving.current || !routeReady || !restored || !isCurrent() || !q.data?.result?.workout) return;
     if (automatic && (edited || !canSaveAutomatically(q.data))) return;
-    const errors = workoutErrors(edited ?? q.data.result.workout);
+    const content = edited ?? q.data.result.workout;
+    const errors = content.blocks.some(block => block.exercises.length)
+      ? workoutErrors(content, q.data.status === "incomplete" && !sharing)
+      : ["Add at least one exercise before saving this workout."];
     if (errors.length) {
       setError(errors.join(" "));
       return;
@@ -215,20 +232,75 @@ export default function ImportReview() {
       if (isCurrent()) setBusy(false);
     }
   }
-  async function cancel() {
-    if (!routeReady || !isCurrent() || !q.data) return;
+  async function retryExtraction() {
+    if (saving.current || !routeReady || !restored || !isCurrent() || !q.data) return;
+    saving.current = true; setBusy(true); setError("");
+    try {
+      current();
+      if (retryCommand?.saved_id) {
+        router.replace({ pathname: "/import/[id]", params: { id: retryCommand.saved_id } });
+        return;
+      }
+      if (!capabilities.data) return;
+      await captionWrites.current.catch(() => undefined); current();
+      const consent = await api.aiConsent(); current();
+      if (!consent.accepted || consent.disclosure_version !== 1) throw Error("Review AI preferences in Settings before retrying this source.");
+      let command = retryCommand;
+      if (!command) {
+        let retained: ExtractionRequest | null = null;
+        try { retained = await api.importSource(id); current(); }
+        catch (e) {
+          current();
+          if (![404, 410].includes((e as { status?: number }).status ?? 0)) throw e;
+          if (originalSource) retained = await sourceFor(originalSource, current);
+        }
+        current();
+        command = { request_id: Crypto.randomUUID(),
+          source: recoverySource(retained, q.data.result?.source.url ?? q.data.result?.workout?.source_url, caption),
+          auto_save: capabilities.data.server_auto_save === true };
+        await localDrafts.save(owner, `import-retry:${generation}:${id}`, command); current();
+        setRetryCommand(command);
+      }
+      const next = await api.startImport(command.request_id, command.source, q.data.generation,
+        { auto_save: command.auto_save, is_public: false }); current();
+      command = { ...command, saved_id: next.id };
+      await localDrafts.save(owner, `import-retry:${generation}:${id}`, command); current();
+      setRetryCommand(command);
+      await localDrafts.save(owner, `import-visibility:${generation}:${next.id}`, false); current();
+      await updateImportReferences(localDrafts, owner, q.data.generation, current, items => [
+        { id: next.id, generation: next.generation, label: command!.source.source_url ?? "Workout from source text", auto_save: command!.auto_save },
+        ...items.filter(item => item.id !== next.id) ]); current();
+      await cache.invalidateQueries({ queryKey: [owner, "imports"] }); current();
+      await localDrafts.remove(owner, `import-retry-caption:${generation}:${id}`); current();
+      router.replace({ pathname: "/import/[id]", params: { id: next.id } });
+    } catch (e) { if (isCurrent()) setError((e as Error).message); }
+    finally { saving.current = false; if (isCurrent()) setBusy(false); }
+  }
+  async function cancel(dismiss = false) {
+    const absent = [404, 410].includes((q.error as { status?: number } | null)?.status ?? 0);
+    if (saving.current || !routeReady || !isCurrent() || !generation || (!q.data && !(dismiss && absent))) return;
+    saving.current = true;
     setBusy(true);
     try {
       current();
-      await api.cancelImport(id, q.data.generation);
+      if (!absent) await api.cancelImport(id, q.data!.generation);
       current();
       await retireOriginalSource();
       current();
+      await updateImportReferences(localDrafts, owner, generation, current, items => items.filter(item => item.id !== id));
+      current();
+      await localDrafts.remove(owner, `import-retry:${generation}:${id}`);
+      current();
+      await captionWrites.current.catch(() => undefined); current();
+      await localDrafts.remove(owner, `import-retry-caption:${generation}:${id}`); current();
       cache.removeQueries({ queryKey: [owner, "import-source", id] });
+      await cache.invalidateQueries({ queryKey: [owner, "imports"] });
       await q.refetch();
+      if (dismiss) { current(); router.replace("/(tabs)/library"); }
     } catch (e) {
       if (isCurrent()) setError((e as Error).message);
     } finally {
+      saving.current = false;
       if (isCurrent()) setBusy(false);
     }
   }
@@ -245,6 +317,8 @@ export default function ImportReview() {
   });
   const result = q.data?.result;
   const workout = (routeReady ? edited : null) ?? result?.workout;
+  const hasExercises = !!workout?.blocks.some(block => block.exercises.length);
+  const usageLimitReached = result?.error_code === "workouts_ai_budget_exceeded";
   const discoverOn = capabilities.data?.discover === true;
   // The server refuses to publish an incomplete extraction accepted unchanged.
   const shareable =
@@ -276,20 +350,14 @@ export default function ImportReview() {
       subtitle={savedDraft ? "Saved privately in your library. Check the missing details before training." : savedId ? "Ready in your library. Check or edit the details whenever you need." : busy ? "Saving your workout…" : "Your source becomes a workout you can use."}>
       <QueryState
         loading={q.isPending}
-        error={q.error}
+        error={q.data && ["queued", "processing"].includes(q.data.status) ? null : q.error}
         retry={() => {
           void q.refetch();
         }}
       >
         {q.data && ["queued", "processing"].includes(q.data.status) && (
-          <Card>
-            <ActivityIndicator accessibilityLabel="Extracting your workout" />
-            <Copy kind="caption" tone="accent">{q.data.status === "queued" ? "Queued for extraction" : "Reading your workout"}</Copy>
-            <Copy kind="heading">{q.data.status === "queued" ? "Your source is queued" : "Finding exercises and instructions"}</Copy>
-            {q.data.attempt_count > 1 && <Copy kind="small" tone="muted">Retrying the source · attempt {q.data.attempt_count}</Copy>}
-            <Copy tone="muted">You can keep browsing. {capabilities.data?.server_auto_save ? "Your workout saves to your library when it is ready." : "The import continues in the background."}</Copy>
-            <Button title="Back to my library" secondary onPress={() => router.replace("/(tabs)/library")} />
-          </Card>
+          <ImportProgress job={q.data} autoSave={capabilities.data?.server_auto_save} connectionError={q.error} refreshing={q.isFetching} active={visible && active}
+            refresh={() => { void q.refetch(); }} openLibrary={() => router.replace("/(tabs)/library")} />
         )}
         {!!q.data?.accepted_workout_id && (
           <>
@@ -319,7 +387,8 @@ export default function ImportReview() {
           <>
             <WorkoutSource source={{ source_title: workout?.source_title ?? result.source.title,
               source_creator: workout?.source_creator ?? result.source.creator, source_thumbnail_url: workout?.source_thumbnail_url }} />
-            {result.warnings.map((warning, index) => (
+            {usageLimitReached && <Notice tone="warning">AI importing has reached its usage limit. Your source stays saved. Try again later, or add the exercises manually.</Notice>}
+            {!usageLimitReached && result.warnings.map((warning, index) => (
               <Notice key={index} tone="warning">{warning}</Notice>
             ))}
             {result.source.coverage_notes.map((note, index) => (
@@ -331,15 +400,15 @@ export default function ImportReview() {
                   <WorkoutEditor value={workout} onChange={update} disabled={busy} />
                 ) : (
                   <>
-                    <SectionHeader title={workout.title} />
+                    <SectionHeader title={hasExercises ? workout.title : "No exercises were extracted"} />
                     <WorkoutInstructions notes={workout.notes} />
-                    <ChipRow wrap>
+                    {hasExercises && <ChipRow wrap>
                       {workout.equipment_required?.length ? (
                         workout.equipment_required.map((item) => <Chip key={item} label={item} icon="barbell-outline" />)
                       ) : (
                         <Chip label="Equipment not specified" tone="accent" />
                       )}
-                    </ChipRow>
+                    </ChipRow>}
                     {workout.blocks.map((block) => (
                       <Card key={block.id}>
                         <Copy kind="subheading">{block.label}</Copy>
@@ -360,7 +429,7 @@ export default function ImportReview() {
                   </>
                 )}
                 {!savedId && <><Button
-                  title={routeReady && editing ? "Show workout summary" : "Correct workout details"}
+                  title={routeReady && editing ? "Show workout summary" : hasExercises ? "Correct workout details" : "Add exercises manually"}
                   secondary
                   icon={routeReady && editing ? "eye-outline" : "create-outline"}
                   disabled={busy || !restored}
@@ -368,7 +437,7 @@ export default function ImportReview() {
                     if (routeReady && isCurrent()) setEditing(!editing);
                   }}
                 />
-                {discoverOn && (
+                {discoverOn && hasExercises && (
                   <Choice
                     icon="globe-outline"
                     label="Share to Discover"
@@ -386,11 +455,11 @@ export default function ImportReview() {
                     }}
                   />
                 )}
-                {q.data?.status === "incomplete" && <Notice tone="warning">
+                {hasExercises && q.data?.status === "incomplete" && <Notice tone="warning">
                   Some details were not in the source. You can edit them or save this workout with the gaps clearly marked.
                 </Notice>}
                 {!!notice && <Notice>{notice}</Notice>}
-                <Button
+                {hasExercises && <Button
                   title={sharing ? "Save and share to Discover" : "Save workout"}
                   icon={sharing ? "globe-outline" : "lock-closed-outline"}
                   size="lg"
@@ -399,7 +468,7 @@ export default function ImportReview() {
                   onPress={() => {
                     void accept();
                   }}
-                /></>}
+                />}</>}
               </>
             )}
             <Button title={sourceDetails ? "Hide source details" : "Source details"} variant="ghost" onPress={() => setSourceDetails(!sourceDetails)} />
@@ -462,7 +531,27 @@ export default function ImportReview() {
             </>}
           </>
         )}
-        {q.data && !["cancelled", "expired"].includes(q.data.status) && !q.data.accepted_workout_id && (
+        {q.data && ["incomplete", "failed", "expired"].includes(q.data.status) && <Card compact>
+          <Copy kind="heading">Try reading the source again</Copy>
+          <Copy kind="small">Paste the creator’s caption or instructions if the video could not be read. This creates a separate private import. Your saved workouts stay unchanged.</Copy>
+          <Field label="Caption or source instructions" multiline optional value={caption} onChange={value => {
+            if (!routeReady || !restored || saving.current || retryCommand || !isCurrent()) return;
+            setCaption(value);
+            const next = captionWrites.current.catch(() => undefined).then(async () => {
+              current(); await localDrafts.save(owner, `import-retry-caption:${generation}:${id}`, value); current();
+            });
+            captionWrites.current = next;
+            void next.catch(() => { if (isCurrent()) setError("Could not keep this caption on your device. Stay here until the retry is saved."); });
+          }} disabled={!restored || busy || !!retryCommand} />
+          {!!retryCommand && <Copy kind="small">{retryCommand.saved_id ? "This retry is already saved. Open its import to continue." : "Retrying the same saved request. Its source and caption stay unchanged until the request is recovered."}</Copy>}
+          <Button title={retryCommand?.saved_id ? "Open retry import" : retryCommand ? "Reconnect retry" : caption.trim() ? "Retry with this caption" : "Retry this source"} secondary busy={busy}
+            disabled={!restored || !routeReady || (!retryCommand?.saved_id && !capabilities.data?.imports)} onPress={() => { void retryExtraction(); }} />
+        </Card>}
+        {q.data && importIsTerminal(q.data.status) && <>
+          <Copy kind="small" tone="muted">Dismiss clears this import and its temporary source. Saved workouts stay in your library.</Copy>
+          <Button title="Dismiss import" variant="ghost" busy={busy} onPress={() => { void cancel(true); }} />
+        </>}
+        {q.data && !importIsTerminal(q.data.status) && !q.data.accepted_workout_id && (
           <Button
             title="Cancel import and clear source upload"
             variant="destructive"
@@ -473,14 +562,15 @@ export default function ImportReview() {
           />
         )}
       </QueryState>
+      {[404, 410].includes((q.error as { status?: number } | null)?.status ?? 0) && <Button title="Dismiss import" variant="ghost" busy={busy}
+        onPress={() => { void cancel(true); }} />}
       {!!error && <Notice error>{error}</Notice>}
       {!restored && !!error && <Button title="Try loading again" secondary disabled={busy} onPress={() => {
         setError(""); setRestoreAttempt((value) => value + 1); void q.refetch();
       }} />}
       <Notice>
-        Uploaded photos and documents are temporary: they are cleared after acceptance, cancellation or expiry. Your
-        library keeps the prescription, evidence and source link where available. An incomplete private draft may stay
-        incomplete.
+        Uploads are cleared after saving, cancellation or expiry. Saved workouts keep the workout details and source
+        link when available.
       </Notice>
       {disclosure.sheet}
     </Screen>

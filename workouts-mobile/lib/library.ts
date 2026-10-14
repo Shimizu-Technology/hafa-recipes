@@ -18,7 +18,7 @@ export function workoutErrors(workout: AuthoredWorkout,allowIncomplete=false) {
   const errors: string[] = [];
   if (!workout.title.trim() || workout.title.length > 200) errors.push("Use a workout title from 1 to 200 characters.");
   if (workout.estimated_minutes != null && (!Number.isInteger(workout.estimated_minutes) || workout.estimated_minutes < 1 || workout.estimated_minutes > 1440))
-    errors.push("Workout duration must be whole minutes from 1 to 1440, or blank.");
+    errors.push("Estimated duration must be whole minutes from 1 to 1440, or blank.");
   if ((workout.notes ?? []).filter(note => note.trim()).length > 100)
     errors.push("Keep workout instructions to 100 lines or fewer.");
   if (!workout.blocks.length && !allowIncomplete) errors.push("Add at least one workout block.");
