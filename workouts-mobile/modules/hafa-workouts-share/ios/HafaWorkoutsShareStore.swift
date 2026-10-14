@@ -93,17 +93,17 @@ enum WorkoutsShareStore {
       return true
     }) == true else { throw NSError(domain: service, code: 5) }
   }
-  static func promoteStage(_ key: String, payload: [String: Any]) -> Bool {
-    locked { d in
+  static func promoteStage(_ key: String, payload: [String: Any]) -> Bool? {
+    locked { d -> Bool? in
       guard let stage = d.dictionary(forKey: key + ".stage"), let paths = stage["paths"] as? [String],
         let files = payload["files"] as? [[String: Any]],
-        d.object(forKey: key + ".capture") == nil else { return false }
+        d.object(forKey: key + ".capture") == nil else { return nil }
       let capturedPaths = files.compactMap { $0["path"] as? String }
       guard capturedPaths.count == files.count, capturedPaths.count == paths.count,
         Set(capturedPaths) == Set(paths), paths.allSatisfy({ path in
           guard let url = shareFile(path) else { return false }
           return FileManager.default.fileExists(atPath: url.path)
-        }) else { return false }
+        }) else { return nil }
       var capture = payload
       capture["ownerId"] = stage["ownerId"]; capture["generation"] = stage["generation"]
       capture["accountScopeId"] = stage["accountScopeId"]; capture["isPublic"] = stage["isPublic"]
@@ -113,12 +113,12 @@ enum WorkoutsShareStore {
       // Durably publish capture+queue before retiring its staging receipt.
       // A crash at either boundary is reconciled without deleting final files.
       guard d.synchronize() else {
-        d.removeObject(forKey: key + ".capture"); d.set(keys, forKey: pending); return false
+        d.removeObject(forKey: key + ".capture"); d.set(keys, forKey: pending); return nil
       }
       d.removeObject(forKey: key + ".stage")
       d.set((d.stringArray(forKey: staging) ?? []).filter { $0 != key }, forKey: staging)
-      return true
-    } ?? false
+      return capture["isPublic"] as? Bool ?? false
+    } ?? nil
   }
   static func discardOwner(_ owner: String) -> Bool {
     locked { d in

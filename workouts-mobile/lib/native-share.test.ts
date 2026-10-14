@@ -28,6 +28,18 @@ describe("Workouts native share generation", () => {
     expect(source).toContain('capture["generation"]');
     expect(source).toContain('receipt["capture_id"] as? String == capture');
   });
+  it("bounds dismissal after durable promotion without blocking the main actor on enqueue or privacy reads", () => {
+    const confirmation = native("CaptureConfirmation.swift");
+    const promotion = native("HafaWorkoutsShareStore.swift").split("static func promoteStage")[1].split("static func discardOwner")[0];
+    expect(confirmation).toContain("guard let isPublic = WorkoutsShareStore.promoteStage");
+    expect(promotion).toContain('return capture["isPublic"] as? Bool ?? false');
+    expect(confirmation).not.toContain("WorkoutsShareStore.locked");
+    expect(confirmation.indexOf("WorkoutsShareStore.promoteStage")).toBeLessThan(confirmation.indexOf("DispatchQueue.main.asyncAfter"));
+    expect(confirmation).toContain("DispatchQueue.main.asyncAfter(deadline: .now() + 8)");
+    expect(confirmation.indexOf("DispatchQueue.global(qos: .utility).async")).toBeLessThan(confirmation.indexOf("WorkoutsShareStore.enqueue(key)"));
+    expect(confirmation).toContain("guard !captureConfirmationFinished else { return }");
+    expect(confirmation).toContain("finished: true, isPublic: isPublic");
+  });
   it("fails closed if the pinned upstream redirect template changes", () => {
     expect(() => transform("new upstream implementation")).toThrow(/verified/);
   });

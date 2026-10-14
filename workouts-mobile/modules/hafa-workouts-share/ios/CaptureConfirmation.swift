@@ -12,22 +12,38 @@
     else { throw captureError("No source could be saved. Please share it again.") }
     var capture: [String: Any] = ["captureKey": sharedKey, "captureId": identifier, "text": text, "files": files]
     capture["url"] = link
-    let saved = WorkoutsShareStore.promoteStage(sharedKey, payload: capture)
-    guard saved else { throw captureError("Could not save this workout. Please share it again.") }
-    showConfirmation(title: "Saving your workout", detail: "Adding the source to Håfa Workouts.", finished: false)
-    WorkoutsShareStore.enqueue(sharedKey) { accepted in
-      DispatchQueue.main.async {
-        self.showConfirmation(title: accepted ? "Import started" : "Saved for later",
-          detail: accepted ? "Your workout will be saved in your library. You can keep browsing."
-            : "Your source is saved on this device. Open Håfa Workouts to finish importing it.", finished: true)
+    guard let isPublic = WorkoutsShareStore.promoteStage(sharedKey, payload: capture)
+    else { throw captureError("Could not save this workout. Please share it again.") }
+    let key = sharedKey
+    showConfirmation(title: "Saving your workout", detail: "Adding the source to Håfa Workouts.",
+      finished: false, isPublic: isPublic)
+    // The capture is durable now. Never make dismissal depend on a shared
+    // file lock or a network callback; the host can process it without a job ID.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+      self?.completeConfirmation(accepted: false, isPublic: isPublic)
+    }
+    DispatchQueue.global(qos: .utility).async { [weak self] in
+      WorkoutsShareStore.enqueue(key) { accepted in
+        DispatchQueue.main.async { [weak self] in
+          self?.completeConfirmation(accepted: accepted, isPublic: isPublic)
+        }
       }
     }
+  }
+  private var captureConfirmationFinished = false
+  private func completeConfirmation(accepted: Bool, isPublic: Bool) {
+    guard !captureConfirmationFinished else { return }
+    captureConfirmationFinished = true
+    showConfirmation(title: accepted ? "Import started" : "Saved for later",
+      detail: accepted ? "Your workout will be saved in your library. You can keep browsing."
+        : "Your source is saved on this device. Open Håfa Workouts to finish importing it.",
+      finished: true, isPublic: isPublic)
   }
   private var captureTitle: UILabel?
   private var captureDetail: UILabel?
   private var captureSpinner: UIActivityIndicatorView?
   private var captureDone: UIButton?
-  private func showConfirmation(title: String, detail: String, finished: Bool) {
+  private func showConfirmation(title: String, detail: String, finished: Bool, isPublic: Bool) {
     if captureTitle == nil {
       view.backgroundColor = UIColor(red: 0.06, green: 0.08, blue: 0.07, alpha: 1)
       view.isOpaque = true; preferredContentSize = CGSize(width: 420, height: 400)
@@ -47,7 +63,6 @@
       message.font = .preferredFont(forTextStyle: .body); message.adjustsFontForContentSizeCategory = true
       let privacy = UILabel(); privacy.textColor = message.textColor; privacy.numberOfLines = 0
       privacy.font = .preferredFont(forTextStyle: .footnote); privacy.adjustsFontForContentSizeCategory = true
-      let isPublic = WorkoutsShareStore.locked { $0.dictionary(forKey: sharedKey + ".capture")?["isPublic"] as? Bool ?? false } ?? false
       privacy.text = isPublic ? "Requested visibility: Discover" : "Requested visibility: Private"
       let spinner = UIActivityIndicatorView(style: .medium); spinner.color = .white; spinner.hidesWhenStopped = true
       let done = UIButton(type: .system); var style = UIButton.Configuration.filled(); style.title = "Done"
@@ -66,4 +81,4 @@
     if finished { captureSpinner?.stopAnimating(); UIAccessibility.post(notification: .announcement, argument: title) }
     else { captureSpinner?.startAnimating() }
   }
-  @objc private func finishConfirmation() { extensionContext?.completeRequest(returningItems: [], completionHandler: nil) }
+  @objc private func finishConfirmation() { captureConfirmationFinished = true; extensionContext?.completeRequest(returningItems: [], completionHandler: nil) }
