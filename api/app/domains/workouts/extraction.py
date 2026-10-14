@@ -768,11 +768,19 @@ class ProductionSourceAcquirer:
     async def _website(self, url: str) -> SourceBundle:
         current, soup = await self._page(url)
         title = soup.find("h1") or soup.find("title")
+        preview = soup.find("meta", property="og:image") or soup.find("meta", attrs={"name": "twitter:image"})
+        thumbnail = None
+        if preview and isinstance(preview.get("content"), str):
+            try:
+                thumbnail = _safe_url(urljoin(current, preview["content"][:2000]))
+            except ExtractionFailure:
+                pass  # An invalid optional preview must not discard page instructions.
         source = SourceMetadata(
             url=canonicalize_source(current).url,
             canonical_key=canonicalize_source(current).key,
             platform="web",
             title=title.get_text(" ", strip=True)[:200] if title else None,
+            thumbnail_url=thumbnail,
             channels=["page_text"],
         )
         for tag in soup.find_all(

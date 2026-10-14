@@ -22,7 +22,7 @@ from app.domains.workouts.import_usage_service import (
     enforce_import_allowance,
     purge_import_usage,
 )
-from app.domains.workouts.lifecycle import membership_for, now
+from app.domains.workouts.lifecycle import lock_owner, membership_for, now
 from app.domains.workouts.models import WorkoutsConsent
 from app.domains.workouts.router import content_digest
 
@@ -92,6 +92,12 @@ def saved_warning_projection(warnings):
 
 async def save_import_result(db, row, result, preferences):
     """Save once under the worker's owner/generation lock, without a live client."""
+    if result.workout is not None:
+        if result.status == "incomplete" and not result.warnings:
+            result.warnings.append(
+                "Some exercises are missing rounds, sets, reps, time, or distance. Missing values stay unspecified."
+            )
+        result.workout.extraction_warnings = saved_warning_projection(result.warnings)
     if preferences is None or row.accepted_workout_id or result.workout is None:
         return
     from app.auth import ClerkUser
@@ -99,14 +105,10 @@ async def save_import_result(db, row, result, preferences):
     from app.domains.workouts.discover import discover_ready, set_publication
     from app.domains.workouts.library_organization_service import refresh_optional_source_metadata
     from app.domains.workouts.router import validated_workout
+    from app.domains.workouts.source_media import retain_source_cover
 
     if result.status not in {"ready", "incomplete"}:
         return
-    if result.status == "incomplete" and not result.warnings:
-        result.warnings.append(
-            "Some exercises are missing rounds, sets, reps, time, or distance. Missing values stay unspecified."
-        )
-    result.workout.extraction_warnings = saved_warning_projection(result.warnings)
     try:
         content = validated_workout(result.workout, authored=False)
     except HTTPException as error:
@@ -117,6 +119,14 @@ async def save_import_result(db, row, result, preferences):
         result.warnings.append("The extracted workout needs correction before saving. Your source remains available.")
         result.workout.extraction_warnings = saved_warning_projection(result.warnings)
         return
+    try:
+        await retain_source_cover(db, row.app_user_id, row.generation, result.workout.source_thumbnail_url)
+    except HTTPException as error:
+        if error.status_code != 422:
+            raise
+        result.workout.source_thumbnail_url = None
+        content.pop("source_thumbnail_url", None)
+        result.source.coverage_notes.append("Preview image unavailable; the saved instructions remain intact.")
     saved = store_workout(db, row.app_user_id, row.generation, content)
     await refresh_optional_source_metadata(db, saved)
     # Insufficient or uncertain sources remain private, regardless of the
@@ -146,6 +156,9 @@ async def cancel_imports(db, user_id):
         )
     ).all()
     for row in rows:
+        from app.domains.workouts.source_media import release_source_cover
+
+        await release_source_cover(db, user_id, row.generation, row.id)
         row.status = "cancelled"
         row.payload = None
         row.result = None
@@ -297,6 +310,7 @@ class WorkoutImportWorker:
                 if row is None or row.lease_token != token or row.status != "processing":
                     return
                 await require_ai_consent(db, owner, generation, expected=row.ai_accepted_at)
+                consent_epoch = row.ai_accepted_at
                 source = dict(row.payload)
                 preferences = source.pop("_save", None)
                 request = ExtractionRequest.model_validate(source)
@@ -316,6 +330,13 @@ class WorkoutImportWorker:
                     error_code="source_or_provider_timeout",
                     warnings=["Import timed out. Try again or complete the workout manually."],
                 )
+        if request.kind == "url" and result.workout and result.source.thumbnail_url:
+            from app.domains.workouts.source_media import prepare_source_cover
+
+            result.workout.source_thumbnail_url = await prepare_source_cover(
+                self.sessions, owner, generation, identifier, result.source.thumbnail_url,
+                expected_ai_accepted_at=consent_epoch,
+            )
         async with self.sessions() as db:
             try:
                 await membership_for(db, owner, generation=generation, write=True)
@@ -348,6 +369,10 @@ class WorkoutImportWorker:
 
     async def finish_cancelled(self, identifier, owner, generation, token):
         async with self.sessions() as db:
+            try:
+                await lock_owner(db, owner)
+            except HTTPException:
+                return
             row = await db.scalar(
                 select(WorkoutImport)
                 .where(
@@ -359,6 +384,9 @@ class WorkoutImportWorker:
                 .with_for_update()
             )
             if row:
+                from app.domains.workouts.source_media import release_source_cover
+
+                await release_source_cover(db, owner, generation, identifier)
                 row.status = "cancelled"
                 row.payload = None
                 row.result = None
@@ -402,6 +430,13 @@ class WorkoutImportWorker:
                 ).all()
                 for generation in generations:
                     await invalidate_export_snapshots(db, owner, generation)
+                from app.domains.workouts.source_media import release_source_cover
+
+                expired = await db.scalars(select(WorkoutImport).where(
+                    WorkoutImport.app_user_id == owner, WorkoutImport.expires_at < current,
+                ))
+                for job in expired:
+                    await release_source_cover(db, owner, job.generation, job.id)
                 await db.execute(
                     delete(WorkoutImport).where(
                         WorkoutImport.app_user_id == owner, WorkoutImport.expires_at < current

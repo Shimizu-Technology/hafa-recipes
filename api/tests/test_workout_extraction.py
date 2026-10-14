@@ -593,13 +593,14 @@ async def test_streamed_website_extracts_workout_text_not_recipe_schema(monkeypa
         lambda request: httpx.Response(
             200,
             headers={"content-type": "text/html"},
-            text="<html><title>Workout</title><nav>noise</nav><main><h1>Squat</h1><p>3 sets of 8–12 reps</p></main></html>",
+            text='<html><title>Workout</title><meta property="og:image" content="/cover.jpg"><nav>noise</nav><main><h1>Squat</h1><p>3 sets of 8–12 reps</p></main></html>',
         )
     )
     monkeypatch.setattr(module, "PublicHTTPTransport", lambda: transport)
     result = await ProductionSourceAcquirer()._website("https://example.com/workout")
     assert "3 sets" in result.parts[0].text and "noise" not in result.parts[0].text
     assert result.metadata.platform == "web"
+    assert result.metadata.thumbnail_url == "https://example.com/cover.jpg"
 
 
 @pytest.mark.asyncio

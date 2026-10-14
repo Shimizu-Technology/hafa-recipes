@@ -179,6 +179,9 @@ async def cancel_import(import_id: UUID, user: User, db: Database, generation: G
     from app.domains.workouts.export_service import invalidate_export_snapshots
 
     await invalidate_export_snapshots(db, user.id, generation)
+    from app.domains.workouts.source_media import release_source_cover
+
+    await release_source_cover(db, user.id, generation, row.id)
     row.status = "cancelled"
     row.payload = None
     row.result = None
@@ -268,8 +271,17 @@ async def accept_import(
             422, "Review missing values and source warnings before saving this draft"
         )
     workout = request.workout or WorkoutContent.model_validate(row.result["workout"])
+    # Older installed clients do not send these server-owned source fields.
+    # Preserve them when absent so accepting or editing cannot erase source context.
+    source_fields = {
+        field: row.result["workout"].get(field)
+        for field in ("source_thumbnail_url", "source_title", "source_creator", "extraction_warnings")
+        if field not in workout.model_fields_set and field in row.result["workout"]
+        and (field == "extraction_warnings" or workout.source_url == row.result["workout"].get("source_url"))
+    }
     workout = workout.model_copy(
         update={
+            **source_fields,
             "id": None,
             "version": 1,
             "parent_version_id": None,
@@ -281,6 +293,9 @@ async def accept_import(
     ):
         raise HTTPException(422, "An import cannot claim generated coaching provenance")
     content = validated_workout(workout, authored=False)
+    from app.domains.workouts.source_media import retain_source_cover
+
+    await retain_source_cover(db, user.id, generation, workout.source_thumbnail_url)
     try:
         original_content = validated_workout(
             WorkoutContent.model_validate(row.result["workout"]), authored=False

@@ -1,5 +1,6 @@
 """Publish only a reviewed frozen projection; bearer links never grant identity."""
 
+import asyncio
 import base64
 import copy
 import hashlib
@@ -9,7 +10,7 @@ import re
 import secrets
 from datetime import timedelta
 from urllib.parse import parse_qsl, urlsplit
-from uuid import uuid4
+from uuid import uuid4, uuid5
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import HTTPException
@@ -157,6 +158,11 @@ def project_workout(raw, *, include_source_url=False):
         source_url=safe_source_url(source.source_url) if include_source_url else None,
         blocks=[],
     )
+    if include_source_url:
+        from app.domains.workouts.source_media import asset_id
+
+        if asset_id(source.source_thumbnail_url):
+            projected["source_thumbnail_url"] = source.source_thumbnail_url
     incomplete = not source.blocks
     for index, source_block in enumerate(source_data["blocks"]):
         block = {
@@ -388,13 +394,43 @@ async def copy_share(db, user_id, generation, token, request):
         if row is None:
             raise HTTPException(410, "This saved copy was removed; start a new deliberate copy")
         return row, receipt, True
-    # Lock the share after the recipient AppUser. Do not lock the creator AppUser:
-    # reciprocal copies must not deadlock. Creator deletion/revocation waits on
-    # this share-row lock, so a copy either precedes it or observes it afterwards.
     share = await public_share(db, token, lock=True)
     if share.snapshot_digest != request.snapshot_digest:
         raise HTTPException(409, "Shared preview changed; review again")
     content = copy.deepcopy(share.snapshot["content"])
+    kind = share.kind
+    from app.domains.workouts.source_media import copy_cover_before_lock, retain_source_cover
+
+    workouts = [content] if kind == "workout" else [item["workout"] for item in content["sessions"]]
+    candidates = [workout.pop("source_thumbnail_url", None) for workout in workouts]
+    if any(candidates):
+        try:
+            async with asyncio.timeout(20):
+                for index, (workout, candidate) in enumerate(zip(workouts, candidates)):
+                    if candidate:
+                        cover_id = uuid5(request.copy_request_id, str(index))
+                        cover = await copy_cover_before_lock(
+                            db, user_id, generation, cover_id, candidate
+                        )
+                        if cover:
+                            workout["source_thumbnail_url"] = cover
+        except asyncio.TimeoutError:
+            pass  # Unprocessed covers were removed; successfully prepared copies remain owned.
+        await membership_for(db, user_id, generation=generation, write=True)
+        if await db.scalar(
+            select(WorkoutCopyReceipt.id).where(
+                WorkoutCopyReceipt.app_user_id == user_id,
+                WorkoutCopyReceipt.generation == generation,
+                WorkoutCopyReceipt.copy_request_id == request.copy_request_id,
+            )
+        ):
+            return await copy_share(db, user_id, generation, token, request)
+        # Creator deletion/revocation waits on this final share-row lock.
+        share = await public_share(db, token, lock=True)
+        if share.snapshot_digest != request.snapshot_digest:
+            raise HTTPException(409, "Shared preview changed; review again")
+        for workout in workouts:
+            await retain_source_cover(db, user_id, generation, workout.get("source_thumbnail_url"))
     identifier = uuid4()
     if share.kind == "workout":
         if request.start_date is not None:

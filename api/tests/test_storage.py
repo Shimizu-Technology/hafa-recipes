@@ -845,3 +845,21 @@ def test_workout_preview_client_has_short_single_attempt_without_changing_recipe
     assert recipe_profile.retries == {"max_attempts": 2}
     assert (preview_profile.connect_timeout, preview_profile.read_timeout) == (2, 3)
     assert preview_profile.retries == {"total_max_attempts": 1}
+
+
+def test_workout_public_projection_only_exposes_canonical_link_preview(monkeypatch):
+    from app.domains.workouts.router import validated_workout
+    from app.domains.workouts.schemas import WorkoutContent
+    from app.domains.workouts.sharing_service import project_workout
+
+    monkeypatch.setattr(storage, "get_settings", lambda: SimpleNamespace(
+        s3_bucket_name="recipe-images", aws_region="us-west-2", recipe_media_base_url=None))
+    base = "https://recipe-images.s3.us-west-2.amazonaws.com/thumbnails/"
+    identifier = "00000000-0000-4000-8000-000000000047"
+    cover = f"{base}workouts-{identifier}/{'a' * 64}/hero.webp"
+    content = {"title": "Public workout", "source_thumbnail_url": cover}
+    assert project_workout(content, include_source_url=True)[0]["source_thumbnail_url"] == cover
+    assert "source_thumbnail_url" not in project_workout(content)[0]
+    content["source_thumbnail_url"] = f"{base}{identifier}/{'a' * 64}/hero.webp"
+    assert "source_thumbnail_url" not in project_workout(content, include_source_url=True)[0]
+    assert "source_thumbnail_url" not in validated_workout(WorkoutContent(title="Legacy workout"))

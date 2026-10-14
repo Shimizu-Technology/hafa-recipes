@@ -787,3 +787,134 @@ async def test_due_cover_cleanup_waits_for_held_upload(discover_api, monkeypatch
     assert store._client.puts == []
     async with discover_api.sessions() as db:
         assert (await db.get(DeletionCleanupJob, guard_id)).status == "completed"
+
+
+async def test_legacy_title_edit_preserves_extraction_uncertainty(discover_api):
+    warning = "Review the source instructions"
+    metadata = {"source_title": "Original source title", "source_creator": "Source creator"}
+    row = await save(discover_api, {**REEL, **metadata, "extraction_warnings": [warning]})
+    legacy = {key: value for key, value in REEL.items() if key != "source_creator"}
+    response = await discover_api.client.put(
+        f"/api/v1/workouts/library/{row['id']}?expected_revision=1",
+        json={**legacy, "title": "My revised title"}, headers=GENERATION,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["content"]["extraction_warnings"] == [warning]
+    saved = await discover_api.client.get(f"/api/v1/workouts/library/{row['id']}")
+    assert saved.json()["content"]["extraction_warnings"] == [warning]
+    assert all(saved.json()["content"][key] == value for key, value in metadata.items())
+    explicit_clear = await discover_api.client.put(
+        f"/api/v1/workouts/library/{row['id']}?expected_revision=2",
+        json={**REEL, "source_title": None, "source_creator": None}, headers=GENERATION,
+    )
+    assert explicit_clear.status_code == 200, explicit_clear.text
+    assert explicit_clear.json()["content"]["source_title"] is None
+    assert explicit_clear.json()["content"]["source_creator"] is None
+
+
+async def test_discover_copy_has_independent_cover_after_source_account_deletion(
+    discover_api, monkeypatch
+):
+    from app.domains.workouts import source_media
+    from app.domains.workouts.source_media_models import WorkoutSourceMedia
+    from app.models.deletion import DeletionCleanupJob
+
+    url, _, _, _ = await prepare_test_source_cover(discover_api, monkeypatch)
+    source = await published_reel(discover_api, {**REEL, "source_thumbnail_url": url})
+    cards = (await feed(discover_api))["items"]
+    assert cards[0]["thumbnail_url"].endswith("/list.webp")
+    copied = await discover_api.client.post(
+        f"/api/v1/workouts/discover/{source['id']}/save", headers=GENERATION | OTHER
+    )
+    assert copied.status_code == 201, copied.text
+    copied_url = copied.json()["content"]["source_thumbnail_url"]
+    assert copied_url != url and source_media.asset_id(copied_url)
+    async with discover_api.sessions() as db:
+        await delete_account(db, user())
+    async with discover_api.sessions() as db:
+        assert await db.get(WorkoutSourceMedia, source_media.asset_id(url)) is None
+        assert (await db.get(WorkoutSourceMedia, source_media.asset_id(copied_url))).retained
+        account = await db.scalar(
+            select(DeletionCleanupJob).where(DeletionCleanupJob.kind == "account")
+        )
+        assert source_media.asset_prefix(source_media.asset_id(url)) in account.storage_prefixes
+        assert (
+            source_media.asset_prefix(source_media.asset_id(copied_url))
+            not in account.storage_prefixes
+        )
+    detail = await discover_api.client.get(
+        f"/api/v1/workouts/library/{copied.json()['id']}", headers=OTHER
+    )
+    assert (
+        detail.status_code == 200 and detail.json()["content"]["source_thumbnail_url"] == copied_url
+    )
+
+
+async def test_program_cannot_attach_another_owners_cover(discover_api, monkeypatch):
+    from app.domains.workouts.programming import RULE_VERSION
+
+    url, _, _, _ = await prepare_test_source_cover(discover_api, monkeypatch)
+    await save(discover_api, {**REEL, "source_thumbnail_url": url})
+    response = await discover_api.client.post(
+        "/api/v1/workouts/programs",
+        headers=GENERATION | OTHER,
+        json={
+            "title": "Other owner's plan",
+            "proposal": {
+                "status": "ready",
+                "rule_version": RULE_VERSION,
+                "progression_policy": "No inferred progression",
+                "sessions": [
+                    {
+                        "id": "one",
+                        "date": "2026-10-15",
+                        "purpose": "Test workout",
+                        "workout": {**REEL, "source_thumbnail_url": url},
+                    }
+                ],
+            },
+        },
+    )
+    assert response.status_code == 422 and "Source cover" in response.text
+
+
+async def test_expired_cover_fallback_does_not_commit_retained_asset(discover_api, monkeypatch):
+    from app.domains.workouts import source_media
+    from app.domains.workouts.automation_models import WorkoutImport
+    from app.domains.workouts.extraction import WorkoutExtractionResult
+    from app.domains.workouts.imports import save_import_result
+    from app.domains.workouts.models import WorkoutRecord
+    from app.domains.workouts.schemas import WorkoutContent
+    from app.domains.workouts.source_media_models import WorkoutSourceMedia
+    from app.models.deletion import DeletionCleanupJob
+
+    url, import_id, _, _ = await prepare_test_source_cover(discover_api, monkeypatch)
+    identifier = source_media.asset_id(url)
+    async with discover_api.sessions.begin() as db:
+        await source_media.membership_for(db, "owner", generation=1, write=True)
+        media = await db.get(WorkoutSourceMedia, identifier)
+        guard = await db.get(DeletionCleanupJob, media.cleanup_job_id)
+        # A completed expiry cleanup can finish before the worker retains the preview.
+        guard.status = "completed"
+        guard.next_attempt_at = source_media.now() - source_media.timedelta(seconds=1)
+        guard.storage_prefixes, guard.storage_prefix_count = [], 0
+        job = await db.get(WorkoutImport, import_id)
+        result = WorkoutExtractionResult(
+            status="ready", workout=WorkoutContent.model_validate({**REEL, "source_thumbnail_url": url}),
+        )
+        await save_import_result(db, job, result, {"is_public": False})
+        saved_id = job.accepted_workout_id
+        assert saved_id and result.workout.source_thumbnail_url is None
+        # Context exit commits the same session that caught the retention failure.
+    async with discover_api.sessions() as db:
+        assert not (await db.get(WorkoutSourceMedia, identifier)).retained
+        saved = await db.get(WorkoutRecord, saved_id)
+        assert not saved.content.get("source_thumbnail_url")
+    # Knowing the old canonical URL must not authorize a later dangling attachment.
+    attach = await discover_api.client.post(
+        "/api/v1/workouts/library", headers=GENERATION,
+        json={**REEL, "source_thumbnail_url": url},
+    )
+    assert attach.status_code == 422 and "Source cover expired" in attach.text
+    async with discover_api.sessions() as db:
+        assert not (await db.get(WorkoutSourceMedia, identifier)).retained
