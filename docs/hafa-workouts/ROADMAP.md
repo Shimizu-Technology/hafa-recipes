@@ -1,6 +1,6 @@
 # Håfa Workouts roadmap
 
-**Owner:** Leon · **Written:** 2026-10-13 · **Updated:** 2026-10-14 · **Merged source reviewed:** `origin/main` at `c73a232`
+**Owner:** Leon · **Written:** 2026-10-13 · **Updated:** 2026-10-14 · **Merged source reviewed:** `origin/main` at `19bd5b6`
 
 This is the working plan for finishing Håfa Workouts and the shared Håfa API.
 It replaces the earlier milestone documents as the place to look for "what's
@@ -17,9 +17,11 @@ Merged changes:
 - [#188](https://github.com/Shimizu-Technology/hafa-recipes/pull/188) and [#193](https://github.com/Shimizu-Technology/hafa-recipes/pull/193): foreground inbox/library recovery, source credit and prescriptions, source-only training guards, and Capture privacy/disclosure choices that survive retries and completed-source retirement.
 - [#185](https://github.com/Shimizu-Technology/hafa-recipes/pull/185): partial/skipped corrections and synced history stay consistent; saved workouts can enter planning directly, with inspection and missed-date recovery.
 
-Agent-executed checks on the integrated `5b1c013` source used owned iOS 18/26 simulators with Safari and stock Photos. Fresh Capture, four-image private intake, saved-source retirement, source-only guards, consent refresh and cold recovery from a seeded partial operation passed. These results do not establish the **25-import real-phone gate or 80% usability target**; that run has not happened.
+- [#192](https://github.com/Shimizu-Technology/hafa-recipes/pull/192) and [#194](https://github.com/Shimizu-Technology/hafa-recipes/pull/194): image conversion records exact temporary paths before writing; native receipt recovery preserves the original account/privacy choice; discarded renders cannot retire committed sources; rejected shares can be discarded explicitly so the queue can continue.
 
-[#190](https://github.com/Shimizu-Technology/hafa-recipes/pull/190), [#192](https://github.com/Shimizu-Technology/hafa-recipes/pull/192) and [#194](https://github.com/Shimizu-Technology/hafa-recipes/pull/194) remain unmerged. Source-app extension activation, native URL/PDF receipt checks and interruption recovery still need their final gates. **The next TestFlight build and tester availability are pending.**
+Agent-executed checks on integrated `cee326e` used owned iOS 18/26 simulators with Safari and stock Photos. The supplied reel saved privately with its cover, creator, six exercises and timing; Done returned to the reel. Four-image intake, saved-source retirement, source-only guards, consent refresh and cold recovery from a seeded partial operation passed. A 37 KB PDF from Safari print preview copied into the app privately and retired its temporary files; PDF AI extraction hit the existing budget cap and saved a clearly labeled incomplete draft. An oversized PDF was rejected and explicitly discarded. These results do not establish the **25-import real-phone gate or 80% usability target**; that run has not happened.
+
+[#190](https://github.com/Shimizu-Technology/hafa-recipes/pull/190) finishes the source-app confirmation and ordered provider loading. Its URL and PDF intake checks passed in the integrated build; final PR checks and merge are pending. Direct Safari PDF sharing was observed offering a URL rather than document bytes; the verified document path used print preview. **The next TestFlight build and tester availability are pending.**
 
 ## The goal
 
@@ -59,7 +61,7 @@ Baseline checked on `d43ef6d`; the capture-parity summary above records subseque
 
 ## Next acceptance for capture parity
 
-1. Finish the native URL/PDF and interruption-recovery gates for #190/#192/#194, then verify the final combined source before release.
+1. Merge #190 after its final checks, verify the combined release source, and repeat PDF extraction when the AI budget is available.
 2. Run the real-phone import gate in Phase 2 and assess usable workouts and lost-source/session recovery.
 3. Build and deliver the next TestFlight release to the named testers, then continue the two-week use in Phase 4.
 
