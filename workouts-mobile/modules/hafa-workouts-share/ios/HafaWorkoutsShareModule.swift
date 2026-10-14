@@ -14,9 +14,11 @@ public final class HafaWorkoutsShareModule: Module {
       try CaptureImageNormalizer.write(source, to: destination, cacheDirectory: cache)
     }.runOnQueue(Self.imageQueue)
     AsyncFunction("installationId") { () throws -> String in
-      guard let id = WorkoutsShareStore.locked({ d -> String in
-        if let id = d.string(forKey: "workouts.share.installation") { return id }
-        let id = UUID().uuidString; d.set(id, forKey: "workouts.share.installation"); return id
+      guard let id = try WorkoutsShareStore.locked({ d -> String in
+        let id = d.string(forKey: WorkoutsShareStore.installationKey) ?? UUID().uuidString
+        d.set(id, forKey: WorkoutsShareStore.installationKey)
+        guard d.synchronize() else { throw NSError(domain: WorkoutsShareStore.service, code: 8) }
+        return id
       }) else { throw NSError(domain: WorkoutsShareStore.service, code: 2) }
       return id
     }
@@ -28,17 +30,25 @@ public final class HafaWorkoutsShareModule: Module {
       guard try WorkoutsShareStore.locked({ d -> Bool in
         guard WorkoutsShareStore.reconcileStages(d) else { throw NSError(domain: WorkoutsShareStore.service, code: 4) }
         d.removeObject(forKey: WorkoutsShareStore.sessionKey)
+        // Invalidate the old scope durably before replacing its Keychain token.
+        guard d.synchronize() else { throw NSError(domain: WorkoutsShareStore.service, code: 8) }
         try WorkoutsShareStore.setToken(token)
         d.set(["apiBaseURL": base, "accountScopeId": scope, "expiresAt": expiry.timeIntervalSince1970,
           "ownerId": owner, "generation": generation, "isPublic": isPublic], forKey: WorkoutsShareStore.sessionKey)
+        guard d.synchronize() else {
+          try WorkoutsShareStore.setToken(nil)
+          throw NSError(domain: WorkoutsShareStore.service, code: 8)
+        }
         return true
       }) != nil else { throw NSError(domain: WorkoutsShareStore.service, code: 2) }
     }
     AsyncFunction("captures") { () throws -> String in
-      let entries = try WorkoutsShareStore.locked { d in
+      guard let entries = try WorkoutsShareStore.withLock({ defaults, container in
+        let d = try WorkoutsShareDefaults(defaults: defaults, container: container)
         guard WorkoutsShareStore.reconcileStages(d) else { throw NSError(domain: WorkoutsShareStore.service, code: 4) }
+        guard d.synchronize() else { throw NSError(domain: WorkoutsShareStore.service, code: 8) }
         return (d.stringArray(forKey: WorkoutsShareStore.pending) ?? []).compactMap { d.dictionary(forKey: $0 + ".capture") }
-      } ?? []
+      }) else { throw NSError(domain: WorkoutsShareStore.service, code: 2) }
       return String(data: try JSONSerialization.data(withJSONObject: entries), encoding: .utf8)!
     }
     AsyncFunction("sessionOwner") { () -> String? in
@@ -53,12 +63,22 @@ public final class HafaWorkoutsShareModule: Module {
       guard WorkoutsShareStore.discardOwner(owner) else { throw NSError(domain: WorkoutsShareStore.service, code: 4) }
     }
     AsyncFunction("clearSession") { () async throws in
-      let old = try WorkoutsShareStore.locked { d -> ([String: Any]?, String?) in
-        let state = d.dictionary(forKey: WorkoutsShareStore.sessionKey); let token = WorkoutsShareStore.token()
-        d.removeObject(forKey: WorkoutsShareStore.sessionKey); try WorkoutsShareStore.setToken(nil)
+      let old = try WorkoutsShareStore.withLock { defaults, container -> ([String: Any]?, String?) in
+        let token = WorkoutsShareStore.token()
+        // Revoke before reading the journal: corruption or protection failures
+        // must not leave an import capability usable after account sign-out.
+        try WorkoutsShareStore.setToken(nil)
+        let d = try WorkoutsShareDefaults(defaults: defaults, container: container)
+        let state = d.dictionary(forKey: WorkoutsShareStore.sessionKey)
+        d.removeObject(forKey: WorkoutsShareStore.sessionKey)
+        guard d.synchronize() else { throw NSError(domain: WorkoutsShareStore.service, code: 8) }
         return (state, token)
       }
-      guard let state = old?.0, let token = old?.1, let base = state["apiBaseURL"] as? String,
+      guard let old else {
+        try WorkoutsShareStore.setToken(nil)
+        throw NSError(domain: WorkoutsShareStore.service, code: 2)
+      }
+      guard let state = old.0, let token = old.1, let base = state["apiBaseURL"] as? String,
         let url = WorkoutsShareStore.baseURL(base) else { return }
       var request = URLRequest(url: url.appendingPathComponent("api/v1/workouts/share/session"))
       request.httpMethod = "DELETE"; request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
