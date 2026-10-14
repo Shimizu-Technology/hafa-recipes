@@ -4,7 +4,7 @@ from datetime import date
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 Goal = Literal[
     "general_fitness", "strength", "body_composition", "running", "athletic_conditioning"
@@ -52,11 +52,17 @@ class ExercisePrescription(DomainModel):
         return self
 
 
+class WorkoutExecution(DomainModel):
+    mode: Literal["amrap"]
+    time_cap_seconds: StrictInt = Field(ge=1, le=86400)
+
+
 class WorkoutBlock(DomainModel):
     id: str = Field(min_length=1, max_length=100)
     label: str = Field(min_length=1, max_length=200)
     grouping: Literal["sequential", "circuit", "superset", "interval"] = "sequential"
     rounds: int | None = Field(default=None, ge=1, le=100)
+    execution: WorkoutExecution | None = Field(default=None, exclude_if=lambda value: value is None)
     rest_between_rounds_seconds: int | None = Field(default=None, ge=0, le=7200)
     exercises: list[ExercisePrescription] = Field(default_factory=list, max_length=100)
     evidence: list[Evidence] = Field(default_factory=list, max_length=100)

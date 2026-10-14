@@ -11,6 +11,7 @@ import math
 from datetime import date, timedelta
 
 from app.domains.workouts.catalog import EXERCISES, compatible, find_alternative
+from app.domains.workouts.execution import is_amrap, supports_amrap, timed_duration_minutes
 from app.domains.workouts.schemas import (
     AdaptationProposal,
     CompletedExposure,
@@ -531,6 +532,8 @@ def adapt_workout(
     adapted.version += 1
     adapted.provenance = "suggestion"
     changes, warnings = [], []
+    if any(block.execution for block in content.blocks) and not supports_amrap(content):
+        questions.append("Review timed blocks as separate single-circuit workouts before adapting this source.")
     for block in adapted.blocks:
         for item in block.exercises:
             exercise = EXERCISES.get(item.exercise_id)
@@ -562,7 +565,7 @@ def adapt_workout(
                 item.evidence = [
                     evidence for evidence in item.evidence if not evidence.field.startswith("load")
                 ]
-            if item.sets is None and block.rounds is None:
+            if item.sets is None and block.rounds is None and not is_amrap(block):
                 questions.append(
                     f"How many sets/rounds should {item.name} use? The source did not supply them."
                 )
@@ -583,7 +586,11 @@ def adapt_workout(
             warnings=warnings,
             changes=changes,
         )
-    if cap is not None and (content.estimated_minutes is None or content.estimated_minutes > cap):
+    source_minutes = content.estimated_minutes or timed_duration_minutes(content)
+    timed_minutes = timed_duration_minutes(content)
+    if timed_minutes is not None:
+        source_minutes = max(source_minutes or 0, timed_minutes)
+    if cap is not None and (source_minutes is None or source_minutes > cap):
         return AdaptationProposal(
             status="needs_information",
             rule_version=RULE_VERSION,

@@ -28,6 +28,7 @@ from app.domains.workouts.extraction import (
     provider_messages,
     workout_response_format,
 )
+from app.domains.workouts.schemas import WorkoutContent
 
 
 class FakeProvider:
@@ -126,6 +127,20 @@ def reel_workout(*, reps=5, per_side=True, short_quote=False):
                         "evidence": [evidence("workout_notes", REEL_INSTRUCTIONS, "caption"),
                                      evidence("estimated_minutes", REEL_INSTRUCTIONS, "caption")],
                         "exercises": exercises}]}
+
+
+TIMED_INSTRUCTION = "Repeat as many rounds as possible for 20 minutes (AMRAP)."
+
+
+def timed_workout(location="provided_text", instruction=TIMED_INSTRUCTION):
+    raw = complete_workout(location)
+    block = raw["blocks"][0]
+    block.update(grouping="circuit", execution={"mode": "amrap", "time_cap_seconds": 1200},
+                 evidence=[evidence("execution.mode", instruction, location),
+                           evidence("execution.time_cap_seconds", instruction, location)])
+    block["exercises"][0]["sets"] = None
+    raw["estimated_minutes"] = None
+    return raw
 
 
 def image_data():
@@ -1313,10 +1328,11 @@ async def test_description_amrap_preserves_reps_and_overall_context_without_inve
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("timed", [False, True])
 @pytest.mark.parametrize("reps,per_side,short_quote", [(5, True, True), (5, True, False),
                                                     (10, False, False), (10, True, False)])
 async def test_actual_nine_exercise_caption_keeps_total_and_side_counts_and_skips_media(
-    monkeypatch, reps, per_side, short_quote
+    monkeypatch, reps, per_side, short_quote, timed
 ):
     service = await mock_video_acquirer(monkeypatch)
     metadata = service.get_video_metadata_ytdlp
@@ -1333,7 +1349,14 @@ async def test_actual_nine_exercise_caption_keeps_total_and_side_counts_and_skip
 
     service.get_video_metadata_ytdlp = caption
     service.download_audio = service.extract_video_frames = unnecessary_media
-    provider = FakeProvider(reel_workout(reps=reps, per_side=per_side, short_quote=short_quote))
+    raw = reel_workout(reps=reps, per_side=per_side, short_quote=short_quote)
+    if timed:
+        raw["blocks"][0]["execution"] = {"mode": "amrap", "time_cap_seconds": 1200}
+        raw["blocks"][0]["evidence"] += [
+            evidence("execution.mode", "Try this beginner-friendly full body AMRAP.", "caption"),
+            evidence("execution.time_cap_seconds", "ALL YOU NEED IS 20 MINUTES AND ONE KETTLEBELL", "caption"),
+        ]
+    provider = FakeProvider(raw)
     result = await WorkoutExtractor(provider).extract(
         ExtractionRequest(kind="url", source_url=REEL, ai_consent=True)
     )
@@ -1344,13 +1367,18 @@ async def test_actual_nine_exercise_caption_keeps_total_and_side_counts_and_skip
     assert all(exercises[index].per_side is True for index in (3, 4))
     assert result.workout.estimated_minutes == 20 and result.workout.notes == [REEL_INSTRUCTIONS]
     assert all(item.sets is None for item in exercises) and result.workout.blocks[0].rounds is None
-    assert result.warnings == ["The source specifies open-ended rounds (AMRAP). Its instructions are saved; "
-                               "review the tracking prescription before starting a session."]
+    if timed:
+        assert result.status == "ready" and result.warnings == []
+        assert result.workout.blocks[0].execution.time_cap_seconds == 1200
+    else:
+        assert result.warnings == ["The source specifies open-ended rounds (AMRAP). Its instructions are saved; "
+                                   "review the tracking prescription before starting a session."]
     assert len(provider.calls) == 1 and media_calls == []
 
 
 @pytest.mark.asyncio
-async def test_missing_caption_movement_recovers_from_media_without_losing_caption(monkeypatch):
+@pytest.mark.parametrize("timed", [False, True])
+async def test_missing_caption_movement_recovers_from_media_without_losing_caption(monkeypatch, timed):
     service = await mock_video_acquirer(monkeypatch, visual=True)
     metadata = service.get_video_metadata_ytdlp
     frames = service.extract_video_frames
@@ -1371,6 +1399,9 @@ async def test_missing_caption_movement_recovers_from_media_without_losing_capti
     async def extraction(source):
         provider.calls.append(source)
         value = reel_workout()
+        if timed:
+            value["blocks"][0]["execution"] = {"mode": "amrap", "time_cap_seconds": 1200}
+            value["blocks"][0]["evidence"].append(evidence("execution.time_cap_seconds", REEL_INSTRUCTIONS, "caption"))
         if not source.images:
             value["blocks"][0]["exercises"].pop()
         return value
@@ -1383,6 +1414,10 @@ async def test_missing_caption_movement_recovers_from_media_without_losing_capti
     assert result.source.channels == ["caption", "visual"]
     assert len(result.workout.blocks[0].exercises) == 9
     assert result.workout.estimated_minutes == 20 and result.workout.notes == [REEL_INSTRUCTIONS]
+    if timed:
+        assert result.status == "ready" and result.warnings == []
+        assert result.workout.blocks[0].execution.time_cap_seconds == 1200
+        assert [item.reps_min for item in result.workout.blocks[0].exercises] == [10, 10, 10, 5, 5, 10, 10, 10, 10]
 
 
 @pytest.mark.asyncio
@@ -1665,6 +1700,230 @@ def test_unqualified_total_does_not_invent_per_side_reps():
     assert all(workout.blocks[0].exercises[index].reps_min == 10
                and workout.blocks[0].exercises[index].per_side is None for index in (3, 4))
     assert sum("Unsupported per_side" in warning for warning in warnings) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("instruction", [TIMED_INSTRUCTION,
+    "Rest after each round and go again for as many rounds as you can in 20 minutes.",
+    "Keep repeating this circuit for 20 minutes.",
+    "20-minute AMRAP: keep going through these movements."])
+async def test_explicit_execution_makes_a_complete_timed_source_ready(instruction):
+    provider = FakeProvider(timed_workout(instruction=instruction))
+    result = await WorkoutExtractor(provider).extract(ExtractionRequest(
+        kind="text", text=TEXT + "\n" + instruction, ai_consent=True))
+    block = result.workout.blocks[0]
+    assert result.status == "ready" and result.warnings == []
+    assert block.execution.mode == "amrap" and block.execution.time_cap_seconds == 1200
+    assert block.rounds is None and block.exercises[0].sets is None
+    assert block.exercises[0].reps_min == 8 and block.exercises[0].rest_seconds == 90
+    assert result.workout.estimated_minutes is None  # A second duration field is unnecessary.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cap", ["Time cap: 20 minutes", "20 minutes",
+    "ALL YOU NEED IS 20 MINUTES AND ONE KETTLEBELL"])
+async def test_separate_format_and_global_cap_quotes_keep_typed_execution(cap):
+    raw = timed_workout()
+    raw["blocks"][0]["evidence"] = [evidence("execution.mode", "AMRAP"),
+        evidence("execution.time_cap_seconds", cap)]
+    result = await WorkoutExtractor(FakeProvider(raw)).extract(ExtractionRequest(
+        kind="text", text=cap + "\nTry this beginner-friendly full body AMRAP.\n" + TEXT,
+        ai_consent=True))
+    assert result.status == "ready" and result.warnings == []
+    assert result.workout.blocks[0].execution.time_cap_seconds == 1200
+
+
+@pytest.mark.asyncio
+async def test_actual_nine_movement_reel_headline_and_mode_are_read_together():
+    names = ["Kettlebell Swings", "Goblet Reverse Lunges", "Goblet Squats", "Gorilla Rows",
+             "Strict Press", "Halos", "Leg Open & Closes", "Seated Twists", "Jumping Lunges"]
+    headline = "ALL YOU NEED IS 20 MINUTES AND ONE KETTLEBELL"
+    mode = "Try this beginner-friendly full body AMRAP."
+    rows = [f"10 x {name}" + (" (5 each side)" if index in {3, 4} else "")
+            for index, name in enumerate(names)]
+    instruction = "Rest after each round and go again for as many rounds as you can in 20 minutes."
+    caption = (headline + "\n\n" + mode + "\n\n" + "\n".join(rows) + "\n\n" + instruction
+               + "\n\nSimple, effective and all you need is one kettlebell.\n\nSave it & give it a try.")
+    raw = {"title": "20-minute full body kettlebell AMRAP", "blocks": [{"id": "main",
+        "label": "AMRAP", "grouping": "circuit", "execution": {"mode": "amrap", "time_cap_seconds": 1200},
+        "evidence": [evidence("execution.mode", mode), evidence("execution.time_cap_seconds", headline),
+                     evidence("workout_notes", instruction)],
+        "exercises": [{"name": name, "reps_min": 10, "reps_max": 10,
+            "evidence": [evidence("name", name), evidence("reps_min", row), evidence("reps_max", row)]}
+            for name, row in zip(names, rows)]}]}
+    result = await WorkoutExtractor(FakeProvider(raw)).extract(ExtractionRequest(
+        kind="text", text=caption, ai_consent=True))
+    assert result.workout.blocks[0].execution.time_cap_seconds == 1200
+    assert [item.name for item in result.workout.blocks[0].exercises] == names
+    assert result.status == "ready" and result.warnings == []
+    assert [item.reps_min for item in result.workout.blocks[0].exercises] == [10, 10, 10, 5, 5, 10, 10, 10, 10]
+    assert all(result.workout.blocks[0].exercises[index].per_side is True for index in (3, 4))
+    assert all(item.sets is None for item in result.workout.blocks[0].exercises)
+    assert result.workout.notes == [instruction]
+    assert result.workout.blocks[0].rounds is None
+    assert not any("timed execution" in warning for warning in result.warnings)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cap", ["Rest 20 minutes", "10 x Squat for 20 minutes",
+    "Time cap: 20–30 minutes", "Workout: rest 20 minutes", "Circuit: each exercise for 20 minutes",
+    "Workout: 10 x Squat for 20 minutes", "Circuit: 3 rounds of Squat for 20 minutes"])
+async def test_separate_mode_cannot_promote_other_timings_to_global_cap(cap):
+    raw = timed_workout()
+    raw["blocks"][0]["evidence"] = [evidence("execution.mode", "AMRAP"),
+        evidence("execution.time_cap_seconds", cap)]
+    result = await WorkoutExtractor(FakeProvider(raw)).extract(ExtractionRequest(
+        kind="text", text="AMRAP\n" + cap + "\n" + TEXT, ai_consent=True))
+    assert result.workout.blocks[0].execution is None
+    assert any("timed execution" in warning for warning in result.warnings)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wording,seconds", [
+    ("AMRAP: 20 seconds rest between exercises.", 20),
+    ("AMRAP: do each exercise for 20 minutes.", 1200),
+    ("20-minute AMRAP with rest between rounds 5 minutes.", 300),
+    ("20-minute AMRAP with 10 seconds between rounds.", 10),
+    ("20-minute AMRAP then perform 20 seconds of curls.", 20),
+    ("20–30 minute AMRAP.", 1800),
+    ("Hold for 20 minutes.", 1200),
+])
+async def test_timed_execution_does_not_invent_a_loop_from_unrelated_or_ambiguous_time(wording, seconds):
+    raw = timed_workout(instruction=wording)
+    raw["blocks"][0]["execution"]["time_cap_seconds"] = seconds
+    result = await WorkoutExtractor(FakeProvider(raw)).extract(ExtractionRequest(
+        kind="text", text=TEXT + "\n" + wording, ai_consent=True))
+    assert result.status == "incomplete" and result.workout.blocks[0].execution is None
+    assert any("timed execution" in warning for warning in result.warnings)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("instruction,other_seconds", [
+    ("20-minute AMRAP with a 30 second break between rounds.", 30),
+    ("20-minute AMRAP: 10 squats and 20 seconds of pushups.", 20),
+])
+async def test_same_clause_movement_or_break_time_is_not_the_amrap_cap(instruction, other_seconds):
+    raw = timed_workout(instruction=instruction)
+    raw["blocks"][0]["execution"]["time_cap_seconds"] = other_seconds
+    result = await WorkoutExtractor(FakeProvider(raw)).extract(ExtractionRequest(
+        kind="text", text=TEXT + "\n" + instruction, ai_consent=True))
+    assert result.status == "incomplete" and result.workout.blocks[0].execution is None
+    assert any("timed execution" in warning for warning in result.warnings)
+
+    correct = await WorkoutExtractor(FakeProvider(timed_workout(instruction=instruction))).extract(ExtractionRequest(
+        kind="text", text=TEXT + "\n" + instruction, ai_consent=True))
+    assert correct.status == "ready" and correct.warnings == []
+    assert correct.workout.blocks[0].execution.time_cap_seconds == 1200
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("instruction", [
+    "20-minute AMRAP: 20 seconds on, 10 seconds off.",
+    "20-minute AMRAP: 20 seconds work, 10 seconds rest.",
+    "20-minute AMRAP: 20 seconds of pushups, 10 seconds rest.",
+    "AMRAP: 20 seconds work, 10 seconds rest. Repeat for 20 minutes.",
+])
+async def test_work_on_off_doses_never_replace_affirmative_overall_amrap_cap(instruction):
+    wrong = timed_workout(instruction=instruction)
+    wrong["blocks"][0]["execution"]["time_cap_seconds"] = 20
+    rejected = await WorkoutExtractor(FakeProvider(wrong)).extract(ExtractionRequest(
+        kind="text", text=TEXT + "\n" + instruction, ai_consent=True))
+    assert rejected.status == "incomplete" and rejected.workout.blocks[0].execution is None
+    correct = await WorkoutExtractor(FakeProvider(timed_workout(instruction=instruction))).extract(ExtractionRequest(
+        kind="text", text=TEXT + "\n" + instruction, ai_consent=True))
+    assert correct.status == "ready" and correct.warnings == []
+    assert correct.workout.blocks[0].execution.time_cap_seconds == 1200
+    assert correct.workout.blocks[0].rounds is None and correct.workout.blocks[0].exercises[0].sets is None
+    assert correct.workout.blocks[0].exercises[0].rest_seconds == 90
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("instruction", [
+    "Not an AMRAP: 20-minute workout.",
+    "This isn't an AMRAP. Time cap: 20 minutes.",
+    "Do not repeat for 20 minutes.",
+    "No AMRAP. Workout: 20 minutes.",
+])
+@pytest.mark.parametrize("mode_quote", ["whole_instruction", "short_quote"])
+async def test_negated_execution_cannot_ground_mode_from_short_or_full_quote(instruction, mode_quote):
+    raw = timed_workout(instruction=instruction)
+    if mode_quote == "short_quote":
+        raw["blocks"][0]["evidence"] = [
+            evidence("execution.mode", "AMRAP" if "AMRAP" in instruction else "repeat for 20 minutes"),
+            evidence("execution.time_cap_seconds", "20 minutes" if "20 minutes" in instruction else "20-minute"),
+        ]
+    result = await WorkoutExtractor(FakeProvider(raw)).extract(ExtractionRequest(
+        kind="text", text=TEXT + "\n" + instruction, ai_consent=True))
+    assert result.status == "incomplete" and result.workout.blocks[0].execution is None
+    assert any("timed execution" in warning for warning in result.warnings)
+
+
+@pytest.mark.asyncio
+async def test_visual_timed_execution_still_requires_source_review():
+    raw = timed_workout("image:0")
+    result = await WorkoutExtractor(FakeProvider(raw)).extract(ExtractionRequest(
+        kind="images", images=[ExtractionImage(base64_data=image_data(), mime_type="image/png")], ai_consent=True))
+    assert result.workout.blocks[0].execution.time_cap_seconds == 1200
+    assert result.status == "incomplete" and any("model-observed" in warning for warning in result.warnings)
+
+
+@pytest.mark.asyncio
+async def test_coherent_transcript_quote_can_supply_execution_without_duplicate_mode_evidence():
+    raw = timed_workout()
+    raw["blocks"][0]["grouping"] = "sequential"  # A grounded loop takes precedence over a default enum.
+    raw["blocks"][0]["evidence"] = [evidence("execution.time_cap_seconds", "20 minutes", "transcript")]
+    source = SourceBundle(SourceMetadata(url="https://example.com/workout"), [
+        SourcePart("provided_text", TEXT),
+        SourcePart("transcript", "Rest 20 minutes.\nAMRAP for 20 minutes."),
+    ])
+    result = await WorkoutExtractor(FakeProvider(raw), FakeAcquirer(source)).extract(ExtractionRequest(
+        kind="url", source_url="https://example.com/workout", ai_consent=True))
+    assert result.status == "ready" and result.workout.blocks[0].execution.time_cap_seconds == 1200
+    assert result.workout.blocks[0].grouping == "circuit"
+
+
+@pytest.mark.asyncio
+async def test_invalid_text_cap_does_not_mask_visual_execution_review():
+    raw = timed_workout("image:0")
+    raw["blocks"][0]["evidence"].append(evidence("execution.time_cap_seconds", "20 minutes", "provided_text"))
+    result = await WorkoutExtractor(FakeProvider(raw)).extract(ExtractionRequest(
+        kind="images", text="Rest 20 minutes.",
+        images=[ExtractionImage(base64_data=image_data(), mime_type="image/png")], ai_consent=True))
+    assert result.workout.blocks[0].execution.time_cap_seconds == 1200
+    assert result.status == "incomplete" and any("model-observed" in warning for warning in result.warnings)
+
+
+@pytest.mark.asyncio
+async def test_multiple_timed_blocks_are_preserved_for_review_without_claiming_runnable():
+    raw = timed_workout()
+    raw["blocks"].append(raw["blocks"][0] | {"id": "second"})
+    result = await WorkoutExtractor(FakeProvider(raw)).extract(ExtractionRequest(
+        kind="text", text=TEXT + "\n" + TIMED_INSTRUCTION, ai_consent=True))
+    assert result.status == "incomplete" and len(result.workout.blocks) == 2
+    assert all(block.execution.time_cap_seconds == 1200 for block in result.workout.blocks)
+    assert any("single-circuit" in warning for warning in result.warnings)
+
+
+def test_old_fixed_workout_round_trips_without_a_new_optional_key():
+    old = WorkoutContent.model_validate(complete_workout()).model_dump(mode="json")
+    assert "execution" not in old["blocks"][0]
+    assert WorkoutContent.model_validate(old).model_dump(mode="json") == old
+    explicit_null = old | {"blocks": [old["blocks"][0] | {"execution": None}]}
+    assert WorkoutContent.model_validate(explicit_null).model_dump(mode="json") == old
+    timed = WorkoutContent.model_validate(timed_workout()).model_dump(mode="json")
+    assert timed["blocks"][0]["execution"] == {"mode": "amrap", "time_cap_seconds": 1200}
+    schema = workout_response_format()["json_schema"]["schema"]
+    assert "execution" in schema["$defs"]["WorkoutBlock"]["properties"]
+
+
+@pytest.mark.parametrize("execution", [{"mode": "amrap", "time_cap_seconds": value}
+                                      for value in (0, -1, 86401, True, 1200.5)]
+                                     + [{"mode": "emom", "time_cap_seconds": 1200}])
+def test_execution_schema_rejects_unknown_mode_and_invalid_cap(execution):
+    raw = timed_workout()
+    raw["blocks"][0]["execution"] = execution
+    with pytest.raises(ValidationError):
+        WorkoutContent.model_validate(raw)
 
 
 @pytest.mark.parametrize("location,quote", [("caption", "20 reps"), ("image:0", "20 minutes")])

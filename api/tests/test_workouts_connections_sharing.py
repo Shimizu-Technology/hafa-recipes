@@ -4,6 +4,7 @@ import asyncio
 import base64
 import importlib
 import os
+from copy import deepcopy
 from datetime import date, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
@@ -168,16 +169,16 @@ async def api(monkeypatch):
     await engine.dispose()
 
 
-async def create_workout(api, identifier="publisher"):
+async def create_workout(api, identifier="publisher", *, content=None):
     response = await api.client.post(
-        "/api/v1/workouts/library", json=WORKOUT, headers={**GENERATION, "X-Test-User": identifier}
+        "/api/v1/workouts/library", json=WORKOUT if content is None else content, headers={**GENERATION, "X-Test-User": identifier}
     )
     assert response.status_code == 201, response.text
     return response.json()
 
 
-async def create_share(api, identifier="publisher", *, include_source=False):
-    workout = await create_workout(api, identifier)
+async def create_share(api, identifier="publisher", *, include_source=False, content=None):
+    workout = await create_workout(api, identifier, content=content)
     preview = await api.client.post(
         "/api/v1/workouts/sharing/previews",
         json={
@@ -877,8 +878,17 @@ async def test_stale_nutrition_is_not_presented_as_current_dietary_evidence(api)
 
 
 @pytest.mark.parametrize("include_source", [False, True])
-async def test_shared_workout_copy_saves_unchanged_without_invented_url(api, include_source):
-    original, _, share = await create_share(api, include_source=include_source)
+@pytest.mark.parametrize("timed", [False, True])
+async def test_shared_workout_copy_saves_unchanged_without_invented_url(api, include_source, timed):
+    content = deepcopy(WORKOUT)
+    if timed:
+        content["blocks"][0].update(grouping="circuit", execution={"mode": "amrap", "time_cap_seconds": 125})
+        content["blocks"][0]["exercises"][0]["sets"] = None
+    original, _, share = await create_share(api, include_source=include_source, content=content)
+    public = await api.client.get(share["api_path"])
+    assert public.status_code == 200 and PRIVATE not in public.text
+    expected_execution = content["blocks"][0].get("execution")
+    assert public.json()["content"]["blocks"][0].get("execution") == expected_execution
     headers = {**GENERATION, "X-Test-User": "recipient"}
     copied = await api.client.post(
         share["api_path"] + "/copy",
@@ -912,6 +922,8 @@ async def test_shared_workout_copy_saves_unchanged_without_invented_url(api, inc
     assert saved.status_code == 200, saved.text
     assert saved.json()["content"]["capture_kind"] == "shared"
     assert saved.json()["content"]["source_url"] == content["source_url"]
+    assert saved.json()["content"]["blocks"][0].get("execution") == expected_execution
+    assert saved.json()["content"]["blocks"][0]["exercises"][0]["sets"] == (None if timed else 2)
     source = await api.client.get(f"/api/v1/workouts/library/{original['id']}")
     assert source.json()["revision"] == original["revision"]
 

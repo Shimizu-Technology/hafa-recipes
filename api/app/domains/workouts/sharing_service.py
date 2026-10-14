@@ -168,6 +168,10 @@ def project_workout(raw, *, include_source_url=False):
         block = {
             key: source_block[key] for key in ("grouping", "rounds", "rest_between_rounds_seconds")
         }
+        if source_block.get("execution") is not None:
+            block["execution"] = {
+                key: source_block["execution"][key] for key in ("mode", "time_cap_seconds")
+            }
         block["exercises"] = [
             {
                 key: exercise[key]
