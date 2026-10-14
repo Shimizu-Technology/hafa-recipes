@@ -28,6 +28,7 @@ import { useTraining, useOfflineTraining } from "@/lib/context";
 import { DECLINED, INCOMPLETE_MESSAGE, discoverKeys, isIncomplete, prescriptionLine, formatSeconds } from "@/lib/discover";
 import type { Workout } from "@/lib/models";
 import { trackingPrescriptionWarning } from "@/lib/training";
+import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutSource } from "@/components/workout-source";
 export default function WorkoutDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -112,6 +113,7 @@ export default function WorkoutDetail() {
       action={workout ? <IconButton icon="ellipsis-horizontal" label="More workout actions" onPress={() => setMore(true)} /> : undefined}
     >
       {workout && <WorkoutSource source={workout} />}
+      <WorkoutInstructions notes={workout?.notes} />
       {workout && (
         <Row gap={10}>
           <StatTile value={workout.estimated_minutes ?? "–"} unit={workout.estimated_minutes ? "min" : undefined} label="Estimated time" />

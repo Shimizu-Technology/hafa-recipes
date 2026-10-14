@@ -5,6 +5,7 @@ import { ActivityIndicator, AppState, Image, Linking } from "react-native";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Chip, ChipRow, Choice, Copy, Empty, ListRow, Notice, Screen, SectionHeader, Skeleton } from "@/components/ui";
+import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutEditor } from "@/components/workout-editor";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
@@ -362,6 +363,7 @@ export default function ImportReview() {
                 ) : (
                   <>
                     <SectionHeader title={workout.title} />
+                    <WorkoutInstructions notes={workout.notes} />
                     <ChipRow wrap>
                       {workout.equipment_required?.length ? (
                         workout.equipment_required.map((item) => <Chip key={item} label={item} icon="barbell-outline" />)

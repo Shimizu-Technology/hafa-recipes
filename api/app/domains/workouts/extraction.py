@@ -811,18 +811,34 @@ def _quote_is_supported(evidence: Evidence, source: SourceBundle) -> bool:
     return any(evidence.location == image.location for image in source.images)
 
 
-def _numeric_supported(field_name: str, value: int | float, wording: str) -> bool:
+def _scalar_duration_wording(wording: str) -> str:
+    return re.sub(
+        r"\b\d+(?:\.\d+)?\s*(?:seconds?|secs?|s\b|minutes?|mins?|m\b)?\s*"
+        r"(?:[-–]|\bto\b)\s*\d+(?:\.\d+)?\s*"
+        r"(?:seconds?|secs?|s\b|minutes?|mins?|m\b)",
+        "", wording, flags=re.I,
+    )
+
+
+def _overall_minutes_supported(value: int, wording: str) -> bool:
+    # A matching rest/movement duration is not an overall workout time cap.
+    scalar = _scalar_duration_wording(wording)
+    minutes = r"(\d+(?:\.\d+)?)\s*-?\s*(?:minutes?|mins?|min)\b"
+    patterns = (
+        rf"\b(?:repeat|repeating)\b(?:(?!\b(?:rest|each|per)\b)[^.!?;\n]){{0,160}}\bfor\s+{minutes}",
+        rf"\b(?:workout|session|routine|flow|amrap|time cap|time limit|total time)\s*(?:is|of|for|:|-)?\s*{minutes}",
+        rf"\b{minutes}\s*(?:long\s+)?(?:workout|session|routine|flow|amrap)\b",
+    )
+    return any(float(match[1]) == value for pattern in patterns
+               for match in re.finditer(pattern, scalar, re.I))
+
+
+def _numeric_supported(field_name: str, value: int | float, wording: str, exercise_name: str | None = None) -> bool:
     numbers = [float(number) for number in re.findall(r"(?<!\w)\d+(?:\.\d+)?", wording)]
     if field_name in {"duration_seconds", "rest_seconds", "rest_between_rounds_seconds", "estimated_minutes"}:
         # A single scalar cannot faithfully represent a range such as 2–3 min.
         # Keep that creator wording in notes instead of choosing an endpoint.
-        scalar_wording = re.sub(
-            r"\b(\d+(?:\.\d+)?)\s*(?:seconds?|secs?|s\b|minutes?|mins?|m\b)?\s*"
-            r"(?:[-–]|\bto\b)\s*(\d+(?:\.\d+)?)\s*"
-            r"(seconds?|secs?|s\b|minutes?|mins?|m\b)",
-            lambda match: match.group(0) if float(match[1]) == float(match[2]) else "",
-            wording, flags=re.I,
-        )
+        scalar_wording = _scalar_duration_wording(wording)
         units = re.findall(
             r"(\d+(?:\.\d+)?)\s*(seconds?|secs?|s\b|minutes?|mins?|m\b)", scalar_wording, re.I
         )
@@ -862,16 +878,22 @@ def _numeric_supported(field_name: str, value: int | float, wording: str) -> boo
             wording,
             re.I,
         )
-        return any(float(number) == value for group in reps for number in group if number)
+        explicit_reps = any(float(number) == value for group in reps for number in group if number)
+        # Spoken prescriptions often say "10 curls", without a reps suffix.
+        # Require the actual grounded movement immediately after the count.
+        movement_count = exercise_name is not None and bool(re.search(
+            rf"(?<![\w.]){value:g}\s+{re.escape(exercise_name)}\b", wording, re.I
+        ))
+        return explicit_reps or movement_count
     if field_name == "load":
         loads = re.findall(r"(\d+(?:\.\d+)?)\s*(?:kg|kilograms?|lbs?|pounds?)\b", wording, re.I)
         return any(float(number) == value for number in loads)
     return any(abs(number - value) < 1e-8 for number in numbers)
 
 
-def _value_supported(field_name: str, value, wording: str) -> bool:
+def _value_supported(field_name: str, value, wording: str, exercise_name: str | None = None) -> bool:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return _numeric_supported(field_name, value, wording)
+        return _numeric_supported(field_name, value, wording, exercise_name)
     if field_name == "per_side":
         pattern = (
             r"\b(?:each|per)\s+(?:side|leg|arm|limb)\b"
@@ -951,8 +973,14 @@ def ground_workout(
                     continue
                 valid_evidence = [entry for entry in item.evidence if entry.field == field_name]
                 supported = any(
-                    _value_supported(field_name, value, entry.wording) for entry in valid_evidence
+                    _value_supported(field_name, value, entry.wording, item.name) for entry in valid_evidence
                 )
+                if not supported and field_name == "notes":
+                    original_cues = list(dict.fromkeys(entry.wording for entry in valid_evidence
+                        if entry.location in {part.location for part in source.parts}))
+                    if original_cues:
+                        item.notes = "\n".join(original_cues)[:2000]
+                        continue
                 if not supported:
                     setattr(item, field_name, None)
                     warnings.append(f"Unsupported {field_name} removed from {item.name}.")
@@ -965,13 +993,17 @@ def ground_workout(
     # The existing block Evidence shape can carry workout-wide context without
     # changing stored/client schemas. Never trust a model estimate or paraphrase.
     text_locations = {part.location for part in source.parts}
-    context_evidence = [entry for entry in collected if entry.location in text_locations]
+    context_evidence = [entry for block in workout.blocks for entry in block.evidence
+                        if entry.location in text_locations and (
+                            entry.field in {"workout_notes", "estimated_minutes"}
+                            or entry.field in {"label", "grouping"}
+                            and re.search(r"\bamrap\b|\brepeat(?:ing)?\b", entry.wording, re.I)
+                        )]
     workout.notes = list(dict.fromkeys(
-        entry.wording for entry in context_evidence if entry.field == "workout_notes"
+        entry.wording for entry in context_evidence if entry.field != "estimated_minutes"
     ))[:100]
     if requested_minutes is not None and any(
-        entry.field == "estimated_minutes"
-        and _numeric_supported("estimated_minutes", requested_minutes, entry.wording)
+        _overall_minutes_supported(requested_minutes, entry.wording)
         for entry in context_evidence
     ):
         workout.estimated_minutes = requested_minutes

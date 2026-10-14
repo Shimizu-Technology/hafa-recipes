@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { Button, Card, Choice, Copy, Field, Notice } from "./ui";
+import { WorkoutInstructions } from "./workout-instructions";
 import { prescriptionLine } from "@/lib/discover";
 import type { AuthoredWorkout, ExercisePrescription } from "@/lib/models";
 export function WorkoutEditor({
@@ -30,6 +31,7 @@ export function WorkoutEditor({
   }
   return (
     <View style={{ gap: 16 }}>
+      <WorkoutInstructions notes={value.notes} />
       <Field
         disabled={disabled}
         label="Workout title"

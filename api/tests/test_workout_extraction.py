@@ -22,6 +22,7 @@ from app.domains.workouts.extraction import (
     SourcePart,
     WorkoutExtractor,
     _numeric_supported,
+    _overall_minutes_supported,
     ground_workout,
     provider_messages,
     workout_response_format,
@@ -1227,3 +1228,56 @@ def test_rest_range_does_not_become_an_exact_scalar(wording, seconds):
 def test_exact_rest_survives_an_unrelated_range():
     assert _numeric_supported("rest_seconds", 90, "8–12 reps, rest 90 seconds")
     assert _numeric_supported("duration_seconds", 20, "20 sec work; rest 2–3 minutes")
+
+
+@pytest.mark.parametrize("quote,name,value,supported", [
+    ("10 curls", "Curls", 10, True), ("10 tricep extensions", "Tricep extensions", 10, True),
+    ("10 halos, five each way", "Halos", 10, True), ("10 kg curls", "Curls", 10, False),
+    ("3 sets of 10 curls", "Curls", 3, False), ("20 seconds of curls", "Curls", 20, False),
+])
+def test_spoken_movement_counts_need_the_actual_exercise(quote, name, value, supported):
+    assert _numeric_supported("reps_min", value, quote, name) is supported
+
+
+def test_directional_cues_preserve_source_wording_without_per_limb_inference():
+    raw = complete_workout()
+    item = raw["blocks"][0]["exercises"][0]
+    item.update(name="Halos", sets=None, reps_min=10, reps_max=10, per_side=True, notes="Five each way.")
+    item["evidence"] = [evidence("name", "10 halos, five each way"),
+        evidence("reps_min", "10 halos"), evidence("reps_max", "10 halos"),
+        evidence("per_side", "five each way"), evidence("notes", "five each way")]
+    raw["estimated_minutes"] = 20
+    raw["blocks"][0]["evidence"] = [evidence("workout_notes", "keep repeating for 20 minutes")]
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart(
+        "provided_text", "10 halos, five each way. keep repeating for 20 minutes")]))
+    actual = workout.blocks[0].exercises[0]
+    assert actual.reps_min == actual.reps_max == 10 and actual.per_side is None
+    assert actual.notes == "five each way" and workout.estimated_minutes == 20
+
+
+@pytest.mark.parametrize("quote,minutes,supported", [
+    ("keep repeating for 20 minutes", 20, True),
+    ("20min AMRAP: repeat 4 moves as many times as possible for 20min", 20, True),
+    ("20-minute AMRAP workout", 20, True),
+    ("Rest 2 minutes between sets", 2, False),
+    ("Each exercise takes 2 minutes", 2, False),
+    ("Repeat each movement for 2 minutes", 2, False),
+    ("Rest 20 minutes, then a 15-minute AMRAP", 20, False),
+    ("20–30 minute AMRAP", 30, False),
+    ("20 to 30 minute workout", 30, False),
+])
+def test_overall_minutes_need_unambiguous_workout_format(quote, minutes, supported):
+    assert _overall_minutes_supported(minutes, quote) is supported
+
+
+def test_rest_evidence_cannot_promote_a_global_estimate():
+    raw = complete_workout()
+    raw["estimated_minutes"] = 2
+    raw["blocks"][0]["evidence"] = [evidence("estimated_minutes", "Rest 2 minutes between sets")]
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart(
+        "provided_text", TEXT + " Rest 2 minutes between sets")]))
+    assert workout.estimated_minutes is None
+
+
+def test_mixed_unit_rest_range_does_not_select_an_endpoint():
+    assert not _numeric_supported("rest_seconds", 120, "rest 2 seconds to 2 minutes")
