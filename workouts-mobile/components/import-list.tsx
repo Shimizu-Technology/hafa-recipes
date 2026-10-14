@@ -1,8 +1,9 @@
 import { useCallback, useState, useEffect, useLayoutEffect, useRef } from "react";
-import { AppState } from "react-native";
+import { ActivityIndicator, AppState } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Copy, Notice } from "./ui";
+import { Button, Card, Copy, Notice, Row } from "./ui";
+import { importPresentation, importSourceLabel } from "@/lib/import-recovery";
 import { useTraining } from "@/lib/context";
 import { canSaveAutomatically, importIsTerminal, retireCapturedImport, updateImportReferences } from "@/lib/capture";
 import { workoutErrors } from "@/lib/library";
@@ -82,17 +83,20 @@ export function ImportList() {
       {!!deviceError && <Notice error>{deviceError}</Notice>}
       {server.error && <><Notice error>Could not check your imports. Your saved workouts are still in your library.</Notice>
         <Button title="Retry imports" secondary onPress={() => { void server.refetch(); }} /></>}
-      {inbox.size > 0 && <Copy kind="heading">Source imports</Copy>}
+      {inbox.size > 0 && <Copy kind="subheading">Unfinished imports · {inbox.size}</Copy>}
       {[...inbox.values()].map((item) => (
-          <ImportCard key={item.id} id={item.id} label={item.label} autoSave={item.auto_save} />
+          <ImportCard key={item.id} id={item.id} label={item.label} autoSave={item.auto_save}
+            onRemoved={() => setItems(prior => prior.filter(value => value.id !== item.id))} />
       ))}
     </>
   );
 }
-function ImportCard({ id, label, autoSave }: { id: string; label: string; autoSave?: boolean }) {
+function ImportCard({ id, label, autoSave, onRemoved }: { id: string; label: string; autoSave?: boolean; onRemoved(): void }) {
   const { api, owner, enrollment, localDrafts, storage, isCurrentAccount } = useTraining();
   const cache = useQueryClient();
   const attempted = useRef(false);
+  const retiring = useRef(false);
+  const [removing, setRemoving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [visible, setVisible] = useState(false);
   const [active, setActive] = useState(AppState.currentState === "active");
@@ -115,6 +119,30 @@ function ImportCard({ id, label, autoSave }: { id: string; label: string; autoSa
   });
   const capabilities = useQuery({ queryKey: [owner, "capabilities", enrollment?.generation], queryFn: api.capabilities,
     enabled: !!enrollment?.enrolled && visible && !!autoSave, staleTime: 60000 });
+  async function remove(cancel = false) {
+    if (retiring.current || !enrollment?.generation) return;
+    retiring.current = true; setRemoving(true); setSaveError("");
+    const guard = () => { if (!storage.isCurrent() || !isCurrentAccount()) throw Error("This import account changed."); };
+    try {
+      guard();
+      if (cancel) {
+        try { await api.cancelImport(id, enrollment.generation); }
+        catch (e) { if (![404, 410].includes((e as { status?: number }).status ?? 0)) throw e; }
+        guard();
+      }
+      await retireCapturedImport(storage, owner, enrollment.generation, id, guard, cleanupCaptureFiles, Crypto.randomUUID);
+      await localDrafts.remove(owner, `import-retry:${enrollment.generation}:${id}`); guard();
+      await localDrafts.remove(owner, `import-retry-caption:${enrollment.generation}:${id}`); guard();
+      await updateImportReferences(localDrafts, owner, enrollment.generation, guard, items => items.filter(item => item.id !== id));
+      guard();
+      cache.setQueryData<Array<{ id: string }>>([owner, "imports", enrollment.generation], jobs => jobs?.filter(job => job.id !== id));
+      onRemoved();
+    } catch (e) { if (storage.isCurrent() && isCurrentAccount()) setSaveError((e as Error).message); }
+    finally { retiring.current = false; setRemoving(false); }
+  }
+  useEffect(() => {
+    if ((q.data && ["cancelled", "expired"].includes(q.data.status)) || [404, 410].includes((q.error as { status?: number } | null)?.status ?? 0)) void remove();
+  }, [q.data?.status, q.error]);
   useEffect(() => {
     const job = q.data;
     const alreadySaved = !!job?.accepted_workout_id;
@@ -157,15 +185,22 @@ function ImportCard({ id, label, autoSave }: { id: string; label: string; autoSa
     })().catch(() => { if (alive && storage.isCurrent()) setSaveError("Could not finish saving. Open this import to retry."); });
     return () => { alive = false; if (!acceptStarted) attempted.current = false; };
   }, [autoSave, visible, active, q.data, capabilities.data, owner, id, storage]);
-  if (q.data?.accepted_workout_id) return null;
+  if (q.data?.accepted_workout_id && !saveError) return null;
+  const unavailable = [404, 410].includes((q.error as { status?: number } | null)?.status ?? 0);
+  const presentation = unavailable ? { label: "Import no longer available", action: "View options" } : importPresentation(q.data);
+  const terminal = unavailable || !!q.data && importIsTerminal(q.data.status);
   return (
-    <Card>
-      <Copy kind="small">{q.data?.status ?? "Saved import reference"}</Copy>
-      <Copy>{q.data?.result?.workout?.title ?? label}</Copy>
+    <Card compact>
+      <Row gap={8}>
+        {q.data && !terminal && <ActivityIndicator accessibilityLabel={presentation.label} />}
+        <Copy kind="small" tone={q.data?.status === "failed" || q.data?.status === "incomplete" ? "warning" : "muted"}>{presentation.label}</Copy>
+      </Row>
+      <Copy kind="label" numberOfLines={2}>{q.data?.result?.workout?.title ?? q.data?.result?.source.title ?? importSourceLabel(label)}</Copy>
       {q.error && <Notice error>{q.error.message}</Notice>}
       {!!saveError && <Notice error>{saveError}</Notice>}
       <Button
-        title={q.data?.accepted_workout_id ? "Open saved workout" : "Open import"}
+        title={presentation.action}
+        size="sm"
         secondary
         onPress={() =>
           router.push(
@@ -175,6 +210,9 @@ function ImportCard({ id, label, autoSave }: { id: string; label: string; autoSa
           )
         }
       />
+      {terminal && <Button title="Dismiss import" size="sm" variant="ghost" busy={removing}
+        accessibilityHint="Clears this import and its temporary source. Saved workouts stay in your library."
+        onPress={() => { void remove(true); }} />}
     </Card>
   );
 }

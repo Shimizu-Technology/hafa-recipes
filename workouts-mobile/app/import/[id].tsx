@@ -4,13 +4,15 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { ActivityIndicator, AppState, Image, Linking } from "react-native";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Chip, ChipRow, Choice, Copy, Empty, ListRow, Notice, Screen, SectionHeader, Skeleton } from "@/components/ui";
+import { Button, Card, Chip, ChipRow, Choice, Copy, Empty, Field, ListRow, Notice, Screen, SectionHeader, Skeleton } from "@/components/ui";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutEditor } from "@/components/workout-editor";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
 import { canSaveAutomatically, importIsTerminal, updateImportReferences, loadCapturedImport, retireCapturedImport, type CaptureDraft, type ImportReference } from "@/lib/capture";
-import { cleanupCaptureFiles } from "@/lib/capture-io";
+import { cleanupCaptureFiles, sourceFor } from "@/lib/capture-io";
+import { recoverySource } from "@/lib/import-recovery";
+import type { ExtractionRequest } from "@/lib/capture";
 import * as Crypto from "expo-crypto";
 import { type PrivateDraftSnapshot } from "@/lib/private-form";
 import type { AuthoredWorkout } from "@/lib/models";
@@ -68,6 +70,9 @@ export default function ImportReview() {
   /** null = the default for this source (link imports public, everything else private). */
   const [shareChoice, setShareChoice] = useState<boolean | null>(null);
   const [notice, setNotice] = useState("");
+  const [caption, setCaption] = useState("");
+  const captionWrites = useRef<Promise<void>>(Promise.resolve());
+  const [retryCommand, setRetryCommand] = useState<{ request_id: string; source: ExtractionRequest; auto_save: boolean } | null>(null);
   const disclosure = usePublishingDisclosure();
   const [stateEpoch, setStateEpoch] = useState(epoch);
   const routeReady = stateEpoch === epoch;
@@ -103,6 +108,8 @@ export default function ImportReview() {
     setError("");
     setShareChoice(null);
     setNotice("");
+    setCaption("");
+    setRetryCommand(null);
     disclosure.dismiss();
     const sourceLoad = loadCapturedImport(storage, owner, generation!, id, current, Crypto.randomUUID)
       .then((saved) => {
@@ -129,7 +136,13 @@ export default function ImportReview() {
       if (valid && isCurrent()) setAutoAllowed(items?.some((item) => item.id === id && item.auto_save === true &&
         (item.generation == null || item.generation === generation)) ?? false);
     });
-    void Promise.all([sourceLoad, editLoad, visibilityLoad, referencesLoad]).then(() => {
+    const retryLoad = localDrafts.load<NonNullable<typeof retryCommand>>(owner, `import-retry:${generation}:${id}`).then(value => {
+      if (valid && isCurrent()) setRetryCommand(value);
+    });
+    const captionLoad = localDrafts.load<string>(owner, `import-retry-caption:${generation}:${id}`).then(value => {
+      if (valid && isCurrent()) setCaption(value ?? "");
+    });
+    void Promise.all([sourceLoad, editLoad, visibilityLoad, referencesLoad, retryLoad, captionLoad]).then(() => {
       if (valid && isCurrent()) setRestored(true);
     }).catch(() => { if (valid && isCurrent()) setError("Could not restore this import’s saved choices. Try loading again before saving."); });
     return () => {
@@ -164,7 +177,7 @@ export default function ImportReview() {
   async function accept(automatic = false) {
     if (saving.current || !routeReady || !restored || !isCurrent() || !q.data?.result?.workout) return;
     if (automatic && (edited || !canSaveAutomatically(q.data))) return;
-    const errors = workoutErrors(edited ?? q.data.result.workout);
+    const errors = workoutErrors(edited ?? q.data.result.workout, q.data.status === "incomplete" && !sharing);
     if (errors.length) {
       setError(errors.join(" "));
       return;
@@ -215,20 +228,68 @@ export default function ImportReview() {
       if (isCurrent()) setBusy(false);
     }
   }
-  async function cancel() {
-    if (!routeReady || !isCurrent() || !q.data) return;
+  async function retryExtraction() {
+    if (saving.current || !routeReady || !restored || !isCurrent() || !q.data || !capabilities.data) return;
+    saving.current = true; setBusy(true); setError("");
+    try {
+      current();
+      await captionWrites.current.catch(() => undefined); current();
+      const consent = await api.aiConsent(); current();
+      if (!consent.accepted || consent.disclosure_version !== 1) throw Error("Review AI preferences in Settings before retrying this source.");
+      let command = retryCommand;
+      if (!command) {
+        let retained: ExtractionRequest | null = null;
+        try { retained = await api.importSource(id); current(); }
+        catch (e) {
+          current();
+          if (![404, 410].includes((e as { status?: number }).status ?? 0)) throw e;
+          if (originalSource) retained = await sourceFor(originalSource, current);
+        }
+        current();
+        command = { request_id: Crypto.randomUUID(),
+          source: recoverySource(retained, q.data.result?.source.url ?? q.data.result?.workout?.source_url, caption),
+          auto_save: capabilities.data.server_auto_save === true };
+        await localDrafts.save(owner, `import-retry:${generation}:${id}`, command); current();
+        setRetryCommand(command);
+      }
+      const next = await api.startImport(command.request_id, command.source, q.data.generation,
+        { auto_save: command.auto_save, is_public: false }); current();
+      await localDrafts.save(owner, `import-visibility:${generation}:${next.id}`, false); current();
+      await updateImportReferences(localDrafts, owner, q.data.generation, current, items => [
+        { id: next.id, generation: next.generation, label: command!.source.source_url ?? "Workout from source text", auto_save: command!.auto_save },
+        ...items.filter(item => item.id !== next.id) ]); current();
+      await cache.invalidateQueries({ queryKey: [owner, "imports"] }); current();
+      await localDrafts.remove(owner, `import-retry:${generation}:${id}`); current();
+      await localDrafts.remove(owner, `import-retry-caption:${generation}:${id}`); current();
+      router.replace({ pathname: "/import/[id]", params: { id: next.id } });
+    } catch (e) { if (isCurrent()) setError((e as Error).message); }
+    finally { saving.current = false; if (isCurrent()) setBusy(false); }
+  }
+  async function cancel(dismiss = false) {
+    const absent = [404, 410].includes((q.error as { status?: number } | null)?.status ?? 0);
+    if (saving.current || !routeReady || !isCurrent() || !generation || (!q.data && !(dismiss && absent))) return;
+    saving.current = true;
     setBusy(true);
     try {
       current();
-      await api.cancelImport(id, q.data.generation);
+      if (!absent) await api.cancelImport(id, q.data!.generation);
       current();
       await retireOriginalSource();
       current();
+      await updateImportReferences(localDrafts, owner, generation, current, items => items.filter(item => item.id !== id));
+      current();
+      await localDrafts.remove(owner, `import-retry:${generation}:${id}`);
+      current();
+      await captionWrites.current.catch(() => undefined); current();
+      await localDrafts.remove(owner, `import-retry-caption:${generation}:${id}`); current();
       cache.removeQueries({ queryKey: [owner, "import-source", id] });
+      await cache.invalidateQueries({ queryKey: [owner, "imports"] });
       await q.refetch();
+      if (dismiss) { current(); router.replace("/(tabs)/library"); }
     } catch (e) {
       if (isCurrent()) setError((e as Error).message);
     } finally {
+      saving.current = false;
       if (isCurrent()) setBusy(false);
     }
   }
@@ -462,7 +523,27 @@ export default function ImportReview() {
             </>}
           </>
         )}
-        {q.data && !["cancelled", "expired"].includes(q.data.status) && !q.data.accepted_workout_id && (
+        {q.data && ["incomplete", "failed", "expired"].includes(q.data.status) && <Card compact>
+          <Copy kind="heading">Try reading the source again</Copy>
+          <Copy kind="small">Paste the creator’s caption or instructions if the video could not be read. This creates a separate private import; your original saved workout stays unchanged.</Copy>
+          <Field label="Caption or source instructions" multiline optional value={caption} onChange={value => {
+            if (!routeReady || !restored || saving.current || retryCommand || !isCurrent()) return;
+            setCaption(value);
+            const next = captionWrites.current.catch(() => undefined).then(async () => {
+              current(); await localDrafts.save(owner, `import-retry-caption:${generation}:${id}`, value); current();
+            });
+            captionWrites.current = next;
+            void next.catch(() => { if (isCurrent()) setError("Could not keep this caption on your device. Stay here until the retry is saved."); });
+          }} disabled={!restored || busy || !!retryCommand} />
+          {!!retryCommand && <Copy kind="small">Retrying the same saved request. Its source and caption stay unchanged until the request is recovered.</Copy>}
+          <Button title={retryCommand ? "Reconnect retry" : caption.trim() ? "Retry with this caption" : "Retry this source"} secondary busy={busy}
+            disabled={!restored || !routeReady || !capabilities.data?.imports} onPress={() => { void retryExtraction(); }} />
+        </Card>}
+        {q.data && importIsTerminal(q.data.status) && <>
+          <Copy kind="small" tone="muted">Dismiss clears this import and its temporary source. Saved workouts stay in your library.</Copy>
+          <Button title="Dismiss import" variant="ghost" busy={busy} onPress={() => { void cancel(true); }} />
+        </>}
+        {q.data && !importIsTerminal(q.data.status) && !q.data.accepted_workout_id && (
           <Button
             title="Cancel import and clear source upload"
             variant="destructive"
@@ -473,6 +554,8 @@ export default function ImportReview() {
           />
         )}
       </QueryState>
+      {[404, 410].includes((q.error as { status?: number } | null)?.status ?? 0) && <Button title="Dismiss import" variant="ghost" busy={busy}
+        onPress={() => { void cancel(true); }} />}
       {!!error && <Notice error>{error}</Notice>}
       {!restored && !!error && <Button title="Try loading again" secondary disabled={busy} onPress={() => {
         setError(""); setRestoreAttempt((value) => value + 1); void q.refetch();

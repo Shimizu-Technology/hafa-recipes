@@ -3,6 +3,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { initialProfile, type AuthoredWorkout, type Workout } from "./models";
+import { ApiError } from "./api";
 import { draftKey } from "./drafts";
 import { submittedCaptureScope } from "./capture";
 import type { Measurement } from "./measurements";
@@ -1910,4 +1911,65 @@ it("retrying a registered native capture only acknowledges its receipt without c
   expect(fixture.nativeAck).toHaveBeenCalledExactlyOnceWith("queued-B"); expect(fixture.normalizeImages).not.toHaveBeenCalled();
   expect(fixture.cleanup).not.toHaveBeenCalled(); expect(fixture.alert).not.toHaveBeenCalled();
   expect(JSON.parse(fixture.map.get(key)!)).toMatchObject(current);
+});
+
+it("retries retained source with caption privately and reconnects the exact request after a transport failure", async () => {
+  fixture.params = { id: "job-A" };
+  fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "failed", result: null });
+  fixture.importSource.mockResolvedValue({ kind: "url", source_url: "https://example.test/workout", text: "Original instructions", ai_consent: true });
+  fixture.startImport.mockRejectedValueOnce(Error("Connection interrupted"));
+  fixture.startImport.mockResolvedValueOnce({ id: "retry-job", generation: 1, status: "queued" });
+  await mount(ImportReview);
+  await act(async () => nodes("Field").find(node => node.props.label === "Caption or source instructions")!.props.onChange("Squat 10 reps for 20 minutes"));
+  await click("Retry with this caption");
+  const first = fixture.startImport.mock.calls[0];
+  expect(first).toEqual([expect.any(String), { kind: "url", source_url: "https://example.test/workout", text: "Original instructions\n\nSquat 10 reps for 20 minutes", ai_consent: true }, 1, { auto_save: true, is_public: false }]);
+  await unmount(); await mount(ImportReview); await click("Reconnect retry");
+  expect(fixture.startImport.mock.calls[1]).toEqual(first);
+  expect(fixture.map.get(draftKey(fixture.owner, "import-visibility:1:retry-job"))).toBe("false");
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "imports:1"))!)[0].id).toBe("retry-job");
+  expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/import/[id]", params: { id: "retry-job" } });
+  expect(fixture.cancelImport).not.toHaveBeenCalled();
+});
+
+it("retries a saved source draft from its link without editing the original library workout", async () => {
+  fixture.params = { id: "job-A" };
+  fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "incomplete", accepted_workout_id: "saved-original", result: {
+    workout: { ...workout, blocks: [], source_url: "https://example.test/source" },
+    warnings: ["Missing exercises"], evidence: [], source: { platform: "web", url: "https://example.test/source", channels: [], coverage_notes: [] }
+  } });
+  fixture.importSource.mockRejectedValue(new ApiError("Source cleared after saving", 410));
+  fixture.startImport.mockResolvedValue({ id: "retry-job", generation: 1, status: "queued" });
+  await mount(ImportReview); await click("Retry this source");
+  expect(fixture.startImport).toHaveBeenCalledWith(expect.any(String), { kind: "url", source_url: "https://example.test/source", ai_consent: true }, 1, { auto_save: true, is_public: false });
+  expect(fixture.updateWorkout).not.toHaveBeenCalled(); expect(fixture.acceptImport).not.toHaveBeenCalled();
+});
+
+it("cancellation removes its reference and keeps the next source import", async () => {
+  fixture.params = { id: "job-A" };
+  fixture.map.set(draftKey(fixture.owner, "imports:1"), JSON.stringify([{ id: "job-A" }, { id: "job-B" }]));
+  fixture.cancelImport.mockResolvedValue(undefined);
+  await mount(ImportReview); await click("Cancel import and clear source upload");
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "imports:1"))!)).toEqual([{ id: "job-B" }]);
+});
+
+it("stops source recovery when the account changes during source retrieval", async () => {
+  fixture.params = { id: "job-A" }; fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "failed", result: null });
+  const held = deferred<{ kind: string; ai_consent: boolean; text: string }>();
+  fixture.importSource.mockReturnValue(held.promise);
+  await mount(ImportReview); await click("Retry this source");
+  fixture.current = false; await act(async () => held.resolve({ kind: "text", text: "Squat 10 reps", ai_consent: true })); await settle();
+  expect(fixture.startImport).not.toHaveBeenCalled();
+});
+
+it("restores caption recovery input after leaving an unfinished source", async () => {
+  fixture.params = { id: "job-A" }; fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "failed", result: null });
+  await mount(ImportReview);
+  await act(async () => nodes("Field").find(node => node.props.label === "Caption or source instructions")!.props.onChange("Squat 10 reps"));
+  await settle(); await unmount(); await mount(ImportReview);
+  expect(nodes("Field").find(node => node.props.label === "Caption or source instructions")!.props.value).toBe("Squat 10 reps");
 });
