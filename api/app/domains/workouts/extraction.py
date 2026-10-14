@@ -930,7 +930,8 @@ def _time_evidence_supported(field_name, value, entry, source, exercise_name=Non
                 break
             end = index + len(entry.wording)
             boundary = re.compile(r"[;,\n]|[.!?](?=\s|$)")
-            left = max((match.end() for match in boundary.finditer(part.text, 0, index)), default=0)
+            left = max((match.end() for match in boundary.finditer(part.text)
+                        if match.end() <= index), default=0)
             following = boundary.search(part.text, end)
             right = following.start() if following else len(part.text)
             clause = part.text[left:right]
