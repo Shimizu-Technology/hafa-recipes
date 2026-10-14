@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from app.domains.workouts.coach_continuity import (
     bulk_schedule,
     comparable_progression,
+    date_move_guard,
     expected_cells,
     future_change_guard,
     logical_sessions,
@@ -394,3 +395,63 @@ def test_negative_shift_past_and_frozen_mutation_fail():
     modified["proposal"]["sessions"][0]["date"] = "2026-11-01"
     with pytest.raises(HTTPException):
         future_change_guard(content, modified, {"future-1"}, set(), TODAY)
+
+
+@pytest.mark.parametrize("original_day", ["2026-10-06", "2026-10-12"])
+@pytest.mark.parametrize("target_day", ["2026-10-10", "2026-10-12"])
+def test_date_move_recovers_unused_missed_or_today_sessions_without_rewriting_work(original_day, target_day):
+    before = calendar()
+    before["proposal"]["sessions"] = [before["proposal"]["sessions"][0]]
+    before["proposal"]["sessions"][0]["date"] = original_day
+    before["schedule_state"] = {"status": "active"}
+    after = deepcopy(before)
+    after["proposal"]["sessions"][0]["date"] = target_day
+    ready = profile().model_copy(update={"available_days": list(range(7))})
+    date_move_guard(before, after, {"past"}, set(), ready, TODAY)
+    date_move_guard(after, before, {"past"}, set(), ready, TODAY, restoring=True)
+    assert before["proposal"]["sessions"][0]["date"] == original_day
+    assert after["schedule_state"] == {"status": "active"}
+
+
+@pytest.mark.parametrize("violation", ["recorded", "prescription", "past", "paused", "removed", "readiness", "unavailable", "spacing", "sport"])
+def test_date_move_preserves_recorded_work_and_canonical_calendar_constraints(violation):
+    before = calendar()
+    before["proposal"]["sessions"] = [before["proposal"]["sessions"][0]]
+    after = deepcopy(before)
+    after["proposal"]["sessions"][0]["date"] = "2026-10-12"
+    ready = profile()
+    recorded_ids = {"past"} if violation == "recorded" else set()
+    if violation == "prescription":
+        after["proposal"]["sessions"][0]["workout"]["title"] = "Different workout"
+    elif violation == "past":
+        after["proposal"]["sessions"][0]["date"] = "2026-10-09"
+    elif violation == "paused":
+        before["schedule_state"] = {"status": "paused"}
+    elif violation == "removed":
+        after["proposal"]["sessions"] = []
+    elif violation == "readiness":
+        ready = ready.model_copy(update={"readiness": "unknown"})
+    elif violation == "unavailable":
+        ready = ready.model_copy(update={"available_days": [2]})
+    elif violation == "spacing":
+        neighbor = deepcopy(before["proposal"]["sessions"][0]) | {"id": "neighbor", "date": "2026-10-13"}
+        before["proposal"]["sessions"].append(neighbor)
+        after["proposal"]["sessions"].append(deepcopy(neighbor))
+    elif violation == "sport":
+        ready = ready.model_copy(update={"primary_goal": "athletic_conditioning", "other_activities": [
+            ActivityContext(date=date(2026, 10, 13), name="basketball", duration_minutes=60, strenuous=True)
+        ]})
+    with pytest.raises(HTTPException):
+        date_move_guard(before, after, {"past"}, recorded_ids, ready, TODAY)
+
+
+def test_recorded_date_move_undo_and_unrelated_changes_stay_frozen():
+    before = calendar()
+    after = deepcopy(before)
+    after["proposal"]["sessions"][0]["date"] = "2026-10-19"
+    with pytest.raises(HTTPException) as error:
+        date_move_guard(after, before, {"past"}, {"past"}, profile(), TODAY, restoring=True)
+    assert "Recorded" in error.value.detail
+    after["proposal"]["sessions"][1]["purpose"] = "Changed unrelated prescription"
+    with pytest.raises(HTTPException):
+        date_move_guard(before, after, {"past"}, set(), profile(), TODAY)

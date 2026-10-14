@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Literal
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
     from app.domains.workouts.export_context import SnapshotSourceContext
@@ -681,11 +682,40 @@ async def update_program(
         raise HTTPException(409, "Program changed; refresh before saving")
     if row.content.get("schedule_state", {}).get("status") == "paused":
         raise HTTPException(409, "Review returning from the pause before editing this program")
+    from app.domains.workouts.automation_router import effective_profile
+    from app.domains.workouts.coach_actions import recorded_program_ids
+    from app.domains.workouts.coach_continuity import (
+        date_move_guard,
+        future_change_guard,
+        logical_sessions,
+        validate_calendar,
+    )
+    from app.domains.workouts.schedule import validate_other_program_dates
     from app.domains.workouts.source_media import retain_source_cover
 
+    content = row.content | program_content(request)
+    originals, updated = logical_sessions(row.content), logical_sessions(content)
+    changed_ids = {
+        key for key in set(originals) | set(updated) if originals.get(key) != updated.get(key)
+    }
+    if changed_ids:
+        profile, _ = await effective_profile(db, user.id, generation)
+        today = now().astimezone(ZoneInfo(profile.timezone)).date()
+        recorded = await recorded_program_ids(db, user.id, generation, row.id)
+        date_only = set(originals) == set(updated) and all(
+            {k: v for k, v in originals[key].items() if k != "date"}
+            == {k: v for k, v in updated[key].items() if k != "date"}
+            for key in changed_ids
+        )
+        if date_only:
+            date_move_guard(row.content, content, changed_ids, recorded, profile, today)
+        else:
+            future_change_guard(row.content, content, changed_ids, recorded, today)
+            validate_calendar(content, profile, changed_ids)
+        await validate_other_program_dates(db, user.id, generation, row.id, content, changed_ids)
     for session in request.proposal.sessions:
         await retain_source_cover(db, user.id, generation, session.workout.source_thumbnail_url)
-    row.content = program_content(request)
+    row.content = content
     row.revision += 1
     row.updated_at = now()
     db.add(

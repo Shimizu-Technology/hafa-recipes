@@ -1,6 +1,6 @@
 import { programSessionStates, programSessionKey } from "@/lib/program-session-identity";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { router } from "expo-router";
 import * as Crypto from "expo-crypto";
 import {
@@ -53,12 +53,13 @@ function DateBadge({ date, done }: { date: string; done: boolean }) {
   );
 }
 export default function Plan() {
-  const { api, owner, enrollment } = useTraining();
+  const { api, owner, enrollment, isCurrentAccount, storage } = useTraining();
   const offline = useOfflineTraining();
   const cache = useQueryClient();
   const [error, setError] = useState("");
   const [menu, setMenu] = useState<Program | null>(null);
   const [busy, setBusy] = useState(false);
+  const moving = useRef(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [date, setDate] = useState("");
   const [inspecting, setInspecting] = useState<string | null>(null);
@@ -89,6 +90,11 @@ export default function Plan() {
     }
   }
   async function move(p: Program, s: ScheduledSession) {
+    if (busy || moving.current || !isCurrentAccount() || !storage.isCurrent()) return;
+    if (statuses.has(programSessionKey(p.id, s.id)!)) {
+      setError("Recorded sessions keep their original date. Start a separate session to train again.");
+      return;
+    }
     if (!isISODate(date) || date < today) {
       setError("Choose today or a future date in YYYY-MM-DD format.");
       return;
@@ -98,6 +104,7 @@ export default function Plan() {
       setError("That day already has a planned session. Choose another day to preserve recovery.");
       return;
     }
+    moving.current = true;
     setBusy(true);
     setError("");
     try {
@@ -105,14 +112,16 @@ export default function Plan() {
         ...p,
         sessions: p.sessions.map((item) => (item.id === s.id ? { ...item, date } : item)),
       });
+      if (!isCurrentAccount() || !storage.isCurrent()) return;
       cache.setQueryData<Program[]>([owner, "programs", enrollment?.generation], (old) =>
-        old?.map((item) => (item.id === p.id ? saved : item))
+        old?.map((item) => (item.id === p.id && item.revision <= saved.revision ? saved : item))
       );
       setEditing(null);
     } catch (e) {
-      setError((e as Error).message);
+      if (isCurrentAccount() && storage.isCurrent()) setError((e as Error).message);
     } finally {
-      setBusy(false);
+      moving.current = false;
+      if (isCurrentAccount() && storage.isCurrent()) setBusy(false);
     }
   }
   return (
@@ -220,7 +229,7 @@ export default function Plan() {
                   const key = programSessionKey(p.id, s.id);
                   const status = statuses.get(key!);
                   const done = status === "completed";
-                  const missed = s.date < today && !done && p.schedule_state?.status !== "paused";
+                  const missed = s.date < today && !status && p.schedule_state?.status !== "paused";
                   return (
                     <View key={s.id} style={{ gap: 10 }}>
                       <Row gap={14} align="flex-start">
@@ -240,7 +249,7 @@ export default function Plan() {
                         </Copy>
                       )}
                       {status === "partial" && <Notice>Partially recorded. Your saved sets stay in Progress; starting again creates a separate session.</Notice>}
-                      {status === "skipped" && <Notice>No completed sets recorded. This session still needs your review.</Notice>}
+                      {status === "skipped" && <Notice>No completed sets recorded. Its original date stays in history; start a separate session to train again.</Notice>}
                       {missed && <Notice tone="warning">This date has passed. Move this session to a day that works, or train it now. Other sessions keep their dates.</Notice>}
                       <Button title={inspecting === key ? "Hide session instructions" : "Inspect session instructions"} secondary size="sm" inline
                         onPress={() => setInspecting(inspecting === key ? null : key)} />
@@ -264,7 +273,7 @@ export default function Plan() {
                               void start(p, s);
                             }}
                           />
-                          {!done && <Button
+                          {!status && <Button
                             title={missed ? "Choose a new date" : "Move this session"}
                             variant="ghost"
                             size="sm"
@@ -277,12 +286,12 @@ export default function Plan() {
                           />}
                         </Row>
                       )}
-                      {editing === key && (
+                      {editing === key && !status && (
                         <Card tone="sunken" compact>
                           <Field label="New date · YYYY-MM-DD" value={date} onChange={setDate} />
                           <Copy kind="small" tone="muted">
-                            This changes future scheduling only. Recorded training and its original prescription stay
-                            intact.
+                            Choose today or a future date. The workout instructions stay unchanged;
+                            recorded sessions keep their original dates.
                           </Copy>
                           <Row gap={10}>
                             <Button

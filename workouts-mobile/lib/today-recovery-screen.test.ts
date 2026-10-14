@@ -71,17 +71,18 @@ beforeEach(() => {
   fixture.correct.mockResolvedValue(undefined); fixture.sync.mockResolvedValue(undefined);
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
 });
-it("Plan distinguishes partial work and permits inspecting and explicitly moving a missed session", async () => {
+it("Plan distinguishes partial work and permits inspecting recorded work and explicitly moving an unused missed session", async () => {
   fixture.available = true;
   const workout: Workout = { id: "workout", revision: 1, generation: 1, title: "Strength", kind: "session", provenance: "source",
     blocks: [{ id: "main", label: "Work", grouping: "sequential", rounds: 1,
       exercises: [{ name: "Row", sets: 3, reps_min: 8, rest_seconds: 30, notes: "Keep your back steady" }] }] };
   const program: Program = { id: "plan", title: "My plan", generation: 1, revision: 1, status: "ready", questions: [], warnings: [],
-    assumptions: [], source_ids: [], rule_version: "test", sessions: [{ id: "missed", date: "2020-01-01", purpose: "Strength day", workout }] };
+    assumptions: [], source_ids: [], rule_version: "test", sessions: [{ id: "recorded", date: "2020-01-01", purpose: "Strength day", workout },
+      { id: "missed", date: "2020-01-03", purpose: "Unused day", workout }] };
   const otherPlan = { ...program, id: "another-plan", sessions: [{ ...program.sessions[0], id: "future", date: "2099-01-01" }] };
   fixture.programs.mockResolvedValue([program, otherPlan]);
   fixture.sessions.mockResolvedValue([{ id: "saved", client_session_id: "client", generation: 1,
-    content: { client_session_id: "client", program_id: "plan", program_session_id: "missed", status: "partial",
+    content: { client_session_id: "client", program_id: "plan", program_session_id: "recorded", status: "partial",
       started_at: "2020-01-01T00:00:00Z", actuals: [{ completed: true }], prescription_snapshot: workout } }]);
   fixture.updateProgram.mockImplementation(async (updated) => ({ ...updated, revision: 2 }));
   await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Plan))); }); await settle();
@@ -89,6 +90,7 @@ it("Plan distinguishes partial work and permits inspecting and explicitly moving
   await act(async () => buttons("Inspect session instructions")[0].props.onPress());
   expect(text()).toContain("Keep your back steady"); expect(text()).toContain("30s rest");
   expect(fixture.start).not.toHaveBeenCalled();
+  expect(buttons("Choose a new date")).toHaveLength(1);
   await act(async () => buttons("Choose a new date")[0].props.onPress());
   const field = renderer!.root.findAllByType("Field" as never).find((n) => n.props.label === "New date · YYYY-MM-DD")!;
   expect(field.props.value).toBe(dateInTimezone(new Date(), "UTC"));
@@ -102,7 +104,7 @@ it("Plan distinguishes partial work and permits inspecting and explicitly moving
   expect(text()).toContain("That day already has a planned session");
   await act(async () => field.props.onChange(dateInTimezone(new Date(), "UTC")));
   await act(async () => buttons("Save new date")[0].props.onPress()); await settle();
-  expect(fixture.updateProgram).toHaveBeenCalledWith(expect.objectContaining({ sessions: [expect.objectContaining({ date: dateInTimezone(new Date(), "UTC") })] }));
+  expect(fixture.updateProgram).toHaveBeenCalledWith(expect.objectContaining({ sessions: [expect.objectContaining({ id: "recorded", date: "2020-01-01" }), expect.objectContaining({ id: "missed", date: dateInTimezone(new Date(), "UTC") })] }));
   expect(program.sessions[0].date).toBe("2020-01-01");
 });
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; cache.clear(); });
@@ -272,3 +274,41 @@ it("Today pauses recorded-day markers for missing correction ancestry and retrie
   expect(fixture.session.mock.calls).toEqual([["B"], ["B"]]);
   expect(fixture.start).not.toHaveBeenCalled();
 });
+
+it.each(["partial", "completed"])("Plan keeps recorded %s sessions with no completed sets frozen", async (status) => {
+  fixture.available = true;
+  const program = { id: "plan", generation: 1, revision: 1, status: "ready", sessions: [{ id: "recorded", date: "2020-01-01",
+    purpose: "Saved plan", workout: { title: "Recorded strength" } }] } as Program;
+  fixture.programs.mockResolvedValue([program]);
+  fixture.sessions.mockResolvedValue([{ id: "saved", client_session_id: "client", generation: 1,
+    content: { client_session_id: "client", program_id: "plan", program_session_id: "recorded", status,
+      started_at: "2020-01-01T00:00:00Z", actuals: [], prescription_snapshot: { blocks: [] } } }]);
+  await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Plan))); }); await settle();
+  expect(buttons("Choose a new date")).toHaveLength(0);
+  expect(buttons("Move this session")).toHaveLength(0);
+  expect(text()).toContain("Its original date stays in history");
+  expect(fixture.updateProgram).not.toHaveBeenCalled();
+});
+
+it.each(["newer_revision", "retired_account"])("date recovery shares repeated taps and respects %s during a held save", async change => {
+  fixture.available = true;
+  const program: Program = { id: "plan", title: "Strength", generation: 1, revision: 1, status: "ready", sessions: [{
+    id: "missed", date: "2020-01-01", purpose: "Strength", workout: { id: "w", title: "Strength", generation: 1, revision: 1,
+      kind: "session", provenance: "user", blocks: [{ id: "main", label: "Main", grouping: "sequential", exercises: [{ name: "Row", sets: 2, reps_min: 8 }] }] },
+  }], questions: [], warnings: [], assumptions: [], source_ids: [], rule_version: "test" };
+  fixture.programs.mockResolvedValue([program]);
+  let finish!: (p: Program) => void;
+  fixture.updateProgram.mockImplementation(() => new Promise<Program>(done => { finish = done; }));
+  await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Plan))); }); await settle();
+  await act(async () => buttons("Choose a new date")[0].props.onPress());
+  const press = buttons("Save new date")[0].props.onPress;
+  await act(async () => { press(); press(); });
+  expect(fixture.updateProgram).toHaveBeenCalledTimes(1);
+  const requested = fixture.updateProgram.mock.calls[0][0];
+  expect(requested.sessions[0]).toEqual({ ...program.sessions[0], date: dateInTimezone(new Date(), "UTC") });
+  const newer = { ...program, revision: 3 };
+  if (change === "newer_revision") await act(async () => { cache.setQueryData(["owner-A", "programs", 1], [newer]); });
+  else { fixture.current = false; fixture.epoch++; }
+  await act(async () => finish({ ...requested, revision: 2 })); await settle();
+  expect(cache.getQueryData(["owner-A", "programs", 1])).toEqual([change === "newer_revision" ? newer : program]);
+  expect(cache.getQueryData(["owner-B", "programs", 1])).toBeUndefined();
