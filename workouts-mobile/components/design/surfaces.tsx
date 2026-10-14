@@ -54,9 +54,19 @@ export function Screen({
   const insets = useSafeAreaInsets();
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: c.background }}
+      style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
+      <View style={{ paddingHorizontal: spacing.lg - 4, paddingVertical: spacing.xs, width: "100%", maxWidth: contentWidth, alignSelf: "center" }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: 48 }}>
+          {back ? (
+            <IconButton icon="chevron-back" label="Go back" variant="plain" onPress={() => router.back()} />
+          ) : (
+            <BrandLockup />
+          )}
+          {action}
+        </View>
+      </View>
       <ScrollView
         keyboardShouldPersistTaps="handled"
         refreshControl={
@@ -73,7 +83,7 @@ export function Screen({
             : undefined
         }
         contentContainerStyle={{
-          paddingTop: insets.top + spacing.xs,
+          paddingTop: spacing.md,
           paddingBottom: (footer ? spacing.lg : insets.bottom + spacing.xl),
           paddingHorizontal: spacing.lg - 4,
           gap: spacing.lg,
@@ -82,14 +92,6 @@ export function Screen({
           alignSelf: "center",
         }}
       >
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, minHeight: 48 }}>
-          {back ? (
-            <IconButton icon="chevron-back" label="Go back" variant="plain" onPress={() => router.back()} />
-          ) : (
-            <BrandLockup />
-          )}
-          {action}
-        </View>
         <View style={{ gap: 6 }}>
           {!!eyebrow && <Copy kind="caption" tone="accent">{eyebrow}</Copy>}
           <Copy kind="title">{title}</Copy>

@@ -125,7 +125,7 @@ export function authoredWorkout(workout: AuthoredWorkout | Workout): AuthoredWor
     publication: _publication,
     ...body
   } = workout as Workout;
-  return body;
+  return { ...body, ...(body.notes ? { notes: body.notes.map(note => note.trim()).filter(Boolean) } : {}) };
 }
 function programRecord(
   row: RecordEnvelope<{

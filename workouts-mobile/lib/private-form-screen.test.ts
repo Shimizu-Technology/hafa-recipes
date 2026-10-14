@@ -1465,7 +1465,7 @@ it("keeps unknowns and less common prescription values intact through simple edi
       load: 10, load_unit: "kg", load_convention: "per_hand", tempo: "3-1-1", notes: "Control the movement", per_side: null }],
   }] };
   await mountRealWorkoutEditor(content);
-  expect(nodes("Field").map((n) => n.props.label)).toEqual(["Workout title", "Required equipment · comma separated", "Exercise name", "Sets", "Reps"]);
+  expect(nodes("Field").map((n) => n.props.label)).toEqual(["Workout title", "Workout duration · minutes", "Workout instructions · one instruction per line", "Required equipment · comma separated", "Exercise name", "Sets", "Reps"]);
   expect(fixture.updateWorkout).not.toHaveBeenCalled();
   await click("More details for Row");
   expect(nodes("Field").find((n) => n.props.label === "Rest · seconds")!.props.value).toBe("45");
@@ -1481,6 +1481,18 @@ it("keeps unknowns and less common prescription values intact through simple edi
   expect(corrected.blocks[0]).toEqual({ ...content.blocks[0], exercises: [{ ...content.blocks[0].exercises[0], sets: 2, provenance: "user" }] });
   expect(corrected.blocks[0].exercises[0].reps_min).toBeNull();
   expect(corrected.blocks[0].exercises[0].reps_max).toBeNull();
+});
+it("corrects overall duration and instructions without changing the exercise prescription", async () => {
+  const content: AuthoredWorkout = { ...workout, estimated_minutes: null, notes: ["Repeat the circuit"], provenance: "source" };
+  await mountRealWorkoutEditor(content);
+  await act(async () => nodes("Field").find((n) => n.props.label === "Workout duration · minutes")!.props.onChange("20"));
+  await act(async () => nodes("Field").find((n) => n.props.label === "Workout instructions · one instruction per line")!.props.onChange("Repeat for 20 minutes\nRest after each round"));
+  const corrected = fixture.updateWorkout.mock.calls.at(-1)![0];
+  expect(corrected.estimated_minutes).toBe(20);
+  expect(corrected.notes).toEqual(["Repeat for 20 minutes", "Rest after each round"]);
+  expect(corrected.blocks).toEqual(content.blocks);
+  await act(async () => nodes("Field").find((n) => n.props.label === "Workout duration · minutes")!.props.onChange(""));
+  expect(fixture.updateWorkout.mock.calls.at(-1)![0].estimated_minutes).toBeNull();
 });
 it("shows existing time and distance without making optional numeric fields into zero", async () => {
   await mountRealWorkoutEditor({ ...workout, blocks: [{ ...workout.blocks[0], exercises: [{ name: "Run", duration_seconds: 60, distance_meters: 400 }] }] });

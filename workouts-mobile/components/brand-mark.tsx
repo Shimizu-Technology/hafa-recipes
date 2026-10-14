@@ -1,4 +1,4 @@
-import { Text, useColorScheme, View } from "react-native";
+import { Platform, Text, useColorScheme, View } from "react-native";
 import Svg, { Path, Rect } from "react-native-svg";
 import { markColors, typography } from "@/constants/theme";
 import { markShapes, type MarkRole } from "./brand-mark-shapes";
@@ -22,8 +22,9 @@ export function BrandMark({ height = 28, mono }: { height?: number; mono?: strin
       width={height * ASPECT}
       height={height}
       viewBox={`${VIEWBOX.x} ${VIEWBOX.y} ${VIEWBOX.width} ${VIEWBOX.height}`}
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
+      {...(Platform.OS === "web"
+        ? { "aria-hidden": true }
+        : { accessibilityElementsHidden: true, importantForAccessibility: "no-hide-descendants" as const })}
     >
       {shapes.map((s, i) =>
         s.kind === "rect" ? (
@@ -44,10 +45,10 @@ export function BrandLockup({ height = 24, mono }: { height?: number; mono?: str
       accessible
       accessibilityRole="header"
       accessibilityLabel="Håfa Workouts"
-      style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+      style={{ flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1, minWidth: 0 }}
     >
       <BrandMark height={height} mono={mono} />
-      <Text style={[typography.subheading, { color: mono ?? c.text }]}>
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[typography.subheading, { color: mono ?? c.text, flexShrink: 1 }]}>
         Håfa <Text style={{ fontFamily: typography.body.fontFamily, color: mono ?? c.muted }}>Workouts</Text>
       </Text>
     </View>
