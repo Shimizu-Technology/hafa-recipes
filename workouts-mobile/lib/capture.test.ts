@@ -7,6 +7,8 @@ const native = vi.hoisted(() => ({
   files: new Map<string, string>(),
   records: new Map<string, string>(),
   nativeProcess: "native-process-one",
+  platform: "android",
+  normalizeCaptureImage: vi.fn(),
   recordSet: vi.fn(),
   recordRemove: vi.fn(),
   next: 0,
@@ -27,8 +29,11 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
   }
 }));
 vi.mock("expo-modules-core", () => ({
-  requireOptionalNativeModule: () => ({ nativeProcessIdentity: () => native.nativeProcess })
+  requireOptionalNativeModule: (name: string) => name === "HafaWorkoutsShare"
+    ? { normalizeCaptureImage: native.normalizeCaptureImage }
+    : { nativeProcessIdentity: () => native.nativeProcess }
 }));
+vi.mock("react-native", () => ({ Platform: { get OS() { return native.platform; } } }));
 vi.mock("expo-image-picker", () => ({
   launchImageLibraryAsync: native.picker,
   launchCameraAsync: native.picker,
@@ -72,11 +77,13 @@ function deferred<T>() {
 }
 beforeEach(() => {
   native.nativeProcess = "native-process-one";
+  native.platform = "android";
   native.files.clear();
   native.records.clear();
   native.next = 0;
   native.size = 100;
   vi.clearAllMocks();
+  native.normalizeCaptureImage.mockImplementation(async (_source, destination) => { native.files.set(destination, "normalized"); });
   native.recordSet.mockImplementation(async (key: string, value: string) => {
     native.records.set(key, value);
   });
@@ -106,6 +113,40 @@ const draft: CaptureDraft = {
   files: [],
   created_at: "2026-10-10T00:00:00Z"
 };
+it("journals each iOS image destination before its native writer starts", async () => {
+  native.platform = "ios";
+  const original = "file:///shared/original.png"; native.files.set(original, "Original");
+  native.normalizeCaptureImage.mockImplementation(async (source, destination) => {
+    const record = [...native.records.values()].map(raw => JSON.parse(raw))[0];
+    expect(record).toMatchObject({ state: "open", nativeKind: "known" });
+    expect(record.assets).toContainEqual({ uri: destination, kind: "capture" });
+    expect(source).toBe(original); native.files.set(destination, "Normalized");
+  });
+  const files = await normalizeImages([{ uri: original, name: "Source.png" }], () => {}, "ios-owner");
+  expect(files[0]).toMatchObject({ owned: true, mime_type: "image/jpeg", name: "Source.png" });
+  expect(native.files.get(files[0].uri)).toBe("Normalized");
+  expect(native.files.get(original)).toBe("Original");
+  expect(native.manipulate).not.toHaveBeenCalled(); expect(native.copy).not.toHaveBeenCalled();
+});
+it("cold-process recovery removes an interrupted iOS image write without unknown SDK files", async () => {
+  native.platform = "ios";
+  const entered = deferred<void>(), neverFinishes = deferred<void>();
+  const original = "file:///shared/original.png", other = "file:///cache/hafa-workouts-capture/other.jpg";
+  native.files.set(original, "Original"); native.files.set(other, "Other account");
+  let destination = "";
+  native.normalizeCaptureImage.mockImplementation(async (_source, target) => {
+    destination = target; native.files.set(target, "Partial write"); entered.resolve();
+    await neverFinishes.promise;
+  });
+  void normalizeImages([{ uri: original }], () => {}, "ios-owner").catch(() => undefined);
+  await entered.promise;
+  await expect(restartedJournal().recover("ios-owner")).rejects.toThrow("still finishing");
+  expect(native.files.has(destination)).toBe(true);
+  native.nativeProcess = "native-process-two";
+  await restartedJournal().recover("ios-owner");
+  expect(native.files.has(destination)).toBe(false);
+  expect([...native.files.keys()]).toEqual([original, other]); expect(native.records.size).toBe(0);
+});
 it("copies a shared PDF into the owner journal without consuming its borrowed extension original", async () => {
   const uri = "file:///shared/workout.pdf"; native.files.set(uri, "PDF contents");
   const files = await normalizeDocument({ uri, mimeType: "application/pdf", name: "Workout.pdf" }, () => {}, "document-owner");

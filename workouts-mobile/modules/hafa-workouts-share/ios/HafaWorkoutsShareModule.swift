@@ -1,9 +1,18 @@
 import ExpoModulesCore
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 public final class HafaWorkoutsShareModule: Module {
+  private static let imageQueue = DispatchQueue(label: "com.shimizutechnology.hafaworkouts.capture-images")
   public func definition() -> ModuleDefinition {
     Name("HafaWorkoutsShare")
+    AsyncFunction("normalizeCaptureImage") { [weak self] (source: String, destination: String) throws in
+      guard let cache = self?.appContext?.config.cacheDirectory else {
+        throw NSError(domain: WorkoutsShareStore.service, code: 6)
+      }
+      try CaptureImageNormalizer.write(source, to: destination, cacheDirectory: cache)
+    }.runOnQueue(Self.imageQueue)
     AsyncFunction("installationId") { () throws -> String in
       guard let id = WorkoutsShareStore.locked({ d -> String in
         if let id = d.string(forKey: "workouts.share.installation") { return id }
@@ -56,5 +65,43 @@ public final class HafaWorkoutsShareModule: Module {
       let session = WorkoutsShareStore.network(); defer { session.finishTasksAndInvalidate() }
       _ = try? await session.data(for: request)
     }
+  }
+}
+
+enum CaptureImageNormalizer {
+  static func write(_ source: String, to destination: String, cacheDirectory: URL) throws {
+    let cache = cacheDirectory.resolvingSymlinksInPath()
+      .appendingPathComponent("hafa-workouts-capture", isDirectory: true).standardizedFileURL
+    guard let input = URL(string: source), input.isFileURL, input.host == nil || input.host == "",
+      input.query == nil, input.fragment == nil,
+      let output = URL(string: destination), output.isFileURL, output.host == nil || output.host == "",
+      output.query == nil, output.fragment == nil,
+      output.standardizedFileURL.resolvingSymlinksInPath().deletingLastPathComponent() == cache,
+      output.pathExtension == "jpg",
+      !FileManager.default.fileExists(atPath: output.path),
+      let image = CGImageSourceCreateWithURL(input as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else {
+      throw NSError(domain: WorkoutsShareStore.service, code: 6,
+        userInfo: [NSLocalizedDescriptionKey: "Choose an available, readable workout image."])
+    }
+    var result: Data?
+    for limit in [1600, 1200, 900] {
+      let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: limit,
+        kCGImageSourceShouldCacheImmediately: true]
+      guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(image, 0, options as CFDictionary) else { break }
+      let bytes = NSMutableData()
+      guard let encoder = CGImageDestinationCreateWithData(bytes, UTType.jpeg.identifier as CFString, 1, nil) else { break }
+      CGImageDestinationAddImage(encoder, thumbnail, [kCGImageDestinationLossyCompressionQuality: 0.65] as CFDictionary)
+      guard CGImageDestinationFinalize(encoder) else { break }
+      result = bytes as Data
+      if bytes.length <= 300 * 1024 { break }
+    }
+    guard let result, result.count <= 350 * 1024 else {
+      throw NSError(domain: WorkoutsShareStore.service, code: 7,
+        userInfo: [NSLocalizedDescriptionKey: "That image is still too large. Crop the workout or use clearer screenshots."])
+    }
+    // Write only the already-journaled destination, including a partial write.
+    // Atomic writes can create an unregistered temporary sibling on interruption.
+    try result.write(to: output, options: .withoutOverwriting)
   }
 }
