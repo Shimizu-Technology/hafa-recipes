@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { initialProfile, type AuthoredWorkout, type Workout } from "./models";
 import { ApiError } from "./api";
 import { draftKey } from "./drafts";
+import { createPrivateForm } from "./private-form";
 import { submittedCaptureScope } from "./capture";
 import type { Measurement } from "./measurements";
 const fixture = vi.hoisted(() => ({
@@ -13,10 +14,12 @@ const fixture = vi.hoisted(() => ({
   run: 0,
   params: {} as { id?: string; shared?: string; request_id?: string; auto?: string },
   revision: 1,
+  generation: 1,
   saveWorkout: vi.fn(),
   persist: vi.fn(),
   push: vi.fn(),
   replace: vi.fn(),
+  dismissTo: vi.fn(),
   importJob: vi.fn(),
   cancelImport: vi.fn(),
   acceptImport: vi.fn(),
@@ -106,7 +109,7 @@ vi.mock("@/lib/context", () => {
   return {
     useTraining: () => ({
       owner: fixture.owner,
-      enrollment: { enrolled: true, generation: 1 },
+      enrollment: { enrolled: true, generation: fixture.generation },
       units: "metric",
       isCurrentAccount: () => fixture.current,
       storage,
@@ -140,7 +143,7 @@ vi.mock("@/lib/capture-io", () => ({
   sourceFor: fixture.sourceFor
 }));
 vi.mock("expo-router", () => ({
-  router: { push: fixture.push, replace: fixture.replace },
+  router: { push: fixture.push, replace: fixture.replace, dismissTo: fixture.dismissTo },
   useFocusEffect() {},
   useLocalSearchParams: () => fixture.params
 }));
@@ -272,6 +275,7 @@ beforeEach(() => {
   fixture.owner = `owner-${++fixture.run}`;
   fixture.params = {};
   fixture.revision = 1;
+  fixture.generation = 1;
   fixture.writeFailure = false;
   fixture.removeFailureScope = "";
   fixture.current = true;
@@ -1038,15 +1042,167 @@ it("mounted workout editing preserves original content/revision across backgroun
   await unmount();
   cache.clear();
   await mount(EditWorkout);
-  expect(find("WorkoutEditor").props.disabled).toBe(true);
-  expect(button("Reload saved workout and discard this draft")).toBeDefined();
-  const reloading = deferred<Workout>();
-  fixture.workout.mockReturnValueOnce(reloading.promise);
-  await click("Reload saved workout and discard this draft");
-  expect(button("Reloading workout…").props.busy).toBe(true);
-  await act(async () => reloading.resolve({ ...original, revision: 2 }));
+  expect(find("WorkoutEditor").props.disabled).toBe(false);
+  expect(find("WorkoutEditor").props.value.title).toBe("Desired correction");
+  expect(fixture.updateWorkout).toHaveBeenCalledTimes(2);
+  expect(fixture.dismissTo).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "workout" } });
+});
+
+it("mounted completed workout edits reopen the current server revision despite a stale cache and can save again", async () => {
+  fixture.params = { id: "workout" };
+  await mount(EditWorkout);
+  const corrected = { ...workout, revision: 2, title: "Saved correction" };
+  fixture.updateWorkout.mockResolvedValueOnce(corrected);
+  await click("Save new workout version");
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "workout-edit:1:workout"))!)).toMatchObject({
+    terminal: true, saved_id: "workout", input: null, command: null
+  });
+  await unmount();
+  cache.setQueryData([fixture.owner, "workout", "workout", 1], workout);
+  const fresh = deferred<Workout>();
+  fixture.workout.mockReturnValue(fresh.promise);
+  await mount(EditWorkout);
+  expect(nodes("WorkoutEditor")).toHaveLength(0);
+  await act(async () => fresh.resolve(corrected));
   await settle();
   expect(find("WorkoutEditor").props.disabled).toBe(false);
+  expect(find("WorkoutEditor").props.value.title).toBe("Saved correction");
+  await act(async () => find("WorkoutEditor").props.onChange({ ...corrected, title: "Second correction" }));
+  fixture.updateWorkout.mockResolvedValueOnce({ ...corrected, title: "Second correction", revision: 3 });
+  await click("Save new workout version");
+  expect(fixture.updateWorkout.mock.calls[1][0]).toMatchObject({ revision: 2, title: "Second correction" });
+  expect(fixture.dismissTo).toHaveBeenCalledTimes(2);
+  expect(fixture.replace).not.toHaveBeenCalled();
+});
+
+it("mounted completed workout edits keep their receipt when reopening is offline and recover without replaying a save", async () => {
+  fixture.params = { id: "workout" };
+  fixture.map.set(draftKey(fixture.owner, "workout-edit:1:workout"), JSON.stringify({
+    version: 1, terminal: true, removed: false, saved_id: "workout", input: null, command: null
+  }));
+  cache.setQueryData([fixture.owner, "workout", "workout", 1], workout);
+  fixture.workout.mockRejectedValue(Error("offline"));
+  await mount(EditWorkout);
+  expect(nodes("WorkoutEditor")).toHaveLength(0);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "workout-edit:1:workout"))!).terminal).toBe(true);
+  fixture.workout.mockResolvedValue({ ...workout, revision: 4, title: "Current saved version" });
+  await click("Load saved workout");
+  expect(find("WorkoutEditor").props.value.title).toBe("Current saved version");
+  expect(find("WorkoutEditor").props.disabled).toBe(false);
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+});
+
+it("mounted workout edit preserves its frozen command when saving succeeded but the local receipt write failed", async () => {
+  fixture.params = { id: "workout" };
+  await mount(EditWorkout);
+  fixture.updateWorkout.mockImplementationOnce(async (value) => {
+    fixture.writeFailure = true;
+    return { ...value, revision: 2 };
+  });
+  await click("Save new workout version");
+  const original = fixture.updateWorkout.mock.calls[0][0];
+  expect(fixture.dismissTo).not.toHaveBeenCalled();
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "workout-edit:1:workout"))!).command).toEqual(original);
+  fixture.writeFailure = false;
+  await unmount();
+  await mount(EditWorkout);
+  expect(find("WorkoutEditor").props.disabled).toBe(true);
+  fixture.updateWorkout.mockResolvedValueOnce({ ...original, revision: 2 });
+  await click("Retry saving changes");
+  expect(fixture.updateWorkout.mock.calls[1][0]).toEqual(original);
+  expect(fixture.dismissTo).toHaveBeenCalledTimes(1);
+});
+
+it("mounted completed workout edit cannot reopen after its owner changes during the fresh read", async () => {
+  fixture.params = { id: "workout" };
+  const oldOwner = fixture.owner, key = draftKey(oldOwner, "workout-edit:1:workout");
+  fixture.map.set(key, JSON.stringify({ version: 1, terminal: true, removed: false, saved_id: "workout", input: null, command: null }));
+  const fresh = deferred<Workout>();
+  fixture.workout.mockReturnValue(fresh.promise);
+  await mount(EditWorkout);
+  fixture.workout.mockResolvedValue(workout);
+  fixture.owner = "other-owner";
+  await rerender(EditWorkout);
+  await act(async () => fresh.resolve({ ...workout, revision: 7, title: "Old owner result" }));
+  await settle();
+  expect(JSON.parse(fixture.map.get(key)!).terminal).toBe(true);
+  expect(find("WorkoutEditor").props.value.title).not.toBe("Old owner result");
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+});
+
+it("mounted completed workout edit cannot move its receipt into a new enrollment during the fresh read", async () => {
+  fixture.params = { id: "workout" };
+  const key = draftKey(fixture.owner, "workout-edit:1:workout");
+  fixture.map.set(key, JSON.stringify({ version: 1, terminal: true, removed: false, saved_id: "workout", input: null, command: null }));
+  const fresh = deferred<Workout>();
+  fixture.workout.mockReturnValue(fresh.promise);
+  await mount(EditWorkout);
+  fixture.workout.mockResolvedValue({ ...workout, generation: 2, title: "New enrollment workout" });
+  fixture.generation = 2;
+  await rerender(EditWorkout);
+  await act(async () => fresh.resolve({ ...workout, revision: 7, title: "Old enrollment result" }));
+  await settle();
+  expect(JSON.parse(fixture.map.get(key)!).terminal).toBe(true);
+  expect(find("WorkoutEditor").props.value.title).toBe("New enrollment workout");
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+});
+
+it("mounted acknowledged workout edit keeps its completed receipt if returning to the detail fails", async () => {
+  fixture.params = { id: "workout" };
+  await mount(EditWorkout);
+  const saved = { ...workout, revision: 2, title: "Saved correction" };
+  fixture.updateWorkout.mockResolvedValueOnce(saved);
+  fixture.dismissTo.mockImplementationOnce(() => { throw Error("navigation unavailable"); });
+  await click("Save new workout version");
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "workout-edit:1:workout"))!).terminal).toBe(true);
+  expect(find("WorkoutEditor").props.disabled).toBe(true);
+  await unmount();
+  fixture.workout.mockResolvedValue(saved);
+  await mount(EditWorkout);
+  expect(find("WorkoutEditor").props.disabled).toBe(false);
+  expect(find("WorkoutEditor").props.value.title).toBe("Saved correction");
+  expect(fixture.updateWorkout).toHaveBeenCalledTimes(1);
+});
+
+it("mounted completed workout edit keeps its receipt if reopening cannot be persisted locally", async () => {
+  fixture.params = { id: "workout" };
+  const key = draftKey(fixture.owner, "workout-edit:1:workout");
+  fixture.map.set(key, JSON.stringify({ version: 1, terminal: true, removed: false, saved_id: "workout", input: null, command: null }));
+  fixture.writeFailure = true;
+  await mount(EditWorkout);
+  expect(nodes("WorkoutEditor")).toHaveLength(0);
+  expect(JSON.parse(fixture.map.get(key)!).terminal).toBe(true);
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+});
+
+it("mounted completed workout edit stops when removal occurs during its fresh read", async () => {
+  fixture.params = { id: "workout" };
+  const key = draftKey(fixture.owner, "workout-edit:1:workout");
+  fixture.map.set(key, JSON.stringify({ version: 1, terminal: true, removed: false, saved_id: "workout", input: null, command: null }));
+  const fresh = deferred<Workout>();
+  fixture.workout.mockReturnValue(fresh.promise);
+  await mount(EditWorkout);
+  await createPrivateForm({ getItem: async (k) => fixture.map.get(k) ?? null,
+    setItem: async (k, v) => { fixture.map.set(k, v); }, removeItem: async (k) => { fixture.map.delete(k); } },
+    fixture.owner, "workout-edit:1:workout").retire();
+  await act(async () => fresh.resolve({ ...workout, revision: 2 }));
+  await settle();
+  expect(nodes("WorkoutEditor")).toHaveLength(0);
+  expect(JSON.parse(fixture.map.get(key)!).removed).toBe(true);
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+});
+
+it("mounted removed workout edit cannot reset its tombstone or expose a cached workout", async () => {
+  fixture.params = { id: "workout" };
+  const key = draftKey(fixture.owner, "workout-edit:1:workout");
+  fixture.map.set(key, JSON.stringify({ version: 1, terminal: true, removed: true, input: null, command: null }));
+  cache.setQueryData([fixture.owner, "workout", "workout", 1], workout);
+  await mount(EditWorkout);
+  expect(nodes("WorkoutEditor")).toHaveLength(0);
+  await click("Load saved workout");
+  expect(nodes("WorkoutEditor")).toHaveLength(0);
+  expect(JSON.parse(fixture.map.get(key)!).removed).toBe(true);
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
 });
 
 it("mounted completed profile recovers its saved read-only view after remount and requires deliberate editing", async () => {
@@ -1500,7 +1656,7 @@ it("keeps unknowns and less common prescription values intact through simple edi
       load: 10, load_unit: "kg", load_convention: "per_hand", tempo: "3-1-1", notes: "Control the movement", per_side: null }],
   }] };
   await mountRealWorkoutEditor(content);
-  expect(nodes("Field").map((n) => n.props.label)).toEqual(["Workout title", "Workout duration · minutes", "Workout instructions · one instruction per line", "Required equipment · comma separated", "Exercise name", "Sets", "Reps"]);
+  expect(nodes("Field").map((n) => n.props.label)).toEqual(["Workout title", "Estimated duration · minutes", "Workout instructions · one instruction per line", "Required equipment · comma separated", "Exercise name", "Sets", "Reps"]);
   expect(fixture.updateWorkout).not.toHaveBeenCalled();
   await click("More details for Row");
   expect(nodes("Field").find((n) => n.props.label === "Rest · seconds")!.props.value).toBe("45");
@@ -1520,13 +1676,13 @@ it("keeps unknowns and less common prescription values intact through simple edi
 it("corrects overall duration and instructions without changing the exercise prescription", async () => {
   const content: AuthoredWorkout = { ...workout, estimated_minutes: null, notes: ["Repeat the circuit"], provenance: "source" };
   await mountRealWorkoutEditor(content);
-  await act(async () => nodes("Field").find((n) => n.props.label === "Workout duration · minutes")!.props.onChange("20"));
+  await act(async () => nodes("Field").find((n) => n.props.label === "Estimated duration · minutes")!.props.onChange("20"));
   await act(async () => nodes("Field").find((n) => n.props.label === "Workout instructions · one instruction per line")!.props.onChange("Repeat for 20 minutes\nRest after each round"));
   const corrected = fixture.updateWorkout.mock.calls.at(-1)![0];
   expect(corrected.estimated_minutes).toBe(20);
   expect(corrected.notes).toEqual(["Repeat for 20 minutes", "Rest after each round"]);
   expect(corrected.blocks).toEqual(content.blocks);
-  await act(async () => nodes("Field").find((n) => n.props.label === "Workout duration · minutes")!.props.onChange(""));
+  await act(async () => nodes("Field").find((n) => n.props.label === "Estimated duration · minutes")!.props.onChange(""));
   expect(fixture.updateWorkout.mock.calls.at(-1)![0].estimated_minutes).toBeNull();
 });
 it("shows existing time and distance without making optional numeric fields into zero", async () => {

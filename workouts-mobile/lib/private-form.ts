@@ -95,6 +95,15 @@ export function createPrivateForm<T, C>(storage: Storage, owner: string, scope: 
         await write({ version: 1, input: null, command: null, terminal: true, removed, saved_id });
       });
     },
+    reopen(input: T) {
+      const frozen = snapshot(input);
+      return ordered(async () => {
+        const box = await read();
+        if (box.removed) throw Error("This record was removed. Its previous draft cannot be restored.");
+        if (!box.terminal) throw Error("This draft changed. Reload the saved record before editing.");
+        await write({ version: 1, input: frozen, command: null, terminal: false, removed: false });
+      });
+    },
     retire: () => {
       // Fence immediately, even if an earlier queued write or durable removal fails.
       removedScopes.add(key);

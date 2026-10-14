@@ -21,8 +21,9 @@ export default function EditWorkout() {
   const sealed = useRef(false);
   sealed.current = !!command || resolved;
   const mounted = useRef(true);
-  const live = useRef(scope);
-  live.current = scope;
+  const identity = `${owner}:${scope}`;
+  const live = useRef(identity);
+  live.current = identity;
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -30,7 +31,7 @@ export default function EditWorkout() {
     };
   }, []);
   function current() {
-    if (!mounted.current || live.current !== scope || !storage.isCurrent() || !isCurrentAccount())
+    if (!mounted.current || live.current !== identity || !storage.isCurrent() || !isCurrentAccount())
       throw Error("Your account or training setup changed. This workout edit was stopped.");
   }
   const q = useQuery({
@@ -49,15 +50,31 @@ export default function EditWorkout() {
     setValue(null);
     setCommand(null);
     setResolved(false);
+    setError("");
     void form
       .load()
-      .then((box) => {
-        if (active) {
+      .then(async (box) => {
+        if (!active) return;
+        current();
+        setResolved(box.terminal);
+        if (box.terminal) {
+          // A confirmed save is a receipt, not an unfinished edit. Fetch before
+          // reopening so even an old query cache cannot supply its prior revision.
+          if (box.removed) throw Error("This workout was removed. Its previous edit cannot be restored.");
+          const fresh = await api.workout(id);
+          if (!active) return;
+          current();
+          await form.reopen(fresh);
+          if (!active) return;
+          current();
+          cache.setQueryData([owner, "workout", id, enrollment?.generation], fresh);
+          setValue(fresh);
+          setResolved(false);
+        } else {
           if (box.input?.id === id) setValue(box.input);
           setCommand(box.command);
-          setResolved(box.terminal);
-          setLoaded(true);
         }
+        setLoaded(true);
       })
       .catch(() => {
         if (active) {
@@ -70,7 +87,7 @@ export default function EditWorkout() {
     };
   }, [form, id]);
   useEffect(() => {
-    if (loaded && !value && !command && q.data) setValue(q.data);
+    if (loaded && !value && !command && !resolved && q.data) setValue(q.data);
   }, [loaded, value, command, resolved, q.data]);
   function update(content: AuthoredWorkout) {
     if (!value || lock.current || sealed.current) return;
@@ -95,6 +112,7 @@ export default function EditWorkout() {
       const fresh = await api.workout(id);
       current();
       await form.reset();
+      current();
       await form.save(fresh);
       current();
       setValue(fresh);
@@ -134,7 +152,8 @@ export default function EditWorkout() {
       cache.setQueryData([owner, "workout", id, enrollment?.generation], saved);
       await cache.invalidateQueries({ queryKey: [owner, "library"] });
       current();
-      router.replace({ pathname: "/workout/[id]", params: { id } });
+      // dismissTo returns to an existing detail, or replaces this screen for a direct link.
+      router.dismissTo({ pathname: "/workout/[id]", params: { id } });
     } catch (e) {
       if (mounted.current) setError((e as Error).message);
     } finally {
@@ -179,7 +198,7 @@ export default function EditWorkout() {
       )}
       {(command || resolved) && (
         <Button
-          title="Reload saved workout and discard this draft"
+          title={resolved ? "Load saved workout" : "Reload saved workout and discard this draft"}
           secondary
           busy={busy}
           onPress={() => {

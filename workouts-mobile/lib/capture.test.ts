@@ -254,7 +254,7 @@ it("rejects rollover calendar dates for recipient program copies", () => {
 it("validates editable workout duration and instruction bounds before freezing a save", () => {
   const workout = { title: "Circuit", kind: "session" as const, provenance: "user" as const, blocks: [] };
   expect(workoutErrors({ ...workout, estimated_minutes: 20, notes: Array(100).fill("Rest as needed") }, true)).toEqual([]);
-  expect(workoutErrors({ ...workout, estimated_minutes: 20.5 }, true)).toContain("Workout duration must be whole minutes from 1 to 1440, or blank.");
+  expect(workoutErrors({ ...workout, estimated_minutes: 20.5 }, true)).toContain("Estimated duration must be whole minutes from 1 to 1440, or blank.");
   expect(workoutErrors({ ...workout, estimated_minutes: NaN }, true)).toHaveLength(1);
   expect(workoutErrors({ ...workout, notes: Array(101).fill("Instruction") }, true)).toContain("Keep workout instructions to 100 lines or fewer.");
   expect(workoutErrors({ ...workout, notes: ["x".repeat(2001)] }, true)).toEqual([]);

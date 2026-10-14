@@ -38,7 +38,7 @@ export function WorkoutEditor({
       />
       <NumberField
         disabled={disabled}
-        label="Workout duration · minutes"
+        label="Estimated duration · minutes"
         value={value.estimated_minutes}
         onChange={(estimated_minutes) => update({ ...value, estimated_minutes })}
       />

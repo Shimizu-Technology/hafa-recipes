@@ -200,3 +200,26 @@ it("scrubs legacy pending removal input while retaining its exact original comma
   expect((await form.load()).input).toBeNull();
   await expect(form.begin(null, { ...command, body: { ...command.body, request_id: "replacement" } })).rejects.toThrow("Retry these saved details");
 });
+
+it("reopens only completed receipts atomically without erasing a pending edit or removed record", async () => {
+  const { raw, map } = fixture();
+  let failing = false;
+  const storage = { ...raw, setItem: async (key: string, value: string) => {
+    if (failing) throw Error("disk unavailable");
+    await raw.setItem(key, value);
+  } };
+  const form = createPrivateForm(storage, "edit-reopen", "workout:1"), command = { revision: 1 };
+  await form.begin({ revision: 1 }, command);
+  await expect(form.reopen({ revision: 2 })).rejects.toThrow("draft changed");
+  expect((await form.load()).command).toEqual(command);
+  await form.complete(command, "workout");
+  failing = true;
+  await expect(form.reopen({ revision: 2 })).rejects.toThrow("disk unavailable");
+  expect(await form.load()).toMatchObject({ terminal: true, saved_id: "workout", input: null, command: null });
+  failing = false;
+  await form.reopen({ revision: 2 });
+  expect(await form.load()).toMatchObject({ terminal: false, input: { revision: 2 }, command: null });
+  await form.retire();
+  await expect(form.reopen({ revision: 3 })).rejects.toThrow("removed");
+  expect(map.get(draftKey("edit-reopen", "workout:1"))).not.toContain('"revision"');
+});
