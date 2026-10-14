@@ -1261,6 +1261,7 @@ def test_directional_cues_preserve_source_wording_without_per_limb_inference():
     ("keep repeating for 20 minutes", 20, True),
     ("20min AMRAP: repeat 4 moves as many times as possible for 20min", 20, True),
     ("20-minute AMRAP workout", 20, True),
+    ("a 20-minute kettlebell flow", 20, True),
     ("Rest 2 minutes between sets", 2, False),
     ("Each exercise takes 2 minutes", 2, False),
     ("Repeat each movement for 2 minutes", 2, False),

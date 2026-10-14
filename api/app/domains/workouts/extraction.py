@@ -827,7 +827,7 @@ def _overall_minutes_supported(value: int, wording: str) -> bool:
     patterns = (
         rf"\b(?:repeat|repeating)\b(?:(?!\b(?:rest|each|per)\b)[^.!?;\n]){{0,160}}\bfor\s+{minutes}",
         rf"\b(?:workout|session|routine|flow|amrap|time cap|time limit|total time)\s*(?:is|of|for|:|-)?\s*{minutes}",
-        rf"\b{minutes}\s*(?:long\s+)?(?:workout|session|routine|flow|amrap)\b",
+        rf"\b{minutes}\s*(?:(?:long|kettlebell|dumbbell|bodyweight|full[- ]body|upper[- ]body|lower[- ]body)\s+){{0,3}}(?:workout|session|routine|flow|amrap)\b",
     )
     for clause in re.split(r"[;,\n]|[.!?](?:\s|$)", scalar):
         if re.search(r"\b(?:rest|recovery|recover)\b|\b(?:per|each)\s+(?:exercise|movement|round|set|side)\b", clause, re.I):
