@@ -223,9 +223,11 @@ async def test_server_import_inbox_is_owner_generation_scoped_and_never_returns_
     api = automation_api
     await consent(api)
     queued = await enqueue(api)
+    assert queued.json()["source_is_public"] is None
     inbox = await api.client.get("/api/v1/workouts/imports")
     assert inbox.status_code == 200
     assert [item["id"] for item in inbox.json()] == [queued.json()["id"]]
+    assert inbox.json()[0]["source_is_public"] is None
     assert "payload" not in inbox.text and TEXT not in inbox.text
     assert (await api.client.get("/api/v1/workouts/imports?limit=51")).status_code == 422
     async with api.sessions() as db:
@@ -958,14 +960,18 @@ async def test_malformed_provider_structure_retains_source_instead_of_cancelling
 
     api.worker.extractor.provider.extract = duplicate
     queued = await api.client.post("/api/v1/workouts/imports", headers=GENERATION, json={
-        "request_id": str(uuid4()), "auto_save": True,
+        "request_id": str(uuid4()), "auto_save": True, "is_public": False,
         "source": {"kind": "text", "text": TEXT, "ai_consent": True},
     })
     assert queued.status_code == 202
+    assert queued.json()["source_is_public"] is False
     await api.worker.tick()
     job = (await api.client.get("/api/v1/workouts/imports/" + queued.json()["id"])).json()
     assert job["status"] == "incomplete" and job["accepted_workout_id"] is None
     assert job["result"]["error_code"] == "workout_needs_correction"
+    assert job["source_is_public"] is False
+    inbox = await api.client.get("/api/v1/workouts/imports")
+    assert inbox.status_code == 200 and inbox.json()[0]["source_is_public"] is False
     assert len(job["result"]["workout"]["blocks"]) == 2
     async with api.sessions() as db:
         assert (await db.get(WorkoutImport, queued.json()["id"])).payload["text"] == TEXT
@@ -1024,3 +1030,74 @@ async def test_many_grounding_warnings_do_not_break_saved_import_or_inbox(automa
     library = await api.client.get("/api/v1/workouts/library/" + job["accepted_workout_id"])
     assert library.status_code == 200
     assert library.json()["content"]["extraction_warnings"] == projection
+
+
+async def test_legacy_accept_preserves_server_source_fields(automation_api, monkeypatch):
+    api = automation_api
+    await consent(api)
+    job = (await enqueue(api)).json()
+    await api.worker.tick()
+    cover = "https://example.com/owned-preview.webp"
+    async with api.sessions() as db:
+        row = await db.get(WorkoutImport, job["id"])
+        result = dict(row.result)
+        result["workout"] = dict(result["workout"]) | {
+            "source_thumbnail_url": cover,
+            "source_title": "The original workout title",
+            "source_creator": "The source creator",
+            "extraction_warnings": ["Review the source instructions"],
+        }
+        row.result = result
+        await db.commit()
+    from app.domains.workouts import source_media
+
+    async def entitled(db, owner, generation, url):
+        assert url == cover
+
+    monkeypatch.setattr(source_media, "retain_source_cover", entitled)
+    legacy = dict(result["workout"])
+    legacy.pop("source_thumbnail_url")
+    legacy.pop("extraction_warnings")
+    legacy.pop("source_title")
+    legacy.pop("source_creator")
+    body = {"workout": legacy, "acknowledge_warnings": True}
+    path = f"/api/v1/workouts/imports/{job['id']}/accept"
+    accepted = await api.client.post(path, headers=GENERATION, json=body)
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["content"]["source_thumbnail_url"] == cover
+    assert accepted.json()["content"]["source_title"] == "The original workout title"
+    assert accepted.json()["content"]["source_creator"] == "The source creator"
+    assert accepted.json()["content"]["extraction_warnings"] == ["Review the source instructions"]
+    replay = await api.client.post(path, headers=GENERATION, json=body)
+    assert replay.status_code == 200 and replay.json()["id"] == accepted.json()["id"]
+
+
+async def test_corrected_import_url_does_not_inherit_original_credit_or_cover(automation_api):
+    api = automation_api
+    await consent(api)
+    job = (await enqueue(api)).json()
+    await api.worker.tick()
+    async with api.sessions() as db:
+        row = await db.get(WorkoutImport, job["id"])
+        result = dict(row.result)
+        result["workout"] = dict(result["workout"]) | {
+            "source_thumbnail_url": "https://example.com/original.webp",
+            "source_title": "Original source title",
+            "source_creator": "Original creator",
+            "extraction_warnings": ["Review the source instructions"],
+        }
+        row.result = result
+        await db.commit()
+    corrected = {
+        key: value for key, value in result["workout"].items()
+        if key not in {"source_thumbnail_url", "source_title", "source_creator", "extraction_warnings"}
+    }
+    corrected["source_url"] = "https://www.youtube.com/watch?v=corrected-source"
+    accepted = await api.client.post(
+        f"/api/v1/workouts/imports/{job['id']}/accept", headers=GENERATION,
+        json={"workout": corrected, "acknowledge_warnings": True},
+    )
+    assert accepted.status_code == 200, accepted.text
+    content = accepted.json()["content"]
+    assert not any(content.get(field) for field in ("source_thumbnail_url", "source_title", "source_creator"))
+    assert content["extraction_warnings"] == ["Review the source instructions"]

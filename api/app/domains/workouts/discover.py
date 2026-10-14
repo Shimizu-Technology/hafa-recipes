@@ -55,6 +55,7 @@ from app.models.moderation import AdminAuditEvent, ContentReport, UserBlock
 from app.moderation import require_admin
 from app.public_identity import public_contributor_id
 from app.publishing import require_current_publishing_disclosure
+from app.services.storage import storage_service
 from app.source_urls import canonicalize_source
 
 # Discover columns are deliberately not mapped on WorkoutRecord: ORM reads of
@@ -303,7 +304,9 @@ def card(row, viewer_id, saved, *, detail=False):
         source_url=workout["source_url"],
         source_platform=row.source_platform,
         source_creator=workout["source_creator"],
-        thumbnail_url=None,
+        thumbnail_url=storage_service.thumbnail_delivery_url(
+            workout.get("source_thumbnail_url"), variant="list"
+        ),
         published_at=row.published_at,
         contributor=Contributor(
             contributor_id=public_contributor_id(row.app_user_id),
@@ -480,8 +483,32 @@ async def save_discovered(
         response.status_code = 200
         return (await library_responses(db, [existing]))[0]
     workout, _ = public_workout(row.content)
-    content = validated_workout(WorkoutContent.model_validate(workout), authored=False)
     identifier = uuid4()
+    original_cover = workout.get("source_thumbnail_url")
+    from app.domains.workouts.source_media import copy_cover_before_lock, retain_source_cover
+
+    if original_cover:
+        cover = await copy_cover_before_lock(db, user.id, generation, identifier, original_cover)
+        # Preparation releases only read locks. Recheck visibility, generation and
+        # concurrent copy receipts before saving any content or retaining an asset.
+        await membership_for(db, user.id, generation=generation, write=True)
+        row = await visible_row(db, workout_id, user.id)
+        existing = await db.scalar(
+            select(WorkoutRecord).where(
+                WorkoutRecord.app_user_id == user.id,
+                WorkoutRecord.generation == generation,
+                WorkoutRecord.creation_request_id == key,
+            )
+        )
+        if existing is not None:
+            response.status_code = 200
+            return (await library_responses(db, [existing]))[0]
+        workout, _ = public_workout(row.content)
+        workout["source_thumbnail_url"] = (
+            cover if workout.get("source_thumbnail_url") == original_cover else None
+        )
+        await retain_source_cover(db, user.id, generation, workout["source_thumbnail_url"])
+    content = validated_workout(WorkoutContent.model_validate(workout), authored=False)
     content.update(id=str(identifier), version=1, parent_version_id=None)
     record = WorkoutRecord(
         id=identifier,
