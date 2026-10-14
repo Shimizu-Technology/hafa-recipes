@@ -1,6 +1,6 @@
 import { workoutErrors } from "@/lib/library";
 import { SourceImage } from "@/components/source-image";
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { ActivityIndicator, AppState, Image, Linking } from "react-native";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,10 +9,10 @@ import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutEditor } from "@/components/workout-editor";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
-import { canSaveAutomatically, importIsTerminal, updateImportReferences, type CaptureDraft, type ImportReference } from "@/lib/capture";
+import { canSaveAutomatically, importIsTerminal, updateImportReferences, loadCapturedImport, retireCapturedImport, type CaptureDraft, type ImportReference } from "@/lib/capture";
 import { cleanupCaptureFiles } from "@/lib/capture-io";
 import * as Crypto from "expo-crypto";
-import { createPrivateDraftSlot, type PrivateDraftSnapshot } from "@/lib/private-form";
+import { type PrivateDraftSnapshot } from "@/lib/private-form";
 import type { AuthoredWorkout } from "@/lib/models";
 import { usePublishingDisclosure } from "@/components/publishing-disclosure";
 import { DECLINED, INCOMPLETE_MESSAGE, defaultShareToDiscover, isIncomplete, publishable, prescriptionLine, formatSeconds } from "@/lib/discover";
@@ -21,10 +21,6 @@ export default function ImportReview() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const generation = enrollment?.generation;
-  const slot = useMemo(
-    () => createPrivateDraftSlot<CaptureDraft>(storage, owner, `capture:${generation}`, Crypto.randomUUID),
-    [storage, owner, generation]
-  );
   const live = useRef({ owner, id, generation, storage, epoch: 0 });
   if (
     live.current.owner !== owner ||
@@ -108,7 +104,7 @@ export default function ImportReview() {
     setShareChoice(null);
     setNotice("");
     disclosure.dismiss();
-    const sourceLoad = slot.load(current)
+    const sourceLoad = loadCapturedImport(storage, owner, generation!, id, current, Crypto.randomUUID)
       .then((saved) => {
         if (valid && isCurrent() && saved.value?.job_id === id && saved.value.generation === generation)
           setOriginal(saved);
@@ -139,7 +135,7 @@ export default function ImportReview() {
     return () => {
       valid = false;
     };
-  }, [owner, id, generation, slot, epoch, restoreAttempt]);
+  }, [owner, id, generation, storage, epoch, restoreAttempt]);
   function update(value: AuthoredWorkout) {
     if (!routeReady || !isCurrent()) return;
     setEdited(value);
@@ -161,36 +157,9 @@ export default function ImportReview() {
   }
   async function retireOriginalSource() {
     current();
-    if (!original?.value || original.value.job_id !== id || original.value.generation !== generation) return;
-    const retained = [...(original.value.files ?? []), ...(original.value.cleanup_files ?? [])];
-    let retirement: PrivateDraftSnapshot<CaptureDraft>;
-    try {
-      retirement = await slot.save(
-        original.revision,
-        {
-          request_id: Crypto.randomUUID(),
-          generation: original.value.generation,
-          job_id: id,
-          kind: "url",
-          source_url: "",
-          text: "",
-          files: [],
-          created_at: new Date().toISOString(),
-          cleanup_files: retained
-        },
-        current
-      );
-    } catch (error) {
-      // Another source owns this slot now; never clear or clean its assets.
-      if ((error as { captureDraftConflict?: boolean }).captureDraftConflict) return;
-      throw error;
-    }
+    await retireCapturedImport(storage, owner, generation!, id, current, cleanupCaptureFiles, Crypto.randomUUID);
     current();
-    setOriginal(retirement);
-    // Keep exact old references durable until deletion succeeds. A newer source
-    // can inherit them, so final removal is conditional on our retirement receipt.
-    await cleanupCaptureFiles(retained, true);
-    await slot.remove(retirement.revision, current);
+    setOriginal(null);
   }
   async function accept(automatic = false) {
     if (saving.current || !routeReady || !restored || !isCurrent() || !q.data?.result?.workout) return;

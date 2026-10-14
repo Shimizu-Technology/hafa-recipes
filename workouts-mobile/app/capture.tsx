@@ -1,13 +1,13 @@
 import { updateNativeSharingConsent } from "@/lib/native-share-session";
 import { SourceImage } from "@/components/source-image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Image, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Card, Choice, Copy, Field, Grow, Notice, Row, Screen, SectionHeader } from "@/components/ui";
 import { useTraining } from "@/lib/context";
-import { captureErrors, updateImportReferences, type CaptureDraft, type CaptureKind, type CaptureFile } from "@/lib/capture";
+import { archiveCapturedImport, captureErrors, updateImportReferences, type CaptureDraft, type CaptureKind, type CaptureFile } from "@/lib/capture";
 import { createPrivateDraftSlot, type PrivateDraftSnapshot } from "@/lib/private-form";
 import { pickImages, pickDocument, sourceFor, cleanupCaptureFiles } from "@/lib/capture-io";
 import { ApiError } from "@/lib/api";
@@ -42,6 +42,7 @@ export default function Capture() {
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const [ready, setReady] = useState(false);
+  const [submittedId, setSubmittedId] = useState<string | null>(null);
   const [duplicateUrl, setDuplicateUrl] = useState("");
   useEffect(() => {
     const timer = setTimeout(() => setDuplicateUrl(draft.kind === "url" ? draft.source_url.trim() : ""), 500);
@@ -61,8 +62,12 @@ export default function Capture() {
   const disclosure = usePublishingDisclosure();
   const guard = useRef(false);
   const mounted = useRef(true);
-  const live = useRef({ owner, generation, storage });
-  live.current = { owner, generation, storage };
+  const live = useRef({ owner, generation, storage, active: false });
+  useLayoutEffect(() => {
+    const committed = { owner, generation, storage, active: true };
+    live.current = committed;
+    return () => { committed.active = false; };
+  }, [owner, generation, storage]);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -72,6 +77,7 @@ export default function Capture() {
   function currentScope() {
     if (
       !mounted.current ||
+      !live.current.active ||
       !isCurrentAccount() ||
       !storage.isCurrent() ||
       live.current.owner !== owner ||
@@ -135,6 +141,7 @@ export default function Capture() {
     readyRef.current = false;
     setReady(false);
     setStale(false);
+    setSubmittedId(null);
     void slot
       .load(currentScope)
       .then((value) => {
@@ -156,6 +163,7 @@ export default function Capture() {
         setDraft(next);
         readyRef.current = true;
         setReady(true);
+        if (next.job_id) void startAnother().catch(() => undefined);
       })
       .catch(() => {
         if (active) setError("Could not restore your source. Retry loading it before editing.");
@@ -248,6 +256,32 @@ export default function Capture() {
       setReady(true);
       setStale(false);
       setError("");
+    } catch (e) {
+      if (mounted.current) setError((e as Error).message);
+    } finally {
+      guard.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
+  async function startAnother() {
+    if (guard.current || !readyRef.current) return;
+    guard.current = true; setBusy(true); setError("");
+    const original = draftRef.current;
+    try {
+      await writes.current.catch(() => undefined);
+      currentScope();
+      if (!original.job_id) return;
+      if (view.current !== renderedView) throw Error("This source view changed. Use the loaded source before editing.");
+      const captureGuard = () => {
+        currentScope();
+        if (view.current !== renderedView) throw Error("This source view changed. Use the loaded source before editing.");
+      };
+      const next = await enqueue(() => archiveCapturedImport(storage, owner, generation, saved.current, captureGuard, Crypto.randomUUID));
+      currentScope(); slot.assertCurrent(next.revision);
+      saved.current = next;
+      const blank: CaptureDraft = { request_id: Crypto.randomUUID(), generation, kind: "url", source_url: "", text: "", files: [], created_at: new Date().toISOString() };
+      draftRef.current = blank; setDraft(blank); setSubmittedId(original.job_id);
+      setStale(false); setOtherSources(false); setExtraInstructions(false);
     } catch (e) {
       if (mounted.current) setError((e as Error).message);
     } finally {
@@ -402,6 +436,13 @@ export default function Capture() {
         ...prior.filter((item) => item.id !== job.id)
       ]);
       current();
+      const submitted = saved.current;
+      const next = await enqueue(() => archiveCapturedImport(storage, owner, generation, submitted, currentScope, Crypto.randomUUID));
+      currentScope(); slot.assertCurrent(next.revision);
+      saved.current = next;
+      const blank: CaptureDraft = { request_id: Crypto.randomUUID(), generation, kind: "url", source_url: "", text: "", files: [], created_at: new Date().toISOString() };
+      draftRef.current = blank; setDraft(blank); setSubmittedId(job.id);
+      setStale(false); setOtherSources(false); setExtraInstructions(false);
       router.push({ pathname: "/import/[id]", params: { id: job.id, auto: "1" } });
     } catch (e) {
       if (mounted.current) setError((e as Error).message);
@@ -430,6 +471,13 @@ export default function Capture() {
   }
   return (
     <Screen back title="Add a workout." subtitle="Paste a link or share one straight from your video app.">
+      {(draft.job_id || submittedId) && <Card>
+        <Copy kind="heading">Your previous import is saved.</Copy>
+        <Copy>{draft.job_id ? "Start another source to unlock this form. Your original source stays saved for this import." : "Add another workout below, or resume this import to check its progress."}</Copy>
+        <Button title="Resume existing import" secondary onPress={() => router.push({ pathname: "/import/[id]", params: { id: draft.job_id ?? submittedId! } })} />
+        {!!draft.job_id && <Button title="Start another source draft" secondary busy={busy} onPress={() => { void startAnother(); }} />}
+      </Card>}
+      {!!error && <Notice error>{error}</Notice>}
       {stale && <Notice>A newer source is saved. Load it before changing this draft.</Notice>}
       {(stale || !ready) && (
         <Button
@@ -592,14 +640,6 @@ export default function Capture() {
           pending imports in each rolling day.
         </Copy>
       )}
-      {!!error && <Notice error>{error}</Notice>}
-      {!!draft.job_id && (
-        <Button
-          title="Resume existing import"
-          secondary
-          onPress={() => router.push({ pathname: "/import/[id]", params: { id: draft.job_id! } })}
-        />
-      )}
       {draft.pending_import && !draft.job_id && (
         <Notice>
           This source is saved on your device. Retry sends the same source to recover the earlier import. You can also
@@ -648,34 +688,6 @@ export default function Capture() {
             }}
           />
         </Card>
-      )}
-      {draft.job_id && (
-        <Button
-          title="Start another source draft"
-          secondary
-          disabled={busy}
-          onPress={() => {
-            if (guard.current) return;
-            guard.current = true;
-            setBusy(true);
-            void replace({
-              request_id: Crypto.randomUUID(),
-              generation,
-              kind: "url",
-              text: "",
-              source_url: "",
-              files: [],
-              created_at: new Date().toISOString()
-            })
-              .catch((e) => {
-                if (mounted.current) setError(e.message);
-              })
-              .finally(() => {
-                guard.current = false;
-                if (mounted.current) setBusy(false);
-              });
-          }}
-        />
       )}
       <Button
         title={draft.pending_import ? "Retry extraction" : aiConsent.data?.accepted && aiConsent.data.disclosure_version === 1

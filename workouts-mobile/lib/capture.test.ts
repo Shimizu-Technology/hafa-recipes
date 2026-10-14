@@ -1,5 +1,5 @@
 import { beforeEach, it, expect, vi } from "vitest";
-import { captureErrors, boundedSource, importIsTerminal, retireCapturedImport, type CaptureDraft } from "./capture";
+import { captureErrors, boundedSource, importIsTerminal, archiveCapturedImport, loadCapturedImport, submittedCaptureScope, retireCapturedImport, type CaptureDraft } from "./capture";
 import { createPrivateDraftSlot } from "./private-form";
 import { filterLibrary, workoutErrors, editedContent } from "./library";
 import { isISODate, publicShareReader } from "./sharing";
@@ -705,4 +705,77 @@ it("shared-link caption wrappers are removed while literal URL punctuation is pr
   expect(sharedWorkoutURL(null, "Read [https://example.test/a_(b)]." )).toBe("https://example.test/a_(b)");
   expect(sharedWorkoutURL(null, "https://example.test/a." )).toBe("https://example.test/a.");
   expect(sharedWorkoutURL("https://example.test/a;", "Caption")).toBe("https://example.test/a;");
+});
+
+
+it("queued source archives survive startup cleanup and retire only their own completed job", async () => {
+  const owner = "archive-owner", storage = journalStorage(), uuid = () => `archive-${++native.next}`;
+  const slot = createPrivateDraftSlot<CaptureDraft>(storage, owner, "capture:1", uuid);
+  const original = { uri: "file:///cache/hafa-workouts-capture/queued-A.pdf", mime_type: "application/pdf", name: "A", owned: true };
+  native.files.set(original.uri, "A");
+  const lease = await restartedJournal().begin(owner, "queued-operation");
+  await lease.remember([{ uri: original.uri, kind: "capture" }]); await lease.finish();
+  const first = await slot.save(null, { ...draft, generation: 1, request_id: "source-A", job_id: "job-A", is_public: false, files: [original] }, () => {});
+  await archiveCapturedImport(storage, owner, 1, first, () => {}, uuid);
+  expect((await slot.load(() => {})).value).toBeNull();
+  await restartedJournal().recover(owner);
+  expect(native.files.has(original.uri)).toBe(true);
+  const second = await slot.save(null, { ...draft, generation: 1, request_id: "source-B", job_id: "job-B", is_public: true, files: [] }, () => {});
+  await archiveCapturedImport(storage, owner, 1, second, () => {}, uuid);
+  await slot.save(null, { ...draft, generation: 1, request_id: "newest", files: [] }, () => {});
+  expect((await loadCapturedImport(storage, owner, 1, "job-A", () => {}, uuid)).value).toMatchObject({ request_id: "source-A", is_public: false, files: [original] });
+  native.remove.mockRejectedValueOnce(Error("file unavailable"));
+  await expect(retireCapturedImport(storage, owner, 1, "job-A", () => {}, cleanupCaptureFiles, uuid)).rejects.toThrow("file unavailable");
+  expect(JSON.parse(native.records.get(draftKey(owner, submittedCaptureScope(1, "job-A")))!)).toMatchObject({ cleanup_files: [original] });
+  await retireCapturedImport(storage, owner, 1, "job-A", () => {}, cleanupCaptureFiles, uuid);
+  expect(native.records.has(draftKey(owner, submittedCaptureScope(1, "job-A")))).toBe(false);
+  expect(native.files.has(original.uri)).toBe(false);
+  expect((await loadCapturedImport(storage, owner, 1, "job-B", () => {}, uuid)).value?.request_id).toBe("source-B");
+  expect((await slot.load(() => {})).value?.request_id).toBe("newest");
+});
+
+it("completed-job retirement waits for a held archive write instead of deleting files during transfer", async () => {
+  const owner = "held-retirement-owner", storage = journalStorage(), uuid = () => `held-${++native.next}`;
+  const slot = createPrivateDraftSlot<CaptureDraft>(storage, owner, "capture:1", uuid);
+  const file = { uri: "file:///cache/hafa-workouts-capture/held.pdf", mime_type: "application/pdf", name: "Held", owned: true };
+  native.files.set(file.uri, "Source");
+  const prior = await slot.save(null, { ...draft, generation: 1, request_id: "held-source", job_id: "held-job", files: [file] }, () => {});
+  const held = deferred<void>(), archiveKey = draftKey(owner, submittedCaptureScope(1, "held-job"));
+  let started = false;
+  native.recordSet.mockImplementation(async (key, value) => { if (key === archiveKey) { started = true; await held.promise; } native.records.set(key, value); });
+  const archiving = archiveCapturedImport(storage, owner, 1, prior, () => {}, uuid);
+  while (!started) await new Promise(resolve => setTimeout(resolve, 0));
+  const retiring = retireCapturedImport(storage, owner, 1, "held-job", () => {}, cleanupCaptureFiles, uuid);
+  expect(native.remove).not.toHaveBeenCalled();
+  expect((await slot.load(() => {})).value?.request_id).toBe("held-source");
+  held.resolve(); await archiving; await retiring;
+  expect(native.files.has(file.uri)).toBe(false);
+  expect(native.records.has(archiveKey)).toBe(false);
+  expect((await slot.load(() => {})).value).toBeNull();
+});
+
+it("source review waits for a held archive transaction before reading either source slot", async () => {
+  const owner = "consistent-read-owner", storage = journalStorage(), uuid = () => `read-${++native.next}`;
+  const slot = createPrivateDraftSlot<CaptureDraft>(storage, owner, "capture:1", uuid);
+  const source = { ...draft, generation: 1, request_id: "read-source", job_id: "read-job", is_public: false };
+  const prior = await slot.save(null, source, () => {});
+  const held = deferred<void>(), referencesKey = draftKey(owner, "imports:1");
+  let publishingReferences = false;
+  native.recordSet.mockImplementation(async (key, value) => {
+    if (key === referencesKey) { publishingReferences = true; await held.promise; }
+    native.records.set(key, value);
+  });
+  const archiving = archiveCapturedImport(storage, owner, 1, prior, () => {}, uuid);
+  while (!publishingReferences) await new Promise(resolve => setTimeout(resolve, 0));
+  // The archive has committed, but the composer still owns the original until references finish.
+  expect(native.records.has(draftKey(owner, submittedCaptureScope(1, "read-job")))).toBe(true);
+  expect((await slot.load(() => {})).value?.request_id).toBe("read-source");
+  let reviewed = false;
+  const reading = loadCapturedImport(storage, owner, 1, "read-job", () => {}, uuid).then(value => { reviewed = true; return value; });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const readDuringHandoff = reviewed;
+  held.resolve(); await archiving;
+  expect((await reading).value).toMatchObject(source);
+  expect((await slot.load(() => {})).value).toBeNull();
+  expect(readDuringHandoff).toBe(false);
 });
