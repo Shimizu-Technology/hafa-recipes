@@ -1562,7 +1562,7 @@ def test_combined_caption_side_count_belongs_only_to_its_own_movement(
 
 
 @pytest.mark.parametrize("reps,per_side", [(10, False), (5, True)])
-@pytest.mark.parametrize("negation", ["not", "never", "instead of", "rather than"])
+@pytest.mark.parametrize("negation", ["not", "never", "instead of", "rather than", "do not do"])
 def test_negated_side_counts_do_not_become_source_prescription(reps, per_side, negation):
     caption = f"10x Squat total reps ({negation} 5 each side)"
     raw = {"title": "Source circuit", "blocks": [{"id": "main", "label": "Circuit", "exercises": [
@@ -1575,6 +1575,33 @@ def test_negated_side_counts_do_not_become_source_prescription(reps, per_side, n
     assert item.per_side is not True
     if reps == 10:
         assert (item.reps_min, item.reps_max, item.per_side) == (10, 10, False)
+
+
+@pytest.mark.parametrize("caption", ["Squat 10 reps + Row 5 each side",
+                                     "10 Squat reps + 10 Row reps (5 each side)"])
+def test_plus_separates_movements_regardless_of_dose_word_order(caption):
+    raw = {"title": "Source circuit", "blocks": [{"id": "main", "label": "Circuit", "exercises": [
+        {"name": name, "reps_min": reps, "reps_max": reps, "per_side": side,
+         "evidence": [evidence("name", name), evidence("reps_min", caption),
+                      evidence("reps_max", caption), evidence("per_side", caption)]}
+        for name, reps, side in [("Squat", 10, False), ("Row", 5, True)]]}]}
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", caption)]))
+    squat, row = workout.blocks[0].exercises
+    assert (squat.reps_min, squat.reps_max) == (10, 10) and squat.per_side is not True
+    assert (row.reps_min, row.reps_max, row.per_side) == (5, 5, True)
+
+
+@pytest.mark.parametrize("caption", ["Clean + Press 10 reps (5 each side) + Row 10 reps",
+                                     "10x Clean + Press (5 each side); do not rush",
+                                     "10x Clean + Press do not rush 5 each side"])
+def test_compound_movement_names_and_unrelated_negative_cues_keep_affirmative_side_count(caption):
+    raw = {"title": "Source circuit", "blocks": [{"id": "main", "label": "Circuit", "exercises": [
+        {"name": "Clean + Press", "reps_min": 10, "reps_max": 10, "per_side": False,
+         "evidence": [evidence("name", "Clean + Press"), evidence("reps_min", caption),
+                      evidence("reps_max", caption), evidence("per_side", caption)]}]}]}
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", caption)]))
+    item = workout.blocks[0].exercises[0]
+    assert (item.reps_min, item.reps_max, item.per_side) == (5, 5, True)
 
 
 @pytest.mark.asyncio

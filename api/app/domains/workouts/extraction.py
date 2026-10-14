@@ -886,12 +886,19 @@ def _overall_minutes_supported(value: int, wording: str) -> bool:
     return False
 
 
+def _side_count_negated(wording: str, count_start: int) -> bool:
+    return bool(re.search(
+        r"\b(?:not|never|no|without|don't|instead\s+of|rather\s+than)"
+        r"(?:\s+(?:do|doing|perform|performing|use|using|complete|completing|to)){0,2}\s*$",
+        wording[:count_start], re.I,
+    ))
+
+
 def _affirmative_side_counts(wording: str):
     for match in re.finditer(
         r"(?<![\w.\-–])(\d+)\s+(?:each|per)\s+(?:side|leg|arm|limb)\b", wording, re.I
     ):
-        if not re.search(r"\b(?:not|never|no|without|instead\s+of|rather\s+than)\s*$",
-                         wording[:match.start()], re.I):
+        if not _side_count_negated(wording, match.start()):
             yield match
 
 
@@ -1006,10 +1013,11 @@ def _value_supported(field_name: str, value, wording: str, exercise_name: str | 
         return _numeric_supported(field_name, value, wording, exercise_name)
     if field_name == "per_side":
         if value:
-            return any(not re.search(
-                r"\b(?:not|never|no|without|instead\s+of|rather\s+than)\s*(?:\d+\s*)?$",
-                wording[:match.start()], re.I,
-            ) for match in re.finditer(r"\b(?:each|per)\s+(?:side|leg|arm|limb)\b", wording, re.I))
+            for match in re.finditer(r"\b(?:each|per)\s+(?:side|leg|arm|limb)\b", wording, re.I):
+                count = re.search(r"\d+\s*(?:reps?\s*)?$", wording[:match.start()], re.I)
+                if not _side_count_negated(wording, count.start() if count else match.start()):
+                    return True
+            return False
         pattern = (
             r"\b(?:both sides combined|total reps)\b"
         )
@@ -1105,9 +1113,13 @@ def _movement_clauses(item, source: SourceBundle):
             # A single caption line may contain several separately dosed moves.
             # Keep a side qualifier with its own movement, rather than lending
             # Row's '(5 each side)' to the preceding '10x Squat +'.
-            for clause in re.split(r"(?<!\w)(?=\d+\s*[x×]\s+[A-Za-z])", line):
-                if item.name.casefold() in clause.casefold():
-                    yield part.location, line, clause
+            name_spans = list(re.finditer(re.escape(item.name), line, re.I))
+            boundaries = [0, *(match.start() for match in re.finditer(r"\+", line)
+                              if not any(name.start() <= match.start() < name.end() for name in name_spans)), len(line)]
+            for left, right in zip(boundaries, boundaries[1:]):
+                for clause in re.split(r"(?<!\w)(?=\d+\s*[x×]\s+[A-Za-z])", line[left:right]):
+                    if item.name.casefold() in clause.casefold():
+                        yield part.location, line, clause
 
 
 def _prescription_wording(item, entry, source):
