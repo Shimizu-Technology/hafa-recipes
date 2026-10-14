@@ -929,7 +929,15 @@ it("mounted manual creation locks stale callbacks and replays identical body/key
     command: null
   });
   await click("Start another workout");
+  const reset = deferred<void>();
+  fixture.persist.mockImplementationOnce(async (key: string, value: string) => {
+    await reset.promise;
+    fixture.map.set(key, value);
+  });
   await click("Start another workout and discard this draft");
+  expect(button("Starting another workout…").props.busy).toBe(true);
+  await act(async () => reset.resolve());
+  await settle();
   await act(async () => nodes("Field")[0].props.onChange("Separate deliberate workout"));
   await act(async () =>
     nodes("Field")
@@ -1027,6 +1035,13 @@ it("mounted workout editing preserves original content/revision across backgroun
   await mount(EditWorkout);
   expect(find("WorkoutEditor").props.disabled).toBe(true);
   expect(button("Reload saved workout and discard this draft")).toBeDefined();
+  const reloading = deferred<Workout>();
+  fixture.workout.mockReturnValueOnce(reloading.promise);
+  await click("Reload saved workout and discard this draft");
+  expect(button("Reloading workout…").props.busy).toBe(true);
+  await act(async () => reloading.resolve({ ...original, revision: 2 }));
+  await settle();
+  expect(find("WorkoutEditor").props.disabled).toBe(false);
 });
 
 it("mounted completed profile recovers its saved read-only view after remount and requires deliberate editing", async () => {
