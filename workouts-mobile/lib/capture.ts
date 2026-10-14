@@ -187,11 +187,17 @@ export function archiveCapturedImport(storage: Storage, owner: string, generatio
     return { value: null, revision: null } satisfies PrivateDraftSnapshot<CaptureDraft>;
   });
 }
-export async function loadCapturedImport(storage: Storage, owner: string, generation: number, id: string,
+export function loadCapturedImport(storage: Storage, owner: string, generation: number, id: string,
   guard: CaptureGuard, uuid: () => string) {
-  const archived = await createPrivateDraftSlot<CaptureDraft>(storage, owner, submittedCaptureScope(generation, id), uuid).load(guard);
-  if (archived.value?.job_id === id && archived.value.generation === generation) return archived;
-  return createPrivateDraftSlot<CaptureDraft>(storage, owner, `capture:${generation}`, uuid).load(guard);
+  return sourceLifecycle(owner, generation, async () => {
+    guard();
+    const archived = await createPrivateDraftSlot<CaptureDraft>(storage, owner, submittedCaptureScope(generation, id), uuid).load(guard);
+    guard();
+    if (archived.value?.job_id === id && archived.value.generation === generation) return archived;
+    const current = await createPrivateDraftSlot<CaptureDraft>(storage, owner, `capture:${generation}`, uuid).load(guard);
+    guard();
+    return current;
+  });
 }
 /** Call only after a saved outcome or confirmed cancellation. Retain exact failed cleanup receipts. */
 export function retireCapturedImport(storage: Storage, owner: string, generation: number, id: string, guard: CaptureGuard,

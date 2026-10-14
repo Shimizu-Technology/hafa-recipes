@@ -753,3 +753,29 @@ it("completed-job retirement waits for a held archive write instead of deleting 
   expect(native.records.has(archiveKey)).toBe(false);
   expect((await slot.load(() => {})).value).toBeNull();
 });
+
+it("source review waits for a held archive transaction before reading either source slot", async () => {
+  const owner = "consistent-read-owner", storage = journalStorage(), uuid = () => `read-${++native.next}`;
+  const slot = createPrivateDraftSlot<CaptureDraft>(storage, owner, "capture:1", uuid);
+  const source = { ...draft, generation: 1, request_id: "read-source", job_id: "read-job", is_public: false };
+  const prior = await slot.save(null, source, () => {});
+  const held = deferred<void>(), referencesKey = draftKey(owner, "imports:1");
+  let publishingReferences = false;
+  native.recordSet.mockImplementation(async (key, value) => {
+    if (key === referencesKey) { publishingReferences = true; await held.promise; }
+    native.records.set(key, value);
+  });
+  const archiving = archiveCapturedImport(storage, owner, 1, prior, () => {}, uuid);
+  while (!publishingReferences) await new Promise(resolve => setTimeout(resolve, 0));
+  // The archive has committed, but the composer still owns the original until references finish.
+  expect(native.records.has(draftKey(owner, submittedCaptureScope(1, "read-job")))).toBe(true);
+  expect((await slot.load(() => {})).value?.request_id).toBe("read-source");
+  let reviewed = false;
+  const reading = loadCapturedImport(storage, owner, 1, "read-job", () => {}, uuid).then(value => { reviewed = true; return value; });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const readDuringHandoff = reviewed;
+  held.resolve(); await archiving;
+  expect((await reading).value).toMatchObject(source);
+  expect((await slot.load(() => {})).value).toBeNull();
+  expect(readDuringHandoff).toBe(false);
+});
