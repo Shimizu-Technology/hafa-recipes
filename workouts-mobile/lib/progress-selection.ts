@@ -123,6 +123,10 @@ export function selectProgressSessions(
   return {
     requiresAncestry: families.size > 1 || chosen.size < families.size,
     conflictingQueued,
+    effective: [...nodes.values()].filter((node) => chosen.has(node.key) && applicable(node)).map((node) => ({
+      request: content(node),
+      workout: (node.remote ?? node.ancestor)?.content.prescription_snapshot ?? node.local!.workout,
+    })),
     local: visibleLocal.map((node) => node.local!),
     remote: visibleRemote.map((node) => node.remote!),
     sessions: [...nodes.values()].filter((node) => chosen.has(node.key)).map((node) => ({
@@ -130,4 +134,16 @@ export function selectProgressSessions(
       recorded: content(node).actuals.some((actual) => actual.completed),
     })),
   };
+}
+
+/** A complete server list replaces retained synced copies. Pending corrections
+ * stay in Progress for review, but never masquerade as accepted performance.
+ * Only a read that began after acknowledgement can retire a freshly saved event. */
+export function effectiveTrainingHistory(local: readonly SavedLocalSession[], remote: readonly TrainingSession[] | undefined, generation: number, serverReadAt = Infinity) {
+  const eligible = local.filter((item) => item.state !== "blocked" &&
+    (item.state === "synced" || !item.request.supersedes_session_id) &&
+    (!remote || (item.state === "queued" && !item.request.supersedes_session_id) ||
+      (item.state === "synced" && item.synced_at != null && item.synced_at >= serverReadAt)));
+  return selectProgressSessions(eligible, remote ?? [], generation).effective
+    .sort((a, b) => b.request.started_at.localeCompare(a.request.started_at));
 }

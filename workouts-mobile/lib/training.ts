@@ -44,6 +44,7 @@ export interface SavedLocalSession {
   workout: Workout;
   generation: number;
   synced_id?: string;
+  synced_at?: number;
   problem?: string;
   state: "queued" | "synced" | "blocked";
 }
@@ -246,6 +247,7 @@ export function createTrainingStore(
           if (local) {
             local.state = "synced";
             local.synced_id = saved.id;
+            local.synced_at = clock();
             const warning = historicalStructureWarning(local.workout, local.request.actuals, local.cell_identity_version);
             if (warning) local.problem = warning;
             else delete local.problem;
@@ -564,7 +566,7 @@ export function previousActual(
 ) {
   for (const session of history) {
     const matching = session.actuals.filter((actual) => {
-      if (!actual.completed || actual.side !== step.side) return false;
+      if (!actual.completed || (actual.side ?? null) !== step.side) return false;
       const prior = session.workout.blocks.find((b) => b.id === actual.block_id)?.exercises[actual.exercise_index];
       if (!prior) return false;
       if (step.exercise.exercise_id && prior.exercise_id) return step.exercise.exercise_id === prior.exercise_id;

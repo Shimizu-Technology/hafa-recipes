@@ -1,4 +1,4 @@
-import { completedProgramSessions, programSessionKey } from "@/lib/program-session-identity";
+import { programSessionStates, programSessionKey } from "@/lib/program-session-identity";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { router } from "expo-router";
@@ -23,8 +23,11 @@ import {
 import { radii } from "@/constants/theme";
 import { View } from "react-native";
 import { QueryState } from "@/components/query-state";
+import { PrescriptionPreview } from "@/components/program-preview";
+import { isISODate } from "@/lib/sharing";
+import { dateInTimezone } from "@/lib/training";
 import { useTraining, useOfflineTraining } from "@/lib/context";
-import { sessionsQuery } from "@/lib/session-query";
+import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import type { Program, ScheduledSession } from "@/lib/models";
 function DateBadge({ date, done }: { date: string; done: boolean }) {
   const c = useColors();
@@ -58,8 +61,11 @@ export default function Plan() {
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [date, setDate] = useState("");
+  const [inspecting, setInspecting] = useState<string | null>(null);
   const actuals = useQuery(sessionsQuery(api, owner, enrollment));
-  const completed = completedProgramSessions(actuals.data, offline.state.history);
+  const statuses = programSessionStates(actuals.data, offline.state.history, enrollment?.generation ?? 0, sessionReadStartedAt(actuals.data));
+  const profile = useQuery({ queryKey: [owner, "profile", enrollment?.generation], queryFn: api.profile, enabled: !!enrollment?.enrolled });
+  const today = dateInTimezone(new Date(), profile.data?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
   const q = useQuery({
     queryKey: [owner, "programs", enrollment?.generation],
     queryFn: api.programs,
@@ -83,11 +89,12 @@ export default function Plan() {
     }
   }
   async function move(p: Program, s: ScheduledSession) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(date + "T12:00:00Z").getTime())) {
-      setError("Use a valid date in YYYY-MM-DD format.");
+    if (!isISODate(date) || date < today) {
+      setError("Choose today or a future date in YYYY-MM-DD format.");
       return;
     }
-    if (p.sessions.some((other) => other.id !== s.id && other.date === date)) {
+    if (q.data?.some((otherProgram) => otherProgram.status === "ready" && otherProgram.schedule_state?.status !== "paused" && otherProgram.sessions.some((other) =>
+      (otherProgram.id !== p.id || other.id !== s.id) && other.date === date))) {
       setError("That day already has a planned session. Choose another day to preserve recovery.");
       return;
     }
@@ -136,10 +143,12 @@ export default function Plan() {
         />
       ) : (
         <QueryState
-          loading={q.isPending}
-          error={q.error}
+          loading={q.isPending || actuals.isPending || profile.isPending}
+          error={q.error ?? actuals.error ?? profile.error}
           retry={() => {
             void q.refetch();
+            void actuals.refetch();
+            void profile.refetch();
           }}
         >
           {!q.data?.length ? (
@@ -207,14 +216,17 @@ export default function Plan() {
                     />
                   </>
                 )}
-                {p.sessions.map((s) => {
+                {[...p.sessions].sort((a, b) => a.date.localeCompare(b.date)).map((s) => {
                   const key = programSessionKey(p.id, s.id);
-                  const done = completed.has(key!);
+                  const status = statuses.get(key!);
+                  const done = status === "completed";
+                  const missed = s.date < today && !done && p.schedule_state?.status !== "paused";
                   return (
                     <View key={s.id} style={{ gap: 10 }}>
                       <Row gap={14} align="flex-start">
                         <DateBadge date={s.date} done={done} />
                         <Grow style={{ gap: 2 }}>
+                          <Copy kind="small" tone="muted">{s.date}</Copy>
                           <Copy kind="subheading">{s.workout.title}</Copy>
                           <Copy kind="small" tone="muted">
                             {s.purpose}
@@ -227,10 +239,16 @@ export default function Plan() {
                           Done. Nice work.
                         </Copy>
                       )}
+                      {status === "partial" && <Notice>Partially recorded. Your saved sets stay in Progress; starting again creates a separate session.</Notice>}
+                      {status === "skipped" && <Notice>No completed sets recorded. This session still needs your review.</Notice>}
+                      {missed && <Notice tone="warning">This date has passed. Move this session to a day that works, or train it now. Other sessions keep their dates.</Notice>}
+                      <Button title={inspecting === key ? "Hide session instructions" : "Inspect session instructions"} secondary size="sm" inline
+                        onPress={() => setInspecting(inspecting === key ? null : key)} />
+                      {inspecting === key && <PrescriptionPreview workout={s.workout} />}
                       {(
                         <Row gap={10}>
                           <Button
-                            title="Start session"
+                            title={status === "partial" || done ? "Start session again" : "Start session"}
                             icon="play"
                             size="sm"
                             variant={done ? "secondary" : "primary"}
@@ -247,14 +265,14 @@ export default function Plan() {
                             }}
                           />
                           {!done && <Button
-                            title="Move this session"
+                            title={missed ? "Choose a new date" : "Move this session"}
                             variant="ghost"
                             size="sm"
                             inline
                             disabled={busy || p.schedule_state?.status === "paused"}
                             onPress={() => {
                               setEditing(key);
-                              setDate(s.date);
+                              setDate(missed ? today : s.date);
                             }}
                           />}
                         </Row>

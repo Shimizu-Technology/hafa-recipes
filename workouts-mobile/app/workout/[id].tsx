@@ -213,6 +213,12 @@ export default function WorkoutDetail() {
             )}
             <SectionHeader title="Make it yours" />
             <ListGroup>
+              {workout.kind === "session" && <ListRow
+                icon="calendar-outline"
+                title="Add to a plan"
+                detail="Choose your days and keep this workout selected"
+                onPress={() => router.push({ pathname: "/build-plan", params: { include: workout.id } })}
+              />}
               <ListRow
                 icon="chatbubble-ellipses-outline"
                 title="Chat about this workout"

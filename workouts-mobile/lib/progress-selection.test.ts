@@ -1,8 +1,12 @@
 import { expect, it, vi } from "vitest";
-import { selectProgressSessions, missingProgressParents, loadProgressAncestry } from "./progress-selection";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import { selectProgressSessions, missingProgressParents, loadProgressAncestry, effectiveTrainingHistory } from "./progress-selection";
 import { activityFrequency } from "./activity-log";
 import { createTrainingStore, type SavedLocalSession } from "./training";
 import type { TrainingSession, Workout } from "./models";
+import { previousActual, stepsFor } from "./training";
+import { sessionsQuery, sessionReadStartedAt } from "./session-query";
+import { completedProgramSessions, programSessionKey } from "./program-session-identity";
 
 const workout: Workout = { id: "workout", generation: 1, revision: 1, title: "Strength", kind: "session", provenance: "user",
   blocks: [{ id: "main", label: "Strength", grouping: "sequential", exercises: [{ name: "Row", sets: 2, reps_min: 8, reps_max: 8 }] }] };
@@ -12,13 +16,73 @@ function saved(id = "A", previous?: string): TrainingSession {
     content: { client_session_id: `client-${id}`, workout_id: workout.id, workout_revision: 1,
       started_at: "2026-10-10T00:00:00Z", finished_at: "2026-10-10T00:02:00Z", status: "completed",
       prescription_snapshot: workout, ...(previous ? { supersedes_session_id: previous } : {}),
-      actuals: [8, 7].map((reps, i) => ({ block_id: "main", exercise_index: 0, round_index: 1, set_index: i + 1, reps, completed: true })) } };
+      actuals: [8, 7].map((reps, i) => ({ block_id: "main", exercise_index: 0, round_index: 1, set_index: i + 1, side: null, reps, completed: true })) } };
 }
 function local(record: TrainingSession, state: SavedLocalSession["state"] = "synced"): SavedLocalSession {
   const { prescription_snapshot, ...request } = record.content;
   return { generation: record.generation, workout: prescription_snapshot, request, state,
     ...(state === "synced" ? { synced_id: record.id } : {}), ...(state === "blocked" ? { problem: "Review the conflict" } : {}) };
 }
+it("last performance uses the latest other-device result and excludes rejected/pending corrections", () => {
+  const old = saved(), corrected = saved("C", "omitted-intermediate"), pending = saved("pending", "A");
+  corrected.content.actuals[1].reps = 12; pending.content.actuals[1].reps = 99;
+  corrected.content.actuals.forEach((actual) => { delete actual.side; }); // Older records may omit the optional side.
+  const history = effectiveTrainingHistory([local(pending, "blocked"), local(old)], [corrected], 1);
+  expect(history).toHaveLength(1);
+  expect(previousActual(workout, stepsFor(workout)[0], history.map((h) => ({ workout: h.workout, actuals: h.request.actuals })))?.reps).toBe(12);
+  expect(effectiveTrainingHistory([local(pending, "queued"), local(old)], [corrected], 1)).toEqual(history);
+});
+it("offline history keeps the accepted correction and orders new on-device work by training date", () => {
+  const old = saved(), correction = saved("B", "A"), newer = saved("newer");
+  newer.content.started_at = "2026-10-12T00:00:00Z";
+  const selected = effectiveTrainingHistory([local(correction), local(old), local(newer, "queued")], undefined, 1);
+  expect(selected.map((h) => h.request.client_session_id)).toEqual(["client-newer", "client-B"]);
+});
+it("a newly acknowledged result stays effective until the server cache catches up", () => {
+  const result = local(saved()); result.synced_at = 200;
+  expect(effectiveTrainingHistory([result], [], 1, 100)).toHaveLength(1);
+  expect(effectiveTrainingHistory([result], [], 1, 300)).toHaveLength(0);
+});
+it("a late initial QueryObserver read cannot retire a real acknowledged save, including reused post-sync refetch", async () => {
+  let clock = 100, resolveRead!: (value: TrainingSession[]) => void;
+  const date = vi.spyOn(Date, "now").mockImplementation(() => clock);
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  const api = { sessions: vi.fn(() => new Promise<TrainingSession[]>((resolve) => { resolveRead = resolve; })) };
+  const observer = new QueryObserver(cache, sessionsQuery(api, "owner", { enrolled: true, generation: 1 }));
+  const unsubscribe = observer.subscribe(() => undefined);
+  try {
+    expect(api.sessions).toHaveBeenCalledTimes(1);
+    const map = new Map<string, string>();
+    const store = createTrainingStore({ getItem: async (key) => map.get(key) ?? null,
+      setItem: async (key, value) => { map.set(key, value); }, removeItem: async (key) => { map.delete(key); } }, "owner", 1, () => clock);
+    await store.load();
+    await store.start(workout, { program_id: "plan", program_revision: 1, program_session_id: "today" }, "real-client");
+    await store.activityType("strength_training");
+    for (const actual of saved().content.actuals) await store.log(actual);
+    await store.finish("completed");
+    clock = 200;
+    await store.sync(async (request) => ({ id: "server-saved", generation: 1,
+      client_session_id: request.client_session_id, title: workout.title, started_at: request.started_at, status: request.status,
+      content: { ...request, prescription_snapshot: workout } }));
+    expect(store.snapshot().history[0].synced_at).toBe(200);
+    const afterSync = observer.refetch(); // No cached data: React Query reuses the already-running GET.
+    expect(api.sessions).toHaveBeenCalledTimes(1);
+    clock = 300; resolveRead([]);
+    const stale = await afterSync;
+    expect(stale.dataUpdatedAt).toBe(300);
+    expect(sessionReadStartedAt(stale.data)).toBe(100);
+    const key = programSessionKey("plan", "today")!;
+    expect(completedProgramSessions(stale.data, store.snapshot().history, 1, sessionReadStartedAt(stale.data)).has(key)).toBe(true);
+    expect(effectiveTrainingHistory(store.snapshot().history, stale.data, 1, sessionReadStartedAt(stale.data))).toHaveLength(1);
+    // A genuinely later complete read can confirm removal/supersession. Even
+    // []→[] must replace the read boundary rather than structurally reuse it.
+    clock = 400; api.sessions.mockResolvedValueOnce([]);
+    const fresh = await observer.refetch();
+    expect(api.sessions).toHaveBeenCalledTimes(2);
+    expect(sessionReadStartedAt(fresh.data)).toBe(400);
+    expect(effectiveTrainingHistory(store.snapshot().history, fresh.data, 1, sessionReadStartedAt(fresh.data))).toHaveLength(0);
+  } finally { unsubscribe(); cache.clear(); date.mockRestore(); }
+});
 const frequency = (selection: ReturnType<typeof selectProgressSessions>) =>
   activityFrequency([], selection.sessions, "UTC", "2026-10-04", "2026-10-10");
 

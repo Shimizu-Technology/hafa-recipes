@@ -20,7 +20,7 @@ import {
 } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { useTraining, useOfflineTraining } from "@/lib/context";
-import { sessionsQuery } from "@/lib/session-query";
+import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import { dateInTimezone } from "@/lib/training";
 import { weekDays } from "@/lib/week-strip";
 import { goalLabels, type Program, type ScheduledSession } from "@/lib/models";
@@ -37,12 +37,14 @@ export default function Today() {
   const sessions = useQuery(sessionsQuery(api, owner, enrollment));
   const timezone = profile.data?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const date = dateInTimezone(new Date(), timezone);
-  const completed = completedProgramSessions(sessions.data, offline.state.history);
+  const completed = completedProgramSessions(sessions.data, offline.state.history, enrollment?.generation ?? 0, sessionReadStartedAt(sessions.data));
   const activePrograms = programs.data?.filter((p) => p.status === "ready" && p.schedule_state?.status !== "paused");
   const planned = activePrograms
     ?.flatMap((p) =>
       p.sessions.filter((s) => s.date === date && !completed.has(programSessionKey(p.id, s.id)!)).map((s) => ({ program: p, session: s }))
     )[0];
+  const missed = activePrograms?.flatMap((p) => p.sessions.filter((s) =>
+    s.date < date && !completed.has(programSessionKey(p.id, s.id)!))) ?? [];
   const dayOf = (iso: string | undefined) => {
     const at = new Date(iso ?? "");
     return Number.isNaN(at.getTime()) ? [] : [dateInTimezone(at, timezone)];
@@ -159,6 +161,11 @@ export default function Today() {
               void retryToday();
             }}
           >
+            {!!missed.length && <Card tone="sunken" compact>
+              <Copy kind="subheading">{missed.length} earlier {missed.length === 1 ? "session needs" : "sessions need"} a new date</Copy>
+              <Copy tone="muted">Keep your recorded work. Review what you missed and choose when to return; sessions are never stacked automatically.</Copy>
+              <Button title="Review missed sessions" secondary onPress={() => router.push("/(tabs)/plan")} />
+            </Card>}
             {!profile.data ? (
               <Empty
                 icon="person-outline"
