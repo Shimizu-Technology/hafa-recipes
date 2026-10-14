@@ -76,7 +76,7 @@ enum CaptureImageNormalizer {
       input.query == nil, input.fragment == nil,
       let output = URL(string: destination), output.isFileURL, output.host == nil || output.host == "",
       output.query == nil, output.fragment == nil,
-      output.standardizedFileURL.resolvingSymlinksInPath().deletingLastPathComponent() == cache,
+      output.deletingLastPathComponent().standardizedFileURL.resolvingSymlinksInPath() == cache,
       output.pathExtension == "jpg",
       !FileManager.default.fileExists(atPath: output.path),
       let image = CGImageSourceCreateWithURL(input as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else {
@@ -96,7 +96,11 @@ enum CaptureImageNormalizer {
       result = bytes as Data
       if bytes.length <= 300 * 1024 { break }
     }
-    guard let result, result.count <= 350 * 1024 else {
+    guard let result else {
+      throw NSError(domain: WorkoutsShareStore.service, code: 6,
+        userInfo: [NSLocalizedDescriptionKey: "That workout image could not be converted. Choose another image."])
+    }
+    guard result.count <= 350 * 1024 else {
       throw NSError(domain: WorkoutsShareStore.service, code: 7,
         userInfo: [NSLocalizedDescriptionKey: "That image is still too large. Crop the workout or use clearer screenshots."])
     }

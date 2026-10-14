@@ -147,6 +147,18 @@ it("cold-process recovery removes an interrupted iOS image write without unknown
   expect(native.files.has(destination)).toBe(false);
   expect([...native.files.keys()]).toEqual([original, other]); expect(native.records.size).toBe(0);
 });
+it("preserves the source and retires exact iOS outputs when native conversion fails", async () => {
+  native.platform = "ios";
+  const original = "file:///shared/original.png", other = "file:///cache/hafa-workouts-capture/other.jpg";
+  native.files.set(original, "Original"); native.files.set(other, "Other account");
+  native.normalizeCaptureImage.mockImplementation(async (_source, destination) => {
+    native.files.set(destination, "Partial write");
+    throw Error("That workout image could not be converted. Choose another image.");
+  });
+  await expect(normalizeImages([{ uri: original }], () => {}, "ios-owner")).rejects.toThrow("could not be converted");
+  expect([...native.files.keys()]).toEqual([original, other]); expect(native.records.size).toBe(0);
+  expect(native.manipulate).not.toHaveBeenCalled(); expect(native.copy).not.toHaveBeenCalled();
+});
 it("copies a shared PDF into the owner journal without consuming its borrowed extension original", async () => {
   const uri = "file:///shared/workout.pdf"; native.files.set(uri, "PDF contents");
   const files = await normalizeDocument({ uri, mimeType: "application/pdf", name: "Workout.pdf" }, () => {}, "document-owner");
