@@ -46,6 +46,7 @@ const fixture = vi.hoisted(() => ({
   workout: vi.fn(),
   measurement: vi.fn(),
   writeFailure: false,
+  foreground: new Set<(state: string) => void>(),
   os: "android", nativeSharing: false, nativeCaptures: vi.fn(), nativeAck: vi.fn()
 }));
 vi.mock("@/lib/context", () => {
@@ -117,7 +118,9 @@ vi.mock("react-native", () => ({
   View: "View",
   Image: "Image",
   Alert: { alert: fixture.alert },
-  AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
+  AppState: { currentState: "active", addEventListener: (_event: string, listener: (state: string) => void) => {
+    fixture.foreground.add(listener); return { remove: () => fixture.foreground.delete(listener) };
+  } },
   Linking: { openURL: vi.fn() }
 }));
 vi.mock("@/components/native-share-session", () => ({ useNativeShareSession() {} }));
@@ -269,6 +272,7 @@ beforeEach(() => {
   fixture.current = true;
   fixture.next = 0;
   fixture.share = false;
+  fixture.foreground.clear();
   fixture.os = "android"; fixture.nativeSharing = false;
   fixture.intent = { webUrl: "", text: "", files: [] };
   for (const value of Object.values(fixture)) if (typeof value === "function") value.mockReset();
@@ -1793,4 +1797,75 @@ it("a mounted failed handoff can start a new source after import review safely r
   expect(fixture.map.has(key)).toBe(false);
   await click("Start another source draft");
   expect(nodes("Field")[0].props).toMatchObject({ value: "", disabled: false });
+});
+
+
+const unfinishedNativeDraft = () => ({ request_id: "unfinished-A", generation: 1, kind: "images", source_url: "", text: "My source A", is_public: false,
+  files: [{ uri: "file:///cache/hafa-workouts-capture/draft-A.jpg", name: "A", mime_type: "image/jpeg", owned: true }], created_at: "2026-10-14T00:00:00Z" });
+const queuedNativeSource = () => ({ captureKey: "queued-B", captureId: "source-B", ownerId: fixture.owner, generation: 1, text: "Shared source B", isPublic: false,
+  files: [{ path: "file:///shared/source-B.jpg", mimeType: "image/jpeg", fileName: "B" }] });
+it("native deferred sharing keeps both sources, continues the current draft and retries on a later foreground", async () => {
+  const current = unfinishedNativeDraft(), incoming = queuedNativeSource(), key = draftKey(fixture.owner, "capture:1");
+  fixture.map.set(key, JSON.stringify(current)); fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([incoming]).mockResolvedValueOnce([incoming]);
+  await mount(overlappingCapture);
+  expect(fixture.alert).toHaveBeenCalledWith("Shared source saved for later", expect.stringContaining("both saved"), expect.any(Array), expect.anything());
+  expect(fixture.normalizeImages).not.toHaveBeenCalled(); expect(fixture.nativeAck).not.toHaveBeenCalled();
+  expect(JSON.parse(fixture.map.get(key)!)).toMatchObject(current);
+  const actions = fixture.alert.mock.calls[0][2];
+  expect(actions.map((action: { text: string }) => action.text)).toEqual(["Later", "Continue current draft"]);
+  await act(async () => actions[1].onPress()); await settle();
+  expect(fixture.push).toHaveBeenLastCalledWith("/capture");
+  expect(fixture.nativeCaptures).toHaveBeenCalledTimes(1); expect(fixture.cleanup).not.toHaveBeenCalled();
+  fixture.startImport.mockResolvedValueOnce({ id: "source-A-job" }); await click("Extract workout");
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, submittedCaptureScope(1, "source-A-job")))!)).toMatchObject(current);
+  const clonedB = { uri: "file:///cache/hafa-workouts-capture/intake-B.jpg", name: "B", mime_type: "image/jpeg", owned: true };
+  fixture.normalizeImages.mockResolvedValueOnce([clonedB]);
+  await act(async () => { for (const listener of fixture.foreground) listener("active"); }); await settle();
+  expect(fixture.nativeAck).toHaveBeenCalledExactlyOnceWith("queued-B");
+  expect(JSON.parse(fixture.map.get(key)!)).toMatchObject({ request_id: "source-B", files: [clonedB] });
+  expect(fixture.cleanup.mock.calls.flatMap(call => call[0])).not.toContainEqual(current.files[0]);
+});
+it("Later preserves a deferred native receipt without immediately reloading or prompting again", async () => {
+  const current = unfinishedNativeDraft(), key = draftKey(fixture.owner, "capture:1");
+  fixture.map.set(key, JSON.stringify(current)); fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([queuedNativeSource()]); await mount(ShareCapture);
+  const actions = fixture.alert.mock.calls[0][2]; await act(async () => actions[0].onPress()); await settle();
+  await act(async () => actions[1].onPress()); await settle();
+  expect(fixture.nativeAck).not.toHaveBeenCalled(); expect(fixture.push).not.toHaveBeenCalled();
+  expect(fixture.nativeCaptures).toHaveBeenCalledTimes(1); expect(fixture.alert).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(fixture.map.get(key)!)).toMatchObject(current);
+});
+it("a draft arriving during native normalization retains both sources and cleans only the new intake copies", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true; fixture.nativeCaptures.mockResolvedValueOnce([queuedNativeSource()]);
+  const held = deferred<import("./capture").CaptureFile[]>(); fixture.normalizeImages.mockReturnValueOnce(held.promise);
+  await mount(ShareCapture);
+  const current = unfinishedNativeDraft(), key = draftKey(fixture.owner, "capture:1");
+  fixture.map.set(key, JSON.stringify(current));
+  const clone = { uri: "file:///cache/hafa-workouts-capture/normalized-B.jpg", name: "B", mime_type: "image/jpeg", owned: true };
+  await act(async () => held.resolve([clone])); await settle();
+  expect(fixture.cleanup).toHaveBeenCalledExactlyOnceWith([clone], true);
+  expect(JSON.parse(fixture.map.get(key)!)).toMatchObject(current);
+  expect(fixture.nativeAck).not.toHaveBeenCalled();
+  expect(fixture.alert.mock.calls[0][0]).toBe("Shared source saved for later");
+});
+it.each(["account", "unmount"])("deferred native source callbacks stay inert after %s retirement", async (retirement) => {
+  const current = unfinishedNativeDraft(), originalOwner = fixture.owner;
+  fixture.map.set(draftKey(originalOwner, "capture:1"), JSON.stringify(current)); fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([queuedNativeSource()]); await mount(ShareCapture);
+  const actions = fixture.alert.mock.calls[0][2];
+  if (retirement === "account") { fixture.owner = "replacement-owner"; await rerender(ShareCapture); }
+  else await unmount();
+  await act(async () => { actions[1].onPress(); actions[0].onPress(); }); await settle();
+  expect(fixture.nativeAck).not.toHaveBeenCalled(); expect(fixture.push).not.toHaveBeenCalled();
+  expect(JSON.parse(fixture.map.get(draftKey(originalOwner, "capture:1"))!)).toMatchObject(current);
+});
+it("retrying a registered native capture only acknowledges its receipt without copying or replacing user changes", async () => {
+  const current = { ...unfinishedNativeDraft(), request_id: "source-B", is_public: true, text: "My updated instructions" };
+  const key = draftKey(fixture.owner, "capture:1"); fixture.map.set(key, JSON.stringify(current));
+  fixture.os = "ios"; fixture.nativeSharing = true; fixture.nativeCaptures.mockResolvedValueOnce([queuedNativeSource()]);
+  await mount(ShareCapture);
+  expect(fixture.nativeAck).toHaveBeenCalledExactlyOnceWith("queued-B"); expect(fixture.normalizeImages).not.toHaveBeenCalled();
+  expect(fixture.cleanup).not.toHaveBeenCalled(); expect(fixture.alert).not.toHaveBeenCalled();
+  expect(JSON.parse(fixture.map.get(key)!)).toMatchObject(current);
 });

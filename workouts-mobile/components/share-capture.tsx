@@ -93,6 +93,42 @@ export function ShareCapture() {
         files: [],
         ...(native ? { is_public: native.isPublic } : {})
       };
+      async function preserveNativeSource(saved: Awaited<ReturnType<typeof slot.load>>) {
+        const prior = saved.value;
+        if (!native || !prior) return false;
+        guard();
+        const cleanClones = async () => {
+          const protectedFiles = [...prior.files, ...(prior.cleanup_files ?? [])];
+          const clones = draft.files.filter(file => !protectedFiles.some(kept => kept.uri === file.uri));
+          if (clones.length) await cleanupCaptureFiles(clones, true);
+          draft = { ...draft, files: [] }; guard();
+        };
+        // A previous intake may have committed before its native acknowledgement failed.
+        // Keep the registered source and any subsequent visibility edits exactly as saved.
+        if (prior.generation === generation && prior.request_id === native.captureId) {
+          await cleanClones(); slot.assertCurrent(saved.revision); guard();
+          if (!(await NativeShare.acknowledge(native.captureKey))) throw Error("Your source is saved. Reopen Workouts to reconnect this share.");
+          guard(); resetShareIntent(); return true;
+        }
+        if (prior.pending_import && !prior.job_id)
+          throw Error("Resolve the original pending import in Capture before replacing its source.");
+        if (prior.job_id || !(prior.text.trim() || prior.source_url.trim() || prior.files.length)) return false;
+        await cleanClones();
+        let decided = false;
+        const later = (continueDraft = false) => {
+          try {
+            guard(); if (decided) return; decided = true;
+            setNative(null); // Keep the native receipt; do not immediately reload the queue.
+            if (continueDraft) router.push("/capture");
+          } catch {}
+        };
+        Alert.alert("Shared source saved for later",
+          "Your current draft and this shared source are both saved. Finish or clear your current draft first; reopen Workouts later to import the shared source.",
+          [{ text: "Later", style: "cancel", onPress: () => later() },
+            { text: "Continue current draft", onPress: () => later(true) }],
+          { cancelable: true, onDismiss: () => later() });
+        return true;
+      }
       try {
         if (native?.jobId) {
           guard();
@@ -106,6 +142,7 @@ export function ShareCapture() {
           if (!(await NativeShare.acknowledge(native.captureKey))) throw Error("Your import is saved. Reopen Workouts to reconnect this share.");
           guard(); resetShareIntent(); return;
         }
+        if (native && await preserveNativeSource(await slot.load(guard))) return;
         if (shareIntent.files?.length) {
           if (shareIntent.files.some((f) => !f.mimeType.startsWith("image/"))) {
             if (shareIntent.files.length !== 1) throw Error("Share one PDF or text document, or up to four images together.");
@@ -132,6 +169,7 @@ export function ShareCapture() {
         let saved = await slot.load(guard);
         const prior = saved.value;
         guard();
+        if (native && await preserveNativeSource(saved)) return;
         if (prior?.pending_import && !prior.job_id)
           throw Error("Resolve the original pending import in Capture before replacing its source.");
         const hasPrior = prior && !prior.job_id && (prior.text.trim() || prior.source_url.trim() || prior.files.length);
