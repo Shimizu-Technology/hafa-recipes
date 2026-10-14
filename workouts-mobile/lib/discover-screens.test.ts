@@ -436,8 +436,8 @@ it("saved detail retains source metadata and prevents starting a source-only dra
   expect(nodes("SourceImage")[0].props.uri).toBe("https://example.test/cover.jpg");
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
   expect(text).toContain("No readable instructions"); expect(button("Check details")).toBeDefined();
-  await act(async () => button("Recover from caption or source")!.props.onPress());
-  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/recover-workout/[id]", params: { id: saved.id } });
+  expect(button("Recover from caption or source")).toBeUndefined();
+  expect(button("Review tracking details")).toBeUndefined();
 });
 
 it("defaults Share to Discover off for photo imports and saves privately", async () => {

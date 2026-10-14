@@ -257,7 +257,7 @@ export function WorkoutEditor({
       ); })}
       <Button
         disabled={disabled}
-        title="Add another block"
+        title={value.blocks.length ? "Add another block" : "Add exercises"}
         secondary
         onPress={() =>
           update({
@@ -266,7 +266,7 @@ export function WorkoutEditor({
               ...value.blocks,
               {
                 id: `block-${Date.now()}-${value.blocks.length}`,
-                label: "Additional work",
+                label: value.blocks.length ? "Additional work" : "Main session",
                 grouping: "sequential",
                 exercises: [{ name: "", provenance: "user" }]
               }
