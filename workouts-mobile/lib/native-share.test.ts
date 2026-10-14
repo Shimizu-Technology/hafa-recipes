@@ -91,6 +91,8 @@ describe("Workouts native share generation", () => {
     expect(source.match(/defer \{ try\? FileManager.default.removeItem\(at: staging\) \}/g)).toHaveLength(2);
     expect(source.indexOf("hasItemConformingToTypeIdentifier(urlContentType)")).toBeLessThan(source.indexOf("} else if attachment.hasItemConformingToTypeIdentifier(imageContentType)"));
     expect(source).toContain("!attachment.hasItemConformingToTypeIdentifier(fileURLType)");
+    expect(source.indexOf("hasItemConformingToTypeIdentifier(pdfContentType)")).toBeLessThan(source.indexOf("hasItemConformingToTypeIdentifier(propertyListType)"));
+    expect(source).toContain('extensionOverride: identifier == pdfContentType ? "pdf" : nil');
     expect(source).toContain("if url.isFileURL { try copyCaptureFile");
   });
   it("declares matching extension Keychain entitlements before prebuild/signing", () => {

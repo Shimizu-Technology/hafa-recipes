@@ -39,9 +39,11 @@
     NSError(domain: "WorkoutsShareCapture", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
   }
   private func loadCaptureAttachment(_ attachment: NSItemProvider) async throws {
-    // Prefer a webpage/link over its preview image. File URLs still use the
-    // copying path and can never become an automatically queued web source.
-    if attachment.hasItemConformingToTypeIdentifier(propertyListType) {
+    // A PDF may also advertise its browser URL. Preserve the document bytes;
+    // other webpages/links still take precedence over their preview image.
+    if attachment.hasItemConformingToTypeIdentifier(pdfContentType) {
+      try await handleCaptureFile(attachment, identifier: pdfContentType)
+    } else if attachment.hasItemConformingToTypeIdentifier(propertyListType) {
       let item = try await attachment.loadItem(forTypeIdentifier: propertyListType)
       guard let dictionary = item as? NSDictionary,
         let results = dictionary[NSExtensionJavaScriptPreprocessingResultsKey] as? NSDictionary,
@@ -58,8 +60,6 @@
       try await handleImages(attachment)
     } else if attachment.hasItemConformingToTypeIdentifier(fileURLType) {
       try await handleCaptureFile(attachment, identifier: fileURLType)
-    } else if attachment.hasItemConformingToTypeIdentifier(pdfContentType) {
-      try await handleCaptureFile(attachment, identifier: pdfContentType)
     } else if attachment.hasItemConformingToTypeIdentifier(textContentType) {
       try await handleText(attachment)
     } else {
@@ -91,7 +91,7 @@
   private func handleCaptureFile(_ attachment: NSItemProvider, identifier: String) async throws {
     let item = try await attachment.loadItem(forTypeIdentifier: identifier)
     if let url = item as? URL {
-      try copyCaptureFile(url, type: .file)
+      try copyCaptureFile(url, type: .file, extensionOverride: identifier == pdfContentType ? "pdf" : nil)
     } else if identifier == pdfContentType, let data = item as? Data {
       let staging = FileManager.default.temporaryDirectory.appendingPathComponent("workouts-\(UUID().uuidString).pdf")
       defer { try? FileManager.default.removeItem(at: staging) }
@@ -99,13 +99,13 @@
       try copyCaptureFile(staging, type: .file)
     } else { throw captureError("Could not read the shared document.") }
   }
-  private func copyCaptureFile(_ source: URL, type: SharedMediaType) throws {
+  private func copyCaptureFile(_ source: URL, type: SharedMediaType, extensionOverride: String? = nil) throws {
     guard source.isFileURL,
       let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: hostAppGroupIdentifier)
     else { throw captureError("Could not access the shared file. Please share it again.") }
     let scoped = source.startAccessingSecurityScopedResource()
     defer { if scoped { source.stopAccessingSecurityScopedResource() } }
-    let fileExtension = getExtension(from: source, type: type)
+    let fileExtension = extensionOverride ?? getExtension(from: source, type: type)
     let destination = container.appendingPathComponent("\(UUID().uuidString).\(fileExtension)")
     do { try WorkoutsShareStore.copyStagedFile(sharedKey, source: source, destination: destination) }
     catch {
