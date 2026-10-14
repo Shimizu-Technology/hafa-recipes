@@ -21,8 +21,6 @@ export function workoutErrors(workout: AuthoredWorkout,allowIncomplete=false) {
     errors.push("Workout duration must be whole minutes from 1 to 1440, or blank.");
   if ((workout.notes ?? []).filter(note => note.trim()).length > 100)
     errors.push("Keep workout instructions to 100 lines or fewer.");
-  if ((workout.notes ?? []).some(note => note.length > 2000))
-    errors.push("Keep each workout instruction to 2000 characters or fewer.");
   if (!workout.blocks.length && !allowIncomplete) errors.push("Add at least one workout block.");
   for (const block of workout.blocks) {
     if (!block.label.trim()) errors.push("Name each workout block.");

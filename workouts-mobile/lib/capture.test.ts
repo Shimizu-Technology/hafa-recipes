@@ -257,7 +257,7 @@ it("validates editable workout duration and instruction bounds before freezing a
   expect(workoutErrors({ ...workout, estimated_minutes: 20.5 }, true)).toContain("Workout duration must be whole minutes from 1 to 1440, or blank.");
   expect(workoutErrors({ ...workout, estimated_minutes: NaN }, true)).toHaveLength(1);
   expect(workoutErrors({ ...workout, notes: Array(101).fill("Instruction") }, true)).toContain("Keep workout instructions to 100 lines or fewer.");
-  expect(workoutErrors({ ...workout, notes: ["x".repeat(2001)] }, true)).toHaveLength(1);
+  expect(workoutErrors({ ...workout, notes: ["x".repeat(2001)] }, true)).toEqual([]);
   const editing = editedContent({ ...workout, notes: ["  Rest after each round  ", "", "  "] });
   expect(editing.notes).toEqual(["  Rest after each round  ", "", "  "]);
   expect(authoredWorkout(editing).notes).toEqual(["Rest after each round"]);
