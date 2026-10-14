@@ -74,6 +74,7 @@ class StorageService:
     def __init__(self):
         self._client = None
         self._presign_client = None
+        self._workouts_thumbnail_client = None
     
     @property
     def client(self):
@@ -89,6 +90,21 @@ class StorageService:
                     config=Config(connect_timeout=5, read_timeout=15, retries={"max_attempts": 2}),
                 )
         return self._client
+
+    @property
+    def workouts_thumbnail_client(self):
+        """Optional Workouts previews get one short attempt per small variant."""
+        if self._workouts_thumbnail_client is None:
+            settings = get_settings()
+            if settings.s3_enabled:
+                self._workouts_thumbnail_client = boto3.client(
+                    "s3",
+                    aws_access_key_id=settings.aws_access_key_id,
+                    aws_secret_access_key=settings.aws_secret_access_key,
+                    region_name=settings.aws_region,
+                    config=Config(connect_timeout=2, read_timeout=3, retries={"total_max_attempts": 1}),
+                )
+        return self._workouts_thumbnail_client
     
     @property
     def presign_client(self):
@@ -357,16 +373,27 @@ class StorageService:
         self,
         variants: dict[str, ValidatedImage],
         recipe_id: str | UUID,
+        *,
+        upload_client=None,
     ) -> str:
         """Persist prepared variants while the caller holds the recipe media lock."""
         result = await self._store_thumbnail_variants(
             variants,
             recipe_id,
             media_lock_held=True,
+            upload_client=upload_client,
         )
         if result is None:  # Defensive: the locked storage path always returns a URL.
             raise RuntimeError("Thumbnail variant storage did not return a URL")
         return result
+
+    async def store_prepared_workouts_thumbnail_variants_locked(self, variants, namespace):
+        client = self.workouts_thumbnail_client
+        if client is None:
+            raise RuntimeError("Workout thumbnail storage is not configured")
+        return await self.store_prepared_thumbnail_variants_locked(
+            variants, namespace, upload_client=client
+        )
 
     async def _store_thumbnail_variants(
         self,
@@ -374,6 +401,7 @@ class StorageService:
         recipe_id: str | UUID,
         *,
         media_lock_held: bool,
+        upload_client=None,
     ) -> str | None:
         """Store one content-addressed variant set and return its canonical hero URL."""
         variant_set = hashlib.sha256()
@@ -391,7 +419,8 @@ class StorageService:
             for name, key in keys.items():
                 image = variants[name]
                 print(f"📤 Uploading to S3: {key}")
-                self.client.put_object(
+                client = upload_client if upload_client is not None else self.client
+                client.put_object(
                     Bucket=self.bucket_name,
                     Key=key,
                     Body=image.data,

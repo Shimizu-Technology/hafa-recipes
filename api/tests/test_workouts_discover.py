@@ -517,6 +517,7 @@ async def prepare_test_source_cover(
     )
     store = StorageService()
     store._client = ReadableS3(_png_bytes("red"))
+    store._workouts_thumbnail_client = store._client
     if fail_upload:
         put = store._client.put_object
 
@@ -533,7 +534,7 @@ async def prepare_test_source_cover(
         return _png_bytes("red"), "image/png"
 
     store._download_public_url = download
-    original = store.store_prepared_thumbnail_variants_locked
+    original = store.store_prepared_workouts_thumbnail_variants_locked
 
     async def registered_before_upload(variants, namespace):
         async with api.sessions() as db:
@@ -550,7 +551,7 @@ async def prepare_test_source_cover(
             await hold_upload[1].wait()
         return await original(variants, namespace)
 
-    store.store_prepared_thumbnail_variants_locked = registered_before_upload
+    store.store_prepared_workouts_thumbnail_variants_locked = registered_before_upload
     monkeypatch.setattr(source_media, "storage_service", store)
     monkeypatch.setattr(source_media, "AsyncSessionLocal", api.sessions)
     identifier, accepted = uuid4(), now()
@@ -631,7 +632,7 @@ async def test_private_capture_or_failed_upload_never_attaches_cover(
     from app.domains.workouts.source_media_models import WorkoutSourceMedia
     from app.models.deletion import DeletionCleanupJob
 
-    url, _, store, downloads = await prepare_test_source_cover(
+    url, import_id, store, downloads = await prepare_test_source_cover(
         discover_api, monkeypatch, kind=kind, fail_upload=failed
     )
     assert url is None and len(store._client.puts) == (1 if failed else 0)
@@ -644,6 +645,33 @@ async def test_private_capture_or_failed_upload_never_attaches_cover(
             assert rows[0].canonical_url is None
         else:
             assert downloads == []
+    if failed:
+        from app.domains.workouts.automation_models import WorkoutImport
+        from app.domains.workouts.extraction import SourceMetadata, WorkoutExtractionResult
+        from app.domains.workouts.imports import save_import_result
+        from app.domains.workouts.models import WorkoutRecord
+        from app.domains.workouts.schemas import WorkoutContent
+        from app.domains.workouts.source_media import membership_for
+
+        result = WorkoutExtractionResult(
+            status="ready",
+            workout=WorkoutContent.model_validate({**REEL, "source_title": "Original workout title"}),
+            source=SourceMetadata(title="Original workout title", creator="Coach Nani", url=SOURCE),
+        )
+        original_source = result.source.model_dump()
+        async with discover_api.sessions.begin() as db:
+            await membership_for(db, "owner", generation=1, write=True)
+            job = await db.get(WorkoutImport, import_id)
+            await save_import_result(db, job, result, {"is_public": False})
+            saved_id = job.accepted_workout_id
+            assert saved_id and result.source.model_dump() == original_source
+        async with discover_api.sessions() as db:
+            saved = await db.get(WorkoutRecord, saved_id)
+            assert saved.content["title"] == REEL["title"]
+            assert saved.content["source_title"] == "Original workout title"
+            assert saved.content["source_creator"] == "Coach Nani"
+            assert saved.content["blocks"][0]["exercises"][0]["name"] == "Goblet squat"
+            assert not saved.content.get("source_thumbnail_url")
 
 
 async def test_unretained_import_cover_release_queues_cleanup(discover_api, monkeypatch):

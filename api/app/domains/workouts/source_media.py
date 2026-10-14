@@ -178,7 +178,7 @@ async def _prepare(sessions, owner, generation, source_id, url, purpose, expecte
                 return None
             if not receipt.canonical_url:
                 receipt.canonical_url = (
-                    await storage_service.store_prepared_thumbnail_variants_locked(
+                    await storage_service.store_prepared_workouts_thumbnail_variants_locked(
                         variants, f"workouts-{identifier}"
                     )
                 )
