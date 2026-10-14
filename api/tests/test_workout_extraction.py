@@ -95,6 +95,38 @@ def complete_workout(location="provided_text"):
 
 TEXT = "Squat: 3 sets of 8–12 reps. Rest 90 seconds."
 
+REEL = "https://www.instagram.com/reel/DdzUTq7NDRA/"
+REEL_NAMES = ["Kettlebell Swings", "Goblet Reverse Lunges", "Goblet Squats", "Gorilla Rows",
+              "Strict Press", "Halos", "Leg Open & Closes", "Seated Twists", "Jumping Lunges"]
+REEL_INSTRUCTIONS = "Rest after each round and go again for as many rounds as you can in 20 minutes."
+REEL_CAPTION = ("ALL YOU NEED IS 20 MINUTES AND ONE KETTLEBELL\n\n"
+                "Try this beginner-friendly full body AMRAP.\n\n"
+                + "\n".join(f"10 x {name}" + (" (5 each side)" if index in {3, 4} else "")
+                            for index, name in enumerate(REEL_NAMES))
+                + f"\n\n{REEL_INSTRUCTIONS}\n\nSimple, effective and all you need is one kettlebell."
+                "\n\nSave it & give it a try.")
+
+
+def reel_workout(*, reps=5, per_side=True, short_quote=False):
+    exercises = []
+    for index, name in enumerate(REEL_NAMES):
+        side = index in {3, 4}
+        line = f"10 x {name}" + (" (5 each side)" if side else "")
+        quote = "5 each side" if side and short_quote else line
+        count = reps if side else 10
+        exercises.append({"name": name, "reps_min": count, "reps_max": count,
+                          "per_side": per_side if side else None, "evidence": [
+                              evidence("name", name, "caption"),
+                              evidence("reps_min", quote, "caption"),
+                              evidence("reps_max", quote, "caption"),
+                              *([evidence("per_side", quote, "caption")] if side else []),
+                          ]})
+    return {"title": "20-minute kettlebell AMRAP", "estimated_minutes": 20,
+            "blocks": [{"id": "main", "label": "AMRAP", "grouping": "circuit",
+                        "evidence": [evidence("workout_notes", REEL_INSTRUCTIONS, "caption"),
+                                     evidence("estimated_minutes", REEL_INSTRUCTIONS, "caption")],
+                        "exercises": exercises}]}
+
 
 def image_data():
     buffer = io.BytesIO()
@@ -403,6 +435,36 @@ async def test_inaccessible_source_and_provider_errors_keep_bookmark_no_secret()
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("error", [ExtractionFailure("source_private_or_inaccessible"),
+                                   asyncio.TimeoutError(), httpx.ConnectError("synthetic")])
+async def test_unreadable_link_does_not_discard_complete_supplied_caption(error):
+    raw = reel_workout()
+    for block in raw["blocks"]:
+        for entry in block["evidence"]:
+            entry["location"] = "provided_text"
+        for item in block["exercises"]:
+            for entry in item["evidence"]:
+                entry["location"] = "provided_text"
+    provider = FakeProvider(raw)
+    result = await WorkoutExtractor(provider, FakeAcquirer(error=error)).extract(ExtractionRequest(
+        kind="url", source_url=REEL, text=REEL_CAPTION, ai_consent=True))
+    assert len(provider.calls) == 1 and result.error_code is None
+    assert [item.reps_min for item in result.workout.blocks[0].exercises] == [10, 10, 10, 5, 5, 10, 10, 10, 10]
+    assert result.workout.estimated_minutes == 20 and result.workout.notes == [REEL_INSTRUCTIONS]
+    assert result.source.url == REEL and "provided_text" in result.source.channels
+    assert any("supplied text instructions" in note for note in result.source.coverage_notes)
+
+
+@pytest.mark.asyncio
+async def test_supplied_caption_does_not_bypass_invalid_url_rejection():
+    provider = FakeProvider(reel_workout())
+    result = await WorkoutExtractor(provider, FakeAcquirer(error=ExtractionFailure("invalid_source_url"))).extract(
+        ExtractionRequest(kind="url", source_url=REEL, text=REEL_CAPTION, ai_consent=True))
+    assert result.status == "failed" and result.error_code == "invalid_source_url"
+    assert provider.calls == []
+
+
+@pytest.mark.asyncio
 async def test_cancellation_propagates_not_success():
     with pytest.raises(asyncio.CancelledError):
         await WorkoutExtractor(FakeProvider(error=asyncio.CancelledError())).extract(
@@ -663,7 +725,12 @@ async def test_streamed_slideshow_images_bound_bytes_and_normalize(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_production_fallback_tracks_workout_schema_no_actual_provider(monkeypatch):
+@pytest.mark.parametrize("primary", ["malformed", "empty", "missing_dose", "missing_some_dose", "missing_movement",
+                                     "missing_inline_movement",
+                                     "missing_dose_and_unsupported_movement",
+                                     "partial_recovery_failed", "partial_recovery_denied",
+                                     "partial_recovery_loses_context"])
+async def test_production_fallback_tracks_workout_schema_no_actual_provider(monkeypatch, primary):
     import app.ai_governance
     import app.config
     import app.domains.workouts.extraction as module
@@ -709,7 +776,28 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
     def respond(request):
         assert request.headers["Authorization"] == "Bearer explicit-budget-test-key"
         payloads.append(json.loads(request.content))
-        value = {"ingredients": []} if len(payloads) == 1 else complete_workout()
+        value = reel_workout()
+        if len(payloads) == 1:
+            if primary == "malformed":
+                value = {"ingredients": []}
+            elif primary == "empty":
+                value = {"title": "Empty extraction", "blocks": []}
+            elif primary in {"missing_movement", "missing_inline_movement", "partial_recovery_failed", "partial_recovery_denied",
+                             "partial_recovery_loses_context"}:
+                value["blocks"][0]["exercises"].pop()
+            elif primary == "missing_some_dose":
+                value["blocks"][0]["exercises"][0]["reps_min"] = None
+                value["blocks"][0]["exercises"][0]["reps_max"] = None
+            else:
+                for exercise in value["blocks"][0]["exercises"]:
+                    exercise["reps_min"] = exercise["reps_max"] = None
+                if primary == "missing_dose_and_unsupported_movement":
+                    value["blocks"][0]["exercises"].append({"name": "Invented Jump", "evidence": [
+                        evidence("name", "Invented Jump", "caption")]})
+        elif primary == "partial_recovery_failed":
+            value = {"title": "Empty recovery", "blocks": []}
+        elif primary == "partial_recovery_loses_context":
+            value["blocks"][0]["evidence"] = []
         return httpx.Response(
             200,
             json={
@@ -727,22 +815,35 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
     )
     from tests.workouts_provider_fakes import FakeBudget
 
-    budget = FakeBudget()
+    denied = primary == "partial_recovery_denied"
+    partial = primary in {"partial_recovery_failed", "partial_recovery_denied", "partial_recovery_loses_context"}
+    fallback_failed = primary == "partial_recovery_failed"
+    budget = FakeBudget(deny_at=2 if denied else None)
+    caption = REEL_CAPTION.replace("\n10 x", " + 10 x") if primary == "missing_inline_movement" else REEL_CAPTION
+    source = SourceBundle(SourceMetadata(url=REEL), [SourcePart("caption", caption)])
     result = await ProductionExtractionProvider(
         budget_guard=budget, development_api_key="explicit-budget-test-key"
-    ).extract(SourceBundle(SourceMetadata(), [SourcePart("provided_text", TEXT)]))
-    assert result["blocks"]
+    ).extract(source)
+    assert len(result["blocks"][0]["exercises"]) == (8 if partial else 9)
+    assert source.paid_recovery_denied is denied
     assert [attempt.model for attempt in attempts] == ["primary-test", "fallback-test"]
-    assert [attempt.status for attempt in attempts] == ["provider_invalid_response", "success"]
+    assert [attempt.status for attempt in attempts] == [
+        "provider_invalid_response" if primary == "malformed" else "provider_insufficient_prescription",
+        "workouts_ai_budget_exceeded" if denied else "provider_insufficient_prescription" if fallback_failed else "success",
+    ]
     assert all(attempt.values["capability"] == "workout_extraction" for attempt in attempts)
     assert all(
         attempt.values["schema_version"] == "workout-prescription-v1" for attempt in attempts
     )
     assert payloads[0]["store"] is False and payloads[0]["response_format"]["type"] == "json_schema"
-    assert len(payloads) == 2
+    assert len(payloads) == (1 if denied else 2)
     assert len(budget.reservations) == 2
-    assert budget.outcomes == ["failed", "success"]
+    assert budget.outcomes == (["failed"] if denied else ["failed", "failed" if fallback_failed else "success"])
     assert all(payload["service_tier"] == "default" for payload in payloads)
+    if primary == "partial_recovery_loses_context":
+        grounded, _, _ = ground_workout(result, source)
+        assert grounded.estimated_minutes == 20 and grounded.notes == [REEL_INSTRUCTIONS]
+        assert any("omitted supported prescription" in note for note in source.metadata.coverage_notes)
 
 
 @pytest.mark.asyncio
@@ -912,7 +1013,7 @@ async def test_video_duration_normalization_preserves_complete_caption(
         and result.workout.source_creator == "Creator"
     )
     assert result.source.thumbnail_url == "https://example.com/cover.jpg"
-    assert result.warnings == [] and len(result.source.coverage_notes) == 2
+    assert result.warnings == [] and result.source.coverage_notes == []
 
 
 @pytest.mark.asyncio
@@ -943,7 +1044,8 @@ async def test_caption_truncation_checks_normalized_content(monkeypatch, truncat
 @pytest.mark.parametrize("failure", ["audio", "frames"])
 async def test_optional_video_exceptions_keep_caption_and_metadata(monkeypatch, failure):
     await mock_video_acquirer(monkeypatch, failure=failure)
-    result = await WorkoutExtractor(FakeProvider(complete_workout("caption"))).extract(
+    result = await WorkoutExtractor(FakeProvider(complete_workout("caption")),
+                                    SimpleNamespace(acquire=ProductionSourceAcquirer().acquire)).extract(
         ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
     )
     assert result.status == "ready" and result.workout.blocks[0].exercises[0].sets == 3
@@ -952,13 +1054,13 @@ async def test_optional_video_exceptions_keep_caption_and_metadata(monkeypatch, 
 
 
 @pytest.mark.asyncio
-async def test_acquired_frames_do_not_downgrade_text_grounded_prescription(monkeypatch):
+async def test_complete_caption_does_not_acquire_unnecessary_frames(monkeypatch):
     await mock_video_acquirer(monkeypatch, visual=True)
     result = await WorkoutExtractor(FakeProvider(complete_workout("caption"))).extract(
         ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
     )
     assert result.status == "ready" and result.warnings == []
-    assert result.source.channels == ["caption", "visual"]
+    assert result.source.channels == ["caption"]
     assert result.workout.blocks[0].exercises[0].rest_seconds == 90
 
 
@@ -1132,7 +1234,8 @@ async def test_aggregate_media_deadline_keeps_complete_caption_and_skips_later_d
 
     service.download_audio, service.extract_video_frames = stalled_audio, frames
     monkeypatch.setattr(module, "MAX_ACQUISITION_SECONDS", 0.01)
-    result = await WorkoutExtractor(FakeProvider(complete_workout("caption"))).extract(
+    result = await WorkoutExtractor(FakeProvider(complete_workout("caption")),
+                                    SimpleNamespace(acquire=ProductionSourceAcquirer().acquire)).extract(
         ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
     )
     assert calls == ["audio"]
@@ -1159,7 +1262,7 @@ async def test_transcription_deadline_cleans_audio_and_preserves_caption(monkeyp
     provider = FakeProvider(complete_workout("caption"))
     provider.transcribe = transcribe
     monkeypatch.setattr(module, "MAX_ACQUISITION_SECONDS", 0.01)
-    result = await WorkoutExtractor(provider).extract(
+    result = await WorkoutExtractor(provider, SimpleNamespace(acquire=ProductionSourceAcquirer().acquire)).extract(
         ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
     )
     assert cleaned == ["synthetic-no-real-file"]
@@ -1207,6 +1310,361 @@ async def test_description_amrap_preserves_reps_and_overall_context_without_inve
                for item in result.workout.blocks[0].exercises)
     assert result.status == "incomplete" and any("open-ended rounds" in warning for warning in result.warnings)
     assert not any("Unsupported reps" in warning for warning in result.warnings)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reps,per_side,short_quote", [(5, True, True), (5, True, False),
+                                                    (10, False, False), (10, True, False)])
+async def test_actual_nine_exercise_caption_keeps_total_and_side_counts_and_skips_media(
+    monkeypatch, reps, per_side, short_quote
+):
+    service = await mock_video_acquirer(monkeypatch)
+    metadata = service.get_video_metadata_ytdlp
+    media_calls = []
+
+    async def caption(url):
+        result = await metadata(url)
+        result.description = REEL_CAPTION
+        return result
+
+    async def unnecessary_media(url):
+        media_calls.append(url)
+        raise AssertionError("A complete caption must not download optional media")
+
+    service.get_video_metadata_ytdlp = caption
+    service.download_audio = service.extract_video_frames = unnecessary_media
+    provider = FakeProvider(reel_workout(reps=reps, per_side=per_side, short_quote=short_quote))
+    result = await WorkoutExtractor(provider).extract(
+        ExtractionRequest(kind="url", source_url=REEL, ai_consent=True)
+    )
+    exercises = result.workout.blocks[0].exercises
+    assert [item.name for item in exercises] == REEL_NAMES
+    assert [item.reps_min for item in exercises] == [10, 10, 10, 5, 5, 10, 10, 10, 10]
+    assert [item.reps_max for item in exercises] == [10, 10, 10, 5, 5, 10, 10, 10, 10]
+    assert all(exercises[index].per_side is True for index in (3, 4))
+    assert result.workout.estimated_minutes == 20 and result.workout.notes == [REEL_INSTRUCTIONS]
+    assert all(item.sets is None for item in exercises) and result.workout.blocks[0].rounds is None
+    assert result.warnings == ["The source specifies open-ended rounds (AMRAP). Its instructions are saved; "
+                               "review the tracking prescription before starting a session."]
+    assert len(provider.calls) == 1 and media_calls == []
+
+
+@pytest.mark.asyncio
+async def test_missing_caption_movement_recovers_from_media_without_losing_caption(monkeypatch):
+    service = await mock_video_acquirer(monkeypatch, visual=True)
+    metadata = service.get_video_metadata_ytdlp
+    frames = service.extract_video_frames
+    media_calls = []
+
+    async def caption(url):
+        value = await metadata(url)
+        value.description = REEL_CAPTION
+        return value
+
+    async def sampled_frames(url):
+        media_calls.append("frames")
+        return await frames(url)
+
+    service.get_video_metadata_ytdlp, service.extract_video_frames = caption, sampled_frames
+    provider = FakeProvider()
+
+    async def extraction(source):
+        provider.calls.append(source)
+        value = reel_workout()
+        if not source.images:
+            value["blocks"][0]["exercises"].pop()
+        return value
+
+    provider.extract = extraction
+    result = await WorkoutExtractor(provider).extract(
+        ExtractionRequest(kind="url", source_url=REEL, ai_consent=True)
+    )
+    assert len(provider.calls) == 2 and media_calls == ["frames"]
+    assert result.source.channels == ["caption", "visual"]
+    assert len(result.workout.blocks[0].exercises) == 9
+    assert result.workout.estimated_minutes == 20 and result.workout.notes == [REEL_INSTRUCTIONS]
+
+
+@pytest.mark.asyncio
+async def test_budget_denial_does_not_trigger_media_or_another_provider_attempt(monkeypatch):
+    service = await mock_video_acquirer(monkeypatch)
+    calls = []
+
+    async def media(url):
+        calls.append(url)
+        raise AssertionError("Budget denial cannot start another paid acquisition")
+
+    service.download_audio = service.extract_video_frames = media
+    provider = FakeProvider(error=ExtractionFailure("workouts_ai_budget_exceeded"))
+    result = await WorkoutExtractor(provider).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
+    )
+    assert result.error_code == "workouts_ai_budget_exceeded"
+    assert len(provider.calls) == 1 and calls == []
+
+
+@pytest.mark.asyncio
+async def test_denied_fallback_preserves_partial_caption_without_media_or_false_ready(monkeypatch):
+    service = await mock_video_acquirer(monkeypatch)
+    metadata = service.get_video_metadata_ytdlp
+    calls = []
+
+    async def caption(url):
+        value = await metadata(url)
+        value.description = REEL_CAPTION
+        return value
+
+    async def media(url):
+        calls.append(url)
+        raise AssertionError("Denied recovery must not acquire more media")
+
+    service.get_video_metadata_ytdlp = caption
+    service.download_audio = service.extract_video_frames = media
+    provider = FakeProvider()
+
+    async def partial(source):
+        provider.calls.append(source)
+        source.paid_recovery_denied = True
+        value = reel_workout()
+        value["blocks"][0]["exercises"].pop()
+        return value
+
+    provider.extract = partial
+    result = await WorkoutExtractor(provider).extract(
+        ExtractionRequest(kind="url", source_url=REEL, ai_consent=True)
+    )
+    assert len(provider.calls) == 1 and calls == []
+    assert len(result.workout.blocks[0].exercises) == 8 and result.status == "incomplete"
+    assert any("movements listed" in warning for warning in result.warnings)
+
+
+@pytest.mark.asyncio
+async def test_media_recovery_deadline_keeps_supported_caption_facts(monkeypatch):
+    import app.domains.workouts.extraction as module
+
+    await mock_video_acquirer(monkeypatch)
+    monkeypatch.setattr(module, "MAX_EXTRACTION_SECONDS", 0.03)
+    provider = FakeProvider()
+
+    async def partial_then_stall(source):
+        provider.calls.append(source)
+        if len(provider.calls) > 1:
+            await asyncio.Event().wait()
+        value = complete_workout("caption")
+        value["blocks"][0]["exercises"][0]["sets"] = None
+        return value
+
+    provider.extract = partial_then_stall
+    result = await asyncio.wait_for(WorkoutExtractor(provider).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)), timeout=0.5)
+    item = result.workout.blocks[0].exercises[0]
+    assert item.reps_min == 8 and item.reps_max == 12 and item.rest_seconds == 90
+    assert result.status == "incomplete" and len(provider.calls) == 2
+    assert any("supported caption facts" in note for note in result.source.coverage_notes)
+
+
+@pytest.mark.asyncio
+async def test_equal_quality_media_recovery_cannot_erase_grounded_rest(monkeypatch):
+    await mock_video_acquirer(monkeypatch)
+    provider = FakeProvider()
+
+    async def partial_then_loses_rest(source):
+        provider.calls.append(source)
+        value = complete_workout("caption")
+        value["blocks"][0]["exercises"][0]["sets"] = None
+        if len(provider.calls) > 1:
+            value["blocks"][0]["exercises"][0]["rest_seconds"] = None
+        return value
+
+    provider.extract = partial_then_loses_rest
+    result = await WorkoutExtractor(provider).extract(ExtractionRequest(
+        kind="url", source_url=INSTAGRAM, ai_consent=True))
+    assert len(provider.calls) == 2 and result.status == "incomplete"
+    item = result.workout.blocks[0].exercises[0]
+    assert item.rest_seconds == 90 and (item.reps_min, item.reps_max) == (8, 12)
+    assert any("omitted supported prescription" in note for note in result.source.coverage_notes)
+
+
+@pytest.mark.parametrize("lost", ["rounds", "grouping", "sets", "reps_min", "per_side",
+                                   "rest_between_rounds_seconds", "order", "notes"])
+def test_recovery_preserves_source_structure_repetitions_and_cues(lost):
+    import copy
+
+    from app.domains.workouts.extraction import _prescription_preserves
+    from app.domains.workouts.schemas import WorkoutContent
+
+    raw = complete_workout()
+    raw["notes"] = ["Rest after each round."]
+    block = raw["blocks"][0]
+    block.update(grouping="circuit", rounds=3, rest_between_rounds_seconds=60)
+    block["exercises"][0]["per_side"] = True
+    block["exercises"].append({"name": "Press", "sets": 2, "reps_min": 5,
+                               "evidence": [evidence("name", "Press")]})
+    candidate = copy.deepcopy(raw)
+    if lost == "order":
+        candidate["blocks"][0]["exercises"].reverse()
+    elif lost == "notes":
+        candidate["notes"] = []
+    elif lost in {"rounds", "grouping", "rest_between_rounds_seconds"}:
+        candidate["blocks"][0][lost] = "sequential" if lost == "grouping" else None
+    else:
+        candidate["blocks"][0]["exercises"][0][lost] = None
+    # It can gain a new movement and still lose essential source instructions.
+    candidate["blocks"][0]["exercises"].append({"name": "Swing", "reps_min": 10})
+    previous = WorkoutContent.model_validate(raw)
+    assert not _prescription_preserves(WorkoutContent.model_validate(candidate), previous)
+    candidate = copy.deepcopy(raw)
+    candidate["blocks"][0]["exercises"].append({"name": "Swing", "reps_min": 10})
+    assert _prescription_preserves(WorkoutContent.model_validate(candidate), previous)
+
+
+def test_recovery_removes_unsupported_model_moves_and_keeps_grounded_squat_facts():
+    from app.domains.workouts.extraction import _prescription_preserves
+
+    source = SourceBundle(SourceMetadata(), [SourcePart("provided_text", TEXT)])
+    raw = complete_workout()
+    raw["blocks"][0]["exercises"][0]["reps_min"] = None
+    raw["blocks"][0]["exercises"][0]["reps_max"] = None
+    raw["blocks"][0]["grouping"] = "circuit"  # No source evidence establishes this grouping.
+    raw["blocks"][0]["exercises"].append({"name": "Invented Jump", "evidence": [
+        evidence("name", "Invented Jump")]})
+    raw["blocks"].append({"id": "invented-block", "label": "Invented circuit", "grouping": "circuit",
+        "evidence": [evidence("label", "Squat")], "exercises": [{"name": "Invented Jump"}]})
+    previous, _, _ = ground_workout(raw, source)
+    candidate, _, _ = ground_workout(complete_workout(), source)
+    assert _prescription_preserves(candidate, previous)
+    assert [(item.name, item.reps_min, item.reps_max, item.rest_seconds)
+            for item in candidate.blocks[0].exercises] == [("Squat", 8, 12, 90)]
+    candidate.blocks[0].exercises[0].rest_seconds = None
+    assert not _prescription_preserves(candidate, previous)
+
+
+@pytest.mark.parametrize("separator", [" + ", "; ", "\n"])
+def test_every_explicit_dose_is_checked_after_headings_and_across_separators(separator):
+    from app.domains.workouts.extraction import _missing_source_movements, _text_prescription_usable
+
+    caption = "3 rounds: 10x Clean + Press" + separator + "10x Row"
+    source = SourceBundle(SourceMetadata(), [SourcePart("provided_text", caption)])
+    raw = {"title": "Source circuit", "blocks": [{"id": "main", "label": "Circuit", "grouping": "circuit",
+        "rounds": 3, "evidence": [evidence("rounds", "3 rounds")], "exercises": [
+            {"name": "Clean + Press", "reps_min": 10, "reps_max": 10, "evidence": [
+                evidence("name", "Clean + Press"), evidence("reps_min", "10x Clean + Press"),
+                evidence("reps_max", "10x Clean + Press")]}]}]}
+    partial, warnings, _ = ground_workout(raw, source)
+    assert _missing_source_movements(partial, source)
+    assert not _text_prescription_usable(partial, warnings, source)
+    raw["blocks"][0]["exercises"].append({"name": "Row", "reps_min": 10, "reps_max": 10, "evidence": [
+        evidence("name", "Row"), evidence("reps_min", "10x Row"), evidence("reps_max", "10x Row")]})
+    complete, warnings, _ = ground_workout(raw, source)
+    assert not _missing_source_movements(complete, source)
+    assert _text_prescription_usable(complete, warnings, source)
+    assert [item.name for item in complete.blocks[0].exercises] == ["Clean + Press", "Row"]
+    raw["blocks"][0]["exercises"][1]["evidence"] = []
+    unsupported, _, _ = ground_workout(raw, source)
+    assert _missing_source_movements(unsupported, source)
+
+
+@pytest.mark.parametrize("quote", ["whole_line", "movement", "side_count"])
+@pytest.mark.parametrize("side_count", ["5 each side", "5 reps each side", "5 repetitions per arm"])
+@pytest.mark.parametrize("squat_reps,squat_side,row_reps,row_side", [
+    (10, False, 10, True), (10, True, 5, True), (5, True, 10, False)])
+def test_combined_caption_side_count_belongs_only_to_its_own_movement(
+    quote, side_count, squat_reps, squat_side, row_reps, row_side
+):
+    caption = f"10x Squat + 10x Row ({side_count})"
+    exercises = []
+    for name, reps, side in [("Squat", squat_reps, squat_side), ("Row", row_reps, row_side)]:
+        wording = caption if quote == "whole_line" else "10x Squat" if name == "Squat" else (
+            side_count if quote == "side_count" else f"10x Row ({side_count})")
+        exercises.append({"name": name, "reps_min": reps, "reps_max": reps, "per_side": side,
+            "evidence": [evidence("name", name), evidence("reps_min", wording),
+                         evidence("reps_max", wording), evidence("per_side", wording)]})
+    raw = {"title": "Source circuit", "blocks": [{"id": "main", "label": "Circuit", "exercises": exercises}]}
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", caption)]))
+    squat, row = workout.blocks[0].exercises
+    assert squat.reps_min in {10, None} and squat.reps_max in {10, None}
+    assert squat.per_side is not True
+    assert (row.reps_min, row.reps_max, row.per_side) == (5, 5, True)
+    if squat_reps == 10:
+        assert (squat.reps_min, squat.reps_max) == (10, 10)
+
+
+@pytest.mark.parametrize("reps,per_side", [(10, False), (5, True)])
+@pytest.mark.parametrize("side_count", ["5 each side", "5 reps each side", "5 repetitions per arm"])
+@pytest.mark.parametrize("negation", ["not", "never", "instead of", "rather than", "do not do"])
+def test_negated_side_counts_do_not_become_source_prescription(reps, per_side, side_count, negation):
+    caption = f"10x Squat total reps ({negation} {side_count})"
+    raw = {"title": "Source circuit", "blocks": [{"id": "main", "label": "Circuit", "exercises": [
+        {"name": "Squat", "reps_min": reps, "reps_max": reps, "per_side": per_side,
+         "evidence": [evidence("name", "Squat"), evidence("reps_min", caption),
+                      evidence("reps_max", caption), evidence("per_side", caption)]}]}]}
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", caption)]))
+    item = workout.blocks[0].exercises[0]
+    assert item.reps_min in {10, None} and item.reps_max in {10, None}
+    assert item.per_side is not True
+    if reps == 10:
+        assert (item.reps_min, item.reps_max, item.per_side) == (10, 10, False)
+
+
+@pytest.mark.parametrize("caption", ["Squat 10 reps + Row 5 each side",
+                                     "10 Squat reps + 10 Row reps (5 each side)"])
+def test_plus_separates_movements_regardless_of_dose_word_order(caption):
+    raw = {"title": "Source circuit", "blocks": [{"id": "main", "label": "Circuit", "exercises": [
+        {"name": name, "reps_min": reps, "reps_max": reps, "per_side": side,
+         "evidence": [evidence("name", name), evidence("reps_min", caption),
+                      evidence("reps_max", caption), evidence("per_side", caption)]}
+        for name, reps, side in [("Squat", 10, False), ("Row", 5, True)]]}]}
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", caption)]))
+    squat, row = workout.blocks[0].exercises
+    assert (squat.reps_min, squat.reps_max) == (10, 10) and squat.per_side is not True
+    assert (row.reps_min, row.reps_max, row.per_side) == (5, 5, True)
+
+
+@pytest.mark.parametrize("caption", ["Clean + Press 10 reps (5 each side) + Row 10 reps",
+                                     "10x Clean + Press (5 each side); do not rush",
+                                     "10x Clean + Press do not rush 5 each side"])
+def test_compound_movement_names_and_unrelated_negative_cues_keep_affirmative_side_count(caption):
+    raw = {"title": "Source circuit", "blocks": [{"id": "main", "label": "Circuit", "exercises": [
+        {"name": "Clean + Press", "reps_min": 10, "reps_max": 10, "per_side": False,
+         "evidence": [evidence("name", "Clean + Press"), evidence("reps_min", caption),
+                      evidence("reps_max", caption), evidence("per_side", caption)]}]}]}
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", caption)]))
+    item = workout.blocks[0].exercises[0]
+    assert (item.reps_min, item.reps_max, item.per_side) == (5, 5, True)
+
+
+@pytest.mark.asyncio
+async def test_enriched_transcript_context_limit_stops_another_provider_call_and_cleans_audio(monkeypatch):
+    service = await mock_video_acquirer(monkeypatch)
+    cleaned = []
+
+    async def audio(url):
+        return SimpleNamespace(success=True, file_path="synthetic-owned-audio")
+
+    async def transcript(path):
+        return "Spoken prescription"
+
+    service.download_audio, service.cleanup_audio_file = audio, cleaned.append
+    provider = FakeProvider(complete_workout("caption"))
+    provider.response["blocks"][0]["exercises"][0]["sets"] = None
+    provider.transcribe = transcript
+    result = await WorkoutExtractor(provider).extract(ExtractionRequest(
+        kind="url", source_url=INSTAGRAM, text="x" * (30_000 - len(TEXT)), ai_consent=True))
+    assert len(provider.calls) == 1 and cleaned == ["synthetic-owned-audio"]
+    assert result.workout.blocks[0].exercises[0].reps_min == 8
+    assert result.status == "incomplete"
+
+
+def test_unqualified_total_does_not_invent_per_side_reps():
+    raw = reel_workout(reps=10, per_side=True)
+    source_text = REEL_CAPTION.replace(" (5 each side)", "")
+    for exercise in raw["blocks"][0]["exercises"]:
+        exercise["evidence"] = [entry | {"wording": entry["wording"].replace(" (5 each side)", "")}
+                                for entry in exercise["evidence"]]
+    workout, warnings, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("caption", source_text)]))
+    assert all(workout.blocks[0].exercises[index].reps_min == 10
+               and workout.blocks[0].exercises[index].per_side is None for index in (3, 4))
+    assert sum("Unsupported per_side" in warning for warning in warnings) == 2
 
 
 @pytest.mark.parametrize("location,quote", [("caption", "20 reps"), ("image:0", "20 minutes")])
