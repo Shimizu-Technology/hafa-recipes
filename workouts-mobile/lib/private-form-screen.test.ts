@@ -2038,3 +2038,20 @@ it("keeps cached import progress and offers reconnect when a status refresh lose
   fixture.importJob.mockResolvedValue(job); await click("Reconnect to check progress");
   expect(button("Refresh import status")).toBeDefined(); expect(fixture.cancelImport).not.toHaveBeenCalled();
 });
+
+it("keeps an empty extraction in source recovery until exercises are added", async () => {
+  fixture.params = { id: "empty-job" };
+  fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.importJob.mockResolvedValue({ id: "empty-job", generation: 1, status: "incomplete", result: {
+    workout: { ...workout, blocks: [], source_url: "https://example.test/source" },
+    warnings: ["Extraction was unavailable"], evidence: [], source: { platform: "web", url: "https://example.test/source", channels: [], coverage_notes: [] }
+  } });
+  await mount(ImportReview);
+  expect(nodes("Button").some(node => node.props.title === "Save workout")).toBe(false);
+  expect(button("Retry this source")).toBeDefined();
+  await click("Add exercises manually");
+  await act(async () => nodes("WorkoutEditor")[0].props.onChange(workout));
+  await settle();
+  expect(button("Save workout")).toBeDefined();
+  expect(fixture.acceptImport).not.toHaveBeenCalled();
+});

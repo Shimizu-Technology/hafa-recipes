@@ -178,7 +178,10 @@ export default function ImportReview() {
   async function accept(automatic = false) {
     if (saving.current || !routeReady || !restored || !isCurrent() || !q.data?.result?.workout) return;
     if (automatic && (edited || !canSaveAutomatically(q.data))) return;
-    const errors = workoutErrors(edited ?? q.data.result.workout, q.data.status === "incomplete" && !sharing);
+    const content = edited ?? q.data.result.workout;
+    const errors = content.blocks.some(block => block.exercises.length)
+      ? workoutErrors(content, q.data.status === "incomplete" && !sharing)
+      : ["Add at least one exercise before saving this workout."];
     if (errors.length) {
       setError(errors.join(" "));
       return;
@@ -307,6 +310,7 @@ export default function ImportReview() {
   });
   const result = q.data?.result;
   const workout = (routeReady ? edited : null) ?? result?.workout;
+  const hasExercises = !!workout?.blocks.some(block => block.exercises.length);
   const discoverOn = capabilities.data?.discover === true;
   // The server refuses to publish an incomplete extraction accepted unchanged.
   const shareable =
@@ -387,15 +391,15 @@ export default function ImportReview() {
                   <WorkoutEditor value={workout} onChange={update} disabled={busy} />
                 ) : (
                   <>
-                    <SectionHeader title={workout.title} />
+                    <SectionHeader title={hasExercises ? workout.title : "No exercises were extracted"} />
                     <WorkoutInstructions notes={workout.notes} />
-                    <ChipRow wrap>
+                    {hasExercises && <ChipRow wrap>
                       {workout.equipment_required?.length ? (
                         workout.equipment_required.map((item) => <Chip key={item} label={item} icon="barbell-outline" />)
                       ) : (
                         <Chip label="Equipment not specified" tone="accent" />
                       )}
-                    </ChipRow>
+                    </ChipRow>}
                     {workout.blocks.map((block) => (
                       <Card key={block.id}>
                         <Copy kind="subheading">{block.label}</Copy>
@@ -416,7 +420,7 @@ export default function ImportReview() {
                   </>
                 )}
                 {!savedId && <><Button
-                  title={routeReady && editing ? "Show workout summary" : "Correct workout details"}
+                  title={routeReady && editing ? "Show workout summary" : hasExercises ? "Correct workout details" : "Add exercises manually"}
                   secondary
                   icon={routeReady && editing ? "eye-outline" : "create-outline"}
                   disabled={busy || !restored}
@@ -424,7 +428,7 @@ export default function ImportReview() {
                     if (routeReady && isCurrent()) setEditing(!editing);
                   }}
                 />
-                {discoverOn && (
+                {discoverOn && hasExercises && (
                   <Choice
                     icon="globe-outline"
                     label="Share to Discover"
@@ -442,11 +446,11 @@ export default function ImportReview() {
                     }}
                   />
                 )}
-                {q.data?.status === "incomplete" && <Notice tone="warning">
+                {hasExercises && q.data?.status === "incomplete" && <Notice tone="warning">
                   Some details were not in the source. You can edit them or save this workout with the gaps clearly marked.
                 </Notice>}
                 {!!notice && <Notice>{notice}</Notice>}
-                <Button
+                {hasExercises && <Button
                   title={sharing ? "Save and share to Discover" : "Save workout"}
                   icon={sharing ? "globe-outline" : "lock-closed-outline"}
                   size="lg"
@@ -455,7 +459,7 @@ export default function ImportReview() {
                   onPress={() => {
                     void accept();
                   }}
-                /></>}
+                />}</>}
               </>
             )}
             <Button title={sourceDetails ? "Hide source details" : "Source details"} variant="ghost" onPress={() => setSourceDetails(!sourceDetails)} />
