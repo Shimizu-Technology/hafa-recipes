@@ -56,7 +56,7 @@ async def share_credential(
     await require_share_schema(db)
     parsed = parse_token(bearer.credentials) if bearer else None
     row = await db.get(WorkoutShareCredential, parsed[0]) if parsed else None
-    if row is None:
+    if row is None or not secrets.compare_digest(row.token_hash, parsed[1]):
         raise HTTPException(401, "Reconnect workout sharing in Håfa Workouts")
     await membership_for(db, row.app_user_id, generation=row.generation, write=True)
     row = await db.scalar(

@@ -294,6 +294,27 @@ async def test_native_capability_only_enqueues_its_own_workouts_once(native_shar
     )).status_code == 401
 
 
+async def test_wrong_share_secret_does_not_lock_account(native_share_api, monkeypatch):
+    api = native_share_api
+    calls = []
+    original = share_router.membership_for
+
+    async def observed(*args, **kwargs):
+        calls.append(True)
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(share_router, "membership_for", observed)
+    supplied = api.share["token"].rsplit(".", 1)[0] + "." + "x" * 43
+    body = {"capture_id": str(uuid4()), "url": "https://www.instagram.com/reel/DecwoqXS9ts/"}
+    response = await api.client.post(
+        "/api/v1/workouts/share/imports", headers={"Authorization": "Bearer " + supplied}, json=body,
+    )
+    assert response.status_code == 401
+    assert calls == []
+    valid = await api.client.post("/api/v1/workouts/share/imports", headers=api.share_headers, json=body)
+    assert valid.status_code == 202 and calls
+
+
 async def test_native_capability_rejects_bad_sources_and_revoked_consent(native_share_api):
     api = native_share_api
     body = {"capture_id": str(uuid4()), "url": "http://127.0.0.1/private"}
