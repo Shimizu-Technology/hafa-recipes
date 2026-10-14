@@ -815,6 +815,7 @@ async def test_workout_public_cover_reuses_validated_immutable_variants(monkeypa
 
 def test_workout_preview_client_has_short_single_attempt_without_changing_recipes(monkeypatch):
     clients = []
+    sessions = []
 
     def create_client(service, **kwargs):
         client = RecordingS3()
@@ -822,6 +823,12 @@ def test_workout_preview_client_has_short_single_attempt_without_changing_recipe
         return client
 
     monkeypatch.setattr(storage.boto3, "client", create_client)
+
+    def create_session():
+        sessions.append(True)
+        return SimpleNamespace(client=create_client)
+
+    monkeypatch.setattr(storage.boto3.session, "Session", create_session)
     monkeypatch.setattr(storage, "get_settings", lambda: SimpleNamespace(
         s3_enabled=True, aws_region="us-west-2", aws_access_key_id="test-key",
         aws_secret_access_key="test-secret",
@@ -832,6 +839,7 @@ def test_workout_preview_client_has_short_single_attempt_without_changing_recipe
     assert preview_client is not recipe_client
     assert service.client is recipe_client and service.workouts_thumbnail_client is preview_client
     assert len(clients) == 2 and all(name == "s3" for name, _, _ in clients)
+    assert sessions == [True]
     recipe_profile, preview_profile = clients[0][1], clients[1][1]
     assert (recipe_profile.connect_timeout, recipe_profile.read_timeout) == (5, 15)
     assert recipe_profile.retries == {"max_attempts": 2}

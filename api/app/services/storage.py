@@ -97,7 +97,7 @@ class StorageService:
         if self._workouts_thumbnail_client is None:
             settings = get_settings()
             if settings.s3_enabled:
-                self._workouts_thumbnail_client = boto3.client(
+                self._workouts_thumbnail_client = boto3.session.Session().client(
                     "s3",
                     aws_access_key_id=settings.aws_access_key_id,
                     aws_secret_access_key=settings.aws_secret_access_key,
