@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Alert, AppState, Platform } from "react-native";
 import { router } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -46,8 +46,12 @@ export function ShareCapture() {
   };
   const sourceURL = sharedWorkoutURL(shareIntent.webUrl, shareIntent.text, shareIntent.meta?.url);
   const fingerprint = JSON.stringify([native?.captureId, sourceURL, shareIntent.text, shareIntent.files?.map((f) => f.path)]);
-  const live = useRef({ owner, generation: enrollment?.generation, storage, fingerprint, hasShareIntent });
-  live.current = { owner, generation: enrollment?.generation, storage, fingerprint, hasShareIntent };
+  const live = useRef({ owner, generation: enrollment?.generation, storage, fingerprint, hasShareIntent, active: false });
+  useLayoutEffect(() => {
+    const committed = { owner, generation: enrollment?.generation, storage, fingerprint, hasShareIntent, active: true };
+    live.current = committed;
+    return () => { committed.active = false; };
+  }, [owner, enrollment?.generation, storage, fingerprint, hasShareIntent]);
   const handling = useRef<string | null>(null);
   const scope = `capture:${enrollment?.generation ?? 0}`;
   const slot = useMemo(
@@ -67,7 +71,7 @@ export function ShareCapture() {
       const generation = enrollment.generation!;
       function guard() {
         if (
-          !mounted ||
+          !mounted || !live.current.active ||
           !storage.isCurrent() ||
           !isCurrentAccount() ||
           live.current.owner !== owner ||

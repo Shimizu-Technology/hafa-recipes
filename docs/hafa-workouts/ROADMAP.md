@@ -1,12 +1,25 @@
 # Håfa Workouts roadmap
 
-**Owner:** Leon · **Written:** 2026-10-13 · **Source reviewed:** `origin/main` at `d43ef6d`
+**Owner:** Leon · **Written:** 2026-10-13 · **Updated:** 2026-10-14 · **Merged source reviewed:** `origin/main` at `c73a232`
 
 This is the working plan for finishing Håfa Workouts and the shared Håfa API.
 It replaces the earlier milestone documents as the place to look for "what's
 next". Older planning documents in this folder are background only.
 
 The visual and brand work has its own plan: [DESIGN_PLAN.md](DESIGN_PLAN.md).
+
+## Capture-parity status (2026-10-14)
+
+Merged changes:
+
+- [#183](https://github.com/Shimizu-Technology/hafa-recipes/pull/183), [#184](https://github.com/Shimizu-Technology/hafa-recipes/pull/184) and [#186](https://github.com/Shimizu-Technology/hafa-recipes/pull/186): extraction preserves source details, server imports save without keeping the app open, and restricted native credentials can submit shares. Missing-detail results stay private.
+- [#187](https://github.com/Shimizu-Technology/hafa-recipes/pull/187), [#189](https://github.com/Shimizu-Technology/hafa-recipes/pull/189) and [#191](https://github.com/Shimizu-Technology/hafa-recipes/pull/191): scoped native source storage, durable source covers and original source context/visibility.
+- [#188](https://github.com/Shimizu-Technology/hafa-recipes/pull/188) and [#193](https://github.com/Shimizu-Technology/hafa-recipes/pull/193): foreground inbox/library recovery, source credit and prescriptions, source-only training guards, and Capture privacy/disclosure choices that survive retries and completed-source retirement.
+- [#185](https://github.com/Shimizu-Technology/hafa-recipes/pull/185): partial/skipped corrections and synced history stay consistent; saved workouts can enter planning directly, with inspection and missed-date recovery.
+
+Agent-executed checks on the integrated `5b1c013` source used owned iOS 18/26 simulators with Safari and stock Photos. Fresh Capture, four-image private intake, saved-source retirement, source-only guards, consent refresh and cold recovery from a seeded partial operation passed. These results do not establish the **25-import real-phone gate or 80% usability target**; that run has not happened.
+
+[#190](https://github.com/Shimizu-Technology/hafa-recipes/pull/190), [#192](https://github.com/Shimizu-Technology/hafa-recipes/pull/192) and [#194](https://github.com/Shimizu-Technology/hafa-recipes/pull/194) remain unmerged. Source-app extension activation, native URL/PDF receipt checks and interruption recovery still need their final gates. **The next TestFlight build and tester availability are pending.**
 
 ## The goal
 
@@ -36,7 +49,7 @@ to maintain.
 
 ## What already exists
 
-Checked in code on `d43ef6d`:
+Baseline checked on `d43ef6d`; the capture-parity summary above records subsequent changes:
 
 - **Share into the app.** `workouts-mobile` uses `expo-share-intent`, the same as Recipes. It accepts links, text, up to 4 images and PDFs.
 - **Extraction.** It reuses the Recipes video pipeline in `api/app/domains/workouts/extraction.py`: audio transcription, sampled frames, captions and TikTok photo posts. It extracts exercises, equipment, sets, reps and rest, and flags missing details.
@@ -44,11 +57,13 @@ Checked in code on `d43ef6d`:
 - **Shared Håfa account.** Recipes and Workouts data are kept separate, with opt-in connections.
 - **Delivery.** TestFlight 1.0.0 (5) is in Leon's internal group. The API is live on the shared Render service, limited to named testers (`WORKOUTS_TESTER_USER_IDS`).
 
-## What's missing for the goal
+## Next acceptance for capture parity
 
-1. **Instagram parity.** `api/app/services/video.py` (~line 765) skips the Instagram cookies when the request comes from Workouts. Remove that gate. Keep the log redaction for Workouts URLs.
-2. **Public Discover.** Workouts are stored per user (`workouts_library`) and have no public flag. Discover has to be built. See Phase 3.
-3. **Missed-day adjustments in the UI.** The backend has a readiness check-in and a shorter-workout action. The app has no "missed session", "not feeling 100%" or "only 15 minutes" flow.
+1. Finish the native URL/PDF and interruption-recovery gates for #190/#192/#194, then verify the final combined source before release.
+2. Run the real-phone import gate in Phase 2 and assess usable workouts and lost-source/session recovery.
+3. Build and deliver the next TestFlight release to the named testers, then continue the two-week use in Phase 4.
+
+The phase checklists below retain the original plan; this summary tracks the current capture-parity work.
 
 ---
 

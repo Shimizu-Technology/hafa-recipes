@@ -1,10 +1,11 @@
-import { createElement } from "react";
+import { createElement, Suspense, startTransition } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   owner: "owner", generation: 3, current: true, accepted: true, wantsPublic: false, requiresDisclosure: true,
   signedIn: true, aiConsent: vi.fn(), provision: vi.fn(), configure: vi.fn(), clear: vi.fn(),
   sessionOwner: vi.fn(), listener: null as null | ((state: string) => void),
+  accountGuard: (() => true) as () => boolean,
 }));
 vi.mock("react-native", () => ({ Platform: { OS: "ios" }, AppState: {
   addEventListener: (_: string, listener: (state: string) => void) => { state.listener = listener; return { remove() {} }; },
@@ -20,7 +21,7 @@ vi.mock("@/lib/context", () => {
     publishingDisclosure: async () => ({ requires_acceptance: state.requiresDisclosure }) };
   const localDrafts = { load: async () => state.wantsPublic };
   return { useTraining: () => ({ api, localDrafts, owner: state.owner, enrollment: { enrolled: true, generation: state.generation },
-    isCurrentAccount: () => state.current }) };
+    isCurrentAccount: state.accountGuard }) };
 });
 import { NativeShareAccountGuard, useNativeShareSession } from "../components/native-share-session";
 import { serializeShare, setNativeShareVisibility, observeNativeShareAuthSession, revokeNativeSharing, suspendNativeSharing, updateNativeSharingConsent } from "./native-share-session";
@@ -35,6 +36,7 @@ beforeEach(() => {
   observeNativeShareAuthSession(null); observeNativeShareAuthSession("test-session");
   state.owner = "owner"; state.generation = 3; state.current = true; state.accepted = true;
   state.wantsPublic = false; state.requiresDisclosure = true; state.signedIn = true;
+  state.accountGuard = () => state.current;
   vi.clearAllMocks();
   state.aiConsent.mockImplementation(async () => ({ accepted: state.accepted, disclosure_version: 1 }));
   state.sessionOwner.mockResolvedValue("owner:3"); state.clear.mockResolvedValue(undefined);
@@ -64,6 +66,25 @@ it("retired membership credentials are cleared before checking consent or provis
 it("an account change while a credential is being provisioned never configures it", async () => {
   state.provision.mockImplementationOnce(async () => { state.current = false; return { generation: 3, token: "hfws_v1.old" }; });
   await mount(); expect(state.configure).not.toHaveBeenCalled();
+});
+it("a discarded account render cannot revoke the committed registrar's held configuration", async () => {
+  let finish!: () => void;
+  state.configure.mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve; }));
+  let discard = false, attempts = 0;
+  const suspended = new Promise<void>(() => undefined);
+  function Blocker() { if (discard) { attempts++; throw suspended; } return null; }
+  function Scope({ owner }: { owner: string }) { return createElement("CommittedScope", { owner }, createElement(Registrar), createElement(Blocker)); }
+  function Harness() { return createElement(Suspense, { fallback: null }, createElement(Scope, { owner: state.owner })); }
+  await act(async () => { tree = create(createElement(Harness)); });
+  expect(state.configure).toHaveBeenCalledTimes(1);
+  state.owner = "speculative-owner"; state.generation = 4; state.accountGuard = () => false; discard = true;
+  await act(async () => { startTransition(() => tree!.update(createElement(Harness))); });
+  expect(attempts).toBeGreaterThan(0);
+  expect(tree!.root.findByType(Scope).props.owner).toBe("owner");
+  await act(async () => finish());
+  await serializeShare(async () => undefined);
+  expect(state.clear).not.toHaveBeenCalled();
+  expect(state.configure).toHaveBeenCalledWith(expect.objectContaining({ generation: 3 }), "https://example.test", "owner");
 });
 it("unmount revokes immediately during a slow refresh and never installs its late credential", async () => {
   let finish!: (value: unknown) => void;

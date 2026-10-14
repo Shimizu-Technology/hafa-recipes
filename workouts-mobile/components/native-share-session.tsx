@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { AppState, Platform } from "react-native";
 import { useAuth } from "@clerk/expo";
 import { useTraining } from "@/lib/context";
@@ -19,11 +19,17 @@ export function NativeShareAccountGuard() {
 export function useNativeShareSession() {
   const { api, owner, enrollment, localDrafts, isCurrentAccount } = useTraining();
   const generation = enrollment?.enrolled ? enrollment.generation : undefined;
-  const account = useRef(isCurrentAccount); account.current = isCurrentAccount;
+  const account = useRef({ owner, generation, isCurrentAccount, active: false });
+  useLayoutEffect(() => {
+    const committed = { owner, generation, isCurrentAccount, active: true };
+    account.current = committed;
+    return () => { committed.active = false; };
+  }, [owner, generation, isCurrentAccount]);
   useEffect(() => {
     if (Platform.OS !== "ios" || !Share.nativeSharingAvailable || !generation) return;
     let alive = true; let syncing = false; let again = false;
-    const current = () => alive && account.current() && !nativeSharingSuspended();
+    const current = () => alive && account.current.active && account.current.owner === owner &&
+      account.current.generation === generation && account.current.isCurrentAccount() && !nativeSharingSuspended();
     const sync = async () => {
       if (!current()) return;
       if (syncing) { again = true; return; } syncing = true;

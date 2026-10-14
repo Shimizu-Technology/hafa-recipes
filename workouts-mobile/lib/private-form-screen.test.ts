@@ -1,4 +1,4 @@
-import { createElement, Fragment, useLayoutEffect, useState, type ComponentType } from "react";
+import { createElement, Fragment, Suspense, startTransition, useLayoutEffect, useState, type ComponentType } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -405,6 +405,31 @@ it("mounted share checks the newly rendered fingerprint before the old passive e
   await settle();
   expect(fixture.map.get(draftKey(fixture.owner, "capture:1"))).toBe(accepted);
   expect(fixture.cleanup).toHaveBeenCalledWith(late, true);
+});
+
+it("a discarded owner render cannot delete files already registered by the committed share", async () => {
+  fixture.share = true;
+  fixture.intent = { webUrl: "", text: "", files: [{ path: "file:///user/A.jpg", mimeType: "image/jpeg", fileName: "A" }] };
+  const owner = fixture.owner;
+  const file = { uri: "file:///cache/hafa-workouts-capture/registered-A.jpg", name: "A", mime_type: "image/jpeg", owned: true };
+  fixture.normalizeImages.mockResolvedValueOnce([file]);
+  const cleanup = deferred<void>();
+  fixture.cleanup.mockReturnValueOnce(cleanup.promise);
+  let discard = false, attempts = 0;
+  const suspended = new Promise<void>(() => undefined);
+  function Blocker() { if (discard) { attempts++; throw suspended; } return null; }
+  function Source() { return createElement("CommittedSource", { owner: fixture.owner }, createElement(ShareCapture), createElement(Blocker)); }
+  function Harness() { return createElement(Suspense, { fallback: null }, createElement(Source)); }
+  await mount(Harness);
+  expect(JSON.parse(fixture.map.get(draftKey(owner, "capture:1"))!).files).toEqual([file]);
+  discard = true; fixture.owner = "speculative-owner";
+  await act(async () => { startTransition(() => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Harness)))); });
+  expect(attempts).toBeGreaterThan(0);
+  expect(nodes("CommittedSource")[0].props.owner).toBe(owner);
+  await act(async () => cleanup.reject(Error("retained cleanup failed")));
+  await settle();
+  expect(JSON.parse(fixture.map.get(draftKey(owner, "capture:1"))!).files).toEqual([file]);
+  expect(fixture.cleanup.mock.calls.flatMap(call => call[0]).some(asset => asset.uri === file.uri)).toBe(false);
 });
 
 it("same-slot compare/save stays serialized through delayed storage and an intentional shared replacement", async () => {
