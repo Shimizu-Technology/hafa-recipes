@@ -499,6 +499,16 @@ async def update_workout(
     row = await owned_record(db, WorkoutRecord, workout_id, user.id, generation)
     if row.revision != expected_revision:
         raise HTTPException(409, "Workout changed; refresh before saving")
+    if "extraction_warnings" not in workout.model_fields_set:
+        workout = workout.model_copy(
+            update={"extraction_warnings": row.content.get("extraction_warnings", [])}
+        )
+    if workout.source_url == row.content.get("source_url"):
+        workout = workout.model_copy(update={
+            field: row.content.get(field)
+            for field in ("source_thumbnail_url", "source_title", "source_creator")
+            if field not in workout.model_fields_set and field in row.content
+        })
     content = validated_workout(workout)
     from app.domains.workouts.source_media import retain_source_cover
 
@@ -613,6 +623,10 @@ async def create_program(
 ):
     await membership_for(db, user.id, generation=generation, write=True)
     content = program_content(request)
+    from app.domains.workouts.source_media import retain_source_cover
+
+    for session in request.proposal.sessions:
+        await retain_source_cover(db, user.id, generation, session.workout.source_thumbnail_url)
     digest = content_digest(content)
     existing = await replay_creation(
         db, WorkoutsProgram, user.id, generation, idempotency_key, digest
@@ -667,6 +681,10 @@ async def update_program(
         raise HTTPException(409, "Program changed; refresh before saving")
     if row.content.get("schedule_state", {}).get("status") == "paused":
         raise HTTPException(409, "Review returning from the pause before editing this program")
+    from app.domains.workouts.source_media import retain_source_cover
+
+    for session in request.proposal.sessions:
+        await retain_source_cover(db, user.id, generation, session.workout.source_thumbnail_url)
     row.content = program_content(request)
     row.revision += 1
     row.updated_at = now()

@@ -15,6 +15,7 @@ from app.domains.workouts.lifecycle import membership_for, now, optional_table_e
 from app.domains.workouts.models import WorkoutsConsent
 from app.domains.workouts.source_media_models import WorkoutSourceMedia
 from app.image_validation import validate_image_bytes
+from app.media_lifecycle import acquire_recipe_media_lock
 from app.models.deletion import DeletionCleanupJob
 from app.services.storage import MAX_THUMBNAIL_BYTES, storage_service
 
@@ -87,8 +88,8 @@ async def prepare_source_cover(
 ):
     """Call BEFORE the caller's final owner lock; returns None without losing text.
 
-    Its own committed receipt precedes S3 writes. Upload holds the account lock
-    until the existing shielded writer settles, including cancellation cleanup.
+    Its own committed receipt precedes S3 writes. Upload holds account and asset
+    locks until the existing shielded writer settles, including cancellation.
     The caller must retain_source_cover in the transaction accepting the result.
     """
     return await _prepare(
@@ -113,13 +114,14 @@ async def _prepare(sessions, owner, generation, source_id, url, purpose, expecte
                 return None
             await _eligible(db, owner, generation, source_id, purpose, expected)
             existing = await db.get(WorkoutSourceMedia, identifier)
-            if existing and existing.canonical_url:
+            if existing:
                 guard = await db.get(DeletionCleanupJob, existing.cleanup_job_id)
-                if existing.retained or (
+                if not existing.retained and not (
                     guard and guard.status == "queued" and guard.next_attempt_at > now()
                 ):
+                    return None
+                if existing.canonical_url:
                     return existing.canonical_url
-                return None
             owned = asset_id(url)
             key = storage_service._owned_storage_key(url)
             if storage_service.thumbnail_origin(url) == "app_owned" and not owned:
@@ -165,8 +167,14 @@ async def _prepare(sessions, owner, generation, source_id, url, purpose, expecte
             await db.commit()  # Durable even if upload succeeds but subsequent commits fail.
         async with sessions() as db:
             await _eligible(db, owner, generation, source_id, purpose, expected)
+            await acquire_recipe_media_lock(db, identifier)
             receipt = await db.get(WorkoutSourceMedia, identifier, populate_existing=True)
             if not receipt:
+                return None
+            guard = await db.get(DeletionCleanupJob, receipt.cleanup_job_id, populate_existing=True)
+            if not receipt.retained and not (
+                guard and guard.status == "queued" and guard.next_attempt_at > now()
+            ):
                 return None
             if not receipt.canonical_url:
                 receipt.canonical_url = (
@@ -202,9 +210,12 @@ async def retain_source_cover(db, owner, generation, url):
     ):
         raise HTTPException(422, "Source cover is not registered to this workout account")
     was_retained = media.retained
-    media.retained = True
     if media.cleanup_job_id:
-        job = await db.get(DeletionCleanupJob, media.cleanup_job_id)
+        job = await db.scalar(
+            select(DeletionCleanupJob)
+            .where(DeletionCleanupJob.id == media.cleanup_job_id)
+            .with_for_update()
+        )
         if (
             not job
             or job.status not in {"queued", "completed"}
@@ -213,6 +224,9 @@ async def retain_source_cover(db, owner, generation, url):
             raise HTTPException(422, "Source cover expired; save the workout without its cover")
         job.status, job.storage_prefixes, job.storage_prefix_count = "completed", [], 0
         job.completed_at = now()
+    # A rejected preview must stay unretained even when the caller catches the
+    # error and commits a text-only workout in this same transaction.
+    media.retained = True
     return url
 
 

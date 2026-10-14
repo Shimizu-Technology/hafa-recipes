@@ -485,3 +485,277 @@ async def test_045_retry_completes_a_committed_first_phase(data_api):  # noqa: F
                 "SELECT bool_and(convalidated) FROM pg_constraint WHERE conname LIKE 'ck_workouts_library_%'"
             )
         )
+
+
+async def prepare_test_source_cover(
+    api, monkeypatch, *, kind="url", fail_upload=False, hold_upload=None
+):
+    from uuid import uuid4
+
+    import app.services.storage as storage_module
+    from app.domains.workouts import source_media
+    from app.domains.workouts.automation_models import WorkoutImport
+    from app.domains.workouts.lifecycle import now
+    from app.domains.workouts.models import WorkoutsConsent
+    from app.domains.workouts.source_media_models import WorkoutSourceMedia
+    from app.models.deletion import DeletionCleanupJob
+    from app.services.storage import StorageService
+    from tests.test_storage import ReadableS3, _png_bytes
+
+    await importlib.import_module("migrations.047_add_workouts_source_media").run_migration(
+        configured=settings(), migration_engine=api.engine
+    )
+    monkeypatch.setattr(
+        storage_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_enabled=True,
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+            recipe_media_base_url=None,
+        ),
+    )
+    store = StorageService()
+    store._client = ReadableS3(_png_bytes("red"))
+    if fail_upload:
+        put = store._client.put_object
+
+        def fail_second_variant(**kwargs):
+            if store._client.puts:
+                raise RuntimeError("synthetic partial upload failure")
+            put(**kwargs)
+
+        store._client.put_object = fail_second_variant
+    downloads = []
+
+    async def download(url):
+        downloads.append(url)
+        return _png_bytes("red"), "image/png"
+
+    store._download_public_url = download
+    original = store.store_prepared_thumbnail_variants_locked
+
+    async def registered_before_upload(variants, namespace):
+        async with api.sessions() as db:
+            media = await db.get(
+                WorkoutSourceMedia, source_media.UUID(namespace.removeprefix("workouts-"))
+            )
+            assert media is not None and media.canonical_url is None
+            guard = await db.get(DeletionCleanupJob, media.cleanup_job_id)
+            assert guard.status == "queued" and guard.storage_prefixes == [
+                source_media.asset_prefix(media.id)
+            ]
+        if hold_upload:
+            hold_upload[0].set()
+            await hold_upload[1].wait()
+        return await original(variants, namespace)
+
+    store.store_prepared_thumbnail_variants_locked = registered_before_upload
+    monkeypatch.setattr(source_media, "storage_service", store)
+    monkeypatch.setattr(source_media, "AsyncSessionLocal", api.sessions)
+    identifier, accepted = uuid4(), now()
+    async with api.sessions.begin() as db:
+        db.add(
+            WorkoutsConsent(
+                app_user_id="owner", generation=1, disclosure_version=1, accepted_at=accepted
+            )
+        )
+        db.add(
+            WorkoutImport(
+                id=identifier,
+                app_user_id="owner",
+                generation=1,
+                request_id=uuid4(),
+                request_hash="a" * 64,
+                status="processing",
+                payload={"kind": kind},
+                ai_accepted_at=accepted,
+                expires_at=accepted + source_media.timedelta(hours=24),
+            )
+        )
+    url = await source_media.prepare_source_cover(
+        api.sessions,
+        "owner",
+        1,
+        identifier,
+        "https://public.example/cover.jpg",
+        expected_ai_accepted_at=accepted,
+    )
+    return url, identifier, store, downloads
+
+
+async def test_public_cover_receipt_precedes_upload_and_product_erasure_is_exact(
+    discover_api, monkeypatch
+):
+    from app.domains.workouts import source_media
+    from app.domains.workouts.source_media_models import WorkoutSourceMedia
+    from app.models.deletion import DeletionCleanupJob
+
+    before = await legacy_columns(discover_api.engine)
+    url, _, store, _ = await prepare_test_source_cover(discover_api, monkeypatch)
+    assert url and len(store._client.puts) == 2
+    assert await legacy_columns(discover_api.engine) == before
+    row = await save(discover_api, {**REEL, "source_thumbnail_url": url})
+    assert row["content"]["source_thumbnail_url"] == url
+    edited = await discover_api.client.put(
+        f"/api/v1/workouts/library/{row['id']}?expected_revision=1",
+        headers=GENERATION,
+        json={**REEL, "title": "Edited by an older client"},
+    )
+    assert edited.status_code == 200 and edited.json()["content"]["source_thumbnail_url"] == url
+    async with discover_api.sessions() as db:
+        media = await db.get(WorkoutSourceMedia, source_media.asset_id(url))
+        assert (
+            media.retained
+            and (await db.get(DeletionCleanupJob, media.cleanup_job_id)).status == "completed"
+        )
+    deleted = await discover_api.client.delete("/api/v1/workouts/data", headers=GENERATION)
+    assert deleted.status_code == 200, deleted.text
+    async with discover_api.sessions() as db:
+        assert await db.get(WorkoutSourceMedia, source_media.asset_id(url)) is None
+        jobs = (
+            await db.scalars(
+                select(DeletionCleanupJob).where(DeletionCleanupJob.kind == "workout_media")
+            )
+        ).all()
+        assert any(
+            job.storage_prefixes == [source_media.asset_prefix(source_media.asset_id(url))]
+            for job in jobs
+        )
+
+
+@pytest.mark.parametrize("kind,failed", [("images", False), ("url", True)])
+async def test_private_capture_or_failed_upload_never_attaches_cover(
+    discover_api, monkeypatch, kind, failed
+):
+    from app.domains.workouts.source_media_models import WorkoutSourceMedia
+    from app.models.deletion import DeletionCleanupJob
+
+    url, _, store, downloads = await prepare_test_source_cover(
+        discover_api, monkeypatch, kind=kind, fail_upload=failed
+    )
+    assert url is None and len(store._client.puts) == (1 if failed else 0)
+    async with discover_api.sessions() as db:
+        rows = (await db.scalars(select(WorkoutSourceMedia))).all()
+        assert len(rows) == (1 if failed else 0)
+        if failed:
+            guard = await db.get(DeletionCleanupJob, rows[0].cleanup_job_id)
+            assert guard.status == "queued" and guard.storage_prefixes
+            assert rows[0].canonical_url is None
+        else:
+            assert downloads == []
+
+
+async def test_unretained_import_cover_release_queues_cleanup(discover_api, monkeypatch):
+    from app.domains.workouts import source_media
+    from app.domains.workouts.source_media_models import WorkoutSourceMedia
+    from app.models.deletion import DeletionCleanupJob
+
+    url, identifier, _, _ = await prepare_test_source_cover(discover_api, monkeypatch)
+    async with discover_api.sessions.begin() as db:
+        await source_media.membership_for(db, "owner", generation=1, write=True)
+        await source_media.release_source_cover(db, "owner", 1, identifier)
+    async with discover_api.sessions() as db:
+        assert await db.get(WorkoutSourceMedia, source_media.asset_id(url)) is None
+        jobs = (
+            await db.scalars(
+                select(DeletionCleanupJob).where(DeletionCleanupJob.kind == "workout_media")
+            )
+        ).all()
+        assert any(
+            job.next_attempt_at is None
+            and job.storage_prefixes == [source_media.asset_prefix(source_media.asset_id(url))]
+            for job in jobs
+        )
+
+
+async def test_047_widens_real019_cleanup_constraint_and_replays(discover_api, monkeypatch):
+    from sqlalchemy.exc import IntegrityError
+
+    async with discover_api.engine.begin() as connection:
+        await connection.execute(text("DROP TABLE deleted_auth_identities"))
+        await connection.execute(text("DROP TABLE deletion_cleanup_jobs CASCADE"))
+    migration019 = importlib.import_module("migrations.019_add_durable_deletion_cleanup")
+    monkeypatch.setattr(migration019, "engine", discover_api.engine)
+    await migration019.run_migration()
+    migration047 = importlib.import_module("migrations.047_add_workouts_source_media")
+    await migration047.run_migration(configured=settings(), migration_engine=discover_api.engine)
+    # Repair a recorded pre-release047 that omitted the real019 allowlist.
+    async with discover_api.engine.begin() as connection:
+        await connection.execute(
+            text("ALTER TABLE deletion_cleanup_jobs DROP CONSTRAINT ck_deletion_cleanup_kind")
+        )
+        await connection.execute(
+            text("""ALTER TABLE deletion_cleanup_jobs ADD CONSTRAINT ck_deletion_cleanup_kind
+            CHECK (kind IN ('account','recipe'))""")
+        )
+    await migration047.run_migration(configured=settings(), migration_engine=discover_api.engine)
+    await migration047.run_migration(configured=settings(), migration_engine=discover_api.engine)
+    async with discover_api.engine.begin() as connection:
+        for kind in ("account", "recipe", "workout_media"):
+            await connection.execute(
+                text("INSERT INTO deletion_cleanup_jobs(kind,app_user_id) VALUES(:kind,'owner')"),
+                {"kind": kind},
+            )
+        assert await connection.scalar(
+            text("SELECT convalidated FROM pg_constraint WHERE conname='ck_deletion_cleanup_kind'")
+        )
+        assert (
+            await connection.scalar(
+                text("SELECT count(*) FROM workouts_schema_migrations WHERE version=47")
+            )
+            == 1
+        )
+    async with discover_api.engine.begin() as connection:
+        with pytest.raises(IntegrityError):
+            await connection.execute(
+                text(
+                    "INSERT INTO deletion_cleanup_jobs(kind,app_user_id) VALUES('unsupported','owner')"
+                )
+            )
+    url, _, store, _ = await prepare_test_source_cover(discover_api, monkeypatch)
+    assert url and len(store._client.puts) == 2
+
+
+async def test_due_cover_cleanup_waits_for_held_upload(discover_api, monkeypatch):
+    import asyncio
+
+    import app.deletion_cleanup as cleanup
+    from app.domains.workouts import source_media
+    from app.domains.workouts.source_media_models import WorkoutSourceMedia
+    from app.models.deletion import DeletionCleanupJob
+
+    started, release = asyncio.Event(), asyncio.Event()
+    upload = asyncio.create_task(
+        prepare_test_source_cover(discover_api, monkeypatch, hold_upload=(started, release))
+    )
+    await asyncio.wait_for(started.wait(), timeout=5)
+    store = source_media.storage_service
+    deleted = []
+
+    async def delete_prefix(prefix):
+        assert len(store._client.puts) == 2
+        deleted.append(prefix)
+        store._client.puts.clear()
+        return 2
+
+    store.delete_prefix = delete_prefix
+    monkeypatch.setattr(cleanup, "storage_service", store)
+    monkeypatch.setattr(cleanup, "AsyncSessionLocal", discover_api.sessions)
+    async with discover_api.sessions.begin() as db:
+        media = await db.scalar(select(WorkoutSourceMedia))
+        guard = await db.get(DeletionCleanupJob, media.cleanup_job_id)
+        guard.next_attempt_at = source_media.now() - source_media.timedelta(seconds=1)
+        guard_id = guard.id
+    worker = cleanup.DurableDeletionCleanupWorker()
+    assert await worker.claim_next_job() == guard_id
+    deletion = asyncio.create_task(worker.execute_claimed_job(guard_id))
+    await asyncio.sleep(0.05)
+    assert not deletion.done() and not deleted
+    release.set()
+    url, _, _, _ = await upload
+    await asyncio.wait_for(deletion, timeout=5)
+    assert url and deleted == [source_media.asset_prefix(source_media.asset_id(url))]
+    assert store._client.puts == []
+    async with discover_api.sessions() as db:
+        assert (await db.get(DeletionCleanupJob, guard_id)).status == "completed"
