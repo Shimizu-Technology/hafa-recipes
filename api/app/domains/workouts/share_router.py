@@ -59,7 +59,12 @@ async def share_credential(
     if row is None:
         raise HTTPException(401, "Reconnect workout sharing in Håfa Workouts")
     await membership_for(db, row.app_user_id, generation=row.generation, write=True)
-    await db.refresh(row)
+    row = await db.scalar(
+        select(WorkoutShareCredential).where(WorkoutShareCredential.id == parsed[0])
+        .execution_options(populate_existing=True)
+    )
+    if row is None:
+        raise HTTPException(401, "Reconnect workout sharing in Håfa Workouts")
     configured = get_settings()
     if (
         row.revoked_at is not None

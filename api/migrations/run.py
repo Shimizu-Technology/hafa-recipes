@@ -41,6 +41,7 @@ OPTIONAL_MIGRATIONS = (
     "migrations.043_add_workouts_export_snapshots",
     "migrations.044_add_workouts_activity_log",
     "migrations.045_add_workouts_discover",
+    "migrations.046_add_workouts_share_credentials",
 )
 
 
