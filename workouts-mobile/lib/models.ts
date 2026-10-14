@@ -77,6 +77,10 @@ export interface Workout {
   }>;
   capture_kind?: "url" | "text" | "images" | "document" | "shared";
   source_url?: string | null;
+  source_title?: string | null;
+  source_creator?: string | null;
+  source_thumbnail_url?: string | null;
+  extraction_warnings?: string[];
   notes?: string[];
 }
 export interface ExercisePrescription {

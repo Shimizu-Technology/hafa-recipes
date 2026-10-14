@@ -1,37 +1,89 @@
-import { useCallback, useState, useEffect, useRef } from "react";
+import { useCallback, useState, useEffect, useLayoutEffect, useRef } from "react";
 import { AppState } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Copy, Notice } from "./ui";
 import { useTraining } from "@/lib/context";
-import { canSaveAutomatically, importIsTerminal, updateImportReferences } from "@/lib/capture";
+import { canSaveAutomatically, importIsTerminal, retireCapturedImport, updateImportReferences } from "@/lib/capture";
 import { workoutErrors } from "@/lib/library";
-import { createPrivateDraftSlot } from "@/lib/private-form";
-import type { CaptureDraft } from "@/lib/capture";
+import { cleanupCaptureFiles } from "@/lib/capture-io";
 import * as Crypto from "expo-crypto";
 export function ImportList() {
-  const { localDrafts, owner, enrollment } = useTraining();
+  const { api, localDrafts, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const [items, setItems] = useState<Array<{ id: string; label: string; auto_save?: boolean }>>([]);
+  const scope = `${owner}:${enrollment?.generation}`;
+  const [itemScope, setItemScope] = useState(scope);
+  const [deviceError, setDeviceError] = useState("");
+  const [visible, setVisible] = useState(false);
+  const [active, setActive] = useState(AppState.currentState === "active");
+  const cache = useQueryClient();
+  const reconciled = useRef(new Set<string>());
+  const reads = useRef(0);
+  const live = useRef({ scope, isCurrentAccount });
+  useLayoutEffect(() => { live.current = { scope, isCurrentAccount }; }, [scope, isCurrentAccount]);
+  const reloadDeviceImports = useCallback((alive: () => boolean) => {
+    const read = ++reads.current;
+    const current = () => alive() && read === reads.current && live.current.scope === scope && storage.isCurrent() && live.current.isCurrentAccount();
+    void localDrafts.load<Array<{ id: string; label: string; auto_save?: boolean }>>(owner, `imports:${enrollment?.generation}`)
+      .then(value => { if (current()) { setItems(value ?? []); setItemScope(scope); } })
+      .catch(() => { if (current()) setDeviceError("Could not restore this device’s imports. Server imports are still available when connected."); });
+  }, [localDrafts, owner, enrollment?.generation, scope, storage]);
+  const capabilities = useQuery({ queryKey: [owner, "capabilities", enrollment?.generation], queryFn: api.capabilities,
+    enabled: !!enrollment?.enrolled && visible, staleTime: 60000 });
+  const server = useQuery({ queryKey: [owner, "imports", enrollment?.generation], queryFn: () => api.importJobs(),
+    enabled: !!enrollment?.enrolled && visible && capabilities.data?.server_auto_save === true,
+    refetchInterval: query => visible && active && query.state.data?.some(job => !importIsTerminal(job.status)) ? 4000 : false });
+  useEffect(() => {
+    let alive = true;
+    const listener = AppState.addEventListener("change", state => {
+      setActive(state === "active");
+      if (state !== "active" || !alive || live.current.scope !== scope || !visible || !enrollment?.enrolled || !storage.isCurrent() || !live.current.isCurrentAccount()) return;
+      reloadDeviceImports(() => alive);
+      // An empty cached inbox has no polling timer. A source-app share can
+      // create its first server import while this library remains focused.
+      if (capabilities.data?.server_auto_save === true) void server.refetch();
+    });
+    return () => { alive = false; listener.remove(); };
+  }, [visible, scope, enrollment?.enrolled, reloadDeviceImports, capabilities.data?.server_auto_save, server.refetch, storage]);
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      void localDrafts
-        .load<Array<{ id: string; label: string; auto_save?: boolean }>>(owner, `imports:${enrollment?.generation}`)
-        .then((value) => {
-          if (active) setItems(value ?? []);
-        })
-        .catch(() => {
-          if (active) setItems([]);
-        });
+      setVisible(true); setItems([]); setDeviceError("");
+      reloadDeviceImports(() => active);
       return () => {
         active = false;
+        setVisible(false);
       };
-    }, [owner, enrollment?.generation])
+    }, [reloadDeviceImports])
   );
+  useEffect(() => {
+    const completed = (server.data ?? []).filter(job => job.generation === enrollment?.generation && job.accepted_workout_id && !reconciled.current.has(`${owner}:${job.generation}:${job.id}`));
+    if (!completed.length) return;
+    let alive = true;
+    const guard = () => { if (!alive || !storage.isCurrent() || !isCurrentAccount()) throw Error("The import account changed."); };
+    void (async () => {
+      guard(); await cache.invalidateQueries({ queryKey: [owner, "library"] });
+      for (const job of completed) {
+        await retireCapturedImport(storage, owner, job.generation, job.id, guard, cleanupCaptureFiles, Crypto.randomUUID);
+        await updateImportReferences(localDrafts, owner, job.generation, guard, prior => prior.filter(item => item.id !== job.id));
+        guard(); reconciled.current.add(`${owner}:${job.generation}:${job.id}`);
+      }
+    })().catch(() => { if (alive) setDeviceError("Your workout is saved. Reopen its import to finish device cleanup."); });
+    return () => { alive = false; };
+  }, [server.data, owner, storage, localDrafts, cache]);
+  const inbox = new Map((itemScope === scope ? items : []).map(item => [item.id, item]));
+  for (const job of server.data ?? []) {
+    if (job.generation !== enrollment?.generation) continue;
+    if (job.accepted_workout_id || ["cancelled", "expired"].includes(job.status)) inbox.delete(job.id);
+    else inbox.set(job.id, { id: job.id, label: job.result?.workout?.title ?? job.result?.source.title ?? "Shared workout", auto_save: false });
+  }
   return (
     <>
-      {items.length > 0 && <Copy kind="heading">Source imports</Copy>}
-      {items.map((item) => (
+      {!!deviceError && <Notice error>{deviceError}</Notice>}
+      {server.error && <><Notice error>Could not check your imports. Your saved workouts are still in your library.</Notice>
+        <Button title="Retry imports" secondary onPress={() => { void server.refetch(); }} /></>}
+      {inbox.size > 0 && <Copy kind="heading">Source imports</Copy>}
+      {[...inbox.values()].map((item) => (
           <ImportCard key={item.id} id={item.id} label={item.label} autoSave={item.auto_save} />
       ))}
     </>
@@ -66,8 +118,8 @@ function ImportCard({ id, label, autoSave }: { id: string; label: string; autoSa
   useEffect(() => {
     const job = q.data;
     const alreadySaved = !!job?.accepted_workout_id;
-    if (!autoSave || !visible || !active || !job || job.result?.workout?.capture_kind !== "url" ||
-      (!alreadySaved && (!canSaveAutomatically(job) || !capabilities.data || workoutErrors(job.result!.workout!).length)) || attempted.current) return;
+    if ((!autoSave && !alreadySaved) || !visible || !active || !job || (!alreadySaved && job.result?.workout?.capture_kind !== "url") ||
+      (!alreadySaved && (capabilities.data?.server_auto_save || !canSaveAutomatically(job) || !capabilities.data || workoutErrors(job.result!.workout!).length)) || attempted.current) return;
     attempted.current = true;
     let alive = true;
     let acceptStarted = false;
@@ -98,18 +150,7 @@ function ImportCard({ id, label, autoSave }: { id: string; label: string; autoSa
       }
       acceptStarted = true;
       accountGuard();
-      const slot = createPrivateDraftSlot<CaptureDraft>(storage, owner, `capture:${generation}`, Crypto.randomUUID);
-      const captured = await slot.load(accountGuard);
-      accountGuard();
-      if (captured.value?.job_id === id && captured.value.generation === generation &&
-        !captured.value.files.length && !captured.value.cleanup_files?.length) {
-        try {
-          await slot.save(captured.revision, { request_id: Crypto.randomUUID(), generation, kind: "url",
-            source_url: "", text: "", files: [], created_at: new Date().toISOString() }, accountGuard);
-        } catch (error) {
-          if (!(error as { captureDraftConflict?: boolean }).captureDraftConflict) throw error;
-        }
-      }
+      await retireCapturedImport(storage, owner, generation, id, accountGuard, cleanupCaptureFiles, Crypto.randomUUID);
       await updateImportReferences(localDrafts, owner, generation, accountGuard, (items) => items.filter((item) => item.id !== id));
       await cache.invalidateQueries({ queryKey: [owner, "library"] });
       await q.refetch();

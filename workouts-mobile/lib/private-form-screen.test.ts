@@ -105,6 +105,7 @@ vi.mock("@/lib/context", () => {
   };
 });
 vi.mock("react-native", () => ({
+  ActivityIndicator: "ActivityIndicator",
   View: "View",
   Image: "Image",
   Alert: { alert: fixture.alert },
@@ -1389,6 +1390,17 @@ it("shows existing time and distance without making optional numeric fields into
   expect(correction.duration_seconds).toBeNull();
   expect(correction.distance_meters).toBe(400);
   expect(correction.reps_min).toBeUndefined();
+});
+it("edits round rest without losing source credit, cover or warnings, and leaves unknown rest blank", async () => {
+  const content = { ...workout, source_title: "Creator source", source_creator: "Creator", source_thumbnail_url: "https://example.test/cover.jpg",
+    extraction_warnings: ["Rest was not spoken"], blocks: [{ ...workout.blocks[0], rounds: 6, rest_between_rounds_seconds: 120 }] };
+  await mountRealWorkoutEditor(content); await click(`Show block settings: ${content.blocks[0].label}`);
+  expect(nodes("Field").find(node => node.props.label === "Rest between rounds · seconds")!.props.value).toBe("120");
+  await act(async () => nodes("Field").find(node => node.props.label === "Rest between rounds · seconds")!.props.onChange(""));
+  const edited = fixture.updateWorkout.mock.calls[0][0];
+  expect(edited.blocks[0].rest_between_rounds_seconds).toBeNull();
+  expect(edited).toMatchObject({ source_title: content.source_title, source_creator: content.source_creator,
+    source_thumbnail_url: content.source_thumbnail_url, extraction_warnings: content.extraction_warnings });
 });
 it("keeps invalid optional values visible for correction", async () => {
   await mountRealWorkoutEditor({ ...workout, blocks: [{ ...workout.blocks[0], exercises: [{ name: "Row", load: 10, rest_seconds: -1 }] }] });

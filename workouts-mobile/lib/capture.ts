@@ -1,5 +1,7 @@
 import type { AuthoredWorkout } from "./models";
 import type { drafts } from "./drafts";
+import type { Storage } from "./drafts";
+import { createPrivateDraftSlot } from "./private-form";
 export interface ImportReference { id: string; generation?: number; label: string; created_at?: string; auto_save?: boolean }
 const referenceWrites = new Map<string, Promise<void>>();
 /** Intake and completion share one queue so finishing A cannot erase a newer import B. */
@@ -46,6 +48,9 @@ export interface CaptureDraft {
   job_id?: string;
   pending_import?: boolean;
   auto_save?: boolean;
+  server_auto_save?: boolean;
+  /** Exact native share visibility; never replace it with a later default. */
+  is_public?: boolean;
   created_at: string;
 }
 /** Supplied by the original account/enrollment/screen; native helpers stay UI-free. */
@@ -90,6 +95,7 @@ export interface ImportJob {
   accepted_workout_id: string | null;
 }
 export interface Capabilities {
+  server_auto_save?: boolean;
   /** Absent on old servers; only an explicit true selects durable jobs. */
   export_jobs?: boolean;
   generation: number;
@@ -132,4 +138,17 @@ export function importIsTerminal(status: ImportJob["status"]) {
 export function canSaveAutomatically(job: ImportJob) {
   return !job.accepted_workout_id && job.status === "ready" && job.result?.status === "ready" &&
     !!job.result.workout && job.result.warnings.length === 0;
+}
+/** Release only the source still owned by this completed import. A later share wins. */
+export async function retireCapturedImport(storage: Storage, owner: string, generation: number, id: string, guard: CaptureGuard,
+  cleanup: (files: CaptureFile[], strict: boolean) => Promise<void>, uuid: () => string) {
+  const slot = createPrivateDraftSlot<CaptureDraft>(storage, owner, `capture:${generation}`, uuid);
+  const prior = await slot.load(guard); guard();
+  if (prior.value?.job_id !== id || prior.value.generation !== generation) return;
+  const retained = [...prior.value.files, ...(prior.value.cleanup_files ?? [])];
+  try {
+    const receipt = await slot.save(prior.revision, { ...prior.value, kind: "url", source_url: "", text: "", files: [], cleanup_files: retained }, guard);
+    await cleanup(retained, true); guard();
+    await slot.remove(receipt.revision, guard);
+  } catch (error) { if (!(error as { captureDraftConflict?: boolean }).captureDraftConflict) throw error; }
 }

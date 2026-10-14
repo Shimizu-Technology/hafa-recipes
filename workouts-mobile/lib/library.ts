@@ -19,6 +19,8 @@ export function workoutErrors(workout: AuthoredWorkout,allowIncomplete=false) {
     if (!block.label.trim()) errors.push("Name each workout block.");
     if (block.rounds != null && (!Number.isInteger(block.rounds) || block.rounds < 1 || block.rounds > 100))
       errors.push("Rounds must be a whole number from 1 to 100.");
+    if (block.rest_between_rounds_seconds != null && (!Number.isInteger(block.rest_between_rounds_seconds) || block.rest_between_rounds_seconds < 0 || block.rest_between_rounds_seconds > 7200))
+      errors.push("Rest between rounds must be whole seconds from 0 to 7200, or blank.");
     for (const e of block.exercises) {
       if (!e.name.trim()) errors.push("Name each exercise.");
       if (e.reps_min != null && e.reps_max != null && e.reps_min > e.reps_max)

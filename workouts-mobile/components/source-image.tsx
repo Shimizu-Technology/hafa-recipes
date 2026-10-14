@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Image, Modal, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Copy, useColors } from "./ui";
@@ -9,6 +9,7 @@ export function SourceImage({ uri, label }: { uri: string; label: string }) {
   const [ratio, setRatio] = useState(1);
   const size = useWindowDimensions();
   const c = useColors();
+  useEffect(() => { setFailed(false); setOpen(false); setZoom(1); }, [uri]);
   return (
     <>
       <Pressable
@@ -31,7 +32,7 @@ export function SourceImage({ uri, label }: { uri: string; label: string }) {
         />
         <Copy kind="small">
           {failed
-            ? "This local image is unavailable. Reopen or choose the source again before confirming it."
+            ? "This image is unavailable. You can still check the original source."
             : "Tap to inspect source image"}
         </Copy>
       </Pressable>

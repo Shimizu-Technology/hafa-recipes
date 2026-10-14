@@ -757,8 +757,9 @@ export function createWorkoutsApi(
         )
       ).data;
     },
-    async startImport(request_id: string, source: ExtractionRequest, generation: number) {
-      return (await request<ImportJob>("/imports", "POST", { request_id, source }, { generation })).data;
+    async startImport(request_id: string, source: ExtractionRequest, generation: number,
+      policy?: { auto_save: boolean; is_public: boolean }) {
+      return (await request<ImportJob>("/imports", "POST", { request_id, source, ...policy }, { generation })).data;
     },
     async importSource(id: string) {
       return (
@@ -767,6 +768,9 @@ export function createWorkoutsApi(
     },
     async importJob(id: string) {
       return (await request<ImportJob>(`/imports/${encodeURIComponent(id)}`)).data;
+    },
+    async importJobs() {
+      return (await request<ImportJob[]>("/imports?limit=30")).data;
     },
     async acceptImport(id: string, workout: AuthoredWorkout, generation: number, isPublic = false, acknowledgeWarnings = true) {
       return workoutRecord(

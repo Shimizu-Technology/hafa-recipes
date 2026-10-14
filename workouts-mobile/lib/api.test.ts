@@ -1,6 +1,25 @@
 import { describe, it, expect, vi } from "vitest";
 import { createWorkoutsApi } from "./api";
 describe("authenticated API boundary", () => {
+  it("sends a frozen server-save policy only when the caller selected the supported contract", async () => {
+    const transport = vi.fn().mockResolvedValue(new Response("{}", { status: 202 }));
+    const api = createWorkoutsApi("https://example.test", async () => "synthetic", transport);
+    const source = { kind: "url" as const, source_url: "https://instagram.com/reel/example", ai_consent: true };
+    await api.startImport("frozen", source, 7, { auto_save: true, is_public: false });
+    expect(JSON.parse(transport.mock.calls[0][1].body)).toEqual({ request_id: "frozen", source, auto_save: true, is_public: false });
+    transport.mockResolvedValueOnce(new Response("{}", { status: 202 }));
+    await api.startImport("legacy", source, 7);
+    expect(JSON.parse(transport.mock.calls[1][1].body)).toEqual({ request_id: "legacy", source });
+  });
+  it("recovers the bounded imports inbox through the authenticated stable account", async () => {
+    const transport = vi.fn().mockResolvedValue(new Response("[]"));
+    const api = createWorkoutsApi("https://example.test", async () => "synthetic", transport, {
+      owner: "owner", binding: "binding", currentBinding: () => "binding",
+    });
+    expect(await api.importJobs()).toEqual([]);
+    expect(transport.mock.calls[0][0]).toBe("https://example.test/api/v1/workouts/imports?limit=30");
+    expect(transport.mock.calls[0][1].headers["X-Hafa-Account-ID"]).toBe("owner");
+  });
   it("uses durable export routes and original owner/generation across admission, lookup, cancel and pages", async () => {
     const transport = vi.fn().mockImplementation(async () => new Response("{}", { status: 202 }));
     const api = createWorkoutsApi("https://example.test", async () => "synthetic", transport, {

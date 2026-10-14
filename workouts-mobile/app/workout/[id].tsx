@@ -27,6 +27,7 @@ import { usePublishingDisclosure } from "@/components/publishing-disclosure";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { DECLINED, INCOMPLETE_MESSAGE, discoverKeys, isIncomplete, prescriptionLine, formatSeconds } from "@/lib/discover";
 import type { Workout } from "@/lib/models";
+import { WorkoutSource } from "@/components/workout-source";
 export default function WorkoutDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { api, owner, enrollment } = useTraining();
@@ -81,7 +82,7 @@ export default function WorkoutDetail() {
     }
   }
   async function start() {
-    if (!workout || !offline.store) return;
+    if (!workout || !offline.store || !workout.blocks.some(block => block.exercises.length)) return;
     setBusy(true);
     try {
       await offline.store.start(
@@ -108,6 +109,7 @@ export default function WorkoutDetail() {
       title={workout?.title ?? "Your workout."}
       action={workout ? <IconButton icon="ellipsis-horizontal" label="More workout actions" onPress={() => setMore(true)} /> : undefined}
     >
+      {workout && <WorkoutSource source={workout} />}
       {workout && (
         <Row gap={10}>
           <StatTile value={workout.estimated_minutes ?? "–"} unit={workout.estimated_minutes ? "min" : undefined} label="Estimated time" />
@@ -121,13 +123,19 @@ export default function WorkoutDetail() {
           icon="play"
           size="lg"
           busy={busy}
-          disabled={!offline.ready || workout.kind === "program"}
+          disabled={!offline.ready || workout.kind === "program" || (!offline.state.active && exercises === 0)}
           onPress={() => {
             if (offline.state.active) router.push("/training");
             else void start();
           }}
         />
       )}
+      {workout && exercises === 0 && <Notice tone="warning">This source has no extracted exercises yet. Check the source and edit its details before training.</Notice>}
+      {!!workout?.extraction_warnings?.length && <Card compact tone="sunken">
+        <Copy kind="subheading">Details to check</Copy>
+        {workout.extraction_warnings.map((warning, index) => <Copy key={index} kind="small">{warning}</Copy>)}
+        <Button title="Check details" secondary onPress={() => router.push({ pathname: "/edit-workout/[id]", params: { id: workout!.id } })} />
+      </Card>}
       {workout?.kind === "program" && (
         <Card tone="sunken" compact>
           <Copy kind="small">
@@ -216,6 +224,7 @@ export default function WorkoutDetail() {
               {workout.kind === "session" && <ListRow
                 icon="calendar-outline"
                 title="Add to a plan"
+                disabled={exercises === 0}
                 detail="Choose your days and keep this workout selected"
                 onPress={() => router.push({ pathname: "/build-plan", params: { include: workout.id } })}
               />}

@@ -56,7 +56,8 @@ export function WorkoutEditor({
         instructions.
       </Notice>
       {value.blocks.map((block, bi) => {
-        const blockInvalid = !block.label.trim() || (block.rounds != null && (!Number.isInteger(block.rounds) || block.rounds < 1 || block.rounds > 100));
+        const blockInvalid = !block.label.trim() || (block.rounds != null && (!Number.isInteger(block.rounds) || block.rounds < 1 || block.rounds > 100)) ||
+          (block.rest_between_rounds_seconds != null && (!Number.isInteger(block.rest_between_rounds_seconds) || block.rest_between_rounds_seconds < 0 || block.rest_between_rounds_seconds > 7200));
         const blockExpanded = expandedBlocks.includes(block.id) || blockInvalid;
         return (
         <Card key={block.id}>
@@ -91,6 +92,8 @@ export function WorkoutEditor({
               update({ ...value, blocks: value.blocks.map((b, i) => (i === bi ? { ...b, rounds } : b)) })
             }
           />
+          <NumberField disabled={disabled} label="Rest between rounds · seconds" value={block.rest_between_rounds_seconds}
+            onChange={(rest_between_rounds_seconds) => update({ ...value, blocks: value.blocks.map((b, i) => i === bi ? { ...b, rest_between_rounds_seconds } : b) })} />
           </>}
           {block.exercises.map((e, ei) => {
             const key = `${block.id}:${ei}`;
