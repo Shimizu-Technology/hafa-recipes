@@ -158,7 +158,7 @@ export default function EditWorkout() {
               <WorkoutEditor value={editedContent(value)} onChange={update} disabled={busy || !!command || resolved} />
             </View>
             <Button
-              title={command ? "Retry saving changes" : "Save new workout version"}
+              title={busy ? "Saving changes…" : command ? "Retry saving changes" : "Save new workout version"}
               disabled={resolved}
               busy={busy}
               onPress={() => {

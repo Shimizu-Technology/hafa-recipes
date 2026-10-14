@@ -902,6 +902,7 @@ it("mounted manual creation locks stale callbacks and replays identical body/key
   const pending = deferred<Workout>();
   fixture.saveWorkout.mockReturnValueOnce(pending.promise);
   await click("Save to my library");
+  expect(button("Saving workout…").props.busy).toBe(true);
   const original = fixture.saveWorkout.mock.calls[0];
   expect(original[0].title).toBe("Original");
   expect(original[1]).toMatch(/^command-/);
@@ -993,6 +994,7 @@ it("mounted workout editing preserves original content/revision across backgroun
   const pending = deferred<Workout>();
   fixture.updateWorkout.mockReturnValueOnce(pending.promise);
   await click("Save new workout version");
+  expect(button("Saving changes…").props.busy).toBe(true);
   const original = fixture.updateWorkout.mock.calls[0][0];
   await act(async () => {
     cache.setQueryData([fixture.owner, "workout", "workout", 1], { ...workout, revision: 8, title: "Background" });

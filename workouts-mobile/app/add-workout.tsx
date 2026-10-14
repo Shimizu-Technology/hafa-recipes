@@ -248,7 +248,7 @@ export default function AddWorkout() {
         </Card>
       )}
       <Button
-        title={command ? "Retry saving workout" : "Save to my library"}
+        title={busy ? "Saving workout…" : command ? "Retry saving workout" : "Save to my library"}
         busy={busy}
         disabled={!loaded || resolved}
         onPress={() => {
