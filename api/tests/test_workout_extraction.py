@@ -695,8 +695,9 @@ async def test_streamed_slideshow_images_bound_bytes_and_normalize(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("primary", ["malformed", "empty", "missing_dose", "missing_movement",
-                                     "partial_recovery_failed", "partial_recovery_denied"])
+@pytest.mark.parametrize("primary", ["malformed", "empty", "missing_dose", "missing_some_dose", "missing_movement",
+                                     "partial_recovery_failed", "partial_recovery_denied",
+                                     "partial_recovery_loses_context"])
 async def test_production_fallback_tracks_workout_schema_no_actual_provider(monkeypatch, primary):
     import app.ai_governance
     import app.config
@@ -749,13 +750,19 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
                 value = {"ingredients": []}
             elif primary == "empty":
                 value = {"title": "Empty extraction", "blocks": []}
-            elif primary in {"missing_movement", "partial_recovery_failed", "partial_recovery_denied"}:
+            elif primary in {"missing_movement", "partial_recovery_failed", "partial_recovery_denied",
+                             "partial_recovery_loses_context"}:
                 value["blocks"][0]["exercises"].pop()
+            elif primary == "missing_some_dose":
+                value["blocks"][0]["exercises"][0]["reps_min"] = None
+                value["blocks"][0]["exercises"][0]["reps_max"] = None
             else:
                 for exercise in value["blocks"][0]["exercises"]:
                     exercise["reps_min"] = exercise["reps_max"] = None
         elif primary == "partial_recovery_failed":
             value = {"title": "Empty recovery", "blocks": []}
+        elif primary == "partial_recovery_loses_context":
+            value["blocks"][0]["evidence"] = []
         return httpx.Response(
             200,
             json={
@@ -774,7 +781,8 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
     from tests.workouts_provider_fakes import FakeBudget
 
     denied = primary == "partial_recovery_denied"
-    partial = primary in {"partial_recovery_failed", "partial_recovery_denied"}
+    partial = primary in {"partial_recovery_failed", "partial_recovery_denied", "partial_recovery_loses_context"}
+    fallback_failed = primary == "partial_recovery_failed"
     budget = FakeBudget(deny_at=2 if denied else None)
     source = SourceBundle(SourceMetadata(url=REEL), [SourcePart("caption", REEL_CAPTION)])
     result = await ProductionExtractionProvider(
@@ -785,7 +793,7 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
     assert [attempt.model for attempt in attempts] == ["primary-test", "fallback-test"]
     assert [attempt.status for attempt in attempts] == [
         "provider_invalid_response" if primary == "malformed" else "provider_insufficient_prescription",
-        "workouts_ai_budget_exceeded" if denied else "provider_insufficient_prescription" if partial else "success",
+        "workouts_ai_budget_exceeded" if denied else "provider_insufficient_prescription" if fallback_failed else "success",
     ]
     assert all(attempt.values["capability"] == "workout_extraction" for attempt in attempts)
     assert all(
@@ -794,8 +802,12 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
     assert payloads[0]["store"] is False and payloads[0]["response_format"]["type"] == "json_schema"
     assert len(payloads) == (1 if denied else 2)
     assert len(budget.reservations) == 2
-    assert budget.outcomes == (["failed"] if denied else ["failed", "failed" if partial else "success"])
+    assert budget.outcomes == (["failed"] if denied else ["failed", "failed" if fallback_failed else "success"])
     assert all(payload["service_tier"] == "default" for payload in payloads)
+    if primary == "partial_recovery_loses_context":
+        grounded, _, _ = ground_workout(result, source)
+        assert grounded.estimated_minutes == 20 and grounded.notes == [REEL_INSTRUCTIONS]
+        assert any("omitted supported prescription" in note for note in source.metadata.coverage_notes)
 
 
 @pytest.mark.asyncio
@@ -1413,6 +1425,60 @@ async def test_media_recovery_deadline_keeps_supported_caption_facts(monkeypatch
     assert item.reps_min == 8 and item.reps_max == 12 and item.rest_seconds == 90
     assert result.status == "incomplete" and len(provider.calls) == 2
     assert any("supported caption facts" in note for note in result.source.coverage_notes)
+
+
+@pytest.mark.asyncio
+async def test_equal_quality_media_recovery_cannot_erase_grounded_rest(monkeypatch):
+    await mock_video_acquirer(monkeypatch)
+    provider = FakeProvider()
+
+    async def partial_then_loses_rest(source):
+        provider.calls.append(source)
+        value = complete_workout("caption")
+        value["blocks"][0]["exercises"][0]["sets"] = None
+        if len(provider.calls) > 1:
+            value["blocks"][0]["exercises"][0]["rest_seconds"] = None
+        return value
+
+    provider.extract = partial_then_loses_rest
+    result = await WorkoutExtractor(provider).extract(ExtractionRequest(
+        kind="url", source_url=INSTAGRAM, ai_consent=True))
+    assert len(provider.calls) == 2 and result.status == "incomplete"
+    item = result.workout.blocks[0].exercises[0]
+    assert item.rest_seconds == 90 and (item.reps_min, item.reps_max) == (8, 12)
+    assert any("omitted supported prescription" in note for note in result.source.coverage_notes)
+
+
+@pytest.mark.parametrize("lost", ["rounds", "grouping", "sets", "reps_min", "per_side",
+                                   "rest_between_rounds_seconds", "order", "notes"])
+def test_recovery_preserves_source_structure_repetitions_and_cues(lost):
+    import copy
+
+    from app.domains.workouts.extraction import _prescription_preserves
+    from app.domains.workouts.schemas import WorkoutContent
+
+    raw = complete_workout()
+    raw["notes"] = ["Rest after each round."]
+    block = raw["blocks"][0]
+    block.update(grouping="circuit", rounds=3, rest_between_rounds_seconds=60)
+    block["exercises"][0]["per_side"] = True
+    block["exercises"].append({"name": "Press", "sets": 2, "reps_min": 5})
+    candidate = copy.deepcopy(raw)
+    if lost == "order":
+        candidate["blocks"][0]["exercises"].reverse()
+    elif lost == "notes":
+        candidate["notes"] = []
+    elif lost in {"rounds", "grouping", "rest_between_rounds_seconds"}:
+        candidate["blocks"][0][lost] = "sequential" if lost == "grouping" else None
+    else:
+        candidate["blocks"][0]["exercises"][0][lost] = None
+    # It can gain a new movement and still lose essential source instructions.
+    candidate["blocks"][0]["exercises"].append({"name": "Swing", "reps_min": 10})
+    previous = WorkoutContent.model_validate(raw)
+    assert not _prescription_preserves(WorkoutContent.model_validate(candidate), previous)
+    candidate = copy.deepcopy(raw)
+    candidate["blocks"][0]["exercises"].append({"name": "Swing", "reps_min": 10})
+    assert _prescription_preserves(WorkoutContent.model_validate(candidate), previous)
 
 
 @pytest.mark.asyncio

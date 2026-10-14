@@ -415,13 +415,21 @@ class ProductionExtractionProvider:
                         warnings = _validate_provider_workout(parsed)
                         grounded, _, _ = ground_workout(parsed, source)
                         quality = _prescription_quality(grounded)
-                        if quality[0] and (best is None or quality > best[0]):
-                            best = (quality, parsed, warnings)
-                        if (not quality[0] or (grounded.kind != "exercise" and not quality[1])
+                        if quality[0] and (best is None or (
+                            quality > best[0] and _prescription_preserves(grounded, best[3])
+                        )):
+                            best = (quality, parsed, warnings, grounded)
+                        if (not quality[0] or (grounded.kind != "exercise" and quality[0] != quality[1])
                                 or _missing_source_movements(grounded, source)):
                             raise ExtractionFailure("provider_insufficient_prescription")
                         paid.complete(outcome="success")
                         invocation.succeed(data)
+                        if best is not None and not _prescription_preserves(grounded, best[3]):
+                            source.metadata.coverage_notes.append(
+                                "Recovery omitted supported prescription details; the earlier source facts were kept."
+                            )
+                            source.warnings.extend(best[2])
+                            return best[1]
                         source.warnings.extend(warnings)
                         return parsed
                 except BudgetError as exc:
@@ -1019,6 +1027,46 @@ def _prescription_quality(workout: WorkoutContent) -> tuple[int, int]:
     )) for item in named)
 
 
+def _prescription_preserves(candidate: WorkoutContent, previous: WorkoutContent) -> bool:
+    """More movements must not erase already grounded doses, structure or cues."""
+    if (previous.estimated_minutes is not None and candidate.estimated_minutes != previous.estimated_minutes
+            or not set(previous.notes).issubset(candidate.notes)
+            or not set(previous.equipment_required).issubset(candidate.equipment_required)
+            or not set(previous.equipment_optional).issubset(candidate.equipment_optional)):
+        return False
+    fields = ("sets", "reps_min", "reps_max", "per_side", "duration_seconds", "distance_meters",
+              "rest_seconds", "load", "load_unit", "load_convention", "tempo", "effort", "notes")
+
+    def block_preserves(new, old):
+        for field_name in ("rounds", "rest_between_rounds_seconds", "execution"):
+            value = getattr(old, field_name, None)
+            if value is not None and getattr(new, field_name, None) != value:
+                return False
+        if new.grouping != old.grouping and (old.grouping != "sequential" or old.rounds is not None
+                or any(entry.field == "grouping" for entry in old.evidence)):
+            return False
+        # Preserve order and separate repeated appearances of a movement. IDs
+        # are model-generated, so they cannot identify a stable source item.
+        remaining = iter(new.exercises)
+        for item in old.exercises:
+            match = next((entry for entry in remaining if entry.name.casefold() == item.name.casefold()), None)
+            if match is None:
+                return False
+            for field_name in fields:
+                value = getattr(item, field_name)
+                if value is None:
+                    continue
+                replacement = getattr(match, field_name)
+                if field_name == "notes" and replacement is not None and value in replacement:
+                    continue
+                if replacement != value:
+                    return False
+        return True
+
+    remaining = iter(candidate.blocks)
+    return all(any(block_preserves(block, old) for block in remaining) for old in previous.blocks)
+
+
 def _missing_source_movements(workout: WorkoutContent, source: SourceBundle) -> bool:
     """Explicit caption rows must not silently disappear in a schema-valid result."""
     names = [item.name.casefold() for block in workout.blocks for item in block.exercises]
@@ -1446,8 +1494,13 @@ class WorkoutExtractor:
                 try:
                     raw = await extract_provider()
                     candidate = ground_workout(raw, source)
-                    if _prescription_quality(candidate[0]) >= _prescription_quality(workout):
+                    if (_prescription_quality(candidate[0]) >= _prescription_quality(workout)
+                            and _prescription_preserves(candidate[0], workout)):
                         workout, warnings, evidence = candidate
+                    else:
+                        source.metadata.coverage_notes.append(
+                            "Additional media omitted supported prescription details; the earlier source facts were kept."
+                        )
                 except (ExtractionFailure, asyncio.TimeoutError, httpx.HTTPError):
                     workout, warnings, evidence = previous
                     source.metadata.coverage_notes.append(
