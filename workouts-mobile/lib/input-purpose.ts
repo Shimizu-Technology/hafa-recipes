@@ -1,10 +1,11 @@
 import type { TextInputProps } from "react-native";
-export type InputPurpose = "email" | "current-password" | "new-password" | "verification-code";
+export type InputPurpose = "email" | "current-password" | "new-password" | "verification-code" | "url";
 export function inputTraits(
   purpose: InputPurpose | undefined,
   platform: string,
   numeric = false
 ): Pick<TextInputProps, "autoComplete" | "textContentType" | "keyboardType" | "autoCorrect" | "maxLength"> {
+  if (purpose === "url") return { autoComplete: "off", textContentType: "URL", keyboardType: "url", autoCorrect: false };
   if (purpose === "email")
     return {
       autoComplete: "email",
