@@ -22,11 +22,23 @@ export function timedCircuit(workout: Workout): TimedCircuit | null {
   if (/\b(?:emom|rft|for\s+time)\b/i.test(wording) ||
     /\b(?:not|no|without|avoid|never|don['’]t|isn['’]t|instead\s+of)\b[^.!?;\n]{0,40}\b(?:amrap|as many rounds|repeat)/i.test(wording)) return null;
   if (/\bamrap\b[^.!?;\n]{0,30}\b(?:not|never)\b/i.test(wording)) return null;
-  const affirmative = /\bamrap\b|\bas many rounds as possible\b|\brepeat(?:ing)?\b[^.!?;\n]{0,100}\b(?:circuit|rounds?|exercises?)\b|\b(?:circuit|rounds?|exercises?)\b[^.!?;\n]{0,100}\brepeat(?:ing)?\b/i;
+  const affirmative = /\bamrap\b|\bas many rounds as (?:possible|you can|you are able)\b|\brepeat(?:ing)?\b[^.!?;\n]{0,100}\b(?:circuit|rounds?|exercises?)\b|\b(?:circuit|rounds?|exercises?)\b[^.!?;\n]{0,100}\brepeat(?:ing)?\b/i;
   if (!affirmative.test(wording)) return null;
   // The duration must appear in the retained source instructions as well.
   const durations = [...wording.matchAll(/\b(\d+)\s*[- ]?\s*(?:minutes?|mins?)\b/gi)].map((match) => Number(match[1]));
   if (!durations.length || durations.some((minutes) => minutes !== workout.estimated_minutes)) return null;
+  // Old records have no typed cap. Recover only an explicit loop duration;
+  // a rest, individual movement or on/off interval is not the session clock.
+  const loop = "(?:amrap|as many rounds as (?:possible|you can|you are able)|repeat(?:ing)?(?:\\s+(?:this|the)\\s+(?:circuit|routine|workout))?)";
+  const duration = `${workout.estimated_minutes}\\s*[- ]?\\s*(?:minutes?|mins?)`;
+  const cap = new RegExp(`\\b(?:${loop}\\s*(?:for|in|:)?\\s*${duration}|${duration}\\s*(?:amrap|circuit))\\b`, "i");
+  const explicitCap = wording.split(/[.!?;,\n]/).some((clause) => {
+    const match = cap.exec(clause);
+    if (!match) return false;
+    const following = clause.slice(match.index + match[0].length);
+    return !/^\s*(?:on|off|work|hold|rest|per|each)\b/i.test(following);
+  });
+  if (!explicitCap) return null;
   return { time_cap_seconds: workout.estimated_minutes! * 60, instructions };
 }
 

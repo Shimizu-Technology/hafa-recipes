@@ -411,14 +411,18 @@ it("typed AMRAP execution needs no caption parsing, duration estimate or inferre
   const ambiguous = amrap(); ambiguous.blocks.push({ ...ambiguous.blocks[0], id: "second" });
   expect(timedCircuit(ambiguous)).toBeNull();
 });
-it.each(["AMRAP for 20 minutes", "Repeat this circuit for 20 minutes", "As many rounds as possible for 20 minutes"])(
+it.each(["AMRAP for 20 minutes", "Repeat this circuit for 20 minutes", "As many rounds as possible for 20 minutes",
+  "20-minute AMRAP", "Rest after each round and go again for as many rounds as you can in 20 minutes."])(
   "recovers an explicit legacy source circuit: %s", (notes) => {
     const workout = amrap(); delete workout.blocks[0].execution;
     workout.notes = [notes]; workout.estimated_minutes = 20;
     expect(timedCircuit(workout)?.time_cap_seconds).toBe(1200);
   });
 it.each(["20 minute full-body workout", "Not an AMRAP for 20 minutes", "Don't use AMRAP for 20 minutes", "AMRAP is not used for 20 minutes",
-  "EMOM for 20 minutes", "Repeat the circuit for 10 minutes then 20 minutes", "AMRAP without a time cap"])(
+  "EMOM for 20 minutes", "Repeat the circuit for 10 minutes then 20 minutes", "AMRAP without a time cap",
+  "Repeat this circuit until tired. Rest 20 minutes after the session.",
+  "AMRAP. Hold each exercise for 20 minutes.", "AMRAP for 20 minutes per exercise",
+  "AMRAP for 20 minutes on / 20 minutes off", "20 minutes AMRAP per movement"])(
   "never guesses timed execution from ambiguous or negated legacy instructions: %s", (notes) => {
     const workout = amrap(); delete workout.blocks[0].execution;
     workout.notes = [notes]; workout.estimated_minutes = 20;
