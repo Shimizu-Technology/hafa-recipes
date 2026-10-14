@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import * as Crypto from "expo-crypto";
 import { useShareIntentContext } from "expo-share-intent";
 import { useTraining } from "@/lib/context";
-import { sharedWorkoutURL, updateImportReferences, type CaptureDraft } from "@/lib/capture";
+import { archiveCapturedImport, sharedWorkoutURL, updateImportReferences, type CaptureDraft } from "@/lib/capture";
 import { createPrivateDraftSlot } from "@/lib/private-form";
 import { normalizeImages, normalizeDocument, cleanupCaptureFiles } from "@/lib/capture-io";
 import * as NativeShare from "@/modules/hafa-workouts-share/src";
@@ -129,7 +129,7 @@ export function ShareCapture() {
           }
         }
         guard();
-        const saved = await slot.load(guard);
+        let saved = await slot.load(guard);
         const prior = saved.value;
         guard();
         if (prior?.pending_import && !prior.job_id)
@@ -157,7 +157,11 @@ export function ShareCapture() {
           return;
         }
         guard();
-        const retained = [...(prior?.cleanup_files ?? []), ...(prior?.files ?? [])];
+        if (prior?.job_id) {
+          saved = await archiveCapturedImport(storage, owner, generation, saved, guard, Crypto.randomUUID);
+          guard();
+        }
+        const retained = prior?.job_id ? [] : [...(prior?.cleanup_files ?? []), ...(prior?.files ?? [])];
         const registeredDraft = await slot.save(saved.revision, { ...draft, cleanup_files: retained }, guard);
         registered = true;
         guard();

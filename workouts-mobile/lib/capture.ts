@@ -1,7 +1,7 @@
 import type { AuthoredWorkout } from "./models";
-import type { drafts } from "./drafts";
+import { drafts } from "./drafts";
 import type { Storage } from "./drafts";
-import { createPrivateDraftSlot } from "./private-form";
+import { createPrivateDraftSlot, type PrivateDraftSnapshot } from "./private-form";
 export interface ImportReference { id: string; generation?: number; label: string; created_at?: string; auto_save?: boolean }
 const referenceWrites = new Map<string, Promise<void>>();
 /** Intake and completion share one queue so finishing A cannot erase a newer import B. */
@@ -140,16 +140,73 @@ export function canSaveAutomatically(job: ImportJob) {
   return !job.accepted_workout_id && job.status === "ready" && job.result?.status === "ready" &&
     !!job.result.workout && job.result.warnings.length === 0;
 }
-/** Release only the source still owned by this completed import. A later share wins. */
-export async function retireCapturedImport(storage: Storage, owner: string, generation: number, id: string, guard: CaptureGuard,
+const sourceLifecycles = new Map<string, Promise<unknown>>();
+function sourceLifecycle<T>(owner: string, generation: number, work: () => Promise<T>) {
+  const key = JSON.stringify([owner, generation]);
+  const next = (sourceLifecycles.get(key) ?? Promise.resolve()).catch(() => undefined).then(work);
+  sourceLifecycles.set(key, next);
+  void next.finally(() => { if (sourceLifecycles.get(key) === next) sourceLifecycles.delete(key); }).catch(() => undefined);
+  return next;
+}
+// Keep top-level files under capture: so startup reconciliation and account erasure own them.
+export const submittedCaptureScope = (generation: number, id: string) => `capture:${generation}:submitted:${id}`;
+/** Commit the immutable source before releasing the composer. Failed writes keep the original slot. */
+export function archiveCapturedImport(storage: Storage, owner: string, generation: number,
+  original: PrivateDraftSnapshot<CaptureDraft>, guard: CaptureGuard, uuid: () => string) {
+  return sourceLifecycle(owner, generation, async () => {
+    guard();
+    const slot = createPrivateDraftSlot<CaptureDraft>(storage, owner, `capture:${generation}`, uuid);
+    const prior = await slot.load(guard); guard();
+    if (!prior.value) return prior; // Completion or an earlier handoff already released this source.
+    if (prior.revision !== original.revision || !prior.value?.job_id || prior.value.generation !== generation)
+      throw Object.assign(Error("A newer source is saved. Load it before changing this draft."), { captureDraftConflict: true });
+    const archive = createPrivateDraftSlot<CaptureDraft>(storage, owner, submittedCaptureScope(generation, prior.value.job_id), uuid);
+    const archived = await archive.load(guard); guard();
+    const plain = (value: CaptureDraft) => { const { _capture_revision: ignored, ...fields } = value as CaptureDraft & { _capture_revision?: string }; return fields; };
+    if (archived.value && JSON.stringify(plain(archived.value)) !== JSON.stringify(plain(prior.value)))
+      throw Error("The saved import source changed. Open that import before starting another source.");
+    if (!archived.value) await archive.save(archived.revision, prior.value, guard);
+    guard();
+    const local = drafts(storage), source = prior.value, id = source.job_id!;
+    await updateImportReferences(local, owner, generation, guard, items => {
+      const priorReference = items.find(item => item.id === id);
+      return [{ ...priorReference, id, generation,
+        label: priorReference?.label ?? (source.source_url || "Submitted workout"),
+        created_at: priorReference?.created_at ?? source.created_at,
+        auto_save: source.auto_save ?? priorReference?.auto_save }, ...items.filter(item => item.id !== id)];
+    });
+    guard();
+    // Original source visibility is immutable; later review choices use a different key.
+    const visibilityScope = `import-source-visibility:${generation}:${id}`;
+    const visibility = await local.load<boolean>(owner, visibilityScope); guard();
+    if (typeof visibility !== "boolean" && typeof source.is_public === "boolean") {
+      await local.save(owner, visibilityScope, source.is_public); guard();
+    }
+    if (!(await slot.remove(prior.revision, guard)))
+      throw Object.assign(Error("A newer source is saved. Load it before changing this draft."), { captureDraftConflict: true });
+    return { value: null, revision: null } satisfies PrivateDraftSnapshot<CaptureDraft>;
+  });
+}
+export async function loadCapturedImport(storage: Storage, owner: string, generation: number, id: string,
+  guard: CaptureGuard, uuid: () => string) {
+  const archived = await createPrivateDraftSlot<CaptureDraft>(storage, owner, submittedCaptureScope(generation, id), uuid).load(guard);
+  if (archived.value?.job_id === id && archived.value.generation === generation) return archived;
+  return createPrivateDraftSlot<CaptureDraft>(storage, owner, `capture:${generation}`, uuid).load(guard);
+}
+/** Call only after a saved outcome or confirmed cancellation. Retain exact failed cleanup receipts. */
+export function retireCapturedImport(storage: Storage, owner: string, generation: number, id: string, guard: CaptureGuard,
   cleanup: (files: CaptureFile[], strict: boolean) => Promise<void>, uuid: () => string) {
-  const slot = createPrivateDraftSlot<CaptureDraft>(storage, owner, `capture:${generation}`, uuid);
-  const prior = await slot.load(guard); guard();
-  if (prior.value?.job_id !== id || prior.value.generation !== generation) return;
-  const retained = [...prior.value.files, ...(prior.value.cleanup_files ?? [])];
-  try {
-    const receipt = await slot.save(prior.revision, { ...prior.value, kind: "url", source_url: "", text: "", files: [], cleanup_files: retained }, guard);
-    await cleanup(retained, true); guard();
-    await slot.remove(receipt.revision, guard);
-  } catch (error) { if (!(error as { captureDraftConflict?: boolean }).captureDraftConflict) throw error; }
+  return sourceLifecycle(owner, generation, async () => {
+    for (const scope of [submittedCaptureScope(generation, id), `capture:${generation}`]) {
+      const slot = createPrivateDraftSlot<CaptureDraft>(storage, owner, scope, uuid);
+      const prior = await slot.load(guard); guard();
+      if (prior.value?.job_id !== id || prior.value.generation !== generation) continue;
+      const retained = [...prior.value.files, ...(prior.value.cleanup_files ?? [])];
+      try {
+        const receipt = await slot.save(prior.revision, { ...prior.value, kind: "url", source_url: "", text: "", files: [], cleanup_files: retained }, guard);
+        await cleanup(retained, true); guard();
+        await slot.remove(receipt.revision, guard);
+      } catch (error) { if (!(error as { captureDraftConflict?: boolean }).captureDraftConflict) throw error; }
+    }
+  });
 }
