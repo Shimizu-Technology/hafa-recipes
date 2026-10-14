@@ -1423,10 +1423,22 @@ class WorkoutExtractor:
                 )
             if request.kind == "url":
                 acquire_text = getattr(self.acquirer, "acquire_text", None)
-                source = await (acquire_text or self.acquirer.acquire)(source.metadata.url, self.provider)
-                staged_media = acquire_text is not None and source.metadata.platform != "web"
+                try:
+                    source = await (acquire_text or self.acquirer.acquire)(source.metadata.url, self.provider)
+                    staged_media = acquire_text is not None and source.metadata.platform != "web"
+                except (ExtractionFailure, asyncio.TimeoutError, httpx.HTTPError) as exc:
+                    if not request.text or not request.text.strip() or (
+                        isinstance(exc, ExtractionFailure) and exc.code == "invalid_source_url"
+                    ):
+                        raise
+                    if isinstance(exc, ExtractionFailure) and exc.source is not None:
+                        source = exc.source
+                    source.metadata.coverage_notes.append(
+                        "The source link could not be read; supplied text instructions were used."
+                    )
                 if request.text:
                     source.parts.append(SourcePart("provided_text", request.text))
+                    source.metadata.channels.append("provided_text")
             elif request.kind == "images":
                 source.images = _validated_images(request.images)
                 source.metadata.channels.append("visual")

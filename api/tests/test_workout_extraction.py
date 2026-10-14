@@ -435,6 +435,36 @@ async def test_inaccessible_source_and_provider_errors_keep_bookmark_no_secret()
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("error", [ExtractionFailure("source_private_or_inaccessible"),
+                                   asyncio.TimeoutError(), httpx.ConnectError("synthetic")])
+async def test_unreadable_link_does_not_discard_complete_supplied_caption(error):
+    raw = reel_workout()
+    for block in raw["blocks"]:
+        for entry in block["evidence"]:
+            entry["location"] = "provided_text"
+        for item in block["exercises"]:
+            for entry in item["evidence"]:
+                entry["location"] = "provided_text"
+    provider = FakeProvider(raw)
+    result = await WorkoutExtractor(provider, FakeAcquirer(error=error)).extract(ExtractionRequest(
+        kind="url", source_url=REEL, text=REEL_CAPTION, ai_consent=True))
+    assert len(provider.calls) == 1 and result.error_code is None
+    assert [item.reps_min for item in result.workout.blocks[0].exercises] == [10, 10, 10, 5, 5, 10, 10, 10, 10]
+    assert result.workout.estimated_minutes == 20 and result.workout.notes == [REEL_INSTRUCTIONS]
+    assert result.source.url == REEL and "provided_text" in result.source.channels
+    assert any("supplied text instructions" in note for note in result.source.coverage_notes)
+
+
+@pytest.mark.asyncio
+async def test_supplied_caption_does_not_bypass_invalid_url_rejection():
+    provider = FakeProvider(reel_workout())
+    result = await WorkoutExtractor(provider, FakeAcquirer(error=ExtractionFailure("invalid_source_url"))).extract(
+        ExtractionRequest(kind="url", source_url=REEL, text=REEL_CAPTION, ai_consent=True))
+    assert result.status == "failed" and result.error_code == "invalid_source_url"
+    assert provider.calls == []
+
+
+@pytest.mark.asyncio
 async def test_cancellation_propagates_not_success():
     with pytest.raises(asyncio.CancelledError):
         await WorkoutExtractor(FakeProvider(error=asyncio.CancelledError())).extract(
