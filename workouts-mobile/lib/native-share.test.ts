@@ -102,13 +102,18 @@ describe("Workouts native share generation", () => {
   it("keeps App Group and Keychain entries unique across repeated prebuilds", async () => {
     const group = "group.com.shimizutechnology.hafaworkouts";
     const keychain = "$(AppIdentifierPrefix)com.shimizutechnology.hafaworkouts.share";
-    const config = plugin({ name: "Workouts", slug: "workouts" });
+    const upstream = require("expo-share-intent/plugin/build/ios/withIosAppEntitlements.js").withAppEntitlements;
+    const config = plugin(upstream({ name: "Workouts", slug: "workouts", ios: { bundleIdentifier: "com.shimizutechnology.hafaworkouts" } },
+      { iosAppGroupIdentifier: group }));
     const result = await config.mods.ios.entitlements({ ...config, modResults: {
       "com.apple.security.application-groups": [group, group],
       "keychain-access-groups": [keychain, keychain],
     }, modRequest: {} });
     expect(result.modResults["com.apple.security.application-groups"]).toEqual([group]);
     expect(result.modResults["keychain-access-groups"]).toEqual([keychain]);
+    const repeated = await config.mods.ios.entitlements({ ...result, modRequest: {} });
+    expect(repeated.modResults["com.apple.security.application-groups"]).toEqual([group]);
+    expect(repeated.modResults["keychain-access-groups"]).toEqual([keychain]);
   });
   it("waits for the stock Xcode mod to create extension files before transforming them", async () => {
     const directory = mkdtempSync(join(tmpdir(), "hafa-share-mod-"));

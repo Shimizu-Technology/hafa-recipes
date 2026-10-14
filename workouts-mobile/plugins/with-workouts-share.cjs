@@ -1,7 +1,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const plist = require("@expo/plist").default;
-const { withBaseMod, withEntitlementsPlist, withInfoPlist } = require("@expo/config-plugins");
+const { withBaseMod, withInfoPlist } = require("@expo/config-plugins");
 const keychain = "$(AppIdentifierPrefix)com.shimizutechnology.hafaworkouts.share";
 function transformController(source, confirmation, store, loader) {
   if (!source.includes('let sharedKey: String = "<SCHEME>ShareKey"') && !source.includes('let sharedKey: String = "hafaworkoutsShareKey"'))
@@ -21,12 +21,13 @@ module.exports = function withWorkoutsShare(config) {
   const extensions = config.extra?.eas?.build?.experimental?.ios?.appExtensions ?? [];
   for (const extension of extensions) if (extension.targetName === "ShareExtension")
     extension.entitlements = { ...extension.entitlements, "keychain-access-groups": [keychain] };
-  config = withEntitlementsPlist(config, mod => {
+  config = withBaseMod(config, { platform: "ios", mod: "entitlements", isProvider: false, isIntrospective: true, action: async mod => {
+    mod = await mod.modRequest.nextMod(mod);
     const groups = mod.modResults["com.apple.security.application-groups"];
     if (groups) mod.modResults["com.apple.security.application-groups"] = [...new Set(groups)];
     mod.modResults["keychain-access-groups"] = [...new Set([...(mod.modResults["keychain-access-groups"] ?? []), keychain])];
     return mod;
-  });
+  } });
   config = withInfoPlist(config, mod => { mod.modResults.WorkoutsShareKeychainGroup = keychain; return mod; });
   // expo-share-intent writes its files in the Xcode mod, after dangerous mods.
   // Run that existing chain first, then transform its freshly written controller.
