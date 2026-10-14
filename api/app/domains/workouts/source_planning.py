@@ -87,11 +87,12 @@ def inspect_personal_source(workout, profile, *, reviewed_custom=False, declared
                 questions.append(
                     f"{exercise.name}: match a variation or explicitly review this custom routine."
                 )
-            if (
-                exercise.sets is None
-                and block.rounds is None
-                and exercise.duration_seconds is None
-                and exercise.distance_meters is None
+            fixed_tracking_required = workout.provenance == "source" or (
+                workout.estimated_minutes is not None and block.grouping == "circuit"
+            )
+            if exercise.sets is None and block.rounds is None and (
+                fixed_tracking_required
+                or exercise.duration_seconds is None and exercise.distance_meters is None
             ):
                 questions.append(f"{exercise.name}: enter the intended sets or rounds.")
             if all(

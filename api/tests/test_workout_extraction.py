@@ -18,6 +18,7 @@ from app.domains.workouts.extraction import (
     ProductionExtractionProvider,
     ProductionSourceAcquirer,
     SourceBundle,
+    SourceImage,
     SourceMetadata,
     SourcePart,
     WorkoutExtractor,
@@ -1214,7 +1215,8 @@ def test_workout_duration_context_requires_exact_text_duration_evidence(location
     raw["estimated_minutes"] = 20
     raw["notes"] = ["Invented cues"]
     raw["blocks"][0]["evidence"] = [evidence("estimated_minutes", quote, location)]
-    source = SourceBundle(SourceMetadata(), [SourcePart("caption", "20 reps"), SourcePart("provided_text", TEXT)])
+    source = SourceBundle(SourceMetadata(), [SourcePart("caption", "20 reps"), SourcePart("provided_text", TEXT)],
+                          images=[SourceImage("image:0", "data:image/png;base64," + image_data())])
     workout, _, _ = ground_workout(raw, source)
     assert workout.estimated_minutes is None and workout.notes == []
 
@@ -1281,3 +1283,48 @@ def test_rest_evidence_cannot_promote_a_global_estimate():
 
 def test_mixed_unit_rest_range_does_not_select_an_endpoint():
     assert not _numeric_supported("rest_seconds", 120, "rest 2 seconds to 2 minutes")
+
+
+@pytest.mark.parametrize("quote", ["Rest after the flow for 2 minutes", "Repeat this flow for 2 minutes per exercise", "Repeat this flow for 2 minutes per round"])
+def test_overall_time_rejects_rest_and_per_unit_context(quote):
+    assert not _overall_minutes_supported(2, quote)
+
+
+def test_time_fields_cannot_borrow_work_or_overall_time():
+    assert not _numeric_supported("rest_seconds", 120, "Work 2 minutes; rest 2–3 minutes")
+    assert not _numeric_supported("duration_seconds", 1200, "20 minutes (AMRAP)")
+
+
+@pytest.mark.asyncio
+async def test_image_only_noun_reps_still_require_visual_review():
+    raw = complete_workout()
+    item = raw["blocks"][0]["exercises"][0]
+    item.update(name="Curls", reps_min=10, reps_max=10, rest_seconds=None)
+    item["evidence"] = [evidence("name", "Curls"), evidence("sets", "3 sets"),
+                        evidence("reps_min", "10 Curls", "image:0"), evidence("reps_max", "10 Curls", "image:0")]
+    source = SourceBundle(SourceMetadata(), [SourcePart("provided_text", "Do 3 sets of Curls")],
+                         images=[SourceImage("image:0", "data:image/png;base64," + image_data())])
+    result = await WorkoutExtractor(FakeProvider(raw), FakeAcquirer(source)).extract(ExtractionRequest(
+        kind="url", source_url="https://example.com/curls", ai_consent=True))
+    assert result.workout.blocks[0].exercises[0].reps_min == 10
+    assert result.status == "incomplete" and any("Visual extraction" in warning for warning in result.warnings)
+
+
+@pytest.mark.parametrize("field,value,quote,source_text", [
+    ("rest_seconds", 120, "2 minutes", "Work 2 minutes; rest 2–3 minutes"),
+    ("duration_seconds", 1200, "20 minutes", "20 minutes (AMRAP)"),
+])
+def test_short_time_quotes_still_use_their_original_source_context(field, value, quote, source_text):
+    raw = complete_workout()
+    item = raw["blocks"][0]["exercises"][0]
+    item[field] = value
+    item["evidence"] = [evidence("name", "Squat"), evidence("sets", "3 sets"), evidence(field, quote)]
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart(
+        "provided_text", "Squat 3 sets. " + source_text)]))
+    assert getattr(workout.blocks[0].exercises[0], field) is None
+
+
+def test_interval_time_phrases_keep_work_and_rest_separate():
+    assert _numeric_supported("duration_seconds", 20, "20 seconds on 10 seconds off")
+    assert _numeric_supported("rest_seconds", 10, "20 seconds on 10 seconds off")
+    assert not _numeric_supported("rest_seconds", 20, "20 seconds on 10 seconds off")

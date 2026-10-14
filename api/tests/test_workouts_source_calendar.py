@@ -108,3 +108,16 @@ def test_paused_program_cannot_publish_a_partial_schedule():
     with pytest.raises(HTTPException) as failure:
         project_program({"schedule_state": {"status": "paused"}})
     assert failure.value.status_code == 409
+
+
+@pytest.mark.parametrize("provenance", ["source", "user"])
+def test_time_capped_source_circuit_cannot_become_one_pass_via_plan_composer(provenance):
+    source = squat()
+    source.provenance = provenance
+    source.blocks[0].grouping = "circuit"
+    source.blocks[0].exercises[0].sets = None
+    source.blocks[0].exercises[0].reps_min = None
+    source.blocks[0].exercises[0].duration_seconds = 120
+    result = compose_library_program(profile(), START, 1, [(uuid4(), source)], mode="selected")
+    assert result.status == "needs_information"
+    assert any("sets or rounds" in question for question in result.questions)

@@ -829,8 +829,13 @@ def _overall_minutes_supported(value: int, wording: str) -> bool:
         rf"\b(?:workout|session|routine|flow|amrap|time cap|time limit|total time)\s*(?:is|of|for|:|-)?\s*{minutes}",
         rf"\b{minutes}\s*(?:long\s+)?(?:workout|session|routine|flow|amrap)\b",
     )
-    return any(float(match[1]) == value for pattern in patterns
-               for match in re.finditer(pattern, scalar, re.I))
+    for clause in re.split(r"[;,\n]|[.!?](?:\s|$)", scalar):
+        if re.search(r"\b(?:rest|recovery|recover)\b|\b(?:per|each)\s+(?:exercise|movement|round|set|side)\b", clause, re.I):
+            continue
+        if any(float(match[1]) == value for pattern in patterns
+               for match in re.finditer(pattern, clause, re.I)):
+            return True
+    return False
 
 
 def _numeric_supported(field_name: str, value: int | float, wording: str, exercise_name: str | None = None) -> bool:
@@ -839,14 +844,32 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
         # A single scalar cannot faithfully represent a range such as 2–3 min.
         # Keep that creator wording in notes instead of choosing an endpoint.
         scalar_wording = _scalar_duration_wording(wording)
-        units = re.findall(
-            r"(\d+(?:\.\d+)?)\s*(seconds?|secs?|s\b|minutes?|mins?|m\b)", scalar_wording, re.I
-        )
-        return any(
-            abs(float(number) * (60 if unit.lower().startswith("m") else 1)
-                / (60 if field_name == "estimated_minutes" else 1) - value) < 1e-8
-            for number, unit in units
-        )
+        role = r"rest|off|recovery|break|work|on|hold|perform|amrap|workout|session|flow|routine|time cap|time limit"
+        unit_pattern = r"(\d+(?:\.\d+)?)\s*-?\s*(seconds?|secs?|s\b|minutes?|mins?|m\b)"
+        for clause in re.split(r"[;,\n]|[.!?](?:\s|$)", scalar_wording):
+            for match in re.finditer(unit_pattern, clause, re.I):
+                amount = float(match[1]) * (60 if match[2].lower().startswith("m") else 1)
+                if abs(amount / (60 if field_name == "estimated_minutes" else 1) - value) >= 1e-8:
+                    continue
+                before = re.search(rf"\b({role})\s*(?:for|:|=)?\s*$", clause[:match.start()], re.I)
+                after = re.match(rf"\s*\(?\s*({role})\b", clause[match.end():], re.I)
+                # Prefer an attached suffix (20s on, 10s off). If that label
+                # introduces another time value, it belongs to the next phrase.
+                label = after[1].lower() if after else before[1].lower() if before else None
+                if after and before and re.match(rf"\s*{unit_pattern}", clause[match.end() + after.end():], re.I):
+                    label = before[1].lower()
+                rest = label in {"rest", "off", "recovery", "break"}
+                work = label in {"work", "on", "hold", "perform"}
+                overall = label in {"amrap", "workout", "session", "flow", "routine", "time cap", "time limit"}
+                between_rounds = bool(re.search(r"\bbetween\s+(?:the\s+)?rounds?\b", clause, re.I))
+                if field_name == "duration_seconds" and (rest or overall or between_rounds):
+                    continue
+                if field_name in {"rest_seconds", "rest_between_rounds_seconds"} and (overall or work):
+                    continue
+                if field_name == "rest_seconds" and between_rounds:
+                    continue
+                return True
+        return False
     if field_name == "distance_meters":
         units = re.findall(r"(\d+(?:\.\d+)?)\s*(km|kilometers?|metres?|meters?|m\b)", wording, re.I)
         return any(
@@ -889,6 +912,28 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
         loads = re.findall(r"(\d+(?:\.\d+)?)\s*(?:kg|kilograms?|lbs?|pounds?)\b", wording, re.I)
         return any(float(number) == value for number in loads)
     return any(abs(number - value) < 1e-8 for number in numbers)
+
+
+def _time_evidence_supported(field_name, value, entry, source, exercise_name=None):
+    if field_name not in {"duration_seconds", "rest_seconds", "rest_between_rounds_seconds"}:
+        return True
+    text_parts = [part for part in source.parts if part.location == entry.location]
+    if not text_parts:  # Visual evidence remains subject to explicit visual review.
+        return True
+    for part in text_parts:
+        offset = 0
+        for _ in range(64):
+            index = part.text.find(entry.wording, offset)
+            if index < 0:
+                break
+            end = index + len(entry.wording)
+            left = max(part.text.rfind(separator, 0, index) for separator in ";,\n.!?") + 1
+            right = min([position for separator in ";,\n.!?"
+                         if (position := part.text.find(separator, end)) >= 0] or [len(part.text)])
+            if _numeric_supported(field_name, value, part.text[left:right], exercise_name):
+                return True
+            offset = end
+    return False
 
 
 def _value_supported(field_name: str, value, wording: str, exercise_name: str | None = None) -> bool:
@@ -939,6 +984,7 @@ def ground_workout(
             value = getattr(block, field_name)
             if value is not None and not any(
                 item.field == field_name and _numeric_supported(field_name, value, item.wording)
+                and _time_evidence_supported(field_name, value, item, source)
                 for item in block.evidence
             ):
                 setattr(block, field_name, None)
@@ -973,7 +1019,9 @@ def ground_workout(
                     continue
                 valid_evidence = [entry for entry in item.evidence if entry.field == field_name]
                 supported = any(
-                    _value_supported(field_name, value, entry.wording, item.name) for entry in valid_evidence
+                    _value_supported(field_name, value, entry.wording, item.name)
+                    and _time_evidence_supported(field_name, value, entry, source, item.name)
+                    for entry in valid_evidence
                 )
                 if not supported and field_name == "notes":
                     original_cues = list(dict.fromkeys(entry.wording for entry in valid_evidence
@@ -1055,11 +1103,11 @@ def ground_workout(
 def _visual_review_required(workout: WorkoutContent, source: SourceBundle) -> bool:
     text_locations = {part.location for part in source.parts}
 
-    def depends(field_name, value, evidence):
+    def depends(field_name, value, evidence, exercise_name=None):
         matches = [
             entry
             for entry in evidence
-            if entry.field == field_name and _value_supported(field_name, value, entry.wording)
+            if entry.field == field_name and _value_supported(field_name, value, entry.wording, exercise_name)
         ]
         return any(
             entry.location and entry.location.startswith("image:") for entry in matches
@@ -1070,7 +1118,7 @@ def _visual_review_required(workout: WorkoutContent, source: SourceBundle) -> bo
         for unit in [block, *block.exercises]:
             evidence.extend(unit.evidence)
             if any(
-                depends(key, value, unit.evidence)
+                depends(key, value, unit.evidence, getattr(unit, "name", None))
                 for key, value in unit.model_dump(exclude_none=True).items()
                 if isinstance(value, (str, int, float, bool))
             ):
