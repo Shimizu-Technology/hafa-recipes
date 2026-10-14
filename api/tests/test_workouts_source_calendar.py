@@ -69,6 +69,54 @@ def test_source_replacement_of_easy_slots_preserves_recovery():
     assert len(result.sessions) <= 4
 
 
+@pytest.mark.parametrize("required,available", [
+    (["Kettlebell"], ["kettlebell"]),
+    (["  Kettlebell  "], ["\tKETTLEBELL\n"]),
+    (["Kettlebell", "CHAIR"], ["chair", "kettlebell"]),
+])
+def test_source_planning_matches_declared_equipment_case_and_outer_spaces_without_rewriting(required, available):
+    source = squat()
+    source.equipment_required = required
+    current = profile().model_copy(update={"equipment": available})
+    result = compose_library_program(current, START, 1, [(uuid4(), source)], mode="selected")
+    assert result.status == "ready" and result.sessions, result.questions
+    assert all(session.workout.equipment_required == required for session in result.sessions)
+    assert source.equipment_required == required and current.equipment == available
+
+
+@pytest.mark.parametrize("required,available", [
+    (["Kettlebell"], ["dumbbell"]),
+    (["Kettlebell", "secure_anchor"], ["kettlebell"]),
+    (["Special custom sled"], ["kettlebell"]),
+    (["Kettlebells"], ["kettlebell"]),
+    (["Kettlebell"], []),
+    (["  "], []),
+])
+def test_source_planning_keeps_unavailable_or_unknown_equipment_blocked(required, available):
+    source = squat()
+    source.equipment_required = required
+    current = profile().model_copy(update={"equipment": available})
+    result = compose_library_program(current, START, 1, [(uuid4(), source)], mode="selected", reviewed_custom=True)
+    assert result.status == "needs_information"
+    assert any("required equipment is unavailable" in question for question in result.questions)
+    assert source.equipment_required == required
+
+
+def test_source_planning_uses_only_the_selected_equipment_location():
+    source = squat()
+    source.equipment_required = ["Kettlebell"]
+    current = TrainingProfile.model_validate({**profile().model_dump(), "equipment_locations": [
+        {"id": "home", "name": "Home", "equipment": ["dumbbell"]},
+        {"id": "gym", "name": "Gym", "equipment": ["kettlebell"]},
+    ], "active_equipment_location_id": "home"})
+    blocked = compose_library_program(current, START, 1, [(uuid4(), source)], mode="selected")
+    assert blocked.status == "needs_information"
+    assert any("required equipment is unavailable" in question for question in blocked.questions)
+    selected = TrainingProfile.model_validate({**current.model_dump(), "active_equipment_location_id": "gym"})
+    accepted = compose_library_program(selected, START, 1, [(uuid4(), source)], mode="selected")
+    assert accepted.status == "ready" and accepted.sessions, accepted.questions
+
+
 def test_explicit_source_day_must_fit_availability_and_other_activity():
     current = profile(other_activities=[{"date": START, "name": "Basketball", "strenuous": True}])
     current = current.model_copy(update={"available_days": [1, 3]})
