@@ -367,4 +367,17 @@ describe("source circuits with open-ended rounds", () => {
     await store.start(workout, { workout_id: workout.id, workout_revision: workout.revision }, "confirmed");
     expect(store.snapshot().active?.steps).toHaveLength(9);
   });
+  it("allows a timed warmup followed by an explicitly counted manual circuit", async () => {
+    const workout = fixture();
+    workout.estimated_minutes = 20;
+    workout.blocks = [
+      { id: "warmup", label: "Warmup", grouping: "sequential", exercises: [{ name: "Walking", duration_seconds: 180 }] },
+      { id: "main", label: "Circuit", grouping: "circuit", rounds: 3, exercises: [{ name: "Squat", reps_min: 10 }] }
+    ];
+    expect(trackingPrescriptionWarning(workout)).toBeNull();
+    const store = createTrainingStore(memory(), "mixed-block-qa", 1);
+    await store.load();
+    await store.start(workout, { workout_id: workout.id, workout_revision: workout.revision }, "mixed");
+    expect(store.snapshot().active?.steps).toHaveLength(4);
+  });
 });
