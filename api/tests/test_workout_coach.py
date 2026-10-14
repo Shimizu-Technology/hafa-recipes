@@ -259,3 +259,16 @@ def test_source_flow_bounds_whole_quotes_and_supports_legacy_grouping_evidence()
     assert result[0] == notes[0] and notes[1] not in result
     assert len(result) == 6 and sum(map(len, result)) <= 2000
     assert all(quote in notes for quote in result)
+
+
+def test_title_only_edit_trimming_notes_preserves_original_creator_quote():
+    quote = "  Repeat the circuit for 20 minutes.\n"
+    workout = {
+        "title": "Original title", "provenance": "source", "notes": [quote],
+        "blocks": [{"evidence": [
+            {"field": "workout_notes", "wording": quote, "location": "caption"},
+        ]}],
+    }
+    edited = workout | {"title": "My title", "notes": [quote.strip()]}
+    assert source_flow_context(edited) == [quote]
+    assert source_flow_context(edited | {"notes": ["Repeat it for 15 minutes."]}) == []

@@ -57,13 +57,13 @@ def source_flow_context(workout):
     notes = workout.get("notes", [])
     if not isinstance(notes, list):
         return []
-    retained = {note for note in notes if isinstance(note, str)}
+    retained = {note.strip() for note in notes if isinstance(note, str)}
     result, remaining = [], SOURCE_FLOW_MAX_CHARACTERS
     for block in workout.get("blocks", []):
         for entry in block.get("evidence", []):
             wording = entry.get("wording")
             field = entry.get("field")
-            if not isinstance(wording, str) or wording not in retained or not entry.get("location"):
+            if not isinstance(wording, str) or wording.strip() not in retained or not entry.get("location"):
                 continue
             if field != "workout_notes" and not (
                 field in {"label", "grouping"}
