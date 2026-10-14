@@ -1565,16 +1565,17 @@ def test_every_explicit_dose_is_checked_after_headings_and_across_separators(sep
 
 
 @pytest.mark.parametrize("quote", ["whole_line", "movement", "side_count"])
+@pytest.mark.parametrize("side_count", ["5 each side", "5 reps each side", "5 repetitions per arm"])
 @pytest.mark.parametrize("squat_reps,squat_side,row_reps,row_side", [
     (10, False, 10, True), (10, True, 5, True), (5, True, 10, False)])
 def test_combined_caption_side_count_belongs_only_to_its_own_movement(
-    quote, squat_reps, squat_side, row_reps, row_side
+    quote, side_count, squat_reps, squat_side, row_reps, row_side
 ):
-    caption = "10x Squat + 10x Row (5 each side)"
+    caption = f"10x Squat + 10x Row ({side_count})"
     exercises = []
     for name, reps, side in [("Squat", squat_reps, squat_side), ("Row", row_reps, row_side)]:
         wording = caption if quote == "whole_line" else "10x Squat" if name == "Squat" else (
-            "5 each side" if quote == "side_count" else "10x Row (5 each side)")
+            side_count if quote == "side_count" else f"10x Row ({side_count})")
         exercises.append({"name": name, "reps_min": reps, "reps_max": reps, "per_side": side,
             "evidence": [evidence("name", name), evidence("reps_min", wording),
                          evidence("reps_max", wording), evidence("per_side", wording)]})
@@ -1589,9 +1590,10 @@ def test_combined_caption_side_count_belongs_only_to_its_own_movement(
 
 
 @pytest.mark.parametrize("reps,per_side", [(10, False), (5, True)])
+@pytest.mark.parametrize("side_count", ["5 each side", "5 reps each side", "5 repetitions per arm"])
 @pytest.mark.parametrize("negation", ["not", "never", "instead of", "rather than", "do not do"])
-def test_negated_side_counts_do_not_become_source_prescription(reps, per_side, negation):
-    caption = f"10x Squat total reps ({negation} 5 each side)"
+def test_negated_side_counts_do_not_become_source_prescription(reps, per_side, side_count, negation):
+    caption = f"10x Squat total reps ({negation} {side_count})"
     raw = {"title": "Source circuit", "blocks": [{"id": "main", "label": "Circuit", "exercises": [
         {"name": "Squat", "reps_min": reps, "reps_max": reps, "per_side": per_side,
          "evidence": [evidence("name", "Squat"), evidence("reps_min", caption),

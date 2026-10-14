@@ -896,7 +896,8 @@ def _side_count_negated(wording: str, count_start: int) -> bool:
 
 def _affirmative_side_counts(wording: str):
     for match in re.finditer(
-        r"(?<![\w.\-–])(\d+)\s+(?:each|per)\s+(?:side|leg|arm|limb)\b", wording, re.I
+        r"(?<![\w.\-–])(\d+)\s+(?:(?:reps?|repetitions?)\s+)?(?:each|per)\s+(?:side|leg|arm|limb)\b",
+        wording, re.I,
     ):
         if not _side_count_negated(wording, match.start()):
             yield match
@@ -961,13 +962,14 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
         if ranges:
             index = 0 if field_name == "reps_min" else 1
             return any(float(pair[index]) == value for pair in ranges)
-        reps = re.findall(
+        reps = re.finditer(
             r"(\d+)\s*(?:reps?\b|repetitions?\b)|[x×]\s*(\d+)\b|\breps?\s*[:=]\s*(\d+)\b"
             r"|(?<![\w.])(\d+)\s*[x×](?!\w|\s*\d)",
             wording,
             re.I,
         )
-        explicit_reps = any(float(number) == value for group in reps for number in group if number)
+        explicit_reps = any(float(number) == value and not _side_count_negated(wording, match.start())
+                            for match in reps for number in match.groups() if number)
         per_side_reps = any(float(match[1]) == value for match in _affirmative_side_counts(wording))
         # Spoken prescriptions often say "10 curls", without a reps suffix.
         # Require the actual grounded movement immediately after the count.
@@ -1014,7 +1016,7 @@ def _value_supported(field_name: str, value, wording: str, exercise_name: str | 
     if field_name == "per_side":
         if value:
             for match in re.finditer(r"\b(?:each|per)\s+(?:side|leg|arm|limb)\b", wording, re.I):
-                count = re.search(r"\d+\s*(?:reps?\s*)?$", wording[:match.start()], re.I)
+                count = re.search(r"\d+\s*(?:(?:reps?|repetitions?)\s*)?$", wording[:match.start()], re.I)
                 if not _side_count_negated(wording, count.start() if count else match.start()):
                     return True
             return False
