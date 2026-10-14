@@ -2,7 +2,8 @@
 
 import asyncio
 import importlib
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -22,6 +23,35 @@ from tests.test_workouts_data_integration import (  # noqa: F401 -- shared isola
 )
 
 TEXT = "Squat: 2 sets of 8 reps."
+
+
+@pytest.mark.parametrize("status", ["queued", "processing", "ready", "incomplete", "failed", "cancelled", "expired"])
+def test_import_status_metadata_preserves_actual_timestamps_without_private_capture(status):
+    created = datetime(2026, 10, 15, tzinfo=timezone.utc)
+    updated = created + timedelta(seconds=40)
+    retry = updated + timedelta(seconds=15)
+    row = SimpleNamespace(id=uuid4(), generation=2, status=status, attempt_count=1,
+                          result=None, expires_at=created + timedelta(hours=24), accepted_workout_id=None,
+                          created_at=created, updated_at=updated, next_attempt_at=retry,
+                          payload={"text": "private caption", "_save": {"is_public": False}},
+                          app_user_id="private-owner", lease_token="private-lease")
+    projected = automation_router.ImportResponse.model_validate(automation_router.import_response(row))
+    assert projected.created_at == created and projected.updated_at == updated
+    assert projected.next_attempt_at == (retry if status == "queued" else None)
+    assert projected.max_attempts == imports.MAX_IMPORT_ATTEMPTS == 3
+    assert projected.source_is_public is False and projected.generation == 2
+    serialized = projected.model_dump_json()
+    assert "private" not in serialized and "payload" not in serialized and "lease_token" not in serialized
+    assert "current_stage" not in serialized and "progress" not in serialized
+    assert row.next_attempt_at == retry  # Projection never changes durable job state.
+
+
+def test_import_status_additions_accept_an_older_response_without_timing_fields():
+    old = dict(id=uuid4(), generation=1, status="processing", attempt_count=1, result=None,
+               expires_at=datetime(2026, 10, 16, tzinfo=timezone.utc), accepted_workout_id=None)
+    response = automation_router.ImportResponse.model_validate(old)
+    assert response.created_at is None and response.updated_at is None
+    assert response.next_attempt_at is None and response.max_attempts is None
 
 
 class Provider:
@@ -372,6 +402,34 @@ async def test_source_job_retry_identity_and_private_projection(automation_api):
         assert row is None
         row = await db.get(WorkoutImport, first.json()["id"])
         assert row.payload["text"] == TEXT and row.attempt_count == 1
+
+
+async def test_worker_timeouts_finish_after_bounded_retries_instead_of_staying_processing(automation_api):
+    api = automation_api
+    await consent(api)
+    job = (await enqueue(api)).json()
+
+    async def timeout(source):
+        raise asyncio.TimeoutError()
+
+    api.worker.extractor.extract = timeout
+    for attempt in range(1, imports.MAX_IMPORT_ATTEMPTS + 1):
+        assert await api.worker.tick()
+        response = await api.client.get(f"/api/v1/workouts/imports/{job['id']}")
+        state = response.json()
+        assert state["attempt_count"] == attempt and state["max_attempts"] == imports.MAX_IMPORT_ATTEMPTS
+        assert state["created_at"] and state["updated_at"]
+        if attempt < imports.MAX_IMPORT_ATTEMPTS:
+            assert state["status"] == "queued" and state["next_attempt_at"]
+            async with api.sessions() as db:
+                row = await db.get(WorkoutImport, job["id"])
+                assert row.leased_until is None and row.lease_token is None
+                row.next_attempt_at = now() - timedelta(seconds=1)
+                await db.commit()
+        else:
+            assert state["status"] == "incomplete" and state["next_attempt_at"] is None
+            assert state["result"]["error_code"] == "source_or_provider_timeout"
+            assert state["accepted_workout_id"] is None
 
 
 async def test_import_accept_is_a_reviewed_separate_library_write(automation_api):

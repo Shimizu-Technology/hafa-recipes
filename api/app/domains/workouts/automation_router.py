@@ -12,7 +12,12 @@ from app.config import get_settings
 from app.domains.workouts.automation_models import WorkoutImport, WorkoutProposal, WorkoutReadiness
 from app.domains.workouts.discover import discover_ready, require_discover, set_publication
 from app.domains.workouts.extraction import ExtractionRequest, WorkoutExtractionResult
-from app.domains.workouts.imports import MAX_IMPORTS_PER_DAY, create_import, workout_import_worker
+from app.domains.workouts.imports import (
+    MAX_IMPORT_ATTEMPTS,
+    MAX_IMPORTS_PER_DAY,
+    create_import,
+    workout_import_worker,
+)
 from app.domains.workouts.lifecycle import membership_for, now
 from app.domains.workouts.models import (
     WorkoutRecord,
@@ -98,6 +103,10 @@ class ImportResponse(DomainModel):
     expires_at: datetime
     accepted_workout_id: UUID | None
     source_is_public: StrictBool | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    next_attempt_at: datetime | None = None
+    max_attempts: int | None = None
 
 
 def import_response(row):
@@ -116,6 +125,12 @@ def import_response(row):
     preferences = row.payload.get("_save") if isinstance(row.payload, dict) else None
     visibility = preferences.get("is_public") if isinstance(preferences, dict) else None
     response["source_is_public"] = visibility if type(visibility) is bool else None
+    response["created_at"] = getattr(row, "created_at", None)
+    response["updated_at"] = getattr(row, "updated_at", None)
+    # A historical retry timestamp is not a promised next attempt once the
+    # worker has resumed or the import has reached a terminal state.
+    response["next_attempt_at"] = getattr(row, "next_attempt_at", None) if row.status == "queued" else None
+    response["max_attempts"] = MAX_IMPORT_ATTEMPTS
     return response
 
 

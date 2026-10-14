@@ -29,6 +29,7 @@ from app.domains.workouts.router import content_digest
 TERMINAL = {"ready", "incomplete", "failed", "cancelled", "expired"}
 RETRYABLE = {"source_or_provider_unavailable", "source_or_provider_timeout"}
 MAX_IMPORTS_PER_DAY = 15
+MAX_IMPORT_ATTEMPTS = 3
 
 
 async def require_ai_consent(db, user_id, generation, *, expected=None):
@@ -271,7 +272,7 @@ class WorkoutImportWorker:
             )
             if row is None:
                 return False
-            if row.expires_at <= current or row.attempt_count >= 3:
+            if row.expires_at <= current or row.attempt_count >= MAX_IMPORT_ATTEMPTS:
                 row.status = "expired" if row.expires_at <= current else "failed"
                 row.payload = None
                 row.lease_token = None
@@ -349,7 +350,7 @@ class WorkoutImportWorker:
                     row.status = "expired"
                     row.payload = None
                     row.result = None
-                elif result.error_code in RETRYABLE and row.attempt_count < 3:
+                elif result.error_code in RETRYABLE and row.attempt_count < MAX_IMPORT_ATTEMPTS:
                     row.status = "queued"
                     row.next_attempt_at = current + timedelta(seconds=15 * row.attempt_count)
                 else:
