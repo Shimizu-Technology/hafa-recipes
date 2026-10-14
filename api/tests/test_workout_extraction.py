@@ -1332,6 +1332,20 @@ def test_interval_time_phrases_keep_work_and_rest_separate():
     assert not _numeric_supported("rest_seconds", 20, "20 seconds on 10 seconds off")
 
 
+@pytest.mark.parametrize("quote,seconds,expected", [
+    ("Rest 1.5 minutes", 90, 90), ("1.5 minutes", 90, 90), ("5 minutes", 300, None),
+])
+def test_decimal_source_time_preserves_whole_number_scope(quote, seconds, expected):
+    raw = complete_workout()
+    item = raw["blocks"][0]["exercises"][0]
+    item["rest_seconds"] = seconds
+    item["evidence"] = [entry for entry in item["evidence"] if entry["field"] != "rest_seconds"]
+    item["evidence"].append(evidence("rest_seconds", quote))
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart(
+        "provided_text", TEXT + " Rest 1.5 minutes")]))
+    assert workout.blocks[0].exercises[0].rest_seconds == expected
+
+
 @pytest.mark.parametrize("scope", ["round", "exercise"])
 def test_cropped_global_duration_requires_original_scope(scope):
     raw = complete_workout()

@@ -929,9 +929,10 @@ def _time_evidence_supported(field_name, value, entry, source, exercise_name=Non
             if index < 0:
                 break
             end = index + len(entry.wording)
-            left = max(part.text.rfind(separator, 0, index) for separator in ";,\n.!?") + 1
-            right = min([position for separator in ";,\n.!?"
-                         if (position := part.text.find(separator, end)) >= 0] or [len(part.text)])
+            boundary = re.compile(r"[;,\n]|[.!?](?=\s|$)")
+            left = max((match.end() for match in boundary.finditer(part.text, 0, index)), default=0)
+            following = boundary.search(part.text, end)
+            right = following.start() if following else len(part.text)
             clause = part.text[left:right]
             supported = (_overall_minutes_supported(value, clause) if field_name == "estimated_minutes"
                          else _numeric_supported(field_name, value, clause, exercise_name))
