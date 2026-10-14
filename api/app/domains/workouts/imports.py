@@ -29,6 +29,7 @@ from app.domains.workouts.router import content_digest
 TERMINAL = {"ready", "incomplete", "failed", "cancelled", "expired"}
 RETRYABLE = {"source_or_provider_unavailable", "source_or_provider_timeout"}
 MAX_IMPORTS_PER_DAY = 15
+MAX_IMPORT_ATTEMPTS = 3
 
 
 async def require_ai_consent(db, user_id, generation, *, expected=None):
@@ -98,7 +99,10 @@ async def save_import_result(db, row, result, preferences):
                 "Some exercises are missing rounds, sets, reps, time, or distance. Missing values stay unspecified."
             )
         result.workout.extraction_warnings = saved_warning_projection(result.warnings)
-    if preferences is None or row.accepted_workout_id or result.workout is None:
+    if (preferences is None or row.accepted_workout_id or result.workout is None
+            or not any(block.exercises for block in result.workout.blocks)):
+        # Empty error/source drafts belong to the recoverable import inbox.
+        # Keep their result and temporary capture until explicit review or clear.
         return
     from app.auth import ClerkUser
     from app.domains.workouts.automation_router import store_workout
@@ -174,6 +178,7 @@ class WorkoutImportWorker:
         self.task = None
         self.active_task = None
         self.active_owner = None
+        self.active_import_id = None
         self.wake = asyncio.Event()
 
     def enabled(self):
@@ -201,6 +206,7 @@ class WorkoutImportWorker:
                     await task
         self.task = self.active_task = None
         self.active_owner = None
+        self.active_import_id = None
 
     def notify(self):
         self.wake.set()
@@ -208,6 +214,10 @@ class WorkoutImportWorker:
     def cancel_owner(self, user_id):
         if self.active_owner == user_id and self.active_task:
             self.active_task.cancel()
+
+    def cancel_import(self, user_id, import_id):
+        if self.active_import_id == import_id:
+            self.cancel_owner(user_id)
 
     async def run(self):
         while self.maintenance_enabled():
@@ -271,7 +281,7 @@ class WorkoutImportWorker:
             )
             if row is None:
                 return False
-            if row.expires_at <= current or row.attempt_count >= 3:
+            if row.expires_at <= current or row.attempt_count >= MAX_IMPORT_ATTEMPTS:
                 row.status = "expired" if row.expires_at <= current else "failed"
                 row.payload = None
                 row.lease_token = None
@@ -291,6 +301,7 @@ class WorkoutImportWorker:
             row.updated_at = current
             await db.commit()
         self.active_owner = owner
+        self.active_import_id = identifier
         self.active_task = asyncio.create_task(self.process(identifier, owner, generation, token))
         try:
             await self.active_task
@@ -300,6 +311,7 @@ class WorkoutImportWorker:
         finally:
             self.active_task = None
             self.active_owner = None
+            self.active_import_id = None
         return True
 
     async def process(self, identifier, owner, generation, token):
@@ -349,7 +361,7 @@ class WorkoutImportWorker:
                     row.status = "expired"
                     row.payload = None
                     row.result = None
-                elif result.error_code in RETRYABLE and row.attempt_count < 3:
+                elif result.error_code in RETRYABLE and row.attempt_count < MAX_IMPORT_ATTEMPTS:
                     row.status = "queued"
                     row.next_attempt_at = current + timedelta(seconds=15 * row.attempt_count)
                 else:
