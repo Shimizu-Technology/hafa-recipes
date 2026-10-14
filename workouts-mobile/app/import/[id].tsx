@@ -560,9 +560,8 @@ export default function ImportReview() {
         setError(""); setRestoreAttempt((value) => value + 1); void q.refetch();
       }} />}
       <Notice>
-        Uploaded photos and documents are temporary: they are cleared after acceptance, cancellation or expiry. Your
-        library keeps the prescription, evidence and source link where available. An incomplete private draft may stay
-        incomplete.
+        Uploads are cleared after saving, cancellation or expiry. Saved workouts keep the workout details and source
+        link when available.
       </Notice>
       {disclosure.sheet}
     </Screen>
