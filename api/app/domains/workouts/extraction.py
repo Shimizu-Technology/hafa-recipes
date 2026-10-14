@@ -847,6 +847,8 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
         role = r"rest|off|recovery|break|work|on|hold|perform|amrap|workout|session|flow|routine|time cap|time limit"
         unit_pattern = r"(\d+(?:\.\d+)?)\s*-?\s*(seconds?|secs?|s\b|minutes?|mins?|m\b)"
         for clause in re.split(r"[;,\n]|[.!?](?:\s|$)", scalar_wording):
+            if field_name != "estimated_minutes" and _overall_minutes_supported(value / 60, clause):
+                continue
             for match in re.finditer(unit_pattern, clause, re.I):
                 amount = float(match[1]) * (60 if match[2].lower().startswith("m") else 1)
                 if abs(amount / (60 if field_name == "estimated_minutes" else 1) - value) >= 1e-8:
@@ -915,7 +917,7 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
 
 
 def _time_evidence_supported(field_name, value, entry, source, exercise_name=None):
-    if field_name not in {"duration_seconds", "rest_seconds", "rest_between_rounds_seconds"}:
+    if field_name not in {"duration_seconds", "rest_seconds", "rest_between_rounds_seconds", "estimated_minutes"}:
         return True
     text_parts = [part for part in source.parts if part.location == entry.location]
     if not text_parts:  # Visual evidence remains subject to explicit visual review.
@@ -930,7 +932,10 @@ def _time_evidence_supported(field_name, value, entry, source, exercise_name=Non
             left = max(part.text.rfind(separator, 0, index) for separator in ";,\n.!?") + 1
             right = min([position for separator in ";,\n.!?"
                          if (position := part.text.find(separator, end)) >= 0] or [len(part.text)])
-            if _numeric_supported(field_name, value, part.text[left:right], exercise_name):
+            clause = part.text[left:right]
+            supported = (_overall_minutes_supported(value, clause) if field_name == "estimated_minutes"
+                         else _numeric_supported(field_name, value, clause, exercise_name))
+            if supported:
                 return True
             offset = end
     return False
@@ -1052,6 +1057,7 @@ def ground_workout(
     ))[:100]
     if requested_minutes is not None and any(
         _overall_minutes_supported(requested_minutes, entry.wording)
+        and _time_evidence_supported("estimated_minutes", requested_minutes, entry, source)
         for entry in context_evidence
     ):
         workout.estimated_minutes = requested_minutes
@@ -1108,6 +1114,7 @@ def _visual_review_required(workout: WorkoutContent, source: SourceBundle) -> bo
             entry
             for entry in evidence
             if entry.field == field_name and _value_supported(field_name, value, entry.wording, exercise_name)
+            and _time_evidence_supported(field_name, value, entry, source, exercise_name)
         ]
         return any(
             entry.location and entry.location.startswith("image:") for entry in matches

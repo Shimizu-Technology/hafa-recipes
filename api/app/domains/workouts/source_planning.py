@@ -88,7 +88,7 @@ def inspect_personal_source(workout, profile, *, reviewed_custom=False, declared
                     f"{exercise.name}: match a variation or explicitly review this custom routine."
                 )
             fixed_tracking_required = workout.provenance == "source" or (
-                workout.estimated_minutes is not None and block.grouping == "circuit"
+                duration is not None and block.grouping == "circuit"
             )
             if exercise.sets is None and block.rounds is None and (
                 fixed_tracking_required

@@ -121,3 +121,18 @@ def test_time_capped_source_circuit_cannot_become_one_pass_via_plan_composer(pro
     result = compose_library_program(profile(), START, 1, [(uuid4(), source)], mode="selected")
     assert result.status == "needs_information"
     assert any("sets or rounds" in question for question in result.questions)
+
+
+def test_declared_circuit_time_still_requires_fixed_tracking_counts():
+    source = squat()
+    source.estimated_minutes = None
+    source.provenance = "user"
+    source.blocks[0].grouping = "circuit"
+    source.blocks[0].exercises[0].sets = None
+    source.blocks[0].exercises[0].reps_min = None
+    source.blocks[0].exercises[0].duration_seconds = 120
+    source_id = uuid4()
+    result = compose_library_program(profile(), START, 1, [(source_id, source)], mode="selected",
+                                     declared_minutes={str(source_id): 20})
+    assert result.status == "needs_information"
+    assert any("sets or rounds" in question for question in result.questions)

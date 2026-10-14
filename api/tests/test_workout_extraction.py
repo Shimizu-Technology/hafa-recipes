@@ -1314,6 +1314,7 @@ async def test_image_only_noun_reps_still_require_visual_review():
 @pytest.mark.parametrize("field,value,quote,source_text", [
     ("rest_seconds", 120, "2 minutes", "Work 2 minutes; rest 2–3 minutes"),
     ("duration_seconds", 1200, "20 minutes", "20 minutes (AMRAP)"),
+    ("duration_seconds", 1200, "20 minutes", "keep repeating for 20 minutes"),
 ])
 def test_short_time_quotes_still_use_their_original_source_context(field, value, quote, source_text):
     raw = complete_workout()
@@ -1329,3 +1330,33 @@ def test_interval_time_phrases_keep_work_and_rest_separate():
     assert _numeric_supported("duration_seconds", 20, "20 seconds on 10 seconds off")
     assert _numeric_supported("rest_seconds", 10, "20 seconds on 10 seconds off")
     assert not _numeric_supported("rest_seconds", 20, "20 seconds on 10 seconds off")
+
+
+@pytest.mark.parametrize("scope", ["round", "exercise"])
+def test_cropped_global_duration_requires_original_scope(scope):
+    raw = complete_workout()
+    raw["estimated_minutes"] = 2
+    quote = "Repeat this flow for 2 minutes"
+    raw["blocks"][0]["evidence"] = [evidence("estimated_minutes", quote)]
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart(
+        "provided_text", TEXT + f" {quote} per {scope}")]))
+    assert workout.estimated_minutes is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source_time,visual_review", [
+    ("Work 2 minutes; rest 2–3 minutes", True), ("Rest 2 minutes", False),
+])
+async def test_visual_rest_cannot_borrow_invalid_cropped_text(source_time, visual_review):
+    raw = complete_workout()
+    item = raw["blocks"][0]["exercises"][0]
+    item["rest_seconds"] = 120
+    item["evidence"] = [entry for entry in item["evidence"] if entry["field"] != "rest_seconds"]
+    item["evidence"].extend([evidence("rest_seconds", "2 minutes rest", "image:0"),
+                             evidence("rest_seconds", "2 minutes")])
+    source = SourceBundle(SourceMetadata(), [SourcePart("provided_text", TEXT + " " + source_time)],
+                         images=[SourceImage("image:0", "data:image/png;base64," + image_data())])
+    result = await WorkoutExtractor(FakeProvider(raw), FakeAcquirer(source)).extract(ExtractionRequest(
+        kind="url", source_url="https://example.com/squat", ai_consent=True))
+    assert result.workout.blocks[0].exercises[0].rest_seconds == 120
+    assert any("Visual extraction" in warning for warning in result.warnings) is visual_review
