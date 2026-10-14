@@ -645,3 +645,31 @@ it("waits for source visibility restoration before allowing a newer sharing choi
   expect(choice("Share to Discover")!.props.selected).toBe(false);
   expect(fixture.map.get("import-visibility:1:job")).toBe("false");
 });
+
+
+it("shows source-wide instructions and review action instead of starting a one-pass timed flow", async () => {
+  fixture.params = { id: "source-flow" };
+  fixture.capabilities.mockResolvedValue(caps(false));
+  const quote = "Keep repeating for 20 minutes. Rest two to three minutes between flows.";
+  fixture.workout.mockResolvedValue({ ...saved, provenance: "source", estimated_minutes: 20,
+    notes: [quote], blocks: [{ id: "flow", label: "Kettlebell flow", grouping: "circuit",
+      exercises: [{ name: "Curls", provenance: "source", reps_min: 10, reps_max: 10 }] }] });
+  await mount(WorkoutDetail);
+  const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
+  expect(text).toContain(quote);
+  expect(button("Start this workout")!.props.disabled).toBe(true);
+  expect(nodes("ListRow").find(node => node.props.title === "Add to a plan")!.props.disabled).toBe(true);
+  await act(async () => button("Review tracking details")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: saved.id } });
+});
+
+it("keeps the original overall instructions visible during import review", async () => {
+  fixture.params = { id: "job" };
+  fixture.capabilities.mockResolvedValue(caps(false));
+  const job = importJob("url", "incomplete");
+  job.result.workout.notes = ["20min AMRAP: repeat four moves for 20min"];
+  fixture.importJob.mockResolvedValue(job);
+  await mount(ImportReview);
+  const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
+  expect(text).toContain(job.result.workout.notes[0]);
+});
