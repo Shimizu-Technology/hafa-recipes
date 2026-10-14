@@ -1,6 +1,7 @@
 import { Card, Copy, Notice } from "./ui";
 import type { ShareSnapshot, SharedProgram } from "@/lib/sharing";
 import type { AuthoredWorkout } from "@/lib/models";
+import { amrapCap, blockSummary } from "@/lib/amrap-editor";
 export function SharedSnapshot({ snapshot }: { snapshot: ShareSnapshot }) {
   return (
     <>
@@ -42,8 +43,8 @@ function WorkoutSummary({ workout }: { workout: AuthoredWorkout }) {
         <Card key={block.id}>
           <Copy kind="heading">{block.label}</Copy>
           <Copy>
-            {block.grouping}
-            {block.rounds != null ? ` · ${block.rounds} rounds` : " · rounds not specified"}
+            {blockSummary(block)}
+            {block.rounds == null && amrapCap(block) == null ? " · rounds not specified" : ""}
           </Copy>
           {block.exercises.map((e, index) => (
             <Copy key={index}>

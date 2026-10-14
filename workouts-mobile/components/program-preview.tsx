@@ -1,14 +1,14 @@
 import { Card, Copy, Notice } from "./ui";
 import type { ProgramReceipt } from "@/lib/plans";
 import type { Workout } from "@/lib/models";
+import { blockSummary } from "@/lib/amrap-editor";
 export function PrescriptionPreview({ workout }: { workout: Workout }) {
   return (
     <>
       {workout.blocks.map((block) => (
         <Card key={block.id}>
           <Copy kind="label">
-            {block.label} · {block.grouping}
-            {block.rounds != null ? ` · ${block.rounds} rounds` : ""}
+            {block.label} · {blockSummary(block)}
           </Copy>
           {block.rest_between_rounds_seconds != null && (
             <Copy kind="small">{block.rest_between_rounds_seconds}s between rounds</Copy>

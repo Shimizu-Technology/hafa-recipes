@@ -125,6 +125,9 @@ import DiscoverWorkout from "../app/discover/[id]";
 import ImportReview from "../app/import/[id]";
 import Library from "../app/(tabs)/library";
 import { ImportList } from "../components/import-list";
+import { PrescriptionPreview } from "../components/program-preview";
+import { SharedSnapshot } from "../components/shared-snapshot";
+import type { ShareSnapshot } from "./sharing";
 
 let renderer: ReactTestRenderer | undefined, cache: QueryClient;
 const nodes = (type: string) => renderer!.root.findAll((n) => String(n.type) === type);
@@ -729,3 +732,42 @@ it("gives an empty manual workout a usable add-exercises action", async () => {
   await act(async () => button("Add workout exercises")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: saved.id } });
 });
+
+it.each(["import", "plan", "shared workout", "shared program", "discover"] as const)(
+  "%s presents typed AMRAP execution without relying on an estimate or written notes", async surface => {
+    const workout: Workout = { ...saved, title: "Source circuit", estimated_minutes: null, notes: [], blocks: [
+      { id: "flow", label: "Main", grouping: "circuit", execution: { mode: "amrap", time_cap_seconds: 1200 },
+        exercises: [{ name: "Swings", reps_min: 10 }] },
+    ] };
+    const snapshot: ShareSnapshot = { kind: surface === "shared program" ? "program" : "workout",
+      content: surface === "shared program" ? { title: "Source plan", sessions: [{ sequence: 1, day_offset: 0, workout }], notice: "Review this plan" } : workout,
+      attribution: { shared_by_display_name: "Source owner", source_revision: 1, original_source_included: false }, review_required: true };
+    if (surface === "import") {
+      fixture.params = { id: "job" }; fixture.capabilities.mockResolvedValue(caps(false));
+      const job = importJob("images"); fixture.importJob.mockResolvedValue({ ...job, result: { ...job.result, workout } });
+      await mount(ImportReview);
+    } else if (surface === "plan") await mount(() => createElement(PrescriptionPreview, { workout }));
+    else if (surface === "discover") {
+      fixture.params = { id: "pub-1" }; fixture.discoverWorkout.mockResolvedValue({ ...detail, estimated_minutes: null, workout });
+      await mount(DiscoverWorkout);
+    } else await mount(() => createElement(SharedSnapshot, { snapshot }));
+    const text = () => nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
+    expect(text()).toContain("AMRAP · 20 min time cap");
+    expect(text().toLowerCase()).not.toContain("rounds not specified");
+
+    // An ordinary fixed-round prescription retains its existing presentation.
+    const fixed: Workout = { ...workout, blocks: [{ ...workout.blocks[0], execution: undefined, rounds: 3 }] };
+    await act(async () => renderer!.unmount()); renderer = undefined;
+    if (surface === "import") {
+      const job = importJob("images"); fixture.importJob.mockResolvedValue({ ...job, result: { ...job.result, workout: fixed } });
+      cache.clear(); await mount(ImportReview);
+    } else if (surface === "plan") await mount(() => createElement(PrescriptionPreview, { workout: fixed }));
+    else if (surface === "discover") {
+      fixture.discoverWorkout.mockResolvedValue({ ...detail, estimated_minutes: null, workout: fixed }); cache.clear(); await mount(DiscoverWorkout);
+    } else {
+      const fixedSnapshot: ShareSnapshot = { ...snapshot, content: surface === "shared program"
+        ? { title: "Source plan", sessions: [{ sequence: 1, day_offset: 0, workout: fixed }], notice: "Review this plan" } : fixed };
+      await mount(() => createElement(SharedSnapshot, { snapshot: fixedSnapshot }));
+    }
+    expect(text()).toContain("3 rounds"); expect(text()).not.toContain("AMRAP");
+  });
