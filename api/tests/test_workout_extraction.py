@@ -21,6 +21,7 @@ from app.domains.workouts.extraction import (
     SourceMetadata,
     SourcePart,
     WorkoutExtractor,
+    _numeric_supported,
     ground_workout,
     provider_messages,
     workout_response_format,
@@ -1161,3 +1162,68 @@ async def test_transcription_deadline_cleans_audio_and_preserves_caption(monkeyp
     )
     assert cleaned == ["synthetic-no-real-file"]
     assert result.status == "ready" and result.workout.source_creator == "Creator"
+
+
+@pytest.mark.parametrize("wording,value,supported", [
+    ("12x seated chest / shoulder press", 12, True),
+    ("6x kneeling curl to overhead extension", 6, True),
+    ("12× around-the-world", 12, True),
+    ("16 x alternating split-stance ballistic rows", 16, True),
+    ("3x12 Squat", 3, False),
+    ("3x12 Squat", 12, True),
+    ("12xyz", 12, False),
+    ("size12x", 12, False),
+    ("1.12x Squat", 12, False),
+    ("12x 16 dimensions", 12, False),
+])
+def test_rep_suffix_shorthand_is_grounded_without_confusing_sets(wording, value, supported):
+    assert _numeric_supported("reps_min", value, wording) is supported
+    assert _numeric_supported("reps_max", value, wording) is supported
+
+
+@pytest.mark.asyncio
+async def test_description_amrap_preserves_reps_and_overall_context_without_invented_rounds():
+    instructions = "Repeat as many rounds as possible for 20 minutes (AMRAP)."
+    rows = [(12, "Seated chest / shoulder press"), (6, "Kneeling curl to overhead extension"),
+            (12, "Around-the-world"), (16, "Alternating split-stance ballistic rows")]
+    caption = instructions + "\n" + "\n".join(f"{reps}x {name}" for reps, name in rows)
+    raw = {"title": "20-minute kettlebell AMRAP", "estimated_minutes": 20,
+           "notes": ["Invented fixed rounds"], "blocks": [{"id": "main", "label": "AMRAP",
+           "grouping": "circuit", "evidence": [evidence("workout_notes", instructions, "caption"),
+                 evidence("estimated_minutes", instructions, "caption")], "exercises": [
+           {"name": name, "reps_min": reps, "reps_max": reps, "evidence": [
+            evidence("name", name, "caption"), evidence("reps_min", f"{reps}x {name}", "caption"),
+            evidence("reps_max", f"{reps}x {name}", "caption")]} for reps, name in rows]}]}
+    result = await WorkoutExtractor(FakeProvider(raw), FakeAcquirer(SourceBundle(
+        SourceMetadata(url="https://www.instagram.com/reel/DdvIrwhTj90/", creator="AJ"),
+        [SourcePart("caption", caption)]))).extract(ExtractionRequest(
+            kind="url", source_url="https://www.instagram.com/reel/DdvIrwhTj90/", ai_consent=True))
+    assert [item.reps_min for item in result.workout.blocks[0].exercises] == [12, 6, 12, 16]
+    assert result.workout.estimated_minutes == 20 and result.workout.notes == [instructions]
+    assert result.workout.blocks[0].rounds is None
+    assert all(item.sets is None and item.duration_seconds is None
+               for item in result.workout.blocks[0].exercises)
+    assert result.status == "incomplete" and any("open-ended rounds" in warning for warning in result.warnings)
+    assert not any("Unsupported reps" in warning for warning in result.warnings)
+
+
+@pytest.mark.parametrize("location,quote", [("caption", "20 reps"), ("image:0", "20 minutes")])
+def test_workout_duration_context_requires_exact_text_duration_evidence(location, quote):
+    raw = complete_workout()
+    raw["estimated_minutes"] = 20
+    raw["notes"] = ["Invented cues"]
+    raw["blocks"][0]["evidence"] = [evidence("estimated_minutes", quote, location)]
+    source = SourceBundle(SourceMetadata(), [SourcePart("caption", "20 reps"), SourcePart("provided_text", TEXT)])
+    workout, _, _ = ground_workout(raw, source)
+    assert workout.estimated_minutes is None and workout.notes == []
+
+
+@pytest.mark.parametrize("wording", ["Rest 2–3 minutes", "Rest 2 to 3 min", "Rest 2 minutes to 3 minutes"])
+@pytest.mark.parametrize("seconds", [120, 180])
+def test_rest_range_does_not_become_an_exact_scalar(wording, seconds):
+    assert not _numeric_supported("rest_seconds", seconds, wording)
+
+
+def test_exact_rest_survives_an_unrelated_range():
+    assert _numeric_supported("rest_seconds", 90, "8–12 reps, rest 90 seconds")
+    assert _numeric_supported("duration_seconds", 20, "20 sec work; rest 2–3 minutes")

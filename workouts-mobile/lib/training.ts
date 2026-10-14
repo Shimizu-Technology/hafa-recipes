@@ -76,6 +76,13 @@ export function trainingKey(owner: string, generation: number) {
   if (!owner || generation < 1) throw Error("A training draft needs an enrolled account generation.");
   return `hafa-workouts:training:v1:${encodeURIComponent(owner)}:${generation}`;
 }
+export function trackingPrescriptionWarning(workout: Workout): string | null {
+  const timedCircuit = workout.estimated_minutes != null && workout.blocks.some(block => block.grouping === "circuit");
+  if (!timedCircuit && (workout.provenance !== "source" || workout.kind === "exercise")) return null;
+  return workout.blocks.some(block => block.exercises.some(item => item.sets == null && block.rounds == null))
+    ? "This source does not specify fixed sets or rounds. Its instructions are saved; edit the tracking prescription before starting or adding it to a plan."
+    : null;
+}
 export function stepsFor(workout: Workout): TrainingStep[] {
   const steps: TrainingStep[] = [];
   for (const block of workout.blocks) {
@@ -313,6 +320,8 @@ export function createTrainingStore(
         if (s.active) throw Error("Finish or discard your current session before starting another.");
         if (workout.generation !== generation)
           throw Error("This workout belongs to an older account generation. Reload your library.");
+        const warning = trackingPrescriptionWarning(workout);
+        if (warning) throw Error(warning);
         const steps = stepsFor(workout);
         if (!steps.length) throw Error("Add at least one exercise before training.");
         s.active = {

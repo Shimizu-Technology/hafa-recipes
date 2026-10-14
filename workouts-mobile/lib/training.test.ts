@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   createTrainingStore,
   stepsFor,
+  trackingPrescriptionWarning,
   remainingSeconds,
   canonicalLoad,
   displayLoad,
@@ -341,5 +342,29 @@ describe("sync queue and local history size", () => {
     expect(ids).not.toContain("synced-20");
     await store.notes("");
     expect(JSON.parse(storage.data.get("hafa-workouts:training:v1:owner:1")!).history).toHaveLength(22);
+  });
+});
+
+
+describe("source circuits with open-ended rounds", () => {
+  it("keeps a 20-minute source flow out of the one-pass session default", async () => {
+    const workout = fixture();
+    workout.provenance = "source";
+    workout.estimated_minutes = 20;
+    workout.notes = ["Repeat this flow for 20 minutes; rest 2–3 minutes between rounds."];
+    workout.blocks[0].rounds = null;
+    workout.blocks[0].exercises.forEach(item => { item.sets = null; });
+    const storage = memory();
+    const store = createTrainingStore(storage, "source-qa", 1);
+    await store.load();
+    expect(trackingPrescriptionWarning(workout)).toMatch(/edit the tracking prescription/);
+    await expect(store.start(workout, { workout_id: workout.id, workout_revision: workout.revision }, "blocked"))
+      .rejects.toThrow(/fixed sets or rounds/);
+    expect(store.snapshot().active).toBeNull();
+    expect(workout.notes[0]).toContain("20 minutes");
+    workout.blocks[0].rounds = 3; // Explicitly confirmed adaptation, not an extracted guess.
+    expect(trackingPrescriptionWarning(workout)).toBeNull();
+    await store.start(workout, { workout_id: workout.id, workout_revision: workout.revision }, "confirmed");
+    expect(store.snapshot().active?.steps).toHaveLength(9);
   });
 });
