@@ -427,11 +427,12 @@ it("Library cards retain the source cover and creator while marking unresolved s
 });
 it("saved detail retains source metadata and prevents starting a source-only draft with no exercises", async () => {
   fixture.params = { id: "source-only" }; fixture.capabilities.mockResolvedValue(caps(false));
-  fixture.workout.mockResolvedValue({ ...saved, blocks: [], source_url: "https://example.test/source", source_title: "Original clip", source_creator: "Creator",
+  fixture.workout.mockResolvedValue({ ...saved, provenance: "source", blocks: [], source_url: "https://example.test/source", source_title: "Original clip", source_creator: "Creator",
     source_thumbnail_url: "https://example.test/cover.jpg", extraction_warnings: ["No readable instructions"] });
   await mount(WorkoutDetail);
-  expect(button("Start this workout")!.props.disabled).toBe(true);
-  await act(async () => button("Start this workout")!.props.onPress()); expect(fixture.push).not.toHaveBeenCalled();
+  expect(button("Start this workout")).toBeUndefined();
+  await act(async () => button("Recover workout instructions")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/recover-workout/[id]", params: { id: saved.id } });
   expect(nodes("SourceImage")[0].props.uri).toBe("https://example.test/cover.jpg");
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
   expect(text).toContain("No readable instructions"); expect(button("Check details")).toBeDefined();
@@ -709,4 +710,22 @@ it("keeps the original overall instructions visible during import review", async
   await mount(ImportReview);
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
   expect(text).toContain(job.result.workout.notes[0]);
+});
+
+it.each([1200, 125])("presents a %s-second AMRAP cap as authoritative over a separate estimate", async seconds => {
+  fixture.params = { id: saved.id }; fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.workout.mockResolvedValue({ ...saved, estimated_minutes: 25, blocks: [{ id: "flow", label: "Flow", grouping: "circuit",
+    execution: { mode: "amrap", time_cap_seconds: seconds }, exercises: [{ name: "Curls", reps_min: 10 }] }] });
+  await mount(WorkoutDetail);
+  expect(nodes("StatTile").find(n => n.props.label === "Estimated time")).toBeUndefined();
+  const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
+  expect(text).toContain(seconds === 1200 ? "20 min" : "2m 5s"); expect(text).toContain("AMRAP time cap");
+  expect(text).toContain("AMRAP"); expect(text).not.toContain("Rounds not specified");
+});
+it("gives an empty manual workout a usable add-exercises action", async () => {
+  fixture.params = { id: saved.id }; fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.workout.mockResolvedValue({ ...saved, blocks: [] }); await mount(WorkoutDetail);
+  expect(button("Start this workout")).toBeUndefined();
+  await act(async () => button("Add workout exercises")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: saved.id } });
 });
