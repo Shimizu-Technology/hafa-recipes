@@ -11,6 +11,7 @@ from sqlalchemy import and_, func, or_, select, text
 
 from app.config import get_settings
 from app.db.database import AsyncSessionLocal
+from app.media_lifecycle import acquire_recipe_media_lock
 from app.models.deletion import DeletionCleanupJob
 from app.services.clerk import ClerkBackendClient
 from app.services.storage import StorageCleanupError, storage_service
@@ -54,6 +55,10 @@ def is_allowed_cleanup_prefix(prefix: str) -> bool:
         return False
     if prefix.startswith("thumbnails/") and prefix[-1:] in {".", "/"}:
         recipe_id = prefix.removeprefix("thumbnails/")[:-1]
+        if recipe_id.startswith("workouts-"):
+            if not prefix.endswith("/"):
+                return False
+            recipe_id = recipe_id.removeprefix("workouts-")
         try:
             UUID(recipe_id)
         except (ValueError, TypeError):
@@ -307,7 +312,27 @@ class DurableDeletionCleanupWorker:
         failures = 0
         for prefix in prefixes:
             try:
-                await storage_service.delete_prefix(prefix)
+                if prefix.startswith("thumbnails/workouts-"):
+                    # Fence the asset even after account/product rows have been erased.
+                    identifier = UUID(prefix.removeprefix("thumbnails/workouts-").removesuffix("/"))
+                    async with AsyncSessionLocal() as db, db.begin():
+                        await acquire_recipe_media_lock(db, identifier)
+                        deletion = asyncio.create_task(storage_service.delete_prefix(prefix))
+                        try:
+                            await asyncio.shield(deletion)
+                        except asyncio.CancelledError:
+                            while not deletion.done():
+                                try:
+                                    await asyncio.shield(deletion)
+                                except asyncio.CancelledError:
+                                    continue
+                                except Exception:
+                                    break
+                            if deletion.done() and not deletion.cancelled():
+                                deletion.exception()
+                            raise
+                else:
+                    await storage_service.delete_prefix(prefix)
             except Exception as error:
                 failures += 1
                 capture_sanitized_cleanup_failure(error)

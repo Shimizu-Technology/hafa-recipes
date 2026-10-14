@@ -753,3 +753,95 @@ def test_chat_image_provider_url_is_short_lived_sigv4_on_the_regional_host(monke
         "stable-user",
     ) is None
     assert service.chat_image_provider_url(signed, "stable-user") is None
+
+
+@pytest.mark.parametrize("suffix", ["", "?token=private", "/extra"])
+def test_workout_cover_parser_excludes_private_and_noncanonical_objects(monkeypatch, suffix):
+    from uuid import UUID
+
+    from app.domains.workouts import source_media
+
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_bucket_name="recipe-images", aws_region="us-west-2", recipe_media_base_url=None
+        ),
+    )
+    identifier = UUID("00000000-0000-4000-8000-000000000047")
+    base = "https://recipe-images.s3.us-west-2.amazonaws.com/"
+    cover = f"{base}thumbnails/workouts-{identifier}/{'a' * 64}/hero.webp"
+    assert source_media.asset_id(cover + suffix) == (identifier if not suffix else None)
+    assert source_media.asset_id(f"{base}thumbnails/{identifier}/{'a' * 64}/hero.webp") is None
+    assert source_media.asset_id(f"{base}chat-images/owner/photo.png") is None
+    assert source_media.asset_id(cover.replace("recipe-images.s3", "evil.example.s3")) is None
+
+
+@pytest.mark.asyncio
+async def test_workout_public_cover_reuses_validated_immutable_variants(monkeypatch):
+    from uuid import UUID
+
+    from app.image_validation import validate_image_bytes
+
+    fake_s3 = RecordingS3()
+    monkeypatch.setattr(
+        storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            s3_enabled=True,
+            s3_bucket_name="recipe-images",
+            aws_region="us-west-2",
+            recipe_media_base_url=None,
+        ),
+    )
+    service = StorageService()
+    service._client = RecordingS3()
+    service._workouts_thumbnail_client = fake_s3
+    variants = await service.prepare_thumbnail_variants(
+        validate_image_bytes(_png_bytes("red"), max_bytes=storage.MAX_THUMBNAIL_BYTES)
+    )
+    identifier = UUID("00000000-0000-4000-8000-000000000047")
+    url = await service.store_prepared_workouts_thumbnail_variants_locked(variants, f"workouts-{identifier}")
+    assert len(fake_s3.puts) == 2 and url.endswith("/hero.webp")
+    assert service._client.puts == []
+    assert all(
+        item["Key"].startswith(f"thumbnails/workouts-{identifier}/") for item in fake_s3.puts
+    )
+    assert all(item["ContentType"] == "image/webp" for item in fake_s3.puts)
+    assert all(
+        item["CacheControl"] == "public, max-age=31536000, immutable" for item in fake_s3.puts
+    )
+
+
+def test_workout_preview_client_has_short_single_attempt_without_changing_recipes(monkeypatch):
+    clients = []
+    sessions = []
+
+    def create_client(service, **kwargs):
+        client = RecordingS3()
+        clients.append((service, kwargs["config"], client))
+        return client
+
+    monkeypatch.setattr(storage.boto3, "client", create_client)
+
+    def create_session():
+        sessions.append(True)
+        return SimpleNamespace(client=create_client)
+
+    monkeypatch.setattr(storage.boto3.session, "Session", create_session)
+    monkeypatch.setattr(storage, "get_settings", lambda: SimpleNamespace(
+        s3_enabled=True, aws_region="us-west-2", aws_access_key_id="test-key",
+        aws_secret_access_key="test-secret",
+    ))
+    service = StorageService()
+    recipe_client = service.client
+    preview_client = service.workouts_thumbnail_client
+    assert preview_client is not recipe_client
+    assert service.client is recipe_client and service.workouts_thumbnail_client is preview_client
+    assert len(clients) == 2 and all(name == "s3" for name, _, _ in clients)
+    assert sessions == [True]
+    recipe_profile, preview_profile = clients[0][1], clients[1][1]
+    assert (recipe_profile.connect_timeout, recipe_profile.read_timeout) == (5, 15)
+    assert recipe_profile.retries == {"max_attempts": 2}
+    assert (preview_profile.connect_timeout, preview_profile.read_timeout) == (2, 3)
+    assert preview_profile.retries == {"total_max_attempts": 1}

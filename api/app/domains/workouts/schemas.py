@@ -74,6 +74,7 @@ class WorkoutContent(DomainModel):
     capture_kind: Literal["url", "text", "images", "document", "shared"] | None = None
     source_creator: str | None = Field(default=None, max_length=200)
     source_title: str | None = Field(default=None, max_length=200)
+    source_thumbnail_url: str | None = Field(default=None, max_length=2000)
     equipment_required: list[str] = Field(default_factory=list, max_length=100)
     equipment_optional: list[str] = Field(default_factory=list, max_length=100)
     estimated_minutes: int | None = Field(default=None, ge=1, le=1440)
