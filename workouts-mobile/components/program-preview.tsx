@@ -1,7 +1,7 @@
 import { Card, Copy, Notice } from "./ui";
 import type { ProgramReceipt } from "@/lib/plans";
 import type { Workout } from "@/lib/models";
-import { blockSummary } from "@/lib/amrap-editor";
+import { amrapCap, blockSummary } from "@/lib/amrap-editor";
 export function PrescriptionPreview({ workout }: { workout: Workout }) {
   return (
     <>
@@ -17,7 +17,9 @@ export function PrescriptionPreview({ workout }: { workout: Workout }) {
             <Card key={index}>
               <Copy kind="heading">{e.name}</Copy>
               <Copy>
-                {e.sets == null ? "Sets not specified" : `${e.sets} sets`} ·{" "}
+                {(e.sets != null || amrapCap(block) == null) && <>
+                  {e.sets == null ? "Sets not specified" : `${e.sets} sets`} ·{" "}
+                </>}
                 {e.reps_min == null
                   ? "Reps not specified"
                   : e.reps_max != null && e.reps_max !== e.reps_min

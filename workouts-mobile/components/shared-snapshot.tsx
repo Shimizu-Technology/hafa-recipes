@@ -48,7 +48,7 @@ function WorkoutSummary({ workout }: { workout: AuthoredWorkout }) {
           </Copy>
           {block.exercises.map((e, index) => (
             <Copy key={index}>
-              {e.name} · {e.sets ?? "Unspecified"} sets · {e.reps_min ?? "Unspecified"}
+              {e.name} · {(e.sets != null || amrapCap(block) == null) ? `${e.sets ?? "Unspecified"} sets · ` : ""}{e.reps_min ?? "Unspecified"}
               {e.reps_max != null && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ""} reps
               {e.per_side ? " each side" : ""}
               {e.duration_seconds != null ? ` · ${e.duration_seconds}s` : ""}

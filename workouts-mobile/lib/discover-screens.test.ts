@@ -754,9 +754,11 @@ it.each(["import", "plan", "shared workout", "shared program", "discover"] as co
     const text = () => nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
     expect(text()).toContain("AMRAP · 20 min time cap");
     expect(text().toLowerCase()).not.toContain("rounds not specified");
+    expect(text().toLowerCase()).not.toMatch(/sets not specified|unspecified sets/);
 
     // An ordinary fixed-round prescription retains its existing presentation.
-    const fixed: Workout = { ...workout, blocks: [{ ...workout.blocks[0], execution: undefined, rounds: 3 }] };
+    const fixed: Workout = { ...workout, blocks: [{ ...workout.blocks[0], execution: undefined, rounds: 3,
+      exercises: [{ ...workout.blocks[0].exercises[0], sets: 2 }] }] };
     await act(async () => renderer!.unmount()); renderer = undefined;
     if (surface === "import") {
       const job = importJob("images"); fixture.importJob.mockResolvedValue({ ...job, result: { ...job.result, workout: fixed } });
@@ -770,4 +772,14 @@ it.each(["import", "plan", "shared workout", "shared program", "discover"] as co
       await mount(() => createElement(SharedSnapshot, { snapshot: fixedSnapshot }));
     }
     expect(text()).toContain("3 rounds"); expect(text()).not.toContain("AMRAP");
+    if (surface === "plan" || surface.startsWith("shared")) expect(text()).toContain("2 sets");
   });
+
+it.each([true, false])("plan previews keep explicit sets and only omit unspecified sets for AMRAP=%s", async timed => {
+  const workout: Workout = { ...saved, blocks: [{ id: "flow", label: "Main", grouping: "circuit",
+    ...(timed ? { execution: { mode: "amrap" as const, time_cap_seconds: 1200 } } : {}),
+    exercises: [{ name: "Swings", reps_min: 10, sets: 2 }, { name: "Squat", reps_min: 10 }] }] };
+  await mount(() => createElement(PrescriptionPreview, { workout }));
+  const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
+  expect(text).toContain("2 sets"); expect(text.includes("Sets not specified")).toBe(!timed);
+});
