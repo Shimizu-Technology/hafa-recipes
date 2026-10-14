@@ -8,9 +8,11 @@ import {
   displayLoad,
   canonicalHeight,
   displayHeight,
+  historicalStructureWarning,
   type TrainingStore,
 } from "./training";
 import type { Workout, ActualSet, TrainingSession } from "./models";
+import { timedCircuit, circuitRemaining, completedCircuitRounds } from "./timed-circuit";
 function fixture(): Workout {
   return {
     id: "workout",
@@ -381,4 +383,110 @@ describe("source circuits with open-ended rounds", () => {
     await store.start(workout, { workout_id: workout.id, workout_revision: workout.revision }, "mixed");
     expect(store.snapshot().active?.steps).toHaveLength(4);
   });
+});
+
+
+function amrap(exercises = 9, cap = 1200): Workout {
+  return { id: "amrap", revision: 1, generation: 1, title: "Full-body kettlebell circuit", kind: "session", provenance: "source",
+    blocks: [{ id: "circuit", label: "Circuit", grouping: "circuit", execution: { mode: "amrap", time_cap_seconds: cap },
+      exercises: Array.from({ length: exercises }, (_, index) => ({ name: `Movement ${index + 1}`, reps_min: 10, per_side: index === 0 })) }] };
+}
+async function timedStore(workout = amrap()) {
+  let time = 10000;
+  const storage = memory(), store = createTrainingStore(storage, "owner", 1, () => time);
+  await store.load(); await store.start(workout, { workout_id: workout.id, workout_revision: 1 }, "timed-client");
+  await store.activityType("strength_training");
+  return { store, storage, setTime(value: number) { time = value; }, time: () => time };
+}
+it("typed AMRAP execution needs no caption parsing, duration estimate or inferred fixed rounds", () => {
+  for (const provenance of ["source", "user", "suggestion"] as const) {
+    const workout = { ...amrap(), provenance, notes: ["Arbitrary creator wording"] };
+    expect(timedCircuit(workout)?.time_cap_seconds).toBe(1200);
+    expect(workout.blocks[0].rounds).toBeUndefined();
+    expect(workout.blocks[0].exercises.every((exercise) => exercise.sets == null)).toBe(true);
+  }
+  const ambiguous = amrap(); ambiguous.blocks.push({ ...ambiguous.blocks[0], id: "second" });
+  expect(timedCircuit(ambiguous)).toBeNull();
+});
+it.each(["AMRAP for 20 minutes", "Repeat this circuit for 20 minutes", "As many rounds as possible for 20 minutes"])(
+  "recovers an explicit legacy source circuit: %s", (notes) => {
+    const workout = amrap(); delete workout.blocks[0].execution;
+    workout.notes = [notes]; workout.estimated_minutes = 20;
+    expect(timedCircuit(workout)?.time_cap_seconds).toBe(1200);
+  });
+it.each(["20 minute full-body workout", "Not an AMRAP for 20 minutes", "Don't use AMRAP for 20 minutes", "AMRAP is not used for 20 minutes",
+  "EMOM for 20 minutes", "Repeat the circuit for 10 minutes then 20 minutes", "AMRAP without a time cap"])(
+  "never guesses timed execution from ambiguous or negated legacy instructions: %s", (notes) => {
+    const workout = amrap(); delete workout.blocks[0].execution;
+    workout.notes = [notes]; workout.estimated_minutes = 20;
+    expect(timedCircuit(workout)).toBeNull();
+  });
+it("logs nine exercises as repeatable rounds, preserves sides, undoes without duplicating cells, and never changes source", async () => {
+  const workout = amrap(), before = JSON.stringify(workout);
+  const { store } = await timedStore(workout);
+  for (let cell = 0; cell < 10; cell++) await store.log(next(store));
+  expect(store.snapshot().active!.steps).toHaveLength(20);
+  expect(store.snapshot().active!.steps[10].round_index).toBe(2);
+  expect(completedCircuitRounds(store.snapshot().active!.actuals, 10)).toBe(1);
+  await store.undo(); expect(store.snapshot().active!.cursor).toBe(9);
+  await store.log(next(store)); expect(store.snapshot().active!.steps).toHaveLength(20);
+  for (let cell = 0; cell < 10; cell++) await store.log(next(store));
+  const draft = store.snapshot().active!;
+  expect(new Set(draft.actuals.map((actual) => JSON.stringify([actual.round_index, actual.exercise_index, actual.side]))).size).toBe(20);
+  expect(completedCircuitRounds(draft.actuals, 10)).toBe(2);
+  expect(historicalStructureWarning(workout, draft.actuals)).toBeNull();
+  expect(draft.undo).toEqual([]); // Repeatable cells do not retain growing copies of prior actuals.
+  expect(JSON.stringify(workout)).toBe(before);
+  await expect(store.addSet()).rejects.toThrow("repeats whole rounds");
+  await expect(store.finish("completed")).rejects.toThrow("Reach the source time cap");
+});
+it("pauses background time, restores at the durable checkpoint, and resumes the remaining cap", async () => {
+  const { store, storage, setTime, time } = await timedStore();
+  setTime(12000); await store.log(next(store));
+  setTime(15000); await store.pause(true);
+  setTime(70000); expect(circuitRemaining(store.snapshot().active!, time())).toBe(1195);
+  await expect(store.log(next(store))).rejects.toThrow("Resume the circuit");
+  await store.pause(false);
+  setTime(90000); await store.checkpoint();
+  setTime(180000);
+  const restored = createTrainingStore(storage, "owner", 1, time); await restored.load();
+  expect(restored.snapshot().active!.paused).toBe(true);
+  expect(circuitRemaining(restored.snapshot().active!, time())).toBe(1175);
+  await restored.pause(false);
+  setTime(190000); expect(circuitRemaining(restored.snapshot().active!, time())).toBe(1165);
+});
+it("time-cap expiry stops the timer but saves nothing until explicit completion with recorded work", async () => {
+  const { store, setTime } = await timedStore();
+  await store.log(next(store));
+  setTime(1220000); await store.checkpoint(); // Twenty minutes plus ten seconds after the start.
+  const draft = store.snapshot().active!;
+  expect(circuitRemaining(draft)).toBe(0); expect(draft.paused).toBe(true);
+  expect(draft.active_milliseconds).toBe(1200000);
+  expect(store.snapshot().history).toEqual([]);
+  await store.finish("completed");
+  const saved = store.snapshot().history[0];
+  expect(saved.request.status).toBe("completed"); expect(saved.request.active_seconds).toBe(1200);
+  expect(saved.request.actuals).toHaveLength(1); // An unfinished last round does not invent work.
+  expect(saved.request.active_intervals).toEqual([{ started_at: new Date(10000).toISOString(), ended_at: new Date(1210000).toISOString() }]);
+});
+it("elapsed time alone cannot complete a circuit and deliberate early/skip finishes remain partial", async () => {
+  const empty = await timedStore(); empty.setTime(1210000); await empty.store.checkpoint();
+  await expect(empty.store.finish("completed")).rejects.toThrow("recorded work");
+  expect(empty.store.snapshot().history).toEqual([]);
+  const early = await timedStore(); await early.store.log(next(early.store)); early.setTime(70000);
+  await early.store.finish("partial");
+  expect(early.store.snapshot().history[0].request).toMatchObject({ status: "partial", active_seconds: 60 });
+  const skipped = await timedStore(); await skipped.store.log({ ...next(skipped.store), completed: false });
+  await skipped.store.log(next(skipped.store)); skipped.setTime(1210000); await skipped.store.checkpoint();
+  await expect(skipped.store.finish("completed")).rejects.toThrow("Skipped work");
+  await skipped.store.finish("partial"); expect(skipped.store.snapshot().history[0].request.status).toBe("partial");
+});
+it("bounds dynamic rounds and actuals honestly, stopping at 100 rounds/1000 cells with partial recovery", async () => {
+  const { store, setTime } = await timedStore(); // Nine exercises, one performed on both sides = ten cells per round.
+  for (let cell = 0; cell < 1000; cell++) await store.log(next(store));
+  const draft = store.snapshot().active!;
+  expect(draft.actuals).toHaveLength(1000); expect(draft.steps).toHaveLength(1000);
+  expect(draft.timed_circuit!.limit_reached).toBe(true); expect(draft.steps.at(-1)!.round_index).toBe(100);
+  setTime(1210000); await expect(store.finish("completed")).rejects.toThrow("partial session");
+  await store.finish("partial"); expect(store.snapshot().history[0].request.actuals).toHaveLength(1000);
 });

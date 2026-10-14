@@ -1,5 +1,6 @@
 import type { ActualSet, Workout, SessionRequest, TrainingSession, ExercisePrescription } from "./models";
 import type { Storage } from "./drafts";
+import { timedCircuit, circuitRemaining } from "./timed-circuit";
 export type UnitSystem = "metric" | "imperial";
 export type SessionSource =
   | { workout_id: string; workout_revision: number }
@@ -36,6 +37,7 @@ export interface SessionDraft {
   active_intervals?: Array<{ started_at: string; ended_at: string }>;
   checkpoint_at: number;
   activity_type: string | null;
+  timed_circuit?: { time_cap_seconds: number; round_size: number; limit_reached?: boolean };
   undo: Array<{ actuals: ActualSet[]; cursor: number }>;
 }
 export interface SavedLocalSession {
@@ -77,6 +79,9 @@ export function trainingKey(owner: string, generation: number) {
   return `hafa-workouts:training:v1:${encodeURIComponent(owner)}:${generation}`;
 }
 export function trackingPrescriptionWarning(workout: Workout): string | null {
+  if (timedCircuit(workout)) return null;
+  if (workout.blocks.some((block) => block.execution))
+    return "Tracking currently supports one AMRAP circuit per session. Separate additional blocks or review the execution details before starting.";
   const sourceSession = workout.provenance === "source" && workout.kind !== "exercise";
   return workout.blocks.some(block =>
     (sourceSession || workout.estimated_minutes != null && block.grouping === "circuit") &&
@@ -135,7 +140,7 @@ export function historicalStructureWarning(workout: Workout, actuals: ActualSet[
     const block = workout.blocks.find((b) => b.id === actual.block_id);
     const exercise = block?.exercises[actual.exercise_index];
     if (!block || !exercise) return true;
-    return (actual.round_index ?? 1) > (block.rounds ?? 1) || actual.set_index > (exercise.sets ?? 1) ||
+    return (!timedCircuit(workout) && (actual.round_index ?? 1) > (block.rounds ?? 1)) || actual.set_index > (exercise.sets ?? 1) ||
       (exercise.per_side ? actual.side !== "left" && actual.side !== "right" : actual.side != null && actual.side !== "both");
   });
   return outsidePrescription ?
@@ -205,7 +210,9 @@ export function summaryOf(actual: ActualSet) {
 }
 function closeActive(d: SessionDraft, now: number) {
   if (d.active_started_at == null) return;
-  const end = Math.max(d.active_started_at, now);
+  const capEnd = d.timed_circuit ? d.active_started_at + Math.max(0,
+    d.timed_circuit.time_cap_seconds * 1000 - d.active_milliseconds) : Infinity;
+  const end = Math.max(d.active_started_at, Math.min(now, capEnd));
   if (end > d.active_started_at && d.active_intervals)
     d.active_intervals.push({
       started_at: new Date(d.active_started_at).toISOString(),
@@ -233,6 +240,12 @@ export function createTrainingStore(
         if (!loaded) throw Error("Wait for your saved training to load.");
         const next = work(clone(state));
         next.history = pruneHistory(next.history);
+        if (next.active?.timed_circuit && !next.active.paused && circuitRemaining(next.active, clock()) === 0) {
+          closeActive(next.active, clock());
+          next.active.paused = true;
+          next.active.rest_until = null;
+          next.active.interval_started_at = null;
+        }
         if (next.active)
           next.active.checkpoint_at = Math.max(clock(), next.active.checkpoint_at, next.active.active_started_at ?? 0);
         await storage.setItem(key, JSON.stringify(next));
@@ -324,6 +337,7 @@ export function createTrainingStore(
         const warning = trackingPrescriptionWarning(workout);
         if (warning) throw Error(warning);
         const steps = stepsFor(workout);
+        const execution = timedCircuit(workout);
         if (!steps.length) throw Error("Add at least one exercise before training.");
         s.active = {
           id,
@@ -345,6 +359,9 @@ export function createTrainingStore(
           active_intervals: [],
           checkpoint_at: now,
           activity_type: null,
+          ...(execution ? { timed_circuit: {
+            time_cap_seconds: execution.time_cap_seconds, round_size: steps.length,
+          } } : {}),
         };
         return s;
       });
@@ -355,6 +372,8 @@ export function createTrainingStore(
         if (!d) throw Error("No session is active.");
         const warning = draftStructureWarning(d);
         if (warning) throw Error(warning);
+        if (d.timed_circuit && d.paused && circuitRemaining(d, now) !== 0)
+          throw Error("Resume the circuit before logging more work.");
         const step = d.steps[d.cursor];
         if (
           !step ||
@@ -369,11 +388,20 @@ export function createTrainingStore(
           throw Error("This round, set and side already has a recorded result. Undo it before recording again.");
         const errors = actualErrors(actual);
         if (errors.length) throw Error(errors.join(" "));
-        d.undo.push({ actuals: clone(d.actuals), cursor: d.cursor });
+        if (!d.timed_circuit) d.undo.push({ actuals: clone(d.actuals), cursor: d.cursor });
         d.actuals.push(clone(actual));
         d.cursor++;
         d.input = {};
         d.interval_started_at = null;
+        if (d.timed_circuit && d.cursor === d.steps.length && circuitRemaining(d, now)! > 0) {
+          const round = step.round_index + 1;
+          if (round <= 100 && d.steps.length + d.timed_circuit.round_size <= 1000) {
+            d.steps.push(...d.steps.slice(0, d.timed_circuit.round_size).map((first) => {
+              const repeated = { ...clone(first), round_index: round };
+              return { ...repeated, key: actualIdentity(repeated) };
+            }));
+          } else d.timed_circuit.limit_reached = true;
+        }
         const next = d.steps[d.cursor];
         const betweenRounds = next?.block_id === step.block_id && next.round_index !== step.round_index;
         const block = d.workout.blocks.find((b) => b.id === step.block_id);
@@ -387,6 +415,15 @@ export function createTrainingStore(
     undo() {
       return update((s) => {
         const d = s.active;
+        if (d?.timed_circuit) {
+          if (!d.actuals.length) throw Error("There is no set to undo.");
+          d.actuals.pop();
+          d.cursor--;
+          d.input = {};
+          d.rest_until = null;
+          d.interval_started_at = null;
+          return s;
+        }
         const prior = d?.undo.pop();
         if (!d || !prior) throw Error("There is no set to undo.");
         d.actuals = prior.actuals;
@@ -403,6 +440,9 @@ export function createTrainingStore(
         else s.active.interval_started_at = seconds === 0 ? null : now;
         return s;
       });
+    },
+    checkpoint() {
+      return update((s) => s);
     },
     pause(paused: boolean, now = clock()) {
       return update((s) => {
@@ -458,6 +498,7 @@ export function createTrainingStore(
         if (!d) throw Error("No session is active.");
         const warning = draftStructureWarning(d);
         if (warning) throw Error(warning);
+        if (d.timed_circuit) throw Error("This timed circuit repeats whole rounds. Extra fixed sets would change its instructions.");
         const previous = d.steps[Math.min(d.cursor, d.steps.length - 1)];
         if (!previous) throw Error("Choose an exercise first.");
         const set = Math.max(...d.steps.filter((x) =>
@@ -490,8 +531,14 @@ export function createTrainingStore(
         const d = s.active;
         if (!d) throw Error("No session is active.");
         if (status === "completed" && draftStructureWarning(d)) throw Error("Older set numbering needs review. Keep this result as a partial session.");
-        if (status === "completed" && (d.cursor !== d.steps.length || d.actuals.some((a) => !a.completed)))
-          throw Error("Some sets were not completed. Save this as a partial session.");
+        if (status === "completed") {
+          if (d.timed_circuit) {
+            if (circuitRemaining(d, now)! > 0 || d.timed_circuit.limit_reached || !d.actuals.some((a) => a.completed))
+              throw Error("Reach the source time cap with recorded work, or save this as a partial session.");
+          } else if (d.cursor !== d.steps.length)
+            throw Error("Some sets were not completed. Save this as a partial session.");
+          if (d.actuals.some((a) => !a.completed)) throw Error("Skipped work stays partial. Save this as a partial session.");
+        }
         if (!d.activity_type) throw Error("Choose the activity type before saving.");
         if (!d.actuals.length) throw Error("Log at least one set, or discard the session.");
         now = Math.max(now, d.checkpoint_at);
