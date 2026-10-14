@@ -12,11 +12,14 @@ enum WorkoutsShareStore {
   static let installationKey = "workouts.share.installation"
   static let staging = "workouts.share.staging.v1"
   static func locked<T>(_ operation: (WorkoutsShareDefaults) throws -> T) rethrows -> T? {
-    try withLock { defaults, container -> T? in
-      guard let state = try? WorkoutsShareDefaults(defaults: defaults, container: container) else { return nil }
-      defer { _ = state.synchronize() }
-      return try operation(state)
-    } ?? nil
+    try withLock { try withJournal($0, $1, operation) } ?? nil
+  }
+  static func withJournal<T>(_ defaults: UserDefaults, _ container: URL,
+    _ operation: (WorkoutsShareDefaults) throws -> T) rethrows -> T? {
+    guard let state = try? WorkoutsShareDefaults(defaults: defaults, container: container) else { return nil }
+    // Writers commit their own exact boundaries. Never retry a dirty journal
+    // after a thrown error or a false/nil result.
+    return try operation(state)
   }
   static func withLock<T>(_ operation: (UserDefaults, URL) throws -> T) rethrows -> T? {
     guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group),
@@ -128,6 +131,9 @@ enum WorkoutsShareStore {
       }
       d.removeObject(forKey: key + ".stage")
       d.set((d.stringArray(forKey: staging) ?? []).filter { $0 != key }, forKey: staging)
+      // The capture is already committed. Failed staging cleanup leaves both
+      // receipts on disk for reconciliation, with its completed files protected.
+      _ = d.synchronize()
       return capture["isPublic"] as? Bool ?? false
     } ?? nil
   }
@@ -276,18 +282,26 @@ final class WorkoutsShareDefaults {
   @discardableResult func synchronize() -> Bool {
     _ = defaults.synchronize()
     guard dirty else { return true }
+    let temporary = journalURL.appendingPathExtension("tmp")
     do {
       let data = try PropertyListSerialization.data(fromPropertyList: ["version": 1, "receipts": values], format: .binary, options: 0)
+      // This exact temporary path is exclusively ours under the shared flock.
+      // Replacing an interrupted write must not leave account metadata orphaned.
+      if FileManager.default.fileExists(atPath: temporary.path) { try FileManager.default.removeItem(at: temporary) }
+      let fd = open(temporary.path, O_CREAT | O_EXCL | O_RDWR, mode_t(0o600))
+      guard fd >= 0 else { return false }
+      let file = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+      defer { try? file.close(); try? FileManager.default.removeItem(at: temporary) }
       #if os(iOS)
-      try data.write(to: journalURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-      #else
-      try data.write(to: journalURL, options: .atomic)
+      try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: temporary.path)
       #endif
-      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journalURL.path)
-      let file = try FileHandle(forWritingTo: journalURL)
-      defer { try? file.close() }
-      try file.synchronize()
-      guard try Data(contentsOf: journalURL) == data else { return false }
+      try file.write(contentsOf: data)
+      guard fcntl(fd, F_FULLFSYNC) == 0, try Data(contentsOf: temporary) == data,
+        rename(temporary.path, journalURL.path) == 0 else { return false }
+      let directory = open(journalURL.deletingLastPathComponent().path, O_RDONLY)
+      guard directory >= 0 else { return false }
+      defer { close(directory) }
+      guard fsync(directory) == 0 else { return false }
       dirty = false
       return true
     } catch { return false }

@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { execFileSync } from "node:child_process";
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -174,3 +175,120 @@ describe("native account changes", () => {
     await revokeNativeSharing(); expect(clearSession).toHaveBeenCalled();
   });
 });
+
+// Extend the existing native share tests; Linux CI skips the Apple compiler.
+it.skipIf(process.platform !== "darwin")("executes durable journal migration, recovery and failure fixtures", () => {
+  const directory = mkdtempSync(join(tmpdir(), "hafa-workouts-journal-"));
+  try {
+    writeFileSync(join(directory, "main.swift"), String.raw`import Foundation
+// Reproduce the pre-provider failure with a preference flush that reports
+// failure. The journal must commit the receipt before reporting success,
+// independently of cfprefsd's cache, and survive a separate reader/restart.
+final class FailedFlushDefaults: UserDefaults {
+    override func synchronize() -> Bool { false }
+}
+let workoutSuite = "hafa-workout-journal-tests.\(UUID().uuidString)"
+let failedFlush = FailedFlushDefaults(suiteName: workoutSuite)!
+let container = FileManager.default.temporaryDirectory.appendingPathComponent(workoutSuite)
+try FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)
+defer {
+    failedFlush.removePersistentDomain(forName: workoutSuite)
+    try? FileManager.default.removeItem(at: container)
+}
+let workoutA = "hafaworkoutsShareKey.\(UUID().uuidString)"
+let workoutB = "hafaworkoutsShareKey.\(UUID().uuidString)"
+let malformed = "hafaworkoutsShareKey.\(UUID().uuidString)"
+let expired = "hafaworkoutsShareKey.\(UUID().uuidString)"
+let sessionA: [String: Any] = ["ownerId": "owner-a", "generation": 2,
+    "accountScopeId": "scope-a", "isPublic": false]
+let captureA: [String: Any] = ["captureId": "capture-a", "url": "https://example.com/a",
+    "ownerId": "owner-a", "generation": 2, "isPublic": false, "files": [[String: Any]]()]
+failedFlush.set([workoutA], forKey: WorkoutsShareStore.pending)
+failedFlush.set(captureA, forKey: workoutA + ".capture")
+failedFlush.set(sessionA, forKey: WorkoutsShareStore.sessionKey)
+failedFlush.set("original-installation", forKey: WorkoutsShareStore.installationKey)
+failedFlush.set([malformed, expired], forKey: WorkoutsShareStore.staging)
+failedFlush.set(["paths": ["file:///unrelated/must-remain"], "ownerId": "owner-a"], forKey: malformed + ".stage")
+failedFlush.set(["createdAt": 0.0, "paths": ["file:///unrelated/must-remain"], "ownerId": "owner-a"], forKey: expired + ".stage")
+failedFlush.set("never-migrate-a-token", forKey: "unrelated-secret")
+assert(failedFlush.synchronize() == false) // build 11's beginStage returned this.
+let journal = try WorkoutsShareDefaults(defaults: failedFlush, container: container)
+assert(WorkoutsShareStore.beginStage(workoutB, journal))
+let reopened = try WorkoutsShareDefaults(defaults: failedFlush, container: container)
+assert(reopened.dictionary(forKey: workoutA + ".capture")?["captureId"] as? String == "capture-a")
+assert(reopened.stringArray(forKey: WorkoutsShareStore.pending) == [workoutA])
+assert(reopened.string(forKey: WorkoutsShareStore.installationKey) == "original-installation")
+assert(reopened.dictionary(forKey: workoutB + ".stage")?["ownerId"] as? String == "owner-a")
+assert(reopened.dictionary(forKey: workoutB + ".stage")?["generation"] as? Int == 2)
+assert(reopened.dictionary(forKey: workoutB + ".stage")?["isPublic"] as? Bool == false)
+assert(reopened.dictionary(forKey: malformed + ".stage") != nil)
+assert(reopened.dictionary(forKey: expired + ".stage") != nil)
+assert(failedFlush.dictionary(forKey: workoutA + ".capture") != nil) // migration preserves originals
+let journalURL = container.appendingPathComponent(WorkoutsShareDefaults.journalName)
+let persisted = try Data(contentsOf: journalURL)
+let plist = try PropertyListSerialization.propertyList(from: persisted, format: nil) as! [String: Any]
+assert((plist["receipts"] as! [String: Any])["unrelated-secret"] == nil)
+let journalAttributes = try FileManager.default.attributesOfItem(atPath: journalURL.path)
+assert(journalAttributes[.posixPermissions] as? Int == 0o600)
+// Account B affects only later captures; A's receipt/privacy never changes.
+reopened.set(["ownerId": "owner-b", "generation": 4, "accountScopeId": "scope-b", "isPublic": true], forKey: WorkoutsShareStore.sessionKey)
+assert(reopened.synchronize())
+let workoutC = "hafaworkoutsShareKey.\(UUID().uuidString)"
+assert(WorkoutsShareStore.beginStage(workoutC, reopened))
+let rotated = try WorkoutsShareDefaults(defaults: failedFlush, container: container)
+assert(rotated.dictionary(forKey: workoutB + ".stage")?["ownerId"] as? String == "owner-a")
+assert(rotated.dictionary(forKey: workoutC + ".stage")?["ownerId"] as? String == "owner-b")
+// Exercise the same journal operation boundary used under the native flock.
+// A rejected operation must never publish dirty scope or receipt state.
+enum Rejected: Error { case operation }
+do {
+    _ = try WorkoutsShareStore.withJournal(failedFlush, container) { state -> Bool in
+        state.set(["ownerId": "rejected-owner"], forKey: WorkoutsShareStore.sessionKey)
+        throw Rejected.operation
+    }
+    assertionFailure("The rejected operation must throw")
+} catch Rejected.operation {}
+let rejectedKey = "hafaworkoutsShareKey.\(UUID().uuidString)"
+assert(WorkoutsShareStore.withJournal(failedFlush, container) { state in
+    state.set(["paths": [String]()], forKey: rejectedKey + ".stage")
+    return false
+} == false)
+let afterRejection = try WorkoutsShareDefaults(defaults: failedFlush, container: container)
+assert(afterRejection.dictionary(forKey: WorkoutsShareStore.sessionKey)?["ownerId"] as? String == "owner-b")
+assert(afterRejection.dictionary(forKey: rejectedKey + ".stage") == nil)
+assert(WorkoutsShareStore.acknowledge(workoutA, rotated))
+let acknowledged = try WorkoutsShareDefaults(defaults: failedFlush, container: container)
+assert(acknowledged.dictionary(forKey: workoutA + ".capture") == nil)
+assert(acknowledged.dictionary(forKey: workoutB + ".stage") != nil)
+assert(acknowledged.dictionary(forKey: workoutC + ".stage") != nil)
+// A failed actual file commit must never become a "saved" confirmation.
+let savedURL = container.appendingPathComponent("saved.plist")
+try FileManager.default.moveItem(at: journalURL, to: savedURL)
+try FileManager.default.createDirectory(at: journalURL, withIntermediateDirectories: false)
+let refused = "hafaworkoutsShareKey.\(UUID().uuidString)"
+assert(!WorkoutsShareStore.beginStage(refused, acknowledged))
+let savedBeforeFailure = try Data(contentsOf: savedURL)
+assert(savedBeforeFailure != persisted) // contains the exact acknowledgement/account rotation
+try FileManager.default.removeItem(at: journalURL)
+try FileManager.default.moveItem(at: savedURL, to: journalURL)
+let retry = try WorkoutsShareDefaults(defaults: failedFlush, container: container)
+assert(retry.dictionary(forKey: refused + ".stage") == nil)
+assert(WorkoutsShareStore.beginStage(refused, retry))
+// Existing unreadable/corrupt journals fail closed instead of overwriting
+// queued sources with stale preferences or a new account.
+let beforeCorruption = try Data(contentsOf: journalURL)
+try Data("corrupt".utf8).write(to: journalURL)
+do {
+    _ = try WorkoutsShareDefaults(defaults: failedFlush, container: container)
+    assertionFailure("A corrupt journal must not be replaced")
+} catch {}
+let corruptData = try Data(contentsOf: journalURL)
+assert(corruptData == Data("corrupt".utf8))
+try beforeCorruption.write(to: journalURL)
+print("Workouts native journal fixtures passed: failed preference flush, migration, recovery, account isolation, exact ack and failed write")
+`);
+    const binary = join(directory, "test");
+    execFileSync("xcrun", ["swiftc", new URL("../modules/hafa-workouts-share/ios/HafaWorkoutsShareStore.swift", import.meta.url).pathname, join(directory, "main.swift"), "-o", binary], { timeout: 60000 });
+    expect(execFileSync(binary, { encoding: "utf8", timeout: 10000 })).toContain("Workouts native journal fixtures passed");
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+}, 90000);
