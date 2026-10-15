@@ -1,3 +1,4 @@
+import { WorkoutInstructions } from "./workout-instructions";
 import { Card, Copy, Notice } from "./ui";
 import type { ProgramReceipt } from "@/lib/plans";
 import type { Workout } from "@/lib/models";
@@ -5,6 +6,7 @@ import { amrapCap, blockSummary } from "@/lib/amrap-editor";
 export function PrescriptionPreview({ workout }: { workout: Workout }) {
   return (
     <>
+      <WorkoutInstructions instructions={workout.instructions} notes={workout.notes} />
       {workout.blocks.map((block) => (
         <Card key={block.id}>
           <Copy kind="label">
@@ -38,7 +40,8 @@ export function PrescriptionPreview({ workout }: { workout: Workout }) {
               {e.rest_seconds != null && <Copy>{e.rest_seconds}s rest</Copy>}
               {!!e.tempo && <Copy>Tempo · {e.tempo}</Copy>}
               {!!e.effort && <Copy>Effort · {e.effort}</Copy>}
-              {!!e.notes && <Copy>{e.notes}</Copy>}
+              {!!e.instructions && <Copy>{e.instructions}</Copy>}
+              {!!e.notes && <Copy>Private note · {e.notes}</Copy>}
               <Copy kind="small">{e.provenance ?? workout.provenance} prescription</Copy>
             </Card>
           ))}

@@ -1,3 +1,4 @@
+import { WorkoutInstructions } from "@/components/workout-instructions";
 import { useReminders } from "@/components/reminders-provider";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
@@ -272,6 +273,7 @@ export default function Training() {
           )}
         </>
       )}
+      <WorkoutInstructions instructions={d.workout.instructions} />
       {timed && <Card tone="hero">
         <Copy kind="caption" tone="accent">{formatClock(timed.time_cap_seconds)} source time cap</Copy>
         <Copy kind="numeric">{formatClock(capRemaining ?? 0)}</Copy>
@@ -321,7 +323,8 @@ export default function Training() {
                 {!!e.effort && <Chip label={`Effort ${e.effort}`} />}
               </ChipRow>
             )}
-            {!!e.notes && <Copy tone="muted">{e.notes}</Copy>}
+            {!!e.instructions && <Copy tone="muted">{e.instructions}</Copy>}
+            {!!e.notes && <Copy tone="muted">Private note · {e.notes}</Copy>}
             {!!d.workout.source_url && (
               <ListRow
                 icon="play-circle-outline"

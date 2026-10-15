@@ -406,7 +406,7 @@ export default function ImportReview() {
                 ) : (
                   <>
                     <SectionHeader title={hasExercises ? workout.title : "No exercises were extracted"} />
-                    <WorkoutInstructions notes={workout.notes} />
+                    <WorkoutInstructions instructions={workout.instructions} notes={workout.notes} />
                     {hasExercises && <ChipRow wrap>
                       {workout.equipment_required?.length ? (
                         workout.equipment_required.map((item) => <Chip key={item} label={item} icon="barbell-outline" />)
@@ -426,7 +426,8 @@ export default function ImportReview() {
                             <Copy kind="label">{e.name}</Copy>
                             {" · "}
                             <Copy>{prescriptionLine(e)}</Copy>
-                            {e.notes ? <Copy kind="small">{"\n"}{e.notes}</Copy> : null}
+                            {e.instructions ? <Copy kind="small">{"\n"}{e.instructions}</Copy> : null}
+                      {e.notes ? <Copy kind="small">{"\n"}Private note · {e.notes}</Copy> : null}
                           </Copy>
                         ))}
                       </Card>

@@ -695,7 +695,7 @@ it("shows source-wide instructions and review action instead of starting a one-p
   fixture.capabilities.mockResolvedValue(caps(false));
   const quote = "Keep repeating for 20 minutes. Rest two to three minutes between flows.";
   fixture.workout.mockResolvedValue({ ...saved, provenance: "source", estimated_minutes: 20,
-    notes: [quote], blocks: [{ id: "flow", label: "Kettlebell flow", grouping: "circuit",
+    instructions: [quote], notes: ["Private owner note"], blocks: [{ id: "flow", label: "Kettlebell flow", grouping: "circuit",
       exercises: [{ name: "Curls", provenance: "source", reps_min: 10, reps_max: 10 }] }] });
   await mount(WorkoutDetail);
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
@@ -710,11 +710,11 @@ it("keeps the original overall instructions visible during import review", async
   fixture.params = { id: "job" };
   fixture.capabilities.mockResolvedValue(caps(false));
   const job = importJob("url", "incomplete");
-  job.result.workout.notes = ["20min AMRAP: repeat four moves for 20min"];
+  job.result.workout.instructions = ["20min AMRAP: repeat four moves for 20min"];
   fixture.importJob.mockResolvedValue(job);
   await mount(ImportReview);
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
-  expect(text).toContain(job.result.workout.notes[0]);
+  expect(text).toContain(job.result.workout.instructions[0]);
 });
 
 it.each([1200, 125])("presents a %s-second AMRAP cap as authoritative over a separate estimate", async seconds => {
@@ -737,9 +737,9 @@ it("gives an empty manual workout a usable add-exercises action", async () => {
 
 it.each(["import", "plan", "shared workout", "shared program", "discover"] as const)(
   "%s presents typed AMRAP execution without relying on an estimate or written notes", async surface => {
-    const workout: Workout = { ...saved, title: "Source circuit", estimated_minutes: null, notes: [], blocks: [
+    const workout: Workout = { ...saved, title: "Source circuit", estimated_minutes: null, instructions: ["Rest after each round"], notes: [], blocks: [
       { id: "flow", label: "Main", grouping: "circuit", execution: { mode: "amrap", time_cap_seconds: 1200 },
-        exercises: [{ name: "Swings", reps_min: 10 }] },
+        exercises: [{ name: "Swings", reps_min: 10, instructions: "Keep your back steady" }] },
     ] };
     const snapshot: ShareSnapshot = { kind: surface === "shared program" ? "program" : "workout",
       content: surface === "shared program" ? { title: "Source plan", sessions: [{ sequence: 1, day_offset: 0, workout }], notice: "Review this plan" } : workout,
@@ -755,6 +755,8 @@ it.each(["import", "plan", "shared workout", "shared program", "discover"] as co
     } else await mount(() => createElement(SharedSnapshot, { snapshot }));
     const text = () => nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
     expect(text()).toContain("AMRAP · 20 min time cap");
+    expect(text()).toContain("Rest after each round");
+    expect(text()).toContain("Keep your back steady");
     expect(text().toLowerCase()).not.toContain("rounds not specified");
     expect(text().toLowerCase()).not.toMatch(/sets not specified|unspecified sets/);
 

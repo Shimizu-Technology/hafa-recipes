@@ -147,7 +147,8 @@ def project_workout(raw, *, include_source_url=False):
             "equipment_required",
             "equipment_optional",
             "estimated_minutes",
-        )
+            "instructions",
+        ) if key in source_data
     }
     projected.update(
         id=None,
@@ -186,10 +187,11 @@ def project_workout(raw, *, include_source_url=False):
                     "distance_meters",
                     "rest_seconds",
                     "tempo",
+                    "instructions",
                     "load",
                     "load_unit",
                     "load_convention",
-                )
+                ) if key in exercise
             }
             for exercise in source_block["exercises"]
         ]

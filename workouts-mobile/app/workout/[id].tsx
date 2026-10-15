@@ -233,7 +233,7 @@ export default function WorkoutDetail() {
           />
         ) : (
           <>
-            <WorkoutInstructions notes={workout.notes} />
+            <WorkoutInstructions instructions={workout.instructions} notes={workout.notes} />
             {!!workout.equipment_required?.length && (
               <ChipRow wrap label="Equipment">
                 {workout.equipment_required.map((item) => (
@@ -267,7 +267,8 @@ export default function WorkoutDetail() {
                       {e.name}
                       {"\n"}
                       <Copy kind="small" tone="muted">{prescriptionLine(e)}</Copy>
-                      {e.notes ? <Copy kind="small">{"\n"}{e.notes}</Copy> : null}
+                      {e.instructions ? <Copy kind="small">{"\n"}{e.instructions}</Copy> : null}
+                      {e.notes ? <Copy kind="small">{"\n"}Private note · {e.notes}</Copy> : null}
                     </Copy>
                   </Row>
                 ))}

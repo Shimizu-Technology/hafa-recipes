@@ -48,12 +48,18 @@ export function WorkoutEditor({
       />
       <Field
         disabled={disabled}
-        label="Workout instructions · one instruction per line"
+        label="Workout instructions · included when sharing"
         multiline
         optional
-        value={value.notes?.join("\n") ?? ""}
-        onChange={(text) => update({ ...value, notes: text.split("\n") })}
+        value={value.instructions?.join("\n") ?? ""}
+        onChange={(text) => update({ ...value, instructions: text.split("\n") })}
       />
+      <Field disabled={disabled} label="Private notes · only you" multiline optional
+        value={value.notes?.join("\n") ?? ""}
+        onChange={text => update({ ...value, notes: text.split("\n") })} />
+      {!!value.notes?.length && !value.instructions?.some(line => line.trim()) &&
+        <Button title="Move private notes to shared instructions" variant="ghost" disabled={disabled}
+          onPress={() => update({ ...value, instructions: value.notes, notes: [] })} />}
       <Field
         disabled={disabled}
         label="Required equipment · comma separated"
@@ -128,7 +134,7 @@ export function WorkoutEditor({
             const key = `${block.id}:${ei}`;
             const invalidLoad = e.load != null && (!Number.isFinite(e.load) || e.load < 0 || e.load > 2000 || !e.load_unit || !e.load_convention);
             const invalidRest = e.rest_seconds != null && (!Number.isInteger(e.rest_seconds) || e.rest_seconds < 0 || e.rest_seconds > 7200);
-            const invalidText = (e.notes?.length ?? 0) > 2000 || (e.tempo?.length ?? 0) > 100 || (e.effort?.length ?? 0) > 500;
+            const invalidText = (e.instructions?.length ?? 0) > 2000 || (e.notes?.length ?? 0) > 2000 || (e.tempo?.length ?? 0) > 100 || (e.effort?.length ?? 0) > 500;
             const expanded = expandedExercises.includes(key) || invalidLoad || invalidRest || invalidText;
             const range = e.reps_max != null && e.reps_max !== e.reps_min;
             return (
@@ -193,12 +199,16 @@ export function WorkoutEditor({
               />
               <Field
                 disabled={disabled}
-                label="Instructions or cues"
+                label="Instructions or cues · included when sharing"
                 optional
                 multiline
-                value={e.notes ?? ""}
-                onChange={(notes) => exercise(bi, ei, { notes: notes || null })}
+                value={e.instructions ?? ""}
+                onChange={(instructions) => exercise(bi, ei, { instructions: instructions || null })}
               />
+              <Field disabled={disabled} label="Private exercise notes · only you" optional multiline
+                value={e.notes ?? ""} onChange={notes => exercise(bi, ei, { notes: notes || null })} />
+              {!!e.notes && !e.instructions && <Button title={`Move private notes to shared instructions for ${e.name || "exercise"}`}
+                variant="ghost" disabled={disabled} onPress={() => exercise(bi, ei, { instructions: e.notes, notes: null })} />}
               <NumberField
                 disabled={disabled}
                 label={`${context === "create" ? "Load" : "Source load"} · ${e.load_unit ?? "select a unit"}`}

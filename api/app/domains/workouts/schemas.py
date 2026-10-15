@@ -39,6 +39,8 @@ class ExercisePrescription(DomainModel):
     load_unit: Literal["kg", "lb"] | None = None
     load_convention: Literal["total", "per_hand", "added", "assistance"] | None = None
     effort: str | None = Field(default=None, max_length=500)
+    # Shareable prescription cues; legacy notes remain owner-only.
+    instructions: str | None = Field(default=None, max_length=2000, exclude_if=lambda value: value is None)
     notes: str | None = Field(default=None, max_length=2000)
     evidence: list[Evidence] = Field(default_factory=list, max_length=100)
 
@@ -84,6 +86,8 @@ class WorkoutContent(DomainModel):
     equipment_required: list[str] = Field(default_factory=list, max_length=100)
     equipment_optional: list[str] = Field(default_factory=list, max_length=100)
     estimated_minutes: int | None = Field(default=None, ge=1, le=1440)
+    # Sharing whitelists instructions and always removes private notes.
+    instructions: list[str] = Field(default_factory=list, max_length=100, exclude_if=lambda value: not value)
     notes: list[str] = Field(default_factory=list, max_length=100)
     extraction_warnings: list[str] = Field(default_factory=list, max_length=100)
 

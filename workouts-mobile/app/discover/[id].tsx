@@ -1,3 +1,4 @@
+import { WorkoutInstructions } from "@/components/workout-instructions";
 import { useState } from "react";
 import { Linking, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -306,6 +307,7 @@ export default function DiscoverWorkout() {
           )}
 
           <SectionHeader title="The workout" />
+          <WorkoutInstructions instructions={workout.instructions} />
           {workout.blocks.map((block, index) => (
             <Card key={block.id ?? index}>
               <Copy kind="caption" tone="accent">
@@ -326,6 +328,7 @@ export default function DiscoverWorkout() {
                     <Copy kind="label">{exercise.name}</Copy>
                     <Copy kind="small" tone="muted">
                       {prescriptionLine(exercise)}
+                      {exercise.instructions ? `\n${exercise.instructions}` : ""}
                     </Copy>
                   </View>
                 </Row>

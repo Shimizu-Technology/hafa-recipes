@@ -1175,11 +1175,16 @@ async def test_legacy_accept_preserves_server_source_fields(automation_api, monk
         row = await db.get(WorkoutImport, job["id"])
         result = dict(row.result)
         result["workout"] = dict(result["workout"]) | {
+            "instructions": ["Rest after each round"],
             "source_thumbnail_url": cover,
             "source_title": "The original workout title",
             "source_creator": "The source creator",
             "extraction_warnings": ["Review the source instructions"],
         }
+        result["workout"]["blocks"] = [dict(item) for item in result["workout"]["blocks"]]
+        first = result["workout"]["blocks"][0]
+        first["exercises"] = [dict(item) for item in first["exercises"]]
+        first["exercises"][0]["instructions"] = "Keep heels down"
         row.result = result
         await db.commit()
     from app.domains.workouts import source_media
@@ -1193,6 +1198,10 @@ async def test_legacy_accept_preserves_server_source_fields(automation_api, monk
     legacy.pop("extraction_warnings")
     legacy.pop("source_title")
     legacy.pop("source_creator")
+    legacy.pop("instructions")
+    legacy["blocks"] = [dict(item) for item in legacy["blocks"]]
+    legacy["blocks"][0]["exercises"] = [dict(item) for item in legacy["blocks"][0]["exercises"]]
+    legacy["blocks"][0]["exercises"][0].pop("instructions")
     body = {"workout": legacy, "acknowledge_warnings": True}
     path = f"/api/v1/workouts/imports/{job['id']}/accept"
     accepted = await api.client.post(path, headers=GENERATION, json=body)
@@ -1201,6 +1210,8 @@ async def test_legacy_accept_preserves_server_source_fields(automation_api, monk
     assert accepted.json()["content"]["source_title"] == "The original workout title"
     assert accepted.json()["content"]["source_creator"] == "The source creator"
     assert accepted.json()["content"]["extraction_warnings"] == ["Review the source instructions"]
+    assert accepted.json()["content"]["instructions"] == ["Rest after each round"]
+    assert accepted.json()["content"]["blocks"][0]["exercises"][0]["instructions"] == "Keep heels down"
     replay = await api.client.post(path, headers=GENERATION, json=body)
     assert replay.status_code == 200 and replay.json()["id"] == accepted.json()["id"]
 
