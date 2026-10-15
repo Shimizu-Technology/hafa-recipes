@@ -55,6 +55,8 @@ it("retries the same frozen command after an uncertain response and offers an ex
   await click("Retry restoring this version");
   expect(f.restoreWorkoutVersion.mock.calls.map((call) => call[0].revision)).toEqual([3, 3]);
   expect(nodes("Notice")[0].props.children).toContain("Reload its latest version");
+  expect(button("Retry restoring this version")).toBeUndefined();
+  expect(button("Reload latest workout").props.secondary).not.toBe(true);
   f.workout.mockResolvedValue({ ...workout, revision: 10 }); await click("Reload latest workout");
   await click("Restore as new version");
   expect(f.restoreWorkoutVersion.mock.calls.at(-1)?.[0].revision).toBe(10);

@@ -36,10 +36,11 @@ export default function WorkoutHistory() {
   const [command, setCommand] = useState<{ workout: Workout; versionId: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [conflict, setConflict] = useState(false);
   const working = useRef<object | null>(null);
-  useLayoutEffect(() => { working.current = null; setSelected(null); setCommand(null); setBusy(false); setError(""); }, [scope]);
+  useLayoutEffect(() => { working.current = null; setSelected(null); setCommand(null); setBusy(false); setError(""); setConflict(false); }, [scope]);
   async function restore() {
-    if (!selected || !q.data || working.current || !current() || q.data.generation !== generation || selected.workout.generation !== generation) return;
+    if (!selected || !q.data || conflict || working.current || !current() || q.data.generation !== generation || selected.workout.generation !== generation) return;
     const operation = {}; working.current = operation; setBusy(true); setError("");
     const frozen = command ?? { workout: q.data, versionId: selected.id };
     setCommand(frozen);
@@ -52,9 +53,12 @@ export default function WorkoutHistory() {
       void cache.invalidateQueries({ queryKey: [owner, "discover"] });
       router.dismissTo({ pathname: "/workout/[id]", params: { id } });
     } catch (e) {
-      if (current()) setError(e instanceof ApiError && e.status === 409
-        ? "This workout changed. Reload its latest version before restoring again."
-        : "Could not confirm the restore. Retry sends the same request, or reload to check what was saved.");
+      if (current()) {
+        const changed = e instanceof ApiError && e.status === 409;
+        setConflict(changed);
+        setError(changed ? "This workout changed. Reload its latest version before restoring again."
+          : "Could not confirm the restore. Retry sends the same request, or reload to check what was saved.");
+      }
     } finally { if (working.current === operation) working.current = null; if (current()) setBusy(false); }
   }
   async function reload() {
@@ -63,13 +67,15 @@ export default function WorkoutHistory() {
     try {
       const saved = await api.workout(id);
       if (!current()) return;
-      cache.setQueryData(detailKey, saved); setCommand(null); setError("");
+      cache.setQueryData(detailKey, saved); setCommand(null); setError(""); setConflict(false);
       void versions.refetch();
     } catch { if (current()) setError("Could not load the latest workout. Check your connection and try again."); }
     finally { if (working.current === operation) working.current = null; if (current()) setBusy(false); }
   }
   const workout = selected?.workout;
   return <Screen back title="Version history." subtitle="Restore an earlier prescription as a new version. Recorded sessions and plans keep their original workout.">
+    {!!error && <Notice error>{error}</Notice>}
+    {conflict && <Button title="Reload latest workout" busy={busy} onPress={() => { void reload(); }} />}
     <QueryState loading={q.isPending || versions.isPending} error={q.error ?? versions.error} retry={() => { void q.refetch(); void versions.refetch(); }}>
       {!selected && <>
         <SectionHeader title={q.data ? `Current · Version ${q.data.revision}` : "Saved versions"} />
@@ -95,11 +101,10 @@ export default function WorkoutHistory() {
         <WorkoutSource source={workout} />
         {!!workout.source_url && <Copy kind="small" tone="muted">{workout.source_url}</Copy>}
         <Copy kind="small" tone="muted">This restores the selected version’s instructions, source and notes. Your organization stays the same.</Copy>
-        <Button title={command ? "Retry restoring this version" : "Restore as new version"} busy={busy}
-          disabled={selected.revision === q.data?.revision} onPress={() => { void restore(); }} />
+        {!conflict && <Button title={command ? "Retry restoring this version" : "Restore as new version"} busy={busy}
+          disabled={selected.revision === q.data?.revision} onPress={() => { void restore(); }} />}
       </>}
     </QueryState>
-    {!!error && <Notice error>{error}</Notice>}
-    {!!command && <Button title="Reload latest workout" secondary busy={busy} onPress={() => { void reload(); }} />}
+    {!!command && !conflict && <Button title="Reload latest workout" secondary busy={busy} onPress={() => { void reload(); }} />}
   </Screen>;
 }
