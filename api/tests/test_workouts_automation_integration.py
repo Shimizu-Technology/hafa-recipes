@@ -192,8 +192,8 @@ async def test_reextract_updates_existing_version_once_and_preserves_private_not
 
     api = automation_api
     await consent(api)
-    old = {**WORKOUT, "notes": ["Private workout note"], "blocks": [{**WORKOUT["blocks"][0], "exercises": [
-        {"name": "Squat", "sets": 2, "reps_min": 8, "notes": "Use my comfortable stance"},
+    old = {**WORKOUT, "instructions": ["Original workout instructions"], "notes": ["Private workout note"], "blocks": [{**WORKOUT["blocks"][0], "exercises": [
+        {"name": "Squat", "sets": 2, "reps_min": 8, "instructions": "Original squat cue", "notes": "Use my comfortable stance"},
         {"name": "Row", "sets": 2, "reps_min": 8, "notes": "Private row cue"},
     ]}]}
     created = (await api.client.post("/api/v1/workouts/library", json=old, headers=GENERATION)).json()
@@ -225,6 +225,16 @@ async def test_reextract_updates_existing_version_once_and_preserves_private_not
         assert await db.scalar(select(func.count()).select_from(WorkoutRecord)) == 1
         assert await db.scalar(select(func.count()).select_from(WorkoutVersion)) == 2
         assert (await db.get(WorkoutImport, job_id)).payload == {"_replace": target}
+    # Updating from a new extraction and restoring its prior version share one
+    # immutable history; neither operation rewrites already recorded training.
+    versions_url = f"/api/v1/workouts/library/{created['id']}/versions"
+    before = (await api.client.get(versions_url)).json()
+    restored = await api.client.post(f"{versions_url}/{before[-1]['id']}/restore?expected_revision=2", headers=GENERATION)
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["id"] == created["id"] and restored.json()["revision"] == 3
+    assert restored.json()["content"] == {**created["content"], "version": 3, "parent_version_id": before[0]["id"]}
+    assert (await api.client.get(versions_url)).json()[1:] == before
+    assert (await api.client.get("/api/v1/workouts/sessions")).json()[0] == actual.json()
 
 
 @pytest.mark.parametrize("update_existing", [True, False])
