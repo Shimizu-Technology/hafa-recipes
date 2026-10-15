@@ -3,7 +3,7 @@
 import asyncio
 import importlib
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -1341,6 +1341,10 @@ async def test_coach_stream_route_replays_one_durable_request_and_rejects_change
     assert first.headers["cache-control"] == "no-store" and first.headers["x-accel-buffering"] == "no"
     receipt = json.loads(first.text.splitlines()[-1])
     assert receipt["type"] == "receipt" and receipt["receipt"]["assistant_message"] == "Authoritative final answer"
+    assert isinstance(receipt["receipt"]["created_at"], str)
+    assert datetime.fromisoformat(receipt["receipt"]["created_at"]).tzinfo is not None
+    assert all(isinstance(json.loads(line), dict) for line in first.text.splitlines())
+    assert first.text.endswith("\n")
     replay = await api.client.post(path, headers=GENERATION, json=body)
     assert json.loads(replay.text)["receipt"] == receipt["receipt"]
     changed = await api.client.post(path, headers=GENERATION, json={**body, "message": "Different payload"})

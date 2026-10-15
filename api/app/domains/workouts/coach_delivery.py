@@ -6,6 +6,7 @@ from datetime import datetime
 
 from anyio import CancelScope, fail_after
 from fastapi import HTTPException
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
@@ -87,8 +88,10 @@ async def message_events(coach, owner, generation, request):
                         event = {"type": "receipt", "receipt": message_response(row)}
                 except Exception:
                     event = {"type": "error", "code": "coach_request_unavailable", "status": event.get("status", 503)}
-            yield (json.dumps({**event, "request_id": str(request.request_id), "generation": generation},
-                              ensure_ascii=True, separators=(",", ":")) + "\n").encode()
+            # Encode only the allowlisted event/receipt, using the same datetime
+            # wire conversion as FastAPI JSON responses; never repr raw objects.
+            wire = jsonable_encoder({**event, "request_id": str(request.request_id), "generation": generation})
+            yield (json.dumps(wire, ensure_ascii=True, separators=(",", ":")) + "\n").encode()
             if event["type"] in {"receipt", "error"}:
                 return
     finally:
