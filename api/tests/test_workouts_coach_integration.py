@@ -2220,6 +2220,6 @@ async def test_private_image_transport_denies_missing_consent_and_optional_schem
         return False
     monkeypatch.setattr(images, "attachments_ready", unavailable)
     assert (await api.client.post(path, headers=GENERATION, json=private_image_upload_payload())).status_code == 503
-    monkeypatch.setattr(routes, "get_settings", lambda: settings(workouts_api_enabled=False))
+    monkeypatch.setattr(routes, "get_settings", lambda: settings().model_copy(update={"workouts_api_enabled": False}))
     assert (await api.client.post(path, headers=GENERATION, content=b"not-json")).status_code == 404
     assert not writes and not api.provider.sent
