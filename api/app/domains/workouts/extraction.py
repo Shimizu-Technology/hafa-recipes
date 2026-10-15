@@ -1193,7 +1193,8 @@ def _reuse_rep_name_quotes(item, source: SourceBundle):
                     or not any(part.location == entry.location and entry.wording in part.text
                                for part in source.parts)
                     or not _numeric_supported(field_name, value, entry.wording, item.name)
-                    or not any(_numeric_supported(field_name, value, clause, item.name)
+                    or not any(re.fullmatch(row, clause, re.I)
+                               and _numeric_supported(field_name, value, clause, item.name)
                                for clause in _prescription_wording(item, entry, source))):
                 continue
             if not any(existing.field == field_name and existing.wording == entry.wording
