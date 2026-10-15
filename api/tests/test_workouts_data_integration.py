@@ -395,6 +395,50 @@ async def test_restore_rejects_other_workouts_owners_and_stale_generations(data_
     assert sorted(response.status_code for response in responses) == [200, 409]
 
 
+async def test_restore_bounds_complete_version_before_any_side_effect(data_api, monkeypatch):
+    import json
+    import math
+    from unittest.mock import AsyncMock
+
+    from app.domains.workouts import export_service, source_media
+    from app.domains.workouts.router import bounded_content
+
+    template = await workout(data_api)
+    candidate = {**template["content"], "notes": []}
+    target = 240 * 1024 - 8
+
+    def size():
+        return len(json.dumps(candidate, ensure_ascii=False).encode())
+
+    candidate["notes"] = [""] * math.ceil((target - size() + 2) / 4004)
+    remaining = target - size()
+    for index in range(len(candidate["notes"])):
+        count = min(4000, remaining)
+        candidate["notes"][index] = "x" * count
+        remaining -= count
+    assert remaining == 0 and size() == target
+    bounded_content(candidate)
+    created = await data_api.client.post("/api/v1/workouts/library",
+        json={**WORKOUT, "notes": candidate["notes"]}, headers=GENERATION)
+    assert created.status_code == 201, created.text
+    row = created.json()
+    assert len(json.dumps(row["content"], ensure_ascii=False).encode()) == target
+    path = f"/api/v1/workouts/library/{row['id']}"
+    versions = (await data_api.client.get(f"{path}/versions")).json()
+    invalidated, retained = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(export_service, "invalidate_export_snapshots", invalidated)
+    monkeypatch.setattr(source_media, "retain_source_cover", retained)
+
+    restored = await data_api.client.post(
+        f"{path}/versions/{versions[0]['id']}/restore?expected_revision=1", headers=GENERATION)
+
+    assert restored.status_code == 422 and "saved-record limit" in restored.text
+    assert (await data_api.client.get(path)).json() == row
+    assert (await data_api.client.get(f"{path}/versions")).json() == versions
+    invalidated.assert_not_awaited()
+    retained.assert_not_awaited()
+
+
 async def test_finalized_sessions_are_idempotent_and_snapshot_old_prescription(data_api):
     row = await workout(data_api)
     payload = session_payload(row)

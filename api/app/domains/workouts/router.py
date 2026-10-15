@@ -603,6 +603,8 @@ async def restore_workout_version(
     # This is a trusted immutable server snapshot, not a client-authored payload.
     # Preserve source/generated provenance, private notes and newer JSON fields.
     content = deepcopy(version.content)
+    content.update(id=str(row.id), version=row.revision + 1, parent_version_id=str(prior))
+    content = bounded_content(content)
     from app.domains.workouts.discover import refresh_publication_after_edit
     from app.domains.workouts.export_service import invalidate_export_snapshots
     from app.domains.workouts.source_media import retain_source_cover
@@ -610,7 +612,6 @@ async def restore_workout_version(
     await retain_source_cover(db, user.id, generation, content.get("source_thumbnail_url"))
     await invalidate_export_snapshots(db, user.id, generation)
     row.revision += 1
-    content.update(id=str(row.id), version=row.revision, parent_version_id=str(prior))
     row.content = content
     row.updated_at = now()
     db.add(
