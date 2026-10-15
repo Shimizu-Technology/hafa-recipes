@@ -817,3 +817,32 @@ it("does not retain an accepted recovery receipt for a mismatched foreground-syn
   expect(store.snapshot().history[0].state).toBe("queued");
   expect(store.snapshot().recovery_receipts).toBeUndefined();
 });
+
+
+it.each([403, 404, 409, 410, 422])("keeps a permanently rejected recovered result blocked after %i and restart", async status => {
+  const { store, storage } = await orphaned();
+  const create = restoreWorkout(), send = recoverSend();
+  send.mockImplementation(async request => {
+    if (request.client_session_id === "orphan") throw gone();
+    throw Object.assign(Error("Recovered result rejected"), { status });
+  });
+  await expect(store.recoverResult("orphan", recoveryCommand, create, send, () => true)).rejects.toThrow();
+  const blocked = JSON.parse(JSON.stringify(store.snapshot().history[0]));
+  expect(blocked).toMatchObject({ state: "blocked", rejection_status: status });
+  const resumed = createTrainingStore(storage, "owner", 1); await resumed.load();
+  for (let attempt = 0; attempt < 2; attempt++)
+    await expect(resumed.recoverResult("orphan", recoveryCommand, create, send, () => true)).rejects.toThrow(blocked.problem);
+  await resumed.sync(send);
+  expect(send).toHaveBeenCalledTimes(2); expect(create).toHaveBeenCalledOnce();
+  expect(resumed.snapshot().history[0]).toEqual(blocked);
+});
+it("can retry a legacy transiently blocked recovery without recreating its workout", async () => {
+  const { store, storage } = await orphaned(); const create = restoreWorkout(), send = recoverSend();
+  send.mockImplementationOnce(async () => { throw gone(); }).mockRejectedValueOnce(Object.assign(Error("Sign in expired"), { status: 401 }));
+  await expect(store.recoverResult("orphan", recoveryCommand, create, send, () => true)).rejects.toThrow("Sign in expired");
+  const state = store.snapshot(); state.history[0].state = "blocked"; state.history[0].rejection_status = 401;
+  await storage.setItem(trainingKey("owner", 1), JSON.stringify(state));
+  const resumed = createTrainingStore(storage, "owner", 1); await resumed.load();
+  await expect(resumed.recoverResult("orphan", recoveryCommand, create, send, () => true)).resolves.toBe("server-recovered-result");
+  expect(create).toHaveBeenCalledOnce(); expect(send).toHaveBeenCalledTimes(3);
+});

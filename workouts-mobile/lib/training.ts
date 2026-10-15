@@ -637,6 +637,8 @@ export function createTrainingStore(
           if (replacement.request.client_session_id !== command.client_session_id)
             throw Error("Reload the existing recovery before trying again.");
           if (replacement.state !== "synced") {
+            if (replacement.state === "blocked" && !isTransientSyncError(replacement.rejection_status))
+              throw Error(replacement.problem || "The recovered result needs review before saving again.");
             await update(s => { s.history.find(item => item.request.client_session_id === command.client_session_id)!.state = "queued"; return s; });
             await run(sendCurrent);
           }
