@@ -1420,40 +1420,40 @@ class ApiClient {
   // Collections
   // ============================================================
 
-  async getCollections(): Promise<Collection[]> {
-    const { data } = await this.client.get('/api/collections');
+  async getCollections(signal?: AbortSignal, requestGuard?: RequestGuard): Promise<Collection[]> {
+    const { data } = await this.client.get('/api/collections', { signal, requestGuard } as GuardedRequestConfig);
     return data;
   }
 
-  async createCollection(name: string, emoji?: string): Promise<Collection> {
-    const { data } = await this.client.post('/api/collections', { name, emoji });
+  async createCollection(name: string, emoji?: string, requestGuard?: RequestGuard): Promise<Collection> {
+    const { data } = await this.client.post('/api/collections', { name, emoji }, { requestGuard } as GuardedRequestConfig);
     return data;
   }
 
-  async updateCollection(collectionId: string, updates: { name?: string; emoji?: string }): Promise<Collection> {
-    const { data } = await this.client.put(`/api/collections/${collectionId}`, updates);
+  async updateCollection(collectionId: string, updates: { name?: string; emoji?: string }, requestGuard?: RequestGuard): Promise<Collection> {
+    const { data } = await this.client.put(`/api/collections/${collectionId}`, updates, { requestGuard } as GuardedRequestConfig);
     return data;
   }
 
-  async deleteCollection(collectionId: string): Promise<void> {
-    await this.client.delete(`/api/collections/${collectionId}`);
+  async deleteCollection(collectionId: string, requestGuard?: RequestGuard): Promise<void> {
+    await this.client.delete(`/api/collections/${collectionId}`, { requestGuard } as GuardedRequestConfig);
   }
 
-  async getCollectionRecipes(collectionId: string): Promise<CollectionRecipe[]> {
-    const { data } = await this.client.get(`/api/collections/${collectionId}/recipes`);
+  async getCollectionRecipes(collectionId: string, signal?: AbortSignal, requestGuard?: RequestGuard): Promise<CollectionRecipe[]> {
+    const { data } = await this.client.get(`/api/collections/${collectionId}/recipes`, { signal, requestGuard } as GuardedRequestConfig);
     return data;
   }
 
-  async addRecipeToCollection(collectionId: string, recipeId: string): Promise<void> {
-    await this.client.post(`/api/collections/${collectionId}/recipes`, { recipe_id: recipeId });
+  async addRecipeToCollection(collectionId: string, recipeId: string, requestGuard?: RequestGuard): Promise<void> {
+    await this.client.post(`/api/collections/${collectionId}/recipes`, { recipe_id: recipeId }, { requestGuard } as GuardedRequestConfig);
   }
 
-  async removeRecipeFromCollection(collectionId: string, recipeId: string): Promise<void> {
-    await this.client.delete(`/api/collections/${collectionId}/recipes/${recipeId}`);
+  async removeRecipeFromCollection(collectionId: string, recipeId: string, requestGuard?: RequestGuard): Promise<void> {
+    await this.client.delete(`/api/collections/${collectionId}/recipes/${recipeId}`, { requestGuard } as GuardedRequestConfig);
   }
 
-  async getRecipeCollections(recipeId: string): Promise<string[]> {
-    const { data } = await this.client.get(`/api/collections/recipe/${recipeId}/collections`);
+  async getRecipeCollections(recipeId: string, signal?: AbortSignal, requestGuard?: RequestGuard): Promise<string[]> {
+    const { data } = await this.client.get(`/api/collections/recipe/${recipeId}/collections`, { signal, requestGuard } as GuardedRequestConfig);
     return data;
   }
 
