@@ -26,7 +26,7 @@ from app.domains.workouts.export_service import (
     verify_export_schema,
 )
 from app.domains.workouts.lifecycle import membership_for
-from app.domains.workouts.models import WorkoutRecord
+from app.domains.workouts.models import WorkoutRecord, WorkoutsProgram
 from app.domains.workouts.router import Generation, User
 from app.domains.workouts.security import WorkoutsRoute
 from app.models.identity import AppUser
@@ -183,6 +183,41 @@ async def test_owner_cannot_read_or_remove_another_snapshot(snapshots):
     await api.exports.remove(user("other"), 1, manifest.id)
     assert (await api.exports.read(user(), 1, manifest.id)).id == manifest.id
     await assert_error(api.exports.read(user(), 1, uuid4()), 404)
+
+
+async def test_program_archive_and_restore_invalidate_only_changed_owners_exports(snapshots):
+    api = snapshots
+    identifier = uuid4()
+    async with api.sessions.begin() as db:
+        db.add(WorkoutsProgram(id=identifier, app_user_id="owner", generation=1, revision=1,
+                               content={"title": "Archive fixture", "proposal": {"sessions": []}}))
+    other = await api.exports.create(user("other"), 1)
+    revision, archived = 1, False
+    path = PREFIX + f"/programs/{identifier}/archive"
+    for target in (True, False):
+        manifest = await api.exports.create(user(), 1)
+        page = await api.exports.read(user(), 1, manifest.id, page=0)
+        exported = page.export.datasets["programs"][0]["content"]
+        assert bool(exported.get("schedule_state", {}).get("archived_at")) == archived
+        query = path + f"?expected_revision={revision}"
+        foreign = await api.client.put(query, headers=GENERATION | {"X-Test-User": "other"},
+                                       json={"archived": target})
+        assert foreign.status_code in (403, 404), foreign.text
+        repeated = await api.client.put(query, headers=GENERATION, json={"archived": archived})
+        assert repeated.status_code == 200 and repeated.json()["revision"] == revision
+        # Unauthorized writes and exact no-ops preserve both owners' valid snapshots.
+        assert (await api.exports.read(user(), 1, manifest.id)).id == manifest.id
+        assert (await api.exports.read(user("other"), 1, other.id)).id == other.id
+        changed = await api.client.put(query, headers=GENERATION, json={"archived": target})
+        assert changed.status_code == 200, changed.text
+        revision += 1
+        archived = target
+        assert changed.json()["revision"] == revision
+        await assert_error(api.exports.read(user(), 1, manifest.id, page=0), 404)
+        assert (await api.exports.read(user("other"), 1, other.id)).id == other.id
+    final = await api.exports.create(user(), 1)
+    page = await api.exports.read(user(), 1, final.id, page=0)
+    assert "schedule_state" not in page.export.datasets["programs"][0]["content"]
 
 
 async def test_stale_generation_and_deleted_enrollment(snapshots):

@@ -755,6 +755,9 @@ async def archive_program(
         app_user_id=user.id, generation=generation, program_id=row.id,
         revision=row.revision, content=row.content,
     ))
+    from app.domains.workouts.export_service import invalidate_export_snapshots
+
+    await invalidate_export_snapshots(db, user.id, generation)
     await db.commit()
     return record_response(row)
 
