@@ -29,6 +29,7 @@ import { DECLINED, INCOMPLETE_MESSAGE, discoverKeys, isIncomplete, prescriptionL
 import type { Workout } from "@/lib/models";
 import { trackingPrescriptionWarning } from "@/lib/training";
 import { WorkoutInstructions } from "@/components/workout-instructions";
+import { WorkoutFavorite } from "@/components/workout-favorite";
 import { WorkoutSource } from "@/components/workout-source";
 import { amrapCap, blockSummary } from "@/lib/amrap-editor";
 import { workoutDeletionBlock } from "@/lib/organization";
@@ -217,6 +218,11 @@ export default function WorkoutDetail() {
       {workout?.organization?.archived && (
         <Notice>This workout is archived. Restore it in Organize when you want it back in the default library.</Notice>
       )}
+      {workout && <Row gap={10} wrap>
+        <WorkoutFavorite workout={workout} />
+        <Button title="Organize workout" icon="folder-open-outline" secondary size="sm" inline
+          onPress={() => router.push({ pathname: "/organize/[id]", params: { id: workout.id } })} />
+      </Row>}
       {!!error && <Notice error>{error}</Notice>}
       <QueryState
         loading={q.isPending && !!enrollment?.enrolled}

@@ -99,3 +99,34 @@ export function collectionTitleError(value: string) {
     ? "Use a collection name of 1–100 characters."
     : null;
 }
+
+/** Read current private memberships before each write; retries reconcile lost acknowledgments. */
+export async function addWorkoutsToCollection(
+  ids: string[], collectionId: string, generation: number,
+  api: {
+    organization(id: string, generation: number): Promise<Organization>;
+    saveOrganization(id: string, body: OrganizationWrite, generation: number): Promise<Organization>;
+  },
+  current: () => void,
+) {
+  const added: string[] = [], failed: Array<{ id: string; message: string }> = [];
+  for (const id of new Set(ids)) {
+    current();
+    try {
+      const organization = await api.organization(id, generation);
+      current();
+      if (!organization.collection_ids.includes(collectionId)) {
+        const collection_ids = [...organization.collection_ids, collectionId];
+        const errors = organizationErrors(organization.tags, collection_ids);
+        if (errors.length) throw Error(errors.join(" "));
+        await api.saveOrganization(id, { expected_revision: organization.revision, collection_ids }, generation);
+        current();
+      }
+      added.push(id);
+    } catch (error) {
+      current();
+      failed.push({ id, message: error instanceof Error ? error.message : "Could not add this workout." });
+    }
+  }
+  return { added, failed };
+}

@@ -1,6 +1,6 @@
 import { ImportList } from "@/components/import-list";
-import { useEffect, useState } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import {
   AccountButton,
@@ -22,13 +22,14 @@ import {
 } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
-import { tagsFromText, type LibraryFilters } from "@/lib/organization";
+import { tagsFromText, addWorkoutsToCollection, type LibraryFilters } from "@/lib/organization";
 import type { Workout } from "@/lib/models";
 
 const kindIcons = { exercise: "fitness-outline", accessory: "body-outline", session: "barbell-outline", program: "calendar-outline" } as const;
 const kindLabels: Record<Workout["kind"], string> = { exercise: "Exercises", accessory: "Accessory", session: "Sessions", program: "Programs" };
 export default function Library() {
-  const { api, owner, enrollment } = useTraining();
+  const { api, owner, enrollment, storage, isCurrentAccount } = useTraining();
+  const cache = useQueryClient();
   const [search, setSearch] = useState("");
   const [settledSearch, setSettledSearch] = useState("");
   const [equipment, setEquipment] = useState("");
@@ -38,6 +39,44 @@ export default function Library() {
   const [archived, setArchived] = useState(false);
   const [collection, setCollection] = useState<string>();
   const [filters, setFilters] = useState(false);
+  const [selecting, setSelecting] = useState(false), [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkOpen, setBulkOpen] = useState(false), [bulkTarget, setBulkTarget] = useState<string>();
+  const [bulkBusy, setBulkBusy] = useState(false), [bulkMessage, setBulkMessage] = useState("");
+  const [bulkError, setBulkError] = useState("");
+  const bulkLock = useRef<object | null>(null), mounted = useRef(true);
+  const scope = `${owner}:${enrollment?.generation}`;
+  const live = useRef(scope); live.current = scope;
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => { bulkLock.current = null; setSelecting(false); setSelectedIds([]); setBulkOpen(false); setBulkTarget(undefined); setBulkMessage(""); setBulkError(""); setBulkBusy(false); }, [scope]);
+  function current() {
+    if (!mounted.current || live.current !== scope || !storage.isCurrent() || !isCurrentAccount())
+      throw Error("Your account or training setup changed. Reopen your library before organizing.");
+  }
+  function select(id: string) {
+    if (bulkLock.current) return;
+    try { current(); } catch { return; }
+    setSelectedIds(ids => ids.includes(id) ? ids.filter(value => value !== id) : [...ids, id]);
+    setBulkMessage(""); setBulkError("");
+  }
+  async function addSelected() {
+    if (bulkLock.current || !selectedIds.length || !bulkTarget || !enrollment?.generation) return;
+    try { current(); } catch { return; }
+    const token = {}; bulkLock.current = token; setBulkBusy(true); setBulkError("");
+    try {
+      const result = await addWorkoutsToCollection(selectedIds, bulkTarget, enrollment.generation, api, current);
+      current();
+      setSelectedIds(result.failed.map(item => item.id));
+      setBulkMessage(`${result.added.length} added to the collection.${result.failed.length ? ` ${result.failed.length} need retry.` : ""}`);
+      setBulkError(result.failed[0]?.message ?? "");
+      if (!result.failed.length) { setBulkOpen(false); setSelecting(false); }
+      await Promise.all([cache.invalidateQueries({ queryKey: [owner, "library"] }), cache.invalidateQueries({ queryKey: [owner, "collections"] }),
+        cache.invalidateQueries({ queryKey: [owner, "organization"] }), cache.invalidateQueries({ queryKey: [owner, "workout"] })]);
+      current();
+    } catch (error) {
+      try { current(); setBulkError(error instanceof Error ? error.message : "Could not add these workouts. Retry the remaining selection."); } catch { /* Old account views stay retired. */ }
+    } finally { if (bulkLock.current === token) bulkLock.current = null; try { current(); setBulkBusy(false); } catch { /* Current scope owns its controls. */ } }
+  }
+
   useEffect(() => {
     const timer = setTimeout(() => setSettledSearch(search), 300);
     return () => clearTimeout(timer);
@@ -95,6 +134,22 @@ export default function Library() {
       }
     >
       <Field label="Search workouts" value={search} onChange={setSearch} placeholder="Title or training focus" />
+      <Row gap={10} wrap>
+        <Button title="Manage collections" icon="folder-open-outline" secondary size="sm" inline onPress={() => router.push("/collections")} />
+        <Button title={selecting ? "Done selecting" : "Select workouts"} variant="ghost" size="sm" inline disabled={bulkBusy || !enrollment?.enrolled}
+          onPress={() => { if (!bulkLock.current) { setSelecting(!selecting); setSelectedIds([]); setBulkMessage(""); setBulkError(""); } }} />
+      </Row>
+      {!!collections.data?.length && <ChipRow label="Collections">
+        <Chip label="All workouts" selected={!collection} onPress={() => setCollection(undefined)} />
+        {collections.data.map(item => <Chip key={item.id} label={item.title} selected={collection === item.id} onPress={() => setCollection(item.id)} />)}
+      </ChipRow>}
+      {collections.error && <><Notice error>Could not load collections.</Notice><Button title="Retry loading collections" secondary onPress={() => void collections.refetch()} /></>}
+      {selecting && <>
+        <Copy kind="small">{selectedIds.length} selected across your library</Copy>
+        <Button title="Add selected to collection" icon="folder-open-outline" secondary disabled={!selectedIds.length || bulkBusy}
+          onPress={() => { setBulkTarget(collection ?? collections.data?.[0]?.id); setBulkMessage(""); setBulkError(""); setBulkOpen(true); }} />
+      </>}
+      {!!bulkMessage && <Notice>{bulkMessage}</Notice>}
       <ChipRow label="Quick filters">
         <Chip label="Favorites" icon="heart-outline" selected={favorite} onPress={() => setFavorite(!favorite)} />
         {(["session", "exercise", "program", "accessory"] as const).map((value) => (
@@ -144,7 +199,8 @@ export default function Library() {
             <Copy kind="small" tone="muted">
               {q.data?.pages[0].total} {archived ? "archived " : ""}workouts · {visible.length} shown
             </Copy>
-            {visible.map((w) => (
+            {visible.map((w) => selecting ? <Choice key={w.id} label={w.title} detail={w.source_creator ? `By ${w.source_creator}` : w.kind}
+              selected={selectedIds.includes(w.id)} disabled={bulkBusy} onPress={() => select(w.id)} /> : (
               <MediaCard
                 key={w.id}
                 title={w.title}
@@ -208,6 +264,17 @@ export default function Library() {
           <Button title="Clear filters" secondary inline onPress={clear} />
           <Button title="Show workouts" inline onPress={() => setFilters(false)} />
         </Row>
+      </Sheet>
+      <Sheet visible={bulkOpen} onClose={() => { if (!bulkLock.current) setBulkOpen(false); }} title="Add workouts to a collection">
+        <Copy>{selectedIds.length} selected. Existing collections, favorites, tags and archive choices stay private and unchanged.</Copy>
+        {collections.data?.map(item => <Choice key={item.id} label={item.title} selected={bulkTarget === item.id} disabled={bulkBusy}
+          onPress={() => { if (!bulkLock.current) { setBulkTarget(item.id); setBulkMessage(""); setBulkError(""); } }} />)}
+        {!collections.data?.length && <Button title="Create a collection" secondary disabled={bulkBusy} onPress={() => { setBulkOpen(false); router.push("/collections"); }} />}
+        {!!bulkMessage && <Notice>{bulkMessage}</Notice>}
+        {!!bulkError && <Notice error>{bulkError} Only the remaining selected workouts will be retried.</Notice>}
+        <Button title={bulkError ? "Retry remaining workouts" : "Add to collection"} busy={bulkBusy} disabled={!bulkTarget || !selectedIds.length}
+          onPress={() => void addSelected()} />
+        <Button title="Keep selecting" secondary disabled={bulkBusy} onPress={() => setBulkOpen(false)} />
       </Sheet>
     </Screen>
   );

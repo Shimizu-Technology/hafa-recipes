@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ApiError } from "./api";
 import type { DiscoverDetail, DiscoverPage } from "./discover";
+import { emptyOrganization } from "./organization";
 import type { Workout } from "./models";
 
 const fixture = vi.hoisted(() => ({
@@ -18,7 +19,7 @@ const fixture = vi.hoisted(() => ({
   deleteWorkout: vi.fn(),
   importJob: vi.fn(),
   importJobs: vi.fn(),
-  searchLibrary: vi.fn(), collections: vi.fn(),
+  searchLibrary: vi.fn(), collections: vi.fn(), organization: vi.fn(), saveOrganization: vi.fn(),
   importSource: vi.fn(),
   acceptImport: vi.fn(),
   cancelImport: vi.fn(),
@@ -33,7 +34,7 @@ const fixture = vi.hoisted(() => ({
   focus: false,
   appState: "active",
   appStateListeners: new Set<(state: string) => void>(),
-  current: true,
+  current: true, generation: 1,
   load: vi.fn(),
   saveDraft: vi.fn(),
 }));
@@ -55,7 +56,7 @@ vi.mock("@/lib/context", () => {
     deleteWorkout: fixture.deleteWorkout,
     importJob: fixture.importJob,
     importJobs: fixture.importJobs,
-    searchLibrary: fixture.searchLibrary, collections: fixture.collections,
+    searchLibrary: fixture.searchLibrary, collections: fixture.collections, organization: fixture.organization, saveOrganization: fixture.saveOrganization,
     importSource: fixture.importSource,
     acceptImport: fixture.acceptImport,
     cancelImport: fixture.cancelImport,
@@ -67,7 +68,7 @@ vi.mock("@/lib/context", () => {
     useTraining: () => ({
       api,
       owner: "owner",
-      enrollment: { enrolled: true, generation: 1 },
+      enrollment: { enrolled: true, generation: fixture.generation },
       storage,
       localDrafts,
       isCurrentAccount: () => fixture.current,
@@ -184,7 +185,7 @@ beforeEach(() => {
   fixture.params = {};
   fixture.focus = false;
   fixture.appState = "active"; fixture.appStateListeners.clear();
-  fixture.current = true;
+  fixture.current = true; fixture.generation = 1;
   fixture.load.mockReset().mockImplementation(async (_owner, scope) => fixture.map.has(scope) ? JSON.parse(fixture.map.get(scope)!)
     : scope.startsWith("imports:") && fixture.params.auto === "1" ? [{ id: "job", label: "Shared link", generation: 1, auto_save: true }] : null);
   fixture.saveDraft.mockReset().mockImplementation(async (_owner, scope, value) => { fixture.map.set(scope, JSON.stringify(value)); });
@@ -193,6 +194,7 @@ beforeEach(() => {
   fixture.importSource.mockResolvedValue({ images: [], text: "" });
   fixture.importJobs.mockReset().mockResolvedValue([]);
   fixture.collections.mockReset().mockResolvedValue([]); fixture.searchLibrary.mockReset();
+  fixture.organization.mockReset().mockResolvedValue(emptyOrganization()); fixture.saveOrganization.mockReset();
 });
 afterEach(async () => {
   if (renderer) await act(async () => renderer!.unmount());
@@ -852,4 +854,89 @@ it("serializes deletion and suppresses navigation after an account change", asyn
   await settle();
   expect(fixture.replace).not.toHaveBeenCalled();
   expect(fixture.toast).not.toHaveBeenCalled();
+});
+
+it("surfaces collection filters and management directly beside library search", async () => {
+  fixture.collections.mockResolvedValue([{ id: "gym", title: "Gym days", workout_count: 2 }]);
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  await mount(Library);
+  expect(button("Manage collections")).toBeDefined();
+  const chips = nodes("ChipRow").find(node => node.props.label === "Collections")!;
+  await act(async () => chips.findAllByType("Chip" as never).find(node => node.props.label === "Gym days")!.props.onPress()); await settle();
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0].collection_id).toBe("gym");
+});
+it("bulk organization keeps only failed workouts selected and retries only those", async () => {
+  const second = { ...saved, id: "copy-2", title: "Second workout" };
+  fixture.collections.mockResolvedValue([{ id: "gym", title: "Gym days", workout_count: 0 }]);
+  fixture.searchLibrary.mockResolvedValue({ items: [saved, second], total: 2, has_more: false });
+  fixture.organization.mockResolvedValue({ ...emptyOrganization(), revision: 3, collection_ids: ["existing"] });
+  let fail = true;
+  fixture.saveOrganization.mockImplementation(async (id, body) => {
+    if (id === second.id && fail) { fail = false; throw Error("Temporary save failure"); }
+    return { ...emptyOrganization(), revision: 4, collection_ids: body.collection_ids };
+  });
+  await mount(Library); await act(async () => button("Select workouts")!.props.onPress());
+  await act(async () => { choice(saved.title)!.props.onPress(); choice(second.title)!.props.onPress(); });
+  await act(async () => button("Add selected to collection")!.props.onPress());
+  const press = button("Add to collection")!.props.onPress;
+  await act(async () => { press(); press(); }); await settle();
+  expect(fixture.saveOrganization).toHaveBeenCalledTimes(2);
+  expect(choice(saved.title)!.props.selected).toBe(false); expect(choice(second.title)!.props.selected).toBe(true);
+  await act(async () => button("Retry remaining workouts")!.props.onPress()); await settle();
+  expect(fixture.saveOrganization.mock.calls.map(([id]) => id)).toEqual([saved.id, second.id, second.id]);
+  expect(fixture.saveOrganization.mock.calls[2][1]).toEqual({ expected_revision: 3, collection_ids: ["existing", "gym"] });
+  expect(button("Select workouts")).toBeDefined();
+});
+it("a direct favorite reads its current private revision and preserves memberships, tags and archive state", async () => {
+  fixture.params = { id: saved.id }; fixture.capabilities.mockResolvedValue(caps(false));
+  const original = { ...emptyOrganization(), revision: 1, collection_ids: ["original"], tags: ["Private"] };
+  fixture.workout.mockResolvedValue({ ...saved, organization: original });
+  let resolve!: (organization: ReturnType<typeof emptyOrganization>) => void;
+  fixture.organization.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  const latest = { ...original, revision: 7, archived: true, collection_ids: ["original", "another"] };
+  fixture.saveOrganization.mockResolvedValue({ ...latest, revision: 8, favorite: true });
+  await mount(WorkoutDetail);
+  const press = button("Favorite workout")!.props.onPress;
+  await act(async () => { press(); press(); }); expect(fixture.organization).toHaveBeenCalledTimes(1);
+  await act(async () => resolve(latest)); await settle();
+  expect(fixture.saveOrganization).toHaveBeenCalledExactlyOnceWith(saved.id, { expected_revision: 7, favorite: true }, 1);
+  expect(cache.getQueryData<Workout>(["owner", "workout", saved.id, 1])?.organization).toEqual({ ...latest, revision: 8, favorite: true });
+  expect(button("Remove favorite")).toBeDefined(); expect(button("Organize workout")).toBeDefined();
+});
+it("a retired account cannot continue a held bulk add", async () => {
+  fixture.collections.mockResolvedValue([{ id: "gym", title: "Gym", workout_count: 0 }]);
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  let resolve!: (organization: ReturnType<typeof emptyOrganization>) => void;
+  fixture.organization.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  await mount(Library); await act(async () => button("Select workouts")!.props.onPress());
+  await act(async () => choice(saved.title)!.props.onPress()); await act(async () => button("Add selected to collection")!.props.onPress());
+  await act(async () => button("Add to collection")!.props.onPress()); fixture.current = false;
+  await act(async () => resolve(emptyOrganization())); await settle();
+  expect(fixture.saveOrganization).not.toHaveBeenCalled();
+});
+
+it("a direct favorite stops before writing when the account retires during its metadata read", async () => {
+  fixture.params = { id: saved.id }; fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.workout.mockResolvedValue({ ...saved, organization: emptyOrganization() });
+  let resolve!: (organization: ReturnType<typeof emptyOrganization>) => void;
+  fixture.organization.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  await mount(WorkoutDetail); await act(async () => button("Favorite workout")!.props.onPress());
+  fixture.current = false; await act(async () => resolve(emptyOrganization())); await settle();
+  expect(fixture.saveOrganization).not.toHaveBeenCalled();
+  expect(cache.getQueryData<Workout>(["owner", "workout", saved.id, 1])?.organization?.favorite).toBe(false);
+});
+
+it("a new enrollment resets private bulk selection and fences an old in-flight result", async () => {
+  fixture.collections.mockResolvedValue([{ id: "gym", title: "Gym", workout_count: 0 }]);
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  let resolve!: (organization: ReturnType<typeof emptyOrganization>) => void;
+  fixture.organization.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  await mount(Library); await act(async () => button("Select workouts")!.props.onPress());
+  await act(async () => choice(saved.title)!.props.onPress()); await act(async () => button("Add selected to collection")!.props.onPress());
+  await act(async () => button("Add to collection")!.props.onPress());
+  fixture.generation = 2; fixture.searchLibrary.mockResolvedValue({ items: [], total: 0, has_more: false });
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Library)))); await settle();
+  await act(async () => resolve(emptyOrganization())); await settle();
+  expect(fixture.saveOrganization).not.toHaveBeenCalled(); expect(button("Select workouts")).toBeDefined();
+  expect(nodes("Sheet").find(node => node.props.title === "Add workouts to a collection")!.props.visible).toBe(false);
 });
