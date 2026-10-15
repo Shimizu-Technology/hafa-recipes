@@ -358,4 +358,23 @@ and unsupported sources open externally. Mounted tests cover load/error/timeout,
 retry, closure and navigation guards; actual native provider playback, background
 closure and return-to-workout acceptance remain required before release.
 
-The combined SDK patch/source-player lock is being revalidated against main `66d7e4b`. The preceding player audit and map counts describe the original branch only; they do not establish combined-head or native acceptance.
+### Combined SDK patch and source playback (2026-10-16)
+
+Against main `66d7e4b`, fresh Node 22/npm frozen installation and `npm ls --all`
+pass. The combined lock changes only the root WebView dependency and removes
+optional/peer flags on the existing 13.16.1 node. No package version, tarball,
+integrity, or other dependency edge changes. The lock SHA-256 is
+`6a11e115f873d356f2d264b3030c946e40b33bf79793a3557292569bff065577`.
+The production audit retains 32 inherited findings, the same six advisory IDs,
+zero critical and zero unexpected findings; the November 3 expiry is unchanged.
+
+217 affected policy, player, Discover and private-form tests, types, Doctor 21/21,
+all-platform exports and native bundle checks pass. Fresh iOS/Android Hermes
+maps contain 1,838/1,837 sources, select the native player and WebView as well as
+native Clerk and the Router fork, and exclude the reviewed build/socket paths.
+Map SHA-256: iOS
+`78bf7a7c2cbb0ec80df98362061b0efd47ce33c64682ad5e38b37a572317f18e`;
+Android `9d40e370e51e665bdb398f196a0c52720b7b51a1270e539f9a0c1bc98dbac62f`.
+These are dependency and bundle checks. Actual native/provider playback,
+background closure and return-to-workout acceptance remain required; they have
+not passed while device automation is unavailable.
