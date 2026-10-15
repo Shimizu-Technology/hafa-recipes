@@ -1,22 +1,23 @@
-import { createElement, type PropsWithChildren } from "react";
+import { createContext, createElement, startTransition, Suspense, useContext, type Context, type PropsWithChildren } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ApiError } from "./api";
 import type { Workout } from "./models";
-const f = vi.hoisted(() => ({ owner: "owner", generation: 1, current: true,
+const f = vi.hoisted(() => ({ owner: "owner", generation: 1, current: true, paramsContext: null as Context<string> | null,
   workout: vi.fn(), workoutVersions: vi.fn(), restoreWorkoutVersion: vi.fn(), dismissTo: vi.fn() }));
 vi.mock("@/lib/context", () => ({ useTraining: () => ({
   owner: f.owner, enrollment: { enrolled: true, generation: f.generation }, api: f,
   storage: { isCurrent: () => f.current }, isCurrentAccount: () => f.current,
 }) }));
-vi.mock("expo-router", () => ({ router: { dismissTo: f.dismissTo }, useLocalSearchParams: () => ({ id: "workout" }) }));
+vi.mock("expo-router", () => ({ router: { dismissTo: f.dismissTo }, useLocalSearchParams: () => ({ id: useContext(f.paramsContext!) }) }));
 vi.mock("@/components/ui", () => ({ Screen: "Screen", Button: "Button", Card: "Card", Copy: "Copy", Notice: "Notice", SectionHeader: "SectionHeader" }));
 vi.mock("@/components/query-state", () => ({ QueryState: ({ children }: PropsWithChildren) => children }));
 vi.mock("@/components/workout-instructions", () => ({ WorkoutInstructions: "Instructions" }));
 vi.mock("@/components/workout-source", () => ({ WorkoutSource: "Source" }));
 import WorkoutHistory from "../app/workout-history/[id]";
 let tree: ReactTestRenderer | undefined, cache: QueryClient;
+f.paramsContext = createContext("workout");
 const workout: Workout = { id: "workout", generation: 1, revision: 3, title: "Edited", kind: "session", provenance: "source", blocks: [] };
 const original = { id: "version1", revision: 1, created_at: "2026-10-15", workout: { ...workout, revision: 1, title: "Original", instructions: ["Rest after each round"], notes: ["Private note"], source_url: "https://example.test/reel" } };
 const nodes = (type: string) => tree!.root.findAll((node) => String(node.type) === type);
@@ -77,4 +78,33 @@ it.each(["owner", "generation"] as const)("ignores an acknowledgement after the 
 it("stops a stale confirmation when its private storage is retired", async () => {
   await render(); await click("Review version 1"); f.current = false; await click("Restore as new version");
   expect(f.restoreWorkoutVersion).not.toHaveBeenCalled();
+});
+it("an uncommitted route cannot retire the committed restore acknowledgement", async () => {
+  let resolve!: (value: Workout) => void;
+  f.restoreWorkoutVersion.mockReturnValueOnce(new Promise<Workout>((done) => { resolve = done; }));
+  const Params = f.paramsContext!;
+  const suspended = new Promise<never>(() => undefined);
+  function Gate({ pending }: { pending: boolean }) { if (pending) throw suspended; return null; }
+  const screen = (id: string, pending: boolean) => createElement(QueryClientProvider, { client: cache },
+    createElement(Suspense, { fallback: createElement("Fallback") },
+      createElement(Params.Provider, { value: id }, createElement(WorkoutHistory), createElement(Gate, { pending }))));
+  await act(async () => { tree = create(screen("workout", false)); }); await settle();
+  await click("Review version 1"); await click("Restore as new version");
+  await act(async () => { startTransition(() => tree!.update(screen("uncommitted", true))); });
+  expect(nodes("Fallback")).toHaveLength(0);
+  await act(async () => resolve({ ...original.workout, revision: 4 })); await settle();
+  expect(f.dismissTo).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "workout" } });
+});
+it("a committed route change unlocks its own restore and ignores the previous reply", async () => {
+  let resolve!: (value: Workout) => void;
+  f.restoreWorkoutVersion.mockReturnValueOnce(new Promise<Workout>((done) => { resolve = done; }));
+  const Params = f.paramsContext!;
+  const screen = (id: string) => createElement(QueryClientProvider, { client: cache },
+    createElement(Params.Provider, { value: id }, createElement(WorkoutHistory)));
+  await act(async () => { tree = create(screen("workout")); }); await settle();
+  await click("Review version 1"); await click("Restore as new version");
+  await act(async () => { tree!.update(screen("another")); }); await settle();
+  expect(button("Review version 1").props.disabled).toBe(false);
+  await act(async () => resolve({ ...original.workout, revision: 4 })); await settle();
+  expect(f.dismissTo).not.toHaveBeenCalled();
 });

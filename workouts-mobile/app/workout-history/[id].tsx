@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Copy, Notice, Screen, SectionHeader } from "@/components/ui";
@@ -17,10 +17,12 @@ export default function WorkoutHistory() {
   const cache = useQueryClient();
   const generation = enrollment?.generation;
   const scope = `${owner}:${generation}:${id}`;
-  const live = useRef(scope); live.current = scope;
-  const mounted = useRef(true);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const current = () => mounted.current && live.current === scope && storage.isCurrent() && isCurrentAccount();
+  const live = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    live.current = scope;
+    return () => { if (live.current === scope) live.current = null; };
+  }, [scope]);
+  const current = () => live.current === scope && storage.isCurrent() && isCurrentAccount();
   const detailKey = [owner, "workout", id, generation];
   const historyKey = [owner, "workout-versions", id, generation];
   const q = useQuery({ queryKey: detailKey, queryFn: () => api.workout(id), enabled: !!enrollment?.enrolled });
@@ -35,7 +37,7 @@ export default function WorkoutHistory() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const working = useRef<object | null>(null);
-  useEffect(() => { working.current = null; setSelected(null); setCommand(null); setBusy(false); setError(""); }, [scope]);
+  useLayoutEffect(() => { working.current = null; setSelected(null); setCommand(null); setBusy(false); setError(""); }, [scope]);
   async function restore() {
     if (!selected || !q.data || working.current || !current() || q.data.generation !== generation || selected.workout.generation !== generation) return;
     const operation = {}; working.current = operation; setBusy(true); setError("");
