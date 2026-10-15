@@ -1181,13 +1181,15 @@ def _prescription_wording(item, entry, source):
 
 
 def _reuse_rep_name_quotes(item, source: SourceBundle):
-    """An exact exercise/dose quote can support more than the name field."""
+    """Reuse only an unambiguous whole movement/dose row, never a nearby number."""
+    row = (rf"\s*\d+\s*(?:[x×]\s*|(?:reps?|repetitions?)\s+)?{re.escape(item.name)}"
+           r"(?:\s*\(\d+\s+(?:each|per)\s+(?:side|leg|arm|limb)\))?\s*[.!]?\s*")
     for field_name in ("reps_min", "reps_max"):
         value = getattr(item, field_name)
         if value is None or len(item.evidence) >= 100:
             continue
         for entry in list(item.evidence):
-            if (entry.field != "name" or item.name.casefold() not in entry.wording.casefold()
+            if (entry.field != "name" or not re.fullmatch(row, entry.wording, re.I)
                     or not any(part.location == entry.location and entry.wording in part.text
                                for part in source.parts)
                     or not _numeric_supported(field_name, value, entry.wording, item.name)
