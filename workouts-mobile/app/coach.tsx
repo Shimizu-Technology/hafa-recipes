@@ -558,7 +558,7 @@ export default function Coach() {
 
       {!!history.length && <SectionHeader title="Conversation" />}
       {history.map((item) => (
-        <View key={item.id} ref={node => { if (node) messageViews.current.set(item.id, node); else messageViews.current.delete(item.id); }} onLayout={event => messageLayout(item.id, event.nativeEvent.layout.y)} style={{ gap: 10 }}>
+        <View key={item.id} collapsable={false} ref={node => { if (node) messageViews.current.set(item.id, node); else messageViews.current.delete(item.id); }} onLayout={event => messageLayout(item.id, event.nativeEvent.layout.y)} style={{ gap: 10 }}>
           <Bubble from="you" meta={`${new Date(item.created_at).toLocaleString()} · ${item.state === "pending" ? "Awaiting reply" : item.state === "failed" ? "Reply unavailable" : "Sent"}`}>
             <Copy selectable>{item.user_message}</Copy>
           </Bubble>
