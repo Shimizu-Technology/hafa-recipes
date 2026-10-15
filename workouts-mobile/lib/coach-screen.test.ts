@@ -207,6 +207,29 @@ it("preserves a scroll made during measurement and excludes a simultaneous reply
   expect(f.scrollTo).toHaveBeenCalledWith({ y: 1050, animated: false });
   expect(f.scrollEnd).not.toHaveBeenCalled();
 });
+it("refreshes unchanged row positions for another prepend while retaining fresh native layouts", async () => {
+  f.pageSize = 2; f.history = [reply("newer"), reply("older")];
+  const page = deferred<{ messages: CoachMessage[]; limit: number; offset: number }>(); f.historyGate = page.promise;
+  await mount();
+  const row = (text: string) => nodes("View").find(node => node.props.onLayout && node.findAll(child => String(child.type) === "Copy" && child.props.children === text).length)!;
+  await act(async () => {
+    row("Question older").props.onLayout({ nativeEvent: { layout: { y: 500 } } });
+    row("Question newer").props.onLayout({ nativeEvent: { layout: { y: 1300 } } });
+    bindScroll().props.onScroll(scrollEvent(550));
+  });
+  let measured!: (x: number, y: number) => void;
+  f.measureAnchor.mockImplementation((_content, success) => { measured = success; });
+  await click("Load earlier messages");
+  await act(async () => page.resolve({ messages: ["early-a", "early-b"].map((id, i) => ({ ...reply(id), created_at: `2026-10-1${3 + i}T00:00:00Z` })), limit: 2, offset: 2 })); await settle();
+  await act(async () => { row("Question newer").props.onLayout({ nativeEvent: { layout: { y: 1800 } } }); measured(0, 900); });
+  f.scrollTo.mockClear();
+  await act(async () => nodes("Screen")[0].props.onScroll(scrollEvent(1850, 5000)));
+  const next = deferred<{ messages: CoachMessage[]; limit: number; offset: number }>(); f.historyGate = next.promise;
+  await click("Load earlier messages");
+  await act(async () => next.resolve({ messages: [{ ...reply("oldest"), created_at: "2026-10-12T00:00:00Z" }], limit: 2, offset: 4 })); await settle();
+  await act(async () => measured(0, 1900));
+  expect(f.scrollTo).toHaveBeenCalledWith({ y: 1950, animated: false });
+});
 it("disables HTML and remote images while retaining selectable Markdown text", async () => {
   f.history = [{ ...reply("older"), assistant_message: "**Plan**\n- Row\n![track](https://evil.test/pixel)\n<script>bad()</script>" }]; await mount();
   const md = nodes("Markdown")[0].props;
