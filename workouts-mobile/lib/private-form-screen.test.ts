@@ -1723,6 +1723,42 @@ it("does not change or expand a disabled workout editor", async () => {
   expect(fixture.updateWorkout).not.toHaveBeenCalled();
 });
 
+it("changes an AMRAP timer from 20 to 15 minutes while retaining creator instructions and exercise prescriptions", async () => {
+  const content: AuthoredWorkout = { ...workout, estimated_minutes: 20, notes: ["Repeat for 20 minutes"], blocks: [{
+    ...workout.blocks[0], grouping: "circuit", execution: { mode: "amrap", time_cap_seconds: 1200 },
+    exercises: [{ name: "Row", sets: 2, reps_min: 10, evidence: [{ field: "reps_min", wording: "10 reps" }] }],
+  }] };
+  await mountRealWorkoutEditor(content); await click("Show block settings: Strength");
+  expect(nodes("Field").find(n => n.props.label === "Rounds · separate from exercise sets")).toBeUndefined();
+  const cap = nodes("Field").find(n => n.props.label === "AMRAP time cap · minutes")!;
+  expect(cap.props.value).toBe("20");
+  await act(async () => cap.props.onChange("15"));
+  expect(fixture.updateWorkout.mock.lastCall![0]).toMatchObject({ estimated_minutes: 15, notes: content.notes,
+    blocks: [{ execution: { mode: "amrap", time_cap_seconds: 900 }, exercises: content.blocks[0].exercises }] });
+});
+it("shows a source's fractional-minute cap as exact seconds and can switch execution without inventing rounds", async () => {
+  await mountRealWorkoutEditor({ ...workout, blocks: [{ ...workout.blocks[0], grouping: "circuit",
+    execution: { mode: "amrap", time_cap_seconds: 125 } }] });
+  await click("Show block settings: Strength");
+  expect(nodes("Field").find(n => n.props.label === "AMRAP time cap · seconds")!.props.value).toBe("125");
+  await act(async () => nodes("Choice").find(n => n.props.label === "Fixed rounds")!.props.onPress());
+  expect(fixture.updateWorkout.mock.lastCall![0].blocks[0].execution).toBeUndefined();
+  expect(nodes("Field").find(n => n.props.label === "Rounds · separate from exercise sets")!.props.value).toBe("");
+  await act(async () => nodes("Choice").find(n => n.props.label === "AMRAP · repeat until the time cap")!.props.onPress());
+  await act(async () => nodes("Choice").find(n => n.props.label === "interval")!.props.onPress());
+  expect(fixture.updateWorkout.mock.lastCall![0].blocks[0].execution).toBeUndefined();
+});
+it.each([0, 86401, 0.5, NaN])("rejects AMRAP cap %s before freezing the saved-workout command", async seconds => {
+  fixture.params = { id: "workout" }; await mount(EditWorkout);
+  await act(async () => find("WorkoutEditor").props.onChange({ ...workout, blocks: [{ ...workout.blocks[0], grouping: "circuit",
+    execution: { mode: "amrap", time_cap_seconds: seconds } }] }));
+  await click("Save new workout version");
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+  expect(button("Save new workout version")).toBeDefined();
+  const stored = [...fixture.map.values()].map(value => JSON.parse(value)).find(value => value.input?.blocks);
+  expect(stored?.command).toBeNull();
+});
+
 it("a social app's text-only shared link uses URL extraction and keeps its caption", async () => {
   fixture.share = true;
   fixture.intent = { webUrl: "", text: "Try this workout https://youtu.be/qa-video Three rounds", files: [] };

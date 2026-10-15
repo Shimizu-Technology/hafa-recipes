@@ -1,5 +1,6 @@
 import type { Workout, AuthoredWorkout } from "./models";
 import { authoredWorkout } from "./api";
+import { executionError } from "./amrap-editor";
 export function editedContent(workout: Workout | AuthoredWorkout): AuthoredWorkout {
   const content = authoredWorkout(workout);
   return {
@@ -23,6 +24,8 @@ export function workoutErrors(workout: AuthoredWorkout,allowIncomplete=false) {
     errors.push("Keep workout instructions to 100 lines or fewer.");
   if (!workout.blocks.length && !allowIncomplete) errors.push("Add at least one workout block.");
   for (const block of workout.blocks) {
+    const executionProblem = executionError(block);
+    if (executionProblem) errors.push(executionProblem);
     if (!block.label.trim()) errors.push("Name each workout block.");
     if (block.rounds != null && (!Number.isInteger(block.rounds) || block.rounds < 1 || block.rounds > 100))
       errors.push("Rounds must be a whole number from 1 to 100.");

@@ -30,6 +30,7 @@ import type { Workout } from "@/lib/models";
 import { trackingPrescriptionWarning } from "@/lib/training";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutSource } from "@/components/workout-source";
+import { amrapCap, blockSummary } from "@/lib/amrap-editor";
 export default function WorkoutDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { api, owner, enrollment } = useTraining();
@@ -101,6 +102,7 @@ export default function WorkoutDetail() {
   }
   const trackingWarning = workout ? trackingPrescriptionWarning(workout) : null;
   const exercises = workout?.blocks.reduce((n, b) => n + b.exercises.length, 0) ?? 0;
+  const timeCap = workout?.blocks.length === 1 ? amrapCap(workout.blocks[0]) : null;
   const go = (to: Parameters<typeof router.push>[0]) => {
     setMore(false);
     router.push(to);
@@ -114,12 +116,21 @@ export default function WorkoutDetail() {
     >
       {workout && (
         <Row gap={10}>
-          <StatTile value={workout.estimated_minutes ?? "–"} unit={workout.estimated_minutes ? "min" : undefined} label="Estimated time" />
+          {timeCap != null ? <Card compact style={{ flex: 1, minWidth: 96, gap: 4 }}>
+            <Copy kind="numericSmall">{formatSeconds(timeCap)}</Copy>
+            <Copy kind="small" tone="muted">AMRAP time cap</Copy>
+          </Card> : <StatTile value={workout.estimated_minutes ?? "–"} unit={workout.estimated_minutes ? "min" : undefined} label="Estimated time" />}
           <StatTile value={exercises} label={exercises === 1 ? "Exercise" : "Exercises"} />
           <StatTile value={workout.blocks.length} label={workout.blocks.length === 1 ? "Block" : "Blocks"} />
         </Row>
       )}
-      {workout && (
+      {workout && exercises === 0 && <Button
+        title={workout.provenance === "source" || workout.source_url || workout.capture_kind ? "Recover workout instructions" : "Add workout exercises"}
+        icon="create-outline" size="lg" onPress={() => router.push({
+          pathname: workout.provenance === "source" || workout.source_url || workout.capture_kind ? "/recover-workout/[id]" : "/edit-workout/[id]",
+          params: { id: workout.id },
+        })} />}
+      {workout && (exercises > 0 || offline.state.active) && (
         <Button
           title={offline.state.active ? "Resume current session" : "Start this workout"}
           icon="play"
@@ -132,13 +143,13 @@ export default function WorkoutDetail() {
           }}
         />
       )}
-      {trackingWarning && <Card compact>
+      {trackingWarning && exercises > 0 && <Card compact>
         <Copy kind="subheading">Review before tracking</Copy>
         <Copy kind="small">{trackingWarning}</Copy>
         <Button title="Review tracking details" secondary onPress={() => router.push({ pathname: "/edit-workout/[id]", params: { id: workout!.id } })} />
       </Card>}
       {workout && exercises === 0 && <Notice tone="warning">This source has no extracted exercises yet. Check the source and edit its details before training.</Notice>}
-      {workout && (exercises === 0 || !!workout.extraction_warnings?.length) && !!(workout.source_url || workout.capture_kind) && <Card compact>
+      {workout && exercises > 0 && !!workout.extraction_warnings?.length && !!(workout.source_url || workout.capture_kind) && <Card compact>
         <Copy kind="subheading">Recover the source</Copy>
         <Copy kind="small">Try its link again or paste the creator’s caption or transcript. Your saved draft stays unchanged.</Copy>
         <Button title="Recover from caption or source" secondary icon="refresh-outline" onPress={() => router.push({ pathname: "/recover-workout/[id]", params: { id: workout.id } })} />
@@ -207,9 +218,8 @@ export default function WorkoutDetail() {
               <Card key={index}>
                 <Copy kind="caption" tone="accent">
                   {block.label ? `${block.label} · ` : ""}
-                  {block.grouping}
-                  {block.rounds ? ` · ${block.rounds} rounds` : ""}
-                  {block.rounds == null && block.grouping !== "sequential" ? " · Rounds not specified" : ""}
+                  {blockSummary(block)}
+                  {block.rounds == null && block.grouping !== "sequential" && block.execution?.mode !== "amrap" ? " · Rounds not specified" : ""}
                   {block.rest_between_rounds_seconds != null ? ` · ${formatSeconds(block.rest_between_rounds_seconds)} between rounds` : ""}
                 </Copy>
                 {block.exercises.map((e, i) => (

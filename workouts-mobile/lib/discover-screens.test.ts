@@ -125,6 +125,9 @@ import DiscoverWorkout from "../app/discover/[id]";
 import ImportReview from "../app/import/[id]";
 import Library from "../app/(tabs)/library";
 import { ImportList } from "../components/import-list";
+import { PrescriptionPreview } from "../components/program-preview";
+import { SharedSnapshot } from "../components/shared-snapshot";
+import type { ShareSnapshot } from "./sharing";
 
 let renderer: ReactTestRenderer | undefined, cache: QueryClient;
 const nodes = (type: string) => renderer!.root.findAll((n) => String(n.type) === type);
@@ -427,16 +430,17 @@ it("Library cards retain the source cover and creator while marking unresolved s
 });
 it("saved detail retains source metadata and prevents starting a source-only draft with no exercises", async () => {
   fixture.params = { id: "source-only" }; fixture.capabilities.mockResolvedValue(caps(false));
-  fixture.workout.mockResolvedValue({ ...saved, blocks: [], source_url: "https://example.test/source", source_title: "Original clip", source_creator: "Creator",
+  fixture.workout.mockResolvedValue({ ...saved, provenance: "source", blocks: [], source_url: "https://example.test/source", source_title: "Original clip", source_creator: "Creator",
     source_thumbnail_url: "https://example.test/cover.jpg", extraction_warnings: ["No readable instructions"] });
   await mount(WorkoutDetail);
-  expect(button("Start this workout")!.props.disabled).toBe(true);
-  await act(async () => button("Start this workout")!.props.onPress()); expect(fixture.push).not.toHaveBeenCalled();
+  expect(button("Start this workout")).toBeUndefined();
+  await act(async () => button("Recover workout instructions")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/recover-workout/[id]", params: { id: saved.id } });
   expect(nodes("SourceImage")[0].props.uri).toBe("https://example.test/cover.jpg");
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
   expect(text).toContain("No readable instructions"); expect(button("Check details")).toBeDefined();
-  await act(async () => button("Recover from caption or source")!.props.onPress());
-  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/recover-workout/[id]", params: { id: saved.id } });
+  expect(button("Recover from caption or source")).toBeUndefined();
+  expect(button("Review tracking details")).toBeUndefined();
 });
 
 it("defaults Share to Discover off for photo imports and saves privately", async () => {
@@ -709,4 +713,73 @@ it("keeps the original overall instructions visible during import review", async
   await mount(ImportReview);
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
   expect(text).toContain(job.result.workout.notes[0]);
+});
+
+it.each([1200, 125])("presents a %s-second AMRAP cap as authoritative over a separate estimate", async seconds => {
+  fixture.params = { id: saved.id }; fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.workout.mockResolvedValue({ ...saved, estimated_minutes: 25, blocks: [{ id: "flow", label: "Flow", grouping: "circuit",
+    execution: { mode: "amrap", time_cap_seconds: seconds }, exercises: [{ name: "Curls", reps_min: 10 }] }] });
+  await mount(WorkoutDetail);
+  expect(nodes("StatTile").find(n => n.props.label === "Estimated time")).toBeUndefined();
+  const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
+  expect(text).toContain(seconds === 1200 ? "20 min" : "2m 5s"); expect(text).toContain("AMRAP time cap");
+  expect(text).toContain("AMRAP"); expect(text).not.toContain("Rounds not specified");
+});
+it("gives an empty manual workout a usable add-exercises action", async () => {
+  fixture.params = { id: saved.id }; fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.workout.mockResolvedValue({ ...saved, blocks: [] }); await mount(WorkoutDetail);
+  expect(button("Start this workout")).toBeUndefined();
+  await act(async () => button("Add workout exercises")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: saved.id } });
+});
+
+it.each(["import", "plan", "shared workout", "shared program", "discover"] as const)(
+  "%s presents typed AMRAP execution without relying on an estimate or written notes", async surface => {
+    const workout: Workout = { ...saved, title: "Source circuit", estimated_minutes: null, notes: [], blocks: [
+      { id: "flow", label: "Main", grouping: "circuit", execution: { mode: "amrap", time_cap_seconds: 1200 },
+        exercises: [{ name: "Swings", reps_min: 10 }] },
+    ] };
+    const snapshot: ShareSnapshot = { kind: surface === "shared program" ? "program" : "workout",
+      content: surface === "shared program" ? { title: "Source plan", sessions: [{ sequence: 1, day_offset: 0, workout }], notice: "Review this plan" } : workout,
+      attribution: { shared_by_display_name: "Source owner", source_revision: 1, original_source_included: false }, review_required: true };
+    if (surface === "import") {
+      fixture.params = { id: "job" }; fixture.capabilities.mockResolvedValue(caps(false));
+      const job = importJob("images"); fixture.importJob.mockResolvedValue({ ...job, result: { ...job.result, workout } });
+      await mount(ImportReview);
+    } else if (surface === "plan") await mount(() => createElement(PrescriptionPreview, { workout }));
+    else if (surface === "discover") {
+      fixture.params = { id: "pub-1" }; fixture.discoverWorkout.mockResolvedValue({ ...detail, estimated_minutes: null, workout });
+      await mount(DiscoverWorkout);
+    } else await mount(() => createElement(SharedSnapshot, { snapshot }));
+    const text = () => nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
+    expect(text()).toContain("AMRAP · 20 min time cap");
+    expect(text().toLowerCase()).not.toContain("rounds not specified");
+    expect(text().toLowerCase()).not.toMatch(/sets not specified|unspecified sets/);
+
+    // An ordinary fixed-round prescription retains its existing presentation.
+    const fixed: Workout = { ...workout, blocks: [{ ...workout.blocks[0], execution: undefined, rounds: 3,
+      exercises: [{ ...workout.blocks[0].exercises[0], sets: 2 }] }] };
+    await act(async () => renderer!.unmount()); renderer = undefined;
+    if (surface === "import") {
+      const job = importJob("images"); fixture.importJob.mockResolvedValue({ ...job, result: { ...job.result, workout: fixed } });
+      cache.clear(); await mount(ImportReview);
+    } else if (surface === "plan") await mount(() => createElement(PrescriptionPreview, { workout: fixed }));
+    else if (surface === "discover") {
+      fixture.discoverWorkout.mockResolvedValue({ ...detail, estimated_minutes: null, workout: fixed }); cache.clear(); await mount(DiscoverWorkout);
+    } else {
+      const fixedSnapshot: ShareSnapshot = { ...snapshot, content: surface === "shared program"
+        ? { title: "Source plan", sessions: [{ sequence: 1, day_offset: 0, workout: fixed }], notice: "Review this plan" } : fixed };
+      await mount(() => createElement(SharedSnapshot, { snapshot: fixedSnapshot }));
+    }
+    expect(text()).toContain("3 rounds"); expect(text()).not.toContain("AMRAP");
+    if (surface === "plan" || surface.startsWith("shared")) expect(text()).toContain("2 sets");
+  });
+
+it.each([true, false])("plan previews keep explicit sets and only omit unspecified sets for AMRAP=%s", async timed => {
+  const workout: Workout = { ...saved, blocks: [{ id: "flow", label: "Main", grouping: "circuit",
+    ...(timed ? { execution: { mode: "amrap" as const, time_cap_seconds: 1200 } } : {}),
+    exercises: [{ name: "Swings", reps_min: 10, sets: 2 }, { name: "Squat", reps_min: 10 }] }] };
+  await mount(() => createElement(PrescriptionPreview, { workout }));
+  const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
+  expect(text).toContain("2 sets"); expect(text.includes("Sets not specified")).toBe(!timed);
 });

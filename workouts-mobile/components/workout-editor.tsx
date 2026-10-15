@@ -3,6 +3,7 @@ import { View } from "react-native";
 import { Button, Card, Choice, Copy, Field, Notice } from "./ui";
 import { prescriptionLine } from "@/lib/discover";
 import type { AuthoredWorkout, ExercisePrescription } from "@/lib/models";
+import { blockSummary, changeExecution, changeGrouping, changeTimeCap, executionError, parseCap } from "@/lib/amrap-editor";
 export function WorkoutEditor({
   value,
   onChange,
@@ -70,13 +71,13 @@ export function WorkoutEditor({
         instructions.
       </Notice>
       {value.blocks.map((block, bi) => {
-        const blockInvalid = !block.label.trim() || (block.rounds != null && (!Number.isInteger(block.rounds) || block.rounds < 1 || block.rounds > 100)) ||
+        const blockInvalid = !!executionError(block) || !block.label.trim() || (block.rounds != null && (!Number.isInteger(block.rounds) || block.rounds < 1 || block.rounds > 100)) ||
           (block.rest_between_rounds_seconds != null && (!Number.isInteger(block.rest_between_rounds_seconds) || block.rest_between_rounds_seconds < 0 || block.rest_between_rounds_seconds > 7200));
         const blockExpanded = expandedBlocks.includes(block.id) || blockInvalid;
         return (
         <Card key={block.id}>
           <Copy kind="heading">{block.label || "Workout block"}</Copy>
-          <Copy kind="small" tone="muted">{block.grouping}{block.rounds != null ? ` · ${block.rounds} rounds` : ""}</Copy>
+          <Copy kind="small" tone="muted">{blockSummary(block)}</Copy>
           <Button title={`${blockExpanded ? "Hide" : "Show"} block settings: ${block.label || "Workout block"}`} variant="ghost" disabled={disabled} onPress={() => toggle(block.id, expandedBlocks, setExpandedBlocks)} />
           {blockExpanded && <>
           <Field
@@ -94,18 +95,28 @@ export function WorkoutEditor({
               label={grouping}
               selected={block.grouping === grouping}
               onPress={() =>
-                update({ ...value, blocks: value.blocks.map((b, i) => (i === bi ? { ...b, grouping } : b)) })
+                update(changeGrouping(value, bi, grouping))
               }
             />
           ))}
-          <NumberField
+          {block.grouping === "circuit" && <>
+            <Choice label="Fixed rounds" selected={!block.execution} disabled={disabled}
+              onPress={() => update(changeExecution(value, bi, false))} />
+            <Choice label="AMRAP · repeat until the time cap" selected={block.execution?.mode === "amrap"} disabled={disabled}
+              onPress={() => update(changeExecution(value, bi, true))} />
+          </>}
+          {block.execution?.mode === "amrap" ? <>
+            <TimeCapField seconds={block.execution.time_cap_seconds} disabled={disabled}
+              onChange={(seconds) => update(changeTimeCap(value, bi, seconds))} />
+            <Copy kind="small" tone="muted">This sets the timer; review written instructions if you change it.</Copy>
+          </> : <NumberField
             disabled={disabled}
             label="Rounds · separate from exercise sets"
             value={block.rounds}
             onChange={(rounds) =>
               update({ ...value, blocks: value.blocks.map((b, i) => (i === bi ? { ...b, rounds } : b)) })
             }
-          />
+          />}
           <NumberField disabled={disabled} label="Rest between rounds · seconds" value={block.rest_between_rounds_seconds}
             onChange={(rest_between_rounds_seconds) => update({ ...value, blocks: value.blocks.map((b, i) => i === bi ? { ...b, rest_between_rounds_seconds } : b) })} />
           </>}
@@ -246,7 +257,7 @@ export function WorkoutEditor({
       ); })}
       <Button
         disabled={disabled}
-        title="Add another block"
+        title={value.blocks.length ? "Add another block" : "Add exercises"}
         secondary
         onPress={() =>
           update({
@@ -255,7 +266,7 @@ export function WorkoutEditor({
               ...value.blocks,
               {
                 id: `block-${Date.now()}-${value.blocks.length}`,
-                label: "Additional work",
+                label: value.blocks.length ? "Additional work" : "Main session",
                 grouping: "sequential",
                 exercises: [{ name: "", provenance: "user" }]
               }
@@ -265,6 +276,26 @@ export function WorkoutEditor({
       />
     </View>
   );
+}
+function TimeCapField({ seconds, onChange, disabled }: {
+  seconds: number; onChange(seconds: number): void; disabled: boolean;
+}) {
+  const [units, setUnits] = useState<"minutes" | "seconds">(seconds % 60 ? "seconds" : "minutes");
+  const display = (value: number, unit: typeof units) => value == null || value === 0 ? "" : String(value / (unit === "minutes" ? 60 : 1));
+  const [text, setText] = useState(() => display(seconds, units));
+  useEffect(() => {
+    if (!Object.is(parseCap(text, units), seconds)) setText(display(seconds, units));
+  }, [seconds]);
+  return <>
+    <View style={{ flexDirection: "row", gap: 12 }}>
+      {(["minutes", "seconds"] as const).map(unit => <View key={unit} style={{ flex: 1 }}><Choice label={unit === "minutes" ? "Minutes" : "Seconds"}
+        selected={units === unit} disabled={disabled} onPress={() => {
+          if (!disabled) { setUnits(unit); setText(display(seconds, unit)); }
+        }} /></View>)}
+    </View>
+    <Field label={`AMRAP time cap · ${units}`} value={text} numeric disabled={disabled}
+      onChange={next => { if (!disabled) { setText(next); onChange(parseCap(next, units)); } }} />
+  </>;
 }
 function NumberField({
   label,

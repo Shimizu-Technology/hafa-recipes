@@ -38,6 +38,7 @@ import {
   type ReportCategory,
 } from "@/lib/discover";
 import type { Workout } from "@/lib/models";
+import { blockSummary } from "@/lib/amrap-editor";
 
 const reportCategories: Array<{ value: ReportCategory; label: string; detail: string }> = [
   { value: "unsafe", label: "Unsafe exercise advice", detail: "Could hurt someone who follows it" },
@@ -310,8 +311,7 @@ export default function DiscoverWorkout() {
               <Copy kind="caption" tone="accent">
                 {[
                   block.label || `Block ${index + 1}`,
-                  block.grouping,
-                  block.rounds ? `${block.rounds} rounds` : null,
+                  blockSummary(block),
                   block.rest_between_rounds_seconds ? `${formatSeconds(block.rest_between_rounds_seconds)} between rounds` : null,
                 ]
                   .filter(Boolean)
