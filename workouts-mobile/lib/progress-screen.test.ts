@@ -4,20 +4,25 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { TrainingSession, Workout } from "./models";
 import type { SavedLocalSession } from "./training";
-const fixture = vi.hoisted(() => ({ history: [] as SavedLocalSession[], remote: [] as TrainingSession[], session: vi.fn(), sessions: vi.fn(), ready: true,
-  store: { sync: vi.fn(async () => {}), retry: vi.fn(async () => {}), dismiss: vi.fn(async () => {}) }, alert: vi.fn() }));
+const fixture = vi.hoisted(() => ({ history: [] as SavedLocalSession[], remote: [] as TrainingSession[], session: vi.fn(), sessions: vi.fn(), ready: true, current: true, params: { id: "client-A" }, map: new Map<string, string>(), push: vi.fn(), replace: vi.fn(),
+  store: { sync: vi.fn(async () => {}), retry: vi.fn(async () => {}), dismiss: vi.fn(async () => {}), recoverResult: vi.fn(async () => "saved-recovery") }, alert: vi.fn() }));
 vi.mock("@/lib/context", () => {
-  const api = { sessions: fixture.sessions, session: fixture.session, saveSession: vi.fn(),
+  const storage = { isCurrent: () => fixture.current, getItem: async (key: string) => fixture.map.get(key) ?? null,
+    setItem: async (key: string, value: string) => { fixture.map.set(key, value); }, removeItem: async (key: string) => { fixture.map.delete(key); } };
+  const api = { saveWorkout: vi.fn(), sessions: fixture.sessions, session: fixture.session, saveSession: vi.fn(),
     activityLog: async () => ({ items: [], has_more: false, timezone: "UTC", today: "2026-10-10", limit: 50, offset: 0 }) };
-  return { useTraining: () => ({ api, owner: "owner", enrollment: { enrolled: true, generation: 1 } }),
+  return { useTraining: () => ({ api, storage, isCurrentAccount: () => fixture.current, owner: "owner", enrollment: { enrolled: true, generation: 1 } }),
     useOfflineTraining: () => ({ state: { history: fixture.history }, error: "", ready: fixture.ready, store: fixture.store }) };
 });
 vi.mock("react-native", () => ({ AppState: { addEventListener: () => ({ remove() {} }) }, Alert: { alert: fixture.alert } }));
-vi.mock("expo-router", () => ({ router: { push: vi.fn() }, useFocusEffect() {} }));
+vi.mock("expo-router", () => ({ router: { push: fixture.push, replace: fixture.replace },
+  useLocalSearchParams: () => fixture.params, useFocusEffect() {} }));
+vi.mock("expo-crypto", () => ({ randomUUID: () => "recovery-uuid" }));
 vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy", Notice: "Notice", Button: "Button",
   AccountButton: "AccountButton", Empty: "Empty", IconButton: "IconButton", ListGroup: "ListGroup", ListRow: "ListRow",
   Row: "Row", SectionHeader: "SectionHeader", Skeleton: "Skeleton", useColors: () => ({ muted: "gray" }) }));
 import Progress from "../app/(tabs)/progress";
+import RecoverResult from "../app/recover-result/[id]";
 let renderer: ReactTestRenderer | undefined, cache: QueryClient;
 const workout: Workout = { id: "workout", generation: 1, revision: 1, title: "Strength", kind: "session", provenance: "user",
   blocks: [{ id: "main", label: "Strength", grouping: "sequential", exercises: [{ name: "Row", sets: 2 }] }] };
@@ -33,13 +38,15 @@ function local(s: TrainingSession, state: SavedLocalSession["state"]): SavedLoca
   return { generation: 1, workout: prescription_snapshot, request, state, ...(state === "synced" ? { synced_id: s.id } : {}),
     ...(state === "blocked" ? { problem: "Correction conflict requires review" } : {}) };
 }
-const tree = () => createElement(QueryClientProvider, { client: cache }, createElement(Progress));
+const tree = (Component = Progress) => createElement(QueryClientProvider, { client: cache }, createElement(Component));
 async function settle() { for (let i = 0; i < 6; i++) await act(async () => { await new Promise((done) => setTimeout(done, 5)); }); }
 const text = () => renderer!.root.findAll((node) => String(node.type) === "Copy" || String(node.type) === "Notice")
   .map((node) => node.children.filter((child) => typeof child === "string").join("")).join("\n");
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  fixture.history = []; fixture.remote = []; fixture.ready = true; fixture.sessions.mockReset();
+  fixture.history = []; fixture.remote = []; fixture.ready = true; fixture.current = true; fixture.map.clear();
+  fixture.push.mockReset(); fixture.replace.mockReset(); fixture.params = { id: "client-A" }; fixture.store.recoverResult.mockReset();
+  fixture.store.recoverResult.mockResolvedValue("saved-recovery"); fixture.sessions.mockReset();
   fixture.sessions.mockImplementation(async () => fixture.remote); fixture.session.mockReset(); fixture.alert.mockReset();
   Object.values(fixture.store).forEach((fn) => fn.mockClear());
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
@@ -150,4 +157,29 @@ it("renders twenty history rows at a time without truncating authoritative count
   await act(async () => { more()!.props.onPress(); }); expect(views()).toHaveLength(40);
   await act(async () => { more()!.props.onPress(); }); expect(views()).toHaveLength(45);
   expect(more()).toBeUndefined(); expect(fixture.remote).toHaveLength(45);
+});
+
+
+it.each([404, 410, 422])("Progress offers explicit source recovery only for missing-source status%i", async status => {
+  fixture.history = [{ ...local(saved("A"), "blocked"), rejection_status: status }];
+  await act(async () => { renderer = create(tree()); }); await settle();
+  const recover = renderer!.root.findAllByType("Button" as never).find(node => node.props.title === "Recover result");
+  expect(!!recover).toBe(status !== 422);
+  if (recover) { await act(async () => recover.props.onPress());
+    expect(fixture.push).toHaveBeenCalledWith({ pathname: "/recover-result/[id]", params: { id: "client-A" } }); }
+});
+it("reviewing an orphan shows its prescription and retries the same durable recovery command after reopening", async () => {
+  fixture.history = [{ ...local(saved("A"), "blocked"), rejection_status: 404 }];
+  fixture.store.recoverResult.mockRejectedValueOnce(Error("Offline; recovery stays saved"));
+  await act(async () => { renderer = create(tree(RecoverResult)); }); await settle();
+  expect(text()).toContain("Strength"); expect(text()).toContain("Row"); expect(text()).toContain("8 reps"); expect(text()).toContain("Nothing is shared");
+  const save = () => renderer!.root.findAllByType("Button" as never).find(node => /Save private workout and result|Continue saving recovered result/.test(node.props.title))!;
+  await act(async () => save().props.onPress()); await settle();
+  const first = fixture.store.recoverResult.mock.calls[0] as unknown[];
+  expect(first[0]).toBe("client-A"); expect(first[1]).toEqual({ creation_key: "recovery-uuid", client_session_id: "recovery-uuid" });
+  await act(async () => renderer!.unmount()); renderer = undefined;
+  await act(async () => { renderer = create(tree(RecoverResult)); }); await settle();
+  await act(async () => save().props.onPress()); await settle();
+  expect((fixture.store.recoverResult.mock.calls[1] as unknown[])[1]).toEqual(first[1]);
+  expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/session/[id]", params: { id: "saved-recovery" } });
 });

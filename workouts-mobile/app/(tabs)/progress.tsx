@@ -5,6 +5,7 @@ import { Alert } from "react-native";
 import { router } from "expo-router";
 import { AccountButton, Button, Card, Copy, Empty, IconButton, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Skeleton } from "@/components/ui";
 import { useTraining, useOfflineTraining } from "@/lib/context";
+import { canRecoverResult } from "@/lib/result-recovery";
 import { summaryOf } from "@/lib/training";
 import { sessionsQuery } from "@/lib/session-query";
 import { missingProgressParents, loadProgressAncestry, selectProgressSessions } from "@/lib/progress-selection";
@@ -143,9 +144,12 @@ export default function Progress() {
             {h.state === "blocked" && (
               <>
                 <Notice tone="warning">
-                  This result keeps its original account generation and session identity. It is never silently
-                  rewritten into a new account. Try again, or discard it from this device if it can no longer be saved.
+                  {h.recovery ? "Your recovery is saved on this device. Continue to finish saving it." :
+                    canRecoverResult(h) ? "Recover your recorded result with a private workout copy, or try saving the original again." :
+                      "This result is still saved on this device. Try saving again, or discard it here if you no longer need it."}
                 </Notice>
+                {(canRecoverResult(h) || !!h.recovery) && <Button title={h.recovery ? "Continue result recovery" : "Recover result"}
+                  icon="refresh" secondary disabled={busy} onPress={() => router.push({ pathname: "/recover-result/[id]", params: { id: h.request.client_session_id } })} />}
                 <Row gap={8} wrap>
                   <Button
                     title="Try saving again"
@@ -154,6 +158,7 @@ export default function Progress() {
                     inline
                     icon="refresh"
                     busy={busy}
+                    disabled={!!h.recovery}
                     onPress={() => {
                       void sync(() => offline.store!.retry(h.request.client_session_id));
                     }}
@@ -164,12 +169,15 @@ export default function Progress() {
                     size="sm"
                     inline
                     icon="trash-outline"
-                    disabled={busy}
+                    disabled={busy || !!h.recovery}
                     onPress={() => discard(h.request.client_session_id)}
                   />
                 </Row>
               </>
             )}
+            {!!h.recovery_origin && <><Notice>This result was recovered with a private workout copy.</Notice>
+              <Button title="View original recording" variant="ghost" size="sm" inline onPress={() => router.push({
+                pathname: "/recover-result/[id]", params: { id: h.recovery_origin!.request.client_session_id } })} /></>}
             {!!h.synced_id && (
               <Button
                 title="View saved session"
