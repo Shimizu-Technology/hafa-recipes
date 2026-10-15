@@ -571,5 +571,5 @@ async def test_image_provider_attempt_truthfully_admits_vision_and_only_uses_sup
     envelope = budget.reservations[0][2]
     assert envelope.includes_images is True and envelope.function_tools is True
     assert envelope.max_output_tokens == 1800 and envelope.sdk_max_retries == 0
-    assert state.sent[0]["input"] == items and state.sent[0]["store"] is False
+    assert state.sent[0][1]["input"] == items and state.sent[0][1]["store"] is False
     assert len(budget.reservations) == 1 and budget.outcomes == ["success"]
