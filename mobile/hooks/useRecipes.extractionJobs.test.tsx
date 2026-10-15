@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   deleteRecipe: vi.fn(),
   alert: vi.fn(),
   focused: true,
+  getAuthScope: vi.fn(),
+  authScope: { userId: null as string | null, epoch: 0 },
 }));
 
 vi.mock('expo-router', () => ({ useIsFocused: () => mocks.focused }));
@@ -46,6 +48,7 @@ vi.mock('../lib/api', () => ({
     getExtractionJobs: mocks.getExtractionJobs,
     getJobStatus: mocks.getJobStatus,
     deleteRecipe: mocks.deleteRecipe,
+    getAuthScope: mocks.getAuthScope,
   },
 }));
 
@@ -53,6 +56,15 @@ import { useRecipeDeletion } from './useRecipeDeletion';
 import { recipeKeys, useAsyncExtractionController, useDeleteRecipe, useExtractionJobs } from './useRecipes';
 
 type Controller = ReturnType<typeof useAsyncExtractionController>;
+
+beforeEach(() => {
+  mocks.authScope = { userId: null, epoch: 0 };
+  mocks.getAuthScope.mockImplementation(() => {
+    const userId = mocks.getUserId() ?? null;
+    if (userId !== mocks.authScope.userId) mocks.authScope = { userId, epoch: mocks.authScope.epoch + 1 };
+    return mocks.authScope;
+  });
+});
 
 describe('durable extraction recovery', () => {
   beforeEach(() => {
@@ -657,6 +669,50 @@ describe('recipe detail deletion navigation', () => {
       await act(async () => { release(); });
       expect(sent).toHaveBeenCalledOnce(); expect(back).toHaveBeenCalledOnce();
     } finally { await act(async () => renderer.unmount()); client.clear(); }
+  });
+
+  it.each(['cancelQueries', 'token'] as const)('finishes a confirmed same-account deletion after unmount during %s', async held => {
+    const client = new QueryClient(); mocks.getUserId.mockReturnValue('owner-a');
+    let release!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    if (held === 'cancelQueries') vi.spyOn(client, 'cancelQueries').mockImplementationOnce(() => barrier);
+    const sent = vi.fn();
+    mocks.deleteRecipe.mockImplementation(async (_id, guard) => {
+      if (held === 'token') await barrier;
+      guard(); sent(); return { id: 'deleted' };
+    });
+    const linked = ['collections', 'list']; client.setQueryData(linked, {});
+    let request!: ReturnType<typeof useRecipeDeletion>, renderer!: ReactTestRenderer;
+    const back = vi.fn();
+    function Detail() { request = useRecipeDeletion('deleted', back); return null; }
+    await act(async () => { renderer = create(<QueryClientProvider client={client}><Detail /></QueryClientProvider>); });
+    await act(async () => { request(); confirm()(); });
+    await act(async () => renderer.unmount());
+    await act(async () => release());
+    expect(sent).toHaveBeenCalledOnce(); expect(back).not.toHaveBeenCalled();
+    expect(mocks.alert).toHaveBeenCalledTimes(1);
+    expect(client.getQueryState(linked)?.isInvalidated).toBe(true);
+    client.clear();
+  });
+
+  it.each(['owner-b', 'return-to-owner-a'] as const)('rejects an unmounted delete token after root auth changes to %s', async next => {
+    const client = new QueryClient(); mocks.getUserId.mockReturnValue('owner-a');
+    let release!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    const sent = vi.fn();
+    mocks.deleteRecipe.mockImplementation(async (_id, guard) => { await barrier; guard(); sent(); return { id: 'deleted' }; });
+    let request!: ReturnType<typeof useRecipeDeletion>, renderer!: ReactTestRenderer;
+    const back = vi.fn();
+    function Detail() { request = useRecipeDeletion('deleted', back); return null; }
+    await act(async () => { renderer = create(<QueryClientProvider client={client}><Detail /></QueryClientProvider>); });
+    await act(async () => { request(); confirm()(); });
+    await act(async () => renderer.unmount());
+    // Root authentication changes independently; the deleted hook never rerenders.
+    mocks.getUserId.mockReturnValue('owner-b'); mocks.getAuthScope();
+    if (next === 'return-to-owner-a') { mocks.getUserId.mockReturnValue('owner-a'); mocks.getAuthScope(); }
+    await act(async () => release());
+    expect(sent).not.toHaveBeenCalled(); expect(back).not.toHaveBeenCalled();
+    expect(mocks.alert).toHaveBeenCalledTimes(1); client.clear();
   });
 
   it('keeps the detail after failure and permits one explicit retry without duplicate requests', async () => {

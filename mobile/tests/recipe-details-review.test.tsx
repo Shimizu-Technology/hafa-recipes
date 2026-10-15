@@ -6,6 +6,7 @@ import type { Recipe } from '@/types/recipe';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const mocks = vi.hoisted(() => ({
   editRecipe: vi.fn(), close: vi.fn(), alert: vi.fn(), setQueryData: vi.fn(), invalidateQueries: vi.fn(),
+  mutationOptions: [] as Array<{ onSuccess?: (recipe: Recipe) => void }>,
   editorRecipe: null as Recipe | null, editorSubmit: vi.fn(), owner: 'owner-a', routeId: 'r1',
 }));
 vi.mock('react-native', async () => {
@@ -26,7 +27,7 @@ vi.mock('@tanstack/react-query', () => ({
   useQuery: (options: { queryKey: string[] }) => options.queryKey[0] === 'recipe'
     ? { data: mocks.editorRecipe, isLoading: !mocks.editorRecipe }
     : { data: { has_original: false } },
-  useMutation: () => ({ mutate: mocks.editorSubmit, isPending: false }),
+  useMutation: (options: { onSuccess?: (recipe: Recipe) => void }) => { mocks.mutationOptions.push(options); return { mutate: mocks.editorSubmit, isPending: false }; },
 }));
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: mocks.owner, isLoaded: true }) }));
 vi.mock('expo-router', async () => {
@@ -100,6 +101,19 @@ describe('recipe editor draft preservation', () => {
       expect(mocks.editorSubmit.mock.calls.at(-1)![0].data.review_content_revision).toBe(6);
     } finally { await act(async () => tree.unmount()); }
   });
+  it.each(['save', 'restore'] as const)('refreshes connected caches after accepted %s completes on an unmounted editor, without stale UI', async operation => {
+    mocks.editorRecipe = { ...recipe, is_public: false };
+    let tree!: ReactTestRenderer;
+    await act(async () => { tree = create(<EditRecipeScreen />); });
+    const options = mocks.mutationOptions.at(operation === 'save' ? -2 : -1)!;
+    await act(async () => tree.unmount());
+    mocks.invalidateQueries.mockClear(); mocks.alert.mockClear(); mocks.close.mockClear();
+    await act(async () => options.onSuccess?.(recipe));
+    for (const queryKey of [['recipes'], ['recipe', 'r1'], ['recipe-original', 'r1'], ['recipeVersions', 'list', 'r1'], ['recipeVersions', 'count', 'r1']]) {
+      expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey });
+    }
+    expect(mocks.alert).not.toHaveBeenCalled(); expect(mocks.close).not.toHaveBeenCalled();
+  });
   it('starts a separate form when the recipe or account changes', async () => {
     mocks.editorRecipe = { ...recipe, is_public: false };
     let tree!: ReactTestRenderer;
@@ -138,7 +152,7 @@ function host(tree: ReactTestRenderer, type: string, predicate: (props: any) => 
 }
 
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.editRecipe.mockResolvedValue({ ...recipe, review_state: 'ready' });
+  vi.clearAllMocks(); mocks.mutationOptions = []; mocks.editRecipe.mockResolvedValue({ ...recipe, review_state: 'ready' });
   mocks.editorRecipe = structuredClone(recipe); mocks.owner = 'owner-a'; mocks.routeId = 'r1';
 });
 
