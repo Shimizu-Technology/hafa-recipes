@@ -1480,7 +1480,7 @@ async def search_recipes(
     # Execute paginated query
     result = await db.execute(
         base_query.with_only_columns(*recipe_card_columns(), saved.label("saved_by_viewer"))
-        .order_by(Recipe.created_at.desc()).offset(offset).limit(limit)
+        .order_by(Recipe.created_at.desc(), Recipe.id.desc()).offset(offset).limit(limit)
     )
     recipes = result.all()
 

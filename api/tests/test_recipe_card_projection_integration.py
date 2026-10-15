@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 from fastapi import FastAPI
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.auth import ClerkUser, get_current_user
@@ -232,3 +232,10 @@ async def test_scoped_search_finds_unloaded_saved_recipes_without_bypassing_visi
         assert combined["total"] == 26 and len({item["id"] for item in combined["items"]}) == 26
         assert "Hidden rice" not in str(combined)
         assert (await client.get("/api/recipes/search?ownership=unknown")).status_code == 422
+        async with cards_database.begin() as db:
+            await db.execute(update(Recipe).where(Recipe.id.in_([row.id for row in rows])).values(
+                created_at=datetime(2026, 1, 1, tzinfo=timezone.utc)))
+        tied_pages = [(await client.get(f"/api/recipes/search?ownership=saved&q=rice&limit=7&offset={offset}")).json()
+                      for offset in range(0, 25, 7)]
+        assert [item["id"] for page in tied_pages for item in page["items"]] == sorted(
+            [str(row.id) for row in rows], reverse=True)
