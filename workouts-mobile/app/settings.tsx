@@ -56,6 +56,7 @@ export default function Settings() {
       </ListGroup>
       <SectionHeader title="Privacy and saved data" />
       <ListGroup>
+        <ListRow title="Safety Center" icon="shield-checkmark-outline" detail="Manage blocked contributors" onPress={() => router.push("/safety")} />
         <ListRow title="Manage sharing links" icon="link-outline" onPress={() => router.push("/sharing-links")} />
         <ListRow title="Account data and deletion" icon="shield-outline" onPress={() => router.push("/account-data")} />
       </ListGroup>

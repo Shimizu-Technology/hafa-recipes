@@ -40,6 +40,7 @@ import {
 } from "@/lib/discover";
 import type { Workout } from "@/lib/models";
 import { blockSummary } from "@/lib/amrap-editor";
+import { blockedContributorsKey, contributorName } from "@/lib/safety";
 
 const reportCategories: Array<{ value: ReportCategory; label: string; detail: string }> = [
   { value: "unsafe", label: "Unsafe exercise advice", detail: "Could hurt someone who follows it" },
@@ -152,7 +153,8 @@ export default function DiscoverWorkout() {
     try {
       const blocked = await api.blockDiscoverContributor(item.id);
       setSheet(null);
-      toast(`You won’t see ${blocked.display_name}’s workouts`);
+      toast(`Blocked ${contributorName(blocked.display_name)}`);
+      void cache.invalidateQueries({ queryKey: blockedContributorsKey(owner, enrollment?.generation) });
       router.back();
       // Refetch the mounted feed so the contributor's cards disappear; drop the stale detail.
       cache.removeQueries({ queryKey: discoverKeys.detail(owner, enrollment?.generation, id) });
@@ -374,7 +376,7 @@ export default function DiscoverWorkout() {
       <Sheet visible={sheet === "block"} onClose={() => setSheet(null)} title={`Block ${item?.contributor.display_name ?? "this member"}?`}>
         <Copy>
           You won’t see their workouts in Discover or their recipes in Håfa Recipes. They aren’t told. You can unblock them
-          later in Håfa Recipes under Safety Center.
+          later in Settings → Safety Center in either app.
         </Copy>
         <Button title="Block" variant="destructive" busy={busy === "block"} onPress={() => void block()} />
         <Button title="Cancel" variant="ghost" onPress={() => setSheet(null)} />

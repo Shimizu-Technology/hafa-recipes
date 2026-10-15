@@ -9,7 +9,8 @@ vi.mock("@/lib/native-share-session", () => ({ suspendNativeSharing: () => ({ cl
 vi.mock("@clerk/expo", () => ({ useClerk: () => clerk, useAuth: () => ({ userId: "subject", sessionId: "original-session" }) }));
 vi.mock("@/lib/context", () => ({ useTraining: () => ({ owner: "owner" }) }));
 vi.mock("@/lib/config", () => ({ configuration: { clerkEnvironment: "production", clerkKey: "pk_live_synthetic" } }));
-vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
+const navigation = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock("expo-router", () => ({ router: navigation }));
 vi.mock("@/components/ui", () => ({
   Screen: ({ children }: PropsWithChildren) => createElement("screen", null, children),
   Card: ({ children }: PropsWithChildren) => createElement("card", null, children),
@@ -17,7 +18,7 @@ vi.mock("@/components/ui", () => ({
   Notice: ({ children }: PropsWithChildren) => createElement("notice", null, children),
   Button: ({ title, onPress }: { title: string; onPress(): void }) => createElement("button", { onClick: onPress }, title),
   ListGroup: ({ children }: PropsWithChildren) => createElement("list", null, children),
-  ListRow: ({ title }: { title: string }) => createElement("row", null, title),
+  ListRow: ({ title, onPress }: { title: string; onPress(): void }) => createElement("row", { onClick: onPress }, title),
   SectionHeader: ({ title }: { title: string }) => createElement("section", null, title),
 }));
 import Settings from "../app/settings";
@@ -28,6 +29,8 @@ it("keeps cached account data after a failed sign-out and clears it only after s
   cache.setQueryData(["owner", "profile", 1], "PRIVATE");
   let tree: ReactTestRenderer;
   await act(async () => { tree = create(createElement(QueryClientProvider, { client: cache }, createElement(Settings))); });
+  tree!.root.findAll((node) => String(node.type) === "row").find((node) => node.children.join("") === "Safety Center")!.props.onClick();
+  expect(navigation.push).toHaveBeenLastCalledWith("/safety");
   const signOut = () => tree.root.findAll((node) => node.type === "button").find((node) => node.children.join("") === "Sign out")!;
   clerk.signOut.mockRejectedValueOnce(Error("offline"));
   await act(async () => { signOut().props.onClick(); });
