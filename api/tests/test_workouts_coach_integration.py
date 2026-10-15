@@ -822,7 +822,8 @@ async def test_coach_equipment_change_updates_selected_location_only(coach_api):
 
 
 @pytest.mark.parametrize("instructions", ["legacy", "present", "cleared"])
-async def test_coach_receives_source_flow_and_timed_actuals_without_private_notes(coach_api, instructions):
+@pytest.mark.parametrize("transport", ["json", "stream"])
+async def test_coach_receives_source_flow_and_timed_actuals_without_private_notes(coach_api, instructions, transport, monkeypatch):
     api = coach_api
     workout = await create_workout(api)
     identifier, client_id = uuid4(), uuid4()
@@ -852,7 +853,20 @@ async def test_coach_receives_source_flow_and_timed_actuals_without_private_note
                               client_session_id=client_id, request_hash=content_digest(actual),
                               source_workout_id=row.id, content=actual))
         await db.commit()
-    assert (await send(api)).status_code == 200
+    if transport == "stream":
+        original = api.provider.respond
+        async def respond(items, *, tools, on_text_delta):
+            await on_text_delta("Provisional text")
+            return await original(items, tools=tools)
+        request, unused = await stream_fixture(api, monkeypatch, respond)
+        await unused.aclose()
+        response = await api.client.post("/api/v1/workouts/coach/messages/stream",
+            headers=GENERATION, json=request.model_dump(mode="json"))
+        assert response.status_code == 200
+        assert json.loads(response.text.splitlines()[-1])["receipt"]["state"] == "completed"
+        assert "PRIVATE" not in response.text
+    else:
+        assert (await send(api)).status_code == 200
     context = json.loads(api.provider.sent[-1][1]["content"].split("\n", 1)[1])
     expected = [] if instructions == "cleared" else [flow]
     assert context["library"][0]["content"].get("source_instructions", []) == expected
@@ -1385,10 +1399,20 @@ async def test_coach_stream_delivers_actual_delta_before_completion_without_savi
 async def test_coach_stream_resets_first_turn_prose_before_tool_round_and_only_commits_reviewable_actions(coach_api, monkeypatch):
     api = coach_api
     first, second = asyncio.Event(), asyncio.Event()
+    workout = await create_workout(api)
+    private_context = {"parts": [{"location": "caption", "text": "PRIVATE RAW CAPTION"}]}
+    async with api.sessions() as db:
+        row = await db.get(WorkoutRecord, UUID(workout["id"]))
+        row.content = {**row.content, "source_context": private_context, "instructions": []}
+        await db.commit()
     api.provider.action = plan_action()
+    api.provider.action[1]["source_workout_ids"] = [workout["id"]]
     original = api.provider.respond
 
     async def respond(items, *, tools, on_text_delta):
+        # Both initial context and recursive tool preview must exclude acquired text.
+        assert "PRIVATE RAW CAPTION" not in json.dumps(items)
+        assert "source_context" not in json.dumps(items)
         await on_text_delta("First-turn prose" if tools else "Review this proposal")
         await (first if tools else second).wait()
         return await original(items, tools=tools)
