@@ -2105,10 +2105,10 @@ async def test_private_image_transport_replays_and_enforces_owner_generation_and
     assert (await api.client.get(read, headers=GENERATION)).status_code == 200
     assert not api.provider.sent
     assert (await api.client.get("/api/v1/workouts/capabilities")).json()["coach_images"] is False
-    # Storage is not photo coaching: the old strict message contract stays closed.
+    # A storage deployment without configured vision budget stays closed.
     rejected = await api.client.post("/api/v1/workouts/coach/messages", headers=GENERATION,
         json={"request_id": str(uuid4()), "message": "Inspect this", "attachment_id": response.json()["id"]})
-    assert rejected.status_code == 422 and not api.provider.sent
+    assert rejected.status_code == 503 and not api.provider.sent
     monkeypatch.setattr(routes, "get_settings", lambda: settings(workouts_ai_enabled=False))
     async with api.sessions.begin() as db:
         from app.domains.workouts.models import WorkoutsConsent
@@ -2225,3 +2225,188 @@ async def test_private_image_transport_denies_missing_consent_and_optional_schem
     monkeypatch.setattr(routes, "get_settings", lambda: settings().model_copy(update={"workouts_api_enabled": False}))
     assert (await api.client.post(path, headers=GENERATION, content=b"not-json")).status_code == 404
     assert not writes and not api.provider.sent
+
+
+async def photo_message_fixture(api, monkeypatch):
+    from app.domains.workouts import coach_images
+
+    images, writes = await private_attachment_fixture(api, monkeypatch)
+    configured = settings(workouts_ai_enabled=True, workouts_ai_budget_24h_microusd=5_000_000,
+                          workouts_ai_budget_database_url=str(api.engine.url)).model_copy(update={"environment": "production"})
+    monkeypatch.setattr(coach_images, "get_settings", lambda: configured)
+    monkeypatch.setattr(automation_router, "get_settings", lambda: configured)
+    monkeypatch.setattr(coach, "get_settings", lambda: configured)
+    image = await images.upload(api.sessions, "owner", 1, uuid4(), private_attachment_bytes(), "image/jpeg")
+    return images, image, writes
+
+
+async def send_photo(api, image, request_id=None):
+    return await api.client.post("/api/v1/workouts/coach/messages", headers=GENERATION,
+        json={"request_id": str(request_id or uuid4()), "message": "What does this workout photo say?", "attachment_id": image["id"]})
+
+
+async def test_photo_message_uses_fresh_private_urls_on_both_turns_and_binds_once_without_storing_urls(coach_api, monkeypatch):
+    api = coach_api
+    images, image, _ = await photo_message_fixture(api, monkeypatch)
+    signed = []
+    def sign(identifier, *, expires_in):
+        signed.append((identifier, expires_in))
+        return f"https://signed.test/{identifier}?private={len(signed)}"
+    monkeypatch.setattr(images.storage_service, "private_coach_image_url", sign)
+    api.provider.action = plan_action()
+    identifier = uuid4()
+    response = await send_photo(api, image, identifier)
+    assert response.status_code == 200, response.text
+    assert response.json()["attachment_id"] == image["id"] and response.json()["state"] == "completed"
+    assert len(api.provider.sent) == 2 and len(signed) == 2 and all(0 < ttl <= 60 for _, ttl in signed)
+    for turn, items in enumerate(api.provider.sent, 1):
+        image_parts = [part for item in items if isinstance(item.get("content"), list) for part in item["content"] if part.get("type") == "input_image"]
+        assert image_parts == [{"type": "input_image", "image_url": f"https://signed.test/{image['id']}?private={turn}", "detail": "high"}]
+    assert (await send_photo(api, image, identifier)).json() == response.json()
+    assert (await send_photo(api, image)).status_code == 409 and len(api.provider.sent) == 2
+    changed = await api.client.post("/api/v1/workouts/coach/messages", headers=GENERATION,
+        json={"request_id": str(identifier), "message": "What does this workout photo say?", "attachment_id": str(uuid4())})
+    assert changed.status_code == 409
+    history = (await api.client.get("/api/v1/workouts/coach/messages")).json()
+    assert history["messages"][0]["attachment_id"] == image["id"] and "signed.test" not in json.dumps(history)
+    async with api.sessions() as db:
+        row = await db.scalar(select(WorkoutCoachMessage).where(WorkoutCoachMessage.request_id == identifier))
+        assert "signed.test" not in json.dumps(row.proposals) and row.proposals["attachment_id"] == image["id"]
+
+
+@pytest.mark.parametrize("change", ["owner", "generation", "expired", "removed", "consent", "cleanup"])
+async def test_photo_message_rejects_unowned_retired_or_unconsented_images_before_provider(coach_api, monkeypatch, change):
+    from app.domains.workouts.coach_attachment_models import CoachAttachment
+    from app.models.deletion import DeletionCleanupJob
+
+    api = coach_api
+    _, image, _ = await photo_message_fixture(api, monkeypatch)
+    if change == "owner":
+        await enroll(api, other=True)
+    async with api.sessions.begin() as db:
+        row = await db.get(CoachAttachment, UUID(image["id"]))
+        if change == "owner":
+            row.app_user_id = "other"
+        if change == "generation":
+            row.generation = 2
+        if change == "expired":
+            row.expires_at = now() - timedelta(seconds=1)
+        if change == "removed":
+            row.state = "deleted"
+        if change == "consent":
+            row.consent_at -= timedelta(seconds=1)
+        if change == "cleanup":
+            (await db.get(DeletionCleanupJob, row.cleanup_job_id)).status = "completed"
+    response = await send_photo(api, image)
+    assert response.status_code == (404 if change in {"owner", "generation"} else 410), response.text
+    assert not api.provider.sent
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutCoachMessage)) == 0
+
+
+async def test_image_retirement_between_tool_turns_stops_the_second_provider_and_all_actions(coach_api, monkeypatch):
+    from app.domains.workouts.coach_attachment_models import CoachAttachment
+
+    api = coach_api
+    _, image, _ = await photo_message_fixture(api, monkeypatch)
+    api.provider.action = plan_action()
+    async def retire():
+        async with api.sessions.begin() as db:
+            (await db.get(CoachAttachment, UUID(image["id"]))).expires_at = now() - timedelta(seconds=1)
+    api.provider.before_response = retire
+    response = await send_photo(api, image)
+    assert response.status_code == 410, response.text
+    assert len(api.provider.sent) == 1
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutProposal)) == 0
+        row = await db.scalar(select(WorkoutCoachMessage))
+        assert row.proposals["state"] == "failed" and row.proposals["attachment_id"] == image["id"]
+    api.provider.before_response = None
+    assert (await send_photo(api, image, row.request_id)).json()["state"] == "failed"
+    assert len(api.provider.sent) == 1
+
+
+@pytest.mark.parametrize("change", ["remove", "clear"])
+async def test_photo_privacy_retirement_closes_a_blocked_provider_and_cannot_resurrect_output(coach_api, monkeypatch, change):
+    api = coach_api
+    images, image, _ = await photo_message_fixture(api, monkeypatch)
+    started, closed = asyncio.Event(), asyncio.Event()
+    async def blocked():
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+    api.provider.before_response = blocked
+    task = asyncio.create_task(send_photo(api, image))
+    await asyncio.wait_for(started.wait(), 5)
+    if change == "clear":
+        assert (await api.client.delete("/api/v1/workouts/coach/messages", headers=GENERATION)).status_code == 204
+    else:
+        async with api.sessions.begin() as db:
+            await images.retire(db, "owner", 1, UUID(image["id"]))
+    response = await asyncio.wait_for(task, 5)
+    assert response.status_code in {409, 410}, response.text
+    assert closed.is_set() and len(api.provider.sent) == 1
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutProposal)) == 0
+        assert (await db.scalar(select(WorkoutCoachMessage))).proposals["state"] in {"failed", "cleared"}
+
+
+async def test_photo_capability_requires_priced_vision_and_private_schema(coach_api, monkeypatch):
+    from app.domains.workouts import coach_images
+
+    api = coach_api
+    _, image, _ = await photo_message_fixture(api, monkeypatch)
+    assert (await api.client.get("/api/v1/workouts/capabilities")).json()["coach_images"] is True
+    monkeypatch.setattr(coach_images, "get_settings", lambda: settings(workouts_ai_enabled=True,
+        workouts_ai_budget_24h_microusd=5_000_000, workout_coach_model="unpriced-model"))
+    assert (await api.client.get("/api/v1/workouts/capabilities")).json()["coach_images"] is False
+    assert (await send_photo(api, image)).status_code == 503 and not api.provider.sent
+
+
+@pytest.mark.parametrize("changes", [
+    {"environment": "test"},
+    {"openai_api_key": ""},
+    {"environment": "development", "allow_paid_ai_in_development": False,
+     "workouts_development_ai_api_key": "synthetic-development-key"},
+    {"environment": "development", "allow_paid_ai_in_development": True,
+     "workouts_development_ai_api_key": None},  # Production key cannot authorize development.
+    {"workouts_ai_budget_database_url": None},
+    {"workouts_ai_budget_24h_microusd": 0},
+    {"workouts_ai_enabled": False},
+    {"ai_disabled_capabilities": "workout_coach"},
+])
+async def test_photo_capability_stays_false_when_provider_or_budget_is_unavailable(coach_api, monkeypatch, changes):
+    from pydantic import SecretStr
+
+    from app.domains.workouts import coach_images
+
+    api = coach_api
+    await photo_message_fixture(api, monkeypatch)
+    updates = dict(changes)
+    if isinstance(updates.get("workouts_development_ai_api_key"), str):
+        updates["workouts_development_ai_api_key"] = SecretStr(updates["workouts_development_ai_api_key"])
+    configured = coach_images.get_settings().model_copy(update=updates)
+    for module in (coach, coach_images, automation_router):
+        monkeypatch.setattr(module, "get_settings", lambda: configured)
+    response = await api.client.get("/api/v1/workouts/capabilities")
+    assert response.status_code == 200 and response.json()["coach_images"] is False
+    assert not api.provider.sent
+
+
+async def test_photo_capability_accepts_explicit_development_key_and_permission_without_provider_io(coach_api, monkeypatch):
+    from pydantic import SecretStr
+
+    from app.domains.workouts import coach_images
+
+    api = coach_api
+    await photo_message_fixture(api, monkeypatch)
+    configured = coach_images.get_settings().model_copy(update={
+        "environment": "development", "openai_api_key": "", "allow_paid_ai_in_development": True,
+        "workouts_development_ai_api_key": SecretStr("synthetic-development-key"),
+    })
+    for module in (coach, coach_images, automation_router):
+        monkeypatch.setattr(module, "get_settings", lambda: configured)
+    assert (await api.client.get("/api/v1/workouts/capabilities")).json()["coach_images"] is True
+    assert not api.provider.sent

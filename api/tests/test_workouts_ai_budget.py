@@ -83,6 +83,9 @@ def test_documented_worst_bounds_text_vision_tools_long_context_and_audio():
         )
         == LUNA
     )
+    # Vision tokens share the priced full-input ceiling; function tools do not bypass admission.
+    assert admission_upper_bound("workout_coach", "gpt-5.6-luna",
+        ProviderEnvelope(endpoint="responses", max_output_tokens=1800, includes_images=True, function_tools=True), p) == 528_240
     # Terra's whole-context bound is5,358,000; the unchanged5,000,000 cap denies it.
     with pytest.raises(BudgetError, match="attempt_cap_exceeded"):
         admission_upper_bound("workout_extraction", "gpt-5.6-terra", EXTRACTION, p)

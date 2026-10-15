@@ -188,7 +188,6 @@ def admission_upper_bound(capability, model, envelope, policy):
             or not 1 <= output <= MODEL_MAX_OUTPUT
             or envelope.audio_seconds_upper_bound is not None
             or envelope.audio_duration_verified
-            or (envelope.includes_images and capability != "workout_extraction")
             or (envelope.function_tools and capability != "workout_coach")
         ):
             raise BudgetError("workouts_ai_envelope_unsupported")

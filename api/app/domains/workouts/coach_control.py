@@ -49,7 +49,7 @@ async def cancel_message(db, owner, generation, request_id, *, limit):
         db.add(row)
     elif row.proposals.get("state") == "pending":
         row.proposals = {key: value for key, value in row.proposals.items()
-                         if key in {"focus", "consent_at"}} | {
+                         if key in {"focus", "consent_at", "attachment_id", "attachment_expires_at"}} | {
             "state": "failed", "cancelled": True, "actions": [],
         }
         row.assistant_message = "Reply stopped. No training changes were applied."
@@ -84,6 +84,10 @@ async def respond_while_current(provider, sessions, owner, generation, message_i
                 if (row is None or row.app_user_id != owner or row.generation != generation
                         or row.proposals.get("state") != "pending" or row.proposals.get("token") != token):
                     raise HTTPException(409, "This coach request is no longer active")
+                if row.proposals.get("attachment_id"):
+                    from app.domains.workouts.coach_images import validate
+
+                    await validate(db, owner, generation, row.proposals["attachment_id"], consent_at)
 
     response = asyncio.create_task(provider.respond(items, tools=tools,
         **({"on_text_delta": on_text_delta} if on_text_delta is not None else {})))
