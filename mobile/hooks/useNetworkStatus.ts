@@ -24,20 +24,24 @@ export interface NetworkStatus {
 /**
  * Check if the API server is reachable
  */
-async function checkApiHealth(): Promise<boolean> {
+async function checkApiHealth(active: Set<() => void>): Promise<boolean> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT);
+  const cancel = () => { controller.abort(); clearTimeout(timeoutId); };
+  active.add(cancel);
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT);
     
     const response = await fetch(`${API_URL}/health`, {
       method: 'GET',
       signal: controller.signal,
     });
     
-    clearTimeout(timeoutId);
     return response.ok;
   } catch (error) {
     return false;
+  } finally {
+    clearTimeout(timeoutId);
+    active.delete(cancel);
   }
 }
 
@@ -55,14 +59,15 @@ export function useNetworkStatus() {
   const healthCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isMountedRef = useRef(true);
   const consecutiveFailuresRef = useRef(0);
+  const activeChecks = useRef(new Set<() => void>());
 
   // Check API health and update state (with debouncing for failures)
-  const performHealthCheck = useCallback(async () => {
-    if (!isMountedRef.current) return;
+  const performHealthCheck = useCallback(async (explicitRetry = false) => {
+    if (!isMountedRef.current) return false;
     
-    const isReachable = await checkApiHealth();
+    const isReachable = await checkApiHealth(activeChecks.current);
     
-    if (!isMountedRef.current) return;
+    if (!isMountedRef.current) return false;
     
     if (isReachable) {
       // Success - reset failure count and mark as reachable
@@ -75,7 +80,7 @@ export function useNetworkStatus() {
       // Failure - increment count and only mark offline after threshold
       consecutiveFailuresRef.current += 1;
       
-      if (consecutiveFailuresRef.current >= CONSECUTIVE_FAILURES_BEFORE_OFFLINE) {
+      if (explicitRetry || consecutiveFailuresRef.current >= CONSECUTIVE_FAILURES_BEFORE_OFFLINE) {
         setNetworkStatus(prev => ({
           ...prev,
           isApiReachable: false,
@@ -83,6 +88,7 @@ export function useNetworkStatus() {
       }
       // If under threshold, keep previous state (don't flash the banner)
     }
+    return isReachable;
   }, []);
 
   // Start periodic health checks
@@ -142,7 +148,7 @@ export function useNetworkStatus() {
         // Network came back - reset failure count and check API immediately
         consecutiveFailuresRef.current = 0;
         startHealthChecks();
-      } else {
+      } else if (state.isConnected === false) {
         // Network gone - stop checking and mark API as unreachable
         stopHealthChecks();
         consecutiveFailuresRef.current = CONSECUTIVE_FAILURES_BEFORE_OFFLINE; // Ensure we show offline
@@ -157,6 +163,8 @@ export function useNetworkStatus() {
       isMountedRef.current = false;
       unsubscribe();
       stopHealthChecks();
+      for (const cancel of activeChecks.current) cancel();
+      activeChecks.current.clear();
     };
   }, [startHealthChecks, stopHealthChecks]);
 
@@ -166,7 +174,7 @@ export function useNetworkStatus() {
 
   // Force a health check (useful after failed API calls)
   const recheckApiHealth = useCallback(() => {
-    performHealthCheck();
+    return performHealthCheck(true);
   }, [performHealthCheck]);
 
   return {
