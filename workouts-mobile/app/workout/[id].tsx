@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Linking } from "react-native";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
@@ -39,7 +39,7 @@ export default function WorkoutDetail() {
   const action = useRef<"start" | "delete" | null>(null);
   const scope = `${owner}:${enrollment?.generation}:${id}`;
   const liveScope = useRef(scope);
-  liveScope.current = scope;
+  useLayoutEffect(() => { liveScope.current = scope; }, [scope]);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const q = useQuery({
     queryKey: [owner, "workout", id, enrollment?.generation],
