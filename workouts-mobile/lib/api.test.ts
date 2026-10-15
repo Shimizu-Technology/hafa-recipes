@@ -1,6 +1,32 @@
 import { describe, it, expect, vi } from "vitest";
 import { createWorkoutsApi } from "./api";
 describe("authenticated API boundary", () => {
+  it("pages workout snapshots and restores by immutable version ID with a frozen revision and generation", async () => {
+    const content = { id: "workout", title: "Original", kind: "session", provenance: "suggestion", blocks: [], notes: ["Private note"] };
+    const row = { id: "version/id", generation: 7, revision: 2, content, created_at: "2026-10-15" };
+    const transport = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify([row])))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...row, id: "workout", revision: 4 })));
+    const api = createWorkoutsApi("https://example.test", async () => "token", transport);
+    const versions = await api.workoutVersions("workout", 20);
+    expect(versions[0]).toMatchObject({ id: "version/id", revision: 2, workout: { ...content, id: "workout", generation: 7 } });
+    await api.restoreWorkoutVersion({ ...versions[0].workout, revision: 3 }, versions[0].id);
+    expect(transport.mock.calls[0][0]).toBe("https://example.test/api/v1/workouts/library/workout/versions?limit=20&offset=20");
+    expect(transport.mock.calls[1][0]).toBe("https://example.test/api/v1/workouts/library/workout/versions/version%2Fid/restore?expected_revision=3");
+    expect(transport.mock.calls[1][1]).toMatchObject({ method: "POST", headers: { "X-Workouts-Generation": "7" } });
+    expect(transport.mock.calls[1][1].body).toBeUndefined();
+  });
+  it("freezes a private re-extraction target and explicitly chooses an existing-workout update", async () => {
+    const transport = vi.fn().mockResolvedValueOnce(new Response("{}"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "workout", generation: 4, revision: 3, content: { title: "Updated", blocks: [] } })));
+    const api = createWorkoutsApi("https://example.test", async () => "token", transport);
+    const replace_target = { workout_id: "workout", expected_revision: 2 };
+    await api.startImport("request", { kind: "text", text: "Squat 10 reps", ai_consent: true }, 4,
+      { auto_save: false, is_public: false, replace_target });
+    await api.acceptImport("job", { title: "Updated", kind: "session", provenance: "source", blocks: [] }, 4, false, true, true);
+    expect(JSON.parse(transport.mock.calls[0][1].body)).toMatchObject({ replace_target, auto_save: false, is_public: false });
+    expect(JSON.parse(transport.mock.calls[1][1].body)).toMatchObject({ update_existing: true, acknowledge_warnings: true });
+    expect(transport.mock.calls[1][1].headers["X-Workouts-Generation"]).toBe("4");
+  });
   it("archives using the frozen owner/generation/revision and retains paused history in the response", async () => {
     const row = { id: "plan", revision: 4, generation: 7, content: { title: "Saved plan", proposal: { sessions: [] },
       schedule_state: { status: "paused", archived_at: "2026-10-10", archive_previous_status: "paused", paused_sessions: [{ id: "queued" }] } } };

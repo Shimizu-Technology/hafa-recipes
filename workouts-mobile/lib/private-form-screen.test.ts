@@ -1,4 +1,4 @@
-import { createElement, Fragment, Suspense, startTransition, useLayoutEffect, useState, type ComponentType } from "react";
+import { createElement, Fragment, Suspense, startTransition, useLayoutEffect, useState, type ComponentType, type PropsWithChildren, type ReactNode } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -154,7 +154,7 @@ vi.mock("expo-router", () => ({
 }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => `command-${++fixture.next}` }));
 vi.mock("@/components/ui", () => ({
-  Screen: "Screen",
+  Screen: ({ children, footer }: PropsWithChildren<{ footer?: ReactNode }>) => createElement("Screen", null, children, footer),
   Card: "Card",
   Copy: "Copy",
   Field: "Field",
@@ -2350,6 +2350,89 @@ it("reconnects the exact private recovery request after remount even when saving
   expect(fixture.startImport.mock.calls[1]).toEqual(original);
 });
 
+it("freezes the selected workout revision for reviewed re-extraction and retries it after remount", async () => {
+  fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue({ ...serverCaps, existing_workout_updates: true });
+  fixture.workout.mockResolvedValue({ ...workout, revision: 4, source_url: "https://example.test/source" });
+  fixture.startImport.mockRejectedValueOnce(Error("Lost acknowledgement"));
+  await mount(RecoverWorkout); await click("Recover as a private import");
+  expect(fixture.startImport.mock.calls[0][3]).toEqual({ auto_save: false, is_public: false,
+    replace_target: { workout_id: "workout", expected_revision: 4 } });
+  const frozen = fixture.startImport.mock.calls[0]; await unmount();
+  fixture.workout.mockResolvedValue({ ...workout, revision: 5 });
+  fixture.startImport.mockResolvedValue({ id: "reextract", generation: 1, status: "queued" });
+  await mount(RecoverWorkout); await click("Reconnect recovery");
+  expect(fixture.startImport.mock.calls[1]).toEqual(frozen);
+});
+
+it("keeps a conflicted existing-workout review and lets the person save a separate private copy", async () => {
+  fixture.params = { id: "job-A" }; fixture.capabilities.mockResolvedValue({ ...serverCaps, existing_workout_updates: true });
+  const extracted = { ...workout, capture_kind: "url", source_url: "https://example.test/source",
+    blocks: [{ ...workout.blocks[0], exercises: [{ name: "Row", reps_min: 10 }] }] };
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "ready", replace_target: { workout_id: "workout", expected_revision: 4 },
+    result: { status: "ready", workout: extracted, warnings: [], evidence: [], source: { platform: "web", channels: [], coverage_notes: [] } } });
+  fixture.acceptImport.mockRejectedValueOnce(new ApiError("This workout changed. Your review is safe.", 409, false, "Workout changed; save a separate copy or extract again from its latest version"));
+  await mount(ImportReview);
+  expect(nodes("Choice").find(node => node.props.label === "Share to Discover")).toBeUndefined();
+  await click("Update saved workout");
+  expect(fixture.acceptImport).toHaveBeenCalledWith("job-A", extracted, 1, false, true, true);
+  expect(button("Correct workout details")).toBeDefined();
+  fixture.acceptImport.mockResolvedValueOnce({ ...workout, id: "separate-copy" });
+  await click("Save as a separate private workout");
+  expect(fixture.acceptImport.mock.calls.at(-1)).toEqual(["job-A", extracted, 1, false, true]);
+  expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "separate-copy" } });
+});
+
+it("retries an uncertain update in the original mode instead of offering a different save", async () => {
+  fixture.params = { id: "job-A" }; fixture.capabilities.mockResolvedValue({ ...serverCaps, existing_workout_updates: true });
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "ready", replace_target: { workout_id: "workout", expected_revision: 4 },
+    result: { status: "ready", workout, warnings: [], evidence: [], source: { platform: "web", channels: [], coverage_notes: [] } } });
+  fixture.acceptImport.mockRejectedValueOnce(new ApiError("Acknowledgement unavailable", 503));
+  await mount(ImportReview); await click("Update saved workout");
+  expect(button("Save as a separate private workout")).toBeUndefined();
+  await click("Retry updating saved workout");
+  expect(fixture.acceptImport.mock.calls[1]).toEqual(fixture.acceptImport.mock.calls[0]);
+});
+
+it("does not change save mode for an unrelated error with similar user-facing wording", async () => {
+  fixture.params = { id: "job-A" }; fixture.capabilities.mockResolvedValue({ ...serverCaps, existing_workout_updates: true });
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "ready", replace_target: { workout_id: "workout", expected_revision: 4 },
+    result: { status: "ready", workout, warnings: [], evidence: [], source: { platform: "web", channels: [], coverage_notes: [] } } });
+  fixture.acceptImport.mockRejectedValueOnce(new ApiError("Your saved workout changed while reviewing another record", 409, false, "Import already accepted with different content"));
+  await mount(ImportReview); await click("Update saved workout");
+  expect(button("Save as a separate private workout")).toBeUndefined();
+  await click("Retry updating saved workout");
+  expect(fixture.acceptImport.mock.calls[1]).toEqual(fixture.acceptImport.mock.calls[0]);
+});
+
+it("retries an uncertain private copy without changing it into an update", async () => {
+  fixture.params = { id: "job-A" }; fixture.capabilities.mockResolvedValue({ ...serverCaps, existing_workout_updates: true });
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "ready", replace_target: { workout_id: "workout", expected_revision: 4 },
+    result: { status: "ready", workout, warnings: [], evidence: [], source: { platform: "web", channels: [], coverage_notes: [] } } });
+  fixture.acceptImport.mockRejectedValueOnce(new ApiError("Acknowledgement unavailable", 503));
+  await mount(ImportReview); await click("Save as a separate private workout");
+  expect(button("Retry updating saved workout")).toBeUndefined();
+  await click("Retry saving private workout");
+  expect(fixture.acceptImport.mock.calls[1]).toEqual(fixture.acceptImport.mock.calls[0]);
+});
+
+it("starts another explicit update with a fresh command and latest revision while keeping the earlier import", async () => {
+  fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue({ ...serverCaps, existing_workout_updates: true });
+  fixture.workout.mockResolvedValue({ ...workout, revision: 4, source_url: "https://example.test/source" });
+  fixture.startImport.mockResolvedValueOnce({ id: "first-update", generation: 1, status: "queued" });
+  await mount(RecoverWorkout); await click("Recover as a private import");
+  const first = fixture.startImport.mock.calls[0];
+  await unmount(); await mount(RecoverWorkout);
+  fixture.workout.mockResolvedValue({ ...workout, revision: 6, source_url: "https://example.test/new" });
+  await click("Start another update");
+  expect(nodes("Field").find(node => node.props.label === "Original source link")!.props.value).toBe("https://example.test/new");
+  fixture.startImport.mockResolvedValueOnce({ id: "second-update", generation: 1, status: "queued" });
+  await click("Recover as a private import");
+  const second = fixture.startImport.mock.calls[1];
+  expect(second[0]).not.toBe(first[0]);
+  expect(second[3].replace_target).toEqual({ workout_id: "workout", expected_revision: 6 });
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "imports:1"))!).map((item: { id: string }) => item.id)).toEqual(["second-update", "first-update"]);
+});
+
 it("does not silently restore revoked AI consent while recovering an existing source", async () => {
   fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue(serverCaps);
   fixture.workout.mockResolvedValue({ ...workout, source_url: "https://example.test/source" });
@@ -2467,4 +2550,61 @@ it.each(["instructions", "notes"] as const)("keeps oversized workout %s editable
   fixture.saveWorkout.mockResolvedValueOnce(workout);
   await click("Save to my library");
   expect(fixture.saveWorkout.mock.calls[0][0][field]).toEqual(["Rest as needed"]);
+});
+
+
+it.each(["recovery", "review"] as const)("an abandoned %s route render preserves its committed save acknowledgement", async kind => {
+  fixture.params = { id: "committed-A" };
+  fixture.capabilities.mockResolvedValue({ imports: true, existing_workout_updates: true });
+  fixture.workout.mockResolvedValue({ ...workout, source_url: "https://example.test/source" });
+  fixture.importJob.mockImplementation(async id => ({ id, generation: 1, status: "ready",
+    replace_target: { workout_id: "workout", expected_revision: 1 },
+    result: { status: "ready", workout, warnings: [], evidence: [], source: { platform: "text", channels: [], coverage_notes: [] } } }));
+  const held = deferred<Workout | { id: string; generation: number; status: string }>();
+  if (kind === "recovery") fixture.startImport.mockReturnValueOnce(held.promise);
+  else fixture.acceptImport.mockReturnValueOnce(held.promise);
+  let suspend = false, attempts = 0;
+  const waiting = new Promise<void>(() => undefined);
+  function Blocker() { if (suspend) { attempts++; throw waiting; } return null; }
+  const Component = kind === "recovery" ? RecoverWorkout : ImportReview;
+  function Source() { return createElement("CommittedRecovery", { id: fixture.params.id }, createElement(Component), createElement(Blocker)); }
+  function Harness() { return createElement(Suspense, { fallback: null }, createElement(Source)); }
+  await mount(Harness);
+  await click(kind === "recovery" ? "Recover as a private import" : "Update saved workout");
+  suspend = true; fixture.params = { id: "speculative-B" };
+  await act(async () => { startTransition(() => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Harness)))); });
+  expect(attempts).toBeGreaterThan(0);
+  expect(nodes("CommittedRecovery")[0].props.id).toBe("committed-A");
+  await act(async () => held.resolve(kind === "recovery" ? { id: "accepted-import", generation: 1, status: "queued" } : { ...workout, id: "accepted-workout" }));
+  await settle();
+  expect(fixture.replace).toHaveBeenCalledWith({ pathname: kind === "recovery" ? "/import/[id]" : "/workout/[id]",
+    params: { id: kind === "recovery" ? "accepted-import" : "accepted-workout" } });
+});
+
+it.each(["recovery", "review"] as const)("committed %s route changes unlock the new scope and ignore stale save handlers", async kind => {
+  fixture.params = { id: "old-A" };
+  fixture.capabilities.mockResolvedValue({ imports: true, existing_workout_updates: true });
+  fixture.workout.mockResolvedValue({ ...workout, source_url: "https://example.test/source" });
+  fixture.importJob.mockImplementation(async id => ({ id, generation: 1, status: "ready",
+    replace_target: { workout_id: "workout", expected_revision: 1 },
+    result: { status: "ready", workout, warnings: [], evidence: [], source: { platform: "text", channels: [], coverage_notes: [] } } }));
+  const held = deferred<Workout | { id: string; generation: number; status: string }>();
+  const method = kind === "recovery" ? fixture.startImport : fixture.acceptImport;
+  method.mockReturnValueOnce(held.promise).mockResolvedValue({ ...workout, id: "new-saved", generation: 1, status: "queued" });
+  const Component = kind === "recovery" ? RecoverWorkout : ImportReview;
+  const title = kind === "recovery" ? "Recover as a private import" : "Update saved workout";
+  await mount(Component);
+  const oldPress = button(title).props.onPress;
+  await click(title);
+  fixture.params = { id: "new-B" }; await rerender(Component);
+  expect(button(title).props.busy).toBe(false);
+  await act(async () => oldPress()); await settle();
+  expect(method).toHaveBeenCalledTimes(1);
+  expect(button(title).props.busy).toBe(false);
+  await click(title);
+  expect(method).toHaveBeenCalledTimes(2);
+  expect(fixture.replace).toHaveBeenCalledTimes(1);
+  await act(async () => held.resolve({ ...workout, id: "old-saved", generation: 1, status: "queued" }));
+  await settle();
+  expect(fixture.replace).toHaveBeenCalledTimes(1);
 });

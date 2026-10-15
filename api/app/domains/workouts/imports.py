@@ -43,11 +43,13 @@ async def require_ai_consent(db, user_id, generation, *, expected=None):
 
 async def create_import(
     db, user_id, generation, request_id, request, *, auto_save=False, is_public=False,
-    display_name="Håfa member",
+    display_name="Håfa member", replace_target=None,
 ):
     await membership_for(db, user_id, generation=generation, write=True)
     consent = await require_ai_consent(db, user_id, generation)
     content = request.model_dump(mode="json")
+    if replace_target:
+        content["_replace"] = replace_target
     if auto_save:
         content["_save"] = {"is_public": is_public, "display_name": display_name[:100]}
     identity = dict(content)
@@ -65,6 +67,13 @@ async def create_import(
         if existing.request_hash != digest:
             raise HTTPException(409, "Import identity was used for different source content")
         return existing
+    if replace_target:
+        from app.domains.workouts.models import WorkoutRecord
+        from app.domains.workouts.router import owned_record
+
+        target = await owned_record(db, WorkoutRecord, replace_target["workout_id"], user_id, generation)
+        if target.revision != replace_target["expected_revision"]:
+            raise HTTPException(409, "Workout changed; reload before extracting again")
     await enforce_import_allowance(db, user_id, generation, request_id, limit=MAX_IMPORTS_PER_DAY)
     row = WorkoutImport(
         id=uuid4(),
@@ -325,6 +334,7 @@ class WorkoutImportWorker:
                 consent_epoch = row.ai_accepted_at
                 source = dict(row.payload)
                 preferences = source.pop("_save", None)
+                source.pop("_replace", None)
                 request = ExtractionRequest.model_validate(source)
                 await db.rollback()
             except HTTPException:

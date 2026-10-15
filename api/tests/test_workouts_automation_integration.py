@@ -186,6 +186,158 @@ async def enqueue(api, request_id=None, text=TEXT):
     )
 
 
+async def test_reextract_updates_existing_version_once_and_preserves_private_notes_and_actuals(automation_api):
+    from app.domains.workouts.models import WorkoutVersion
+    from tests.test_workouts_data_integration import WORKOUT, session_payload
+
+    api = automation_api
+    await consent(api)
+    old = {**WORKOUT, "instructions": ["Original workout instructions"], "notes": ["Private workout note"], "blocks": [{**WORKOUT["blocks"][0], "exercises": [
+        {"name": "Squat", "sets": 2, "reps_min": 8, "instructions": "Original squat cue", "notes": "Use my comfortable stance"},
+        {"name": "Row", "sets": 2, "reps_min": 8, "notes": "Private row cue"},
+    ]}]}
+    created = (await api.client.post("/api/v1/workouts/library", json=old, headers=GENERATION)).json()
+    actual = await api.client.post("/api/v1/workouts/sessions", json=session_payload(created), headers=GENERATION)
+    assert actual.status_code == 201, actual.text
+    target = {"workout_id": created["id"], "expected_revision": 1}
+    body = {"request_id": str(uuid4()), "source": {"kind": "text", "text": TEXT, "ai_consent": True}, "replace_target": target}
+    queued = await api.client.post("/api/v1/workouts/imports", json=body, headers=GENERATION)
+    assert queued.status_code == 202 and queued.json()["replace_target"] == target
+    await api.worker.tick()
+    job_id = queued.json()["id"]
+    job = (await api.client.get(f"/api/v1/workouts/imports/{job_id}")).json()
+    assert job["accepted_workout_id"] is None and job["status"] in {"ready", "incomplete"}
+    path = f"/api/v1/workouts/imports/{job_id}/accept"
+    request = {"update_existing": True, "acknowledge_warnings": True}
+    first = await api.client.post(path, json=request, headers=GENERATION)
+    assert first.status_code == 200, first.text
+    saved = first.json()
+    assert saved["id"] == created["id"] and saved["revision"] == 2
+    assert saved["content"]["blocks"][0]["exercises"][0]["notes"] == "Use my comfortable stance"
+    assert "Private workout note" in saved["content"]["notes"]
+    assert any("Row" in note and "Private row cue" in note for note in saved["content"]["notes"])
+    retry = await api.client.post(path, json=request, headers=GENERATION)
+    assert retry.status_code == 200 and retry.json() == saved
+    assert (await api.client.post(path, json={"acknowledge_warnings": True}, headers=GENERATION)).status_code == 409
+    assert (await api.client.get(f"/api/v1/workouts/imports/{job_id}/source")).status_code == 410
+    assert (await api.client.get("/api/v1/workouts/sessions")).json()[0] == actual.json()
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutRecord)) == 1
+        assert await db.scalar(select(func.count()).select_from(WorkoutVersion)) == 2
+        assert (await db.get(WorkoutImport, job_id)).payload == {"_replace": target}
+    # Updating from a new extraction and restoring its prior version share one
+    # immutable history; neither operation rewrites already recorded training.
+    versions_url = f"/api/v1/workouts/library/{created['id']}/versions"
+    before = (await api.client.get(versions_url)).json()
+    restored = await api.client.post(f"{versions_url}/{before[-1]['id']}/restore?expected_revision=2", headers=GENERATION)
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["id"] == created["id"] and restored.json()["revision"] == 3
+    assert restored.json()["content"] == {**created["content"], "version": 3, "parent_version_id": before[0]["id"]}
+    assert (await api.client.get(versions_url)).json()[1:] == before
+    assert (await api.client.get("/api/v1/workouts/sessions")).json()[0] == actual.json()
+
+
+@pytest.mark.parametrize("update_existing", [True, False])
+async def test_reextract_keeps_new_shared_instructions_separate_from_target_private_notes(automation_api, update_existing):
+    from tests.test_workouts_data_integration import WORKOUT
+
+    api = automation_api
+    await consent(api)
+    original = {**WORKOUT, "instructions": ["Old source instruction"], "notes": ["Owner private note"],
+        "blocks": [{**WORKOUT["blocks"][0], "exercises": [
+            {"name": "Squat", "reps_min": 8, "instructions": "Old shared cue", "notes": "Owner private cue"}]}]}
+    created = (await api.client.post("/api/v1/workouts/library", json=original, headers=GENERATION)).json()
+    queued = await api.client.post("/api/v1/workouts/imports", headers=GENERATION, json={
+        "request_id": str(uuid4()), "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+        "replace_target": {"workout_id": created["id"], "expected_revision": 1}})
+    await api.worker.tick()
+    job_id = queued.json()["id"]
+    async with api.sessions.begin() as db:
+        job = await db.get(WorkoutImport, job_id)
+        extracted = {**job.result["workout"], "instructions": ["New source instruction"], "notes": [],
+            "blocks": [{"id": "new-block", "label": "Main", "exercises": [
+                {"name": "Squat", "reps_min": 10, "instructions": "New shared cue"}]}]}
+        job.result = {**job.result, "workout": extracted}
+    # An installed older editor omits the newly introduced shared instruction fields.
+    legacy = {key: value for key, value in extracted.items() if key != "instructions"}
+    legacy["blocks"] = [{**extracted["blocks"][0], "exercises": [{"name": "Squat", "reps_min": 10}]}]
+    saved = await api.client.post(f"/api/v1/workouts/imports/{job_id}/accept", headers=GENERATION,
+        json={"workout": legacy, "update_existing": update_existing, "acknowledge_warnings": True})
+    assert saved.status_code == 200, saved.text
+    content = saved.json()["content"]
+    assert content["instructions"] == ["New source instruction"]
+    assert content["blocks"][0]["exercises"][0]["instructions"] == "New shared cue"
+    assert content["notes"] == (["Owner private note"] if update_existing else [])
+    assert content["blocks"][0]["exercises"][0]["notes"] == ("Owner private cue" if update_existing else None)
+    if not update_existing:
+        assert saved.json()["id"] != created["id"]
+        assert (await api.client.get(f"/api/v1/workouts/library/{created['id']}")).json() == created
+
+
+async def test_reextract_conflict_keeps_review_and_source_and_can_save_private_copy(automation_api):
+    from tests.test_workouts_data_integration import WORKOUT
+
+    api = automation_api
+    await consent(api)
+    original = (await api.client.post("/api/v1/workouts/library", json=WORKOUT, headers=GENERATION)).json()
+    body = {"request_id": str(uuid4()), "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+            "replace_target": {"workout_id": original["id"], "expected_revision": 1}}
+    assert (await api.client.post("/api/v1/workouts/imports", json={**body, "auto_save": True}, headers=GENERATION)).status_code == 422
+    queued = await api.client.post("/api/v1/workouts/imports", json=body, headers=GENERATION)
+    await api.worker.tick()
+    changed = await api.client.put(f"/api/v1/workouts/library/{original['id']}?expected_revision=1", json={**WORKOUT, "title": "Newer edit"}, headers=GENERATION)
+    assert changed.status_code == 200
+    path = f"/api/v1/workouts/imports/{queued.json()['id']}/accept"
+    assert (await api.client.post(path, json={"update_existing": True, "acknowledge_warnings": True}, headers=GENERATION)).status_code == 409
+    source = await api.client.get(f"/api/v1/workouts/imports/{queued.json()['id']}/source")
+    assert source.status_code == 200 and source.json()["source"]["text"] == TEXT
+    assert (await api.client.post("/api/v1/workouts/imports", json=body, headers=GENERATION)).json()["id"] == queued.json()["id"]
+    assert (await api.client.post("/api/v1/workouts/imports", json={**body, "request_id": str(uuid4())}, headers=GENERATION)).status_code == 409
+    saved = await api.client.post(path, json={"acknowledge_warnings": True}, headers=GENERATION)
+    assert saved.status_code == 200 and saved.json()["id"] != original["id"]
+    assert (await api.client.post(path, json={"acknowledge_warnings": True}, headers=GENERATION)).json()["id"] == saved.json()["id"]
+    assert (await api.client.get(f"/api/v1/workouts/library/{original['id']}")).json() == changed.json()
+
+
+@pytest.mark.parametrize("retired", ["cancelled", "expired"])
+async def test_reextract_acceptance_cannot_revive_a_retired_import(automation_api, retired):
+    from tests.test_workouts_data_integration import WORKOUT
+
+    api = automation_api
+    await consent(api)
+    original = (await api.client.post("/api/v1/workouts/library", json=WORKOUT, headers=GENERATION)).json()
+    body = {"request_id": str(uuid4()), "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+            "replace_target": {"workout_id": original["id"], "expected_revision": 1}}
+    queued = await api.client.post("/api/v1/workouts/imports", json=body, headers=GENERATION)
+    await api.worker.tick()
+    job_id = queued.json()["id"]
+    if retired == "cancelled":
+        assert (await api.client.delete(f"/api/v1/workouts/imports/{job_id}", headers=GENERATION)).status_code == 200
+    else:
+        async with api.sessions.begin() as db:
+            (await db.get(WorkoutImport, job_id)).expires_at = now() - timedelta(seconds=1)
+    result = await api.client.post(f"/api/v1/workouts/imports/{job_id}/accept", json={"update_existing": True, "acknowledge_warnings": True}, headers=GENERATION)
+    assert result.status_code == (409 if retired == "cancelled" else 410)
+    assert (await api.client.get(f"/api/v1/workouts/library/{original['id']}")).json() == original
+
+
+async def test_reextract_target_is_owned_and_generation_fenced_before_extraction(automation_api):
+    from tests.test_workouts_data_integration import WORKOUT
+
+    api = automation_api
+    await consent(api)
+    original = (await api.client.post("/api/v1/workouts/library", json=WORKOUT, headers=GENERATION)).json()
+    await enroll(api, other=True)
+    other = {**GENERATION, "X-Test-User": "other"}
+    await api.client.put("/api/v1/workouts/ai-consent", headers=other, json={"accepted": True, "disclosure_version": 1})
+    body = {"request_id": str(uuid4()), "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+            "replace_target": {"workout_id": original["id"], "expected_revision": 1}}
+    assert (await api.client.post("/api/v1/workouts/imports", json=body, headers=other)).status_code == 404
+    assert (await api.client.post("/api/v1/workouts/imports", json=body, headers={"X-Workouts-Generation": "2"})).status_code == 409
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutImport)) == 0
+
+
 async def ready_profile(api):
     r = await api.client.put(
         "/api/v1/workouts/profile",
@@ -1332,3 +1484,83 @@ async def test_zero_exercise_auto_import_can_be_cleared_without_creating_a_worko
         job = await db.get(WorkoutImport, queued.json()["id"])
         assert job.payload is None
         assert await db.scalar(select(func.count()).select_from(WorkoutRecord)) == 0
+
+
+async def test_reextract_repeated_names_keep_qualified_private_notes_instead_of_reassigning_by_order(automation_api):
+    from tests.test_workouts_data_integration import WORKOUT
+
+    api = automation_api
+    await consent(api)
+    old = {**WORKOUT, "blocks": [
+        {"id": "first", "label": "Warmup", "exercises": [
+            {"name": "Squat", "reps_min": 5, "notes": "Warmup stance"},
+            {"name": "Row", "reps_min": 5, "notes": "Unique row cue"}]},
+        {"id": "last", "label": "Heavy", "exercises": [
+            {"name": "Squat", "reps_min": 8, "notes": "Heavy stance"},
+            {"name": "Press", "reps_min": 5, "notes": "Unmatched press cue"}]},
+    ]}
+    created = (await api.client.post("/api/v1/workouts/library", headers=GENERATION, json=old)).json()
+    body = {"request_id": str(uuid4()), "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+            "replace_target": {"workout_id": created["id"], "expected_revision": 1}}
+    queued = await api.client.post("/api/v1/workouts/imports", json=body, headers=GENERATION)
+    await api.worker.tick()
+    job_id = queued.json()["id"]
+    async with api.sessions.begin() as db:
+        job = await db.get(WorkoutImport, job_id)
+        result = dict(job.result)
+        result["workout"] = {**result["workout"], "blocks": [
+            {"id": "new-heavy", "label": "Heavy first", "exercises": [{"name": "Squat", "reps_min": 8}]},
+            {"id": "new-warmup", "label": "Warmup last", "exercises": [
+                {"name": "Squat", "reps_min": 5}, {"name": "Row", "reps_min": 5}]},
+        ]}
+        job.result = result
+    saved = await api.client.post(f"/api/v1/workouts/imports/{job_id}/accept", headers=GENERATION,
+                                 json={"update_existing": True, "acknowledge_warnings": True})
+    assert saved.status_code == 200, saved.text
+    content = saved.json()["content"]
+    assert all(not exercise["notes"] for block in content["blocks"] for exercise in block["exercises"] if exercise["name"] == "Squat")
+    assert content["blocks"][1]["exercises"][1]["notes"] == "Unique row cue"
+    assert content["notes"] == [
+        "Block 1 (Warmup), exercise 1 (Squat): Warmup stance",
+        "Block 2 (Heavy), exercise 1 (Squat): Heavy stance",
+        "Block 2 (Heavy), exercise 2 (Press): Unmatched press cue",
+    ]
+
+
+@pytest.mark.parametrize("update_existing", [True, False])
+async def test_reextract_final_size_failure_keeps_review_receipt_source_and_version_untouched(automation_api, monkeypatch, update_existing):
+    from app.domains.workouts import export_service, source_media
+    from app.domains.workouts.models import WorkoutVersion
+    from tests.test_workouts_data_integration import WORKOUT, near_record_limit_workout
+
+    api = automation_api
+    await consent(api)
+    created = (await api.client.post("/api/v1/workouts/library", headers=GENERATION, json=WORKOUT)).json()
+    body = {"request_id": str(uuid4()), "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+            "replace_target": {"workout_id": created["id"], "expected_revision": 1}}
+    queued = await api.client.post("/api/v1/workouts/imports", json=body, headers=GENERATION)
+    await api.worker.tick()
+    job_id = queued.json()["id"]
+    async with api.sessions.begin() as db:
+        job = await db.get(WorkoutImport, job_id)
+        job.result = {**job.result, "workout": near_record_limit_workout()}
+        before = (job.payload, job.result, job.accepted_workout_id, job.accepted_content_hash)
+    calls = []
+
+    async def early(*args, **kwargs):
+        calls.append(True)
+        raise AssertionError("Final bounds must precede retention and export invalidation")
+
+    monkeypatch.setattr(source_media, "retain_source_cover", early)
+    monkeypatch.setattr(export_service, "invalidate_export_snapshots", early)
+    rejected = await api.client.post(f"/api/v1/workouts/imports/{job_id}/accept", headers=GENERATION,
+                                    json={"update_existing": update_existing, "acknowledge_warnings": True})
+    assert rejected.status_code == 422, rejected.text
+    assert not calls
+    assert (await api.client.get(f"/api/v1/workouts/library/{created['id']}")).json() == created
+    source = await api.client.get(f"/api/v1/workouts/imports/{job_id}/source")
+    assert source.status_code == 200 and source.json()["source"]["text"] == TEXT
+    async with api.sessions() as db:
+        job = await db.get(WorkoutImport, job_id)
+        assert (job.payload, job.result, job.accepted_workout_id, job.accepted_content_hash) == before
+        assert await db.scalar(select(func.count()).select_from(WorkoutVersion)) == 1

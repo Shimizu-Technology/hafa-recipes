@@ -1,5 +1,6 @@
 """Source review and deterministic proposals share the same private data domain."""
 
+from collections import Counter
 from datetime import date, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
@@ -35,6 +36,8 @@ from app.domains.workouts.router import (
     Generation,
     RecordResponse,
     User,
+    append_workout_version,
+    bounded_content,
     content_digest,
     owned_record,
     record_response,
@@ -69,6 +72,7 @@ async def capabilities(user: User, db: Database):
         "generation": membership.generation,
         "public_beta": configured.workouts_public_access_enabled,
         "server_auto_save": True,
+        "existing_workout_updates": True,
         "imports": configured.workouts_imports_enabled
         and configured.workouts_ai_budget_24h_microusd > 0
         and bool(configured.workouts_ai_budget_database_url)
@@ -88,11 +92,23 @@ async def capabilities(user: User, db: Database):
     }
 
 
+class ImportTarget(DomainModel):
+    workout_id: UUID
+    expected_revision: int = Field(strict=True, ge=1, le=2_147_483_647)
+
+
 class ImportRequest(DomainModel):
     request_id: UUID
     source: ExtractionRequest
     auto_save: StrictBool = False
     is_public: StrictBool = False
+    replace_target: ImportTarget | None = None
+
+    @model_validator(mode="after")
+    def require_private_review(self):
+        if self.replace_target and (self.auto_save or self.is_public):
+            raise ValueError("Updating an existing workout requires private review before saving")
+        return self
 
 
 class ImportResponse(DomainModel):
@@ -108,6 +124,7 @@ class ImportResponse(DomainModel):
     updated_at: datetime | None = None
     next_attempt_at: datetime | None = None
     max_attempts: int | None = None
+    replace_target: ImportTarget | None = None
 
 
 def import_response(row):
@@ -132,6 +149,7 @@ def import_response(row):
     # worker has resumed or the import has reached a terminal state.
     response["next_attempt_at"] = getattr(row, "next_attempt_at", None) if row.status == "queued" else None
     response["max_attempts"] = MAX_IMPORT_ATTEMPTS
+    response["replace_target"] = row.payload.get("_replace") if isinstance(row.payload, dict) else None
     return response
 
 
@@ -154,6 +172,7 @@ async def import_source(request: ImportRequest, user: User, db: Database, genera
     row = await create_import(
         db, user.id, generation, request.request_id, request.source,
         auto_save=request.auto_save, is_public=request.is_public, display_name=user.display_name,
+        replace_target=request.replace_target.model_dump(mode="json") if request.replace_target else None,
     )
     workout_import_worker.notify()
     return import_response(row)
@@ -188,7 +207,7 @@ async def get_import(import_id: UUID, user: User, db: Database):
 async def get_import_source(import_id: UUID, user: User, db: Database):
     membership = await membership_for(db, user.id)
     row = await owned_record(db, WorkoutImport, import_id, user.id, membership.generation)
-    if row.expires_at <= now() or not row.payload:
+    if row.expires_at <= now() or not row.payload or "kind" not in row.payload:
         raise HTTPException(410, "The temporary capture has expired or was removed after review")
     return {"source": row.payload, "expires_at": row.expires_at}
 
@@ -220,6 +239,7 @@ class AcceptImport(DomainModel):
     # Server default stays private so older clients never publish implicitly.
     # Clients preselect True for link imports (capture_kind "url"), as Recipes does.
     is_public: StrictBool = False
+    update_existing: StrictBool = False
 
 
 def store_workout(
@@ -243,6 +263,8 @@ def store_workout(
         if changed
         else first
     )
+    bounded_content(first)
+    bounded_content(current)
     row = WorkoutRecord(
         id=identifier,
         app_user_id=user_id,
@@ -317,9 +339,6 @@ async def accept_import(
     ):
         raise HTTPException(422, "An import cannot claim generated coaching provenance")
     content = validated_workout(workout, authored=False)
-    from app.domains.workouts.source_media import retain_source_cover
-
-    await retain_source_cover(db, user.id, generation, workout.source_thumbnail_url)
     try:
         original_content = validated_workout(
             WorkoutContent.model_validate(row.result["workout"]), authored=False
@@ -342,7 +361,12 @@ async def accept_import(
                     original[index]
                 ):
                     exercise["provenance"] = "user"
-    digest = content_digest(content)
+    target = row.payload.get("_replace") if isinstance(row.payload, dict) else None
+    if request.update_existing and not target:
+        raise HTTPException(422, "This import has no saved workout selected for update")
+    if target and request.is_public:
+        raise HTTPException(422, "Review an existing workout update privately before sharing")
+    digest = content_digest({"workout": content, "update_existing": request.update_existing}) if target else content_digest(content)
     if row.accepted_workout_id:
         if digest != row.accepted_content_hash:
             raise HTTPException(409, "Import already accepted with different content")
@@ -355,8 +379,19 @@ async def accept_import(
             raise HTTPException(
                 422, "Complete the missing workout details before sharing to Discover"
             )
-    saved = store_workout(db, user.id, generation, content, original_content=original_content)
-    row.payload = None
+    if request.update_existing:
+        saved = await owned_record(db, WorkoutRecord, target["workout_id"], user.id, generation)
+        if saved.revision != target["expected_revision"]:
+            raise HTTPException(409, "Workout changed; save a separate copy or extract again from its latest version")
+        content = preserve_private_notes(content, saved.content)
+        await append_workout_version(db, saved, content)
+    else:
+        saved = store_workout(db, user.id, generation, content, original_content=original_content)
+        from app.domains.workouts.source_media import retain_source_cover
+
+        await retain_source_cover(db, user.id, generation, workout.source_thumbnail_url)
+    # Retain only the frozen target for content/mode-bound acceptance replay.
+    row.payload = {"_replace": target} if target else None
     row.accepted_workout_id = saved.id
     row.accepted_content_hash = digest
     from app.domains.workouts.library_organization_service import refresh_optional_source_metadata
@@ -366,6 +401,38 @@ async def accept_import(
         await set_publication(db, saved, user, True)
     await db.commit()
     return record_response(saved)
+
+
+def preserve_private_notes(content, previous):
+    """New extraction changes the prescription; existing private annotations survive."""
+    notes = list(content.get("notes") or []) + list(previous.get("notes") or [])
+    def name(exercise):
+        return exercise["name"].strip().casefold()
+
+    old = [(bi, block, ei, exercise)
+           for bi, block in enumerate(previous.get("blocks", []))
+           for ei, exercise in enumerate(block.get("exercises", []))]
+    new = [exercise for block in content.get("blocks", []) for exercise in block.get("exercises", [])]
+    old_counts = Counter(name(exercise) for _, _, _, exercise in old)
+    new_counts = Counter(name(exercise) for exercise in new)
+    unique = {name(exercise): exercise for exercise in new if new_counts[name(exercise)] == 1}
+    for bi, block, ei, prior in old:
+        if not prior.get("notes"):
+            continue
+        match = unique.get(name(prior)) if old_counts[name(prior)] == 1 else None
+        if match and (not prior.get("exercise_id") or not match.get("exercise_id")
+                      or prior["exercise_id"] == match["exercise_id"]):
+            match["notes"] = "\n".join(dict.fromkeys(filter(None, [match.get("notes"), prior["notes"]])))
+        else:
+            # Re-extraction has no stable movement occurrence IDs. Repeated,
+            # replaced or missing movements keep their note with its old context.
+            notes.append(f"Block {bi + 1} ({block['label']}), exercise {ei + 1} ({prior['name']}): {prior['notes']}")
+    content["notes"] = list(dict.fromkeys(notes))
+    # Revalidate limits after merging annotations; never silently truncate them.
+    try:
+        return validated_workout(WorkoutContent.model_validate(content), authored=False)
+    except ValueError:
+        raise HTTPException(422, "Private notes exceed the saved limits; review them before updating") from None
 
 
 @router.delete("/library/{workout_id}", status_code=204)

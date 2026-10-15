@@ -1,8 +1,12 @@
 import { expect, it } from "vitest";
-import type { ImportJob } from "./capture";
+import { canSaveAutomatically, type ImportJob } from "./capture";
 import { importProgressState } from "./import-progress";
 import { sourceRecoveryRequest } from "./workout-source-recovery";
 const job = { id: "job", status: "processing", attempt_count: 2 } as ImportJob;
+it("never automatically accepts an existing-workout update", () => {
+  expect(canSaveAutomatically({ ...job, status: "ready", replace_target: { workout_id: "saved", expected_revision: 1 },
+    result: { status: "ready", workout: { title: "Workout", kind: "session", provenance: "user", blocks: [] }, warnings: [], evidence: [], source: { platform: "text", channels: [], coverage_notes: [] } } })).toBe(false);
+});
 it("uses actual queued time and actual retry scheduling without inventing progress percentages", () => {
   const now = Date.parse("2026-10-15T01:04:05Z");
   const progress = importProgressState({ ...job, status: "queued", attempt_count: 1, max_attempts: 3,

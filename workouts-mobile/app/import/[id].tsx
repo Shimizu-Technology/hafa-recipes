@@ -1,6 +1,6 @@
 import { workoutErrors } from "@/lib/library";
 import { SourceImage } from "@/components/source-image";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, useCallback, useRef } from "react";
 import { ActivityIndicator, AppState, Image, Linking } from "react-native";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -12,7 +12,7 @@ import { useTraining } from "@/lib/context";
 import { canSaveAutomatically, importIsTerminal, updateImportReferences, loadCapturedImport, retireCapturedImport, type CaptureDraft, type ImportReference } from "@/lib/capture";
 import { cleanupCaptureFiles, sourceFor } from "@/lib/capture-io";
 import { recoverySource } from "@/lib/import-recovery";
-import type { ExtractionRequest } from "@/lib/capture";
+import type { ExtractionRequest, ImportJob } from "@/lib/capture";
 import * as Crypto from "expo-crypto";
 import { type PrivateDraftSnapshot } from "@/lib/private-form";
 import type { AuthoredWorkout } from "@/lib/models";
@@ -25,24 +25,18 @@ export default function ImportReview() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const generation = enrollment?.generation;
-  const live = useRef({ owner, id, generation, storage, epoch: 0 });
-  if (
-    live.current.owner !== owner ||
-    live.current.id !== id ||
-    live.current.generation !== generation ||
-    live.current.storage !== storage
-  )
-    live.current = { owner, id, generation, storage, epoch: live.current.epoch + 1 };
-  const epoch = live.current.epoch;
+  const epoch = useMemo(() => ({}), [owner, id, generation, storage]);
+  const live = useRef(epoch);
+  useLayoutEffect(() => { live.current = epoch; }, [epoch]);
   const mounted = useRef(true);
-  useEffect(() => {
+  useLayoutEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
     };
   }, []);
   function current() {
-    if (!mounted.current || live.current.epoch !== epoch || !storage.isCurrent() || !isCurrentAccount())
+    if (!mounted.current || live.current !== epoch || !storage.isCurrent() || !isCurrentAccount())
       throw Error("This import or account changed. Open the current import before continuing.");
   }
   function isCurrent() {
@@ -65,16 +59,18 @@ export default function ImportReview() {
   const [autoAllowed, setAutoAllowed] = useState(false);
   const saving = useRef(false);
   const visibilityWrites = useRef<Promise<void>>(Promise.resolve());
-  const autoAttempt = useRef<number | null>(null);
-  const reconciledSave = useRef<number | null>(null);
+  const autoAttempt = useRef<object | null>(null);
+  const reconciledSave = useRef<object | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [attemptedUpdate, setAttemptedUpdate] = useState<boolean | null>(null);
+  const [updateConflict, setUpdateConflict] = useState(false);
   /** null = the default for this source (link imports public, everything else private). */
   const [shareChoice, setShareChoice] = useState<boolean | null>(null);
   const [notice, setNotice] = useState("");
   const [caption, setCaption] = useState("");
   const captionWrites = useRef<Promise<void>>(Promise.resolve());
-  const [retryCommand, setRetryCommand] = useState<{ request_id: string; source: ExtractionRequest; auto_save: boolean; saved_id?: string } | null>(null);
+  const [retryCommand, setRetryCommand] = useState<{ request_id: string; source: ExtractionRequest; auto_save: boolean; saved_id?: string; replace_target?: ImportJob["replace_target"] } | null>(null);
   const disclosure = usePublishingDisclosure();
   const [stateEpoch, setStateEpoch] = useState(epoch);
   const routeReady = stateEpoch === epoch;
@@ -97,8 +93,9 @@ export default function ImportReview() {
     refetchInterval: (query) =>
       visible && active && query.state.data && !importIsTerminal(query.state.data.status) ? 2500 : false
   });
-  useEffect(() => {
+  useLayoutEffect(() => {
     let valid = true;
+    saving.current = false;
     setStateEpoch(epoch);
     setOriginal(null);
     setEdited(null);
@@ -108,6 +105,8 @@ export default function ImportReview() {
     setAutoAllowed(false);
     setBusy(false);
     setError("");
+    setAttemptedUpdate(null);
+    setUpdateConflict(false);
     setShareChoice(null);
     setNotice("");
     setCaption("");
@@ -176,9 +175,10 @@ export default function ImportReview() {
     current();
     setOriginal(null);
   }
-  async function accept(automatic = false) {
+  async function accept(automatic = false, updateExisting = false) {
     if (saving.current || !routeReady || !restored || !isCurrent() || !q.data?.result?.workout) return;
     if (automatic && (edited || !canSaveAutomatically(q.data))) return;
+    setUpdateConflict(false);
     const content = edited ?? q.data.result.workout;
     const errors = content.blocks.some(block => block.exercises.length)
       ? workoutErrors(content, q.data.status === "incomplete" && !sharing)
@@ -188,6 +188,7 @@ export default function ImportReview() {
       return;
     }
     saving.current = true;
+    setAttemptedUpdate(updateExisting);
     setBusy(true);
     setError("");
     setNotice("");
@@ -203,7 +204,9 @@ export default function ImportReview() {
             current();
             return api.acceptImport(id, content, importGeneration, true, !automatic);
           })
-        : await api.acceptImport(id, content, importGeneration, false, !automatic);
+        : updateExisting
+          ? await api.acceptImport(id, content, importGeneration, false, !automatic, true)
+          : await api.acceptImport(id, content, importGeneration, false, !automatic);
       current();
       if (accepted === DECLINED) {
         await chooseVisibility(false, true);
@@ -212,6 +215,11 @@ export default function ImportReview() {
         current();
       }
       const saved = accepted;
+      if (updateExisting) {
+        cache.setQueryData([owner, "workout", saved.id, generation], saved);
+        void cache.invalidateQueries({ queryKey: [owner, "workout-versions", saved.id] });
+        void cache.invalidateQueries({ queryKey: [owner, "discover"] });
+      }
       await cache.invalidateQueries({ queryKey: [owner, "library"] });
       current();
       cache.removeQueries({ queryKey: [owner, "import-source", id] });
@@ -222,15 +230,20 @@ export default function ImportReview() {
       current();
       router.replace({ pathname: "/workout/[id]", params: { id: saved.id } });
     } catch (e) {
-      if (isCurrent())
+      if (isCurrent()) {
+        const conflict = updateExisting && (e as { status?: number }).status === 409 &&
+          (e as { detail?: string }).detail === "Workout changed; save a separate copy or extract again from its latest version";
+        setUpdateConflict(conflict);
         setError(
           isIncomplete(e) && sharing && /discover|shar/i.test((e as { detail?: string }).detail ?? "")
             ? INCOMPLETE_MESSAGE
-            : (e as Error).message
+            : conflict
+              ? "Your saved workout changed while you reviewed this import. Its newer edit is safe. You can keep this extraction as a separate private workout."
+              : (e as Error).message
         );
+      }
     } finally {
-      saving.current = false;
-      if (isCurrent()) setBusy(false);
+      if (isCurrent()) { saving.current = false; setBusy(false); }
     }
   }
   async function retryExtraction() {
@@ -258,12 +271,13 @@ export default function ImportReview() {
         current();
         command = { request_id: Crypto.randomUUID(),
           source: recoverySource(retained, q.data.result?.source.url ?? q.data.result?.workout?.source_url, caption),
-          auto_save: capabilities.data.server_auto_save === true };
+          auto_save: q.data.replace_target ? false : capabilities.data.server_auto_save === true,
+          ...(q.data.replace_target ? { replace_target: q.data.replace_target } : {}) };
         await localDrafts.save(owner, `import-retry:${generation}:${id}`, command); current();
         setRetryCommand(command);
       }
       const next = await api.startImport(command.request_id, command.source, q.data.generation,
-        { auto_save: command.auto_save, is_public: false }); current();
+        { auto_save: command.auto_save, is_public: false, ...(command.replace_target ? { replace_target: command.replace_target } : {}) }); current();
       command = { ...command, saved_id: next.id };
       await localDrafts.save(owner, `import-retry:${generation}:${id}`, command); current();
       setRetryCommand(command);
@@ -275,7 +289,7 @@ export default function ImportReview() {
       await localDrafts.remove(owner, `import-retry-caption:${generation}:${id}`); current();
       router.replace({ pathname: "/import/[id]", params: { id: next.id } });
     } catch (e) { if (isCurrent()) setError((e as Error).message); }
-    finally { saving.current = false; if (isCurrent()) setBusy(false); }
+    finally { if (isCurrent()) { saving.current = false; setBusy(false); } }
   }
   async function cancel(dismiss = false) {
     const absent = [404, 410].includes((q.error as { status?: number } | null)?.status ?? 0);
@@ -301,8 +315,7 @@ export default function ImportReview() {
     } catch (e) {
       if (isCurrent()) setError((e as Error).message);
     } finally {
-      saving.current = false;
-      if (isCurrent()) setBusy(false);
+      if (isCurrent()) { saving.current = false; setBusy(false); }
     }
   }
   const source = useQuery({
@@ -325,7 +338,7 @@ export default function ImportReview() {
   const shareable =
     !!workout && publishable(workout) && !(q.data?.status === "incomplete" && !(routeReady && edited));
   const wantsShare = shareChoice ?? originalSource?.is_public ?? q.data?.source_is_public ?? defaultShareToDiscover(result?.workout?.capture_kind ?? originalSource?.kind);
-  const sharing = discoverOn && shareable && wantsShare;
+  const sharing = !q.data?.replace_target && discoverOn && shareable && wantsShare;
   useEffect(() => {
     if ((!autoAllowed && !originalSource?.auto_save) || !routeReady || !restored || !q.data || edited || editing ||
       error || !visible || !active || !capabilities.data || capabilities.data.server_auto_save || !canSaveAutomatically(q.data) || autoAttempt.current === epoch) return;
@@ -348,7 +361,17 @@ export default function ImportReview() {
   const savedDraft = savedId && q.data?.status === "incomplete";
   return (
     <Screen back title={savedDraft ? "Draft saved." : savedId ? "Workout saved." : "Your workout."}
-      subtitle={savedDraft ? "Saved privately in your library. Check the missing details before training." : savedId ? "Ready in your library. Check or edit the details whenever you need." : busy ? "Saving your workout…" : "Your source becomes a workout you can use."}>
+      subtitle={savedDraft ? "Saved privately in your library. Check the missing details before training." : savedId ? "Ready in your library. Check or edit the details whenever you need." : busy ? "Saving your workout…" : "Your source becomes a workout you can use."}
+      footer={!!error && <>
+        <Notice error>{error}</Notice>
+        {q.data?.replace_target && attemptedUpdate !== null && hasExercises && !editing && !savedId && <Button
+          title={updateConflict ? "Save as a separate private workout" : attemptedUpdate ? "Retry updating saved workout" : "Retry saving private workout"}
+          secondary busy={busy} disabled={!routeReady || !restored}
+          onPress={() => { void accept(false, !updateConflict && attemptedUpdate); }} />}
+        {!restored && <Button title="Try loading again" secondary disabled={busy} onPress={() => {
+          setError(""); setRestoreAttempt((value) => value + 1); void q.refetch();
+        }} />}
+      </>}>
       <QueryState
         loading={q.isPending}
         error={q.data && ["queued", "processing"].includes(q.data.status) ? null : q.error}
@@ -443,7 +466,7 @@ export default function ImportReview() {
                     if (routeReady && isCurrent()) setEditing(!editing);
                   }}
                 />
-                {discoverOn && hasExercises && (
+                {discoverOn && hasExercises && !q.data?.replace_target && (
                   <Choice
                     icon="globe-outline"
                     label="Share to Discover"
@@ -466,15 +489,19 @@ export default function ImportReview() {
                 </Notice>}
                 {!!notice && <Notice>{notice}</Notice>}
                 {hasExercises && <Button
-                  title={sharing ? "Save and share to Discover" : "Save workout"}
+                  title={q.data?.replace_target ? "Update saved workout" : sharing ? "Save and share to Discover" : "Save workout"}
                   icon={sharing ? "globe-outline" : "lock-closed-outline"}
                   size="lg"
                   busy={busy}
                   disabled={!routeReady || !restored || busy || !!q.data?.accepted_workout_id}
                   onPress={() => {
-                    void accept();
+                    void accept(false, !!q.data?.replace_target);
                   }}
-                />}</>}
+                />}
+                {hasExercises && q.data?.replace_target && <>
+                  <Copy kind="small">Updating creates a new version. Your private notes, organization and recorded sessions stay saved. This replaces version {q.data.replace_target.expected_revision}; a newer edit will be protected. If already shared to Discover, its public instructions will update there.</Copy>
+                  {!error && <Button title="Save as a separate private workout" secondary busy={busy} disabled={!routeReady || !restored || !!savedId} onPress={() => { void accept(); }} />}
+                </>}</>}
               </>
             )}
             <Button title={sourceDetails ? "Hide source details" : "Source details"} variant="ghost" onPress={() => setSourceDetails(!sourceDetails)} />
@@ -570,10 +597,6 @@ export default function ImportReview() {
       </QueryState>
       {[404, 410].includes((q.error as { status?: number } | null)?.status ?? 0) && <Button title="Dismiss import" variant="ghost" busy={busy}
         onPress={() => { void cancel(true); }} />}
-      {!!error && <Notice error>{error}</Notice>}
-      {!restored && !!error && <Button title="Try loading again" secondary disabled={busy} onPress={() => {
-        setError(""); setRestoreAttempt((value) => value + 1); void q.refetch();
-      }} />}
       <Notice>
         Uploads are cleared after saving, cancellation or expiry. Saved workouts keep the workout details and source
         link when available.

@@ -90,6 +90,12 @@ interface RecordEnvelope<T> {
   organization?: Organization;
   publication?: Publication | null;
 }
+export interface WorkoutVersion {
+  id: string;
+  revision: number;
+  created_at: string;
+  workout: Workout;
+}
 interface SessionEnvelope {
   id: string;
   generation: number;
@@ -762,7 +768,7 @@ export function createWorkoutsApi(
       ).data;
     },
     async startImport(request_id: string, source: ExtractionRequest, generation: number,
-      policy?: { auto_save: boolean; is_public: boolean }) {
+      policy?: { auto_save: boolean; is_public: boolean; replace_target?: ImportJob["replace_target"] }) {
       return (await request<ImportJob>("/imports", "POST", { request_id, source, ...policy }, { generation })).data;
     },
     async createShareSession(installation_id: string, is_public: boolean, generation: number) {
@@ -780,14 +786,14 @@ export function createWorkoutsApi(
     async importJobs() {
       return (await request<ImportJob[]>("/imports?limit=30")).data;
     },
-    async acceptImport(id: string, workout: AuthoredWorkout, generation: number, isPublic = false, acknowledgeWarnings = true) {
+    async acceptImport(id: string, workout: AuthoredWorkout, generation: number, isPublic = false, acknowledgeWarnings = true, updateExisting = false) {
       return workoutRecord(
         (
           await request<RecordEnvelope<Workout>>(
             `/imports/${encodeURIComponent(id)}/accept`,
             "POST",
             // is_public is only sent when sharing, so the server's private default stays authoritative.
-            { workout: authoredWorkout(workout), acknowledge_warnings: acknowledgeWarnings, ...(isPublic ? { is_public: true } : {}) },
+            { workout: authoredWorkout(workout), acknowledge_warnings: acknowledgeWarnings, ...(isPublic ? { is_public: true } : {}), ...(updateExisting ? { update_existing: true } : {}) },
             { generation }
           )
         ).data
@@ -951,6 +957,17 @@ export function createWorkoutsApi(
     },
     async workout(id: string) {
       return workoutRecord((await request<RecordEnvelope<Workout>>(`/library/${encodeURIComponent(id)}`)).data);
+    },
+    async workoutVersions(id: string, offset = 0): Promise<WorkoutVersion[]> {
+      const { data } = await request<RecordEnvelope<Workout>[]>(`/library/${encodeURIComponent(id)}/versions?limit=20&offset=${offset}`);
+      return data.map((row) => ({ id: row.id, revision: row.revision, created_at: row.created_at,
+        workout: { ...row.content, id, generation: row.generation, revision: row.revision } }));
+    },
+    async restoreWorkoutVersion(workout: Workout, versionId: string) {
+      return workoutRecord((await request<RecordEnvelope<Workout>>(
+        `/library/${encodeURIComponent(workout.id)}/versions/${encodeURIComponent(versionId)}/restore?expected_revision=${workout.revision}`,
+        "POST", undefined, { generation: workout.generation }
+      )).data);
     },
     async saveWorkout(workout: AuthoredWorkout, creationKey?: string, generation?: number) {
       return workoutRecord(
