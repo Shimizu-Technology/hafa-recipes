@@ -795,6 +795,10 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
         value = reel_workout()
         if len(payloads) == 1:
             if primary == "name_quote_dose":
+                value["blocks"][0]["execution"] = {"mode": "amrap", "time_cap_seconds": 1200}
+                value["blocks"][0]["evidence"].extend([
+                    evidence("execution.mode", REEL_INSTRUCTIONS, "caption"),
+                    evidence("execution.time_cap_seconds", REEL_INSTRUCTIONS, "caption")])
                 for item in value["blocks"][0]["exercises"]:
                     item["evidence"] = [evidence("name", f"10 x {item['name']}" +
                         (" (5 each side)" if item['name'] in {"Gorilla Rows", "Strict Press"} else ""), "caption")]
