@@ -7,11 +7,13 @@ import { blockSummary, changeExecution, changeGrouping, changeTimeCap, execution
 export function WorkoutEditor({
   value,
   onChange,
-  disabled = false
+  disabled = false,
+  context = "edit"
 }: {
   value: AuthoredWorkout;
   onChange(value: AuthoredWorkout): void;
   disabled?: boolean;
+  context?: "create" | "edit";
 }) {
   const [expandedBlocks, setExpandedBlocks] = useState<string[]>([]);
   const [expandedExercises, setExpandedExercises] = useState<string[]>([]);
@@ -67,8 +69,9 @@ export function WorkoutEditor({
         }
       />
       <Notice>
-        Missing facts can remain blank. Changes below are your corrections; they are not newly discovered creator
-        instructions.
+        {context === "create"
+          ? "Use the details you know. Sets, reps and other targets can stay blank. Open block settings for circuits, rounds or AMRAP."
+          : "Missing facts can remain blank. Changes below are your corrections; they are not newly discovered creator instructions."}
       </Notice>
       {value.blocks.map((block, bi) => {
         const blockInvalid = !!executionError(block) || !block.label.trim() || (block.rounds != null && (!Number.isInteger(block.rounds) || block.rounds < 1 || block.rounds > 100)) ||
@@ -196,7 +199,7 @@ export function WorkoutEditor({
               />
               <NumberField
                 disabled={disabled}
-                label={`Source load · ${e.load_unit ?? "select a unit"}`}
+                label={`${context === "create" ? "Load" : "Source load"} · ${e.load_unit ?? "select a unit"}`}
                 value={e.load}
                 onChange={(load) => exercise(bi, ei, { load })}
               />

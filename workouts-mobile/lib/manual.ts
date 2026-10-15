@@ -16,10 +16,27 @@ export const blankWorkout = (): WorkoutDraft => ({
   equipment: "",
   exercises: [{ name: "", sets: "", reps: "" }],
 });
+export interface RichWorkoutDraft {
+  creation_key?: string;
+  generation?: number;
+  workout: AuthoredWorkout;
+}
+export type ManualDraft = WorkoutDraft | RichWorkoutDraft;
+export const blankManualDraft = (): RichWorkoutDraft => ({ workout: draftContent(blankWorkout()) });
+
+/** Legacy input stays readable, including unfinished names and unknown prescriptions. */
+export function restoreManualDraft(draft: ManualDraft): RichWorkoutDraft {
+  return "workout" in draft ? draft : {
+    creation_key: draft.creation_key, generation: draft.generation, workout: draftContent(draft)
+  };
+}
 export function manualWorkout(draft: WorkoutDraft): AuthoredWorkout {
   if (!draft.title.trim()) throw new Error("Give your workout a name.");
   if (!draft.exercises.length || draft.exercises.some((e) => !e.name.trim()))
     throw new Error("Name each exercise, or remove the empty row.");
+  return draftContent(draft);
+}
+function draftContent(draft: WorkoutDraft): AuthoredWorkout {
   const integer = (value: string, label: string, max = 1000) => {
     if (!value.trim()) return null;
     if (!/^\d+$/.test(value.trim()) || Number(value) < 1 || Number(value) > max)

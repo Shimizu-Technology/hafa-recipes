@@ -897,17 +897,13 @@ it("mounted source import checks owner retirement again after asynchronous conse
 
 it("mounted manual creation locks stale callbacks and replays identical body/key after lost acknowledgment and remount", async () => {
   await mount(AddWorkout);
-  await act(async () => {
-    nodes("Field")
-      .find((n) => n.props.label === "Workout name")!
-      .props.onChange("Original");
-  });
-  await act(async () => {
-    nodes("Field")
-      .find((n) => n.props.label === "Exercise name")!
-      .props.onChange("Row");
-  });
-  const staleChange = nodes("Field").find((n) => n.props.label === "Workout name")!.props.onChange;
+  const editor = () => nodes("WorkoutEditor")[0];
+  await act(async () => editor().props.onChange({
+    ...editor().props.value, title: "Original",
+    blocks: [{ id: "main", label: "Main session", grouping: "sequential", exercises: [{ name: "Row" }] }]
+  }));
+  const staleEdit = editor().props.onChange, originalContent = editor().props.value;
+  const staleChange = (title: string) => staleEdit({ ...originalContent, title });
   const pending = deferred<Workout>();
   fixture.saveWorkout.mockReturnValueOnce(pending.promise);
   await click("Save to my library");
@@ -921,10 +917,10 @@ it("mounted manual creation locks stale callbacks and replays identical body/key
   await act(async () => pending.reject(Error("lost acknowledgment")));
   await settle();
   await act(async () => staleChange("Late failed-save input"));
-  expect(nodes("Field")[0].props.value).toBe("Original");
+  expect(editor().props.value.title).toBe("Original");
   await unmount();
   await mount(AddWorkout);
-  expect(nodes("Field")[0].props.disabled).toBe(true);
+  expect(editor().props.disabled).toBe(true);
   fixture.saveWorkout.mockRejectedValueOnce(Object.assign(Error("creation conflict"), { status: 409 }));
   await click("Retry saving workout");
   expect(fixture.saveWorkout.mock.calls[1]).toEqual(original);
@@ -947,27 +943,96 @@ it("mounted manual creation locks stale callbacks and replays identical body/key
   expect(button("Starting another workout…").props.busy).toBe(true);
   await act(async () => reset.resolve());
   await settle();
-  await act(async () => nodes("Field")[0].props.onChange("Separate deliberate workout"));
-  await act(async () =>
-    nodes("Field")
-      .find((n) => n.props.label === "Exercise name")!
-      .props.onChange("Squat")
-  );
+  await act(async () => editor().props.onChange({ ...editor().props.value, title: "Separate deliberate workout" }));
+  await act(async () => editor().props.onChange({ ...editor().props.value,
+    blocks: [{ id: "main", label: "Session", grouping: "sequential", exercises: [{ name: "Squat" }] }] }));
   fixture.saveWorkout.mockResolvedValueOnce(workout);
   await click("Save to my library");
   expect(fixture.saveWorkout.mock.calls[3][1]).not.toBe(original[1]);
 });
 
+it("fences stale create callbacks and restores a separate draft when account or enrollment changes", async () => {
+  await mount(AddWorkout);
+  const editor = () => nodes("WorkoutEditor")[0];
+  const updateOld = editor().props.onChange;
+  await act(async () => updateOld({ ...editor().props.value, title: "First account" }));
+  const oldKey = draftKey(fixture.owner, "manual-workout:1");
+  fixture.owner = "separate-create-owner"; fixture.generation = 2;
+  await rerender(AddWorkout);
+  expect(editor().props.value.title).toBe("");
+  await act(async () => updateOld({ ...editor().props.value, title: "Stale callback" }));
+  expect(editor().props.value.title).toBe("");
+  expect(fixture.map.get(oldKey)).toContain("First account");
+  expect(fixture.map.has(draftKey(fixture.owner, "manual-workout:2"))).toBe(false);
+});
+
+it("creates a rich AMRAP with instructions without a second edit and restores its device draft", async () => {
+  await mount(AddWorkout);
+  const rich: AuthoredWorkout = { title: "20-minute kettlebell circuit", kind: "session", provenance: "user",
+    equipment_required: ["Kettlebell"], estimated_minutes: 20, notes: ["Rest after each round."],
+    blocks: [{ id: "main", label: "Circuit", grouping: "circuit", execution: { mode: "amrap", time_cap_seconds: 1200 },
+      rest_between_rounds_seconds: 30, exercises: [{ name: "Press", reps_min: 5, per_side: true, rest_seconds: 10,
+        duration_seconds: 30, distance_meters: 20, load: 12, load_unit: "kg", load_convention: "total", notes: "Stay tall." }] }] };
+  await act(async () => nodes("WorkoutEditor")[0].props.onChange(rich));
+  await unmount(); await mount(AddWorkout);
+  expect(nodes("WorkoutEditor")[0].props.value).toEqual(rich);
+  fixture.saveWorkout.mockResolvedValueOnce(workout);
+  await click("Save to my library");
+  expect(fixture.saveWorkout.mock.calls[0][0]).toMatchObject(rich);
+});
+
+it("restores legacy manual input and retries its frozen pre-upgrade command unchanged", async () => {
+  const key = draftKey(fixture.owner, "manual-workout:1");
+  const legacy = { title: "Before update", equipment: "Bench, Dumbbells", creation_key: "old-key",
+    exercises: [{ name: "Press", sets: "3", reps: "8" }] };
+  fixture.map.set(key, JSON.stringify(legacy));
+  await mount(AddWorkout);
+  expect(nodes("WorkoutEditor")[0].props.value).toMatchObject({ title: legacy.title,
+    equipment_required: ["Bench", "Dumbbells"], blocks: [{ exercises: [{ name: "Press", sets: 3, reps_min: 8, reps_max: 8 }] }] });
+  await unmount();
+  const command = { key: "frozen-key", generation: 1, workout: { ...workout, title: "Original frozen body" } };
+  fixture.map.set(key, JSON.stringify({ version: 1, input: legacy, command, terminal: false, removed: false }));
+  await mount(AddWorkout);
+  expect(nodes("WorkoutEditor")[0].props.disabled).toBe(true);
+  fixture.saveWorkout.mockRejectedValueOnce(Error("offline"));
+  await click("Retry saving workout");
+  expect(fixture.saveWorkout).toHaveBeenCalledWith(command.workout, command.key, command.generation);
+});
+
+it("keeps invalid legacy numeric text editable rather than replacing it with missing values", async () => {
+  const key = draftKey(fixture.owner, "manual-workout:1");
+  fixture.map.set(key, JSON.stringify({ title: "Keep me", equipment: "", exercises: [{ name: "Row", sets: "2.5", reps: "8" }] }));
+  await mount(AddWorkout);
+  expect(nodes("WorkoutEditor")).toHaveLength(0);
+  const sets = nodes("Field").find(node => node.props.label === "Sets")!;
+  expect(sets.props.value).toBe("2.5");
+  await act(async () => sets.props.onChange("3"));
+  expect(nodes("WorkoutEditor")[0].props.value.blocks[0].exercises[0].sets).toBe(3);
+  expect(JSON.parse(fixture.map.get(key)!).input.workout.title).toBe("Keep me");
+});
+
+it("does not send rich creation when its device command cannot be saved or the account retires", async () => {
+  await mount(AddWorkout);
+  const editor = () => nodes("WorkoutEditor")[0];
+  await act(async () => editor().props.onChange({ ...editor().props.value, title: "Private",
+    blocks: [{ id: "main", label: "Session", grouping: "sequential", exercises: [{ name: "Row" }] }] }));
+  fixture.writeFailure = true;
+  await click("Save to my library");
+  expect(fixture.saveWorkout).not.toHaveBeenCalled();
+  fixture.writeFailure = false; fixture.current = false;
+  const before = editor().props.value;
+  await act(async () => editor().props.onChange({ ...before, title: "Other account" }));
+  expect(editor().props.value).toEqual(before);
+  await click("Save to my library");
+  expect(fixture.saveWorkout).not.toHaveBeenCalled();
+});
+
 it("mounted form never transmits a command when its original local persistence fails", async () => {
   await mount(AddWorkout);
-  await act(async () => {
-    nodes("Field")[0].props.onChange("Original");
-  });
-  await act(async () => {
-    nodes("Field")
-      .find((n) => n.props.label === "Exercise name")!
-      .props.onChange("Row");
-  });
+  await act(async () => nodes("WorkoutEditor")[0].props.onChange({
+    ...nodes("WorkoutEditor")[0].props.value, title: "Original",
+    blocks: [{ id: "main", label: "Main session", grouping: "sequential", exercises: [{ name: "Row" }] }]
+  }));
   await settle();
   fixture.writeFailure = true;
   await click("Save to my library");
