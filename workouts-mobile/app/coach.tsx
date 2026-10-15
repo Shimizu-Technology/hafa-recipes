@@ -425,6 +425,7 @@ export default function Coach() {
       subtitle="Your profile and recent work, with any change shown to you first."
       footer={composer}
       scrollRef={scroll}
+      disableBrowserScrollAnchoring
       onScroll={({ nativeEvent }) => {
         if (!currentConversation() || !history.length) return;
         const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;

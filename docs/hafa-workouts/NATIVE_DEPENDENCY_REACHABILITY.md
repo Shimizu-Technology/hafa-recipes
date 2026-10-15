@@ -317,9 +317,9 @@ handoff. This evidence does not establish actual native keyboard, clipboard or
 link acceptance. Clipboard adds native code and requires a rebuilt binary.
 
 
-### Reading-only current-main verification — 2026-10-15
+### Historical reading-only verification — 2026-10-15 UTC (October 16 Guam)
 
-Rechecked the isolated reading/composer slice at `df0159c49be950cd4678e91b46d788ec0b511075`, based on main `153419e4d175282f128b0ee93ae6fba5c8d0d6f8`. This includes the loading-to-conversation scroll-ref correction. Fresh physical `npm ci` and `npm ls --all` passed. The lock is byte-identical to the previously reviewed reading lock: `7ba662fcb3d4a2c98f7aa28980947cd146971562f02166b19b5417c61e8adcf9`. Relative to current main, seven nodes are added; no existing non-root node changes or is removed. The existing exact fingerprint, six advisory IDs and November 3 expiry remain unchanged.
+Rechecked the isolated reading/composer slice at `df0159c49be950cd4678e91b46d788ec0b511075`, based on main `153419e4d175282f128b0ee93ae6fba5c8d0d6f8`. This includes the loading-to-conversation scroll-ref correction. Fresh physical `npm ci` and `npm ls --all` passed. The lock is byte-identical to the previously reviewed reading lock: `7ba662fcb3d4a2c98f7aa28980947cd146971562f02166b19b5417c61e8adcf9`. Relative to that historical main commit, seven nodes are added; no existing non-root node changes or is removed. The existing exact fingerprint, six advisory IDs and November 3 expiry remain unchanged.
 
 Fresh raw production audit reports 33 affected packages (5 moderate, 28 high, 0 critical), exactly the six reviewed advisory IDs and zero unexpected advisories. The strict runtime audit passes. Installed Markdown URL helper, renderer rules and parser package metadata remain byte-identical to Recipes' corresponding installed files. This is a renewed check of the existing exception, not an advisory fix.
 
@@ -329,3 +329,5 @@ Typed routes, 211 focused mounted/domain tests, TypeScript, Doctor 21/21, all-pl
 - Android: 1931 sources; SHA256 `53554d893a5074278a9d42d98568e01a3f1304e4e15c489e4dcab7a718b73376`.
 
 The loading-to-ready mounted regression failed on the preceding runtime specifically because Jump could not call the mounted scroll ref, then passed after the correction. These results establish dependency reachability and focused engineering behavior. Complete repository checks, actual reading/copy/link/keyboard journeys and native Clipboard acceptance remain separate gates; no device acceptance is inferred from export maps.
+
+The historical verification above records its named source and 211 focused tests; it does not describe the later `3fbc8dee37f82189970620e8a60b8ae3040a3b4e` (212 focused tests). Public reading source `96f4cc16453528eb2b1e2cd32a8377c416f5ac39` subsequently passed 224 focused tests and its complete repository gate on October 15 UTC (October 16 Guam). Browser acceptance for that exact source covered phone and desktop, light and dark; native acceptance remains pending.

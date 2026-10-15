@@ -22,7 +22,14 @@ vi.mock("@/lib/context", () => {
     coachHistory: async (offset = 0) => { f.historyCalls.push(offset); return offset && f.historyGate ? f.historyGate : ({ messages: f.history.slice(offset, offset + f.pageSize), limit: f.pageSize, offset }); }, coachMessage: f.send, clearCoach: f.clear };
   return { useTraining: () => ({ api, owner: f.owner, enrollment: { enrolled: true, generation: f.generation }, storage: f.storageVersion ? replacementStorage : storage, isCurrentAccount: () => f.current }) };
 });
-vi.mock("react-native", () => ({ View: "View", Text: "Text", Platform: { get OS() { return f.platform; } }, Linking: { openURL: f.openURL }, AppState: { get currentState() { return f.appState; }, addEventListener: (_: string, listener: (value: string) => void) => { f.foreground.add(listener); return { remove: () => f.foreground.delete(listener) }; } } }));
+vi.mock("react-native", () => ({ View: "View", Text: "Text", KeyboardAvoidingView: "KeyboardAvoidingView", ScrollView: "ScrollView", RefreshControl: "RefreshControl", Platform: { get OS() { return f.platform; } }, Linking: { openURL: f.openURL }, AppState: { get currentState() { return f.appState; }, addEventListener: (_: string, listener: (value: string) => void) => { f.foreground.add(listener); return { remove: () => f.foreground.delete(listener) }; } } }));
+// Exercise the real Screen wrapper below without loading unrelated native modules.
+vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
+vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
+vi.mock("expo-image", () => ({ Image: "Image" }));
+vi.mock("../components/brand-mark", () => ({ BrandLockup: "BrandLockup", BrandMark: "BrandMark" }));
+vi.mock("../components/design/foundation", () => ({ Copy: "Copy", SurfaceProvider: "SurfaceProvider", useColors: () => ({ background: "background" }), useReducedMotion: () => true, useSurface: () => "surface" }));
+vi.mock("../components/design/controls", () => ({ Chip: "Chip", IconButton: "IconButton" }));
 vi.mock("expo-clipboard", () => ({ setStringAsync: f.copy }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => `request-${++f.uuid}` }));
 vi.mock("expo-router", async () => {
@@ -556,4 +563,19 @@ it("keeps an active request compact and retries the same durable message after a
   expect(f.send.mock.calls[1]).toEqual(request);
   expect(draft().pending).toBeNull(); expect(nodes("Field")[0].props.value).toBe("");
   expect(nodes("Field")[0].props.disabled).toBe(false);
+});
+
+it("only opts the Coach conversation into manual browser reading-position authority", async () => {
+  const gate = deferred<{ adult_confirmed: boolean }>(); f.profileGate = gate.promise;
+  await mount(); expect(nodes("Screen")[0].props.disableBrowserScrollAnchoring).not.toBe(true);
+  await act(async () => gate.resolve({ adult_confirmed: true })); await settle();
+  expect(nodes("Screen")[0].props.disableBrowserScrollAnchoring).toBe(true);
+});
+it.each(["web", "ios", "android"])("the real Screen disables browser anchoring only for opted-in web scrollers (%s)", async platform => {
+  f.platform = platform as typeof f.platform;
+  const { Screen } = await vi.importActual<typeof import("../components/design/surfaces")>("../components/design/surfaces");
+  await act(async () => { view = create(createElement(Screen, { title: "Reading", disableBrowserScrollAnchoring: true })); });
+  expect(nodes("ScrollView")[0].props.style).toEqual(platform === "web" ? { overflowAnchor: "none" } : undefined);
+  await act(async () => { view!.update(createElement(Screen, { title: "Other screen" })); });
+  expect(nodes("ScrollView")[0].props.style).toBeUndefined();
 });

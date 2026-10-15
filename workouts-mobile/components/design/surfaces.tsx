@@ -40,6 +40,7 @@ export function Screen({
   scrollRef,
   onScroll,
   onContentSizeChange,
+  disableBrowserScrollAnchoring = false,
 }: PropsWithChildren<{
   title: string;
   subtitle?: string;
@@ -53,6 +54,8 @@ export function Screen({
   onRefresh?: () => void;
   /** Called when the person scrolls near the end (infinite feeds). */
   onEndReached?: () => void;
+  /** Opt out when this screen restores reading position itself. Web only. */
+  disableBrowserScrollAnchoring?: boolean;
   scrollRef?: Ref<ScrollView>;
   onScroll?: ScrollViewProps["onScroll"];
   onContentSizeChange?: ScrollViewProps["onContentSizeChange"];
@@ -77,6 +80,7 @@ export function Screen({
       </View>
       <ScrollView
         ref={scrollRef}
+        style={Platform.OS === "web" && disableBrowserScrollAnchoring ? { overflowAnchor: "none" } as ViewStyle : undefined}
         onContentSizeChange={onContentSizeChange}
         keyboardShouldPersistTaps="handled"
         refreshControl={
