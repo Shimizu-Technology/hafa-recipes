@@ -14,6 +14,7 @@ from pydantic import Field, model_validator
 from sqlalchemy import String, cast, delete, func, select, update
 
 from app.config import get_settings
+from app.db.database import AsyncSessionLocal
 from app.domains.workouts.automation_models import WorkoutCoachMessage, WorkoutProposal
 from app.domains.workouts.automation_router import effective_profile, proposal_context_hash
 from app.domains.workouts.budget import BudgetError, BudgetGuard, BudgetPolicy, ProviderEnvelope
@@ -23,6 +24,11 @@ from app.domains.workouts.coach_actions import (
     prepare_action,
     save_prepared,
     tool_definitions,
+)
+from app.domains.workouts.coach_control import (
+    cancel_message,
+    message_quota_count,
+    respond_while_current,
 )
 from app.domains.workouts.imports import require_ai_consent
 from app.domains.workouts.lifecycle import membership_for, now
@@ -493,6 +499,7 @@ def message_response(row):
             }
         )
     return {
+        **({"cancelled": True} if row.proposals.get("cancelled") is True else {}),
         "id": str(row.id),
         "request_id": str(row.request_id),
         "generation": row.generation,
@@ -548,16 +555,26 @@ async def clear_conversation(db, user_id, generation):
 
 
 class WorkoutCoach:
-    def __init__(self, provider=None, *, compose_library_program=None):
+    def __init__(self, provider=None, *, compose_library_program=None, session_factory=AsyncSessionLocal):
         self.provider = provider or ProductionCoachProvider()
         self.compose_library_program = compose_library_program
         self._inflight = {}
+        self._requests = {}
+        self.sessions = session_factory
 
     def cancel_owner(self, user_id):
         """Root consent/deletion hooks may also stop current process provider I/O."""
         for task in tuple(self._inflight.get(user_id, ())):
-            if task is not asyncio.current_task():
+            if task is not asyncio.current_task() and not task.done() and not task.cancelling():
                 task.cancel()
+
+    async def cancel(self, db, user_id, generation, request_id):
+        row = await cancel_message(db, user_id, generation, request_id, limit=MAX_MESSAGES_PER_DAY)
+        if row.proposals.get("cancelled") is True:
+            for task in tuple(self._requests.get((user_id, generation, request_id), ())):
+                if task is not asyncio.current_task() and not task.done() and not task.cancelling():
+                    task.cancel()
+        return message_response(row)
 
     async def guard(self, db, user_id, generation, message_id, token, fingerprint, consent_at):
         await membership_for(db, user_id, generation=generation, write=True)
@@ -579,9 +596,14 @@ class WorkoutCoach:
     async def send(self, db, user_id, generation, request):
         task = asyncio.current_task()
         self._inflight.setdefault(user_id, set()).add(task)
+        key = (user_id, generation, request.request_id)
+        self._requests.setdefault(key, set()).add(task)
         try:
             return await self._send(db, user_id, generation, request)
         finally:
+            self._requests[key].discard(task)
+            if not self._requests[key]:
+                self._requests.pop(key)
             self._inflight[user_id].discard(task)
             if not self._inflight[user_id]:
                 self._inflight.pop(user_id)
@@ -604,6 +626,8 @@ class WorkoutCoach:
         if existing:
             if existing.proposals.get("state") == "cleared":
                 raise HTTPException(410, "This conversation request was cleared")
+            if existing.proposals.get("cancelled") is True and existing.proposals.get("hidden") is True:
+                return message_response(existing)  # An unseen request was stopped before reservation.
             if existing.request_hash != digest:
                 raise HTTPException(409, "Request ID already has a different message")
             if existing.proposals.get(
@@ -626,21 +650,7 @@ class WorkoutCoach:
             raise HTTPException(410, "This request was previously processed; send a new request ID")
         # Content-free invocation audit survives per-product erasure; both Responses
         # turns count as one request, and clear/erase cannot reset paid-call limits.
-        quota_requests = (
-            select(cast(WorkoutCoachMessage.request_id, String))
-            .where(
-                WorkoutCoachMessage.app_user_id == user_id,
-                WorkoutCoachMessage.created_at >= now() - timedelta(days=1),
-            )
-            .union(
-                select(AIInvocation.request_id).where(
-                    AIInvocation.user_id == user_id,
-                    AIInvocation.capability == "workout_coach",
-                    AIInvocation.created_at >= now() - timedelta(days=1),
-                )
-            )
-        )
-        count = await db.scalar(select(func.count()).select_from(quota_requests.subquery()))
+        count = await message_quota_count(db, user_id)
         if count >= MAX_MESSAGES_PER_DAY:
             raise HTTPException(429, "The beta coach allows 50 messages per rolling day")
         focus = {
@@ -706,7 +716,10 @@ class WorkoutCoach:
                     route="/api/v1/workouts/coach/messages",
                 ):
                     async with asyncio.timeout(100):
-                        result = await self.provider.respond(items, tools=tool_definitions())
+                        result = await respond_while_current(
+                            self.provider, self.sessions, user_id, generation, message_id, token, consent_at,
+                            items, tools=tool_definitions(),
+                        )
                         answer, calls = response_parts(result, allow_tools=True)
                         if calls:
                             validate_inspected_ids(calls, context)
@@ -746,7 +759,10 @@ class WorkoutCoach:
                                 db, user_id, generation, message_id, token, fingerprint, consent_at
                             )
                             await db.commit()
-                            final = await self.provider.respond(items, tools=[])
+                            final = await respond_while_current(
+                                self.provider, self.sessions, user_id, generation, message_id, token, consent_at,
+                                items, tools=[],
+                            )
                             answer, _ = response_parts(final, allow_tools=False)
             if not answer:
                 raise CoachFailure("empty_response")

@@ -5,6 +5,7 @@ import asyncio
 import json
 
 import pytest
+from fastapi import HTTPException
 from pydantic import SecretStr
 from sqlalchemy import select
 
@@ -615,3 +616,47 @@ async def test_provider_failure_returns_only_nonusable_manual_draft(
         "workouts_ai_budget_exceeded" if failure == "denied_budget" else "provider_invalid_response"
     )
     assert len(calls) == (0 if failure == "denied_budget" else 2)
+
+
+async def test_remote_coach_stop_closes_http_context_and_retains_admitted_budget(
+    provider_environment, monkeypatch
+):
+    from app.domains.workouts.coach_control import respond_while_current
+
+    entered, closed = asyncio.Event(), asyncio.Event()
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            closed.set()
+            return False
+
+        async def post(self, *args, **kwargs):
+            entered.set()
+            await asyncio.Event().wait()
+
+    class StoppedSession:
+        async def __aenter__(self):
+            await entered.wait()
+            raise HTTPException(409, "This coach request is no longer active")
+
+        async def __aexit__(self, *args):
+            return False
+
+    monkeypatch.setattr(coach.httpx, "AsyncClient", Client)
+    budget = FakeBudget()
+    provider = ProductionCoachProvider(development_api_key="fake", budget_guard=budget)
+    with pytest.raises(HTTPException) as error:
+        await respond_while_current(
+            provider, StoppedSession, "owner", 1, None, "token", None, [],
+            tools=[], poll_seconds=0,
+        )
+    assert error.value.status_code == 409
+    assert closed.is_set()
+    assert len(budget.reservations) == 1 and budget.outcomes == ["cancelled"]
+    assert Tracker.attempts[0].status == "cancelled"

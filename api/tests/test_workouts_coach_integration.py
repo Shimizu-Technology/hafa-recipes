@@ -10,7 +10,13 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import func, select
 
-from app.domains.workouts import automation_router, coach, coach_actions, coach_router
+from app.domains.workouts import (
+    automation_router,
+    coach,
+    coach_actions,
+    coach_control,
+    coach_router,
+)
 from app.domains.workouts.automation_models import WorkoutCoachMessage, WorkoutProposal
 from app.domains.workouts.coach_actions import prepare_action
 from app.domains.workouts.lifecycle import now
@@ -87,9 +93,10 @@ async def coach_api(data_api, monkeypatch):  # noqa: F811
     data_api.app.include_router(coach_router.send_router)
     monkeypatch.setattr(coach_router, "get_settings", lambda: configured)
     monkeypatch.setattr(coach_actions, "get_settings", lambda: configured)
+    monkeypatch.setattr(coach_control, "get_settings", lambda: configured)
     monkeypatch.setattr(automation_router, "get_settings", lambda: configured)
     data_api.provider = FakeProvider()
-    data_api.coach = coach.WorkoutCoach(data_api.provider)
+    data_api.coach = coach.WorkoutCoach(data_api.provider, session_factory=data_api.sessions)
     monkeypatch.setattr(coach_router, "workout_coach", data_api.coach)
     await enroll(data_api)
     await consent(data_api)
@@ -1105,3 +1112,192 @@ async def test_pending_coach_and_copy_acceptance_cannot_reactivate_an_archived_p
     assert copied.status_code == 409 and "Restore" in copied.json()["detail"], copied.text
     current = (await api.client.get(f"/api/v1/workouts/programs/{identifier}")).json()
     assert current == archived.json()
+
+
+async def stop(api, identifier, *, headers=GENERATION):
+    return await api.client.post(
+        f"/api/v1/workouts/coach/messages/{identifier}/cancel", headers=headers
+    )
+
+
+async def test_stop_before_send_is_hidden_bounded_receipt_and_never_starts_provider(coach_api):
+    api = coach_api
+    identifier = uuid4()
+    stopped = await stop(api, identifier)
+    assert stopped.status_code == 200, stopped.text
+    assert stopped.headers["Cache-Control"] == "no-store"
+    assert stopped.json()["state"] == "failed" and stopped.json()["cancelled"] is True
+    assert (await stop(api, identifier)).json() == stopped.json()
+    assert (await send(api, request_id=identifier)).json() == stopped.json()
+    assert not api.provider.sent
+    assert (await api.client.get("/api/v1/workouts/coach/messages")).json()["messages"] == []
+    async with api.sessions() as db:
+        row = await db.scalar(select(WorkoutCoachMessage))
+        assert row.request_hash == "0" * 64
+        assert row.user_message == row.assistant_message == ""
+        assert await coach_control.message_quota_count(db, "owner") == 1
+
+
+async def test_stop_closes_only_exact_request_retains_hash_and_blocks_paid_replay(coach_api):
+    api = coach_api
+    entered, closed, release_other = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    count = 0
+
+    async def blocked():
+        nonlocal count
+        count += 1
+        if count == 1:
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                closed.set()
+        else:
+            await release_other.wait()
+
+    api.provider.before_response = blocked
+    identifier = uuid4()
+    first = asyncio.create_task(send(api, request_id=identifier))
+    await asyncio.wait_for(entered.wait(), 5)
+    second = asyncio.create_task(send(api))
+    try:
+        assert (await stop(api, identifier, headers={"X-Workouts-Generation": "2"})).status_code == 409
+        await enroll(api, other=True)
+        foreign = await stop(api, identifier, headers=GENERATION | {"X-Test-User": "other"})
+        assert foreign.status_code == 200 and foreign.json()["cancelled"] is True
+        assert not first.done()
+        async with api.sessions() as db:
+            row = await db.scalar(select(WorkoutCoachMessage).where(
+                WorkoutCoachMessage.app_user_id == "owner", WorkoutCoachMessage.request_id == identifier
+            ))
+            original_hash = row.request_hash
+        result = await stop(api, identifier)
+        assert result.json()["cancelled"] is True and result.json()["actions"] == []
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        await asyncio.wait_for(closed.wait(), 5)
+        assert not second.done()
+        replay = await send(api, request_id=identifier)
+        assert replay.json() == result.json()
+        assert (await send(api, "Changed message", identifier)).status_code == 409
+        async with api.sessions() as db:
+            row = await db.get(WorkoutCoachMessage, UUID(result.json()["id"]))
+            assert row.request_hash == original_hash and "token" not in row.proposals
+            assert row.proposals["state"] == "failed" and row.proposals["cancelled"] is True
+            assert await db.scalar(select(func.count()).select_from(WorkoutProposal)) == 0
+        release_other.set()
+        assert (await second).status_code == 200
+        assert len(api.provider.sent) == 2
+        assert not api.coach._inflight and not api.coach._requests
+    finally:
+        release_other.set()
+        for task in (first, second):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(first, second, return_exceptions=True)
+
+
+@pytest.mark.parametrize("turn", [1, 2])
+async def test_other_worker_stop_closes_actual_provider_and_fences_tool_proposals(coach_api, monkeypatch, turn):
+    api = coach_api
+    entered, closed = asyncio.Event(), asyncio.Event()
+    api.provider.action = plan_action()
+
+    async def blocked():
+        if len(api.provider.sent) == turn:
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                closed.set()
+
+    api.provider.before_response = blocked
+    identifier = uuid4()
+    original = asyncio.create_task(send(api, request_id=identifier))
+    await asyncio.wait_for(entered.wait(), 5)
+    other_worker = coach.WorkoutCoach(api.provider, session_factory=api.sessions)
+    monkeypatch.setattr(coach_router, "workout_coach", other_worker)
+    try:
+        stopped = await stop(api, identifier)
+        assert stopped.status_code == 200 and stopped.json()["cancelled"] is True
+        response = await asyncio.wait_for(original, 5)
+        assert response.status_code == 409, response.text
+        assert closed.is_set()
+        assert (await send(api, request_id=identifier)).json() == stopped.json()
+        assert len(api.provider.sent) == turn
+        async with api.sessions() as db:
+            assert await db.scalar(select(func.count()).select_from(WorkoutProposal)) == 0
+            assert await db.scalar(select(func.count()).select_from(WorkoutsProgram)) == 0
+            assert await coach_control.message_quota_count(db, "owner") == 1
+        assert not api.coach._inflight and not api.coach._requests
+    finally:
+        if not original.done():
+            original.cancel()
+        await asyncio.gather(original, return_exceptions=True)
+
+
+async def test_completed_reply_wins_stop_race_and_keeps_reviewable_actions(coach_api):
+    api = coach_api
+    api.provider.action = plan_action()
+    identifier = uuid4()
+    completed = await send(api, request_id=identifier)
+    assert completed.status_code == 200
+    assert completed.json()["state"] == "completed" and completed.json()["actions"]
+    stopped = await stop(api, identifier)
+    assert stopped.json() == completed.json() and "cancelled" not in stopped.json()
+    assert (await send(api, request_id=identifier)).json() == completed.json()
+    assert len(api.provider.sent) == 2
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutProposal)) == 1
+        assert await db.scalar(select(func.count()).select_from(WorkoutsProgram)) == 0
+
+
+async def test_stop_remains_callable_after_ai_disabled_and_consent_revoked(coach_api, monkeypatch):
+    api = coach_api
+    entered = asyncio.Event()
+
+    async def blocked():
+        entered.set()
+        await asyncio.Event().wait()
+
+    api.provider.before_response = blocked
+    identifier = uuid4()
+    original = asyncio.create_task(send(api, request_id=identifier))
+    await asyncio.wait_for(entered.wait(), 5)
+    try:
+        await consent(api, False)
+        configured = settings(workouts_ai_enabled=False)
+        monkeypatch.setattr(coach_router, "get_settings", lambda: configured)
+        monkeypatch.setattr(coach_control, "get_settings", lambda: configured)
+        stopped = await stop(api, identifier)
+        assert stopped.status_code == 200 and stopped.json()["cancelled"] is True
+        with pytest.raises(asyncio.CancelledError):
+            await original
+        assert (await stop(api, uuid4())).status_code == 200
+        assert (await send(api, request_id=identifier)).status_code == 503
+        assert len(api.provider.sent) == 1
+    finally:
+        if not original.done():
+            original.cancel()
+        await asyncio.gather(original, return_exceptions=True)
+
+
+async def test_unknown_stop_cannot_bypass_quota_but_existing_request_can_always_stop(coach_api):
+    api = coach_api
+    identifier = uuid4()
+    async with api.sessions() as db:
+        for index in range(50):
+            db.add(WorkoutCoachMessage(
+                id=uuid4(), app_user_id="owner", generation=1,
+                request_id=identifier if index == 0 else uuid4(), request_hash="a" * 64,
+                user_message="", assistant_message="", used_health_context=False,
+                proposals={"state": "pending", "token": "reserved"} if index == 0 else {"state": "failed"},
+            ))
+        await db.commit()
+    assert (await stop(api, uuid4())).status_code == 429
+    result = await stop(api, identifier)
+    assert result.status_code == 200 and result.json()["cancelled"] is True
+    assert (await stop(api, identifier)).json() == result.json()
+    async with api.sessions() as db:
+        assert await coach_control.message_quota_count(db, "owner") == 50
+    assert not api.provider.sent

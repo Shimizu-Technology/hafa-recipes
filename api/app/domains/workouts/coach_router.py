@@ -49,6 +49,12 @@ async def send_message(request: CoachRequest, user: User, db: Database, generati
     return await workout_coach.send(db, user.id, generation, request)
 
 
+@router.post("/messages/{request_id}/cancel")
+async def cancel_message(request_id: UUID, user: User, db: Database, generation: Generation):
+    # Ordinary privacy route: stopping must work after AI disable/consent withdrawal.
+    return await workout_coach.cancel(db, user.id, generation, request_id)
+
+
 @router.get("/messages")
 async def messages(user: User, db: Database, limit: int = 50, offset: int = 0):
     membership = await membership_for(db, user.id)
@@ -61,6 +67,7 @@ async def messages(user: User, db: Database, limit: int = 50, offset: int = 0):
                 WorkoutCoachMessage.app_user_id == user.id,
                 WorkoutCoachMessage.generation == membership.generation,
                 WorkoutCoachMessage.proposals["state"].astext != "cleared",
+                WorkoutCoachMessage.proposals["hidden"].as_boolean().is_not(True),
             )
             .order_by(WorkoutCoachMessage.created_at.desc(), WorkoutCoachMessage.id.desc())
             .offset(offset)
