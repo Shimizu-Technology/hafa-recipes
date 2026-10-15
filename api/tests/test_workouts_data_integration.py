@@ -939,7 +939,8 @@ async def test_cleared_instructions_stay_cleared_in_saved_session_and_legacy_edi
 
     await enroll(data_api)
     quote = "Rest after each round."
-    original = WORKOUT | {"provenance": "source", "instructions": [quote], "notes": [quote]}
+    original = WORKOUT | {"provenance": "source", "source_url": "https://example.test/workout",
+                          "instructions": [quote], "notes": [quote]}
     original["blocks"] = [WORKOUT["blocks"][0] | {"evidence": [
         {"field": "workout_notes", "wording": quote, "location": "caption"}]}]
     created = await data_api.client.post("/api/v1/workouts/library", json=original, headers=GENERATION)
