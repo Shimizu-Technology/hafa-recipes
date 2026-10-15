@@ -1,6 +1,6 @@
 # Håfa Workouts roadmap
 
-**Owner:** Leon · **Written:** 2026-10-13 · **Updated:** 2026-10-14 · **Merged source reviewed:** `origin/main` at `2439fdc`
+**Owner:** Leon · **Written:** 2026-10-13 · **Updated:** 2026-10-15 · **Merged source reviewed:** `origin/main` at `ab64c06`
 
 This is the working plan for finishing Håfa Workouts and the shared Håfa API.
 It replaces the earlier milestone documents as the place to look for "what's
@@ -21,13 +21,27 @@ Merged changes:
 
 Agent-executed checks on integrated `cee326e` used owned iOS 18/26 simulators with Safari and stock Photos. The supplied reel saved privately with its cover, creator, six exercises and timing; Done returned to the reel. Four-image intake, saved-source retirement, source-only guards, consent refresh and cold recovery from a seeded partial operation passed. A 37 KB PDF from Safari print preview copied into the app privately and retired its temporary files; PDF AI extraction hit the existing budget cap and saved a clearly labeled incomplete draft. An oversized PDF was rejected and explicitly discarded. These results do not establish the **25-import real-phone gate or 80% usability target**; that run has not happened.
 
-[#190](https://github.com/Shimizu-Technology/hafa-recipes/pull/190) and [#195](https://github.com/Shimizu-Technology/hafa-recipes/pull/195) are merged. TestFlight **1.0.0 (11)** was built from `2439fdc`, processed successfully, and verified available to the existing internal group. The supplied spoken-instruction and description-instruction reels were checked against actual transcription and metadata. Missing sets, rounds and equipment evidence remain explicit; open-ended AMRAP workouts require a tracking prescription before training. Direct Safari PDF sharing offered a URL rather than document bytes; the verified document path used print preview.
+[#190](https://github.com/Shimizu-Technology/hafa-recipes/pull/190) and [#195](https://github.com/Shimizu-Technology/hafa-recipes/pull/195) are merged. TestFlight **1.0.0 (11)** was built from `2439fdc`, processed successfully, and verified available to the existing internal group. The supplied spoken-instruction and description-instruction reels were checked against actual transcription and metadata. Missing sets, rounds and equipment evidence remain explicit; at that release, open-ended AMRAP workouts required a tracking prescription before training. The repair work below adds source-grounded timed circuits. Direct Safari PDF sharing offered a URL rather than document bytes; the verified document path used print preview.
 
 Leon subsequently reported a native share-save error and an uneditable Add a Workout form on his iPhone. [#196](https://github.com/Shimizu-Technology/hafa-recipes/pull/196) addresses interrupted share receipts and submitted-source recovery. The native store publishes an atomic App Group journal, migrates existing receipts, and preserves unrelated interrupted stages. Submitted imports retain their original source, files and privacy choice while a separate editable composer opens. Incoming shares wait safely beside an unfinished draft.
 
 Agent-executed acceptance on `a0fc6c0` used signed Release builds on an owned iOS 26.5 simulator. Recipes and Workouts both displayed Saved for Later and returned to the same Safari reel. Repeated Workouts shares survived a malformed legacy staging record. Full links and extra instructions accepted typing and persisted. Cold restoration of a seeded incomplete import retained its exact private source and owned file; Resume opened its result, and acceptance retired only that source while preserving the newer composer. A deferred native share resumed after the current draft was cleared, and only its own receipt was acknowledged. These recovery fixtures made no paid AI calls. Repository checks passed: API 2,035, Recipes 831, Workouts 690 and admin 14 tests; 25 optional API cases and one existing Workouts case were skipped. Both Expo Doctor runs passed 21 checks.
 
-**Build 12 is pending final review, merge, manual EAS build, submission and Apple availability verification.** Actual Instagram/TikTok/YouTube app sharing on a physical phone remains unverified because no iPhone was reachable. The 25-import real-phone gate and 80% usability target remain open.
+Apple inventory verified on 2026-10-15 showed **1.0.0 (12)** valid and available to the existing internal group; its exact source was not re-established during this repair. The repair release below supersedes that baseline. Actual Instagram/TikTok/YouTube app sharing on a physical phone remains unverified because no iPhone was reachable. The 25-import real-phone gate and 80% usability target remain open.
+
+## Workout repair acceptance (2026-10-15)
+
+Merged [#197](https://github.com/Shimizu-Technology/hafa-recipes/pull/197)–[#206](https://github.com/Shimizu-Technology/hafa-recipes/pull/206) address saved editing, import recovery and progress, caption-first extraction, current Expo patches, typed AMRAP time caps, repeated-round tracking, automatic offline sync, missed-date recovery and plan archive/restore. Caption and transcript evidence goes through the shared source acquisition and AI extraction flow; richer acquisition is used when that evidence is insufficient. Failed extraction does not silently become a ready workout with zero exercises.
+
+Agent-executed acceptance used a local API/database, the configured development AI provider, a mobile browser and an owned iOS 18.5 simulator. A normal **URL-only import of Leon's supplied reel** produced a private workout with all **nine exercises**, a **20-minute AMRAP**, one kettlebell, source credit/instructions, and **five reps each side** for Rows and Press. Its saved native detail, training start and synced partial result passed. This was an actual provider call, not a seeded extraction result.
+
+A separate manually authored nine-exercise fixture verified one full round and advancement to a second round, background pause, paused recovery after termination, and a real foreground countdown to **0:00**. Finish saved exactly **1,200 active seconds** and all 11 bilateral/per-side entries. Changing the source cap to 75 seconds and back preserved the exercises and previous session snapshots. Offline partial-save, automatic foreground sync and immutable corrections passed. Plan recovery, valid-date guidance, archive/restore and the final editor/presentation integration also passed browser/native acceptance. The plan retained its three dated 20-minute prescriptions, while the recorded partial session stayed fixed. A later additional native cold-start recheck was blocked by CoreSimulator service timeouts, including Safari launch and installation calls; the previously tested mobile implementation is byte-identical. The subsequent API export-cache invalidation fix passed real PostgreSQL regression checks.
+
+The complete repository gate passed on `4ef1c84`: API 2,248 passed/41 existing skips, Recipes 831, Workouts 811 passed/one existing skip, and Admin 14. Both Expo Doctors passed 21/21; types, audits, builds, all-platform exports and native bundle checks passed. Its entire committed Git tree matches merged `ab64c06`.
+
+**TestFlight 1.0.0 (13) is verified available** in the existing **Leon** internal group with its same one tester. It was built from clean merged `ab64c06`, submitted through EAS submission `89b41bee-adbf-44a7-9102-b694d29d2428`, and independently verified in Apple inventory on 2026-10-15 as valid, unexpired and `IN_BETA_TESTING`. The app and share extension both identify as build 13, have valid store signatures and retain the expected Workouts identities/groups. The packaged production API and live sign-in configuration passed independent verification; development keys and QA API addresses are absent. The IPA, source archive and crash symbols are retained privately. At release verification, the deployed API reported `ab64c066a4df`; API liveness, public Recipes health and all five main CI jobs passed.
+
+These checks do not establish the **25-import physical-phone gate, 80% usability target, Android acceptance, or two weeks of tester use**. Build 13 has not been installed on Leon's physical phone by the agent.
 
 ## The goal
 
@@ -63,11 +77,11 @@ Baseline checked on `d43ef6d`; the capture-parity summary above records subseque
 - **Extraction.** It reuses the Recipes video pipeline in `api/app/domains/workouts/extraction.py`: audio transcription, sampled frames, captions and TikTok photo posts. It extracts exercises, equipment, sets, reps and rest, and flags missing details.
 - **Library, plans, guided training, progress and AI coach.** These are the tabs Today / Library / Plan / Progress, plus `coach.tsx`.
 - **Shared Håfa account.** Recipes and Workouts data are kept separate, with opt-in connections.
-- **Delivery.** TestFlight 1.0.0 (11) is verified available in Leon's existing internal group. The API is live on the shared Render service, limited to named testers (`WORKOUTS_TESTER_USER_IDS`).
+- **Delivery.** TestFlight 1.0.0 (13), built from `ab64c06`, is verified available in Leon's existing internal group. The API is live on the shared Render service, limited to named testers (`WORKOUTS_TESTER_USER_IDS`).
 
 ## Next acceptance for capture parity
 
-1. Finish #196 review and merge, then deliver and verify TestFlight build 12 from the exact merged source. Repeat PDF extraction when a suitable QA budget is available.
+1. Verify build 13 on a physical iPhone, including sharing directly from the social apps. Repeat PDF extraction when a suitable QA budget is available.
 2. Run the real-phone import gate in Phase 2 and assess usable workouts and lost-source/session recovery.
 3. Continue the two-week use in Phase 4, using tester feedback to fix the remaining friction.
 
