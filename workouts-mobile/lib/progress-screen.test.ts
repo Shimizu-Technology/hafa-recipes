@@ -197,7 +197,7 @@ it.each(["owner", "generation", "id"] as const)("a held recovery cannot keep the
     .find(node => /Save private workout and result|Continue saving recovered result/.test(node.props.title))!;
   const oldPress = save().props.onPress;
   await act(async () => oldPress()); await settle(); expect(save().props.busy).toBe(true);
-  const oldCurrent = (fixture.store.recoverResult.mock.calls[0] as unknown[])[5] as () => boolean;
+  const oldCurrent = (fixture.store.recoverResult.mock.calls[0] as unknown[])[4] as () => boolean;
   if (change === "owner") fixture.owner = "next-owner";
   if (change === "generation") fixture.generation = 2;
   if (change === "id") fixture.params = { id: "client-B" };
