@@ -60,14 +60,18 @@ export function useNetworkStatus() {
   const isMountedRef = useRef(true);
   const consecutiveFailuresRef = useRef(0);
   const activeChecks = useRef(new Set<() => void>());
+  const checkEpoch = useRef(0);
 
   // Check API health and update state (with debouncing for failures)
   const performHealthCheck = useCallback(async (explicitRetry = false) => {
     if (!isMountedRef.current) return false;
+    const epoch = ++checkEpoch.current;
     
     const isReachable = await checkApiHealth(activeChecks.current);
     
-    if (!isMountedRef.current) return false;
+    // A reconnect or newer probe owns the visible connection state. An older
+    // retry still resolves its real result without overwriting that state.
+    if (!isMountedRef.current || epoch !== checkEpoch.current) return isReachable;
     
     if (isReachable) {
       // Success - reset failure count and mark as reachable
@@ -149,6 +153,7 @@ export function useNetworkStatus() {
         consecutiveFailuresRef.current = 0;
         startHealthChecks();
       } else if (state.isConnected === false) {
+        checkEpoch.current += 1;
         // Network gone - stop checking and mark API as unreachable
         stopHealthChecks();
         consecutiveFailuresRef.current = CONSECUTIVE_FAILURES_BEFORE_OFFLINE; // Ensure we show offline
@@ -161,6 +166,7 @@ export function useNetworkStatus() {
 
     return () => {
       isMountedRef.current = false;
+      checkEpoch.current += 1;
       unsubscribe();
       stopHealthChecks();
       for (const cancel of activeChecks.current) cancel();

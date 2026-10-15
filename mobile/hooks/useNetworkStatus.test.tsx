@@ -22,6 +22,26 @@ it('clears failed health-check timeouts and stops monitoring on unmount', async 
   await act(async () => { expect(await status.recheckApiHealth()).toBe(false); }); expect(vi.getTimerCount()).toBe(1);
   await act(async () => view!.unmount()); view = undefined; expect(f.unsubscribe).toHaveBeenCalledTimes(1); expect(vi.getTimerCount()).toBe(0);
 });
+it('keeps a newer reconnect success when an older explicit retry later fails', async () => {
+  await act(async () => { view = create(<Probe />); }); await flush();
+  let resolve!: (value: { ok: boolean }) => void;
+  f.fetch.mockReturnValueOnce(new Promise(done => { resolve = done; }));
+  const olderRetry = status.recheckApiHealth(); await flush();
+  await act(async () => f.listener!({ isConnected: false, isInternetReachable: false, type: 'none' }));
+  await act(async () => f.listener!({ isConnected: true, isInternetReachable: true, type: 'wifi' }));
+  await flush(); expect(status.isOnline).toBe(true);
+  await act(async () => { resolve({ ok: false }); expect(await olderRetry).toBe(false); });
+  expect(status.isApiReachable).toBe(true); expect(status.isOnline).toBe(true);
+});
+it('does not let a pending successful probe override a definite disconnect', async () => {
+  await act(async () => { view = create(<Probe />); }); await flush();
+  let resolve!: (value: { ok: boolean }) => void;
+  f.fetch.mockReturnValueOnce(new Promise(done => { resolve = done; }));
+  const pending = status.recheckApiHealth(); await flush();
+  await act(async () => f.listener!({ isConnected: false, isInternetReachable: false, type: 'none' }));
+  await act(async () => { resolve({ ok: true }); expect(await pending).toBe(true); });
+  expect(status.isApiReachable).toBe(false); expect(status.isOnline).toBe(false);
+});
 it('does not turn an unknown network event into a confirmed outage', async () => {
   await act(async () => { view = create(<Probe />); }); await flush();
   await act(async () => f.listener!({ isConnected: null, isInternetReachable: null, type: 'unknown' }));
