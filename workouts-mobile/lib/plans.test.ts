@@ -1,7 +1,24 @@
 import { it, expect, vi } from "vitest";
-import { sourceChoiceErrors, sourceDayErrors } from "./plans";
-import { createWorkoutsApi } from "./api";
+import { programMoveError, sourceChoiceErrors, sourceDayErrors } from "./plans";
+import { ApiError, createWorkoutsApi } from "./api";
 import type { Workout } from "./models";
+it("explains date conflicts without exposing unrecognized server details or hiding revision conflicts", () => {
+  const fallback = "Refresh the saved program.";
+  expect(programMoveError(new ApiError(fallback, 409, false, "Keep session spacing and avoid stacking training")))
+    .toBe("Choose a date with a recovery day between demanding sessions.");
+  expect(programMoveError(new ApiError(fallback, 409, false, "Training availability or another activity conflicts with this date")))
+    .toContain("available training days");
+  expect(programMoveError(new ApiError(fallback, 409, false, "Keep recovery around declared game days")))
+    .toContain("game days");
+  expect(programMoveError(new ApiError(fallback, 409, false, "Another plan already has a session on this date")))
+    .toContain("Another plan");
+  expect(programMoveError(new ApiError(fallback, 409, false, "Confirm readiness before applying a training change")))
+    .toContain("current readiness");
+  for (const detail of ["Program changed; refresh before saving", "private server diagnostics"]) {
+    expect(programMoveError(new ApiError(fallback, 409, false, detail))).toBe(fallback);
+  }
+  expect(programMoveError(new ApiError(fallback, 503, false, "Keep session spacing and avoid stacking training"))).toBe(fallback);
+});
 const source = {
   id: "source",
   generation: 2,

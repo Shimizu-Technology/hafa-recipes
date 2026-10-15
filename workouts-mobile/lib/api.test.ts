@@ -1,6 +1,19 @@
 import { describe, it, expect, vi } from "vitest";
 import { createWorkoutsApi } from "./api";
 describe("authenticated API boundary", () => {
+  it("archives using the frozen owner/generation/revision and retains paused history in the response", async () => {
+    const row = { id: "plan", revision: 4, generation: 7, content: { title: "Saved plan", proposal: { sessions: [] },
+      schedule_state: { status: "paused", archived_at: "2026-10-10", archive_previous_status: "paused", paused_sessions: [{ id: "queued" }] } } };
+    const transport = vi.fn().mockResolvedValue(new Response(JSON.stringify(row)));
+    const api = createWorkoutsApi("https://example.test", async () => "synthetic", transport, {
+      owner: "owner", binding: "binding", currentBinding: () => "binding",
+    });
+    const saved = await api.archiveProgram({ id: "plan", revision: 3, generation: 7 } as never, true);
+    expect(transport.mock.calls[0][0]).toBe("https://example.test/api/v1/workouts/programs/plan/archive?expected_revision=3");
+    expect(JSON.parse(transport.mock.calls[0][1].body)).toEqual({ archived: true });
+    expect(transport.mock.calls[0][1].headers).toMatchObject({ "X-Hafa-Account-ID": "owner", "X-Workouts-Generation": "7" });
+    expect(saved.schedule_state).toEqual(row.content.schedule_state);
+  });
   it("sends a frozen server-save policy only when the caller selected the supported contract", async () => {
     const transport = vi.fn().mockResolvedValue(new Response("{}", { status: 202 }));
     const api = createWorkoutsApi("https://example.test", async () => "synthetic", transport);

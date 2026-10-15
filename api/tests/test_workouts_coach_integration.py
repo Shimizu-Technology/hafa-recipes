@@ -844,3 +844,241 @@ async def test_oversized_focused_workout_reports_missing_context_instead_of_sile
         assert error.value.status_code == 409
         assert "selected training context is too large" in error.value.detail
     assert api.provider.sent == []
+
+
+@pytest.mark.parametrize("path", ["direct", "coach"])
+async def test_unused_missed_move_to_today_preserves_snapshot_state_and_versions(coach_api, path):
+    api = coach_api
+    api.provider.action = plan_action()
+    accepted, _ = await action(api)
+    identifier = accepted.json()["record_id"]
+    async with api.sessions() as db:
+        program = await db.get(WorkoutsProgram, UUID(identifier))
+        stored_profile = await db.get(WorkoutsProfile, "owner")
+        stored_profile.content = stored_profile.content | {"available_days": list(range(7)), "timezone": "UTC"}
+        content = json.loads(json.dumps(program.content))
+        session = content["proposal"]["sessions"][0]
+        session["date"] = (now() - timedelta(days=7)).date().isoformat()
+        content["schedule_state"] = {"status": "active", "paused_at": "2026-01-01T00:00:00+00:00"}
+        program.content = content
+        await db.commit()
+    original = json.loads(json.dumps(content))
+    target = now().date().isoformat()
+    if path == "direct":
+        changed = json.loads(json.dumps(content))
+        changed["proposal"]["sessions"][0]["date"] = target
+        response = await api.client.put(
+            f"/api/v1/workouts/programs/{identifier}?expected_revision=1",
+            headers=GENERATION, json={"title": content["title"], "proposal": changed["proposal"]},
+        )
+        proposal_id = None
+    else:
+        api.provider.action = ("edit_future_schedule", {
+            "program_id": identifier, "expected_revision": 1, "session_id": session["id"],
+            "operation": "move", "target_date": target,
+        })
+        response, proposal_id = await action(api)
+    assert response.status_code == 200, response.text
+    saved = (await api.client.get(f"/api/v1/workouts/programs/{identifier}")).json()
+    assert saved["revision"] == 2
+    selected = next(item for item in saved["content"]["proposal"]["sessions"] if item["id"] == session["id"])
+    assert selected == session | {"date": target}
+    assert saved["content"]["schedule_state"] == original["schedule_state"]
+    versions = (await api.client.get(f"/api/v1/workouts/programs/{identifier}/versions")).json()
+    assert [item["revision"] for item in versions] == [2, 1]
+    if proposal_id:
+        undone, _ = await action(api, "undo", proposal_id)
+        assert undone.status_code == 200, undone.text
+        restored = (await api.client.get(f"/api/v1/workouts/programs/{identifier}")).json()
+        assert restored["revision"] == 3 and restored["content"] == original
+
+
+@pytest.mark.parametrize("status,actuals", [("partial", []), ("completed", [])])
+async def test_direct_program_edit_cannot_move_or_rewrite_any_recorded_prescription(coach_api, status, actuals):
+    api = coach_api
+    api.provider.action = plan_action()
+    accepted, _ = await action(api)
+    identifier = accepted.json()["record_id"]
+    saved = (await api.client.get(f"/api/v1/workouts/programs/{identifier}")).json()
+    content = saved["content"]
+    session = content["proposal"]["sessions"][0]
+    recording = await api.client.post("/api/v1/workouts/sessions", headers=GENERATION, json={
+        "client_session_id": str(uuid4()), "program_id": identifier, "program_revision": 1,
+        "program_session_id": session["id"], "started_at": now().isoformat(),
+        "finished_at": now().isoformat(), "status": status, "actuals": actuals,
+    })
+    assert recording.status_code == 201, recording.text
+    for edit in ("date", "workout"):
+        changed = json.loads(json.dumps(content))
+        if edit == "date":
+            changed["proposal"]["sessions"][0]["date"] = (now() + timedelta(days=60)).date().isoformat()
+        else:
+            changed["proposal"]["sessions"][0]["workout"]["title"] = "Changed prescription"
+        response = await api.client.put(
+            f"/api/v1/workouts/programs/{identifier}?expected_revision=1", headers=GENERATION,
+            json={"title": content["title"], "proposal": changed["proposal"]},
+        )
+        assert response.status_code == 409 and "Recorded" in response.json()["detail"], response.text
+    unchanged = (await api.client.get(f"/api/v1/workouts/programs/{identifier}")).json()
+    assert unchanged["revision"] == 1 and unchanged["content"] == content
+
+
+async def test_move_conflicts_are_shared_owner_scoped_and_rechecked_at_acceptance(coach_api):
+    api = coach_api
+    api.provider.action = plan_action()
+    accepted, _ = await action(api)
+    identifier = accepted.json()["record_id"]
+    saved = (await api.client.get(f"/api/v1/workouts/programs/{identifier}")).json()
+    content = saved["content"]
+    session = content["proposal"]["sessions"][0]
+    target = now().date() + timedelta(days=60)
+    target += timedelta(days=(-target.weekday()) % 7)
+    changed = json.loads(json.dumps(content))
+    changed["proposal"]["sessions"][0]["date"] = target.isoformat()
+    arguments = {"program_id": identifier, "expected_revision": 1, "session_id": session["id"],
+                 "operation": "move", "target_date": target.isoformat()}
+    conflict = json.loads(json.dumps(content))
+    conflict["proposal"]["sessions"] = [session | {"date": target.isoformat()}]
+    # Another owner's date and an earlier enrollment's date are never constraints.
+    async with api.sessions() as db:
+        db.add_all([
+            WorkoutsProgram(id=uuid4(), app_user_id="other", generation=1, revision=1, content=conflict),
+            WorkoutsProgram(id=uuid4(), app_user_id="owner", generation=2, revision=1, content=conflict),
+        ])
+        await db.commit()
+        await prepare_action(db, "owner", 1, "edit_future_schedule", arguments)
+    api.provider.action = "edit_future_schedule", arguments
+    prepared = await send(api)
+    assert prepared.status_code == 200 and prepared.json()["actions"], prepared.text
+    proposal_id = prepared.json()["actions"][0]["proposal_id"]
+    async with api.sessions() as db:
+        db.add(WorkoutsProgram(id=uuid4(), app_user_id="owner", generation=1, revision=1, content=conflict))
+        await db.commit()
+        with pytest.raises(HTTPException) as error:
+            await prepare_action(db, "owner", 1, "edit_future_schedule", arguments)
+        assert "Another plan" in error.value.detail
+    direct = await api.client.put(
+        f"/api/v1/workouts/programs/{identifier}?expected_revision=1", headers=GENERATION,
+        json={"title": content["title"], "proposal": changed["proposal"]},
+    )
+    assert direct.status_code == 409 and "Another plan" in direct.json()["detail"], direct.text
+    accepted, _ = await action(api, proposal_id=proposal_id)
+    assert accepted.status_code == 409 and "Another plan" in accepted.json()["detail"], accepted.text
+    current = (await api.client.get(f"/api/v1/workouts/programs/{identifier}")).json()
+    assert current["revision"] == 1 and current["content"] == content
+
+
+@pytest.mark.parametrize("paused", [False, True])
+async def test_plan_archive_round_trip_preserves_versions_and_blocks_legacy_activation(coach_api, paused):
+    api = coach_api
+    api.provider.action = plan_action()
+    accepted, _ = await action(api)
+    identifier = accepted.json()["record_id"]
+    async with api.sessions() as db:
+        program = await db.get(WorkoutsProgram, UUID(identifier))
+        content = json.loads(json.dumps(program.content))
+        if paused:
+            queued = content["proposal"]["sessions"][1:]
+            content["proposal"]["sessions"] = content["proposal"]["sessions"][:1]
+            content["schedule_state"] = {"status": "paused", "paused_sessions": queued,
+                                         "paused_at": now().isoformat()}
+            program.content = content
+            await db.commit()
+    path = f"/api/v1/workouts/programs/{identifier}/archive"
+    archived = await api.client.put(path + "?expected_revision=1", headers=GENERATION, json={"archived": True})
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["revision"] == 2
+    assert archived.json()["content"]["proposal"] == content["proposal"]
+    assert archived.json()["content"]["schedule_state"]["status"] == "paused"
+    legacy = await api.client.put(f"/api/v1/workouts/programs/{identifier}?expected_revision=2",
+                                 headers=GENERATION, json={"title": content["title"], "proposal": content["proposal"]})
+    assert legacy.status_code == 409 and "Restore" in legacy.json()["detail"], legacy.text
+    arguments = {"program_id": identifier, "expected_revision": 2, "operation": "return",
+                 "shift_days": None, "start_date": (now() + timedelta(days=60)).date().isoformat()}
+    async with api.sessions() as db:
+        accepted_consent = await coach.require_ai_consent(db, "owner", 1)
+        context, _ = await coach.build_context(db, "owner", 1, accepted_consent)
+        assert context["programs"][0]["content"]["schedule_state"]["archived"] is True
+        with pytest.raises(HTTPException) as error:
+            await prepare_action(db, "owner", 1, "adjust_program_calendar", arguments)
+        assert "Restore" in error.value.detail
+        with pytest.raises(HTTPException) as error:
+            await prepare_action(db, "owner", 1, "edit_future_schedule", {
+                "program_id": identifier, "expected_revision": 2,
+                "session_id": content["proposal"]["sessions"][0]["id"],
+                "operation": "skip", "target_date": None,
+            })
+        assert "Restore" in error.value.detail
+    review = await api.client.post(f"/api/v1/workouts/programs/{identifier}/review-proposal",
+                                  headers=GENERATION, json={"program_revision": 2, "profile_revision": 1})
+    assert review.status_code == 409 and "Restore" in review.json()["detail"], review.text
+    # The exact same archive request is a no-op when its current revision is supplied.
+    repeated = await api.client.put(path + "?expected_revision=2", headers=GENERATION, json={"archived": True})
+    assert repeated.status_code == 200 and repeated.json()["revision"] == 2
+    stale = await api.client.put(path + "?expected_revision=1", headers=GENERATION, json={"archived": False})
+    assert stale.status_code == 409
+    await enroll(api, other=True)
+    foreign = await api.client.put(path + "?expected_revision=2", headers=GENERATION | {"X-Test-User": "other"}, json={"archived": False})
+    assert foreign.status_code in (403, 404)
+    wrong_generation = await api.client.put(path + "?expected_revision=2", headers={"X-Workouts-Generation": "2"}, json={"archived": False})
+    assert wrong_generation.status_code == 409
+    restored = await api.client.put(path + "?expected_revision=2", headers=GENERATION, json={"archived": False})
+    assert restored.status_code == 200 and restored.json()["revision"] == 3
+    assert restored.json()["content"] == content
+    versions = (await api.client.get(f"/api/v1/workouts/programs/{identifier}/versions")).json()
+    assert [item["revision"] for item in versions] == [3, 2, 1]
+    assert versions[1]["content"]["schedule_state"]["archived_at"]
+
+
+async def test_recorded_training_remains_readable_after_plan_archive(coach_api):
+    api = coach_api
+    api.provider.action = plan_action()
+    accepted, _ = await action(api)
+    identifier = accepted.json()["record_id"]
+    saved = (await api.client.get(f"/api/v1/workouts/programs/{identifier}")).json()
+    session = saved["content"]["proposal"]["sessions"][0]
+    recording = await api.client.post("/api/v1/workouts/sessions", headers=GENERATION, json={
+        "client_session_id": str(uuid4()), "program_id": identifier, "program_revision": 1,
+        "program_session_id": session["id"], "started_at": now().isoformat(),
+        "finished_at": now().isoformat(), "status": "partial", "actuals": [],
+    })
+    assert recording.status_code == 201, recording.text
+    before = recording.json()
+    archived = await api.client.put(f"/api/v1/workouts/programs/{identifier}/archive?expected_revision=1",
+                                   headers=GENERATION, json={"archived": True})
+    assert archived.status_code == 200, archived.text
+    reread = await api.client.get(f"/api/v1/workouts/sessions/{before['id']}")
+    assert reread.json() == before
+
+
+async def test_pending_coach_and_copy_acceptance_cannot_reactivate_an_archived_plan(coach_api):
+    api = coach_api
+    api.provider.action = plan_action()
+    accepted, _ = await action(api)
+    identifier = accepted.json()["record_id"]
+    content = (await api.client.get(f"/api/v1/workouts/programs/{identifier}")).json()["content"]
+    session = content["proposal"]["sessions"][0]
+    api.provider.action = "edit_future_schedule", {
+        "program_id": identifier, "expected_revision": 1, "session_id": session["id"],
+        "operation": "skip", "target_date": None,
+    }
+    prepared = await send(api)
+    assert prepared.status_code == 200 and prepared.json()["actions"], prepared.text
+    coach_proposal_id = prepared.json()["actions"][0]["proposal_id"]
+    async with api.sessions() as db:
+        pending_copy = await automation_router.persist_proposal(
+            db, "owner", 1, "program", 1, content["proposal"],
+            target_id=UUID(identifier), target_revision=1,
+        )
+        copy_proposal_id = pending_copy.id
+        await db.commit()
+    archived = await api.client.put(f"/api/v1/workouts/programs/{identifier}/archive?expected_revision=1",
+                                   headers=GENERATION, json={"archived": True})
+    assert archived.status_code == 200, archived.text
+    coached, _ = await action(api, proposal_id=coach_proposal_id)
+    assert coached.status_code == 409 and "Restore" in coached.json()["detail"], coached.text
+    copied = await api.client.post(f"/api/v1/workouts/program-proposals/{copy_proposal_id}/accept",
+                                  headers=GENERATION, json={"title": "Changed title"})
+    assert copied.status_code == 409 and "Restore" in copied.json()["detail"], copied.text
+    current = (await api.client.get(f"/api/v1/workouts/programs/{identifier}")).json()
+    assert current == archived.json()

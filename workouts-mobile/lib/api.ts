@@ -994,6 +994,14 @@ export function createWorkoutsApi(
         ).data
       );
     },
+    async archiveProgram(program: Program, archived: boolean) {
+      return programRecord((await request<RecordEnvelope<{
+        title: string;
+        proposal: Omit<Program, "id" | "title" | "revision" | "generation" | "schedule_state">;
+        schedule_state?: Program["schedule_state"];
+      }>>(`/programs/${encodeURIComponent(program.id)}/archive?expected_revision=${program.revision}`,
+        "PUT", { archived }, { generation: program.generation })).data);
+    },
     async updateProgram(program: Program) {
       const { id, title, revision: rev, generation, schedule_state: _schedule, ...proposal } = program;
       return programRecord(

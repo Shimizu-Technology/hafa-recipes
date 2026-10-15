@@ -28,6 +28,7 @@ from app.domains.workouts.models import (
     WorkoutsSession,
     WorkoutVersion,
 )
+from app.domains.workouts.plan_archival import require_unarchived
 from app.domains.workouts.programming import adapt_workout
 from app.domains.workouts.router import (
     Database,
@@ -682,6 +683,7 @@ async def review_program_copy(
 
     await membership_for(db, user.id, generation=generation, write=True)
     source = await owned_record(db, WorkoutsProgram, program_id, user.id, generation)
+    require_unarchived(source.content)
     if source.revision != request.program_revision:
         raise HTTPException(409, "Program changed; review its current version")
     receipt = await db.scalar(
@@ -760,6 +762,7 @@ async def accept_program(
     saved = None
     if row.target_id:
         saved = await owned_record(db, WorkoutsProgram, row.target_id, user.id, generation)
+        require_unarchived(saved.content)
         if saved.revision != row.target_revision:
             raise HTTPException(409, "The copied program changed; prepare a fresh review")
     identifier = saved.id if saved else uuid4()

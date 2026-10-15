@@ -1,6 +1,6 @@
 import { programSessionStates, programSessionKey } from "@/lib/program-session-identity";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { router } from "expo-router";
 import * as Crypto from "expo-crypto";
 import {
@@ -29,6 +29,7 @@ import { dateInTimezone } from "@/lib/training";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import type { Program, ScheduledSession } from "@/lib/models";
+import { programMoveError } from "@/lib/plans";
 function DateBadge({ date, done }: { date: string; done: boolean }) {
   const c = useColors();
   const at = new Date(`${date}T12:00:00Z`);
@@ -53,12 +54,15 @@ function DateBadge({ date, done }: { date: string; done: boolean }) {
   );
 }
 export default function Plan() {
-  const { api, owner, enrollment } = useTraining();
+  const { api, owner, enrollment, isCurrentAccount, storage } = useTraining();
   const offline = useOfflineTraining();
   const cache = useQueryClient();
   const [error, setError] = useState("");
   const [menu, setMenu] = useState<Program | null>(null);
   const [busy, setBusy] = useState(false);
+  const moving = useRef(false);
+  const archiving = useRef(false);
+  const [view, setView] = useState<"active" | "archived">("active");
   const [editing, setEditing] = useState<string | null>(null);
   const [date, setDate] = useState("");
   const [inspecting, setInspecting] = useState<string | null>(null);
@@ -71,6 +75,36 @@ export default function Plan() {
     queryFn: api.programs,
     enabled: !!enrollment?.enrolled,
   });
+  const shownPrograms = q.data?.filter((p) => !!p.schedule_state?.archived_at === (view === "archived"));
+  async function archive(p: Program, archived: boolean) {
+    if (busy || archiving.current || moving.current || !isCurrentAccount() || !storage.isCurrent()) return;
+    archiving.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const saved = await api.archiveProgram(p, archived);
+      if (!isCurrentAccount() || !storage.isCurrent()) return;
+      cache.setQueryData<Program[]>([owner, "programs", enrollment?.generation], (old) =>
+        old?.map((item) => item.id === p.id && item.revision <= saved.revision ? saved : item));
+      await cache.invalidateQueries({ queryKey: [owner, "programs", enrollment?.generation] });
+      if (!isCurrentAccount() || !storage.isCurrent()) return;
+      setMenu(null);
+      setEditing(null);
+      const latest = cache.getQueryData<Program[]>([owner, "programs", enrollment?.generation])?.find((item) => item.id === p.id) ?? saved;
+      setView(latest.schedule_state?.archived_at ? "archived" : "active");
+    } catch (e) {
+      if (isCurrentAccount() && storage.isCurrent()) {
+        setError((e as Error).message);
+        if ((e as { status?: number }).status === 409) {
+          setMenu(null);
+          void cache.invalidateQueries({ queryKey: [owner, "programs", enrollment?.generation] });
+        }
+      }
+    } finally {
+      archiving.current = false;
+      if (isCurrentAccount() && storage.isCurrent()) setBusy(false);
+    }
+  }
   async function start(p: Program, s: ScheduledSession) {
     if (!offline.store || !offline.ready || p.schedule_state?.status === "paused") return;
     setBusy(true);
@@ -89,6 +123,11 @@ export default function Plan() {
     }
   }
   async function move(p: Program, s: ScheduledSession) {
+    if (busy || moving.current || archiving.current || !isCurrentAccount() || !storage.isCurrent()) return;
+    if (statuses.has(programSessionKey(p.id, s.id)!)) {
+      setError("Recorded sessions keep their original date. Start a separate session to train again.");
+      return;
+    }
     if (!isISODate(date) || date < today) {
       setError("Choose today or a future date in YYYY-MM-DD format.");
       return;
@@ -98,6 +137,7 @@ export default function Plan() {
       setError("That day already has a planned session. Choose another day to preserve recovery.");
       return;
     }
+    moving.current = true;
     setBusy(true);
     setError("");
     try {
@@ -105,14 +145,16 @@ export default function Plan() {
         ...p,
         sessions: p.sessions.map((item) => (item.id === s.id ? { ...item, date } : item)),
       });
+      if (!isCurrentAccount() || !storage.isCurrent()) return;
       cache.setQueryData<Program[]>([owner, "programs", enrollment?.generation], (old) =>
-        old?.map((item) => (item.id === p.id ? saved : item))
+        old?.map((item) => (item.id === p.id && item.revision <= saved.revision ? saved : item))
       );
       setEditing(null);
     } catch (e) {
-      setError((e as Error).message);
+      if (isCurrentAccount() && storage.isCurrent()) setError(programMoveError(e));
     } finally {
-      setBusy(false);
+      moving.current = false;
+      if (isCurrentAccount() && storage.isCurrent()) setBusy(false);
     }
   }
   return (
@@ -151,11 +193,16 @@ export default function Plan() {
             void profile.refetch();
           }}
         >
-          {!q.data?.length ? (
+          <Row gap={10}>
+            <Button title="Active plans" inline size="sm" secondary={view !== "active"} onPress={() => setView("active")} />
+            <Button title="Archived plans" inline size="sm" secondary={view !== "archived"} onPress={() => setView("archived")} />
+          </Row>
+          {!shownPrograms?.length ? (
             <Empty
               icon="calendar-outline"
-              title="Give your plan a foundation"
-              description="Review your goal, equipment and available days, then build a program that fits your week."
+              title={view === "archived" ? "No archived plans" : "Give your plan a foundation"}
+              description={view === "archived" ? "Plans you archive stay here with their original instructions and history." :
+                "Review your goal, equipment and available days, then build a program that fits your week."}
               action={
                 <>
                   <Button title="Build a training program" icon="add" onPress={() => router.push("/build-plan")} />
@@ -164,23 +211,30 @@ export default function Plan() {
               }
             />
           ) : (
-            q.data.map((p) => (
+            shownPrograms.map((p) => (
               <Card key={p.id}>
                 <Row gap={12} align="flex-start">
                   <Grow>
                     <Copy kind="heading">{p.title}</Copy>
                     <Copy kind="small" tone="muted">
-                      {p.sessions.length} {p.sessions.length === 1 ? "session" : "sessions"} planned
+                      {p.sessions.length + (p.schedule_state?.paused_sessions?.length ?? 0)} sessions saved
                     </Copy>
                   </Grow>
-                  {p.schedule_state?.status === "paused" ? (
+                  {p.schedule_state?.archived_at ? (
+                    <Chip label="Archived" tone="accent" />
+                  ) : p.schedule_state?.status === "paused" ? (
                     <Chip label="Paused" tone="accent" />
                   ) : p.status !== "ready" ? (
                     <Chip label="Needs review" tone="accent" />
                   ) : null}
                   <IconButton icon="ellipsis-horizontal" label={`More actions for ${p.title}`} size={40} onPress={() => setMenu(p)} />
                 </Row>
-                {p.schedule_state?.status === "paused" && (
+                {p.schedule_state?.archived_at && <>
+                  <Notice>Archived. Workout instructions and recorded training stay saved. Restoring keeps the original dates;
+                    a previously paused plan still needs a return review.</Notice>
+                  <Button title="Restore plan" secondary busy={busy} onPress={() => void archive(p, false)} />
+                </>}
+                {p.schedule_state?.status === "paused" && !p.schedule_state.archived_at && (
                   <>
                     <Notice>
                       This plan is paused. Its future queue remains saved in order and needs a fresh return review
@@ -193,18 +247,19 @@ export default function Plan() {
                         router.push({ pathname: "/coach", params: { program_id: p.id, revision: String(p.revision) } })
                       }
                     />
-                    {p.schedule_state.paused_sessions?.map((s, index) => (
-                      <Card key={`paused:${s.id}`} tone="sunken" compact>
-                        <Copy kind="small" tone="muted">
-                          Paused · original order {index + 1} · {s.date}
-                        </Copy>
-                        <Copy kind="subheading">{s.workout.title}</Copy>
-                        <Copy kind="small">{s.purpose}</Copy>
-                      </Card>
-                    ))}
                   </>
                 )}
-                {p.status !== "ready" && (
+                {p.schedule_state?.paused_sessions?.map((s, index) => (
+                  <Card key={`paused:${s.id}`} tone="sunken" compact>
+                    <Copy kind="small" tone="muted">Saved queue · original order {index + 1} · {s.date}</Copy>
+                    <Copy kind="subheading">{s.workout.title}</Copy>
+                    <Copy kind="small">{s.purpose}</Copy>
+                    <Button title={inspecting === `queued:${p.id}:${s.id}` ? "Hide queued instructions" : "Inspect queued instructions"}
+                      secondary size="sm" inline onPress={() => setInspecting(inspecting === `queued:${p.id}:${s.id}` ? null : `queued:${p.id}:${s.id}`)} />
+                    {inspecting === `queued:${p.id}:${s.id}` && <PrescriptionPreview workout={s.workout} />}
+                  </Card>
+                ))}
+                {p.status !== "ready" && !p.schedule_state?.archived_at && (
                   <>
                     <Notice tone="warning">
                       {p.questions.join(" ") || p.warnings.join(" ") || "Review this plan before training."}
@@ -220,7 +275,7 @@ export default function Plan() {
                   const key = programSessionKey(p.id, s.id);
                   const status = statuses.get(key!);
                   const done = status === "completed";
-                  const missed = s.date < today && !done && p.schedule_state?.status !== "paused";
+                  const missed = s.date < today && !status && p.schedule_state?.status !== "paused";
                   return (
                     <View key={s.id} style={{ gap: 10 }}>
                       <Row gap={14} align="flex-start">
@@ -240,7 +295,7 @@ export default function Plan() {
                         </Copy>
                       )}
                       {status === "partial" && <Notice>Partially recorded. Your saved sets stay in Progress; starting again creates a separate session.</Notice>}
-                      {status === "skipped" && <Notice>No completed sets recorded. This session still needs your review.</Notice>}
+                      {status === "skipped" && <Notice>No completed sets recorded. Its original date stays in history; start a separate session to train again.</Notice>}
                       {missed && <Notice tone="warning">This date has passed. Move this session to a day that works, or train it now. Other sessions keep their dates.</Notice>}
                       <Button title={inspecting === key ? "Hide session instructions" : "Inspect session instructions"} secondary size="sm" inline
                         onPress={() => setInspecting(inspecting === key ? null : key)} />
@@ -264,7 +319,7 @@ export default function Plan() {
                               void start(p, s);
                             }}
                           />
-                          {!done && <Button
+                          {!status && <Button
                             title={missed ? "Choose a new date" : "Move this session"}
                             variant="ghost"
                             size="sm"
@@ -277,12 +332,12 @@ export default function Plan() {
                           />}
                         </Row>
                       )}
-                      {editing === key && (
+                      {editing === key && !status && (
                         <Card tone="sunken" compact>
                           <Field label="New date · YYYY-MM-DD" value={date} onChange={setDate} />
                           <Copy kind="small" tone="muted">
-                            This changes future scheduling only. Recorded training and its original prescription stay
-                            intact.
+                            Choose today or a future date. The workout instructions stay unchanged;
+                            recorded sessions keep their original dates.
                           </Copy>
                           <Row gap={10}>
                             <Button
@@ -313,11 +368,16 @@ export default function Plan() {
             <ListRow
               icon="chatbubble-ellipses-outline"
               title="Chat about this plan"
+              disabled={!!menu.schedule_state?.archived_at}
               onPress={() => {
                 setMenu(null);
                 router.push({ pathname: "/coach", params: { program_id: menu.id, revision: String(menu.revision) } });
               }}
             />
+            {!menu.schedule_state?.archived_at && <ListRow
+              icon="archive-outline" title="Archive plan" disabled={busy}
+              onPress={() => void archive(menu, true)}
+            />}
             <ListRow
               icon="share-outline"
               title="Share this program"

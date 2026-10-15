@@ -25,6 +25,7 @@ from app.domains.workouts.automation_router import (
 from app.domains.workouts.coach_continuity import (
     bulk_schedule,
     comparable_progression,
+    date_move_guard,
     future_change_guard,
     running_geometry,
     running_progression,
@@ -42,8 +43,10 @@ from app.domains.workouts.models import (
     WorkoutsSession,
     WorkoutVersion,
 )
+from app.domains.workouts.plan_archival import require_unarchived
 from app.domains.workouts.programming import REVIEW_NOTICE, adapt_workout, build_program
 from app.domains.workouts.router import content_digest, owned_record, validated_workout
+from app.domains.workouts.schedule import validate_other_program_dates
 from app.domains.workouts.schemas import (
     DomainModel,
     TrainingProfile,
@@ -136,7 +139,7 @@ TOOLS = {
     ),
     "edit_future_schedule": (
         ScheduleAction,
-        "Propose moving or skipping one future uncompleted training session, including recovery rescheduling.",
+        "Propose moving an unused session to today or a future date, or skipping a future unused session. Recorded sessions stay frozen.",
     ),
     "review_actual_progression": (
         ProgressionAction,
@@ -265,6 +268,7 @@ async def owned_program_hash(db, user_id, generation):
 
 async def safe_program(db, user_id, generation, identifier, revision):
     row = await owned_record(db, WorkoutsProgram, identifier, user_id, generation)
+    require_unarchived(row.content)
     if row.revision != revision or health_derived(row.content):
         raise HTTPException(409, "Program changed or needs provenance review")
     return row
@@ -339,6 +343,7 @@ async def prepare_action(db, user_id, generation, name, arguments, *, compose_li
         target_revision = source.revision
     elif isinstance(action, ScheduleAction):
         source = await owned_record(db, WorkoutsProgram, action.program_id, user_id, generation)
+        require_unarchived(source.content)
         if source.revision != action.expected_revision or health_derived(source.content):
             raise HTTPException(409, "Program changed or needs provenance review")
         content = deepcopy(source.content)
@@ -347,36 +352,27 @@ async def prepare_action(db, user_id, generation, name, arguments, *, compose_li
         if selected is None:
             raise HTTPException(404, "Scheduled session not found")
         recorded = await recorded_program_ids(db, user_id, generation, source.id)
-        if date.fromisoformat(selected["date"]) <= today or action.session_id in recorded:
-            raise HTTPException(409, "Only future uncompleted sessions may change")
         if action.operation == "skip":
+            if date.fromisoformat(selected["date"]) <= today or action.session_id in recorded:
+                raise HTTPException(409, "Only future uncompleted sessions may be skipped")
+            if content.get("schedule_state", {}).get("status") == "paused":
+                raise HTTPException(409, "Review returning from the pause before editing sessions")
             sessions.remove(selected)
         else:
-            if action.target_date is None or action.target_date <= today:
-                raise HTTPException(422, "Choose a future training date")
-            if any(
-                item["id"] != action.session_id and item["date"] == action.target_date.isoformat()
-                for item in sessions
-            ):
-                raise HTTPException(409, "Another session already occupies that date")
-            if any(
-                item["id"] != action.session_id
-                and abs((date.fromisoformat(item["date"]) - action.target_date).days) < 2
-                for item in sessions
-            ):
-                raise HTTPException(409, "Keep a rest day between structured training sessions")
-            if any(
-                item.date == action.target_date and item.strenuous is not False
-                for item in profile.other_activities
-            ):
-                raise HTTPException(
-                    409, "Review the declared activity on that date before moving training"
-                )
+            if action.target_date is None:
+                raise HTTPException(422, "Choose today or a future training date")
             selected["date"] = action.target_date.isoformat()
             sessions.sort(key=lambda item: (item["date"], item["id"]))
+            date_move_guard(source.content, content, {action.session_id}, recorded, profile, today)
+            await validate_other_program_dates(
+                db, user_id, generation, source.id, content, {action.session_id}
+            )
         before = source.content
         kind, target, target_revision = "schedule", source.id, source.revision
-        content = {"status": "ready", "program": content, "session_id": action.session_id}
+        content = {
+            "status": "ready", "program": content, "session_id": action.session_id,
+            "operation": action.operation,
+        }
     elif isinstance(action, BulkScheduleAction):
         source = await safe_program(
             db, user_id, generation, action.program_id, action.expected_revision
@@ -791,6 +787,7 @@ async def accept_action(
         saved.updated_at = now()
     else:
         saved = await owned_record(db, WorkoutsProgram, proposal.target_id, user_id, generation)
+        require_unarchived(saved.content)
         if saved.revision != proposal.target_revision:
             raise HTTPException(409, "Program changed; prepare a fresh schedule edit")
         today = now().astimezone(ZoneInfo(profile.timezone)).date()
@@ -814,16 +811,18 @@ async def accept_action(
 
                 if not readiness or readiness.confirmed_at <= datetime.fromisoformat(paused_at):
                     raise HTTPException(409, "Confirm fresh readiness after the pause")
-        future_change_guard(
-            saved.content,
-            proposal.content["program"],
-            ids,
-            recorded,
-            today,
-            returning=operation == "return",
-        )
-        if operation != "pause":
-            validate_calendar(proposal.content["program"], profile, ids)
+        if operation == "move":
+            date_move_guard(saved.content, proposal.content["program"], ids, recorded, profile, today)
+            await validate_other_program_dates(
+                db, user_id, generation, saved.id, proposal.content["program"], ids
+            )
+        else:
+            future_change_guard(
+                saved.content, proposal.content["program"], ids, recorded, today,
+                returning=operation == "return",
+            )
+            if operation != "pause":
+                validate_calendar(proposal.content["program"], profile, ids)
         saved.content = deepcopy(proposal.content["program"])
         if operation == "pause":
             saved.content["schedule_state"]["paused_at"] = now().isoformat()
@@ -898,6 +897,7 @@ async def undo_action(db, user_id, generation, proposal_id):
         saved = await owned_record(
             db, WorkoutsProgram, UUID(receipt["record_id"]), user_id, generation
         )
+        require_unarchived(saved.content)
         profile, _ = await effective_profile(db, user_id, generation)
         today = now().astimezone(ZoneInfo(profile.timezone)).date()
         ids = set(proposal.content.get("session_ids", [proposal.content.get("session_id")]))
@@ -906,15 +906,22 @@ async def undo_action(db, user_id, generation, proposal_id):
             raise HTTPException(409, "Program changed after acceptance")
         # Undo of a return may put unused future sessions back in its dormant pause queue.
         restoring_pause = receipt["before"].get("schedule_state", {}).get("status") == "paused"
-        future_change_guard(
-            saved.content,
-            receipt["before"],
-            ids,
-            recorded,
-            today,
-            returning=restoring_pause,
-            restoring=True,
-        )
+        if proposal.content.get("operation") == "move":
+            date_move_guard(
+                saved.content, receipt["before"], ids, recorded, profile, today, restoring=True
+            )
+            future_ids = {
+                item["id"] for item in receipt["before"]["proposal"]["sessions"]
+                if item["id"] in ids and date.fromisoformat(item["date"]) >= today
+            }
+            await validate_other_program_dates(
+                db, user_id, generation, saved.id, receipt["before"], future_ids
+            )
+        else:
+            future_change_guard(
+                saved.content, receipt["before"], ids, recorded, today,
+                returning=restoring_pause, restoring=True,
+            )
         if receipt.get("before_profile") is not None:
             changed_profile = await db.get(WorkoutsProfile, user_id, populate_existing=True)
             if changed_profile.revision != receipt["after_profile_revision"] or receipt[

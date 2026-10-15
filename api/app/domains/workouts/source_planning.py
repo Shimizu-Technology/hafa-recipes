@@ -77,8 +77,11 @@ def inspect_personal_source(workout, profile, *, reviewed_custom=False, declared
         questions.append(
             f"{workout.title}: it exceeds your available time; adapt it before scheduling."
         )
-    known = set(profile.equipment or [])
-    if not set(workout.equipment_required) <= known:
+    # Match catalog compatibility's exact case/outer-whitespace normalization;
+    # retain source spelling and never infer an equipment alias or substitute.
+    known = {item.strip().lower() for item in profile.equipment or []}
+    required = {item.strip().lower() for item in workout.equipment_required}
+    if not required <= known:
         questions.append(
             f"{workout.title}: required equipment is unavailable at your selected location."
         )

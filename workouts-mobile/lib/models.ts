@@ -114,7 +114,8 @@ export interface ScheduledSession {
   workout: Workout;
 }
 export interface Program {
-  schedule_state?: { status: "active" | "paused"; paused_at?: string; paused_sessions?: ScheduledSession[] };
+  schedule_state?: { status: "active" | "paused"; paused_at?: string; paused_sessions?: ScheduledSession[];
+    archived_at?: string; archive_previous_status?: "active" | "paused" | null };
   id: string;
   revision: number;
   generation: number;

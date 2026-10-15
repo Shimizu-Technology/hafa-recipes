@@ -525,6 +525,39 @@ def future_change_guard(
             raise HTTPException(409, "Choose future prescription dates")
 
 
+def date_move_guard(before, after, changed_ids, recorded_ids, profile, today, *, restoring=False):
+    """Recover unused missed days without changing their original prescriptions."""
+    if before.get("schedule_state", {}).get("status") == "paused":
+        raise HTTPException(409, "Review returning from the pause before moving sessions")
+    if not restoring and profile.readiness != "ready":
+        raise HTTPException(409, "Confirm readiness before applying a training change")
+    originals, updated = logical_sessions(before), logical_sessions(after)
+    if set(originals) != set(updated):
+        raise HTTPException(409, "Moving a session must preserve every prescription")
+    for identifier, original in originals.items():
+        changed = updated[identifier]
+        if identifier not in changed_ids:
+            if original != changed:
+                raise HTTPException(409, "A frozen or unrelated session changed")
+            continue
+        if identifier in recorded_ids:
+            raise HTTPException(409, "Recorded sessions cannot change; start a separate session")
+        if {k: v for k, v in original.items() if k != "date"} != {
+            k: v for k, v in changed.items() if k != "date"
+        }:
+            raise HTTPException(409, "Moving a session must preserve its prescription")
+        if not restoring and date.fromisoformat(changed["date"]) < today:
+            raise HTTPException(422, "Choose today or a future training date")
+    # Imported health context is not a declared deterministic planning constraint.
+    declared = profile.model_copy(
+        update={"other_activities": [item for item in profile.other_activities if not item.origin_id]}
+    )
+    future_ids = {
+        key for key in changed_ids if date.fromisoformat(updated[key]["date"]) >= today
+    }
+    validate_calendar(after, declared, future_ids)
+
+
 def bulk_schedule(
     content, profile, recorded_ids, today, operation, *, shift_days=None, start_date=None
 ):

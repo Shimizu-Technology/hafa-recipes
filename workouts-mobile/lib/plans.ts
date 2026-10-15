@@ -1,5 +1,23 @@
 import type { Program, Workout } from "./models";
 import { isISODate } from "./sharing";
+export function programMoveError(error: unknown): string {
+  const rejected = error as { status?: number; detail?: string } | null;
+  if (rejected?.status === 409) {
+    switch (rejected.detail) {
+      case "Keep session spacing and avoid stacking training":
+        return "Choose a date with a recovery day between demanding sessions.";
+      case "Training availability or another activity conflicts with this date":
+        return "Choose one of your available training days without another activity, or update your training profile.";
+      case "Keep recovery around declared game days":
+        return "Choose a date with recovery time around your game days.";
+      case "Another plan already has a session on this date":
+        return "Another plan already has a session that day. Choose a different date.";
+      case "Confirm readiness before applying a training change":
+        return "Confirm your current readiness in your training profile before moving this session.";
+    }
+  }
+  return error instanceof Error ? error.message : "The session could not be moved. Try again.";
+}
 export interface ProgramReceipt {
   id: string;
   generation: number;
