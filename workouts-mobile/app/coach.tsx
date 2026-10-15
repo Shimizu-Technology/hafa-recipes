@@ -9,6 +9,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { Bubble, Button, Card, Chip, ChipRow, Copy, Field, ListGroup, ListRow, Notice, Screen, SectionHeader } from "@/components/ui";
 import { useTraining } from "@/lib/context";
 import { coachFocusErrors, type CoachFocus, type CoachMessage, type PendingCoachMessage } from "@/lib/coach";
+const HISTORY_POSITION_ERROR = "Could not keep your reading position. Try loading earlier messages again.";
 const COPY_ERROR = "Could not copy this reply. Try again or select the text to copy it.";
 const messageOrder = (a: CoachMessage, b: CoachMessage) =>
   Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id);
@@ -163,6 +164,7 @@ export default function Coach() {
   async function loadEarlier() {
     if (!currentConversation() || loadingEarlier.current || !q.hasNextPage) return;
     loadingEarlier.current = true;
+    setError(previous => previous === HISTORY_POSITION_ERROR ? "" : previous);
     // Anchor an existing visible message, so new replies below cannot affect
     // the offset correction when older messages are prepended above it.
     const known = history.filter(item => positions.current.has(item.id));
@@ -171,6 +173,7 @@ export default function Coach() {
     if (anchor && positions.current.get(anchor.id)! < reading.current.offset + reading.current.viewport)
       earlier.current = { id: anchor.id, top: positions.current.get(anchor.id)!,
       offset: reading.current.offset, firstId: history[0].id, measuring: false, positions: new Map([...positions.current].map(([id, top]) => [id, { top, version: positionVersions.current.get(id) ?? 0 }])) };
+    let fetching = false;
     try {
       const captured = earlier.current;
       const reader = scroll.current as (ScrollView & { getInnerViewRef?: () => View | null }) | null;
@@ -184,10 +187,16 @@ export default function Coach() {
         captured.top = top;
       }
       if (!currentConversation()) return;
+      fetching = true;
       const result = await q.fetchNextPage();
       const oldest = result.data?.pages.flatMap(page => page.messages).sort(messageOrder)[0]?.id;
       if (currentConversation() && (result.isError || !oldest || oldest === earlier.current?.firstId)) earlier.current = null;
-    } catch { if (currentConversation()) earlier.current = null; }
+    } catch {
+      if (currentConversation()) {
+        earlier.current = null;
+        if (!fetching) setError(HISTORY_POSITION_ERROR);
+      }
+    }
     finally { if (currentConversation()) loadingEarlier.current = false; }
   }
   function messageLayout(id: string, top: number, measured = false) {

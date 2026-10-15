@@ -252,8 +252,10 @@ it("releases a failed initial measurement so loading earlier can be retried", as
   await act(async () => { nodes("View").find(node => node.props.onLayout)!.props.onLayout({ nativeEvent: { layout: { y: 500 } } }); bindScroll().props.onScroll(scrollEvent(550)); });
   f.measureAnchor.mockImplementationOnce((_content, _success, failure) => failure());
   await click("Load earlier messages"); expect(f.historyCalls).not.toContain(2);
+  expect(nodes("Notice").some(node => node.props.children === "Could not keep your reading position. Try loading earlier messages again.")).toBe(true);
   f.measureAnchor.mockImplementationOnce((_content, success) => success(0, 500)).mockImplementation((_content, success) => success(0, 900));
   await click("Load earlier messages"); expect(f.historyCalls).toContain(2);
+  expect(nodes("Notice").some(node => node.props.children === "Could not keep your reading position. Try loading earlier messages again.")).toBe(false);
   expect(f.scrollTo).toHaveBeenCalledWith({ y: 950, animated: false });
 });
 it("disables HTML and remote images while retaining selectable Markdown text", async () => {
