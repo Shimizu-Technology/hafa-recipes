@@ -8,7 +8,7 @@ const f = vi.hoisted(() => ({ owner: "", generation: 1, current: true, profileGa
   params: {} as Record<string, string>, values: new Map<string, string>(), history: [] as CoachMessage[],
   paramsContext: null as Context<Record<string, string> | null> | null,
   focusVersion: 0, pendingSaveGate: null as Promise<void> | null, storageVersion: 0, readiness: vi.fn(), send: vi.fn(), copy: vi.fn(), clear: vi.fn(), readFailure: false, push: vi.fn(),
-  platform: "ios" as "web" | "ios", appState: "active", openURL: vi.fn(), scrollTo: vi.fn(), scrollEnd: vi.fn(), pageSize: 50,
+  measureAnchor: vi.fn(), contentView: {}, platform: "ios" as "web" | "ios", appState: "active", openURL: vi.fn(), scrollTo: vi.fn(), scrollEnd: vi.fn(), pageSize: 50,
   historyGate: null as Promise<{ messages: CoachMessage[]; limit: number; offset: number }> | null,
   foreground: new Set<(value: string) => void>() }));
 vi.mock("@/lib/context", () => {
@@ -39,7 +39,7 @@ vi.mock("@/components/ui", () => ({
   Screen: (props: { children?: React.ReactNode; footer?: React.ReactNode; scrollRef?: { current: unknown } }) => {
     // Installed RNWeb binds forwardedRef when its scroll DOM node mounts.
     useLayoutEffect(() => {
-      const node = { scrollTo: f.scrollTo, scrollToEnd: f.scrollEnd };
+      const node = { scrollTo: f.scrollTo, scrollToEnd: f.scrollEnd, getInnerViewRef: () => f.contentView };
       if (props.scrollRef) props.scrollRef.current = node;
       return () => { if (props.scrollRef?.current === node) props.scrollRef.current = null; };
     }, []);
@@ -54,7 +54,7 @@ let view: ReactTestRenderer | undefined, cache: QueryClient;
 const nodes = (type: string) => view!.root.findAll(node => node.type === type);
 const button = (title: string) => nodes("Button").find(node => node.props.title === title)!;
 const settle = async () => { for (let i = 0; i < 4; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)); }); };
-const mount = async () => { await act(async () => { view = create(createElement(QueryClientProvider, { client: cache }, createElement(Coach))); }); await settle(); };
+const mount = async () => { await act(async () => { view = create(createElement(QueryClientProvider, { client: cache }, createElement(Coach)), { createNodeMock: element => element.type === "View" ? { measureLayout: f.measureAnchor } : null }); }); await settle(); };
 const refresh = async () => { await act(async () => { view!.update(createElement(QueryClientProvider, { client: cache }, createElement(Coach))); }); await settle(); };
 const click = async (title: string) => { await act(async () => { button(title).props.onPress(); }); await settle(); };
 const type = async (message: string) => { await act(async () => { nodes("Field")[0].props.onChange(message); }); await settle(); };
@@ -64,7 +64,7 @@ function reply(id: string, state: CoachMessage["state"] = "completed"): CoachMes
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: Error) => void; const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; }); return { promise, resolve, reject }; }
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  f.profileGate = null;
+  f.profileGate = null; f.measureAnchor.mockReset();
   f.owner = `coach-owner-${++f.run}`; f.generation = 1; f.current = true; f.uuid = 0; f.params = {}; f.values.clear(); f.history = []; f.readFailure = false;
   f.focusVersion = 0; f.pendingSaveGate = null; f.storageVersion = 0; f.readiness.mockReset(); f.send.mockReset(); f.clear.mockReset(); f.copy.mockReset(); f.copy.mockResolvedValue(true);
   f.platform = "ios"; f.appState = "active"; f.openURL.mockReset(); f.openURL.mockResolvedValue(undefined); f.scrollTo.mockReset(); f.scrollEnd.mockReset(); f.pageSize = 50; f.historyGate = null;
@@ -136,7 +136,7 @@ it("reusing an old failed message preserves the current draft until replacement 
 
 function bindScroll() {
   const screen = nodes("Screen")[0];
-  screen.props.scrollRef.current = { scrollTo: f.scrollTo, scrollToEnd: f.scrollEnd };
+  screen.props.scrollRef.current = { scrollTo: f.scrollTo, scrollToEnd: f.scrollEnd, getInnerViewRef: () => f.contentView };
   return screen;
 }
 const scrollEvent = (y: number, height = 2000) => ({ nativeEvent: { contentOffset: { y }, contentSize: { height }, layoutMeasurement: { height: 400 } } });
@@ -161,6 +161,51 @@ it("keeps the visible message anchored when earlier pages are prepended", async 
   await act(async () => row("Question older").props.onLayout({ nativeEvent: { layout: { y: 900 } } }));
   expect(f.scrollTo).toHaveBeenCalledWith({ y: 950, animated: false });
   expect(nodes("PinnedFooter")[0].find(node => String(node.type) === "Field").props.value).toBe("");
+});
+it("measures a prepended anchor when its unchanged size emits no new layout event", async () => {
+  f.pageSize = 2; f.history = [reply("newer"), reply("older")];
+  const gate = deferred<{ messages: CoachMessage[]; limit: number; offset: number }>(); f.historyGate = gate.promise;
+  await mount();
+  const row = nodes("View").find(node => node.props.onLayout && node.findAll(child => String(child.type) === "Copy" && child.props.children === "Question older").length)!;
+  f.measureAnchor.mockImplementation((_content, success) => success(0, 900));
+  await act(async () => {
+    row.props.onLayout({ nativeEvent: { layout: { y: 500 } } });
+    bindScroll().props.onScroll(scrollEvent(550));
+  });
+  await click("Load earlier messages");
+  await act(async () => gate.resolve({ messages: [{ ...reply("earliest"), created_at: "2026-10-14T00:00:00Z" }], limit: 2, offset: 2 })); await settle();
+  expect(f.measureAnchor).toHaveBeenCalledWith(f.contentView, expect.any(Function), expect.any(Function));
+  expect(f.scrollTo).toHaveBeenCalledWith({ y: 950, animated: false });
+});
+it.each(["jump", "owner", "storage"])("ignores a delayed anchor measurement after %s retires it", async retirement => {
+  f.pageSize = 2; f.history = [reply("newer"), reply("older")];
+  const page = deferred<{ messages: CoachMessage[]; limit: number; offset: number }>(); f.historyGate = page.promise;
+  await mount();
+  const row = nodes("View").find(node => node.props.onLayout)!;
+  await act(async () => { row.props.onLayout({ nativeEvent: { layout: { y: 500 } } }); bindScroll().props.onScroll(scrollEvent(550)); });
+  let measured!: (x: number, y: number) => void;
+  f.measureAnchor.mockImplementation((_content, success) => { measured = success; });
+  await click("Load earlier messages");
+  await act(async () => page.resolve({ messages: [{ ...reply("earliest"), created_at: "2026-10-14T00:00:00Z" }], limit: 2, offset: 2 })); await settle();
+  expect(measured).toBeTypeOf("function");
+  if (retirement === "jump") await click("Jump to latest reply");
+  else { if (retirement === "owner") f.owner = "replacement"; else f.storageVersion++; await refresh(); }
+  await act(async () => measured(0, 900));
+  expect(f.scrollTo).not.toHaveBeenCalled();
+});
+it("preserves a scroll made during measurement and excludes a simultaneous reply below the anchor", async () => {
+  f.pageSize = 2; f.history = [reply("newer"), reply("older")];
+  const page = deferred<{ messages: CoachMessage[]; limit: number; offset: number }>(); f.historyGate = page.promise;
+  await mount();
+  const row = nodes("View").find(node => node.props.onLayout)!;
+  await act(async () => { row.props.onLayout({ nativeEvent: { layout: { y: 500 } } }); bindScroll().props.onScroll(scrollEvent(550)); });
+  let measured!: (x: number, y: number) => void;
+  f.measureAnchor.mockImplementation((_content, success) => { measured = success; });
+  await click("Load earlier messages");
+  await act(async () => page.resolve({ messages: [{ ...reply("earliest"), created_at: "2026-10-14T00:00:00Z" }, { ...reply("latest"), created_at: "2026-10-16T00:00:00Z" }], limit: 2, offset: 2 })); await settle();
+  await act(async () => { nodes("Screen")[0].props.onScroll(scrollEvent(650, 5000)); measured(0, 900); });
+  expect(f.scrollTo).toHaveBeenCalledWith({ y: 1050, animated: false });
+  expect(f.scrollEnd).not.toHaveBeenCalled();
 });
 it("disables HTML and remote images while retaining selectable Markdown text", async () => {
   f.history = [{ ...reply("older"), assistant_message: "**Plan**\n- Row\n![track](https://evil.test/pixel)\n<script>bad()</script>" }]; await mount();
