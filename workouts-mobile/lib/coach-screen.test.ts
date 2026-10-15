@@ -269,6 +269,23 @@ it("ignores an initial measurement failure after Jump retires it", async () => {
   expect(nodes("Notice").some(node => String(node.props.children).includes("Could not keep your reading position"))).toBe(false);
   expect(nodes("Field")[0].props.value).toBe("Fresh unsent question");
 });
+it("measures visibility after sending rotates the first history page without row layout events", async () => {
+  f.contentEnabled = true; f.pageSize = 2; f.history = [reply("newer"), reply("older")]; await mount();
+  const row = (text: string) => nodes("View").find(node => node.props.onLayout && node.findAll(child => String(child.type) === "Copy" && child.props.children === text).length)!;
+  await act(async () => {
+    row("Question older").props.onLayout({ nativeEvent: { layout: { y: 500 } } });
+    row("Question newer").props.onLayout({ nativeEvent: { layout: { y: 1300 } } });
+  });
+  f.send.mockImplementation(async () => { const sent = { ...reply("latest"), created_at: "2026-10-16T00:00:00Z" }; f.history = [sent, reply("newer"), reply("older")]; return sent; });
+  await type("A new question"); await click("Send message");
+  expect(nodes("Markdown").map(node => node.props.children)).toEqual(["Reply newer", "Reply latest"]);
+  // The retained row moved up to500, but its unchanged size emitted no layout.
+  f.measureAnchor.mockImplementation((_content, success) => success(0, f.historyCalls.includes(2) ? 900 : 500));
+  await act(async () => bindScroll().props.onScroll(scrollEvent(550)));
+  await click("Load earlier messages");
+  expect(f.measureAnchor).toHaveBeenCalledTimes(2);
+  expect(f.scrollTo).toHaveBeenCalledWith({ y: 950, animated: false });
+});
 it("disables HTML and remote images while retaining selectable Markdown text", async () => {
   f.history = [{ ...reply("older"), assistant_message: "**Plan**\n- Row\n![track](https://evil.test/pixel)\n<script>bad()</script>" }]; await mount();
   const md = nodes("Markdown")[0].props;
