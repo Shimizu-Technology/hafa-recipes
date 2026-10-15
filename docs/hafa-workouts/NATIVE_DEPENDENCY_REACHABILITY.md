@@ -274,3 +274,58 @@ The advisory IDs, November 3 expiry and fail-closed checks remain unchanged.
 [UI's Android TextInput placeholder fix](https://github.com/expo/expo/blob/396da4641605bb19c1e6b3efff1cafaab8890a29/packages/expo-ui/CHANGELOG.md#57025--2026-10-15)
 requires rebuilt native binaries. Fresh native builds and cold/warm share,
 OAuth and navigation acceptance remain separate release gates.
+
+## Coach reading and clipboard on main220 (2026-10-16)
+
+The reading-only mobile integration on `5ae2973` adds Expo Clipboard 57.0.2,
+`@believer/react-native-markdown-display` 8.4.1 and Markdown-it 14.3.1. The renderer's
+Markdown-it dependency is overridden to 14.3.1. Comparing the frozen lock against
+main220 adds exactly seven nodes (these packages plus linkify-it, mdurl,
+punycode.js and uc.micro), removes none, and changes no existing non-root node's
+version, metadata or dependencies. No speech, recognition, photo transport or
+stream consumer is added in this slice.
+
+A fresh ordinary `npm ci` and `npm ls --all` pass for all four apps in the owned
+Jerry fixture. Raw `npm audit --omit=dev` reports 33 affected packages (5 moderate,
+28 high,0 critical), the same six previously reviewed advisory IDs, and no
+unexpected advisory. The renderer inherits the existing React Native tooling
+chain, accounting for the extra affected package over the 32-package baseline.
+The existing trust constraints and November 3 expiry remain unchanged.
+
+Installed renderer `openUrl.js` and `renderRules.js`, and Markdown-it metadata,
+match Recipes byte-for-byte. The URL helper opens only when its app callback
+returns true. Coach returns false and requires an explicit app Sheet confirmation
+for credential-free HTTP(S) links. Raw HTML is disabled and the app image rule
+returns null; the renderer's image source remains bundled and is not claimed
+absent. Clipboard reads and subscriptions are unused.
+
+Fresh exports and the native bundle gate at `402a12b` pass. The iOS/Android maps
+contain 1932/1931 sources, including 93 source paths under the seven added lock
+nodes. Both retain native Clerk and Expo Router's active fork; neither contains
+forge, braces, micromatch, stream-json, Jayson or Solana sources. Map SHA-256:
+iOS `a9c836fa53ff0a388a0943f97d9ae5d043d3c81cc96470f6b3ecc6a82fc6773b`;
+Android `76cda2fbf46364bcea862532c3f29453a97f8598a484ad33b1cda8c4307f4db6`.
+These hashes identify the dependency-review export, not later callback fixes.
+
+Only after this fresh install, audit and reachability evidence, the reviewed lock
+fingerprint is renewed to
+`7ba662fcb3d4a2c98f7aa28980947cd146971562f02166b19b5417c61e8adcf9`.
+No advisory exception, expiry or fail-closed behavior changes. Focused tests,
+typecheck and Doctor 21/21 pass at the dependency-review head; final callback
+regressions and complete repository gate are recorded separately in the task
+handoff. This evidence does not establish actual native keyboard, clipboard or
+link acceptance. Clipboard adds native code and requires a rebuilt binary.
+
+
+### Reading-only current-main verification — 2026-10-15
+
+Rechecked the isolated reading/composer slice at `df0159c49be950cd4678e91b46d788ec0b511075`, based on main `153419e4d175282f128b0ee93ae6fba5c8d0d6f8`. This includes the loading-to-conversation scroll-ref correction. Fresh physical `npm ci` and `npm ls --all` passed. The lock is byte-identical to the previously reviewed reading lock: `7ba662fcb3d4a2c98f7aa28980947cd146971562f02166b19b5417c61e8adcf9`. Relative to current main, seven nodes are added; no existing non-root node changes or is removed. The existing exact fingerprint, six advisory IDs and November 3 expiry remain unchanged.
+
+Fresh raw production audit reports 33 affected packages (5 moderate, 28 high, 0 critical), exactly the six reviewed advisory IDs and zero unexpected advisories. The strict runtime audit passes. Installed Markdown URL helper, renderer rules and parser package metadata remain byte-identical to Recipes' corresponding installed files. This is a renewed check of the existing exception, not an advisory fix.
+
+Typed routes, 211 focused mounted/domain tests, TypeScript, Doctor 21/21, all-platform export and native bundle selection checks passed. Fresh native source maps include clipboard, Markdown, native Clerk and the Expo Router fork; the four reviewed build/socket package paths remain absent:
+
+- iOS: 1932 sources; SHA256 `49cac268764ac80c9a7b37f5eae3f17b75c50f67121053bb30308b4fecebf868`.
+- Android: 1931 sources; SHA256 `53554d893a5074278a9d42d98568e01a3f1304e4e15c489e4dcab7a718b73376`.
+
+The loading-to-ready mounted regression failed on the preceding runtime specifically because Jump could not call the mounted scroll ref, then passed after the correction. These results establish dependency reachability and focused engineering behavior. Complete repository checks, actual reading/copy/link/keyboard journeys and native Clipboard acceptance remain separate gates; no device acceptance is inferred from export maps.

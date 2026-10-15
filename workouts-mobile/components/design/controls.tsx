@@ -341,6 +341,7 @@ export function Field({
   disabled = false,
   purpose,
   large = false,
+  compact = false,
 }: {
   label: string;
   value: string;
@@ -354,6 +355,8 @@ export function Field({
   purpose?: InputPurpose;
   /** Big tabular numerals for quick logging mid-workout. */
   large?: boolean;
+  /** Keep a multiline composer usable above the keyboard; its text scrolls. */
+  compact?: boolean;
 }) {
   const c = useColors();
   const [focused, setFocused] = useState(false);
@@ -389,7 +392,8 @@ export function Field({
             borderRadius: radii.md,
             paddingHorizontal: focused ? 15 : 16,
             paddingVertical: large ? 8 : focused ? 13 : 14,
-            minHeight: multiline ? 110 : large ? 64 : 54,
+            minHeight: multiline ? compact ? 60 : 110 : large ? 64 : 54,
+            maxHeight: multiline && compact ? 120 : undefined,
             textAlignVertical: multiline ? "top" : "center",
             opacity: disabled ? 0.7 : 1,
           },
