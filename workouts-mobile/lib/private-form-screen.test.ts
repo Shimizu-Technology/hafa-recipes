@@ -2393,6 +2393,17 @@ it("retries an uncertain update in the original mode instead of offering a diffe
   expect(fixture.acceptImport.mock.calls[1]).toEqual(fixture.acceptImport.mock.calls[0]);
 });
 
+it("does not change save mode for an unrelated error with similar user-facing wording", async () => {
+  fixture.params = { id: "job-A" }; fixture.capabilities.mockResolvedValue({ ...serverCaps, existing_workout_updates: true });
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "ready", replace_target: { workout_id: "workout", expected_revision: 4 },
+    result: { status: "ready", workout, warnings: [], evidence: [], source: { platform: "web", channels: [], coverage_notes: [] } } });
+  fixture.acceptImport.mockRejectedValueOnce(new ApiError("Your saved workout changed while reviewing another record", 409, false, "Import already accepted with different content"));
+  await mount(ImportReview); await click("Update saved workout");
+  expect(button("Save as a separate private workout")).toBeUndefined();
+  await click("Retry updating saved workout");
+  expect(fixture.acceptImport.mock.calls[1]).toEqual(fixture.acceptImport.mock.calls[0]);
+});
+
 it("retries an uncertain private copy without changing it into an update", async () => {
   fixture.params = { id: "job-A" }; fixture.capabilities.mockResolvedValue({ ...serverCaps, existing_workout_updates: true });
   fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "ready", replace_target: { workout_id: "workout", expected_revision: 4 },

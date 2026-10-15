@@ -64,6 +64,7 @@ export default function ImportReview() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [attemptedUpdate, setAttemptedUpdate] = useState<boolean | null>(null);
+  const [updateConflict, setUpdateConflict] = useState(false);
   /** null = the default for this source (link imports public, everything else private). */
   const [shareChoice, setShareChoice] = useState<boolean | null>(null);
   const [notice, setNotice] = useState("");
@@ -105,6 +106,7 @@ export default function ImportReview() {
     setBusy(false);
     setError("");
     setAttemptedUpdate(null);
+    setUpdateConflict(false);
     setShareChoice(null);
     setNotice("");
     setCaption("");
@@ -176,6 +178,7 @@ export default function ImportReview() {
   async function accept(automatic = false, updateExisting = false) {
     if (saving.current || !routeReady || !restored || !isCurrent() || !q.data?.result?.workout) return;
     if (automatic && (edited || !canSaveAutomatically(q.data))) return;
+    setUpdateConflict(false);
     const content = edited ?? q.data.result.workout;
     const errors = content.blocks.some(block => block.exercises.length)
       ? workoutErrors(content, q.data.status === "incomplete" && !sharing)
@@ -227,15 +230,18 @@ export default function ImportReview() {
       current();
       router.replace({ pathname: "/workout/[id]", params: { id: saved.id } });
     } catch (e) {
-      if (isCurrent())
+      if (isCurrent()) {
+        const conflict = updateExisting && (e as { status?: number }).status === 409 &&
+          (e as { detail?: string }).detail === "Workout changed; save a separate copy or extract again from its latest version";
+        setUpdateConflict(conflict);
         setError(
           isIncomplete(e) && sharing && /discover|shar/i.test((e as { detail?: string }).detail ?? "")
             ? INCOMPLETE_MESSAGE
-            : updateExisting && (e as { status?: number }).status === 409 &&
-                (e as { detail?: string }).detail === "Workout changed; save a separate copy or extract again from its latest version"
+            : conflict
               ? "Your saved workout changed while you reviewed this import. Its newer edit is safe. You can keep this extraction as a separate private workout."
               : (e as Error).message
         );
+      }
     } finally {
       if (isCurrent()) { saving.current = false; setBusy(false); }
     }
@@ -359,9 +365,9 @@ export default function ImportReview() {
       footer={!!error && <>
         <Notice error>{error}</Notice>
         {q.data?.replace_target && attemptedUpdate !== null && hasExercises && !editing && !savedId && <Button
-          title={error.startsWith("Your saved workout changed while") ? "Save as a separate private workout" : attemptedUpdate ? "Retry updating saved workout" : "Retry saving private workout"}
+          title={updateConflict ? "Save as a separate private workout" : attemptedUpdate ? "Retry updating saved workout" : "Retry saving private workout"}
           secondary busy={busy} disabled={!routeReady || !restored}
-          onPress={() => { void accept(false, !error.startsWith("Your saved workout changed while") && attemptedUpdate); }} />}
+          onPress={() => { void accept(false, !updateConflict && attemptedUpdate); }} />}
         {!restored && <Button title="Try loading again" secondary disabled={busy} onPress={() => {
           setError(""); setRestoreAttempt((value) => value + 1); void q.refetch();
         }} />}
