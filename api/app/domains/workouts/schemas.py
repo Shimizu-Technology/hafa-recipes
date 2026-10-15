@@ -4,7 +4,15 @@ from datetime import date
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, model_serializer, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    model_serializer,
+    model_validator,
+)
 
 Goal = Literal[
     "general_fitness", "strength", "body_composition", "running", "athletic_conditioning"
