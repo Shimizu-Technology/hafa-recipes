@@ -51,6 +51,7 @@ export default function Training() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const guard = useRef(false);
+  const operation = useRef<object | null>(null);
   const checkpointing = useRef(false);
   const backgroundPausePending = useRef(false);
   const [advanced, setAdvanced] = useState(false);
@@ -81,7 +82,7 @@ export default function Training() {
     return () => sub.remove();
   }, [store, scope]);
   useLayoutEffect(() => { setFinishReview(false); setBusy(false); setError(""); setMore(false);
-    guard.current = false; checkpointing.current = false; backgroundPausePending.current = false;
+    guard.current = false; operation.current = null; checkpointing.current = false; backgroundPausePending.current = false;
   }, [scope, d?.id]);
   useLayoutEffect(() => {
     const restored = d?.input ?? {};
@@ -105,14 +106,15 @@ export default function Training() {
   async function run(work: () => Promise<void>) {
     if (guard.current || !current()) return;
     guard.current = true;
+    const attempt = {}; operation.current = attempt;
     setBusy(true);
     setError("");
     try {
       await work();
     } catch (e) {
-      if (current()) setError(e instanceof Error ? e.message : "Could not save on this device.");
+      if (current() && operation.current === attempt) setError(e instanceof Error ? e.message : "Could not save on this device.");
     } finally {
-      if (current()) { guard.current = false; setBusy(false); }
+      if (current() && operation.current === attempt) { operation.current = null; guard.current = false; setBusy(false); }
     }
   }
   if (restoreError)
@@ -185,7 +187,7 @@ export default function Training() {
   async function finish(status: "completed" | "partial", discardUnlogged = false) {
     if (!current() || store!.snapshot().active?.id !== d!.id) throw Error("This session changed. Review the current session before finishing.");
     await store!.finish(status, undefined, discardUnlogged ? "discard" : "keep");
-    if (!current()) return;
+    if (!current() || store!.snapshot().active != null) return;
     haptics.success();
     void store!.sync(api.saveSession).then(() => { if (current()) void cache.invalidateQueries({ queryKey: [owner, "sessions"] }); });
     router.replace("/(tabs)/progress");

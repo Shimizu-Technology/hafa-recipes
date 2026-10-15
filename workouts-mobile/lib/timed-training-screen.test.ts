@@ -163,21 +163,22 @@ it("keeps invalid unlogged actuals available to correct instead of finishing or 
 });
 
 
-it("an old partial finish cannot navigate or sync after its account and store are replaced", async () => {
+it.each(["account", "session"] as const)("an old partial finish cannot navigate or sync after its %s is replaced", async changed => {
   await recordedThenTyped();
   await act(async () => { partial().props.onPress(); }); await settle();
   const oldStore = fixture.store!, finish = oldStore.finish;
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });
-  vi.spyOn(oldStore, "finish").mockImplementation(async (...args) => { await held; return finish(...args); });
+  vi.spyOn(oldStore, "finish").mockImplementation(async (...args) => { await finish(...args); await held; });
   const oldSync = vi.spyOn(oldStore, "sync");
   await act(async () => { action("Finish without this entry").props.onPress(); }); await settle();
   const memory = new Map<string, string>();
-  const replacement = createTrainingStore({ getItem: async key => memory.get(key) ?? null,
+  const replacement = changed === "session" ? oldStore : createTrainingStore({ getItem: async key => memory.get(key) ?? null,
     setItem: async (key, value) => { memory.set(key, value); }, removeItem: async key => { memory.delete(key); } }, "other", 1);
   await replacement.load(); await replacement.start(workout, { workout_id: "source", workout_revision: 1 }, "replacement");
   await replacement.input({ reps: "6" });
-  fixture.owner = "other"; fixture.storage = { isCurrent: () => true }; fixture.store = replacement;
+  if (changed === "account") { fixture.owner = "other"; fixture.storage = { isCurrent: () => true }; }
+  fixture.store = replacement;
   await act(async () => { renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Training))); }); await settle();
   expect(field("Actual reps").props.value).toBe("6");
   await act(async () => { release(); }); await settle();
