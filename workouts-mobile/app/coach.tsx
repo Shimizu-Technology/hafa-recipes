@@ -145,7 +145,8 @@ export default function Coach() {
   const scroll = useRef<ScrollView | null>(null);
   const reading = useRef({ offset: 0, latest: true, viewport: 0 });
   const positions = useRef(new Map<string, number>());
-  const earlier = useRef<{ id: string; top: number; offset: number; firstId: string } | null>(null);
+  const messageViews = useRef(new Map<string, View>());
+  const earlier = useRef<{ id: string; top: number; offset: number; firstId: string; positions: Map<string, number> } | null>(null);
   const loadingEarlier = useRef(false);
   const [awayFromLatest, setAwayFromLatest] = useState(false);
   useLayoutEffect(() => {
@@ -168,7 +169,7 @@ export default function Coach() {
     reading.current.latest = false; setAwayFromLatest(true);
     if (anchor && positions.current.get(anchor.id)! < reading.current.offset + reading.current.viewport)
       earlier.current = { id: anchor.id, top: positions.current.get(anchor.id)!,
-      offset: reading.current.offset, firstId: history[0].id };
+      offset: reading.current.offset, firstId: history[0].id, positions: new Map(positions.current) };
     try {
       const result = await q.fetchNextPage();
       const oldest = result.data?.pages.flatMap(page => page.messages).sort(messageOrder)[0]?.id;
@@ -182,11 +183,28 @@ export default function Coach() {
     const anchor = earlier.current;
     if (anchor?.id === id && history[0]?.id !== anchor.firstId) {
       earlier.current = null;
-      const offset = Math.max(0, anchor.offset + top - anchor.top);
+      const delta = top - anchor.top;
+      for (const [oldId, oldTop] of anchor.positions) positions.current.set(oldId, oldTop + delta);
+      const offset = Math.max(0, anchor.offset + delta);
       reading.current.offset = offset;
       scroll.current?.scrollTo({ y: offset, animated: false });
     }
   }
+  // Position-only changes do not emit onLayout on every platform (RNWeb
+  // observes size). Measure the existing anchor after the prepend commits.
+  useLayoutEffect(() => {
+    const anchor = earlier.current;
+    const reader = scroll.current as (ScrollView & { getInnerViewRef?: () => View | null }) | null;
+    const row = anchor && messageViews.current.get(anchor.id);
+    const content = reader?.getInnerViewRef?.();
+    if (!anchor || history[0]?.id === anchor.firstId || !row || !content) return;
+    row.measureLayout(content, (_x, y) => {
+      if (currentConversation() && earlier.current === anchor && scroll.current === reader && messageViews.current.get(anchor.id) === row)
+        messageLayout(anchor.id, y);
+    }, () => {
+      if (currentConversation() && earlier.current === anchor) earlier.current = null;
+    });
+  }, [history[0]?.id, conversation]);
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => setForeground(state === "active"));
     return () => sub.remove();
@@ -384,9 +402,7 @@ export default function Coach() {
         if (!currentConversation() || !history.length) return;
         const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
         if (earlier.current) {
-          if (history[0]?.id === earlier.current.firstId) {
-            earlier.current.offset = contentOffset.y; reading.current.offset = contentOffset.y;
-          }
+          earlier.current.offset = contentOffset.y; reading.current.offset = contentOffset.y;
           return;
         }
         const atLatest = contentSize.height - layoutMeasurement.height - contentOffset.y < 80;
@@ -539,7 +555,7 @@ export default function Coach() {
 
       {!!history.length && <SectionHeader title="Conversation" />}
       {history.map((item) => (
-        <View key={item.id} onLayout={event => messageLayout(item.id, event.nativeEvent.layout.y)} style={{ gap: 10 }}>
+        <View key={item.id} ref={node => { if (node) messageViews.current.set(item.id, node); else messageViews.current.delete(item.id); }} onLayout={event => messageLayout(item.id, event.nativeEvent.layout.y)} style={{ gap: 10 }}>
           <Bubble from="you" meta={`${new Date(item.created_at).toLocaleString()} · ${item.state === "pending" ? "Awaiting reply" : item.state === "failed" ? "Reply unavailable" : "Sent"}`}>
             <Copy selectable>{item.user_message}</Copy>
           </Bubble>
