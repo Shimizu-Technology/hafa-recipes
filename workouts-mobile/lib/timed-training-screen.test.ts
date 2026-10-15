@@ -186,3 +186,26 @@ it.each(["account", "session"] as const)("an old partial finish cannot navigate 
   expect(replacement.snapshot().active!.input).toEqual({ reps: "6" });
   expect(footer().props.busy).toBe(false);
 });
+
+
+it("an old logged entry acknowledgement cannot clear a newer same-store session input", async () => {
+  await recordedThenTyped();
+  await act(async () => { partial().props.onPress(); }); await settle();
+  const store = fixture.store!, log = store.log;
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  vi.spyOn(store, "log").mockImplementation(async actual => { await log(actual); await held; });
+  await act(async () => { action("Log and finish").props.onPress(); }); await settle();
+  expect(store.snapshot().active!.actuals).toHaveLength(2);
+  await act(async () => {
+    await store.discard();
+    await store.start(workout, { workout_id: "source", workout_revision: 1 }, "replacement-after-log");
+    await store.input({ reps: "6", notes: "New session entry" });
+  }); await settle();
+  expect(field("Actual reps").props.value).toBe("6");
+  await act(async () => { release(); }); await settle();
+  expect(field("Actual reps").props.value).toBe("6");
+  expect(store.snapshot().active!.input).toEqual({ reps: "6", notes: "New session entry" });
+  expect(store.snapshot().active!.actuals).toEqual([]);
+  expect(fixture.replace).not.toHaveBeenCalled(); expect(fixture.saveSession).not.toHaveBeenCalled();
+});

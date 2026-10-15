@@ -44,6 +44,7 @@ export default function Training() {
     return () => { if (live.current === scope) live.current = null; };
   }, [scope]);
   const current = () => live.current === scope && storage.isCurrent() && isCurrentAccount();
+  const sameSession = () => current() && d != null && store?.snapshot().active?.id === d.id;
   const reminders = useReminders();
   const [now, setNow] = useState(Date.now());
   const [input, setInput] = useState<Record<string, string>>({});
@@ -64,23 +65,23 @@ export default function Training() {
   }, []);
   useEffect(() => {
     const active = store?.snapshot().active;
-    if (!current() || !active?.timed_circuit || active.paused || checkpointing.current ||
+    if (!sameSession() || !active?.timed_circuit || active.paused || checkpointing.current ||
       (now - active.checkpoint_at < 5000 && circuitRemaining(active, now)! > 0)) return;
     checkpointing.current = true;
-    void store!.checkpoint().catch(() => { if (current()) setError("Could not save the circuit timer on this device. Pause and retry."); })
-      .finally(() => { if (current()) checkpointing.current = false; });
+    void store!.checkpoint().catch(() => { if (sameSession()) setError("Could not save the circuit timer on this device. Pause and retry."); })
+      .finally(() => { if (sameSession()) checkpointing.current = false; });
   }, [now, store, d?.id, d?.paused, scope]);
   useEffect(() => {
     const sub = AppState.addEventListener("change", (status) => {
       const active = store?.snapshot().active;
-      if (current() && status !== "active" && active?.timed_circuit && !active.paused && !backgroundPausePending.current) {
+      if (sameSession() && status !== "active" && active?.timed_circuit && !active.paused && !backgroundPausePending.current) {
         backgroundPausePending.current = true;
-        void store!.pause(true).catch(() => { if (current()) setError("Could not pause the circuit on this device. Review its saved timer before resuming."); })
-          .finally(() => { if (current()) backgroundPausePending.current = false; });
+        void store!.pause(true).catch(() => { if (sameSession()) setError("Could not pause the circuit on this device. Review its saved timer before resuming."); })
+          .finally(() => { if (sameSession()) backgroundPausePending.current = false; });
       }
     });
     return () => sub.remove();
-  }, [store, scope]);
+  }, [store, scope, d?.id]);
   useLayoutEffect(() => { setFinishReview(false); setBusy(false); setError(""); setMore(false);
     guard.current = false; operation.current = null; checkpointing.current = false; backgroundPausePending.current = false;
   }, [scope, d?.id]);
@@ -95,16 +96,16 @@ export default function Training() {
     setAdvanced(false);
   }, [scope, d?.id, d?.cursor]);
   function field(key: string, value: string) {
-    if (!current()) return;
+    if (!sameSession()) return;
     const next = { ...inputRef.current, [key]: value };
     inputRef.current = next;
     setInput(next);
     void store
       ?.input(next)
-      .catch(() => { if (current()) setError("Could not save your current inputs locally. Keep this screen open and retry."); });
+      .catch(() => { if (sameSession()) setError("Could not save your current inputs locally. Keep this screen open and retry."); });
   }
   async function run(work: () => Promise<void>) {
-    if (guard.current || !current()) return;
+    if (guard.current || !sameSession()) return;
     guard.current = true;
     const attempt = {}; operation.current = attempt;
     setBusy(true);
@@ -179,7 +180,7 @@ export default function Training() {
       notes: inputRef.current.notes || null,
     };
     await store.log(actual);
-    if (!current()) return;
+    if (!sameSession()) return;
     inputRef.current = {};
     setInput({});
     if (completed) haptics.light();
@@ -199,7 +200,7 @@ export default function Training() {
   const timedComplete = capReached && recorded > 0 && !timed.limit_reached && !d.actuals.some((a) => !a.completed);
   const pendingEntry = hasUnloggedInput(input);
   function requestPartialFinish() {
-    if (guard.current || !current()) return;
+    if (guard.current || !sameSession()) return;
     setMore(false);
     if (hasUnloggedInput(inputRef.current) || hasUnloggedInput(store!.snapshot().active?.input)) {
       setFinishReview(true);
