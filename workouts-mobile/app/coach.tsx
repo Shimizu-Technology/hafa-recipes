@@ -147,7 +147,7 @@ export default function Coach() {
   const positions = useRef(new Map<string, number>());
   const positionVersions = useRef(new Map<string, number>());
   const messageViews = useRef(new Map<string, View>());
-  const earlier = useRef<{ id: string; top: number; offset: number; firstId: string; positions: Map<string, { top: number; version: number }> } | null>(null);
+  const earlier = useRef<{ id: string; top: number; offset: number; firstId: string; measuring: boolean; positions: Map<string, { top: number; version: number }> } | null>(null);
   const loadingEarlier = useRef(false);
   const [awayFromLatest, setAwayFromLatest] = useState(false);
   useLayoutEffect(() => {
@@ -170,20 +170,32 @@ export default function Coach() {
     reading.current.latest = false; setAwayFromLatest(true);
     if (anchor && positions.current.get(anchor.id)! < reading.current.offset + reading.current.viewport)
       earlier.current = { id: anchor.id, top: positions.current.get(anchor.id)!,
-      offset: reading.current.offset, firstId: history[0].id, positions: new Map([...positions.current].map(([id, top]) => [id, { top, version: positionVersions.current.get(id) ?? 0 }])) };
+      offset: reading.current.offset, firstId: history[0].id, measuring: false, positions: new Map([...positions.current].map(([id, top]) => [id, { top, version: positionVersions.current.get(id) ?? 0 }])) };
     try {
+      const captured = earlier.current;
+      const reader = scroll.current as (ScrollView & { getInnerViewRef?: () => View | null }) | null;
+      const row = captured && messageViews.current.get(captured.id);
+      const content = reader?.getInnerViewRef?.();
+      if (captured && row && content) {
+        captured.measuring = true;
+        // onLayout may already be stale after an earlier position-only shift.
+        const top = await new Promise<number>((resolve, reject) => row.measureLayout(content, (_x, y) => resolve(y), reject));
+        if (!currentConversation() || earlier.current !== captured || scroll.current !== reader || messageViews.current.get(captured.id) !== row) return;
+        captured.top = top;
+      }
+      if (!currentConversation()) return;
       const result = await q.fetchNextPage();
       const oldest = result.data?.pages.flatMap(page => page.messages).sort(messageOrder)[0]?.id;
       if (currentConversation() && (result.isError || !oldest || oldest === earlier.current?.firstId)) earlier.current = null;
     } catch { if (currentConversation()) earlier.current = null; }
     finally { if (currentConversation()) loadingEarlier.current = false; }
   }
-  function messageLayout(id: string, top: number) {
+  function messageLayout(id: string, top: number, measured = false) {
     if (!currentConversation()) return;
     positions.current.set(id, top);
     positionVersions.current.set(id, (positionVersions.current.get(id) ?? 0) + 1);
     const anchor = earlier.current;
-    if (anchor?.id === id && history[0]?.id !== anchor.firstId) {
+    if (anchor?.id === id && history[0]?.id !== anchor.firstId && (!anchor.measuring || measured)) {
       earlier.current = null;
       const delta = top - anchor.top;
       for (const [oldId, previous] of anchor.positions)
@@ -200,10 +212,10 @@ export default function Coach() {
     const reader = scroll.current as (ScrollView & { getInnerViewRef?: () => View | null }) | null;
     const row = anchor && messageViews.current.get(anchor.id);
     const content = reader?.getInnerViewRef?.();
-    if (!anchor || history[0]?.id === anchor.firstId || !row || !content) return;
+    if (!anchor?.measuring || history[0]?.id === anchor.firstId || !row || !content) return;
     row.measureLayout(content, (_x, y) => {
       if (currentConversation() && earlier.current === anchor && scroll.current === reader && messageViews.current.get(anchor.id) === row)
-        messageLayout(anchor.id, y);
+        messageLayout(anchor.id, y, true);
     }, () => {
       if (currentConversation() && earlier.current === anchor) earlier.current = null;
     });
