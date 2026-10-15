@@ -228,7 +228,8 @@ export default function ImportReview() {
         setError(
           isIncomplete(e) && sharing && /discover|shar/i.test((e as { detail?: string }).detail ?? "")
             ? INCOMPLETE_MESSAGE
-            : updateExisting && (e as { status?: number }).status === 409
+            : updateExisting && (e as { status?: number }).status === 409 &&
+                (e as { detail?: string }).detail === "Workout changed; save a separate copy or extract again from its latest version"
               ? "Your saved workout changed while you reviewed this import. Its newer edit is safe. You can keep this extraction as a separate private workout."
               : (e as Error).message
         );
