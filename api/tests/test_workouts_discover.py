@@ -632,7 +632,22 @@ async def test_cover_upload_optional048_preserves_047_readers_and_requires_resto
     configured = settings().model_copy(update={"environment": "production"})
     with pytest.raises(RuntimeError, match="verified restore point"):
         await migration048.run_migration(configured=configured, migration_engine=discover_api.engine)
-    await migration048.run_migration(configured=settings(), migration_engine=discover_api.engine)
+    from sqlalchemy import event
+
+    validation_state = []
+    def inspect_validation(connection, cursor, statement, parameters, context, executemany):
+        if statement.startswith("ALTER TABLE workouts_source_media VALIDATE CONSTRAINT"):
+            validation_state.append(connection.exec_driver_sql("""SELECT
+                current_setting('lock_timeout'), EXISTS(SELECT 1 FROM pg_locks
+                WHERE locktype='advisory' AND pid=pg_backend_pid()
+                AND classid=0 AND objid=7340034 AND granted)""").one())
+
+    event.listen(discover_api.engine.sync_engine, "before_cursor_execute", inspect_validation)
+    try:
+        await migration048.run_migration(configured=settings(), migration_engine=discover_api.engine)
+    finally:
+        event.remove(discover_api.engine.sync_engine, "before_cursor_execute", inspect_validation)
+    assert validation_state == [("5s", True)]
     await migration048.run_migration(configured=configured, migration_engine=discover_api.engine)
     capability = await discover_api.client.get("/api/v1/workouts/capabilities")
     assert capability.json()["cover_upload"] is True
