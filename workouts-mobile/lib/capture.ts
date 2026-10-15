@@ -114,6 +114,8 @@ export interface Capabilities {
   health_sync: boolean;
   /** Absent on servers before Discover; only an explicit true shows Discover. */
   discover?: boolean;
+  /** Explicit server readiness for registered custom covers (migration048). */
+  cover_upload?: boolean;
   limits: { successful_or_pending_imports_per_rolling_day: number; coach_messages_per_rolling_day: number };
   billing_active: boolean;
 }

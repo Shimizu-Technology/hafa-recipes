@@ -3,11 +3,12 @@ import { View } from "react-native";
 import { Button, Card, Copy } from "@/components/ui";
 import { SourceImage } from "@/components/source-image";
 import type { Workout } from "@/lib/models";
-export function WorkoutSource({ source }: { source: Pick<Workout, "source_title" | "source_creator" | "source_thumbnail_url" | "source_context"> }) {
+export function WorkoutSource({ source }: { source: Pick<Workout, "source_title" | "source_creator" | "source_thumbnail_url" | "source_context" | "cover_origin"> }) {
   if (!source.source_title && !source.source_creator && !source.source_thumbnail_url && !source.source_context) return null;
   return <Card compact>
-    {source.source_thumbnail_url && <SourceImage uri={source.source_thumbnail_url} label={source.source_title ?? "Original workout source"} />}
-    <Copy kind="caption" tone="accent">Original source</Copy>
+    {source.source_thumbnail_url && <SourceImage uri={source.source_thumbnail_url} label={source.cover_origin === "user" ? "Custom workout cover photo" : source.source_title ?? "Original workout source"} />}
+    {source.cover_origin === "user" && <Copy kind="small" tone="muted">Custom cover photo</Copy>}
+    {(source.source_title || source.source_creator) && <Copy kind="caption" tone="accent">Original source</Copy>}
     {!!source.source_title && <Copy kind="subheading">{source.source_title}</Copy>}
     {!!source.source_creator && <Copy kind="small" tone="muted">By {source.source_creator}</Copy>}
     <SavedSourceText context={source.source_context} />

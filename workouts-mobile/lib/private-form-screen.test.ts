@@ -27,6 +27,7 @@ const fixture = vi.hoisted(() => ({
   importSource: vi.fn(),
   saveProfile: vi.fn(),
   updateWorkout: vi.fn(),
+  uploadWorkoutCover: vi.fn(), coverImageForm: vi.fn(),
   removeMeasurement: vi.fn(),
   saveMeasurement: vi.fn(),
   normalizeImages: vi.fn(),
@@ -103,6 +104,7 @@ vi.mock("@/lib/context", () => {
       return { profile: await fixture.saveProfile(...args), revision: returnedRevision };
     },
     updateWorkout: fixture.updateWorkout,
+    uploadWorkoutCover: fixture.uploadWorkoutCover,
     removeMeasurement: fixture.removeMeasurement,
     saveMeasurement: fixture.saveMeasurement,
     profile: fixture.profile,
@@ -146,6 +148,7 @@ vi.mock("react-native-safe-area-context", () => ({ SafeAreaView: "SafeAreaView" 
 vi.mock("@/components/source-image", () => ({ SourceImage: "SourceImage" }));
 vi.mock("@/lib/capture-io", () => ({
   normalizeImages: fixture.normalizeImages,
+  coverImageForm: fixture.coverImageForm,
   normalizeDocument: fixture.normalizeDocument,
   pickImages: fixture.pickImages,
   pickDocument: fixture.pickDocument,
@@ -161,6 +164,7 @@ vi.mock("expo-crypto", () => ({ randomUUID: () => `command-${++fixture.next}` })
 vi.mock("@/components/ui", () => ({
   Screen: ({ children, footer }: PropsWithChildren<{ footer?: ReactNode }>) => createElement("Screen", null, children, footer),
   useColors: () => ({ background: "#000" }),
+  Sheet: ({ visible, children }: { visible: boolean; children: import("react").ReactNode }) => visible ? createElement("Sheet", null, children) : null,
   Card: "Card",
   Copy: "Copy",
   Field: "Field",
@@ -207,6 +211,7 @@ import ImportReview from "../app/import/[id]";
 import RecoverWorkout from "../app/recover-workout/[id]";
 import Capture from "../app/capture";
 import AddWorkout from "../app/add-workout";
+import WorkoutCover from "../app/workout-cover/[id]";
 import Profile from "../app/profile";
 import EditWorkout from "../app/edit-workout/[id]";
 import MeasurementEditor from "../app/measurement";
@@ -2664,4 +2669,80 @@ it("source image preserves native portrait and landscape aspect ratios while zoo
   expect(nodes("Image")[1].props.style).toMatchObject({ width: 585, height: 292.5 });
   await act(async () => nodes("Image")[0].props.onLoad({ nativeEvent: {} }));
   expect(nodes("Image")[1].props.style.height).toBe(292.5);
+});
+
+async function coverReady() {
+  fixture.params = { id: workout.id };
+  fixture.capabilities.mockResolvedValue({ cover_upload: true });
+  fixture.pickImages.mockResolvedValue([{ uri: "file:///cache/owned.jpg", owned: true, mime_type: "image/jpeg", name: "Cover" }]);
+  fixture.sourceFor.mockResolvedValue({ kind: "images", images: [{ mime_type: "image/jpeg", base64_data: "SU1BR0U=" }], ai_consent: true });
+  fixture.coverImageForm.mockImplementation(async () => ({ body: new FormData(), cleanup: async () => {} }));
+  await mount(WorkoutCover);
+}
+it("hides cover actions on older servers and never invokes the picker or upload", async () => {
+  fixture.params = { id: workout.id }; await mount(WorkoutCover);
+  expect(button("Choose a photo")).toBeUndefined();
+  expect(fixture.pickImages).not.toHaveBeenCalled(); expect(fixture.uploadWorkoutCover).not.toHaveBeenCalled();
+});
+it("persists exact cover bytes, target revision and request UUID across a failed upload and screen restart", async () => {
+  await coverReady(); await click("Choose a photo");
+  expect(fixture.pickImages.mock.calls[0][3]).toBe(1);
+  expect(nodes("SourceImage")[0].props.uri).toBe("data:image/jpeg;base64,SU1BR0U=");
+  fixture.uploadWorkoutCover.mockRejectedValueOnce(Error("offline"));
+  await click("Save cover photo");
+  const first = fixture.uploadWorkoutCover.mock.calls[0];
+  expect(first[0]).toEqual({ id: workout.id, generation: 1, revision: 1 });
+  expect(button("Choose a different photo").props.disabled).toBe(true);
+  await unmount();
+  fixture.workout.mockResolvedValue({ ...workout, revision: 8 });
+  fixture.uploadWorkoutCover.mockResolvedValue({ ...workout, revision: 9, cover_origin: "user", source_thumbnail_url: "https://example.test/new.jpg" });
+  await mount(WorkoutCover); await click("Retry saved photo request");
+  const retry = fixture.uploadWorkoutCover.mock.calls[1];
+  expect(retry[0]).toEqual(first[0]); expect(retry[2]).toBe(first[2]);
+  expect(fixture.coverImageForm.mock.calls.map(call => call[0])).toEqual(["SU1BR0U=", "SU1BR0U="]);
+  expect(fixture.pickImages).toHaveBeenCalledTimes(1);
+  expect(nodes("SourceImage")[0].props.uri).toBe("https://example.test/new.jpg");
+});
+it("reconciles a lost remove acknowledgment without replaying old instructions over a newer saved version", async () => {
+  const source = { ...workout, source_thumbnail_url: "https://example.test/old.jpg", source_title: "Original title", source_creator: "Original creator" };
+  fixture.workout.mockResolvedValue(source); await coverReady();
+  await click("Remove cover photo");
+  fixture.updateWorkout.mockRejectedValueOnce(Error("lost response")); await click("Remove photo");
+  expect(fixture.updateWorkout.mock.calls[0][0]).toMatchObject({ source_thumbnail_url: null, source_title: "Original title", source_creator: "Original creator" });
+  fixture.workout.mockResolvedValue({ ...source, revision: 3, title: "Newer saved title", source_thumbnail_url: null });
+  await click("Retry saved photo request");
+  expect(fixture.updateWorkout).toHaveBeenCalledTimes(1);
+  expect(cache.getQueryData<Workout>([fixture.owner, "workout", workout.id, 1])?.title).toBe("Newer saved title");
+});
+it("stops account switches during cover selection before bytes are stored or sent", async () => {
+  const picked = deferred<unknown>(); await coverReady(); fixture.pickImages.mockReturnValue(picked.promise);
+  await click("Choose a photo"); fixture.current = false;
+  picked.resolve([{ uri: "file:///cache/owned.jpg", owned: true }]); await settle();
+  expect(fixture.sourceFor).not.toHaveBeenCalled(); expect(fixture.uploadWorkoutCover).not.toHaveBeenCalled();
+  expect(fixture.cleanup).toHaveBeenCalled();
+});
+
+
+it("admits one cover save immediately and fences its late result after the training generation changes", async () => {
+  await coverReady(); await click("Choose a photo");
+  const pending = deferred<Workout>(); fixture.uploadWorkoutCover.mockReturnValue(pending.promise);
+  const send = button("Save cover photo").props.onPress;
+  await act(async () => { void send(); void send(); }); await settle();
+  expect(fixture.uploadWorkoutCover).toHaveBeenCalledTimes(1);
+  fixture.generation = 2; fixture.workout.mockResolvedValue({ ...workout, generation: 2, title: "New setup" });
+  await act(async () => { renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(WorkoutCover))); }); await settle();
+  pending.resolve({ ...workout, revision: 2, source_thumbnail_url: "https://example.test/old-generation.jpg" }); await settle();
+  expect(cache.getQueryData<Workout>([fixture.owner, "workout", workout.id, 2])?.title).toBe("New setup");
+  expect(cache.getQueryData<Workout>([fixture.owner, "workout", workout.id, 1])?.revision).toBe(1);
+  expect(nodes("SourceImage")).toHaveLength(0);
+});
+it("keeps a newer cover intact when a removal draft has a stale saved revision", async () => {
+  const source = { ...workout, source_thumbnail_url: "https://example.test/first.jpg" };
+  fixture.workout.mockResolvedValue(source); await coverReady(); await click("Remove cover photo");
+  fixture.workout.mockResolvedValue({ ...source, revision: 2, source_thumbnail_url: "https://example.test/newer.jpg" });
+  await click("Remove photo"); expect(fixture.updateWorkout).not.toHaveBeenCalled();
+  expect(button("Retry saved photo request")).toBeDefined();
+  await click("Discard photo draft and reload");
+  expect(nodes("SourceImage")[0].props.uri).toBe("https://example.test/newer.jpg");
+  expect(button("Retry saved photo request")).toBeUndefined();
 });

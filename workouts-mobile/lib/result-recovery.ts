@@ -10,7 +10,7 @@ export function canRecoverResult(item: SavedLocalSession) {
 }
 /** A reviewed local copy is user-authored; it cannot claim server/source evidence. */
 export function restoredPrescription(workout: Workout): AuthoredWorkout {
-  return { ...authoredWorkout(workout), provenance: "user", source_thumbnail_url: null, source_context: null,
+  return { ...authoredWorkout(workout), provenance: "user", source_thumbnail_url: null, cover_origin: null, source_context: null,
     blocks: workout.blocks.map(block => ({ ...block, evidence: [], exercises: block.exercises.map(exercise => ({
       ...exercise, provenance: "user", evidence: [],
     })) })) };
