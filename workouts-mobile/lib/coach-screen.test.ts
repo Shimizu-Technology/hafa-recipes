@@ -167,7 +167,7 @@ it("measures a prepended anchor when its unchanged size emits no new layout even
   const gate = deferred<{ messages: CoachMessage[]; limit: number; offset: number }>(); f.historyGate = gate.promise;
   await mount();
   const row = nodes("View").find(node => node.props.onLayout && node.findAll(child => String(child.type) === "Copy" && child.props.children === "Question older").length)!;
-  f.measureAnchor.mockImplementationOnce((_content, success) => success(0, 520)).mockImplementation((_content, success) => success(0, 900));
+  f.measureAnchor.mockImplementation((_content, success) => success(0, f.historyCalls.includes(2) ? 900 : 520));
   await act(async () => {
     row.props.onLayout({ nativeEvent: { layout: { y: 500 } } });
     bindScroll().props.onScroll(scrollEvent(550));
@@ -184,7 +184,7 @@ it.each(["jump", "owner", "storage"])("ignores a delayed anchor measurement afte
   const row = nodes("View").find(node => node.props.onLayout)!;
   await act(async () => { row.props.onLayout({ nativeEvent: { layout: { y: 500 } } }); bindScroll().props.onScroll(scrollEvent(550)); });
   let measured!: (x: number, y: number) => void;
-  f.measureAnchor.mockImplementationOnce((_content, success) => success(0, 500)).mockImplementation((_content, success) => { measured = success; });
+  f.measureAnchor.mockImplementation((_content, success) => { if (!f.historyCalls.includes(2)) success(0, 500); else measured = success; });
   await click("Load earlier messages");
   await act(async () => page.resolve({ messages: [{ ...reply("earliest"), created_at: "2026-10-14T00:00:00Z" }], limit: 2, offset: 2 })); await settle();
   expect(measured).toBeTypeOf("function");
@@ -200,7 +200,7 @@ it("preserves a scroll made during measurement and excludes a simultaneous reply
   const row = nodes("View").find(node => node.props.onLayout)!;
   await act(async () => { row.props.onLayout({ nativeEvent: { layout: { y: 500 } } }); bindScroll().props.onScroll(scrollEvent(550)); });
   let measured!: (x: number, y: number) => void;
-  f.measureAnchor.mockImplementationOnce((_content, success) => success(0, 500)).mockImplementation((_content, success) => { measured = success; });
+  f.measureAnchor.mockImplementation((_content, success) => { if (!f.historyCalls.includes(2)) success(0, 500); else measured = success; });
   await click("Load earlier messages");
   await act(async () => page.resolve({ messages: [{ ...reply("earliest"), created_at: "2026-10-14T00:00:00Z" }, { ...reply("latest"), created_at: "2026-10-16T00:00:00Z" }], limit: 2, offset: 2 })); await settle();
   await act(async () => {
@@ -223,7 +223,7 @@ it("refreshes unchanged row positions for another prepend while retaining fresh 
     bindScroll().props.onScroll(scrollEvent(550));
   });
   let measured!: (x: number, y: number) => void;
-  f.measureAnchor.mockImplementationOnce((_content, success) => success(0, 500)).mockImplementation((_content, success) => { measured = success; });
+  f.measureAnchor.mockImplementation((_content, success) => { if (!f.historyCalls.includes(2)) success(0, 500); else measured = success; });
   await click("Load earlier messages");
   await act(async () => page.resolve({ messages: ["early-a", "early-b"].map((id, i) => ({ ...reply(id), created_at: `2026-10-1${3 + i}T00:00:00Z` })), limit: 2, offset: 2 })); await settle();
   await act(async () => { row("Question newer").props.onLayout({ nativeEvent: { layout: { y: 1800 } } }); measured(0, 900); });
