@@ -12,7 +12,12 @@ from sqlalchemy import select, update
 from app.config import get_settings
 from app.domains.workouts.automation_models import WorkoutImport, WorkoutProposal, WorkoutReadiness
 from app.domains.workouts.discover import discover_ready, require_discover, set_publication
-from app.domains.workouts.extraction import ExtractionRequest, WorkoutExtractionResult
+from app.domains.workouts.extraction import (
+    IMPORT_STAGES,
+    ExtractionRequest,
+    ImportStage,
+    WorkoutExtractionResult,
+)
 from app.domains.workouts.imports import (
     MAX_IMPORT_ATTEMPTS,
     MAX_IMPORTS_PER_DAY,
@@ -125,6 +130,7 @@ class ImportResponse(DomainModel):
     next_attempt_at: datetime | None = None
     max_attempts: int | None = None
     replace_target: ImportTarget | None = None
+    current_stage: ImportStage | None = None
 
 
 def import_response(row):
@@ -150,6 +156,8 @@ def import_response(row):
     response["next_attempt_at"] = getattr(row, "next_attempt_at", None) if row.status == "queued" else None
     response["max_attempts"] = MAX_IMPORT_ATTEMPTS
     response["replace_target"] = row.payload.get("_replace") if isinstance(row.payload, dict) else None
+    stage = row.payload.get("_progress") if isinstance(row.payload, dict) and row.status == "processing" else None
+    response["current_stage"] = stage if isinstance(stage, str) and stage in IMPORT_STAGES else None
     return response
 
 

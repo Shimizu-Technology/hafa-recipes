@@ -79,6 +79,7 @@ export interface ImportJob {
   updated_at?: string | null;
   next_attempt_at?: string | null;
   max_attempts?: number | null;
+  current_stage?: "reading_source" | "reading_images" | "reading_document" | "listening_video" | "reading_frames" | "extracting_workout" | "saving_workout" | null;
   result: {
     status: "ready" | "incomplete" | "failed";
     workout: AuthoredWorkout | null;

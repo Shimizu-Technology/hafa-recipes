@@ -28,3 +28,16 @@ it("recovers from caption alone and rejects invalid source requests before trans
   expect(() => sourceRecoveryRequest({ source_url: "https://user:password@example.test", caption: "" })).toThrow("without account credentials");
   expect(() => sourceRecoveryRequest({ source_url: "", caption: "a".repeat(30001) })).toThrow("30,000");
 });
+
+it.each([
+  ["reading_source", "Reading the source"], ["reading_images", "Reading images"],
+  ["reading_document", "Reading the document"], ["listening_video", "Listening to the video"],
+  ["reading_frames", "Reading video frames"], ["extracting_workout", "Extracting the workout"], ["saving_workout", "Saving the result"],
+] as const)("presents the actual %s stage without a percentage", (current_stage, phase) => {
+  const progress = importProgressState({ ...job, current_stage });
+  expect(progress.phase).toBe(phase); expect(progress).not.toHaveProperty("percentage");
+});
+it("ignores a previous attempt's stage while queued and falls back for an unfamiliar server stage", () => {
+  expect(importProgressState({ ...job, status: "queued", current_stage: "reading_frames" }).phase).toBe("Waiting to retry");
+  expect(importProgressState({ ...job, current_stage: "future_stage" as never }).phase).toBe("Trying the source again");
+});

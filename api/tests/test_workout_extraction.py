@@ -15,6 +15,7 @@ from app.domains.workouts.extraction import (
     ExtractionFailure,
     ExtractionImage,
     ExtractionRequest,
+    ImportProgressStopped,
     ProductionExtractionProvider,
     ProductionSourceAcquirer,
     SourceBundle,
@@ -2162,3 +2163,72 @@ async def test_oversized_document_failure_keeps_bounded_decoded_text():
     assert result.error_code == "document_text_limit"
     assert result.workout.source_context.truncated
     assert "".join(part.text for part in result.workout.source_context.parts) == text[:30_000]
+
+
+@pytest.mark.asyncio
+async def test_reported_caption_stages_skip_media_and_callback_does_not_leak_to_next_call(monkeypatch):
+    await mock_video_acquirer(monkeypatch)
+    stages = []
+    async def progress(stage):
+        stages.append(stage)
+    extractor = WorkoutExtractor(FakeProvider(complete_workout("caption")))
+    request = ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
+    result = await extractor.extract_with_progress(request, progress)
+    assert result.status == "ready"
+    assert stages == ["reading_source", "extracting_workout"]
+    await extractor.extract(request)
+    assert stages == ["reading_source", "extracting_workout"]
+
+
+@pytest.mark.asyncio
+async def test_real_optional_media_stages_report_only_operations_actually_attempted(monkeypatch):
+    service = await mock_video_acquirer(monkeypatch)
+    stages, calls = [], []
+    async def progress(stage):
+        stages.append(stage)
+    async def audio(url):
+        calls.append("audio")
+        return SimpleNamespace(success=False, file_path=None)
+    async def frames(url):
+        calls.append("frames")
+        return SimpleNamespace(success=False, frames=[])
+    service.download_audio, service.extract_video_frames = audio, frames
+    await WorkoutExtractor(FakeProvider()).extract_with_progress(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True), progress)
+    assert stages == ["reading_source", "extracting_workout", "listening_video", "reading_frames", "extracting_workout"]
+    assert calls == ["audio", "frames"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stop_at", ["extracting_workout", "listening_video", "reading_frames"])
+async def test_progress_authorization_stop_escapes_media_fallback_and_prevents_later_side_effects(monkeypatch, stop_at):
+    service = await mock_video_acquirer(monkeypatch)
+    calls = []
+    async def audio(url):
+        calls.append("audio")
+        return SimpleNamespace(success=False, file_path=None)
+    async def frames(url):
+        calls.append("frames")
+        return SimpleNamespace(success=False, frames=[])
+    async def progress(stage):
+        if stage == stop_at:
+            raise ImportProgressStopped()
+    service.download_audio, service.extract_video_frames = audio, frames
+    provider = FakeProvider()
+    with pytest.raises(ImportProgressStopped):
+        await WorkoutExtractor(provider).extract_with_progress(
+            ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True), progress)
+    assert calls == (["audio"] if stop_at == "reading_frames" else [])
+    assert len(provider.calls) == (0 if stop_at == "extracting_workout" else 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind,first_stage", [("text", "reading_source"), ("images", "reading_images"), ("document", "reading_document")])
+async def test_direct_capture_reports_its_real_reading_stage(kind, first_stage):
+    payload = {"text": TEXT} if kind == "text" else {"images": [ExtractionImage(base64_data=image_data(), mime_type="image/png")]} if kind == "images" else {
+        "document_base64": base64.b64encode(TEXT.encode()).decode(), "document_mime": "text/plain"}
+    stages = []
+    async def progress(stage):
+        stages.append(stage)
+    await WorkoutExtractor(FakeProvider()).extract_with_progress(ExtractionRequest(kind=kind, ai_consent=True, **payload), progress)
+    assert stages == [first_stage, "extracting_workout"]
