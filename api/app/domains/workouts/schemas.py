@@ -109,6 +109,7 @@ class WorkoutContent(DomainModel):
     source_title: str | None = Field(default=None, max_length=200)
     source_thumbnail_url: str | None = Field(default=None, max_length=2000)
     source_context: SourceContext | None = Field(default=None, exclude_if=lambda value: value is None)
+    cover_origin: Literal["user"] | None = Field(default=None, exclude_if=lambda value: value is None)
     equipment_required: list[str] = Field(default_factory=list, max_length=100)
     equipment_optional: list[str] = Field(default_factory=list, max_length=100)
     estimated_minutes: int | None = Field(default=None, ge=1, le=1440)

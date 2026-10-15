@@ -509,6 +509,9 @@ async def save_discovered(
         )
         await retain_source_cover(db, user.id, generation, workout["source_thumbnail_url"])
     content = validated_workout(WorkoutContent.model_validate(workout), authored=False)
+    await retain_source_cover(
+        db, user.id, generation, content.get("source_thumbnail_url"), content=content
+    )
     content.update(id=str(identifier), version=1, parent_version_id=None)
     record = WorkoutRecord(
         id=identifier,

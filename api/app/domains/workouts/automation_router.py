@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import Field, StrictBool, model_validator
 from sqlalchemy import select, update
 
@@ -37,9 +37,12 @@ from app.domains.workouts.models import (
 from app.domains.workouts.plan_archival import require_unarchived
 from app.domains.workouts.programming import adapt_workout
 from app.domains.workouts.router import (
+    CreationKey,
     Database,
     Generation,
+    LibraryRecordResponse,
     RecordResponse,
+    Revision,
     User,
     append_workout_version,
     bounded_content,
@@ -73,11 +76,14 @@ imports_router = APIRouter(
 async def capabilities(user: User, db: Database):
     membership = await membership_for(db, user.id)
     configured = get_settings()
+    from app.domains.workouts.cover_upload import storage_service, upload_ready
+
     return {
         "generation": membership.generation,
         "public_beta": configured.workouts_public_access_enabled,
         "server_auto_save": True,
         "existing_workout_updates": True,
+        "cover_upload": storage_service.is_enabled and await upload_ready(db),
         "coach_cancellation": True,
         "coach_streaming": True,
         "imports": configured.workouts_imports_enabled
@@ -102,6 +108,25 @@ async def capabilities(user: User, db: Database):
 class ImportTarget(DomainModel):
     workout_id: UUID
     expected_revision: int = Field(strict=True, ge=1, le=2_147_483_647)
+
+
+@imports_router.post("/library/{workout_id}/cover", response_model=LibraryRecordResponse)
+async def upload_workout_cover(
+    workout_id: UUID,
+    user: User,
+    db: Database,
+    generation: Generation,
+    expected_revision: Revision,
+    idempotency_key: CreationKey = None,
+    image: UploadFile = File(...),
+):
+    if idempotency_key is None:
+        raise HTTPException(428, "Idempotency-Key is required for cover uploads")
+    from app.domains.workouts.cover_upload import save_cover
+
+    return await save_cover(
+        workout_id, expected_revision, idempotency_key, image, user, db, generation
+    )
 
 
 class ImportRequest(DomainModel):
@@ -352,6 +377,11 @@ async def accept_import(
     ):
         raise HTTPException(422, "An import cannot claim generated coaching provenance")
     content = validated_workout(workout, authored=False)
+    from app.domains.workouts.source_media import retain_source_cover
+
+    await retain_source_cover(
+        db, user.id, generation, workout.source_thumbnail_url, content=content
+    )
     try:
         original_content = validated_workout(
             WorkoutContent.model_validate(row.result["workout"]), authored=False

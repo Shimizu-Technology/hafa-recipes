@@ -1361,8 +1361,9 @@ async def test_legacy_accept_preserves_server_source_fields(automation_api, monk
         await db.commit()
     from app.domains.workouts import source_media
 
-    async def entitled(db, owner, generation, url):
+    async def entitled(db, owner, generation, url, *, content=None):
         assert url == cover
+        assert content["source_thumbnail_url"] == cover
 
     monkeypatch.setattr(source_media, "retain_source_cover", entitled)
     legacy = dict(result["workout"])

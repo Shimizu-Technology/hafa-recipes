@@ -164,6 +164,8 @@ def project_workout(raw, *, include_source_url=False):
 
         if asset_id(source.source_thumbnail_url):
             projected["source_thumbnail_url"] = source.source_thumbnail_url
+            if source.cover_origin:
+                projected["cover_origin"] = source.cover_origin
     incomplete = not source.blocks
     for index, source_block in enumerate(source_data["blocks"]):
         block = {
@@ -436,7 +438,9 @@ async def copy_share(db, user_id, generation, token, request):
         if share.snapshot_digest != request.snapshot_digest:
             raise HTTPException(409, "Shared preview changed; review again")
         for workout in workouts:
-            await retain_source_cover(db, user_id, generation, workout.get("source_thumbnail_url"))
+            await retain_source_cover(
+                db, user_id, generation, workout.get("source_thumbnail_url"), content=workout
+            )
     identifier = uuid4()
     if share.kind == "workout":
         if request.start_date is not None:

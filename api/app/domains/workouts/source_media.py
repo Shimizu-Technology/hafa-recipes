@@ -123,6 +123,9 @@ async def _prepare(sessions, owner, generation, source_id, url, purpose, expecte
                 if existing.canonical_url:
                     return existing.canonical_url
             owned = asset_id(url)
+            from app.domains.workouts.cover_upload import registered_origin
+
+            origin = await registered_origin(db, owned) if owned else None
             key = storage_service._owned_storage_key(url)
             if storage_service.thumbnail_origin(url) == "app_owned" and not owned:
                 return None
@@ -164,6 +167,12 @@ async def _prepare(sessions, owner, generation, source_id, url, purpose, expecte
                         cleanup_job_id=cleanup.id,
                     )
                 )
+                await db.flush()
+                if origin:
+                    await db.execute(
+                        text("UPDATE workouts_source_media SET cover_origin=:origin WHERE id=:id"),
+                        {"origin": origin, "id": identifier},
+                    )
             await db.commit()  # Durable even if upload succeeds but subsequent commits fail.
         async with sessions() as db:
             await _eligible(db, owner, generation, source_id, purpose, expected)
@@ -193,7 +202,9 @@ async def _prepare(sessions, owner, generation, source_id, url, purpose, expecte
         return None  # Registered cleanup survives partial uploads and unavailable media.
 
 
-async def retain_source_cover(db, owner, generation, url):
+async def retain_source_cover(db, owner, generation, url, *, content=None):
+    if content is not None:
+        content.pop("cover_origin", None)
     if not url:
         return None
     identifier = asset_id(url)
@@ -227,6 +238,12 @@ async def retain_source_cover(db, owner, generation, url):
     # A rejected preview must stay unretained even when the caller catches the
     # error and commits a text-only workout in this same transaction.
     media.retained = True
+    if content is not None:
+        from app.domains.workouts.cover_upload import registered_origin
+
+        origin = await registered_origin(db, identifier)
+        if origin:
+            content["cover_origin"] = origin
     return url
 
 
