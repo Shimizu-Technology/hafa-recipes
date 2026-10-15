@@ -168,7 +168,7 @@ export function getSafeApiErrorCode(data: unknown): string | undefined {
 class ApiClient {
   private client: AxiosInstance;
   private getTokenFn: TokenGetter | null = null;
-  private authScope = Object.freeze({ userId: null as string | null, epoch: 0 });
+  private authScope: Readonly<{ userId: string | null; epoch: number }> = Object.freeze({ userId: null, epoch: 0 });
 
   constructor() {
     this.client = axios.create({
