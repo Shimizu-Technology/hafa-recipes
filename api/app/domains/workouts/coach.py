@@ -11,9 +11,10 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import HTTPException
 from pydantic import Field, model_validator
-from sqlalchemy import String, cast, delete, func, select, update
+from sqlalchemy import String, cast, delete, func, select, text, update
 
 from app.config import get_settings
+from app.db.database import AsyncSessionLocal
 from app.domains.workouts.automation_models import WorkoutCoachMessage, WorkoutProposal
 from app.domains.workouts.automation_router import effective_profile, proposal_context_hash
 from app.domains.workouts.budget import BudgetError, BudgetGuard, BudgetPolicy, ProviderEnvelope
@@ -24,6 +25,12 @@ from app.domains.workouts.coach_actions import (
     save_prepared,
     tool_definitions,
 )
+from app.domains.workouts.coach_control import (
+    cancel_message,
+    message_quota_count,
+    respond_while_current,
+)
+from app.domains.workouts.coach_stream import completed_response
 from app.domains.workouts.imports import require_ai_consent
 from app.domains.workouts.lifecycle import membership_for, now
 from app.domains.workouts.models import (
@@ -165,7 +172,8 @@ class ProductionCoachProvider:
         configured = getattr(settings, "workouts_development_ai_api_key", None)
         return self.development_api_key or (configured.get_secret_value() if configured else None)
 
-    async def respond(self, items, *, tools):
+    async def respond(self, items, *, tools, on_text_delta=None):
+        """Optionally await provisional text deltas; return the usual final payload."""
         if not self.enabled:
             raise CoachFailure("provider_disabled")
         if len(json.dumps(items).encode()) > 160000:
@@ -196,23 +204,31 @@ class ProductionCoachProvider:
                     async with httpx.AsyncClient(
                         timeout=45, transport=httpx.AsyncHTTPTransport(retries=0)
                     ) as client:
-                        response = await client.post(
-                            "https://api.openai.com/v1/responses",
-                            headers={"Authorization": f"Bearer {self.key(settings)}"},
-                            json={
-                                "model": invocation.model,
-                                "input": items,
-                                "tools": tools,
-                                "tool_choice": "auto" if tools else "none",
-                                "parallel_tool_calls": False,
-                                "max_output_tokens": 1800,
-                                "store": False,
-                                "service_tier": "default",
-                            },
-                        )
-                    if response.status_code != 200 or len(response.content) > 256000:
-                        raise CoachFailure("provider_unavailable")
-                    data = response.json()
+                        body = {
+                            "model": invocation.model,
+                            "input": items,
+                            "tools": tools,
+                            "tool_choice": "auto" if tools else "none",
+                            "parallel_tool_calls": False,
+                            "max_output_tokens": 1800,
+                            "store": False,
+                            "service_tier": "default",
+                        }
+                        url = "https://api.openai.com/v1/responses"
+                        headers = {"Authorization": f"Bearer {self.key(settings)}"}
+                        if on_text_delta is None:
+                            response = await client.post(url, headers=headers, json=body)
+                            if response.status_code != 200 or len(response.content) > 256000:
+                                raise CoachFailure("provider_unavailable")
+                            data = response.json()
+                        else:
+                            body["stream"] = True
+                            headers["Accept"] = "text/event-stream"
+                            async with asyncio.timeout(45):
+                                async with client.stream("POST", url, headers=headers, json=body) as response:
+                                    if response.status_code != 200:
+                                        raise CoachFailure("provider_unavailable")
+                                    data = await completed_response(response, on_text_delta)
                     if data.get("status") != "completed":
                         raise CoachFailure("provider_incomplete")
                     response_parts(data, allow_tools=bool(tools))
@@ -493,6 +509,7 @@ def message_response(row):
             }
         )
     return {
+        **({"cancelled": True} if row.proposals.get("cancelled") is True else {}),
         "id": str(row.id),
         "request_id": str(row.request_id),
         "generation": row.generation,
@@ -548,16 +565,26 @@ async def clear_conversation(db, user_id, generation):
 
 
 class WorkoutCoach:
-    def __init__(self, provider=None, *, compose_library_program=None):
+    def __init__(self, provider=None, *, compose_library_program=None, session_factory=AsyncSessionLocal):
         self.provider = provider or ProductionCoachProvider()
         self.compose_library_program = compose_library_program
         self._inflight = {}
+        self._requests = {}
+        self.sessions = session_factory
 
     def cancel_owner(self, user_id):
         """Root consent/deletion hooks may also stop current process provider I/O."""
         for task in tuple(self._inflight.get(user_id, ())):
-            if task is not asyncio.current_task():
+            if task is not asyncio.current_task() and not task.done() and not task.cancelling():
                 task.cancel()
+
+    async def cancel(self, db, user_id, generation, request_id):
+        row = await cancel_message(db, user_id, generation, request_id, limit=MAX_MESSAGES_PER_DAY)
+        if row.proposals.get("cancelled") is True:
+            for task in tuple(self._requests.get((user_id, generation, request_id), ())):
+                if task is not asyncio.current_task() and not task.done() and not task.cancelling():
+                    task.cancel()
+        return message_response(row)
 
     async def guard(self, db, user_id, generation, message_id, token, fingerprint, consent_at):
         await membership_for(db, user_id, generation=generation, write=True)
@@ -576,17 +603,22 @@ class WorkoutCoach:
             raise HTTPException(409, "Training context changed; send a fresh request")
         return row, context
 
-    async def send(self, db, user_id, generation, request):
+    async def send(self, db, user_id, generation, request, *, on_event=None):
         task = asyncio.current_task()
         self._inflight.setdefault(user_id, set()).add(task)
+        key = (user_id, generation, request.request_id)
+        self._requests.setdefault(key, set()).add(task)
         try:
-            return await self._send(db, user_id, generation, request)
+            return await self._send(db, user_id, generation, request, on_event=on_event)
         finally:
+            self._requests[key].discard(task)
+            if not self._requests[key]:
+                self._requests.pop(key)
             self._inflight[user_id].discard(task)
             if not self._inflight[user_id]:
                 self._inflight.pop(user_id)
 
-    async def _send(self, db, user_id, generation, request):
+    async def _send(self, db, user_id, generation, request, *, on_event=None):
         if not self.provider.enabled:
             raise HTTPException(503, "Coach is unavailable; manual training remains available")
         if not request.message.strip():
@@ -604,6 +636,8 @@ class WorkoutCoach:
         if existing:
             if existing.proposals.get("state") == "cleared":
                 raise HTTPException(410, "This conversation request was cleared")
+            if existing.proposals.get("cancelled") is True and existing.proposals.get("hidden") is True:
+                return message_response(existing)  # An unseen request was stopped before reservation.
             if existing.request_hash != digest:
                 raise HTTPException(409, "Request ID already has a different message")
             if existing.proposals.get(
@@ -626,21 +660,7 @@ class WorkoutCoach:
             raise HTTPException(410, "This request was previously processed; send a new request ID")
         # Content-free invocation audit survives per-product erasure; both Responses
         # turns count as one request, and clear/erase cannot reset paid-call limits.
-        quota_requests = (
-            select(cast(WorkoutCoachMessage.request_id, String))
-            .where(
-                WorkoutCoachMessage.app_user_id == user_id,
-                WorkoutCoachMessage.created_at >= now() - timedelta(days=1),
-            )
-            .union(
-                select(AIInvocation.request_id).where(
-                    AIInvocation.user_id == user_id,
-                    AIInvocation.capability == "workout_coach",
-                    AIInvocation.created_at >= now() - timedelta(days=1),
-                )
-            )
-        )
-        count = await db.scalar(select(func.count()).select_from(quota_requests.subquery()))
+        count = await message_quota_count(db, user_id)
         if count >= MAX_MESSAGES_PER_DAY:
             raise HTTPException(429, "The beta coach allows 50 messages per rolling day")
         focus = {
@@ -671,6 +691,25 @@ class WorkoutCoach:
         db.add(row)
         await db.commit()
         message_id = row.id
+
+        async def authorize_delta():
+            # Delivery uses a fresh session; never retain owner locks while the
+            # client or bounded queue is slow. Terminal receipts supersede deltas.
+            async with self.sessions() as delivery:
+                configured = get_settings()
+                if (not configured.workouts_api_enabled or not configured.workouts_ai_enabled
+                        or not configured.is_ai_capability_enabled("workout_coach")):
+                    raise HTTPException(503, "Coach unavailable")
+                await self.guard(delivery, user_id, generation, message_id, token, fingerprint, consent_at)
+                await delivery.commit()
+
+        async def emit(kind, **values):
+            if on_event is not None:
+                await on_event({"type": kind, **values}, authorize_delta)
+
+        async def delta(text):
+            await emit("delta", text=text)
+
         try:
             # Medical diagnosis/rehabilitation and emergencies are outside this general-fitness coach.
             medical = re.search(
@@ -706,7 +745,11 @@ class WorkoutCoach:
                     route="/api/v1/workouts/coach/messages",
                 ):
                     async with asyncio.timeout(100):
-                        result = await self.provider.respond(items, tools=tool_definitions())
+                        await emit("reset", turn=1)
+                        result = await respond_while_current(
+                            self.provider, self.sessions, user_id, generation, message_id, token, consent_at,
+                            items, tools=tool_definitions(), on_text_delta=delta if on_event is not None else None,
+                        )
                         answer, calls = response_parts(result, allow_tools=True)
                         if calls:
                             validate_inspected_ids(calls, context)
@@ -746,7 +789,13 @@ class WorkoutCoach:
                                 db, user_id, generation, message_id, token, fingerprint, consent_at
                             )
                             await db.commit()
-                            final = await self.provider.respond(items, tools=[])
+                            # First-turn prose may precede tool calls. It is not
+                            # part of the final answer or a saved prescription.
+                            await emit("reset", turn=2)
+                            final = await respond_while_current(
+                                self.provider, self.sessions, user_id, generation, message_id, token, consent_at,
+                                items, tools=[], on_text_delta=delta if on_event is not None else None,
+                            )
                             answer, _ = response_parts(final, allow_tools=False)
             if not answer:
                 raise CoachFailure("empty_response")
@@ -774,25 +823,34 @@ class WorkoutCoach:
             await db.commit()
             return message_response(row)
         except BaseException as error:
-            await db.rollback()
-            # Never resurrect a cleared or erased reservation, even on cancellation.
-            await membership_for(db, user_id, generation=generation, write=True)
-            row = await db.get(WorkoutCoachMessage, message_id, populate_existing=True)
-            if (
-                row
-                and row.proposals.get("token") == token
-                and row.proposals.get("state") == "pending"
-            ):
-                row.proposals = {
-                    "state": "failed",
-                    "actions": [],
-                    "consent_at": consent_at.isoformat(),
-                    "focus": focus,
-                }
-                row.assistant_message = "I couldn't finish this request. Review your current training information and send a new message to retry."
-                await db.commit()
-            else:
-                await db.rollback()
+            # Finalizing failure is best effort, not permission to outlive the
+            # request indefinitely behind another transaction's owner lock.
+            # On timeout the existing pending UUID remains replay-safe: no second
+            # provider admission, and the normal stale-receipt rule still applies.
+            try:
+                async with asyncio.timeout(2):
+                    await db.rollback()
+                    await db.execute(text("SET LOCAL lock_timeout = '500ms'"))
+                    await db.execute(text("SET LOCAL statement_timeout = '1s'"))
+                    await membership_for(db, user_id, generation=generation, write=True)
+                    row = await db.get(WorkoutCoachMessage, message_id, populate_existing=True)
+                    if row and row.proposals.get("token") == token and row.proposals.get("state") == "pending":
+                        row.proposals = {
+                            "state": "failed", "actions": [],
+                            "consent_at": consent_at.isoformat(), "focus": focus,
+                        }
+                        row.assistant_message = "I couldn't finish this request. Review your current training information and send a new message to retry."
+                        await db.commit()
+                    else:
+                        await db.rollback()
+            except (Exception, asyncio.CancelledError):
+                # Release the failed/aborted transaction without waiting for the
+                # owner lock a second time. Do not overwrite Stop or completion.
+                try:
+                    async with asyncio.timeout(1):
+                        await db.rollback()
+                except (Exception, asyncio.CancelledError):
+                    pass  # The owning session context still closes its connection.
             if isinstance(error, (HTTPException, asyncio.CancelledError)):
                 raise
             if isinstance(error, Exception):

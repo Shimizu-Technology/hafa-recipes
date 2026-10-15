@@ -1,7 +1,10 @@
 """Deterministic coach contracts; no real provider calls or native acceptance claims."""
 
+import asyncio
 import json
+from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from app.domains.workouts.coach import (
@@ -16,6 +19,256 @@ from app.domains.workouts.coach import (
 from app.domains.workouts.coach_actions import health_derived, tool_definitions
 from tests.test_workouts_data_integration import settings
 from tests.workouts_provider_fakes import FakeBudget
+
+
+@pytest.fixture
+def streamed_provider(monkeypatch):
+    """Use the real HTTPX stream lifecycle with an entirely synthetic transport."""
+    from app import ai_governance
+    from app.domains.workouts import coach
+
+    configured = settings(workouts_ai_enabled=True).model_copy(update={"environment": "production"})
+    monkeypatch.setattr(coach, "get_settings", lambda: configured)
+    state = SimpleNamespace(chunks=[], error=None, block=None, status=200, content_type="text/event-stream",
+                            sent=[], tracked=[], closed=0, clients_closed=0, position=-1)
+
+    class Bytes(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            for index, chunk in enumerate(state.chunks):
+                state.position = index
+                yield chunk
+            if state.block:
+                await state.block.wait()
+            if state.error:
+                raise state.error
+
+        async def aclose(self):
+            state.closed += 1
+
+    def handle(request):
+        state.sent.append((str(request.url), json.loads(request.content), request.headers["accept"]))
+        return httpx.Response(state.status, headers={"content-type": state.content_type}, stream=Bytes())
+
+    client_type = httpx.AsyncClient
+
+    class Client(client_type):
+        def __init__(self, **kwargs):
+            assert kwargs["timeout"] == 45
+            assert isinstance(kwargs["transport"], httpx.AsyncHTTPTransport)
+            super().__init__(timeout=45, transport=httpx.MockTransport(handle))
+
+        async def __aexit__(self, *args):
+            try:
+                return await super().__aexit__(*args)
+            finally:
+                state.clients_closed += 1
+
+    class Tracker:
+        def __init__(self, **kwargs):
+            self.model = kwargs["primary_model"]
+            self.record = {"configuration": kwargs, "terminal": [], "exits": 0}
+            state.tracked.append(self.record)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            self.record["exits"] += 1
+            return False
+
+        def succeed(self, data):
+            self.record["terminal"].append(("success", data))
+
+        def fail(self, code):
+            self.record["terminal"].append(("failed", code))
+
+    monkeypatch.setattr(coach.httpx, "AsyncClient", Client)
+    monkeypatch.setattr(ai_governance, "AIInvocationTracker", Tracker)
+    return state
+
+
+def stream_frame(kind, **data):
+    return f"event: {kind}\r\ndata: {json.dumps({'type': kind, **data}, ensure_ascii=False)}\r\n\r\n".encode()
+
+
+def stream_result(text="Reply 🌴"):
+    return {"id": "response", "status": "completed", "usage": {"input_tokens": 5, "output_tokens": 2},
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": text}]}]}
+
+
+async def test_stream_delivers_real_fragmented_unicode_only_and_accounts_final_once(streamed_provider):
+    state, deltas, budget = streamed_provider, [], FakeBudget()
+    first = b"\xef\xbb\xbf: keepalive\r\n\r\n" + stream_frame("response.reasoning_text.delta", delta="PRIVATE REASONING")
+    first += stream_frame("response.function_call_arguments.delta", delta="PRIVATE ARGUMENTS")
+    text = stream_frame("response.output_text.delta", delta="Reply 🌴")
+    final = stream_result()
+    state.chunks = [first, *[text[index:index + 1] for index in range(len(text))],
+                    stream_frame("response.completed", response=final)]
+
+    async def receive(delta):
+        assert state.position < len(state.chunks) - 1 and state.closed == 0
+        deltas.append(delta)
+
+    result = await ProductionCoachProvider(budget_guard=budget).respond([], tools=[], on_text_delta=receive)
+    assert result == final and deltas == ["Reply 🌴"]
+    assert state.closed == state.clients_closed == 1
+    assert len(state.sent) == len(budget.reservations) == len(state.tracked) == 1
+    url, body, accept = state.sent[0]
+    assert url.endswith("/v1/responses") and accept == "text/event-stream"
+    assert body["stream"] is True and body["store"] is False and body["max_output_tokens"] == 1800
+    assert body["parallel_tool_calls"] is False and body["service_tier"] == "default"
+    assert budget.reservations[0][2].sdk_max_retries == 0 and budget.outcomes == ["success"]
+    assert state.tracked[0]["exits"] == 1
+    assert state.tracked[0]["terminal"] == [("success", normalize_usage(final))]
+    assert "PRIVATE" not in json.dumps(state.tracked)
+
+
+async def test_stream_callback_backpressure_does_not_consume_final_early(streamed_provider):
+    state, entered, release = streamed_provider, asyncio.Event(), asyncio.Event()
+    state.chunks = [stream_frame("response.output_text.delta", delta="Reply"),
+                    stream_frame("response.completed", response=stream_result("Reply"))]
+
+    async def receive(_delta):
+        entered.set()
+        await release.wait()
+
+    task = asyncio.create_task(ProductionCoachProvider(budget_guard=FakeBudget()).respond([], tools=[], on_text_delta=receive))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        assert state.position == 0 and not task.done()
+        release.set()
+        assert (await task)["status"] == "completed"
+    finally:
+        release.set()
+        if not task.done():
+            task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+async def test_stream_multiline_sse_and_tool_turn_do_not_expose_arguments(streamed_provider):
+    state, deltas, budget = streamed_provider, [], FakeBudget()
+    final = stream_result() | {"output": [
+        {"type": "reasoning", "summary": [{"text": "PRIVATE REASONING"}]},
+        {"type": "function_call", "call_id": "call", "name": "propose_training_plan", "arguments": "{}"}]}
+    event = {"type": "response.completed", "response": final}
+    # Multi-line SSE data is JSON whitespace, not several independent events.
+    multiline = "event: response.completed\r" + "\r".join(
+        "data: " + line for line in json.dumps(event, indent=2).splitlines()) + "\r\r"
+    state.chunks = [stream_frame("response.output_text.delta", delta="Provisional text"),
+                    stream_frame("response.function_call_arguments.delta", delta="PRIVATE ARGUMENTS"),
+                    multiline.encode()]
+
+    async def receive(delta):
+        deltas.append(delta)
+
+    result = await ProductionCoachProvider(budget_guard=budget).respond([], tools=tool_definitions(), on_text_delta=receive)
+    assert result == final and deltas == ["Provisional text"]
+    assert response_parts(result, allow_tools=True)[0] == ""  # Caller must reset the provisional turn.
+    assert budget.outcomes == ["success"] and state.closed == 1
+    assert "PRIVATE" not in json.dumps(state.tracked)
+
+
+@pytest.mark.parametrize("stalled", ["reader", "callback"])
+async def test_stream_whole_turn_deadline_closes_stalled_io(streamed_provider, monkeypatch, stalled):
+    from app.domains.workouts import coach
+
+    state, budget = streamed_provider, FakeBudget()
+    state.chunks = [stream_frame("response.output_text.delta", delta="Partial")]
+    wait = asyncio.Event()
+    if stalled == "reader":
+        state.block = wait
+    real_timeout = asyncio.timeout
+
+    def deadline(seconds):
+        assert seconds == 45
+        return real_timeout(0.01)
+
+    async def receive(_delta):
+        if stalled == "callback":
+            await wait.wait()
+
+    monkeypatch.setattr(coach.asyncio, "timeout", deadline)
+    with pytest.raises(CoachFailure, match="provider_unavailable"):
+        await ProductionCoachProvider(budget_guard=budget).respond([], tools=[], on_text_delta=receive)
+    assert state.closed == state.clients_closed == 1 and budget.outcomes == ["failed"]
+    assert len(state.tracked) == len(state.tracked[0]["terminal"]) == state.tracked[0]["exits"] == 1
+
+
+@pytest.mark.parametrize("case", ["missing", "truncated", "incomplete", "bad_json", "utf8", "bad_delta", "text_limit",
+    "frame_limit", "wire_limit", "missing_usage", "final_limit", "tool", "refusal", "headers", "status",
+    "timeout", "disconnect", "cancel", "callback"])
+async def test_stream_failure_closes_io_and_never_marks_partial_success(streamed_provider, monkeypatch, case):
+    state, budget, deltas = streamed_provider, FakeBudget(), []
+    final = stream_result()
+    terminal = stream_frame("response.completed", response=final)
+    state.chunks = [stream_frame("response.output_text.delta", delta="Partial"), terminal]
+    if case == "missing":
+        state.chunks.pop()
+    if case == "truncated":
+        state.chunks[-1] = terminal.rstrip(b"\r\n")
+    if case == "incomplete":
+        state.chunks[-1] = stream_frame("response.incomplete", response=final)
+    if case == "bad_json":
+        state.chunks[-1] = b"data: PRIVATE INVALID JSON\n\n"
+    if case == "utf8":
+        state.chunks[-1] = b"data: \xff\n\n"
+    if case == "bad_delta":
+        state.chunks[-1] = stream_frame("response.output_text.delta", delta={"private": True})
+    if case == "text_limit":
+        state.chunks[-1] = stream_frame("response.output_text.delta", delta="🌴" * 12001)
+    if case == "frame_limit":
+        state.chunks[-1] = b"data: " + b"x" * 260001
+    if case == "wire_limit":
+        from app.domains.workouts import coach_stream
+
+        monkeypatch.setattr(coach_stream, "MAX_WIRE_BYTES", 64)
+        state.chunks = [b": heartbeat\n\n"] * 6
+    if case == "missing_usage":
+        state.chunks[-1] = stream_frame("response.completed", response=final | {"usage": None})
+    if case == "final_limit":
+        state.chunks[-1] = stream_frame("response.completed", response=final | {"padding": "x" * 256001})
+    if case == "tool":
+        state.chunks[-1] = stream_frame("response.completed", response=final | {"output": [
+            {"type": "function_call", "call_id": "call", "name": "private", "arguments": "{}"}]})
+    if case == "refusal":
+        state.chunks[-1] = stream_frame("response.completed", response=final | {"output": [
+            {"type": "message", "content": [{"type": "refusal", "refusal": "PRIVATE"}]}]})
+    if case == "headers":
+        state.content_type = "application/json"
+    if case == "status":
+        state.status = 503
+    if case in {"timeout", "disconnect", "cancel"}:
+        state.chunks.pop()
+        state.error = {"timeout": TimeoutError(), "disconnect": httpx.RemoteProtocolError("PRIVATE"),
+                       "cancel": asyncio.CancelledError()}[case]
+
+    async def receive(delta):
+        deltas.append(delta)
+        if case == "callback":
+            raise RuntimeError("PRIVATE CONSUMER DETAILS")
+
+    with pytest.raises(asyncio.CancelledError if case == "cancel" else CoachFailure) as failure:
+        await ProductionCoachProvider(budget_guard=budget).respond([], tools=[], on_text_delta=receive)
+    assert state.closed == state.clients_closed == 1
+    assert len(state.sent) == len(budget.reservations) == len(state.tracked) == 1
+    assert budget.outcomes == ["cancelled" if case == "cancel" else "failed"]
+    assert len(state.tracked[0]["terminal"]) == state.tracked[0]["exits"] == 1
+    assert "PRIVATE" not in str(failure.value) and "PRIVATE" not in json.dumps(state.tracked)
+
+
+async def test_stream_budget_denial_never_opens_http(streamed_provider):
+    budget = FakeBudget(deny_at=1)
+
+    async def receive(_delta):
+        raise AssertionError("No callback without admission")
+
+    with pytest.raises(CoachFailure, match="workouts_ai_budget_exceeded"):
+        await ProductionCoachProvider(budget_guard=budget).respond([], tools=[], on_text_delta=receive)
+    assert not streamed_provider.sent and not budget.outcomes
+    assert len(streamed_provider.tracked) == 1 and streamed_provider.tracked[0]["exits"] == 1
 
 
 def test_all_function_schemas_are_strict_and_required():
