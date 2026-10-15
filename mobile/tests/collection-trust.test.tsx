@@ -1,12 +1,12 @@
 import React from 'react';
 import { act } from 'react';
 import { createRoot } from 'test-renderer';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, MutationCache } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const account = vi.hoisted(() => ({ userId: 'owner-a' }));
-const collectionApi = vi.hoisted(() => ({ createCollection: vi.fn(), addRecipeToCollection: vi.fn(), removeRecipeFromCollection: vi.fn() }));
+const collectionApi = vi.hoisted(() => ({ createCollection: vi.fn(), updateCollection: vi.fn(), deleteCollection: vi.fn(), addRecipeToCollection: vi.fn(), removeRecipeFromCollection: vi.fn() }));
 vi.mock('../lib/api', () => ({ api: collectionApi }));
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: account.userId, isLoaded: true }) }));
 
@@ -336,6 +336,35 @@ describe('collection recovery', () => {
       expect(checkbox().props.accessibilityState.checked).toBe(true);
       expect(text(screen, 'Couldn’t refresh your collections. Your last loaded choices are shown.')).toHaveLength(1);
     } finally { await act(async () => screen.unmount()); }
+  });
+  it.each(['create', 'update', 'delete', 'add', 'remove'] as const)('freezes %s authority before the global mutation callback awaits', async kind => {
+    let resume!: () => void;
+    const client = new QueryClient({ mutationCache: new MutationCache({
+      onMutate: () => new Promise<void>(resolve => { resume = resolve; }),
+    }), defaultOptions: { mutations: { retry: false } } });
+    let write!: { mutateAsync(variables: any): Promise<unknown> };
+    const hooksByKind = { create: actualHooks.useCreateCollection, update: actualHooks.useUpdateCollection,
+      delete: actualHooks.useDeleteCollection, add: actualHooks.useAddToCollection, remove: actualHooks.useRemoveFromCollection };
+    const useWrite = hooksByKind[kind];
+    function Hook() { write = useWrite(); return null; }
+    const element = () => <QueryClientProvider client={client}><Hook /></QueryClientProvider>;
+    const screen = await mount(element());
+    const method = { create: collectionApi.createCollection, update: collectionApi.updateCollection,
+      delete: collectionApi.deleteCollection, add: collectionApi.addRecipeToCollection, remove: collectionApi.removeRecipeFromCollection }[kind];
+    method.mockClear();
+    try {
+      const variables = { name: 'Old account dinner', collectionId: collection.id, recipeId: 'recipe-1', updates: { name: 'Old account dinner' } };
+      let pending!: Promise<unknown>;
+      await act(async () => { pending = write.mutateAsync(variables).catch(error => error); });
+      account.userId = 'owner-b'; await act(async () => screen.render(element()));
+      const other = [{ ...collection, id: 'new-account' }];
+      client.setQueryData(actualHooks.collectionKeys.list('owner-b'), other);
+      await act(async () => { resume(); await pending; });
+      expect(await pending).toMatchObject({ message: 'Account changed; reopen this collection.' });
+      expect(method).not.toHaveBeenCalled();
+      expect(client.getQueryData(actualHooks.collectionKeys.list('owner-b'))).toEqual(other);
+      expect(variables).not.toHaveProperty('requestGuard');
+    } finally { await act(async () => screen.unmount()); client.clear(); }
   });
   it('blocks old account dispatch and cache refill after a pending create', async () => {
     const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });

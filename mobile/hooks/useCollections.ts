@@ -2,7 +2,7 @@
  * React Query hooks for collection operations.
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import { useAuth } from '@clerk/expo';
 import { api, type RequestGuard } from '../lib/api';
@@ -33,6 +33,20 @@ function useCollectionAccount() {
 
 // Freeze at mutation start so a paused request cannot borrow a new account.
 type Guarded = { requestGuard?: RequestGuard };
+
+function freezeCollectionMutation<Data, Error, Variables extends Guarded, Context>(
+  mutation: UseMutationResult<Data, Error, Variables, Context>,
+  scope: ReturnType<typeof useCollectionAccount>,
+): UseMutationResult<Data, Error, Variables, Context> {
+  const freeze = (variables: Variables): Variables => {
+    const requestGuard = variables.requestGuard;
+    return { ...variables, requestGuard: () => { scope.guard(); requestGuard?.(); } };
+  };
+  return { ...mutation,
+    mutate: (variables, options) => mutation.mutate(freeze(variables), options),
+    mutateAsync: (variables, options) => mutation.mutateAsync(freeze(variables), options),
+  };
+}
 
 // ============================================================
 // Query Hooks
@@ -90,12 +104,11 @@ export function useCreateCollection() {
   const queryClient = useQueryClient();
   const scope = useCollectionAccount();
 
-  return useMutation({
+  return freezeCollectionMutation(useMutation({
     mutationFn: ({ name, emoji, requestGuard }: { name: string; emoji?: string } & Guarded) =>
       api.createCollection(name, emoji, requestGuard),
     onMutate: (variables) => {
-      variables.requestGuard ??= scope.guard;
-      variables.requestGuard();
+      variables.requestGuard?.();
       return scope;
     },
     onSuccess: (newCollection, _, context) => {
@@ -110,7 +123,7 @@ export function useCreateCollection() {
       // Refetch to ensure we're in sync
       queryClient.invalidateQueries({ queryKey: collectionKeys.list(context.owner) });
     },
-  });
+  }), scope);
 }
 
 /**
@@ -120,18 +133,17 @@ export function useUpdateCollection() {
   const queryClient = useQueryClient();
   const scope = useCollectionAccount();
 
-  return useMutation({
+  return freezeCollectionMutation(useMutation({
     mutationFn: ({ collectionId, updates, requestGuard }: { collectionId: string; updates: { name?: string; emoji?: string } } & Guarded) =>
       api.updateCollection(collectionId, updates, requestGuard),
     onMutate: (variables) => {
-      variables.requestGuard ??= scope.guard;
-      variables.requestGuard();
+      variables.requestGuard?.();
       return scope;
     },
     onSettled: (_, __, ___, context) => {
       if (context) queryClient.invalidateQueries({ queryKey: collectionKeys.list(context.owner) });
     },
-  });
+  }), scope);
 }
 
 /**
@@ -141,17 +153,16 @@ export function useDeleteCollection() {
   const queryClient = useQueryClient();
   const scope = useCollectionAccount();
 
-  return useMutation({
+  return freezeCollectionMutation(useMutation({
     mutationFn: ({ collectionId, requestGuard }: { collectionId: string } & Guarded) => api.deleteCollection(collectionId, requestGuard),
     onMutate: (variables) => {
-      variables.requestGuard ??= scope.guard;
-      variables.requestGuard();
+      variables.requestGuard?.();
       return scope;
     },
     onSettled: (_, __, ___, context) => {
       if (context) queryClient.invalidateQueries({ queryKey: collectionKeys.list(context.owner) });
     },
-  });
+  }), scope);
 }
 
 /**
@@ -161,13 +172,12 @@ export function useAddToCollection() {
   const queryClient = useQueryClient();
   const scope = useCollectionAccount();
 
-  return useMutation({
+  return freezeCollectionMutation(useMutation({
     mutationFn: ({ collectionId, recipeId, requestGuard }: { collectionId: string; recipeId: string } & Guarded) =>
       api.addRecipeToCollection(collectionId, recipeId, requestGuard),
     // Optimistic update - show in collection immediately
     onMutate: (variables) => {
-      variables.requestGuard ??= scope.guard;
-      variables.requestGuard();
+      variables.requestGuard?.();
       const { collectionId, recipeId } = variables;
       // Cancel queries without awaiting (fire-and-forget for speed)
       queryClient.cancelQueries({ queryKey: collectionKeys.recipeCollections(recipeId, scope.owner) });
@@ -226,7 +236,7 @@ export function useAddToCollection() {
       queryClient.invalidateQueries({ queryKey: collectionKeys.recipeCollections(recipeId, context.owner) });
       queryClient.invalidateQueries({ queryKey: collectionKeys.list(context.owner) });
     },
-  });
+  }), scope);
 }
 
 /**
@@ -236,13 +246,12 @@ export function useRemoveFromCollection() {
   const queryClient = useQueryClient();
   const scope = useCollectionAccount();
 
-  return useMutation({
+  return freezeCollectionMutation(useMutation({
     mutationFn: ({ collectionId, recipeId, requestGuard }: { collectionId: string; recipeId: string } & Guarded) =>
       api.removeRecipeFromCollection(collectionId, recipeId, requestGuard),
     // Optimistic update - remove from collection immediately
     onMutate: (variables) => {
-      variables.requestGuard ??= scope.guard;
-      variables.requestGuard();
+      variables.requestGuard?.();
       const { collectionId, recipeId } = variables;
       // Cancel queries without awaiting (fire-and-forget for speed)
       queryClient.cancelQueries({ queryKey: collectionKeys.recipeCollections(recipeId, scope.owner) });
@@ -313,5 +322,5 @@ export function useRemoveFromCollection() {
       queryClient.invalidateQueries({ queryKey: collectionKeys.recipes(collectionId, context.owner) });
       queryClient.invalidateQueries({ queryKey: collectionKeys.list(context.owner) });
     },
-  });
+  }), scope);
 }
