@@ -379,7 +379,11 @@ export default function ImportReview() {
                   ? "Import cancelled"
                   : "Could not read this source"
             }
-            description="Your library has not received a usable workout from this source. Try clearer instructions or screenshots, or write it yourself."
+            description={q.data.status === "cancelled"
+              ? "This import was cleared and its source is no longer available here. Your library shows the workouts you’ve kept."
+              : q.data.status === "expired"
+                ? "This temporary source expired. Any workout you saved remains in your library."
+                : "We couldn’t read a usable workout from this source. Try clearer instructions or screenshots, or write it yourself."}
             action={<><Button title="Try another source" secondary onPress={() => router.push("/capture")} />
               <Button title="Write workout manually" secondary onPress={() => router.push("/add-workout")} /></>}
           />

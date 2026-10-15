@@ -120,6 +120,30 @@ async def test_existing_success_replays_safely_without_recharging(usage_api):
     assert await count_receipts(usage_api) == 1
 
 
+async def test_deleting_a_saved_workout_retires_its_import_receipt_without_refunding_or_recreating(usage_api):
+    api = usage_api
+    identifier = uuid4()
+    first, other = await complete(api, identifier), await complete(api)
+    path = "/api/v1/workouts/imports/"
+    saved = await api.client.post(path + first["id"] + "/accept", json={}, headers=GENERATION)
+    other_saved = await api.client.post(path + other["id"] + "/accept", json={}, headers=GENERATION)
+    assert saved.status_code == other_saved.status_code == 200
+    removed = await api.client.delete("/api/v1/workouts/library/" + saved.json()["id"], headers=GENERATION)
+    assert removed.status_code == 204
+    retired = (await api.client.get(path + first["id"])).json()
+    assert retired["status"] == "cancelled" and retired["accepted_workout_id"] is None and retired["result"] is None
+    assert (await api.client.get(path + first["id"] + "/source")).status_code == 410
+    assert (await api.client.post(path + first["id"] + "/accept", json={}, headers=GENERATION)).status_code == 409
+    replay = await enqueue(api, identifier)
+    assert replay.status_code == 202 and replay.json()["id"] == first["id"] and replay.json()["status"] == "cancelled"
+    assert await count_receipts(api) == 2
+    async with api.sessions() as db:
+        original = await db.get(WorkoutImport, UUID(first["id"]))
+        assert original.payload is None and original.accepted_content_hash is None
+        assert (await db.get(WorkoutImport, UUID(other["id"]))).accepted_workout_id == UUID(other_saved.json()["id"])
+    assert all(job["id"] != first["id"] for job in (await api.client.get(path.rstrip("/"))).json())
+
+
 async def test_pending_and_receipts_union_deduplicates_uuid(usage_api):
     identifiers = await seed_receipts(usage_api, 14)
     pending = (await enqueue(usage_api)).json()
