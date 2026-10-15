@@ -1045,3 +1045,46 @@ it("retired collection remove and field callbacks cannot act for a replacement a
   expect(button("Remove this collection")).toBeUndefined();
   expect(fixture.removeCollection).not.toHaveBeenCalled();
 });
+
+it("puts the workout before one accurate review summary and keeps raw diagnostics optional", async () => {
+  fixture.params = { id: "job" }; fixture.capabilities.mockResolvedValue(caps(true));
+  const job = importJob("url", "incomplete");
+  const warning = "Unsupported reps_min removed from Squat.";
+  const coverage = "Transcript was unavailable; caption was read.";
+  const warnings = [warning, warning, "Unsupported reps_max removed from Squat."];
+  fixture.importJob.mockResolvedValue({ ...job, result: { ...job.result, warnings,
+    source: { ...job.result.source, coverage_notes: [coverage, warning] } } });
+  await mount(ImportReview);
+  const collapsed = JSON.stringify(renderer!.toJSON());
+  expect(collapsed).not.toContain(warning); expect(collapsed).not.toContain(coverage);
+  expect(collapsed).not.toContain("not in the source");
+  expect(nodes("Notice").filter(n => n.children.join("").includes("confirm all workout details"))).toHaveLength(1);
+  expect(collapsed.indexOf(job.result.workout.title)).toBeLessThan(collapsed.indexOf("confirm all workout details"));
+  expect(button("Correct workout details")).toBeDefined();
+  expect(choice("Share to Discover")!.props.disabled).toBe(true);
+  await act(async () => button("Source details")!.props.onPress());
+  const expanded = JSON.stringify(renderer!.toJSON());
+  expect(expanded).toContain("Import diagnostics"); expect(expanded).toContain(coverage);
+  expect(nodes("Copy").filter(n => n.children.join("") === warning)).toHaveLength(1);
+  expect(warnings).toEqual([warning, warning, "Unsupported reps_max removed from Squat."]);
+  await act(async () => button("Hide source details")!.props.onPress());
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain(warning);
+});
+
+it.each([
+  ["workouts_ai_budget_unavailable", "couldn’t finish checking", "usage limit"],
+  ["workouts_ai_budget_exceeded", "usage limit", "couldn’t finish checking"],
+])("explains %s once without exposing machine codes or blaming the caption", async (code, expected, other) => {
+  fixture.params = { id: "job" }; fixture.capabilities.mockResolvedValue(caps(false));
+  const job = importJob("text", "incomplete");
+  fixture.importJob.mockResolvedValue({ ...job, result: { ...job.result, error_code: code,
+    warnings: [code, "Source extraction could not finish"] } });
+  await mount(ImportReview);
+  let view = JSON.stringify(renderer!.toJSON());
+  expect(view).toContain(expected); expect(view).not.toContain(other); expect(view).not.toContain(code);
+  expect(view).not.toContain("not in the source"); expect(view).not.toContain("Source extraction could not finish");
+  expect(nodes("Notice").filter(n => n.children.join("").includes(expected))).toHaveLength(1);
+  await act(async () => button("Source details")!.props.onPress());
+  view = JSON.stringify(renderer!.toJSON());
+  expect(view).toContain(`Import status`); expect(view).toContain(code);
+});

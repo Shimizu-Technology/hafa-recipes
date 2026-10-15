@@ -333,6 +333,16 @@ export default function ImportReview() {
   const workout = (routeReady ? edited : null) ?? result?.workout;
   const hasExercises = !!workout?.blocks.some(block => block.exercises.length);
   const usageLimitReached = result?.error_code === "workouts_ai_budget_exceeded";
+  const reviewMessage = usageLimitReached
+    ? "AI importing has reached its usage limit. Your source stays saved. Try again later, or add the exercises manually."
+    : result?.error_code === "workouts_ai_budget_unavailable"
+      ? "We couldn’t finish checking this source. Your draft is saved. Try again later, or correct the details before saving."
+      : q.data?.status === "incomplete"
+        ? "We couldn’t confirm all workout details. Check the source or edit the details before saving."
+        : result?.warnings.length
+          ? "Some workout details may need checking. Review the workout before saving."
+          : null;
+  const diagnostics = [...new Set([...(result?.warnings ?? []), ...(result?.source.coverage_notes ?? [])])];
   const discoverOn = capabilities.data?.discover === true;
   // The server refuses to publish an incomplete extraction accepted unchanged.
   const shareable =
@@ -413,15 +423,7 @@ export default function ImportReview() {
         )}
         {result && (
           <>
-            <WorkoutSource source={{ source_title: workout?.source_title ?? result.source.title,
-              source_creator: workout?.source_creator ?? result.source.creator, source_thumbnail_url: workout?.source_thumbnail_url, source_context: workout?.source_context }} />
-            {usageLimitReached && <Notice tone="warning">AI importing has reached its usage limit. Your source stays saved. Try again later, or add the exercises manually.</Notice>}
-            {!usageLimitReached && result.warnings.map((warning, index) => (
-              <Notice key={index} tone="warning">{warning}</Notice>
-            ))}
-            {result.source.coverage_notes.map((note, index) => (
-              <Notice key={`coverage-${index}`}>{note}</Notice>
-            ))}
+            {!hasExercises && reviewMessage && <Notice tone="warning">{reviewMessage}</Notice>}
             {workout && (
               <>
                 {routeReady && editing && !savedId ? (
@@ -457,6 +459,9 @@ export default function ImportReview() {
                     ))}
                   </>
                 )}
+                <WorkoutSource source={{ source_title: workout.source_title ?? result.source.title,
+                  source_creator: workout.source_creator ?? result.source.creator, source_thumbnail_url: workout.source_thumbnail_url, source_context: workout.source_context }} />
+                {hasExercises && reviewMessage && <Notice tone="warning">{reviewMessage}</Notice>}
                 {!savedId && <><Button
                   title={routeReady && editing ? "Show workout summary" : hasExercises ? "Correct workout details" : "Add exercises manually"}
                   secondary
@@ -484,9 +489,6 @@ export default function ImportReview() {
                     }}
                   />
                 )}
-                {hasExercises && q.data?.status === "incomplete" && <Notice tone="warning">
-                  Some details were not in the source. You can edit them or save this workout with the gaps clearly marked.
-                </Notice>}
                 {!!notice && <Notice>{notice}</Notice>}
                 {hasExercises && <Button
                   title={q.data?.replace_target ? "Update saved workout" : sharing ? "Save and share to Discover" : "Save workout"}
@@ -506,6 +508,11 @@ export default function ImportReview() {
             )}
             <Button title={sourceDetails ? "Hide source details" : "Source details"} variant="ghost" onPress={() => setSourceDetails(!sourceDetails)} />
             {sourceDetails && <>
+            {(diagnostics.length > 0 || result.error_code) && <Card tone="sunken">
+              <Copy kind="subheading">Import diagnostics</Copy>
+              {!!result.error_code && <Copy kind="small">Import status · {result.error_code}</Copy>}
+              {diagnostics.map((diagnostic, index) => <Copy key={index} kind="small">{diagnostic}</Copy>)}
+            </Card>}
             <Card>
               <Copy kind="caption" tone="accent">Source</Copy>
               <Copy kind="heading">{result.source.title ?? "Original source"}</Copy>
