@@ -173,9 +173,9 @@ export default function Coach() {
     if (anchor && positions.current.get(anchor.id)! < reading.current.offset + reading.current.viewport)
       earlier.current = { id: anchor.id, top: positions.current.get(anchor.id)!,
       offset: reading.current.offset, firstId: history[0].id, measuring: false, positions: new Map([...positions.current].map(([id, top]) => [id, { top, version: positionVersions.current.get(id) ?? 0 }])) };
+    const captured = earlier.current;
     let fetching = false;
     try {
-      const captured = earlier.current;
       const reader = scroll.current as (ScrollView & { getInnerViewRef?: () => View | null }) | null;
       const row = captured && messageViews.current.get(captured.id);
       const content = reader?.getInnerViewRef?.();
@@ -192,7 +192,7 @@ export default function Coach() {
       const oldest = result.data?.pages.flatMap(page => page.messages).sort(messageOrder)[0]?.id;
       if (currentConversation() && (result.isError || !oldest || oldest === earlier.current?.firstId)) earlier.current = null;
     } catch {
-      if (currentConversation()) {
+      if (currentConversation() && earlier.current === captured) {
         earlier.current = null;
         if (!fetching) setError(HISTORY_POSITION_ERROR);
       }

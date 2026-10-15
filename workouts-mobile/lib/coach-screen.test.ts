@@ -258,6 +258,17 @@ it("releases a failed initial measurement so loading earlier can be retried", as
   expect(nodes("Notice").some(node => node.props.children === "Could not keep your reading position. Try loading earlier messages again.")).toBe(false);
   expect(f.scrollTo).toHaveBeenCalledWith({ y: 950, animated: false });
 });
+it("ignores an initial measurement failure after Jump retires it", async () => {
+  f.contentEnabled = true; f.pageSize = 2; f.history = [reply("newer"), reply("older")]; await mount();
+  await act(async () => { nodes("View").find(node => node.props.onLayout)!.props.onLayout({ nativeEvent: { layout: { y: 500 } } }); bindScroll().props.onScroll(scrollEvent(550)); });
+  let fail!: () => void;
+  f.measureAnchor.mockImplementation((_content, _success, failure) => { fail = failure; });
+  await click("Load earlier messages"); await click("Jump to latest reply"); await type("Fresh unsent question");
+  await act(async () => fail()); await settle();
+  expect(f.historyCalls).not.toContain(2);
+  expect(nodes("Notice").some(node => String(node.props.children).includes("Could not keep your reading position"))).toBe(false);
+  expect(nodes("Field")[0].props.value).toBe("Fresh unsent question");
+});
 it("disables HTML and remote images while retaining selectable Markdown text", async () => {
   f.history = [{ ...reply("older"), assistant_message: "**Plan**\n- Row\n![track](https://evil.test/pixel)\n<script>bad()</script>" }]; await mount();
   const md = nodes("Markdown")[0].props;
