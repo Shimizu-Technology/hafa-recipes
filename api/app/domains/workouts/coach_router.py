@@ -49,6 +49,13 @@ async def send_message(request: CoachRequest, user: User, db: Database, generati
     return await workout_coach.send(db, user.id, generation, request)
 
 
+@send_router.post("/messages/stream")
+async def stream_message(request: CoachRequest, user: User, generation: Generation):
+    from app.domains.workouts.coach_delivery import streaming_response
+
+    return streaming_response(workout_coach, user.id, generation, request)
+
+
 @router.post("/messages/{request_id}/cancel")
 async def cancel_message(request_id: UUID, user: User, db: Database, generation: Generation):
     # Ordinary privacy route: stopping must work after AI disable/consent withdrawal.

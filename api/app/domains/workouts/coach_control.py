@@ -64,7 +64,7 @@ async def cancel_message(db, owner, generation, request_id, *, limit):
 
 
 async def respond_while_current(provider, sessions, owner, generation, message_id, token, consent_at,
-                                items, *, tools, poll_seconds=1):
+                                items, *, tools, on_text_delta=None, poll_seconds=1):
     """Close this worker's provider request when another worker invalidates it.
 
     The durable receipt is the Stop acknowledgement. Closing local HTTP I/O
@@ -85,7 +85,8 @@ async def respond_while_current(provider, sessions, owner, generation, message_i
                         or row.proposals.get("state") != "pending" or row.proposals.get("token") != token):
                     raise HTTPException(409, "This coach request is no longer active")
 
-    response = asyncio.create_task(provider.respond(items, tools=tools))
+    response = asyncio.create_task(provider.respond(items, tools=tools,
+        **({"on_text_delta": on_text_delta} if on_text_delta is not None else {})))
     watching = asyncio.create_task(monitor())
     try:
         await asyncio.wait({response, watching}, return_when=asyncio.FIRST_COMPLETED)

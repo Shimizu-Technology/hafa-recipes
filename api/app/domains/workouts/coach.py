@@ -603,13 +603,13 @@ class WorkoutCoach:
             raise HTTPException(409, "Training context changed; send a fresh request")
         return row, context
 
-    async def send(self, db, user_id, generation, request):
+    async def send(self, db, user_id, generation, request, *, on_event=None):
         task = asyncio.current_task()
         self._inflight.setdefault(user_id, set()).add(task)
         key = (user_id, generation, request.request_id)
         self._requests.setdefault(key, set()).add(task)
         try:
-            return await self._send(db, user_id, generation, request)
+            return await self._send(db, user_id, generation, request, on_event=on_event)
         finally:
             self._requests[key].discard(task)
             if not self._requests[key]:
@@ -618,7 +618,7 @@ class WorkoutCoach:
             if not self._inflight[user_id]:
                 self._inflight.pop(user_id)
 
-    async def _send(self, db, user_id, generation, request):
+    async def _send(self, db, user_id, generation, request, *, on_event=None):
         if not self.provider.enabled:
             raise HTTPException(503, "Coach is unavailable; manual training remains available")
         if not request.message.strip():
@@ -691,6 +691,25 @@ class WorkoutCoach:
         db.add(row)
         await db.commit()
         message_id = row.id
+
+        async def authorize_delta():
+            # Delivery uses a fresh session; never retain owner locks while the
+            # client or bounded queue is slow. Terminal receipts supersede deltas.
+            async with self.sessions() as delivery:
+                configured = get_settings()
+                if (not configured.workouts_api_enabled or not configured.workouts_ai_enabled
+                        or not configured.is_ai_capability_enabled("workout_coach")):
+                    raise HTTPException(503, "Coach unavailable")
+                await self.guard(delivery, user_id, generation, message_id, token, fingerprint, consent_at)
+                await delivery.commit()
+
+        async def emit(kind, **values):
+            if on_event is not None:
+                await on_event({"type": kind, **values}, authorize_delta)
+
+        async def delta(text):
+            await emit("delta", text=text)
+
         try:
             # Medical diagnosis/rehabilitation and emergencies are outside this general-fitness coach.
             medical = re.search(
@@ -726,9 +745,10 @@ class WorkoutCoach:
                     route="/api/v1/workouts/coach/messages",
                 ):
                     async with asyncio.timeout(100):
+                        await emit("reset", turn=1)
                         result = await respond_while_current(
                             self.provider, self.sessions, user_id, generation, message_id, token, consent_at,
-                            items, tools=tool_definitions(),
+                            items, tools=tool_definitions(), on_text_delta=delta if on_event is not None else None,
                         )
                         answer, calls = response_parts(result, allow_tools=True)
                         if calls:
@@ -769,9 +789,12 @@ class WorkoutCoach:
                                 db, user_id, generation, message_id, token, fingerprint, consent_at
                             )
                             await db.commit()
+                            # First-turn prose may precede tool calls. It is not
+                            # part of the final answer or a saved prescription.
+                            await emit("reset", turn=2)
                             final = await respond_while_current(
                                 self.provider, self.sessions, user_id, generation, message_id, token, consent_at,
-                                items, tools=[],
+                                items, tools=[], on_text_delta=delta if on_event is not None else None,
                             )
                             answer, _ = response_parts(final, allow_tools=False)
             if not answer:

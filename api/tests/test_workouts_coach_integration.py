@@ -1308,3 +1308,230 @@ async def test_unknown_stop_cannot_bypass_quota_but_existing_request_can_always_
     async with api.sessions() as db:
         assert await coach_control.message_quota_count(db, "owner") == 50
     assert not api.provider.sent
+
+
+async def stream_fixture(api, monkeypatch, respond):
+    from app.domains.workouts.coach_delivery import message_events
+
+    monkeypatch.setattr(coach, "get_settings", lambda: settings(workouts_ai_enabled=True))
+    api.provider.respond = respond
+    request = coach.CoachRequest(request_id=uuid4(), message="Help me plan my training")
+    return request, message_events(api.coach, "owner", 1, request)
+
+
+async def next_stream_event(events):
+    return json.loads(await asyncio.wait_for(anext(events), timeout=5))
+
+
+async def test_coach_stream_route_replays_one_durable_request_and_rejects_changed_payload(coach_api, monkeypatch):
+    api = coach_api
+    calls = []
+
+    async def respond(items, *, tools, on_text_delta):
+        calls.append(items)
+        await on_text_delta("Real provider text")
+        return answer("Authoritative final answer")
+
+    request, unused = await stream_fixture(api, monkeypatch, respond)
+    await unused.aclose()
+    path = "/api/v1/workouts/coach/messages/stream"
+    body = request.model_dump(mode="json")
+    first = await api.client.post(path, headers=GENERATION, json=body)
+    assert first.status_code == 200 and first.headers["content-type"].startswith("application/x-ndjson")
+    assert first.headers["cache-control"] == "no-store" and first.headers["x-accel-buffering"] == "no"
+    receipt = json.loads(first.text.splitlines()[-1])
+    assert receipt["type"] == "receipt" and receipt["receipt"]["assistant_message"] == "Authoritative final answer"
+    replay = await api.client.post(path, headers=GENERATION, json=body)
+    assert json.loads(replay.text)["receipt"] == receipt["receipt"]
+    changed = await api.client.post(path, headers=GENERATION, json={**body, "message": "Different payload"})
+    assert json.loads(changed.text) == {"type": "error", "code": "coach_request_unavailable", "status": 409,
+                                       "request_id": str(request.request_id), "generation": 1}
+    assert len(calls) == 1
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutCoachMessage)) == 1
+
+
+async def test_coach_stream_delivers_actual_delta_before_completion_without_saving_partial_answer(coach_api, monkeypatch):
+    api = coach_api
+    release = asyncio.Event()
+
+    async def respond(items, *, tools, on_text_delta):
+        await on_text_delta("Actual early text")
+        await release.wait()
+        return answer("Final validated text")
+
+    request, events = await stream_fixture(api, monkeypatch, respond)
+    try:
+        assert (await next_stream_event(events))["type"] == "reset"
+        assert (await next_stream_event(events))["text"] == "Actual early text"
+        async with api.sessions() as db:
+            row = await db.scalar(select(WorkoutCoachMessage).where(WorkoutCoachMessage.request_id == request.request_id))
+            assert row.proposals["state"] == "pending" and row.assistant_message == ""
+        release.set()
+        remaining = [json.loads(event) async for event in events]
+        assert remaining[-1]["receipt"]["assistant_message"] == "Final validated text"
+        assert remaining[-1]["receipt"]["state"] == "completed"
+    finally:
+        release.set()
+        await events.aclose()
+    assert not api.coach._requests and not api.coach._inflight
+
+
+async def test_coach_stream_resets_first_turn_prose_before_tool_round_and_only_commits_reviewable_actions(coach_api, monkeypatch):
+    api = coach_api
+    first, second = asyncio.Event(), asyncio.Event()
+    api.provider.action = plan_action()
+    original = api.provider.respond
+
+    async def respond(items, *, tools, on_text_delta):
+        await on_text_delta("First-turn prose" if tools else "Review this proposal")
+        await (first if tools else second).wait()
+        return await original(items, tools=tools)
+
+    request, events = await stream_fixture(api, monkeypatch, respond)
+    try:
+        assert await next_stream_event(events) == {"type": "reset", "turn": 1,
+            "request_id": str(request.request_id), "generation": 1}
+        assert (await next_stream_event(events))["text"] == "First-turn prose"
+        first.set()
+        assert (await next_stream_event(events))["turn"] == 2
+        assert (await next_stream_event(events))["text"] == "Review this proposal"
+        async with api.sessions() as db:
+            assert await db.scalar(select(func.count()).select_from(WorkoutProposal)) == 0
+        second.set()
+        final = [json.loads(event) async for event in events]
+        assert final[-1]["receipt"]["state"] == "completed"
+        assert len(final[-1]["receipt"]["actions"]) == 1
+        assert "preview" not in json.dumps(final) and "arguments" not in json.dumps(final)
+    finally:
+        first.set()
+        second.set()
+        await events.aclose()
+
+
+async def test_coach_stream_remote_stop_discards_late_text_and_returns_durable_stop(coach_api, monkeypatch):
+    api = coach_api
+    closed = asyncio.Event()
+
+    async def respond(items, *, tools, on_text_delta):
+        await on_text_delta("Before Stop")
+        try:
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    request, events = await stream_fixture(api, monkeypatch, respond)
+    try:
+        await next_stream_event(events)
+        assert (await next_stream_event(events))["text"] == "Before Stop"
+        # A different worker has no matching local task map; monitor must close I/O.
+        remote = coach.WorkoutCoach(api.provider, session_factory=api.sessions)
+        async with api.sessions() as db:
+            stopped = await remote.cancel(db, "owner", 1, request.request_id)
+        assert stopped["cancelled"] is True
+        final = await next_stream_event(events)
+        assert final["type"] == "receipt" and final["receipt"]["cancelled"] is True
+        assert final["receipt"]["actions"] == [] and closed.is_set()
+    finally:
+        await events.aclose()
+
+
+async def test_coach_stream_rereads_terminal_state_after_conversation_clear(coach_api, monkeypatch):
+    api = coach_api
+    complete = asyncio.Event()
+    release = asyncio.Event()
+
+    async def respond(items, *, tools, on_text_delta):
+        await on_text_delta("Provisional text")
+        await release.wait()
+        complete.set()
+        return answer("PRIVATE FINAL ANSWER")
+
+    _, events = await stream_fixture(api, monkeypatch, respond)
+    try:
+        await next_stream_event(events)
+        await next_stream_event(events)
+        release.set()
+        await asyncio.wait_for(complete.wait(), 5)
+        # Serialize after completion's owner lock; either queued final or pending
+        # is cleared before the next network delivery.
+        async with api.sessions() as db:
+            await coach.clear_conversation(db, "owner", 1)
+        final = [json.loads(event) async for event in events]
+        assert final[-1]["type"] == "error"
+        assert "PRIVATE FINAL ANSWER" not in json.dumps(final)
+    finally:
+        release.set()
+        await events.aclose()
+
+
+async def test_coach_stream_slow_consumer_bounds_queue_and_disconnect_closes_exact_provider(coach_api, monkeypatch):
+    api = coach_api
+    blocked, closed = asyncio.Event(), asyncio.Event()
+    emitted = []
+
+    async def respond(items, *, tools, on_text_delta):
+        try:
+            for index in range(20):
+                if index == 8:
+                    blocked.set()
+                await on_text_delta(str(index))
+                emitted.append(index)
+            return answer()
+        finally:
+            closed.set()
+
+    _, events = await stream_fixture(api, monkeypatch, respond)
+    assert (await next_stream_event(events))["type"] == "reset"
+    await asyncio.wait_for(blocked.wait(), 5)
+    assert len(emitted) <= 8  # One tiny bounded queue, not an accumulating transcript.
+    await asyncio.wait_for(events.aclose(), 5)
+    assert closed.is_set() and not api.coach._requests and not api.coach._inflight
+    async with api.sessions() as db:
+        row = await db.scalar(select(WorkoutCoachMessage))
+        assert row.proposals["state"] == "failed" and row.assistant_message != ""
+
+
+@pytest.mark.parametrize("retirement", ["consent", "profile"])
+async def test_coach_stream_drops_queued_delta_after_its_authority_changes(coach_api, monkeypatch, retirement):
+    api = coach_api
+    release = asyncio.Event()
+
+    async def respond(items, *, tools, on_text_delta):
+        await on_text_delta("RETIRED PRIVATE DRAFT")
+        await release.wait()
+        return answer("RETIRED PRIVATE FINAL")
+
+    _, events = await stream_fixture(api, monkeypatch, respond)
+    try:
+        await next_stream_event(events)
+        if retirement == "consent":
+            await consent(api, False)
+        else:
+            async with api.sessions.begin() as db:
+                profile = await db.get(WorkoutsProfile, "owner")
+                profile.revision += 1
+                profile.updated_at = now()
+        release.set()
+        remaining = [json.loads(event) async for event in events]
+        assert "RETIRED PRIVATE" not in json.dumps(remaining)
+        assert remaining[-1]["type"] in {"error", "receipt"}
+        if remaining[-1]["type"] == "receipt":
+            assert remaining[-1]["receipt"]["state"] == "failed"
+    finally:
+        release.set()
+        await events.aclose()
+
+
+async def test_coach_stream_completion_wins_before_late_stop_and_retains_review(coach_api, monkeypatch):
+    api = coach_api
+
+    async def respond(items, *, tools, on_text_delta):
+        await on_text_delta("Provisional")
+        return answer("Completed answer")
+
+    request, events = await stream_fixture(api, monkeypatch, respond)
+    final = [json.loads(event) async for event in events][-1]["receipt"]
+    async with api.sessions() as db:
+        stopped = await api.coach.cancel(db, "owner", 1, request.request_id)
+    assert stopped == final and final["state"] == "completed" and not final.get("cancelled")
