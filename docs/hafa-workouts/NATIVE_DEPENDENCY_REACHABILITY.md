@@ -287,7 +287,7 @@ stream consumer is added in this slice.
 
 A fresh ordinary `npm ci` and `npm ls --all` pass for all four apps in the owned
 Jerry fixture. Raw `npm audit --omit=dev` reports 33 affected packages (5 moderate,
-28 high,0 critical), the same six previously reviewed advisory IDs, and no
+28 high, 0 critical), the same six previously reviewed advisory IDs, and no
 unexpected advisory. The renderer inherits the existing React Native tooling
 chain, accounting for the extra affected package over the 32-package baseline.
 The existing trust constraints and November 3 expiry remain unchanged.
