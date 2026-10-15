@@ -46,6 +46,7 @@ const fixture = vi.hoisted(() => ({
   capabilities: vi.fn(), publishingDisclosure: vi.fn(), acceptPublishingDisclosure: vi.fn(), nativePreference: vi.fn(),
   publishingRequired: false, publishingAgreed: true,
   current: true,
+  storageVersion: 0,
   next: 0,
   profile: vi.fn(),
   profileSnapshot: vi.fn(),
@@ -73,6 +74,11 @@ vi.mock("@/lib/context", () => {
       await fixture.persist(key, value);
     }
   };
+  const storageScopes = new Map<number, typeof storage>();
+  function contextStorage() {
+    if (!storageScopes.has(fixture.storageVersion)) storageScopes.set(fixture.storageVersion, { ...storage });
+    return storageScopes.get(fixture.storageVersion)!;
+  }
   const localDrafts = {
     load: async (owner: string, scope: string) => {
       const raw = await storage.getItem(`hafa-workouts:v1:${encodeURIComponent(owner)}:${encodeURIComponent(scope)}`);
@@ -119,7 +125,7 @@ vi.mock("@/lib/context", () => {
       enrollment: { enrolled: true, generation: fixture.generation },
       units: "metric",
       isCurrentAccount: () => fixture.current,
-      storage,
+      storage: contextStorage(),
       api,
       localDrafts: localDrafts
     })
@@ -295,7 +301,7 @@ beforeEach(() => {
   fixture.writeFailure = false;
   fixture.readFailure = false;
   fixture.removeFailureScope = "";
-  fixture.current = true;
+  fixture.current = true; fixture.storageVersion = 0;
   fixture.next = 0;
   fixture.share = false;
   fixture.foreground.clear();
@@ -2745,4 +2751,25 @@ it("keeps a newer cover intact when a removal draft has a stale saved revision",
   await click("Discard photo draft and reload");
   expect(nodes("SourceImage")[0].props.uri).toBe("https://example.test/newer.jpg");
   expect(button("Retry saved photo request")).toBeUndefined();
+});
+
+
+it("a retired cover picker cannot replace or unlock a new storage scope on the same account", async () => {
+  const oldPicker = deferred<unknown>(), newPicker = deferred<unknown>();
+  await coverReady();
+  fixture.pickImages.mockReturnValueOnce(oldPicker.promise).mockReturnValueOnce(newPicker.promise);
+  const oldChoose = button("Choose a photo").props.onPress;
+  await act(async () => { void oldChoose(); }); await settle();
+  fixture.storageVersion++;
+  await act(async () => { renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(WorkoutCover))); }); await settle();
+  await act(async () => { void button("Choose a photo").props.onPress(); }); await settle();
+  await act(async () => { oldPicker.resolve([{ uri: "file:///cache/old.jpg", owned: true }]); }); await settle();
+  expect(fixture.sourceFor).not.toHaveBeenCalled();
+  expect(button("Choose a photo").props.busy).toBe(true);
+  await act(async () => { void oldChoose(); });
+  expect(fixture.pickImages).toHaveBeenCalledTimes(2);
+  await act(async () => { newPicker.resolve([{ uri: "file:///cache/new.jpg", owned: true }]); }); await settle();
+  expect(fixture.sourceFor).toHaveBeenCalledOnce();
+  expect(nodes("SourceImage")[0].props.uri).toBe("data:image/jpeg;base64,SU1BR0U=");
+  expect(button("Save cover photo").props.busy).toBe(false);
 });

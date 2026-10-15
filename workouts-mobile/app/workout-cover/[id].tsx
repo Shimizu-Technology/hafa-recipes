@@ -27,12 +27,17 @@ function WorkoutCover({ id }: { id: string }) {
   const cache = useQueryClient();
   const form = useMemo(() => createPrivateForm<CoverInput | null, CoverCommand>(storage, owner,
     `workout-cover:${generation}:${id}`), [storage, owner, generation, id]);
-  const mounted = useRef(true), lock = useRef(false);
-  useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const scope = useMemo(() => ({ lock: null as object | null }), [form]);
+  const live = useRef<typeof scope | null>(null);
+  useLayoutEffect(() => {
+    live.current = scope;
+    setLoaded(false); setBusy(false); setInput(null); setCommand(null); setTerminal(false); setError(""); setRemoving(false);
+    return () => { if (live.current === scope) live.current = null; };
+  }, [scope]);
+  const active = () => live.current === scope && !!enrollment?.enrolled && storage.isCurrent() && isCurrentAccount();
   const current = () => {
-    if (!mounted.current || !storage.isCurrent() || !isCurrentAccount()) throw Error("Your account changed. This photo action was stopped.");
+    if (!active()) throw Error("Your account changed. This photo action was stopped.");
   };
-  const active = () => mounted.current && storage.isCurrent() && isCurrentAccount();
   const checked = (record: Workout) => {
     current();
     if (record.id !== id || record.generation !== generation) throw Error("Your training setup changed. Reload Workouts before changing this cover.");
@@ -64,8 +69,8 @@ function WorkoutCover({ id }: { id: string }) {
     return () => { cancelled = true; };
   }, [form]);
   async function choose() {
-    if (!loaded || !supported || !q.data || lock.current || command) return;
-    lock.current = true; setBusy(true); setError("");
+    if (!active() || !loaded || !supported || !q.data || scope.lock || command) return;
+    const token = {}; scope.lock = token; setBusy(true); setError("");
     let files: CaptureFile[] = [];
     const target = { id, generation: q.data.generation, revision: q.data.revision };
     try {
@@ -82,11 +87,11 @@ function WorkoutCover({ id }: { id: string }) {
       if (terminal) await form.reopen(next); else if (!await form.save(next)) throw Error("Resolve your saved photo request first.");
       current(); setInput(next); setTerminal(false);
     } catch (e) { if (active()) setError((e as Error).message); }
-    finally { await cleanupCaptureFiles(files); lock.current = false; if (active()) setBusy(false); }
+    finally { await cleanupCaptureFiles(files).catch(() => undefined); if (scope.lock === token) { scope.lock = null; if (active()) setBusy(false); } }
   }
   async function save(remove = false) {
-    if (!loaded || !supported || !q.data || lock.current || (!remove && !input && !command)) return;
-    lock.current = true; setBusy(true); setError("");
+    if (!active() || !loaded || !supported || !q.data || scope.lock || (!remove && !input && !command)) return;
+    const token = {}; scope.lock = token; setBusy(true); setError("");
     let cleanup: (() => Promise<void>) | undefined;
     try {
       current();
@@ -113,38 +118,38 @@ function WorkoutCover({ id }: { id: string }) {
         cache.invalidateQueries({ queryKey: discoverKeys.all(owner) })]); current();
       setInput(null); setCommand(null); setTerminal(true); setRemoving(false);
     } catch (e) { if (active()) setError((e as Error).message); }
-    finally { await cleanup?.().catch(() => undefined); lock.current = false; if (active()) setBusy(false); }
+    finally { await cleanup?.().catch(() => undefined); if (scope.lock === token) { scope.lock = null; if (active()) setBusy(false); } }
   }
   async function reload() {
-    if (lock.current) return;
-    lock.current = true; setBusy(true); setError("");
+    if (!active() || scope.lock) return;
+    const token = {}; scope.lock = token; setBusy(true); setError("");
     try {
       current(); const fresh = checked(await api.workout(id));
       await form.reset(); current();
       cache.setQueryData<Workout>(key, old => old && old.revision > fresh.revision ? old : fresh);
       setInput(null); setCommand(null); setTerminal(false); setLoaded(true); setRemoving(false);
     } catch (e) { if (active()) setError((e as Error).message); }
-    finally { lock.current = false; if (active()) setBusy(false); }
+    finally { if (scope.lock === token) { scope.lock = null; if (active()) setBusy(false); } }
   }
   const preview = input?.image ? `data:image/jpeg;base64,${input.image}` : q.data?.source_thumbnail_url;
   return <Screen back title="Workout cover photo">
     {!!error && <Notice error>{error}</Notice>}
     <QueryState loading={q.isPending || capabilities.isPending} error={q.error ?? capabilities.error}
-      retry={() => { void q.refetch(); void capabilities.refetch(); }}>
+      retry={() => { if (active()) { void q.refetch(); void capabilities.refetch(); } }}>
       {!supported ? <Empty icon="image-outline" title="Cover photos are getting ready" description="Your saved workout remains available. Try again after cover uploads are enabled." /> : <>
         {preview && <SourceImage uri={preview} label={input ? "Selected cover photo" : "Workout cover photo"} />}
         <Copy kind="small" tone="muted">Your workout instructions and original source credit stay with the workout.</Copy>
         {command && <Notice>Your photo request is saved on this device. Retry the same request or discard the draft and reload.</Notice>}
         <Button title={preview ? "Choose a different photo" : "Choose a photo"} secondary busy={busy && !input && !command} disabled={!loaded || busy || !!command} onPress={choose} />
         {(input || command) && <Button title={command ? "Retry saved photo request" : "Save cover photo"} busy={busy} disabled={!loaded || busy} onPress={() => save()} />}
-        {!!q.data?.source_thumbnail_url && !input && !command && <Button title="Remove cover photo" variant="ghost" disabled={!loaded || busy} onPress={() => setRemoving(true)} />}
+        {!!q.data?.source_thumbnail_url && !input && !command && <Button title="Remove cover photo" variant="ghost" disabled={!loaded || busy} onPress={() => { if (active() && !scope.lock) setRemoving(true); }} />}
         {(input || command || !loaded) && <Button title="Discard photo draft and reload" variant="ghost" disabled={busy} onPress={reload} />}
       </>}
     </QueryState>
-    <Sheet visible={removing && supported} title="Remove this cover photo?" onClose={() => { if (!busy) setRemoving(false); }}>
+    <Sheet visible={removing && supported} title="Remove this cover photo?" onClose={() => { if (active() && !scope.lock) setRemoving(false); }}>
       <Copy>Earlier workout versions keep their original photo.</Copy>
       <Button title="Remove photo" busy={busy} disabled={busy} onPress={() => save(true)} />
-      <Button title="Keep photo" secondary disabled={busy} onPress={() => setRemoving(false)} />
+      <Button title="Keep photo" secondary disabled={busy} onPress={() => { if (active() && !scope.lock) setRemoving(false); }} />
     </Sheet>
   </Screen>;
 }
