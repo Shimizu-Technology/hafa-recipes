@@ -958,6 +958,9 @@ export function createWorkoutsApi(
         ).data
       );
     },
+    async deleteWorkout(id: string, generation: number) {
+      await request(`/library/${encodeURIComponent(id)}`, "DELETE", undefined, { generation });
+    },
     async updateWorkout(workout: Workout) {
       return workoutRecord(
         (

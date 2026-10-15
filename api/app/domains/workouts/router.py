@@ -982,7 +982,20 @@ async def record_session(
         )
         if corrected:
             raise HTTPException(409, "Correct the latest session revision")
-    if request.workout_id:
+        # Corrections belong to the original recorded prescription, including
+        # after its library source has been deleted. Never accept a replacement
+        # source or a client-provided prescription as historical evidence.
+        source_fields = (
+            "workout_id",
+            "workout_revision",
+            "program_id",
+            "program_revision",
+            "program_session_id",
+        )
+        if any(content.get(key) != previous.content.get(key) for key in source_fields):
+            raise HTTPException(409, "A correction must keep its original prescription")
+        snapshot = previous.content.get("prescription_snapshot")
+    elif request.workout_id:
         source = await owned_record(db, WorkoutRecord, request.workout_id, user.id, generation)
         snapshot = await db.scalar(
             select(WorkoutVersion.content).where(

@@ -1,4 +1,13 @@
 import type { Workout } from "./models";
+import type { TrainingState } from "./training";
+export function workoutDeletionBlock(id: string, state: TrainingState, ready: boolean) {
+  if (!ready) return "Wait for training on this device to finish loading before deleting.";
+  if (state.active && "workout_id" in state.active.source && state.active.source.workout_id === id)
+    return "Finish or discard the active session before deleting this workout.";
+  if (state.history.some(item => item.request.workout_id === id && item.state !== "synced"))
+    return "Save this workout’s pending results to your account before deleting it. Open Progress to retry.";
+  return null;
+}
 export interface Organization {
   revision: number;
   favorite: boolean;
