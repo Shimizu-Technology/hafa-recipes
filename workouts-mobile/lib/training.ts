@@ -88,6 +88,9 @@ function syncProblem(status: number | undefined, message: string) {
     return "The original workout or plan may have been deleted. Your recorded result remains saved on this device.";
   return message;
 }
+export function hasUnloggedInput(input: Record<string, string> = {}) {
+  return Object.entries(input).some(([key, value]) => !["load_unit", "convention"].includes(key) && value.trim());
+}
 export function trainingKey(owner: string, generation: number) {
   if (!owner || generation < 1) throw Error("A training draft needs an enrolled account generation.");
   return `hafa-workouts:training:v1:${encodeURIComponent(owner)}:${generation}`;
@@ -555,10 +558,12 @@ export function createTrainingStore(
         return s;
       });
     },
-    finish(status: "completed" | "partial", now = clock()) {
+    finish(status: "completed" | "partial", now = clock(), unloggedInput: "keep" | "discard" = "keep") {
       return update((s) => {
         const d = s.active;
         if (!d) throw Error("No session is active.");
+        if (hasUnloggedInput(d.input) && unloggedInput !== "discard")
+          throw Error("Log or discard the current entry before finishing.");
         if (status === "completed" && draftStructureWarning(d)) throw Error("Older set numbering needs review. Keep this result as a partial session.");
         if (status === "completed") {
           if (d.timed_circuit) {

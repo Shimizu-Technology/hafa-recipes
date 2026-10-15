@@ -6,7 +6,7 @@ import { createTrainingStore } from "./training";
 import type { Workout } from "./models";
 
 const fixture = vi.hoisted(() => ({ store: null as ReturnType<typeof createTrainingStore> | null,
-  listeners: new Set<(state: string) => void>(), saveSession: vi.fn(), replace: vi.fn() }));
+  listeners: new Set<(state: string) => void>(), writeFailure: false, saveSession: vi.fn(), replace: vi.fn() }));
 vi.mock("@/lib/context", async () => {
   const { useSyncExternalStore } = await import("react");
   const api = { sessions: async () => [], saveSession: fixture.saveSession };
@@ -37,10 +37,10 @@ const footer = () => renderer!.root.findByType("Screen" as never).props.footer;
 const text = () => renderer!.root.findAllByType("Copy" as never).map((node) => node.children.filter((child) => typeof child === "string").join("")).join("\n");
 beforeEach(async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  vi.useFakeTimers(); vi.setSystemTime(10000); fixture.listeners.clear(); fixture.replace.mockReset(); fixture.saveSession.mockReset();
+  vi.useFakeTimers(); vi.setSystemTime(10000); fixture.writeFailure = false; fixture.listeners.clear(); fixture.replace.mockReset(); fixture.saveSession.mockReset();
   const memory = new Map<string, string>();
   fixture.store = createTrainingStore({ getItem: async (key) => memory.get(key) ?? null,
-    setItem: async (key, value) => { memory.set(key, value); }, removeItem: async (key) => { memory.delete(key); } }, "owner", 1);
+    setItem: async (key, value) => { if (fixture.writeFailure) throw Error("device write failed"); memory.set(key, value); }, removeItem: async (key) => { memory.delete(key); } }, "owner", 1);
   await fixture.store.load(); await fixture.store.start(workout, { workout_id: "source", workout_revision: 1 }, "client");
   await fixture.store.activityType("strength_training");
   fixture.saveSession.mockImplementation(async (request) => ({ id: "saved", content: request }));
@@ -92,4 +92,69 @@ it("a cap cannot silently discard an entered final exercise", async () => {
   await act(async () => { footer().props.onPress(); }); await settle();
   expect(fixture.store!.snapshot().active!.actuals.map((actual) => actual.reps)).toEqual([10, 8]);
   expect(footer().props.title).toBe("Finish at time cap and save");
+});
+
+const field = (label: string) => renderer!.root.findAllByType("Field" as never).find(node => node.props.label === label)!;
+const action = (title: string) => renderer!.root.findAllByType("Button" as never).find(node => node.props.title === title)!;
+const partial = () => renderer!.root.findAllByType("ListRow" as never).find(node => node.props.title === "Finish as partial session")!;
+const finishSheet = () => renderer!.root.findAllByType("Sheet" as never).find(node => node.props.title === "Keep your current entry?")!;
+async function recordedThenTyped() {
+  await act(async () => { field("Actual reps").props.onChange("10"); }); await settle();
+  await act(async () => { footer().props.onPress(); }); await settle();
+  await act(async () => { action("Add load or feedback").props.onPress(); }); await settle();
+  await act(async () => { field("Actual reps").props.onChange("8"); field("Set notes").props.onChange("Last effort"); }); await settle();
+}
+it("offers deliberate partial-finish choices and keeps typed details when training continues", async () => {
+  await recordedThenTyped();
+  await act(async () => { partial().props.onPress(); }); await settle();
+  expect(finishSheet().props.visible).toBe(true);
+  expect(fixture.store!.snapshot().history).toEqual([]);
+  await act(async () => { action("Keep training").props.onPress(); }); await settle();
+  expect(finishSheet().props.visible).toBe(false);
+  expect(field("Actual reps").props.value).toBe("8");
+  expect(fixture.store!.snapshot().active!.input).toMatchObject({ reps: "8", notes: "Last effort" });
+});
+it("logs the typed entry before finishing a partial session without duplicating after a failed finish", async () => {
+  await recordedThenTyped();
+  await act(async () => { partial().props.onPress(); }); await settle();
+  const original = fixture.store!.finish;
+  vi.spyOn(fixture.store!, "finish").mockRejectedValueOnce(Error("finish write interrupted"));
+  await act(async () => { action("Log and finish").props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.actuals).toHaveLength(2);
+  expect(fixture.store!.snapshot().active!.input).toEqual({});
+  expect(fixture.store!.snapshot().history).toEqual([]);
+  vi.mocked(fixture.store!.finish).mockImplementation(original);
+  await act(async () => { action("Finish and save partial session").props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().history[0].request).toMatchObject({ status: "partial", actuals: [{ reps: 10 }, { reps: 8, notes: "Last effort" }] });
+  expect(fixture.replace).toHaveBeenCalledWith("/(tabs)/progress");
+});
+it("finishes without the unlogged entry only after explicit choice and retains it if persistence fails", async () => {
+  await recordedThenTyped();
+  await act(async () => { partial().props.onPress(); }); await settle();
+  fixture.writeFailure = true;
+  await act(async () => { action("Finish without this entry").props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.input).toMatchObject({ reps: "8", notes: "Last effort" });
+  expect(fixture.store!.snapshot().history).toEqual([]);
+  fixture.writeFailure = false;
+  await act(async () => { action("Finish without this entry").props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().history[0].request.actuals).toHaveLength(1);
+  expect(fixture.store!.snapshot().history[0].request.actuals[0].reps).toBe(10);
+});
+it("catches a same-turn typed value before the partial-finish handler or state render can lag", async () => {
+  await act(async () => { field("Actual reps").props.onChange("10"); }); await settle();
+  await act(async () => { footer().props.onPress(); }); await settle();
+  const finish = partial().props.onPress;
+  await act(async () => { field("Actual reps").props.onChange("9"); finish(); }); await settle();
+  expect(finishSheet().props.visible).toBe(true);
+  expect(fixture.store!.snapshot().history).toEqual([]);
+});
+
+it("keeps invalid unlogged actuals available to correct instead of finishing or discarding them", async () => {
+  await recordedThenTyped();
+  await act(async () => { field("Actual reps").props.onChange("-1"); partial().props.onPress(); }); await settle();
+  await act(async () => { action("Log and finish").props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().history).toEqual([]);
+  expect(fixture.store!.snapshot().active!.actuals).toHaveLength(1);
+  expect(field("Actual reps").props.value).toBe("-1");
+  expect(finishSheet().props.visible).toBe(true);
 });

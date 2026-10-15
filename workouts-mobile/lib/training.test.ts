@@ -858,3 +858,25 @@ it("can retry a legacy transiently blocked recovery without recreating its worko
   await expect(resumed.recoverResult("orphan", recoveryCommand, create, send, () => true)).resolves.toBe("server-recovered-result");
   expect(create).toHaveBeenCalledOnce(); expect(send).toHaveBeenCalledTimes(3);
 });
+
+it("requires an explicit choice before finishing with queued unlogged input", async () => {
+  const store = createTrainingStore(memory(), "owner", 1, () => 10000);
+  await store.load(); await store.start(fixture(), { workout_id: "workout", workout_revision: 3 }, "client");
+  await store.activityType("strength_training"); await store.log(next(store));
+  const typing = store.input({ reps: "7", notes: "Keep this detail" });
+  await expect(store.finish("partial")).rejects.toThrow("Log or discard");
+  await typing;
+  expect(store.snapshot().active!.input).toEqual({ reps: "7", notes: "Keep this detail" });
+  expect(store.snapshot().history).toEqual([]);
+  await store.finish("partial", undefined, "discard");
+  expect(store.snapshot().history[0].request.actuals).toHaveLength(1);
+  expect(store.snapshot().active).toBeNull();
+});
+it("default unit choices do not become unlogged actual work", async () => {
+  const store = createTrainingStore(memory(), "owner", 1, () => 10000);
+  await store.load(); await store.start(fixture(), { workout_id: "workout", workout_revision: 3 }, "client");
+  await store.activityType("strength_training"); await store.log(next(store));
+  await store.input({ load_unit: "kg", convention: "total", reps: "  " });
+  await store.finish("partial");
+  expect(store.snapshot().history[0].request.actuals).toHaveLength(1);
+});

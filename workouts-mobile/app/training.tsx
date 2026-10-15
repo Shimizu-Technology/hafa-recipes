@@ -28,7 +28,7 @@ import {
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import { effectiveTrainingHistory } from "@/lib/progress-selection";
-import { remainingSeconds, summaryOf, previousActual, actualIdentity, draftStructureWarning } from "@/lib/training";
+import { remainingSeconds, summaryOf, previousActual, actualIdentity, draftStructureWarning, hasUnloggedInput } from "@/lib/training";
 import type { ActualSet } from "@/lib/models";
 import { circuitRemaining, completedCircuitRounds } from "@/lib/timed-circuit";
 export default function Training() {
@@ -48,6 +48,7 @@ export default function Training() {
   const backgroundPausePending = useRef(false);
   const [advanced, setAdvanced] = useState(false);
   const [more, setMore] = useState(false);
+  const [finishReview, setFinishReview] = useState(false);
   const [metric, setMetric] = useState<"reps" | "time" | "distance">("reps");
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -72,6 +73,7 @@ export default function Training() {
     });
     return () => sub.remove();
   }, [store]);
+  useEffect(() => { setFinishReview(false); }, [d?.id]);
   useEffect(() => {
     const restored = d?.input ?? {};
     setInput(restored);
@@ -165,10 +167,13 @@ export default function Training() {
       notes: inputRef.current.notes || null,
     };
     await store.log(actual);
+    inputRef.current = {};
+    setInput({});
     if (completed) haptics.light();
   }
-  async function finish(status: "completed" | "partial") {
-    await store!.finish(status);
+  async function finish(status: "completed" | "partial", discardUnlogged = false) {
+    if (store!.snapshot().active?.id !== d!.id) throw Error("This session changed. Review the current session before finishing.");
+    await store!.finish(status, undefined, discardUnlogged ? "discard" : "keep");
     haptics.success();
     void store!.sync(api.saveSession).then(() => cache.invalidateQueries({ queryKey: [owner, "sessions"] }));
     router.replace("/(tabs)/progress");
@@ -178,7 +183,23 @@ export default function Training() {
   const capRemaining = circuitRemaining(d, now);
   const capReached = timed != null && capRemaining === 0;
   const timedComplete = capReached && recorded > 0 && !timed.limit_reached && !d.actuals.some((a) => !a.completed);
-  const pendingEntry = Object.entries(input).some(([key, value]) => !["load_unit", "convention"].includes(key) && value.trim());
+  const pendingEntry = hasUnloggedInput(input);
+  function requestPartialFinish() {
+    if (guard.current) return;
+    setMore(false);
+    if (hasUnloggedInput(inputRef.current) || hasUnloggedInput(store!.snapshot().active?.input)) {
+      setFinishReview(true);
+      return;
+    }
+    void run(() => finish("partial"));
+  }
+  function finishWithEntry() {
+    void run(async () => {
+      if (store!.snapshot().active?.id !== d!.id) throw Error("This session changed. Review the current session before finishing.");
+      if (hasUnloggedInput(inputRef.current)) await log(true);
+      await finish("partial");
+    });
+  }
   const nextStep = d.steps[d.cursor + 1];
   const next = nextStep?.exercise;
   const canFinish = !timed && !structureWarning && d.cursor === d.steps.length && !d.actuals.some((a) => !a.completed);
@@ -253,9 +274,7 @@ export default function Training() {
             title="Finish as partial session"
             size="lg"
             disabled={busy || !d.actuals.length}
-            onPress={() => {
-              void run(() => finish("partial"));
-            }}
+            onPress={requestPartialFinish}
           />
         )
       }
@@ -585,10 +604,7 @@ export default function Training() {
           title="Finish as partial session"
           detail="Saves what you recorded so far"
           disabled={busy || !d.actuals.length}
-          onPress={() => {
-            setMore(false);
-            void run(() => finish("partial"));
-          }}
+          onPress={requestPartialFinish}
         />
         <ListRow
           icon="trash-outline"
@@ -600,6 +616,18 @@ export default function Training() {
             discard();
           }}
         />
+      </Sheet>
+      <Sheet visible={finishReview} onClose={() => { if (!busy) setFinishReview(false); }} title="Keep your current entry?">
+        <Copy>{pendingEntry
+          ? "You have details that have not been logged. Choose what to keep before saving this partial session."
+          : "Your entry is recorded. Finish saving this partial session, or keep training."}</Copy>
+        {!!error && <Notice error>{error}</Notice>}
+        {d.paused && !capReached && <Notice>Resume training to log this entry, or save only the work already recorded.</Notice>}
+        <Button title={pendingEntry ? "Log and finish" : "Finish and save partial session"} icon="checkmark-done" busy={busy}
+          disabled={pendingEntry && (!step || !!structureWarning || (d.paused && !capReached))} onPress={finishWithEntry} />
+        {pendingEntry && <Button title="Finish without this entry" secondary disabled={busy}
+          onPress={() => { void run(() => finish("partial", true)); }} />}
+        <Button title="Keep training" variant="ghost" disabled={busy} onPress={() => setFinishReview(false)} />
       </Sheet>
     </Screen>
   );
