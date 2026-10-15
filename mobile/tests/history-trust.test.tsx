@@ -202,6 +202,20 @@ describe('Saved library search', () => {
       expect(library.filters).toMatchObject({ ownership: 'saved', query: 'Rice' });
       const list = renderer.container.queryAll(instance => instance.type === 'FlatList')[0];
       expect(list.props.data).toEqual(library.search);
+      if (empty) {
+        const emptyView = createRoot({ textComponentTypes: ['Text'] });
+        try {
+          await act(async () => emptyView.render(React.createElement(list.props.ListEmptyComponent)));
+          expect(emptyView.container.queryAll(instance => instance.props.children === 'No recipes match')).toHaveLength(1);
+          expect(emptyView.container.queryAll(instance => instance.props.children === 'Add Your First Recipe')).toHaveLength(0);
+          await act(async () => emptyView.container.queryAll(instance => instance.type === 'TouchableOpacity')[0].props.onPress());
+          expect(renderer.container.queryAll(instance => instance.type === 'Input')[0].props.value).toBe('');
+          expect(renderer.container.queryAll(instance => instance.type === 'FilterBottomSheet')[0].props.ownershipFilter).toBe('all');
+          expect(library.filters.query).toBe('');
+          expect(library.filters.ownership).toBe('all');
+          expect(renderer.container.queryAll(instance => instance.type === 'FlatList')[0].props.data).toEqual(library.cached);
+        } finally { await act(async () => emptyView.unmount()); }
+      }
       if (!empty) {
         const footer = createRoot({ textComponentTypes: ['Text'] });
         try {

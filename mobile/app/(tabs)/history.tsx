@@ -748,26 +748,32 @@ export default function HistoryScreen() {
     );
   }, [colors, totalCount, router, hasActiveFilters, combinedRecipes, isSelectionMode, selectedRecipeIds.size, displayRecipes?.length, exitSelectionMode, selectAllRecipes, clearSelection, handleShowHeaderMenu]);
 
+  const filteredEmpty = hasActiveFilters || ownershipFilter !== 'all';
+  const clearSearchAndFilters = () => {
+    setSearchQuery(''); setSourceFilter('all'); setTimeFilter('all');
+    setSelectedTags([]); setOwnershipFilter('all'); setDisplayCount(ITEMS_PER_PAGE);
+  };
+
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
       <RNView style={[styles.emptyIconContainer, { backgroundColor: colors.tint + '15' }]}>
         <Ionicons name={hasPrimaryLoadError ? 'cloud-offline-outline' : 'restaurant-outline'} size={42} color={colors.tint} />
       </RNView>
       <Text style={[styles.emptyTitle, { color: colors.text }]}>
-        {hasPrimaryLoadError ? 'Couldn’t load your recipes' : 'No recipes yet'}
+        {hasPrimaryLoadError ? 'Couldn’t load your recipes' : filteredEmpty ? 'No recipes match' : 'No recipes yet'}
       </Text>
       <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
         {hasPrimaryLoadError
           ? 'Your recipes are still safe. Check your connection and try again.'
-          : 'Start building your recipe collection!'}
+          : filteredEmpty ? 'Try another search or clear your filters.' : 'Start building your recipe collection!'}
       </Text>
       <TouchableOpacity
         style={[styles.emptyButton, { backgroundColor: colors.tint }]}
-        onPress={hasPrimaryLoadError ? handleRefreshAll : () => router.push('/(tabs)')}
+        onPress={hasPrimaryLoadError ? handleRefreshAll : filteredEmpty ? clearSearchAndFilters : () => router.push('/(tabs)')}
         activeOpacity={0.8}
       >
-        <Ionicons name={hasPrimaryLoadError ? 'refresh-outline' : 'add-circle-outline'} size={20} color="#FFFFFF" />
-        <Text style={styles.emptyButtonText}>{hasPrimaryLoadError ? 'Try Again' : 'Add Your First Recipe'}</Text>
+        <Ionicons name={hasPrimaryLoadError ? 'refresh-outline' : filteredEmpty ? 'close-circle-outline' : 'add-circle-outline'} size={20} color="#FFFFFF" />
+        <Text style={styles.emptyButtonText}>{hasPrimaryLoadError ? 'Try Again' : filteredEmpty ? 'Clear search and filters' : 'Add Your First Recipe'}</Text>
       </TouchableOpacity>
     </RNView>
   );
