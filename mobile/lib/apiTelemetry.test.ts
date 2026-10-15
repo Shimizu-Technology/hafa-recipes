@@ -61,6 +61,16 @@ describe('API error telemetry', () => {
 });
 
 describe('search requests', () => {
+  it('sends the requested library ownership scope without changing legacy callers', async () => {
+    await api.searchRecipes('adobo', 20, 20, 'website', 'quick', ['dinner'], undefined, 'saved');
+    expect(mocks.client.get).toHaveBeenLastCalledWith('/api/recipes/search', expect.objectContaining({
+      params: expect.objectContaining({ ownership: 'saved', offset: 20, source_type: 'website', tags: 'dinner' }),
+    }));
+    await api.searchRecipes('adobo');
+    expect(mocks.client.get).toHaveBeenLastCalledWith('/api/recipes/search', expect.objectContaining({
+      params: expect.objectContaining({ ownership: undefined }),
+    }));
+  });
   it('pass the React Query abort signal to the transport', async () => {
     const controller = new AbortController();
     await api.searchPublicRecipes('adobo', 20, 0, undefined, undefined, undefined, undefined, undefined, controller.signal);

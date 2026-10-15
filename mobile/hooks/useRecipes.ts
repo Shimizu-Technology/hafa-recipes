@@ -74,6 +74,7 @@ export type SearchFilters = {
   extractorId?: string;
   extractorName?: string; // For display purposes
   mealType?: string;
+  ownership?: 'own' | 'saved' | 'all';
 };
 
 export const recipeKeys = {
@@ -352,13 +353,13 @@ export function useRecipe(id: string, enabled = true) {
  * Search and filter recipes with infinite scroll
  */
 export function useInfiniteSearchRecipes(filters: SearchFilters, enabled = true) {
-  const { query, sourceType, timeFilter, tags } = filters;
+  const { query, sourceType, timeFilter, tags, ownership } = filters;
   const hasFilters = query || sourceType || timeFilter || (tags && tags.length > 0);
   
   return useInfiniteQuery({
     queryKey: recipeKeys.infiniteSearch(filters),
     queryFn: ({ pageParam = 0, signal }) =>
-      api.searchRecipes(query || '', PAGE_SIZE, pageParam, sourceType, timeFilter, tags, signal),
+      api.searchRecipes(query || '', PAGE_SIZE, pageParam, sourceType, timeFilter, tags, signal, ownership),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {
       if (!lastPage.has_more) return undefined;

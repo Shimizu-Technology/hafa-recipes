@@ -6,14 +6,15 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 from fastapi import FastAPI
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.auth import ClerkUser, get_current_user
 from app.db import get_db
 from app.db.database import Base
 from app.models.identity import AppUser
-from app.models.recipe import Recipe
+from app.models.moderation import UserBlock
+from app.models.recipe import Recipe, SavedRecipe
 from app.recipe_review import apply_recipe_review
 from app.routers.recipes import recipe_card_columns, recipe_to_list_item, router
 from tests.database_safety import require_disposable_test_database
@@ -177,3 +178,64 @@ async def test_http_list_search_keep_owner_filters_sort_and_page_contract(cards_
         assert filtered.status_code == 200
         assert filtered.json()["total"] == 4
         assert all(item["title"] != "Secret Rice" for item in filtered.json()["items"])
+
+
+async def test_scoped_search_finds_unloaded_saved_recipes_without_bypassing_visibility(cards_database):
+    async with cards_database.begin() as db:
+        db.add_all([AppUser(id="card_owner"), AppUser(id="other_owner"),
+                    AppUser(id="blocked_owner"), AppUser(id="hidden_owner", moderation_status="hidden")])
+        await db.flush()
+        rows = []
+        for index in range(25):
+            rows.append(Recipe(user_id="other_owner", source_url=f"manual://saved-{index}",
+                source_type="manual", extraction_method="manual", is_public=True, total_minutes=20,
+                extracted={"title": f"Saved rice {index}", "tags": ["dinner"],
+                    "components": [{"name": "Main", "ingredients": [{"name": "rice", "quantity": "1"}],
+                                    "steps": ["Cook rice"]}]},
+                created_at=datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(days=index)))
+        own = Recipe(user_id="card_owner", source_url="manual://own", source_type="manual",
+                     extraction_method="manual", is_public=False, extracted={"title": "My rice"})
+        hidden = [Recipe(user_id=owner, source_url=f"manual://hidden-{index}", source_type="manual",
+            extraction_method="manual", is_public=public, moderation_status=status,
+            extracted={"title": "Hidden rice", "components": [{"ingredients": [{"name": "rice"}], "steps": ["Cook"]}]})
+            for index, (owner, public, status) in enumerate([
+                ("other_owner", False, "active"), ("other_owner", True, "hidden"),
+                ("blocked_owner", True, "active"), ("hidden_owner", True, "active")])]
+        db.add_all([*rows, own, *hidden])
+        await db.flush()
+        db.add_all([SavedRecipe(user_id="card_owner", recipe_id=row.id) for row in [*rows, *hidden]])
+        db.add(UserBlock(blocker_user_id="card_owner", blocked_user_id="blocked_owner"))
+    app = FastAPI()
+    app.include_router(router)
+
+    async def owned_session():
+        async with cards_database() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = owned_session
+    app.dependency_overrides[get_current_user] = lambda: ClerkUser(
+        id="card_owner", clerk_user_id="subject", clerk_issuer="https://test.invalid", clerk_environment="test")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        first = (await client.get("/api/recipes/search?ownership=saved&q=rice&limit=20")).json()
+        assert first["total"] == 25 and first["has_more"]
+        assert len(first["items"]) == 20 and all(item["is_saved"] and not item["is_owner"] for item in first["items"])
+        second = (await client.get("/api/recipes/search?ownership=saved&q=rice&limit=20&offset=20")).json()
+        assert second["total"] == 25 and not second["has_more"] and len(second["items"]) == 5
+        target = await client.get("/api/recipes/search?ownership=saved&q=Saved%20rice%200&tags=dinner&time_filter=quick")
+        assert target.status_code == 200 and target.json()["total"] == 1
+        assert target.json()["items"][0]["id"] not in {item["id"] for item in first["items"]}
+        assert target.json()["items"][0]["title"] == "Saved rice 0"
+        assert (await client.get("/api/recipes/search?ownership=saved&q=missing")).json()["items"] == []
+        legacy = (await client.get("/api/recipes/search?q=rice")).json()
+        assert legacy["total"] == 1 and legacy["items"][0]["title"] == "My rice"
+        combined = (await client.get("/api/recipes/search?ownership=all&q=rice&limit=100")).json()
+        assert combined["total"] == 26 and len({item["id"] for item in combined["items"]}) == 26
+        assert "Hidden rice" not in str(combined)
+        assert (await client.get("/api/recipes/search?ownership=unknown")).status_code == 422
+        async with cards_database.begin() as db:
+            await db.execute(update(Recipe).where(Recipe.id.in_([row.id for row in rows])).values(
+                created_at=datetime(2026, 1, 1, tzinfo=timezone.utc)))
+        tied_pages = [(await client.get(f"/api/recipes/search?ownership=saved&q=rice&limit=7&offset={offset}")).json()
+                      for offset in range(0, 25, 7)]
+        assert [item["id"] for page in tied_pages for item in page["items"]] == sorted(
+            [str(row.id) for row in rows], reverse=True)

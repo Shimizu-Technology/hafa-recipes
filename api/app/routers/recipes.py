@@ -1409,6 +1409,7 @@ async def search_recipes(
     time_filter: Optional[str] = Query(default=None, description="Filter by time: quick (<30min), medium (30-60min), long (60min+)"),
     tags: Optional[str] = Query(default=None, description="Comma-separated tags to filter by"),
     meal_type: Optional[str] = Query(default=None, description="Filter by meal type: breakfast, lunch, dinner, snack, dessert"),
+    ownership: Literal["own", "saved", "all"] = Query(default="own"),
     db: AsyncSession = Depends(get_db),
     user: ClerkUser = Depends(get_current_user),
 ):
@@ -1418,8 +1419,16 @@ async def search_recipes(
     - Filter by source type, time, tags, and meal type
     - Returns paginated results with total count
     """
-    # Start with base query
-    base_query = select(Recipe).where(Recipe.user_id == user.id)
+    saved = select(SavedRecipe.id).where(
+        SavedRecipe.recipe_id == Recipe.id, SavedRecipe.user_id == user.id,
+    ).exists()
+    visible_saved = and_(saved, *public_recipe_conditions(user.id))
+    scope = Recipe.user_id == user.id
+    if ownership == "saved":
+        scope = visible_saved
+    elif ownership == "all":
+        scope = or_(scope, visible_saved)
+    base_query = select(Recipe).where(scope)
 
     # Apply meal_type filter if provided (search in JSONB array)
     if meal_type and meal_type != 'all':
@@ -1470,12 +1479,13 @@ async def search_recipes(
 
     # Execute paginated query
     result = await db.execute(
-        base_query.with_only_columns(*recipe_card_columns())
-        .order_by(Recipe.created_at.desc()).offset(offset).limit(limit)
+        base_query.with_only_columns(*recipe_card_columns(), saved.label("saved_by_viewer"))
+        .order_by(Recipe.created_at.desc(), Recipe.id.desc()).offset(offset).limit(limit)
     )
     recipes = result.all()
 
-    items = [recipe_to_list_item(r, user.id) for r in recipes]
+    items = [recipe_to_list_item(r, user.id, is_saved=bool(r.saved_by_viewer) if ownership != "own" else None)
+             for r in recipes]
     has_more = offset + len(items) < total_count
 
     return PaginatedRecipes(
