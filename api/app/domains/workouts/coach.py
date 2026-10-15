@@ -15,6 +15,7 @@ from sqlalchemy import String, cast, delete, func, select, text, update
 
 from app.config import get_settings
 from app.db.database import AsyncSessionLocal
+from app.domains.workouts import coach_images
 from app.domains.workouts.automation_models import WorkoutCoachMessage, WorkoutProposal
 from app.domains.workouts.automation_router import effective_profile, proposal_context_hash
 from app.domains.workouts.budget import BudgetError, BudgetGuard, BudgetPolicy, ProviderEnvelope
@@ -105,6 +106,7 @@ def fit_source_flow_context(item, workout):
 class CoachRequest(DomainModel):
     request_id: UUID
     message: str = Field(min_length=1, max_length=4000)
+    attachment_id: UUID | None = None
     context_workout_id: UUID | None = None
     context_program_id: UUID | None = None
     context_session_id: UUID | None = None
@@ -194,6 +196,7 @@ class ProductionCoachProvider:
                     model=invocation.model,
                     envelope=ProviderEnvelope(
                         endpoint="responses",
+                        includes_images=coach_images.includes_images(items),
                         max_output_tokens=1800,
                         function_tools=bool(tools),
                         paid_tools=any(tool.get("type") != "function" for tool in tools),
@@ -519,6 +522,7 @@ def message_response(row):
         "actions": actions,
         "created_at": row.created_at,
         "focus": row.proposals.get("focus", {}),
+        **coach_images.metadata(row.proposals),
     }
 
 
@@ -599,6 +603,8 @@ class WorkoutCoach:
             or row.proposals.get("state") != "pending"
         ):
             raise HTTPException(409, "Conversation was cleared or this request is no longer active")
+        if row.proposals.get("attachment_id"):
+            await coach_images.validate(db, user_id, generation, row.proposals["attachment_id"], consent_at)
         context, fresh = await build_context(
             db, user_id, generation, consent, focus=row.proposals.get("focus", {})
         )
@@ -646,7 +652,7 @@ class WorkoutCoach:
             if existing.proposals.get(
                 "state"
             ) == "pending" and existing.created_at < now() - timedelta(minutes=3):
-                existing.proposals = {"state": "failed", "actions": []}
+                existing.proposals = {**coach_images.metadata(existing.proposals), "state": "failed", "actions": []}
                 existing.assistant_message = "This request timed out. Send a new message to retry."
                 await db.commit()
             return message_response(existing)
@@ -673,6 +679,7 @@ class WorkoutCoach:
         }
         context, fingerprint = await build_context(db, user_id, generation, consent, focus=focus)
         consent_at = consent.accepted_at
+        attachment = await coach_images.bind(db, user_id, generation, request.attachment_id, request.request_id, consent_at) if request.attachment_id else {}
         token = str(uuid4())
         row = WorkoutCoachMessage(
             id=uuid4(),
@@ -684,6 +691,7 @@ class WorkoutCoach:
             assistant_message="",
             proposals={
                 "state": "pending",
+                **attachment,
                 "token": token,
                 "actions": [],
                 "consent_at": consent_at.isoformat(),
@@ -731,9 +739,10 @@ class WorkoutCoach:
                 },
                 {"role": "user", "content": request.message},
             ]
-            _, _ = await self.guard(
+            guarded, _ = await self.guard(
                 db, user_id, generation, message_id, token, fingerprint, consent_at
             )
+            await coach_images.refresh_input(db, user_id, generation, guarded.proposals, consent_at, items)
             await db.commit()  # No owner/database lock is held during provider I/O.
             if medical:
                 answer = "I can help with general training and recovery scheduling. Medical diagnosis, rehabilitation and clearance need a qualified professional. If you have chest pain or fainting, stop exercising and seek urgent medical help."
@@ -788,9 +797,10 @@ class WorkoutCoach:
                                         ),
                                     }
                                 )
-                            _, _ = await self.guard(
+                            guarded, _ = await self.guard(
                                 db, user_id, generation, message_id, token, fingerprint, consent_at
                             )
+                            await coach_images.refresh_input(db, user_id, generation, guarded.proposals, consent_at, items)
                             await db.commit()
                             # First-turn prose may precede tool calls. It is not
                             # part of the final answer or a saved prescription.
@@ -819,6 +829,7 @@ class WorkoutCoach:
             row.assistant_message = answer
             row.proposals = {
                 "state": "completed",
+                **attachment,
                 "actions": receipts,
                 "consent_at": consent_at.isoformat(),
                 "focus": focus,
@@ -839,7 +850,7 @@ class WorkoutCoach:
                     row = await db.get(WorkoutCoachMessage, message_id, populate_existing=True)
                     if row and row.proposals.get("token") == token and row.proposals.get("state") == "pending":
                         row.proposals = {
-                            "state": "failed", "actions": [],
+                            "state": "failed", "actions": [], **coach_images.metadata(row.proposals),
                             "consent_at": consent_at.isoformat(), "focus": focus,
                         }
                         row.assistant_message = "I couldn't finish this request. Review your current training information and send a new message to retry."

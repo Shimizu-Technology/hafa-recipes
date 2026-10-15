@@ -77,6 +77,7 @@ async def capabilities(user: User, db: Database):
     membership = await membership_for(db, user.id)
     configured = get_settings()
     from app.domains.workouts.cover_upload import storage_service, upload_ready
+    from app.domains.workouts.coach_images import available
 
     return {
         "generation": membership.generation,
@@ -95,8 +96,8 @@ async def capabilities(user: User, db: Database):
         and configured.workouts_ai_budget_24h_microusd > 0
         and bool(configured.workouts_ai_budget_database_url)
         and configured.is_ai_capability_enabled("workout_coach"),
-        # Private image transport alone does not admit model vision.
-        "coach_images": False,
+        "coach_images": configured.workouts_ai_enabled
+        and configured.is_ai_capability_enabled("workout_coach") and await available(db),
         "health_sync": configured.workouts_health_sync_enabled,
         "discover": await discover_ready(db),
         "limits": {

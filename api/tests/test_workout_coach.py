@@ -118,6 +118,7 @@ async def test_stream_delivers_real_fragmented_unicode_only_and_accounts_final_o
     assert body["stream"] is True and body["store"] is False and body["max_output_tokens"] == 1800
     assert body["parallel_tool_calls"] is False and body["service_tier"] == "default"
     assert budget.reservations[0][2].sdk_max_retries == 0 and budget.outcomes == ["success"]
+    assert budget.reservations[0][2].includes_images is False
     assert state.tracked[0]["exits"] == 1
     assert state.tracked[0]["terminal"] == [("success", normalize_usage(final))]
     assert "PRIVATE" not in json.dumps(state.tracked)
@@ -558,3 +559,17 @@ def test_coach_reads_new_grounded_instructions_without_legacy_private_annotation
         "blocks": [{"evidence": [{"field": "workout_instructions", "wording": quote, "location": "caption"},
             {"field": "workout_notes", "wording": "Private health note", "location": "caption"}]}]}
     assert source_flow_context(workout) == [quote]
+
+
+async def test_image_provider_attempt_truthfully_admits_vision_and_only_uses_supplied_private_input(streamed_provider):
+    state, budget = streamed_provider, FakeBudget()
+    state.chunks = [stream_frame("response.completed", response=stream_result())]
+    items = [{"role": "user", "content": [{"type": "input_image", "image_url": "https://signed.test/owned?ttl=60", "detail": "high"}]}]
+    async def receive(_delta):
+        pass
+    await ProductionCoachProvider(budget_guard=budget).respond(items, tools=tool_definitions(), on_text_delta=receive)
+    envelope = budget.reservations[0][2]
+    assert envelope.includes_images is True and envelope.function_tools is True
+    assert envelope.max_output_tokens == 1800 and envelope.sdk_max_retries == 0
+    assert state.sent[0]["input"] == items and state.sent[0]["store"] is False
+    assert len(budget.reservations) == 1 and budget.outcomes == ["success"]
