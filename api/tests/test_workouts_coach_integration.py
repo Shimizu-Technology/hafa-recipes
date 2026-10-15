@@ -512,12 +512,14 @@ async def test_comparable_actual_progression_is_result_based_and_actuals_immutab
     api = coach_api
     workout = await create_workout(api, loaded=True)
     async with api.sessions() as db:
-        source = await db.get(WorkoutRecord, UUID(workout["id"]))
         acquired = {"parts": [{"location": "caption", "text": "PRIVATE RAW PROGRESSION SOURCE"}]}
-        source.content = {**source.content, "source_context": acquired,
-                          "source_title": "Original creator instructions", "notes": ["Keep this instruction"]}
-        version = await db.scalar(select(WorkoutVersion).where(WorkoutVersion.workout_id == source.id))
-        version.content = source.content
+        # Seed the server-acquired prescription when its immutable version is
+        # first created; updating an existing version is correctly forbidden.
+        source = automation_router.store_workout(db, "owner", 1, {
+            **workout["content"], "source_context": acquired,
+            "source_title": "Original creator instructions", "notes": ["Keep this instruction"],
+        })
+        workout = {"id": str(source.id), "revision": source.revision}
         profile = await db.get(WorkoutsProfile, "owner")
         profile.content = dict(profile.content, equipment=["dumbbell"], available_loads_kg=[20, 21])
         profile.revision += 1

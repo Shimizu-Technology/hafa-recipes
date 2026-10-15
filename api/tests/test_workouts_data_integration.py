@@ -162,10 +162,12 @@ async def test_session_omits_raw_acquisition_text_but_keeps_original_prescriptio
         parts=[SourcePart("caption", "PRIVATE RAW SESSION SOURCE " * (1500 if near_limit else 1))]))
     original = acquired.model_dump(mode="json")
     bounded_content(original)
+    from app.domains.workouts.automation_router import store_workout
+
     async with data_api.sessions.begin() as db:
-        saved = await db.get(WorkoutRecord, row["id"])
-        version = await db.scalar(select(WorkoutVersion).where(WorkoutVersion.workout_id == saved.id))
-        saved.content, version.content = original, original
+        saved = store_workout(db, "owner", 1, original)
+        original = saved.content
+        row = {"id": str(saved.id), "revision": saved.revision}
     payload = session_payload(row)
     payload["actuals"] = [{**payload["actuals"][0], "set_index": index} for index in range(1, 21)]
     if near_limit:
