@@ -660,15 +660,14 @@ async def test_upload_cover_versions_replay_frozen_request_and_preserve_private_
     from copy import deepcopy
     from uuid import UUID
 
-    from app.domains.workouts.models import WorkoutRecord, WorkoutVersion
+    from app.domains.workouts.models import WorkoutRecord
     # Server-owned source context and unknown historical JSON must stay exact.
     async with discover_api.sessions() as db:
         saved = await db.get(WorkoutRecord, UUID(row["id"]))
         saved.content = {**saved.content,
             "instructions": ["Complete the source circuit."],
+            "future_server_field": {"keep": True},
             "source_context": {"parts": [{"location": "caption", "text": "PRIVATE RAW SOURCE"}]}}
-        initial = await db.scalar(select(WorkoutVersion).where(WorkoutVersion.workout_id == saved.id))
-        initial.content = deepcopy(saved.content)
         await db.commit()
         row["content"] = deepcopy(saved.content)
     key = uuid4()
@@ -694,7 +693,7 @@ async def test_upload_cover_versions_replay_frozen_request_and_preserve_private_
     assert "cover_origin" not in versions[1]["content"]
     # Old mobile omitted the new marker: save keeps the cover and honest origin.
     old_content = {k: v for k, v in content.items() if k not in {
-        "id", "version", "parent_version_id", "cover_origin", "source_thumbnail_url"}}
+        "id", "version", "parent_version_id", "cover_origin", "source_thumbnail_url", "future_server_field"}}
     edited = await discover_api.client.put(f"/api/v1/workouts/library/{row['id']}?expected_revision=2",
                                            json=old_content, headers=GENERATION)
     assert edited.status_code == 200, edited.text
@@ -705,10 +704,6 @@ async def test_upload_cover_versions_replay_frozen_request_and_preserve_private_
     public, _ = discover.public_workout(edited.json()["content"])
     assert public["cover_origin"] == "user" and public["notes"] == []
     assert "source_context" not in public
-    async with discover_api.sessions() as db:
-        historical = await db.get(WorkoutVersion, UUID(versions[0]["id"]))
-        historical.content = {**historical.content, "future_server_field": {"keep": True}}
-        await db.commit()
     before_restore = (await discover_api.client.get(f"/api/v1/workouts/library/{row['id']}/versions")).json()
     restored = await discover_api.client.post(
         f"/api/v1/workouts/library/{row['id']}/versions/{versions[0]['id']}/restore?expected_revision=3",

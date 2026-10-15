@@ -202,6 +202,20 @@ async def _prepare(sessions, owner, generation, source_id, url, purpose, expecte
         return None  # Registered cleanup survives partial uploads and unavailable media.
 
 
+async def normalize_cover_origin(db, owner, generation, content):
+    """Read-only projection before final sizing and frozen acceptance hashing."""
+    content.pop("cover_origin", None)
+    url = content.get("source_thumbnail_url")
+    identifier = asset_id(url) if url else None
+    media = await db.get(WorkoutSourceMedia, identifier) if identifier and await media_ready(db) else None
+    if media and media.app_user_id == owner and media.generation == generation and media.canonical_url == url:
+        from app.domains.workouts.cover_upload import registered_origin
+
+        origin = await registered_origin(db, identifier)
+        if origin:
+            content["cover_origin"] = origin
+
+
 async def retain_source_cover(db, owner, generation, url, *, content=None):
     if content is not None:
         content.pop("cover_origin", None)

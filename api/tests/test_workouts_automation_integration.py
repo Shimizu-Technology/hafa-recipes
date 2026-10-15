@@ -1789,7 +1789,9 @@ async def test_reextract_keeps_registered_owner_cover_and_original_training_snap
         configured=settings(), migration_engine=api.engine)
     chosen = (await upload_cover(api, created, uuid4())).json()
     assert chosen["revision"] == 2 and chosen["content"]["cover_origin"] == "user"
-    actual = await api.client.post("/api/v1/workouts/sessions", json=session_payload(chosen), headers=GENERATION)
+    recorded = session_payload(chosen)
+    recorded["actuals"][0]["block_id"] = chosen["content"]["blocks"][0]["id"]
+    actual = await api.client.post("/api/v1/workouts/sessions", json=recorded, headers=GENERATION)
     assert actual.status_code == 201, actual.text
     queued = await api.client.post("/api/v1/workouts/imports", headers=GENERATION, json={
         "request_id": str(uuid4()), "source": {"kind": "text", "text": TEXT, "ai_consent": True},

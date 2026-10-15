@@ -377,15 +377,14 @@ async def accept_import(
     ):
         raise HTTPException(422, "An import cannot claim generated coaching provenance")
     content = validated_workout(workout, authored=False)
-    from app.domains.workouts.source_media import retain_source_cover
+    from app.domains.workouts.source_media import normalize_cover_origin
 
-    await retain_source_cover(
-        db, user.id, generation, workout.source_thumbnail_url, content=content
-    )
+    await normalize_cover_origin(db, user.id, generation, content)
     try:
         original_content = validated_workout(
             WorkoutContent.model_validate(row.result["workout"]), authored=False
         )
+        await normalize_cover_origin(db, user.id, generation, original_content)
     except HTTPException as error:
         if error.status_code != 422 or request.workout is None:
             raise
@@ -435,7 +434,7 @@ async def accept_import(
         saved = store_workout(db, user.id, generation, content, original_content=original_content)
         from app.domains.workouts.source_media import retain_source_cover
 
-        await retain_source_cover(db, user.id, generation, workout.source_thumbnail_url)
+        await retain_source_cover(db, user.id, generation, saved.content.get("source_thumbnail_url"), content=saved.content)
     # Retain only the frozen target for content/mode-bound acceptance replay.
     row.payload = {"_replace": target} if target else None
     row.accepted_workout_id = saved.id
