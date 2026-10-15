@@ -228,7 +228,9 @@ export default function ImportReview() {
         setError(
           isIncomplete(e) && sharing && /discover|shar/i.test((e as { detail?: string }).detail ?? "")
             ? INCOMPLETE_MESSAGE
-            : (e as Error).message
+            : updateExisting && (e as { status?: number }).status === 409
+              ? "Your saved workout changed while you reviewed this import. Its newer edit is safe. You can keep this extraction as a separate private workout."
+              : (e as Error).message
         );
     } finally {
       if (isCurrent()) { saving.current = false; setBusy(false); }
@@ -349,7 +351,14 @@ export default function ImportReview() {
   const savedDraft = savedId && q.data?.status === "incomplete";
   return (
     <Screen back title={savedDraft ? "Draft saved." : savedId ? "Workout saved." : "Your workout."}
-      subtitle={savedDraft ? "Saved privately in your library. Check the missing details before training." : savedId ? "Ready in your library. Check or edit the details whenever you need." : busy ? "Saving your workout…" : "Your source becomes a workout you can use."}>
+      subtitle={savedDraft ? "Saved privately in your library. Check the missing details before training." : savedId ? "Ready in your library. Check or edit the details whenever you need." : busy ? "Saving your workout…" : "Your source becomes a workout you can use."}
+      footer={!!error && <>
+        <Notice error>{error}</Notice>
+        {q.data?.replace_target && hasExercises && !editing && !savedId && <Button title="Save as a separate private workout" secondary busy={busy} disabled={!routeReady || !restored} onPress={() => { void accept(); }} />}
+        {!restored && <Button title="Try loading again" secondary disabled={busy} onPress={() => {
+          setError(""); setRestoreAttempt((value) => value + 1); void q.refetch();
+        }} />}
+      </>}>
       <QueryState
         loading={q.isPending}
         error={q.data && ["queued", "processing"].includes(q.data.status) ? null : q.error}
@@ -478,7 +487,7 @@ export default function ImportReview() {
                 />}
                 {hasExercises && q.data?.replace_target && <>
                   <Copy kind="small">Updating creates a new version. Your private notes, organization and recorded sessions stay saved. This replaces version {q.data.replace_target.expected_revision}; a newer edit will be protected. If already shared to Discover, its public instructions will update there.</Copy>
-                  <Button title="Save as a separate private workout" secondary busy={busy} disabled={!routeReady || !restored || !!savedId} onPress={() => { void accept(); }} />
+                  {!error && <Button title="Save as a separate private workout" secondary busy={busy} disabled={!routeReady || !restored || !!savedId} onPress={() => { void accept(); }} />}
                 </>}</>}
               </>
             )}
@@ -575,10 +584,6 @@ export default function ImportReview() {
       </QueryState>
       {[404, 410].includes((q.error as { status?: number } | null)?.status ?? 0) && <Button title="Dismiss import" variant="ghost" busy={busy}
         onPress={() => { void cancel(true); }} />}
-      {!!error && <Notice error>{error}</Notice>}
-      {!restored && !!error && <Button title="Try loading again" secondary disabled={busy} onPress={() => {
-        setError(""); setRestoreAttempt((value) => value + 1); void q.refetch();
-      }} />}
       <Notice>
         Uploads are cleared after saving, cancellation or expiry. Saved workouts keep the workout details and source
         link when available.
