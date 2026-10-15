@@ -68,6 +68,10 @@ export default function AddToCollectionModal({
     };
   }, [committedScope]);
 
+  const current = () => alive.current && visible && scope.current === committedScope;
+  const requestGuard = () => { if (!current()) throw new Error('Collection choices changed; reopen them.'); };
+  const close = () => { if (current()) onClose(); };
+
   // Fetch data
   const collectionsQuery = useCollections(visible);
   const membershipQuery = useRecipeCollections(recipeId, visible);
@@ -109,9 +113,9 @@ export default function AddToCollectionModal({
   }, [visible, recipeId, userId]);
 
   const handleToggleCollection = async (collectionId: string) => {
-    if (working.current || !hasData || !visible) return;
+    if (!current() || working.current || !hasData) return;
     working.current = true;
-    const captured = scope.current;
+    const captured = committedScope;
     setError(null);
     const isCurrentlySelected = selectedIds.has(collectionId);
     haptics.light();
@@ -126,7 +130,7 @@ export default function AddToCollectionModal({
     setSelectedIds(newSelectedIds);
 
     try {
-      await (isCurrentlySelected ? removeFromCollection : addToCollection).mutateAsync({ collectionId, recipeId });
+      await (isCurrentlySelected ? removeFromCollection : addToCollection).mutateAsync({ collectionId, recipeId, requestGuard });
     } catch {
       if (alive.current && scope.current === captured) {
         setSelectedIds((current) => {
@@ -142,9 +146,9 @@ export default function AddToCollectionModal({
   };
 
   const handleCreateAndAdd = async () => {
-    if (!newCollectionName.trim() || working.current || !hasData || !visible) return;
+    if (!current() || !newCollectionName.trim() || working.current || !hasData) return;
     working.current = true;
-    const captured = scope.current;
+    const captured = committedScope;
     setError(null);
 
     const name = newCollectionName.trim();
@@ -153,7 +157,7 @@ export default function AddToCollectionModal({
 
     try {
       // Create collection
-      const collectionId = savedCollectionId ?? (await createCollection.mutateAsync({ name })).id;
+      const collectionId = savedCollectionId ?? (await createCollection.mutateAsync({ name, requestGuard })).id;
       savedCollectionId = collectionId;
       if (!alive.current || scope.current !== captured) return;
       setCreatedCollectionId(collectionId);
@@ -161,7 +165,7 @@ export default function AddToCollectionModal({
       // Add recipe to the new collection
       await addToCollection.mutateAsync({
         collectionId,
-        recipeId,
+        recipeId, requestGuard,
       });
 
       // Update local state
@@ -190,6 +194,7 @@ export default function AddToCollectionModal({
   };
 
   const handleMainButtonPress = () => {
+    if (!current() || working.current) return;
     if (isInCreateMode && hasValidName) {
       // Create the collection
       handleCreateAndAdd();
@@ -231,13 +236,13 @@ export default function AddToCollectionModal({
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={onClose}
+      onRequestClose={close}
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
-        <TouchableWithoutFeedback onPress={onClose}>
+        <TouchableWithoutFeedback onPress={close}>
           <RNView style={styles.overlay}>
             <TouchableWithoutFeedback>
               <RNView style={[styles.modal, { backgroundColor: colors.background }]}>
@@ -251,7 +256,7 @@ export default function AddToCollectionModal({
                     {recipeTitle}
                   </Text>
                 </RNView>
-                <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <TouchableOpacity onPress={close} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                   <Ionicons name="close" size={24} color={colors.textMuted} />
                 </TouchableOpacity>
               </RNView>
@@ -263,7 +268,7 @@ export default function AddToCollectionModal({
                     {error ?? (hasData ? 'Couldn’t refresh your collections. Your last loaded choices are shown.' : 'Couldn’t load your collections. Check your connection and try again.')}
                   </Text>
                   <Button title={error ? 'Refresh collections' : 'Try again'} disabled={isSaving || collectionsQuery.isFetching || membershipQuery.isFetching}
-                    onPress={() => { setError(null); void collectionsQuery.refetch(); void membershipQuery.refetch(); }} />
+                    onPress={() => { if (current() && !working.current) { setError(null); void collectionsQuery.refetch(); void membershipQuery.refetch(); } }} />
                 </RNView>
               )}
               {isLoading ? (
@@ -345,7 +350,7 @@ export default function AddToCollectionModal({
                         <RNView style={styles.inputWrapper}>
                           <Input
                             value={newCollectionName}
-                            onChangeText={(value) => { setNewCollectionName(value); setError(null); }}
+                            onChangeText={(value) => { if (current() && !working.current) { setNewCollectionName(value); setError(null); } }}
                             placeholder="Collection name..."
                             autoFocus
                             style={styles.collectionInput}
@@ -357,6 +362,7 @@ export default function AddToCollectionModal({
                         {!justCreated && (
                           <TouchableOpacity
                             onPress={() => {
+                              if (!current() || working.current) return;
                               setShowCreateNew(false);
                               setNewCollectionName('');
                               setCreatedCollectionId(null);
@@ -373,7 +379,7 @@ export default function AddToCollectionModal({
                   ) : (
                     <TouchableOpacity
                       style={[styles.createNewButton, { borderColor: colors.border }]}
-                      onPress={() => setShowCreateNew(true)}
+                      onPress={() => { if (current() && !working.current) setShowCreateNew(true); }}
                       accessibilityLabel="Create new collection"
                       disabled={isSaving || !hasData}
                     >

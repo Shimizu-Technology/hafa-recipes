@@ -52,6 +52,10 @@ export default function CreateCollectionModal({
     };
   }, [committedScope]);
 
+  const current = () => alive.current && visible && scope.current === committedScope;
+  const requestGuard = () => { if (!current()) throw new Error('Collection editor changed; reopen it.'); };
+  const close = () => { if (current()) onClose(); };
+
   const createMutation = useCreateCollection();
   const updateMutation = useUpdateCollection();
   const deleteMutation = useDeleteCollection();
@@ -70,8 +74,8 @@ export default function CreateCollectionModal({
   }, [editingCollection?.id, visible, userId]);
 
   const handleSave = async () => {
-    if (!name.trim() || working.current || !visible) return;
-    const captured = scope.current;
+    if (!current() || !name.trim() || working.current) return;
+    const captured = committedScope;
     working.current = true;
     setError(null);
 
@@ -79,11 +83,11 @@ export default function CreateCollectionModal({
       if (isEditing && editingCollection) {
         await updateMutation.mutateAsync({
           collectionId: editingCollection.id,
-          updates: { name: name.trim() },
+          updates: { name: name.trim() }, requestGuard,
         });
       } else {
         await createMutation.mutateAsync({
-          name: name.trim(),
+          name: name.trim(), requestGuard,
         });
       }
       if (alive.current && scope.current === captured) onClose();
@@ -95,8 +99,8 @@ export default function CreateCollectionModal({
   };
 
   const handleDelete = () => {
-    if (!editingCollection || isPending || working.current) return;
-    const captured = scope.current;
+    if (!current() || !editingCollection || isPending || working.current) return;
+    const captured = committedScope;
 
     haptics.warning();
     Alert.alert(
@@ -108,11 +112,11 @@ export default function CreateCollectionModal({
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            if (!alive.current || scope.current !== captured || working.current) return;
+            if (!current() || scope.current !== captured || working.current) return;
             working.current = true;
             setError(null);
             try {
-              await deleteMutation.mutateAsync({ collectionId: editingCollection.id });
+              await deleteMutation.mutateAsync({ collectionId: editingCollection.id, requestGuard });
               if (!alive.current || scope.current !== captured) return;
               onClose();
               // Navigate back after deletion (if callback provided)
@@ -133,9 +137,9 @@ export default function CreateCollectionModal({
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={onClose}
+      onRequestClose={close}
     >
-      <TouchableWithoutFeedback onPress={onClose}>
+      <TouchableWithoutFeedback onPress={close}>
         <RNView style={styles.overlay}>
           <TouchableWithoutFeedback>
             <KeyboardAvoidingView
@@ -148,7 +152,7 @@ export default function CreateCollectionModal({
                   <Text style={[styles.title, { color: colors.text }]}>
                     {isEditing ? 'Edit Collection' : 'New Collection'}
                   </Text>
-                  <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <TouchableOpacity onPress={close} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                     <Ionicons name="close" size={24} color={colors.textMuted} />
                   </TouchableOpacity>
                 </RNView>
@@ -158,7 +162,7 @@ export default function CreateCollectionModal({
                   <Text style={[styles.label, { color: colors.textSecondary }]}>Name</Text>
                   <Input
                     value={name}
-                    onChangeText={(value) => { setName(value); setError(null); }}
+                    onChangeText={(value) => { if (current() && !working.current) { setName(value); setError(null); } }}
                     editable={!isPending}
                     placeholder="e.g., Weeknight Dinners"
                     autoFocus
@@ -194,7 +198,7 @@ export default function CreateCollectionModal({
                   <RNView style={styles.actionsSpacer} />
                   <Button
                     title="Cancel"
-                    onPress={onClose}
+                    onPress={close}
                     variant="outline"
                     style={styles.cancelButton}
                   />

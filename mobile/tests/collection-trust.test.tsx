@@ -237,7 +237,7 @@ describe('collection recovery', () => {
       expect(close).not.toHaveBeenCalled(); expect(input().props.value).toBe('New dinners');
       expect(text(screen, 'Couldn’t save this collection. Check your connection and try again.')).toHaveLength(1);
       await act(async () => action(screen, title).props.onPress());
-      expect(save).toHaveBeenLastCalledWith(editing ? { collectionId: collection.id, updates: { name: 'New dinners' } } : { name: 'New dinners' });
+      expect(save).toHaveBeenLastCalledWith(expect.objectContaining(editing ? { collectionId: collection.id, updates: { name: 'New dinners' } } : { name: 'New dinners' }));
       expect(close).toHaveBeenCalledOnce();
     } finally { await act(async () => screen.unmount()); }
   });
@@ -307,7 +307,7 @@ describe('collection recovery', () => {
       expect(text(screen, 'Collection created. Couldn’t confirm the recipe was added. Retry adding it.')).toHaveLength(1);
       await act(async () => action(screen, 'Retry adding recipe').props.onPress());
       expect(createCollection).toHaveBeenCalledOnce(); expect(addRecipe).toHaveBeenCalledTimes(2);
-      expect(addRecipe).toHaveBeenLastCalledWith({ collectionId: collection.id, recipeId: 'recipe-1' });
+      expect(addRecipe).toHaveBeenLastCalledWith(expect.objectContaining({ collectionId: collection.id, recipeId: 'recipe-1' }));
     } finally { await act(async () => screen.unmount()); }
   });
   it('rolls back failed membership with a visible explanation', async () => {
@@ -336,6 +336,92 @@ describe('collection recovery', () => {
       expect(checkbox().props.accessibilityState.checked).toBe(true);
       expect(text(screen, 'Couldn’t refresh your collections. Your last loaded choices are shown.')).toHaveLength(1);
     } finally { await act(async () => screen.unmount()); }
+  });
+  it('ignores an old recipe checkbox callback after the modal switches recipes', async () => {
+    const close = vi.fn();
+    const element = (recipeId: string) => <AddToCollectionModal visible onClose={close} recipeId={recipeId} recipeTitle="Dinner" />;
+    const screen = await mount(element('recipe-1'));
+    try {
+      const checkbox = () => screen.container.queryAll(node => node.props.accessibilityRole === 'checkbox')[0];
+      const oldToggle = checkbox().props.onPress;
+      await act(async () => screen.render(element('recipe-2')));
+      await act(async () => oldToggle());
+      expect(addRecipe).not.toHaveBeenCalled();
+      expect(checkbox().props.accessibilityState.checked).toBe(false);
+      expect(close).not.toHaveBeenCalled();
+    } finally { await act(async () => screen.unmount()); }
+  });
+  it('ignores old editor save and input callbacks after replacing the account', async () => {
+    const close = vi.fn();
+    const element = () => <CreateCollectionModal visible onClose={close} />;
+    const screen = await mount(element());
+    try {
+      const input = () => screen.container.queryAll(node => node.props.placeholder === 'e.g., Weeknight Dinners')[0];
+      await act(async () => input().props.onChangeText('Old name'));
+      const oldSave = action(screen, 'Create').props.onPress, oldInput = input().props.onChangeText;
+      account.userId = 'owner-b'; await act(async () => screen.render(element()));
+      await act(async () => input().props.onChangeText('New name'));
+      await act(async () => { oldInput('Retired name'); oldSave(); });
+      expect(input().props.value).toBe('New name'); expect(createCollection).not.toHaveBeenCalled();
+      expect(close).not.toHaveBeenCalled();
+    } finally { await act(async () => screen.unmount()); }
+  });
+  it.each(['create', 'update', 'delete', 'add', 'remove'] as const)('fences queued modal %s before dispatch when its open identity changes', async kind => {
+    let resume!: () => void;
+    const client = new QueryClient({ mutationCache: new MutationCache({ onMutate: () => new Promise<void>(resolve => { resume = resolve; }) }),
+      defaultOptions: { mutations: { retry: false } } });
+    const hooksByKind = { create: 'useCreateCollection', update: 'useUpdateCollection', delete: 'useDeleteCollection',
+      add: 'useAddToCollection', remove: 'useRemoveFromCollection' } as const;
+    const hook = hooksByKind[kind];
+    vi.mocked(hooks[hook]).mockImplementation(actualHooks[hook] as any);
+    if (kind === 'remove') vi.mocked(hooks.useRecipeCollections).mockReturnValue({ data: [collection.id], refetch: retryRecipes } as any);
+    const method = { create: collectionApi.createCollection, update: collectionApi.updateCollection, delete: collectionApi.deleteCollection,
+      add: collectionApi.addRecipeToCollection, remove: collectionApi.removeRecipeFromCollection }[kind];
+    method.mockClear();
+    const close = vi.fn();
+    const element = (visible: boolean) => <QueryClientProvider client={client}>{kind === 'add' || kind === 'remove'
+      ? <AddToCollectionModal visible={visible} onClose={close} recipeId="recipe-1" recipeTitle="Dinner" />
+      : <CreateCollectionModal visible={visible} onClose={close} editingCollection={kind === 'create' ? undefined : collection} />}</QueryClientProvider>;
+    const screen = await mount(element(true));
+    try {
+      if (kind === 'add' || kind === 'remove') {
+        await act(async () => { screen.container.queryAll(node => node.props.accessibilityRole === 'checkbox')[0].props.onPress(); });
+      } else if (kind === 'delete') {
+        await act(async () => named(screen, 'Delete collection').props.onPress());
+        await act(async () => { vi.mocked(Alert.alert).mock.calls.at(-1)![2]!.find(option => option.text === 'Delete')!.onPress!(); });
+      } else {
+        await act(async () => screen.container.queryAll(node => node.props.placeholder === 'e.g., Weeknight Dinners')[0].props.onChangeText('Queued name'));
+        await act(async () => { action(screen, kind === 'create' ? 'Create' : 'Save').props.onPress(); });
+      }
+      expect(resume).toBeTypeOf('function');
+      await act(async () => screen.render(element(false)));
+      await act(async () => screen.render(element(true)));
+      await act(async () => { resume(); });
+      expect(method).not.toHaveBeenCalled(); expect(close).not.toHaveBeenCalled();
+      expect(text(screen, 'Couldn’t save this collection. Check your connection and try again.')).toHaveLength(0);
+    } finally { await act(async () => screen.unmount()); client.clear(); }
+  });
+  it('stops a queued add after creating a collection when the recipe changes', async () => {
+    let resume!: () => void, calls = 0;
+    const client = new QueryClient({ mutationCache: new MutationCache({ onMutate: () => {
+      if (++calls === 2) return new Promise<void>(resolve => { resume = resolve; });
+    } }), defaultOptions: { mutations: { retry: false } } });
+    vi.mocked(hooks.useCreateCollection).mockImplementation(actualHooks.useCreateCollection);
+    vi.mocked(hooks.useAddToCollection).mockImplementation(actualHooks.useAddToCollection);
+    collectionApi.createCollection.mockResolvedValue(collection); collectionApi.addRecipeToCollection.mockClear();
+    const element = (recipeId: string) => <QueryClientProvider client={client}><AddToCollectionModal visible onClose={vi.fn()} recipeId={recipeId} recipeTitle="Dinner" /></QueryClientProvider>;
+    const screen = await mount(element('recipe-1'));
+    try {
+      await act(async () => named(screen, 'Create new collection').props.onPress());
+      await act(async () => screen.container.queryAll(node => node.props.placeholder === 'Collection name...')[0].props.onChangeText('Queued dinner'));
+      await act(async () => { action(screen, 'Create Collection').props.onPress(); });
+      expect(resume).toBeTypeOf('function'); expect(collectionApi.createCollection).toHaveBeenCalledOnce();
+      await act(async () => screen.render(element('recipe-2')));
+      await act(async () => { resume(); });
+      expect(collectionApi.addRecipeToCollection).not.toHaveBeenCalled();
+      expect(text(screen, 'Collection created. Couldn’t confirm the recipe was added. Retry adding it.')).toHaveLength(0);
+      expect(screen.container.queryAll(node => node.props.accessibilityRole === 'checkbox')[0].props.accessibilityState.checked).toBe(false);
+    } finally { await act(async () => screen.unmount()); client.clear(); }
   });
   it.each(['create', 'update', 'delete', 'add', 'remove'] as const)('freezes %s authority before the global mutation callback awaits', async kind => {
     let resume!: () => void;
