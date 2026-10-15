@@ -1,9 +1,9 @@
 import { ActivityWeek } from "@/components/activity-week";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert } from "react-native";
 import { router } from "expo-router";
-import { AccountButton, Button, Card, Copy, Empty, IconButton, ListGroup, ListRow, Notice, Row, Screen, SectionHeader } from "@/components/ui";
+import { AccountButton, Button, Card, Copy, Empty, IconButton, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Skeleton } from "@/components/ui";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { summaryOf } from "@/lib/training";
 import { sessionsQuery } from "@/lib/session-query";
@@ -13,6 +13,7 @@ export default function Progress() {
   const offline = useOfflineTraining();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [visibleCount, setVisibleCount] = useState(20);
   const q = useQuery(sessionsQuery(api, owner, enrollment));
   const generation = enrollment?.generation ?? 0;
   const parents = missingProgressParents(offline.state.history, q.data ?? [], generation);
@@ -28,6 +29,10 @@ export default function Progress() {
   const selected = selectProgressSessions(offline.state.history, q.data ?? [], generation, ancestry.data?.records);
   const { local, remote } = selected;
   const ancestryReady = !needsAncestry || ancestry.data?.complete === true;
+  const historyLoading = !!enrollment?.enrolled && (q.isPending || (offline.ready === false && !offline.error));
+  const visibleLocal = local.slice(0, visibleCount);
+  const visibleRemote = remote.slice(0, Math.max(0, visibleCount - visibleLocal.length));
+  useEffect(() => setVisibleCount(20), [owner, generation]);
   async function sync(before?: () => Promise<void>) {
     if (!offline.store) return;
     setBusy(true);
@@ -61,7 +66,8 @@ export default function Progress() {
         </Row>
       }
     >
-      {ancestryReady ? <ActivityWeek sessions={selected.sessions} /> : <Card>
+      {historyLoading ? <Card><Skeleton height={24} width="70%" /><Skeleton height={18} width="50%" /><Copy>Loading your saved training history…</Copy></Card> : q.error && !q.data ?
+        <Card><Copy>Your training totals will return when history loads. Saved results on this device remain below.</Copy></Card> : ancestryReady ? <ActivityWeek sessions={selected.sessions} /> : <Card>
         <Copy>{ancestry.isPending ? "Checking session corrections before counting your progress…" :
           "Correction history could not be fully verified. Session totals stay paused to avoid counting one workout twice. Your saved results remain below."}</Copy>
         {!ancestry.isPending && <Button title="Retry correction history" secondary onPress={() => { void ancestry.refetch(); }} />}
@@ -70,7 +76,10 @@ export default function Progress() {
         <ListRow icon="add-circle-outline" title="Log completed activity" onPress={() => router.push("/activity")} />
         <ListRow icon="walk-outline" title="Runs, walks & other activity history" onPress={() => router.push("/activity-log")} />
       </ListGroup>
-      {!!offline.error && <Notice error>{offline.error}</Notice>}
+      {!!offline.error && <>
+        <Notice error>{offline.error}</Notice>
+        <Button title="Retry restoring saved sessions" secondary onPress={offline.retry} />
+      </>}
       {!!offline.state.history.filter((h) => h.state === "queued").length && (
         <Button
           title="Sync saved sessions"
@@ -80,8 +89,11 @@ export default function Progress() {
           }}
         />
       )}
-      {q.error && <Notice error>{q.error.message} Training saved on this device remains visible below.</Notice>}
-      {!remote.length && !local.length ? (
+      {q.error && <>
+        <Notice error>{q.error.message} Training saved on this device remains visible below.</Notice>
+        <Button title="Retry loading training history" secondary busy={q.isFetching} onPress={() => { void q.refetch(); }} />
+      </>}
+      {!historyLoading && !q.error && !offline.error && !remote.length && !local.length ? (
         <Empty
           icon="stats-chart-outline"
           title="Your progress starts with a session"
@@ -90,7 +102,7 @@ export default function Progress() {
         />
       ) : null}
       {!!(remote.length || local.length) && <SectionHeader title="Recent sessions" />}
-      {local
+      {visibleLocal
         .map((h) => (
           <Card key={h.request.client_session_id}>
             <Copy kind="caption" tone="muted">
@@ -172,7 +184,7 @@ export default function Progress() {
               onPress={() => router.push({ pathname: "/session/[id]", params: { id: h.request.supersedes_session_id! } })} />}
           </Card>
         ))}
-      {remote.map((s) => (
+      {visibleRemote.map((s) => (
         <Card key={s.id}>
           <Copy kind="caption" tone="muted">
             {new Date(s.started_at).toLocaleDateString()} · {s.status}
@@ -191,11 +203,13 @@ export default function Progress() {
             onPress={() => router.push({ pathname: "/session/[id]", params: { id: s.content.supersedes_session_id! } })} />}
         </Card>
       ))}
+      {local.length + remote.length > visibleCount && <Button title="Show more sessions" secondary
+        onPress={() => setVisibleCount((count) => count + 20)} />}
       <Button
         title="Refresh training history"
         variant="ghost"
         icon="refresh"
-        busy={busy}
+        busy={busy || q.isFetching}
         onPress={() => {
           void q.refetch();
         }}

@@ -4,13 +4,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { TrainingSession, Workout } from "./models";
 import type { SavedLocalSession } from "./training";
-const fixture = vi.hoisted(() => ({ history: [] as SavedLocalSession[], remote: [] as TrainingSession[], session: vi.fn(),
+const fixture = vi.hoisted(() => ({ history: [] as SavedLocalSession[], remote: [] as TrainingSession[], session: vi.fn(), sessions: vi.fn(), ready: true,
   store: { sync: vi.fn(async () => {}), retry: vi.fn(async () => {}), dismiss: vi.fn(async () => {}) }, alert: vi.fn() }));
 vi.mock("@/lib/context", () => {
-  const api = { sessions: async () => fixture.remote, session: fixture.session, saveSession: vi.fn(),
+  const api = { sessions: fixture.sessions, session: fixture.session, saveSession: vi.fn(),
     activityLog: async () => ({ items: [], has_more: false, timezone: "UTC", today: "2026-10-10", limit: 50, offset: 0 }) };
   return { useTraining: () => ({ api, owner: "owner", enrollment: { enrolled: true, generation: 1 } }),
-    useOfflineTraining: () => ({ state: { history: fixture.history }, error: "", store: fixture.store }) };
+    useOfflineTraining: () => ({ state: { history: fixture.history }, error: "", ready: fixture.ready, store: fixture.store }) };
 });
 vi.mock("react-native", () => ({ AppState: { addEventListener: () => ({ remove() {} }) }, Alert: { alert: fixture.alert } }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn() }, useFocusEffect() {} }));
@@ -39,7 +39,8 @@ const text = () => renderer!.root.findAll((node) => String(node.type) === "Copy"
   .map((node) => node.children.filter((child) => typeof child === "string").join("")).join("\n");
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  fixture.history = []; fixture.remote = []; fixture.session.mockReset(); fixture.alert.mockReset();
+  fixture.history = []; fixture.remote = []; fixture.ready = true; fixture.sessions.mockReset();
+  fixture.sessions.mockImplementation(async () => fixture.remote); fixture.session.mockReset(); fixture.alert.mockReset();
   Object.values(fixture.store).forEach((fn) => fn.mockClear());
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
 });
@@ -118,4 +119,35 @@ it("a result the server rejected can be retried or discarded from this device af
   const buttons = fixture.alert.mock.calls[0][2] as Array<{ text: string; onPress?(): void }>;
   await act(async () => { buttons.find((b) => b.text === "Discard")!.onPress!(); });
   expect(fixture.store.dismiss).toHaveBeenCalledWith("client-A");
+});
+
+
+it("shows initial history loading instead of a false empty library or zero-session summary", async () => {
+  let resolve!: (records: TrainingSession[]) => void;
+  fixture.sessions.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+  await act(async () => { renderer = create(tree()); }); await settle();
+  expect(text()).toContain("Loading your saved training history");
+  expect(renderer!.root.findAllByType("Empty" as never)).toHaveLength(0);
+  expect(text()).not.toContain("workout sessions with recorded actuals");
+  await act(async () => { resolve([saved("A")]); }); await settle();
+  expect(text()).toContain("1 workout session with recorded actuals");
+});
+it("a failed initial history read has an actionable retry instead of an empty-library claim", async () => {
+  fixture.sessions.mockRejectedValueOnce(Error("Training history unavailable"));
+  await act(async () => { renderer = create(tree()); }); await settle();
+  expect(renderer!.root.findAllByType("Empty" as never)).toHaveLength(0);
+  const retry = renderer!.root.findAllByType("Button" as never).find((node) => node.props.title === "Retry loading training history")!;
+  expect(retry).toBeDefined();
+  await act(async () => { retry.props.onPress(); }); await settle();
+  expect(renderer!.root.findAllByType("Empty" as never)).toHaveLength(1);
+});
+it("renders twenty history rows at a time without truncating authoritative counts or correction inputs", async () => {
+  fixture.remote = Array.from({ length: 45 }, (_, index) => saved(`result-${index}`));
+  await act(async () => { renderer = create(tree()); }); await settle();
+  const views = () => renderer!.root.findAllByType("Button" as never).filter((node) => node.props.title === "View saved session");
+  const more = () => renderer!.root.findAllByType("Button" as never).find((node) => node.props.title === "Show more sessions");
+  expect(views()).toHaveLength(20); expect(text()).toContain("45 workout sessions with recorded actuals");
+  await act(async () => { more()!.props.onPress(); }); expect(views()).toHaveLength(40);
+  await act(async () => { more()!.props.onPress(); }); expect(views()).toHaveLength(45);
+  expect(more()).toBeUndefined(); expect(fixture.remote).toHaveLength(45);
 });
