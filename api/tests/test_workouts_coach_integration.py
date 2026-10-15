@@ -1405,6 +1405,9 @@ async def test_coach_stream_resets_first_turn_prose_before_tool_round_and_only_c
         row = await db.get(WorkoutRecord, UUID(workout["id"]))
         row.content = {**row.content, "source_context": private_context, "instructions": []}
         await db.commit()
+    async def compose(profile, start_date, weeks, sources):
+        return build_program(profile, start_date, weeks)
+    api.coach.compose_library_program = compose
     api.provider.action = plan_action()
     api.provider.action[1]["source_workout_ids"] = [workout["id"]]
     original = api.provider.respond
