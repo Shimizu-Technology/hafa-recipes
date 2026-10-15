@@ -283,7 +283,8 @@ class ApiClient {
    * This will be called on every request to get a fresh token.
    */
   setTokenGetter(getter: TokenGetter | null) {
-    this.getTokenFn = getter;
+    // A legacy caller supplies no account authority, including during sign-out.
+    this.setAuthContext(getter, null);
   }
 
   /** Root-owned request authority survives route unmounts, but never an account boundary. */
