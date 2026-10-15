@@ -1,16 +1,16 @@
-import { createElement, type PropsWithChildren } from "react";
+import { createElement, startTransition, Suspense, type PropsWithChildren } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { blockedContributorsKey, contributorName } from "./safety";
 
 const f = vi.hoisted(() => ({
-  owner: "owner", generation: 1, current: true,
+  owner: "owner", generation: 1, current: true, storage: null as { isCurrent(): boolean } | null,
   blockedContributors: vi.fn(), unblockContributor: vi.fn(),
 }));
 vi.mock("@/lib/context", () => ({ useTraining: () => ({
   api: f, owner: f.owner, enrollment: { enrolled: true, generation: f.generation },
-  storage: { isCurrent: () => f.current }, isCurrentAccount: () => f.current,
+  storage: f.storage, isCurrentAccount: () => f.current,
 }) }));
 vi.mock("@/components/ui", () => ({
   Screen: "Screen", Button: "Button", Card: "Card", Copy: "Copy", Empty: "Empty", Notice: "Notice", SectionHeader: "SectionHeader",
@@ -42,7 +42,7 @@ function deferred() {
 }
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  f.owner = "owner"; f.generation = 1; f.current = true;
+  f.owner = "owner"; f.generation = 1; f.current = true; f.storage = { isCurrent: () => f.current };
   f.blockedContributors.mockReset().mockResolvedValue(rows);
   f.unblockContributor.mockReset().mockResolvedValue(undefined);
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
@@ -127,4 +127,31 @@ it("refreshes same-account caches when a confirmed unblock finishes after leavin
   gate.resolve(); await settle();
   expect(cache.getQueryData(key())).toEqual([]);
   expect(cache.getQueryState([f.owner, "discover", "feed", 1])?.isInvalidated).toBe(true);
+});
+
+it("an abandoned account render cannot retire the committed unblock acknowledgement", async () => {
+  const gate = deferred(); f.unblockContributor.mockReturnValueOnce(gate.promise);
+  let suspended = false;
+  const waiting = new Promise<never>(() => undefined);
+  function Blocker() { if (suspended) throw waiting; return null; }
+  const screen = () => createElement(QueryClientProvider, { client: cache },
+    createElement(Suspense, { fallback: createElement("Fallback") }, createElement(SafetyCenter), createElement(Blocker)));
+  await act(async () => { tree = create(screen()); }); await settle();
+  await click("Unblock Håfa member"); await click("Unblock");
+  const committedKey = key();
+  suspended = true; f.owner = "speculative-owner";
+  await act(async () => { startTransition(() => tree!.update(screen())); });
+  expect(nodes("Fallback")).toHaveLength(0);
+  f.blockedContributors.mockResolvedValue([]); gate.resolve(); await settle();
+  expect(cache.getQueryData(committedKey)).toEqual([]);
+  expect(f.unblockContributor).toHaveBeenCalledOnce();
+});
+it("a committed storage replacement ignores the old acknowledgement and unlocks confirmation", async () => {
+  const gate = deferred(); f.unblockContributor.mockReturnValueOnce(gate.promise);
+  await render(); await click("Unblock Håfa member"); await click("Unblock");
+  f.storage = { isCurrent: () => true }; await render();
+  await click("Unblock Håfa member"); expect(button("Unblock").props.busy).toBe(false);
+  gate.resolve(); await settle();
+  expect(cache.getQueryData(key())).toEqual(rows);
+  expect(JSON.stringify(tree!.toJSON())).not.toContain("Unblocked");
 });

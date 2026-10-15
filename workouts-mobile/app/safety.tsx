@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Copy, Empty, Notice, Screen, SectionHeader, Sheet } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
@@ -11,11 +11,13 @@ export default function SafetyCenter() {
   const { api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const cache = useQueryClient();
   const generation = enrollment?.enrolled ? enrollment.generation : null;
-  const scope = `${owner}:${generation}`;
-  const live = useRef(scope);
-  live.current = scope;
+  const scope = useMemo(() => ({}), [owner, generation, storage]);
+  const live = useRef<object | null>(null);
+  // Keep the last committed identity for same-account cache reconciliation after
+  // leaving this screen. Speculative renders cannot retire its acknowledgement.
+  useLayoutEffect(() => { live.current = scope; }, [scope]);
   const mounted = useRef(true);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const currentScope = () => live.current === scope && storage.isCurrent() && isCurrentAccount();
   const current = () => mounted.current && currentScope();
   const q = useQuery({
@@ -32,7 +34,7 @@ export default function SafetyCenter() {
   const working = useRef<object | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  useEffect(() => { working.current = null; setBusy(false); setSelected(null); setError(""); setMessage(""); }, [scope]);
+  useLayoutEffect(() => { working.current = null; setBusy(false); setSelected(null); setError(""); setMessage(""); }, [scope]);
 
   async function unblock() {
     if (!selected || working.current || generation == null || !current()) return;
