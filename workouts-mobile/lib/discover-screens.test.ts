@@ -13,6 +13,7 @@ const fixture = vi.hoisted(() => ({
   discover: vi.fn(),
   discoverWorkout: vi.fn(),
   saveDiscovered: vi.fn(),
+  blockDiscoverContributor: vi.fn(),
   workout: vi.fn(),
   deleteWorkout: vi.fn(),
   importJob: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("@/lib/context", () => {
     discover: fixture.discover,
     discoverWorkout: fixture.discoverWorkout,
     saveDiscovered: fixture.saveDiscovered,
+    blockDiscoverContributor: fixture.blockDiscoverContributor,
     workout: fixture.workout,
     deleteWorkout: fixture.deleteWorkout,
     importJob: fixture.importJob,
@@ -178,7 +180,7 @@ beforeEach(() => {
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   for (const mock of [fixture.capabilities, fixture.discover, fixture.discoverWorkout, fixture.saveDiscovered, fixture.workout,
     fixture.importJob, fixture.importSource, fixture.acceptImport, fixture.publishingDisclosure, fixture.acceptPublishingDisclosure,
-    fixture.push, fixture.replace, fixture.toast, fixture.cancelImport, fixture.deleteWorkout]) mock.mockReset();
+    fixture.push, fixture.replace, fixture.toast, fixture.cancelImport, fixture.deleteWorkout, fixture.blockDiscoverContributor]) mock.mockReset();
   fixture.params = {};
   fixture.focus = false;
   fixture.appState = "active"; fixture.appStateListeners.clear();
@@ -273,6 +275,24 @@ it("asks the coach about a Discover workout by saving a private copy first", asy
   await settle();
   expect(fixture.saveDiscovered).toHaveBeenCalledTimes(1);
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/coach", params: { workout_id: "copy-1", revision: "4" } });
+});
+
+it("refreshes the Workouts Safety Center after blocking from Discover", async () => {
+  fixture.params = { id: "pub-1" };
+  fixture.discoverWorkout.mockResolvedValue(detail);
+  fixture.blockDiscoverContributor.mockResolvedValue({ contributor_id: "c1", display_name: "Leon" });
+  cache.setQueryData(["owner", "blocked-contributors", 1], []);
+  cache.setQueryData(["other", "blocked-contributors", 1], []);
+  await mount(DiscoverWorkout);
+  const explanation = nodes("Copy").flatMap((node) => [node.props.children].flat()).filter((value) => typeof value === "string").join(" ");
+  expect(explanation).toContain("Settings → Safety Center in either app");
+  expect(explanation).not.toContain("later in Håfa Recipes under Safety Center");
+  await act(async () => button("Block")!.props.onPress());
+  await settle();
+  expect(fixture.blockDiscoverContributor).toHaveBeenCalledExactlyOnceWith("pub-1");
+  expect(cache.getQueryState(["owner", "blocked-contributors", 1])?.isInvalidated).toBe(true);
+  expect(cache.getQueryState(["other", "blocked-contributors", 1])?.isInvalidated).toBe(false);
+  expect(fixture.toast).toHaveBeenCalledWith("Blocked Leon");
 });
 
 it("shows owners their own workout with unpublish and no save, report or block", async () => {

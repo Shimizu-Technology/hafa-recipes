@@ -28,6 +28,7 @@ import {
 import type { ProviderName, HealthConnection, HealthChoices, SyncBody, ExportIntent } from "./health-client";
 import type { HealthObservation, ExportReceipt } from "./health/types";
 import type { ShareKind, SharePreview, OwnerShare } from "./sharing";
+import type { BlockedContributor } from "./safety";
 import type { Capabilities, ImportJob, ExtractionRequest } from "./capture";
 import {
   discoverQuery,
@@ -723,6 +724,13 @@ export function createWorkoutsApi(
           "POST"
         )
       ).data;
+    },
+    /** Blocks belong to the shared Håfa account, including contributors with no recipes. */
+    async blockedContributors(signal?: AbortSignal) {
+      return (await request<BlockedContributor[]>("/api/blocks", "GET", undefined, { signal })).data;
+    },
+    async unblockContributor(id: string) {
+      await request<void>(`/api/blocks/${encodeURIComponent(id)}`, "DELETE");
     },
     async publishWorkout(id: string, generation: number) {
       return (

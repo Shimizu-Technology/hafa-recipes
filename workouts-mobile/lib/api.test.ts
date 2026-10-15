@@ -27,6 +27,37 @@ describe("authenticated API boundary", () => {
     expect(JSON.parse(transport.mock.calls[1][1].body)).toMatchObject({ update_existing: true, acknowledge_warnings: true });
     expect(transport.mock.calls[1][1].headers["X-Workouts-Generation"]).toBe("4");
   });
+  it("lists and unblocks through shared account routes, encoding contributor IDs and accepting no-content replies", async () => {
+    const blocked = [{ contributor_id: "member/id", display_name: "Coach", created_at: "2026-10-15" }];
+    const transport = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(blocked)))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const api = createWorkoutsApi("https://example.test", async () => "token", transport, {
+      owner: "stable-owner", binding: "issuer:subject", currentBinding: () => "issuer:subject",
+    });
+    expect(await api.blockedContributors()).toEqual(blocked);
+    await expect(api.unblockContributor("member/id")).resolves.toBeUndefined();
+    expect(transport.mock.calls.map((call) => call[0])).toEqual([
+      "https://example.test/api/blocks", "https://example.test/api/blocks/member%2Fid",
+    ]);
+    expect(transport.mock.calls[1][1]).toMatchObject({ method: "DELETE", headers: { "X-Hafa-Account-ID": "stable-owner" } });
+  });
+  it("stops an unblock when the account changes while obtaining its token", async () => {
+    let binding = "original";
+    const transport = vi.fn();
+    const api = createWorkoutsApi("https://example.test", async () => { binding = "another"; return "token"; }, transport, {
+      owner: "stable-owner", binding, currentBinding: () => binding,
+    });
+    await expect(api.unblockContributor("member")).rejects.toMatchObject({ local: true });
+    expect(transport).not.toHaveBeenCalled();
+  });
+  it("rejects blocked-account data arriving after an account switch", async () => {
+    let binding = "original";
+    const transport = vi.fn(async () => { binding = "another"; return new Response("[]"); });
+    const api = createWorkoutsApi("https://example.test", async () => "token", transport, {
+      owner: "stable-owner", binding, currentBinding: () => binding,
+    });
+    await expect(api.blockedContributors()).rejects.toMatchObject({ local: true });
+  });
   it("archives using the frozen owner/generation/revision and retains paused history in the response", async () => {
     const row = { id: "plan", revision: 4, generation: 7, content: { title: "Saved plan", proposal: { sessions: [] },
       schedule_state: { status: "paused", archived_at: "2026-10-10", archive_previous_status: "paused", paused_sessions: [{ id: "queued" }] } } };
