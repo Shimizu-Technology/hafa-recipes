@@ -355,7 +355,10 @@ export default function ImportReview() {
       subtitle={savedDraft ? "Saved privately in your library. Check the missing details before training." : savedId ? "Ready in your library. Check or edit the details whenever you need." : busy ? "Saving your workout…" : "Your source becomes a workout you can use."}
       footer={!!error && <>
         <Notice error>{error}</Notice>
-        {q.data?.replace_target && hasExercises && !editing && !savedId && <Button title="Save as a separate private workout" secondary busy={busy} disabled={!routeReady || !restored} onPress={() => { void accept(); }} />}
+        {q.data?.replace_target && hasExercises && !editing && !savedId && <Button
+          title={error.startsWith("Your saved workout changed while") ? "Save as a separate private workout" : "Retry updating saved workout"}
+          secondary busy={busy} disabled={!routeReady || !restored}
+          onPress={() => { void accept(false, !error.startsWith("Your saved workout changed while")); }} />}
         {!restored && <Button title="Try loading again" secondary disabled={busy} onPress={() => {
           setError(""); setRestoreAttempt((value) => value + 1); void q.refetch();
         }} />}

@@ -2370,7 +2370,7 @@ it("keeps a conflicted existing-workout review and lets the person save a separa
     blocks: [{ ...workout.blocks[0], exercises: [{ name: "Row", reps_min: 10 }] }] };
   fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "ready", replace_target: { workout_id: "workout", expected_revision: 4 },
     result: { status: "ready", workout: extracted, warnings: [], evidence: [], source: { platform: "web", channels: [], coverage_notes: [] } } });
-  fixture.acceptImport.mockRejectedValueOnce(new ApiError("This workout changed. Your review is safe.", 409));
+  fixture.acceptImport.mockRejectedValueOnce(new ApiError("This workout changed. Your review is safe.", 409, false, "Workout changed; save a separate copy or extract again from its latest version"));
   await mount(ImportReview);
   expect(nodes("Choice").find(node => node.props.label === "Share to Discover")).toBeUndefined();
   await click("Update saved workout");
