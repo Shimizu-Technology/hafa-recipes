@@ -360,6 +360,7 @@ class ApiClient {
     timeFilter?: string,
     tags?: string[],
     signal?: AbortSignal,
+    ownership?: 'own' | 'saved' | 'all',
   ): Promise<PaginatedRecipes> {
     const { data } = await this.client.get('/api/recipes/search', {
       signal,
@@ -370,6 +371,7 @@ class ApiClient {
         source_type: sourceType || undefined,
         time_filter: timeFilter || undefined,
         tags: tags?.join(',') || undefined,
+        ownership,
       },
     });
     return data;

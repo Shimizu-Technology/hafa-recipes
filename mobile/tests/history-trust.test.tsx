@@ -1,7 +1,7 @@
 import React from 'react';
 import { act } from 'react';
 import { createRoot } from 'test-renderer';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { RecipeListItem } from '@/types/recipe';
 
@@ -55,9 +55,28 @@ vi.mock('@/components/Animated', () => ({
   AnimatedListItem: 'AnimatedListItem',
   ScalePressable: 'ScalePressable',
 }));
-vi.mock('@/hooks/useRecipes', () => ({}));
-vi.mock('@/hooks/useCollections', () => ({}));
-vi.mock('@/hooks/useViewPreference', () => ({}));
+const library = vi.hoisted(() => ({
+  filters: {} as Record<string, unknown>,
+  search: [] as RecipeListItem[],
+  cached: [] as RecipeListItem[],
+  moreSearch: vi.fn(), moreSaved: vi.fn(), moreOwn: vi.fn(),
+  hasMoreSearch: false,
+}));
+vi.mock('@/hooks/useRecipes', () => ({
+  useRecipes: () => ({ recipes: [], total: 0, fetchNextPage: library.moreOwn, hasNextPage: true }),
+  useSavedRecipes: () => ({ recipes: library.cached, fetchNextPage: library.moreSaved, hasNextPage: true }),
+  useSearchRecipes: (filters: Record<string, unknown>) => {
+    library.filters = filters;
+    return { recipes: library.search, total: library.search.length, isSuccess: true,
+      hasNextPage: library.hasMoreSearch, fetchNextPage: library.moreSearch };
+  },
+  useRecipeCount: () => ({ data: { count: 0 } }),
+  usePopularTags: () => ({ data: [] }),
+}));
+vi.mock('@/hooks/useCollections', () => ({ useCollections: () => ({ data: [], isLoading: false }) }));
+vi.mock('@/hooks/useViewPreference', () => ({ useViewPreference: () => ({ viewMode: 'list', isGrid: false }) }));
+vi.mock('@/hooks/usePullToRefresh', () => ({ usePullToRefresh: () => ({ isPullRefreshing: false, onPullRefresh: vi.fn() }) }));
+vi.mock('@/hooks/useDebouncedSearchQuery', () => ({ useDebouncedSearchQuery: (value: string) => value }));
 vi.mock('@/constants/Colors', () => ({
   default: { light: {}, dark: {} },
   fontFamily: { semibold: 'System' },
@@ -87,12 +106,17 @@ vi.mock('@/components/RecipeTrustBadge', async () => {
   };
 });
 
-import { GridRecipeCard, RecipeCard } from '../app/(tabs)/history';
+import HistoryScreen, { GridRecipeCard, RecipeCard } from '../app/(tabs)/history';
 
 const colors = {
   card: '#fff', cardBorder: '#ddd', error: '#b00', success: '#070', text: '#111',
   textMuted: '#666', textSecondary: '#444', tint: '#155c52', warning: '#8a5a00',
 } as any;
+
+beforeEach(() => {
+  library.filters = {}; library.search = []; library.cached = []; library.hasMoreSearch = false;
+  library.moreSearch.mockClear(); library.moreSaved.mockClear(); library.moreOwn.mockClear();
+});
 
 function recipe(
   reviewState: 'needs_review' | 'source_incomplete' | 'ready' | undefined,
@@ -160,5 +184,34 @@ describe.each([
     } finally {
       await act(async () => renderer.unmount());
     }
+  });
+});
+
+describe('Saved library search', () => {
+  it.each([false, true])('uses authoritative saved results, including an empty page (%s)', async empty => {
+    library.cached = [{ ...recipe('ready'), id: 'cached-match', title: 'Rice from cached page' }];
+    library.search = empty ? [] : [{ ...recipe('ready'), id: 'older-saved-match', title: 'Rice outside cached page' }];
+    library.hasMoreSearch = !empty;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(React.createElement(HistoryScreen)));
+      await act(async () => {
+        renderer.container.queryAll(instance => instance.type === 'FilterBottomSheet')[0].props.onOwnershipFilterChange('saved');
+        renderer.container.queryAll(instance => instance.type === 'Input')[0].props.onChangeText('Rice');
+      });
+      expect(library.filters).toMatchObject({ ownership: 'saved', query: 'Rice' });
+      const list = renderer.container.queryAll(instance => instance.type === 'FlatList')[0];
+      expect(list.props.data).toEqual(library.search);
+      if (!empty) {
+        const footer = createRoot({ textComponentTypes: ['Text'] });
+        try {
+          await act(async () => footer.render(React.createElement(list.props.ListFooterComponent)));
+          await act(async () => footer.container.queryAll(instance => instance.type === 'TouchableOpacity')[0].props.onPress());
+        } finally { await act(async () => footer.unmount()); }
+        expect(library.moreSearch).toHaveBeenCalledOnce();
+        expect(library.moreSaved).not.toHaveBeenCalled();
+        expect(library.moreOwn).not.toHaveBeenCalled();
+      }
+    } finally { await act(async () => renderer.unmount()); }
   });
 });

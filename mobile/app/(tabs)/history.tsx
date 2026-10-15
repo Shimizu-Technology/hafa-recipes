@@ -343,6 +343,8 @@ export default function HistoryScreen() {
     hasNextPage: hasMoreSearchResults,
     isFetchingNextPage: isFetchingNextSearchResults,
     isFetching: isSearchFetching,
+    isSuccess: isSearchSuccess,
+    total: searchTotal,
     isError: isSearchError,
     refetch: refetchSearch,
   } = useSearchRecipes({
@@ -350,6 +352,7 @@ export default function HistoryScreen() {
     sourceType: sourceTypeParam,
     timeFilter: timeFilterParam,
     tags: selectedTags.length > 0 ? selectedTags : undefined,
+    ownership: ownershipFilter,
   }, isAuthenticated);
 
   const { data: countData } = useRecipeCount(sourceTypeParam, isAuthenticated);
@@ -398,6 +401,7 @@ export default function HistoryScreen() {
 
   // Combine own recipes with saved recipes based on ownership filter
   const combinedRecipes = useMemo(() => {
+    if (hasActiveFilters && isServerSearchCurrent && isSearchSuccess) return searchResults;
     // Optimistic filtering: filter locally while server request is in flight
     // Use server search results if available, otherwise filter locally
     let ownRecipes: RecipeListItem[] | undefined;
@@ -439,10 +443,11 @@ export default function HistoryScreen() {
 
     // Combine: own recipes first, then saved
     return [...ownRecipes, ...filteredSaved];
-  }, [recipes, searchResults, isServerSearchCurrent, savedRecipes, ownershipFilter, hasActiveFilters, sourceTypeParam, currentFilters]);
+  }, [recipes, searchResults, isServerSearchCurrent, isSearchSuccess, savedRecipes, ownershipFilter, hasActiveFilters, sourceTypeParam, currentFilters]);
 
   // Calculate total count based on ownership filter
   const totalCount = useMemo(() => {
+    if (hasActiveFilters && isServerSearchCurrent && isSearchSuccess) return searchTotal;
     if (ownershipFilter === 'saved') {
       return savedRecipes?.length ?? 0;
     } else if (ownershipFilter === 'own') {
@@ -450,7 +455,7 @@ export default function HistoryScreen() {
     } else {
       return recipesTotal + (savedRecipes?.length ?? 0);
     }
-  }, [ownershipFilter, recipesTotal, savedRecipes]);
+  }, [ownershipFilter, recipesTotal, savedRecipes, hasActiveFilters, isServerSearchCurrent, isSearchSuccess, searchTotal]);
 
   // For display, slice to current page
   const displayRecipes = combinedRecipes?.slice(0, displayCount);
@@ -459,6 +464,7 @@ export default function HistoryScreen() {
   const hasMoreLocal = combinedRecipes && displayCount < combinedRecipes.length;
   // hasMoreServer depends on ownership filter
   const hasMoreServer = useMemo(() => {
+    if (hasActiveFilters) return isServerSearchCurrent && hasMoreSearchResults;
     if (ownershipFilter === 'saved') {
       return hasMoreSaved; // Only check saved when in "Saved Only" mode
     } else if (ownershipFilter === 'own') {
@@ -467,7 +473,7 @@ export default function HistoryScreen() {
       // "all" mode - check both
       return (hasActiveFilters ? hasMoreSearchResults : hasMoreRecipes) || hasMoreSaved;
     }
-  }, [ownershipFilter, hasMoreSaved, hasMoreRecipes, hasMoreSearchResults, hasActiveFilters]);
+  }, [ownershipFilter, hasMoreSaved, hasMoreRecipes, hasMoreSearchResults, hasActiveFilters, isServerSearchCurrent]);
   const hasMore = hasMoreLocal || hasMoreServer;
 
   const refreshLibrary = useCallback(async () => {
@@ -482,14 +488,12 @@ export default function HistoryScreen() {
       setDisplayCount(prev => prev + ITEMS_PER_PAGE);
     } else if (hasMoreServer) {
       // Then, fetch more from the server
-      if (hasActiveFilters && hasMoreSearchResults) {
+      if (hasActiveFilters) {
         // Don't page the previous query while a new one is still debouncing.
         if (isServerSearchCurrent) fetchNextSearchResults();
-      } else if (hasMoreRecipes) {
-        fetchNextRecipes();
-      }
-      if (showSavedRecipes && hasMoreSaved) {
-        fetchNextSaved();
+      } else {
+        if (showOwnRecipes && hasMoreRecipes) fetchNextRecipes();
+        if (showSavedRecipes && hasMoreSaved) fetchNextSaved();
       }
       // Increase display count after fetch
       setDisplayCount(prev => prev + ITEMS_PER_PAGE);
