@@ -1,4 +1,5 @@
-import type { ActualSet, Workout, SessionRequest, TrainingSession, ExercisePrescription } from "./models";
+import { canRecoverResult, restoredPrescription, type ResultRecoveryCommand, type ResultRecoveryReceipt } from "./result-recovery";
+import type { ActualSet, Workout, AuthoredWorkout, SessionRequest, TrainingSession, ExercisePrescription } from "./models";
 import type { Storage } from "./drafts";
 import { timedCircuit, circuitRemaining } from "./timed-circuit";
 export type UnitSystem = "metric" | "imperial";
@@ -40,6 +41,7 @@ export interface SessionDraft {
   timed_circuit?: { time_cap_seconds: number; round_size: number; limit_reached?: boolean };
   undo: Array<{ actuals: ActualSet[]; cursor: number }>;
 }
+export interface RecoveryOrigin { request: SessionRequest; workout: Workout; previous?: RecoveryOrigin }
 export interface SavedLocalSession {
   cell_identity_version?: 2;
   request: SessionRequest;
@@ -48,6 +50,11 @@ export interface SavedLocalSession {
   synced_id?: string;
   synced_at?: number;
   problem?: string;
+  rejection_status?: number;
+  recovery?: ResultRecoveryCommand & { workout?: Workout };
+  /** Original rejected bytes remain available with the explicitly recovered result. */
+  recovery_origin?: RecoveryOrigin;
+  recovered_with?: ResultRecoveryCommand;
   state: "queued" | "synced" | "blocked";
 }
 export interface TrainingState {
@@ -55,6 +62,8 @@ export interface TrainingState {
   generation: number;
   active: SessionDraft | null;
   history: SavedLocalSession[];
+  /** Bounded content-free receipts outlive normal synced-history pruning. */
+  recovery_receipts?: ResultRecoveryReceipt[];
 }
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 // Synced results live on the server. Keep only the newest few on the device so
@@ -64,6 +73,11 @@ export function pruneHistory(history: SavedLocalSession[]) {
   let synced = 0;
   return history.filter((item) => item.state !== "synced" || ++synced <= syncedHistoryLimit);
 }
+function rememberRecovery(state: TrainingState, original_id: string, command: ResultRecoveryCommand, saved_id: string) {
+  state.recovery_receipts = [{ original_id, creation_key: command.creation_key,
+    client_session_id: command.client_session_id, saved_id },
+    ...(state.recovery_receipts ?? []).filter(item => item.original_id !== original_id)].slice(0, syncedHistoryLimit);
+}
 // Network failures, timeouts, rate limits, expired sign-in and server errors can
 // succeed later. Any other 4xx will fail the same way on every retry.
 export function isTransientSyncError(status: number | undefined) {
@@ -71,7 +85,7 @@ export function isTransientSyncError(status: number | undefined) {
 }
 function syncProblem(status: number | undefined, message: string) {
   if (status === 404 || status === 410)
-    return "The server could not find the workout or plan for this session; it may have been deleted. Try saving again later, or discard it from this device if the source is gone.";
+    return "The original workout or plan may have been deleted. Your recorded result remains saved on this device.";
   return message;
 }
 export function trainingKey(owner: string, generation: number) {
@@ -233,6 +247,13 @@ export function createTrainingStore(
   let loaded = false;
   let operations = Promise.resolve();
   let syncing: Promise<void> | null = null;
+  let transport = Promise.resolve();
+  const recoveries = new Map<string, Promise<string>>();
+  function exclusive<T>(work: () => Promise<T>) {
+    const next = transport.catch(() => undefined).then(work);
+    transport = next.then(() => undefined, () => undefined);
+    return next;
+  }
   const listeners = new Set<() => void>();
   const key = trainingKey(owner, generation);
   function update(work: (previous: TrainingState) => TrainingState) {
@@ -259,11 +280,14 @@ export function createTrainingStore(
   }
   async function run(send: (request: SessionRequest, originalGeneration: number) => Promise<TrainingSession>) {
     await operations;
-    const queue = state.history.filter((x) => x.state === "queued");
+    const queue = state.history.filter((x) => x.state === "queued" && !x.recovery);
     let previousRejection: number | null = null;
     for (const item of queue) {
       try {
         const saved = await send(clone(item.request), item.generation);
+        if (item.recovered_with && (saved.generation !== item.generation ||
+          saved.client_session_id?.toLowerCase() !== item.request.client_session_id.toLowerCase()))
+          throw Object.assign(Error("The saved recovery response changed. Retry after refreshing your account."), { local: true });
         previousRejection = null;
         await update((s) => {
           const local = s.history.find((x) => x.request.client_session_id === item.request.client_session_id);
@@ -271,6 +295,9 @@ export function createTrainingStore(
             local.state = "synced";
             local.synced_id = saved.id;
             local.synced_at = clock();
+            if (local.recovery_origin && local.recovered_with)
+              rememberRecovery(s, local.recovery_origin.request.client_session_id, local.recovered_with, saved.id);
+            delete local.rejection_status;
             const warning = historicalStructureWarning(local.workout, local.request.actuals, local.cell_identity_version);
             if (warning) local.problem = warning;
             else delete local.problem;
@@ -286,7 +313,7 @@ export function createTrainingStore(
           const local = s.history.find((x) => x.request.client_session_id === item.request.client_session_id);
           if (local) {
             local.problem = syncProblem(status, e instanceof Error ? e.message : "Could not sync");
-            if (!transient) local.state = "blocked";
+            if (!transient) { local.state = "blocked"; local.rejection_status = status; }
           }
           return s;
         });
@@ -572,10 +599,108 @@ export function createTrainingStore(
     },
     sync(send: (request: SessionRequest, originalGeneration: number) => Promise<TrainingSession>) {
       // Concurrent callers wait for the same pass, so follow-up work sees its result.
-      syncing ??= run(send).finally(() => {
+      syncing ??= exclusive(() => run(send)).finally(() => {
         syncing = null;
       });
       return syncing;
+    },
+    recoverResult(
+      id: string, command: ResultRecoveryCommand,
+      saveWorkout: (workout: AuthoredWorkout, key: string, generation: number) => Promise<Workout>,
+      send: (request: SessionRequest, generation: number) => Promise<TrainingSession>,
+      current: () => boolean
+    ) {
+      const existing = recoveries.get(id);
+      if (existing) return existing;
+      const guard = () => { if (!current()) throw Error("Your account changed. Recovery stopped; the original result stays saved."); };
+      let acceptedDuringSend: string | undefined;
+      const sendCurrent = async (request: SessionRequest, epoch: number) => {
+        guard();
+        const saved = await send(request, epoch); guard();
+        if (saved.generation !== generation || saved.client_session_id?.toLowerCase() !== request.client_session_id.toLowerCase())
+          throw Object.assign(Error("The saved result response changed. Retry the same recovery after refreshing your account."), { local: true });
+        if (request.client_session_id.toLowerCase() === command.client_session_id.toLowerCase()) acceptedDuringSend = saved.id;
+        return saved;
+      };
+      const result = exclusive(async () => {
+        await operations.catch(() => undefined); guard();
+        const receipt = state.recovery_receipts?.find(item => item.original_id === id);
+        if (receipt) {
+          if (receipt.creation_key !== command.creation_key || receipt.client_session_id !== command.client_session_id)
+            throw Error("Reload the existing recovery before trying again.");
+          return receipt.saved_id;
+        }
+        if (command.client_session_id === id) throw Error("Recovery needs a new result identity.");
+        let original = state.history.find(item => item.request.client_session_id === id);
+        const replacement = state.history.find(item => item.recovery_origin?.request.client_session_id === id);
+        if (replacement) {
+          if (replacement.request.client_session_id !== command.client_session_id)
+            throw Error("Reload the existing recovery before trying again.");
+          if (replacement.state !== "synced") {
+            if (replacement.state === "blocked" && !isTransientSyncError(replacement.rejection_status))
+              throw Error(replacement.problem || "The recovered result needs review before saving again.");
+            await update(s => { s.history.find(item => item.request.client_session_id === command.client_session_id)!.state = "queued"; return s; });
+            await run(sendCurrent);
+          }
+        } else {
+          if (!original) throw Error("This local result is no longer available.");
+          if (original.state === "synced") return original.synced_id!;
+          if (original.request.supersedes_session_id) throw Error("A correction must stay linked to its original saved session.");
+          if (!original.recovery) {
+            if (!canRecoverResult(original)) throw Error("Try saving the original result again before recovering a missing source.");
+            try {
+              // Idempotency replay precedes source lookup on the server. A lost
+              // acceptance must resolve here before any new workout is created.
+              const saved = await sendCurrent(clone(original.request), generation);
+              await update(s => { const item = s.history.find(h => h.request.client_session_id === id)!;
+                item.state = "synced"; item.synced_id = saved.id; item.synced_at = clock();
+                delete item.rejection_status; delete item.problem;
+                rememberRecovery(s, id, command, saved.id); return s; });
+              return saved.id;
+            } catch (error) {
+              guard();
+              const failure = error as { status?: number; local?: boolean };
+              if (failure.local || ![404, 410].includes(failure.status ?? 0)) throw error;
+            }
+            await update(s => { const item = s.history.find(h => h.request.client_session_id === id);
+              if (!item) throw Error("This local result was removed before recovery started.");
+              item.state = "blocked"; item.recovery = clone(command); return s; });
+          }
+          original = state.history.find(item => item.request.client_session_id === id)!;
+          if (original.recovery!.creation_key !== command.creation_key || original.recovery!.client_session_id !== command.client_session_id)
+            throw Error("Retry the original recovery command before starting another.");
+          if (!original.recovery!.workout) {
+            guard();
+            const saved = await saveWorkout(restoredPrescription(original.workout), command.creation_key, generation); guard();
+            if (saved.generation !== generation) throw Error("The recovered workout belongs to another account generation.");
+            await update(s => { s.history.find(h => h.request.client_session_id === id)!.recovery!.workout = saved; return s; });
+          }
+          guard();
+          await update(s => {
+            const item = s.history.find(h => h.request.client_session_id === id)!;
+            const workout = item.recovery!.workout!;
+            const { workout_id: _workout, workout_revision: _revision, program_id: _program,
+              program_revision: _programRevision, program_session_id: _slot, ...actuals } = item.request;
+            s.history = s.history.map(h => h !== item ? h : { request: { ...actuals,
+              client_session_id: command.client_session_id, workout_id: workout.id, workout_revision: workout.revision },
+              workout, generation, state: "queued", cell_identity_version: item.cell_identity_version,
+              recovery_origin: { request: item.request, workout: item.workout,
+                ...(item.recovery_origin ? { previous: item.recovery_origin } : {}) }, recovered_with: clone(command) });
+            return s;
+          });
+          await run(sendCurrent);
+        }
+        guard();
+        const accepted = state.recovery_receipts?.find(item => item.original_id === id);
+        if (accepted) return accepted.saved_id;
+        const recovered = state.history.find(item => item.request.client_session_id === command.client_session_id);
+        if (!recovered && acceptedDuringSend) return acceptedDuringSend;
+        if (recovered?.state !== "synced") throw Error(recovered?.problem || "The private workout is restored. Your result stays on this device until sync succeeds.");
+        return recovered.synced_id!;
+      });
+      recoveries.set(id, result);
+      void result.finally(() => { recoveries.delete(id); }).catch(() => undefined);
+      return result;
     },
     correct(saved: TrainingSession, actuals: ActualSet[], notes: string, id: string) {
       return update((s) => {
@@ -603,6 +728,7 @@ export function createTrainingStore(
       return update((s) => {
         const item = s.history.find((x) => x.request.client_session_id === id);
         if (!item || item.state !== "blocked") throw Error("Only results that need attention can be discarded.");
+        if (recoveries.has(id) || item.recovery) throw Error("Finish this recovery before discarding its result.");
         s.history = s.history.filter((x) => x !== item);
         return s;
       });
@@ -611,6 +737,8 @@ export function createTrainingStore(
       return update((s) => {
         const item = s.history.find((x) => x.request.client_session_id === id);
         if (item && item.state !== "synced") {
+          if (recoveries.has(id) || item.recovery) throw Error("Continue this recovery before retrying the original result.");
+          delete item.rejection_status;
           item.state = "queued";
           const warning = historicalStructureWarning(item.workout, item.request.actuals, item.cell_identity_version);
           if (warning) item.problem = warning;

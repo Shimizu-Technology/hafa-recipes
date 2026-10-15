@@ -1,3 +1,4 @@
+import { canRecoverResult, restoredPrescription } from "./result-recovery";
 import { describe, it, expect, vi } from "vitest";
 import {
   createTrainingStore,
@@ -303,11 +304,12 @@ describe("sync queue and local history size", () => {
     const store = createTrainingStore(memory(), "owner", 1);
     await store.load();
     await queued(store, "only");
-    let release!: () => void;
-    const send = vi.fn(() => new Promise<TrainingSession>((done) => { release = () => done({ id: "cloud" } as TrainingSession); }));
+    let release!: () => void, entered!: () => void;
+    const sending = new Promise<void>(resolve => { entered = resolve; });
+    const send = vi.fn(() => new Promise<TrainingSession>((done) => { release = () => done({ id: "cloud" } as TrainingSession); entered(); }));
     const first = store.sync(send);
     const second = store.sync(send);
-    await Promise.resolve(); await Promise.resolve();
+    await sending;
     release();
     await second;
     expect(store.snapshot().history[0].state).toBe("synced");
@@ -641,4 +643,206 @@ it("a save acknowledged while backgrounded defers its cache refresh until foregr
     controller.foreground(true); await vi.advanceTimersByTimeAsync(0);
     expect(send).toHaveBeenCalledOnce(); expect(onSaved).toHaveBeenCalledOnce();
   } finally { controller.dispose(); vi.useRealTimers(); }
+});
+
+
+const recoveryCommand = { creation_key: "restore-workout", client_session_id: "recovered-result" };
+const gone = () => Object.assign(Error("Source removed"), { status: 404 });
+async function orphaned(storage = memory(), status = 404) {
+  const store = createTrainingStore(storage, "owner", 1, () => 10000);
+  await store.load();
+  await store.start(fixture(), { workout_id: "workout", workout_revision: 3 }, "orphan");
+  await store.log(next(store)); await store.activityType("strength_training"); await store.finish("partial");
+  await store.sync(async () => { throw Object.assign(Error("Rejected"), { status }); });
+  return { store, storage, original: JSON.parse(JSON.stringify(store.snapshot().history[0])) };
+}
+const restoreWorkout = () => vi.fn(async (content, _key, generation) => ({ ...fixture(), ...content,
+  id: "restored-private", revision: 1, generation }));
+const recoverSend = (status = 404) => vi.fn(async (request: SessionRequest) => {
+  if (request.client_session_id === "orphan") throw Object.assign(Error("Source removed"), { status });
+  return syncResponse(request);
+});
+it.each([404, 410])("explicit recovery after%i saves one new result and retains original bytes", async status => {
+  const { store, original } = await orphaned(memory(), status);
+  const create = restoreWorkout(), send = recoverSend(status);
+  await store.recoverResult("orphan", recoveryCommand, create, send, () => true);
+  expect(create).toHaveBeenCalledOnce(); expect(create.mock.calls[0][1]).toBe(recoveryCommand.creation_key);
+  expect(store.snapshot().history).toHaveLength(1);
+  const recovered = store.snapshot().history[0];
+  expect(recovered.recovery_origin).toEqual({ request: original.request, workout: original.workout });
+  expect(recovered.request).toEqual({ ...original.request, client_session_id: "recovered-result",
+    workout_id: "restored-private", workout_revision: 1 });
+  expect(recovered.state).toBe("synced"); expect(selectProgressSessions([recovered], [], 1).sessions).toHaveLength(1);
+});
+it.each([400, 403, 409, 422, 500])("status%i cannot turn a failed save into another training session", async status => {
+  const { store } = await orphaned(memory(), status); const create = restoreWorkout();
+  await expect(store.recoverResult("orphan", recoveryCommand, create, recoverSend(), () => true)).rejects.toThrow("original result");
+  expect(create).not.toHaveBeenCalled();
+});
+it("an already accepted original is replayed without making a workout or replacement identity", async () => {
+  const { store, original } = await orphaned(); const create = restoreWorkout(), send = vi.fn(async request => syncResponse(request));
+  await store.recoverResult("orphan", recoveryCommand, create, send, () => true);
+  expect(create).not.toHaveBeenCalled(); expect(send.mock.calls[0][0]).toEqual(original.request);
+  expect(store.snapshot().history[0]).toMatchObject({ request: original.request, state: "synced", synced_id: "server-orphan" });
+  expect(store.snapshot().history[0].recovery_origin).toBeUndefined(); expect(store.snapshot().history[0].problem).toBeUndefined();
+});
+it("unknown preflight failure preserves the original and never creates a copy", async () => {
+  const { store, original } = await orphaned(); const create = restoreWorkout();
+  await expect(store.recoverResult("orphan", recoveryCommand, create, async () => { throw Error("Offline"); }, () => true)).rejects.toThrow("Offline");
+  expect(create).not.toHaveBeenCalled(); expect(store.snapshot().history[0]).toEqual(original);
+});
+it("workout acceptance timeout retries the same durable creation identity after restart", async () => {
+  const { store, storage, original } = await orphaned(); const create = restoreWorkout(), send = recoverSend();
+  create.mockRejectedValueOnce(Error("Lost workout acknowledgement"));
+  await expect(store.recoverResult("orphan", recoveryCommand, create, send, () => true)).rejects.toThrow("Lost workout");
+  expect(store.snapshot().history[0].request).toEqual(original.request);
+  const resumed = createTrainingStore(storage, "owner", 1); await resumed.load();
+  await resumed.recoverResult("orphan", recoveryCommand, create, send, () => true);
+  expect(create.mock.calls[0]).toEqual(create.mock.calls[1]);
+  expect(send.mock.calls.filter(([request]) => request.client_session_id === "orphan")).toHaveLength(1);
+  expect(resumed.snapshot().history[0].recovery_origin?.request).toEqual(original.request);
+});
+it("session timeout keeps one linked result and replays its UUID after restart without recreating a workout", async () => {
+  const { store, storage, original } = await orphaned(); const create = restoreWorkout(), send = recoverSend(); let first = true;
+  send.mockImplementation(async request => {
+    if (request.client_session_id === "orphan") throw gone();
+    if (first) { first = false; throw Object.assign(Error("Lost result acknowledgement"), { status: 0 }); }
+    return syncResponse(request);
+  });
+  await expect(store.recoverResult("orphan", recoveryCommand, create, send, () => true)).rejects.toThrow("Lost result");
+  const resumed = createTrainingStore(storage, "owner", 1); await resumed.load();
+  await resumed.recoverResult("orphan", recoveryCommand, create, send, () => true);
+  expect(create).toHaveBeenCalledOnce(); expect(resumed.snapshot().history).toHaveLength(1);
+  expect(send.mock.calls[1][0]).toEqual(send.mock.calls[2][0]);
+  expect(resumed.snapshot().history[0].recovery_origin).toEqual({ request: original.request, workout: original.workout });
+});
+it("local receipt failure reuses the existing creation command instead of creating a second workout", async () => {
+  const { store, storage } = await orphaned(); const create = restoreWorkout(), send = recoverSend();
+  const persist = storage.setItem; let failed = false;
+  storage.setItem = async (key, value) => {
+    if (!failed && JSON.parse(value).history[0].recovery?.workout) { failed = true; throw Error("Device receipt failed"); }
+    await persist(key, value);
+  };
+  await expect(store.recoverResult("orphan", recoveryCommand, create, send, () => true)).rejects.toThrow("Device receipt");
+  await store.recoverResult("orphan", recoveryCommand, create, send, () => true);
+  expect(create.mock.calls[0]).toEqual(create.mock.calls[1]); expect(store.snapshot().history).toHaveLength(1);
+});
+it("original retry, discard and foreground sync cannot race an active recovery transport", async () => {
+  const { store } = await orphaned(); const create = restoreWorkout(); let release!: () => void, entered!: () => void;
+  const waiting = new Promise<void>(resolve => { entered = resolve; });
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const send = vi.fn(async (request: SessionRequest) => {
+    if (request.client_session_id === "orphan") { entered(); await held; throw gone(); }
+    return syncResponse(request);
+  });
+  const recovering = store.recoverResult("orphan", recoveryCommand, create, send, () => true); await waiting;
+  expect(store.recoverResult("orphan", recoveryCommand, create, send, () => true)).toBe(recovering);
+  await expect(store.retry("orphan")).rejects.toThrow("recovery");
+  await expect(store.dismiss("orphan")).rejects.toThrow("recovery");
+  const sync = store.sync(send); release(); await recovering; await sync;
+  expect(send).toHaveBeenCalledTimes(2); expect(create).toHaveBeenCalledOnce(); expect(store.snapshot().history).toHaveLength(1);
+});
+it("account change after workout acceptance cannot register or upload into a different generation", async () => {
+  const { store, original } = await orphaned(); let current = true; const send = recoverSend();
+  const create = restoreWorkout(); create.mockImplementationOnce(async content => { current = false;
+    return { ...fixture(), ...content, id: "restored-private", revision: 1, generation: 1 }; });
+  await expect(store.recoverResult("orphan", recoveryCommand, create, send, () => current)).rejects.toThrow("account changed");
+  expect(store.snapshot().history[0].request).toEqual(original.request); expect(send).toHaveBeenCalledOnce();
+});
+
+it("restored prescriptions remove source covers/evidence/generated claims without changing the original", () => {
+  const original = { ...fixture(), provenance: "suggestion" as const, source_thumbnail_url: "https://old.example/cover",
+    instructions: ["Repeat in order."],
+    blocks: fixture().blocks.map(block => ({ ...block, evidence: [{ field: "name", wording: "Private evidence" }],
+      exercises: block.exercises.map(exercise => ({ ...exercise, provenance: "suggestion" as const,
+        instructions: "Keep heels down.", evidence: [{ field: "name", wording: "Private evidence" }] })) })) };
+  const before = JSON.stringify(original), content = restoredPrescription(original);
+  expect(content).toMatchObject({ provenance: "user", source_thumbnail_url: null, instructions: ["Repeat in order."] });
+  expect(content).not.toHaveProperty("id"); expect(content).not.toHaveProperty("generation");
+  expect(content.blocks[0]).toMatchObject({ evidence: [] });
+  expect(content.blocks[0].exercises[0]).toMatchObject({ provenance: "user", evidence: [], instructions: "Keep heels down." });
+  expect(JSON.stringify(original)).toBe(before);
+});
+it("rejected corrections are never turned into independent duplicate training", async () => {
+  const { original } = await orphaned();
+  expect(canRecoverResult({ ...original, request: { ...original.request, supersedes_session_id: "saved-original" } })).toBe(false);
+});
+
+it("a mismatched server-generation response cannot register a recovered result", async () => {
+  const { store, original } = await orphaned(); const create = restoreWorkout();
+  await expect(store.recoverResult("orphan", recoveryCommand, create, async request => ({ ...syncResponse(request), generation: 2 }), () => true))
+    .rejects.toThrow("response changed");
+  expect(create).not.toHaveBeenCalled(); expect(store.snapshot().history[0]).toEqual(original);
+});
+
+it("canonical server UUID casing still recognizes an accepted original and creates nothing", async () => {
+  const { store } = await orphaned(); const create = restoreWorkout();
+  await store.recoverResult("orphan", recoveryCommand, create, async request => ({
+    ...syncResponse(request), client_session_id: request.client_session_id.toUpperCase(),
+  }), () => true);
+  expect(create).not.toHaveBeenCalled(); expect(store.snapshot().history[0].state).toBe("synced");
+});
+
+
+it.each(["original", "copy"] as const)("keeps an accepted %s recovery receipt after ordinary history pruning and restart", async outcome => {
+  const { store, storage, original } = await orphaned();
+  const recent = Array.from({ length: 20 }, (_, index) => ({ generation: 1, workout: fixture(), state: "synced" as const,
+    synced_id: `recent-${index}`, request: { ...original.request, client_session_id: `recent-${index}` } }));
+  await storage.setItem(trainingKey("owner", 1), JSON.stringify({ ...store.snapshot(), history: [...recent, original] }));
+  const recovering = createTrainingStore(storage, "owner", 1); await recovering.load();
+  const create = restoreWorkout(), send = outcome === "copy" ? recoverSend() : vi.fn(async request => syncResponse(request));
+  const accepted = outcome === "copy" ? "server-recovered-result" : "server-orphan";
+  await expect(recovering.recoverResult("orphan", recoveryCommand, create, send, () => true)).resolves.toBe(accepted);
+  expect(create).toHaveBeenCalledTimes(outcome === "copy" ? 1 : 0);
+  expect(recovering.snapshot().history).toHaveLength(20);
+  expect(recovering.snapshot().history.every(item => item.request.client_session_id.startsWith("recent-"))).toBe(true);
+  expect(recovering.snapshot().recovery_receipts).toEqual([{ original_id: "orphan", ...recoveryCommand, saved_id: accepted }]);
+  const restarted = createTrainingStore(storage, "owner", 1); await restarted.load();
+  const replayCreate = restoreWorkout(), replaySend = recoverSend();
+  await expect(restarted.recoverResult("orphan", recoveryCommand, replayCreate, replaySend, () => true)).resolves.toBe(accepted);
+  expect(replayCreate).not.toHaveBeenCalled(); expect(replaySend).not.toHaveBeenCalled();
+  await expect(restarted.recoverResult("orphan", { ...recoveryCommand, creation_key: "different" }, replayCreate, replaySend, () => true))
+    .rejects.toThrow("existing recovery");
+});
+
+
+it("does not retain an accepted recovery receipt for a mismatched foreground-sync response", async () => {
+  const { store } = await orphaned(); const create = restoreWorkout();
+  const offline = recoverSend(); offline.mockImplementation(async request => {
+    if (request.client_session_id === "orphan") throw gone();
+    throw Object.assign(Error("Still offline"), { status: 0 });
+  });
+  await expect(store.recoverResult("orphan", recoveryCommand, create, offline, () => true)).rejects.toThrow("Still offline");
+  await store.sync(async request => ({ ...syncResponse(request), generation: 2 }));
+  expect(store.snapshot().history[0].state).toBe("queued");
+  expect(store.snapshot().recovery_receipts).toBeUndefined();
+});
+
+
+it.each([403, 404, 409, 410, 422])("keeps a permanently rejected recovered result blocked after %i and restart", async status => {
+  const { store, storage } = await orphaned();
+  const create = restoreWorkout(), send = recoverSend();
+  send.mockImplementation(async request => {
+    if (request.client_session_id === "orphan") throw gone();
+    throw Object.assign(Error("Recovered result rejected"), { status });
+  });
+  await expect(store.recoverResult("orphan", recoveryCommand, create, send, () => true)).rejects.toThrow();
+  const blocked = JSON.parse(JSON.stringify(store.snapshot().history[0]));
+  expect(blocked).toMatchObject({ state: "blocked", rejection_status: status });
+  const resumed = createTrainingStore(storage, "owner", 1); await resumed.load();
+  for (let attempt = 0; attempt < 2; attempt++)
+    await expect(resumed.recoverResult("orphan", recoveryCommand, create, send, () => true)).rejects.toThrow(blocked.problem);
+  await resumed.sync(send);
+  expect(send).toHaveBeenCalledTimes(2); expect(create).toHaveBeenCalledOnce();
+  expect(resumed.snapshot().history[0]).toEqual(blocked);
+});
+it("can retry a legacy transiently blocked recovery without recreating its workout", async () => {
+  const { store, storage } = await orphaned(); const create = restoreWorkout(), send = recoverSend();
+  send.mockImplementationOnce(async () => { throw gone(); }).mockRejectedValueOnce(Object.assign(Error("Sign in expired"), { status: 401 }));
+  await expect(store.recoverResult("orphan", recoveryCommand, create, send, () => true)).rejects.toThrow("Sign in expired");
+  const state = store.snapshot(); state.history[0].state = "blocked"; state.history[0].rejection_status = 401;
+  await storage.setItem(trainingKey("owner", 1), JSON.stringify(state));
+  const resumed = createTrainingStore(storage, "owner", 1); await resumed.load();
+  await expect(resumed.recoverResult("orphan", recoveryCommand, create, send, () => true)).resolves.toBe("server-recovered-result");
+  expect(create).toHaveBeenCalledOnce(); expect(send).toHaveBeenCalledTimes(3);
 });
