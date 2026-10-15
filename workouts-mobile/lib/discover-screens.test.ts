@@ -19,7 +19,7 @@ const fixture = vi.hoisted(() => ({
   deleteWorkout: vi.fn(),
   importJob: vi.fn(),
   importJobs: vi.fn(),
-  searchLibrary: vi.fn(), collections: vi.fn(), organization: vi.fn(), saveOrganization: vi.fn(),
+  searchLibrary: vi.fn(), collections: vi.fn(), createCollection: vi.fn(), renameCollection: vi.fn(), removeCollection: vi.fn(), organization: vi.fn(), saveOrganization: vi.fn(),
   importSource: vi.fn(),
   acceptImport: vi.fn(),
   cancelImport: vi.fn(),
@@ -34,7 +34,7 @@ const fixture = vi.hoisted(() => ({
   focus: false,
   appState: "active",
   appStateListeners: new Set<(state: string) => void>(),
-  current: true, generation: 1,
+  current: true, generation: 1, owner: "owner",
   load: vi.fn(),
   saveDraft: vi.fn(),
 }));
@@ -56,7 +56,7 @@ vi.mock("@/lib/context", () => {
     deleteWorkout: fixture.deleteWorkout,
     importJob: fixture.importJob,
     importJobs: fixture.importJobs,
-    searchLibrary: fixture.searchLibrary, collections: fixture.collections, organization: fixture.organization, saveOrganization: fixture.saveOrganization,
+    searchLibrary: fixture.searchLibrary, collections: fixture.collections, createCollection: fixture.createCollection, renameCollection: fixture.renameCollection, removeCollection: fixture.removeCollection, organization: fixture.organization, saveOrganization: fixture.saveOrganization,
     importSource: fixture.importSource,
     acceptImport: fixture.acceptImport,
     cancelImport: fixture.cancelImport,
@@ -67,7 +67,7 @@ vi.mock("@/lib/context", () => {
     useOfflineTraining: () => ({ ready: true, state: { active: null, history: [] }, store: { start: vi.fn(), snapshot: () => ({ active: null, history: [] }) } }),
     useTraining: () => ({
       api,
-      owner: "owner",
+      owner: fixture.owner,
       enrollment: { enrolled: true, generation: fixture.generation },
       storage,
       localDrafts,
@@ -131,6 +131,7 @@ import Discover from "../app/(tabs)/discover";
 import DiscoverWorkout from "../app/discover/[id]";
 import ImportReview from "../app/import/[id]";
 import Library from "../app/(tabs)/library";
+import Collections from "../app/collections";
 import { ImportList } from "../components/import-list";
 import { PrescriptionPreview } from "../components/program-preview";
 import { SharedSnapshot } from "../components/shared-snapshot";
@@ -185,7 +186,7 @@ beforeEach(() => {
   fixture.params = {};
   fixture.focus = false;
   fixture.appState = "active"; fixture.appStateListeners.clear();
-  fixture.current = true; fixture.generation = 1;
+  fixture.current = true; fixture.generation = 1; fixture.owner = "owner";
   fixture.load.mockReset().mockImplementation(async (_owner, scope) => fixture.map.has(scope) ? JSON.parse(fixture.map.get(scope)!)
     : scope.startsWith("imports:") && fixture.params.auto === "1" ? [{ id: "job", label: "Shared link", generation: 1, auto_save: true }] : null);
   fixture.saveDraft.mockReset().mockImplementation(async (_owner, scope, value) => { fixture.map.set(scope, JSON.stringify(value)); });
@@ -194,6 +195,7 @@ beforeEach(() => {
   fixture.importSource.mockResolvedValue({ images: [], text: "" });
   fixture.importJobs.mockReset().mockResolvedValue([]);
   fixture.collections.mockReset().mockResolvedValue([]); fixture.searchLibrary.mockReset();
+  fixture.createCollection.mockReset(); fixture.renameCollection.mockReset(); fixture.removeCollection.mockReset();
   fixture.organization.mockReset().mockResolvedValue(emptyOrganization()); fixture.saveOrganization.mockReset();
 });
 afterEach(async () => {
@@ -977,4 +979,69 @@ it("keeps an organization conflict pending until the user explicitly retries the
   expect(button("Retry remaining workouts")).toBeDefined();
   await act(async () => button("Retry remaining workouts")!.props.onPress()); await settle();
   expect(fixture.saveOrganization.mock.calls[1]).toEqual([saved.id, { expected_revision: 2, collection_ids: ["concurrent", "gym"] }, 1]);
+});
+
+const collectionField = (label: string) => nodes("Field").find(node => node.props.label === label)!;
+async function replaceCollectionAccount() {
+  fixture.owner = "replacement-owner"; fixture.generation = 2;
+  await act(async () => { renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Collections))); });
+  await settle();
+}
+it.each(["resolve", "reject"])("retired collection create %s cannot clear or unlock the new account draft", async result => {
+  let releaseOld!: () => void, releaseNew!: () => void;
+  fixture.createCollection.mockImplementationOnce(() => new Promise((resolve, reject) => {
+    releaseOld = () => result === "resolve" ? resolve({}) : reject(Error("retired create failed"));
+  })).mockImplementationOnce(() => new Promise(resolve => { releaseNew = () => resolve({}); }));
+  await mount(Collections);
+  await act(async () => { collectionField("New collection name").props.onChange("Old account name"); });
+  const oldCreate = button("Create collection")!.props.onPress;
+  await act(async () => { oldCreate(); oldCreate(); }); await settle();
+  expect(fixture.createCollection).toHaveBeenCalledTimes(1);
+  await replaceCollectionAccount();
+  await act(async () => { collectionField("New collection name").props.onChange("New account name"); });
+  await act(async () => { button("Create collection")!.props.onPress(); }); await settle();
+  const invalidated = vi.spyOn(cache, "invalidateQueries");
+  await act(async () => { releaseOld(); }); await settle();
+  expect(collectionField("New collection name").props.value).toBe("New account name");
+  expect(button("Create collection")!.props.busy).toBe(true);
+  expect(invalidated).not.toHaveBeenCalled();
+  expect(nodes("Notice").some(node => JSON.stringify(node.props).includes("retired create failed"))).toBe(false);
+  await act(async () => { oldCreate(); });
+  expect(fixture.createCollection).toHaveBeenCalledTimes(2);
+  await act(async () => { releaseNew(); }); await settle();
+  expect(collectionField("New collection name").props.value).toBe("");
+  expect(button("Create collection")!.props.busy).toBe(false);
+});
+it("retired collection rename completion cannot update the replacement editor or unlock its save", async () => {
+  fixture.collections.mockResolvedValue([{ id: "same-id", title: "Collection", revision: 1, workout_count: 2 }]);
+  let releaseOld!: () => void, releaseNew!: () => void;
+  fixture.renameCollection.mockImplementationOnce(() => new Promise(resolve => { releaseOld = () => resolve({}); }))
+    .mockImplementationOnce(() => new Promise(resolve => { releaseNew = () => resolve({}); }));
+  await mount(Collections);
+  await act(async () => { collectionField("Collection name: Collection").props.onChange("Old renamed title"); });
+  const oldSave = button("Save collection name")!.props.onPress;
+  await act(async () => { oldSave(); oldSave(); }); await settle();
+  expect(fixture.renameCollection).toHaveBeenCalledTimes(1);
+  await replaceCollectionAccount();
+  await act(async () => { collectionField("Collection name: Collection").props.onChange("New renamed title"); });
+  await act(async () => { button("Save collection name")!.props.onPress(); }); await settle();
+  await act(async () => { releaseOld(); }); await settle();
+  expect(collectionField("Collection name: Collection").props.value).toBe("New renamed title");
+  expect(button("Save collection name")!.props.busy).toBe(true);
+  await act(async () => { oldSave(); });
+  expect(fixture.renameCollection).toHaveBeenCalledTimes(2);
+  await act(async () => { releaseNew(); }); await settle();
+  expect(collectionField("Collection name: New renamed title").props.value).toBe("New renamed title");
+});
+it("retired collection remove and field callbacks cannot act for a replacement account", async () => {
+  fixture.collections.mockResolvedValue([{ id: "same-id", title: "Collection", revision: 1, workout_count: 2 }]);
+  await mount(Collections);
+  const oldField = collectionField("Collection name: Collection").props.onChange;
+  await act(async () => { button("Remove collection")!.props.onPress(); });
+  const oldRemove = button("Remove this collection")!.props.onPress;
+  await replaceCollectionAccount();
+  await act(async () => { oldField("Retired edit"); oldRemove(); }); await settle();
+  expect(collectionField("Collection name: Collection").props.value).toBe("Collection");
+  expect(button("Remove this collection")).toBeUndefined();
+  expect(fixture.removeCollection).not.toHaveBeenCalled();
 });
