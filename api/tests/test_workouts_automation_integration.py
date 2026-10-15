@@ -227,6 +227,43 @@ async def test_reextract_updates_existing_version_once_and_preserves_private_not
         assert (await db.get(WorkoutImport, job_id)).payload == {"_replace": target}
 
 
+@pytest.mark.parametrize("update_existing", [True, False])
+async def test_reextract_keeps_new_shared_instructions_separate_from_target_private_notes(automation_api, update_existing):
+    from tests.test_workouts_data_integration import WORKOUT
+
+    api = automation_api
+    await consent(api)
+    original = {**WORKOUT, "instructions": ["Old source instruction"], "notes": ["Owner private note"],
+        "blocks": [{**WORKOUT["blocks"][0], "exercises": [
+            {"name": "Squat", "reps_min": 8, "instructions": "Old shared cue", "notes": "Owner private cue"}]}]}
+    created = (await api.client.post("/api/v1/workouts/library", json=original, headers=GENERATION)).json()
+    queued = await api.client.post("/api/v1/workouts/imports", headers=GENERATION, json={
+        "request_id": str(uuid4()), "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+        "replace_target": {"workout_id": created["id"], "expected_revision": 1}})
+    await api.worker.tick()
+    job_id = queued.json()["id"]
+    async with api.sessions.begin() as db:
+        job = await db.get(WorkoutImport, job_id)
+        extracted = {**job.result["workout"], "instructions": ["New source instruction"], "notes": [],
+            "blocks": [{"id": "new-block", "label": "Main", "exercises": [
+                {"name": "Squat", "reps_min": 10, "instructions": "New shared cue"}]}]}
+        job.result = {**job.result, "workout": extracted}
+    # An installed older editor omits the newly introduced shared instruction fields.
+    legacy = {key: value for key, value in extracted.items() if key != "instructions"}
+    legacy["blocks"] = [{**extracted["blocks"][0], "exercises": [{"name": "Squat", "reps_min": 10}]}]
+    saved = await api.client.post(f"/api/v1/workouts/imports/{job_id}/accept", headers=GENERATION,
+        json={"workout": legacy, "update_existing": update_existing, "acknowledge_warnings": True})
+    assert saved.status_code == 200, saved.text
+    content = saved.json()["content"]
+    assert content["instructions"] == ["New source instruction"]
+    assert content["blocks"][0]["exercises"][0]["instructions"] == "New shared cue"
+    assert content["notes"] == (["Owner private note"] if update_existing else [])
+    assert content["blocks"][0]["exercises"][0]["notes"] == ("Owner private cue" if update_existing else None)
+    if not update_existing:
+        assert saved.json()["id"] != created["id"]
+        assert (await api.client.get(f"/api/v1/workouts/library/{created['id']}")).json() == created
+
+
 async def test_reextract_conflict_keeps_review_and_source_and_can_save_private_copy(automation_api):
     from tests.test_workouts_data_integration import WORKOUT
 
