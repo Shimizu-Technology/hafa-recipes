@@ -1,7 +1,7 @@
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { useReminders } from "@/components/reminders-provider";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Alert, AppState, Linking } from "react-native";
 import { router } from "expo-router";
 import {
@@ -28,15 +28,23 @@ import {
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import { effectiveTrainingHistory } from "@/lib/progress-selection";
-import { remainingSeconds, summaryOf, previousActual, actualIdentity, draftStructureWarning } from "@/lib/training";
+import { remainingSeconds, summaryOf, previousActual, actualIdentity, draftStructureWarning, hasUnloggedInput } from "@/lib/training";
 import type { ActualSet } from "@/lib/models";
 import { circuitRemaining, completedCircuitRounds } from "@/lib/timed-circuit";
 export default function Training() {
-  const { api, units, owner, enrollment } = useTraining();
+  const { api, units, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const { store, state, ready, error: restoreError, retry } = useOfflineTraining();
   const past = useQuery(sessionsQuery(api, owner, enrollment));
   const cache = useQueryClient();
   const d = state.active;
+  const scope = useMemo(() => ({}), [owner, enrollment?.generation, storage, store]);
+  const live = useRef<object | null>(null);
+  useLayoutEffect(() => {
+    live.current = scope;
+    return () => { if (live.current === scope) live.current = null; };
+  }, [scope]);
+  const current = () => live.current === scope && storage.isCurrent() && isCurrentAccount();
+  const sameSession = () => current() && d != null && store?.snapshot().active?.id === d.id;
   const reminders = useReminders();
   const [now, setNow] = useState(Date.now());
   const [input, setInput] = useState<Record<string, string>>({});
@@ -44,64 +52,70 @@ export default function Training() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const guard = useRef(false);
+  const operation = useRef<object | null>(null);
   const checkpointing = useRef(false);
   const backgroundPausePending = useRef(false);
   const [advanced, setAdvanced] = useState(false);
   const [more, setMore] = useState(false);
+  const [finishReview, setFinishReview] = useState(false);
   const [metric, setMetric] = useState<"reps" | "time" | "distance">("reps");
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
   useEffect(() => {
-    const current = store?.snapshot().active;
-    if (!current?.timed_circuit || current.paused || checkpointing.current ||
-      (now - current.checkpoint_at < 5000 && circuitRemaining(current, now)! > 0)) return;
+    const active = store?.snapshot().active;
+    if (!sameSession() || !active?.timed_circuit || active.paused || checkpointing.current ||
+      (now - active.checkpoint_at < 5000 && circuitRemaining(active, now)! > 0)) return;
     checkpointing.current = true;
-    void store!.checkpoint().catch(() => setError("Could not save the circuit timer on this device. Pause and retry."))
-      .finally(() => { checkpointing.current = false; });
-  }, [now, store, d?.id, d?.paused]);
+    void store!.checkpoint().catch(() => { if (sameSession()) setError("Could not save the circuit timer on this device. Pause and retry."); })
+      .finally(() => { if (sameSession()) checkpointing.current = false; });
+  }, [now, store, d?.id, d?.paused, scope]);
   useEffect(() => {
     const sub = AppState.addEventListener("change", (status) => {
-      const current = store?.snapshot().active;
-      if (status !== "active" && current?.timed_circuit && !current.paused && !backgroundPausePending.current) {
+      const active = store?.snapshot().active;
+      if (sameSession() && status !== "active" && active?.timed_circuit && !active.paused && !backgroundPausePending.current) {
         backgroundPausePending.current = true;
-        void store!.pause(true).catch(() => setError("Could not pause the circuit on this device. Review its saved timer before resuming."))
-          .finally(() => { backgroundPausePending.current = false; });
+        void store!.pause(true).catch(() => { if (sameSession()) setError("Could not pause the circuit on this device. Review its saved timer before resuming."); })
+          .finally(() => { if (sameSession()) backgroundPausePending.current = false; });
       }
     });
     return () => sub.remove();
-  }, [store]);
-  useEffect(() => {
+  }, [store, scope, d?.id]);
+  useLayoutEffect(() => { setFinishReview(false); setBusy(false); setError(""); setMore(false);
+    guard.current = false; operation.current = null; checkpointing.current = false; backgroundPausePending.current = false;
+  }, [scope, d?.id]);
+  useLayoutEffect(() => {
     const restored = d?.input ?? {};
     setInput(restored);
     inputRef.current = restored;
-  }, [d?.id, d?.cursor]);
+  }, [scope, d?.id, d?.cursor]);
   useEffect(() => {
     const exercise = d?.steps[d.cursor]?.exercise;
     setMetric(exercise?.duration_seconds != null ? "time" : exercise?.distance_meters != null ? "distance" : "reps");
     setAdvanced(false);
-  }, [d?.id, d?.cursor]);
+  }, [scope, d?.id, d?.cursor]);
   function field(key: string, value: string) {
+    if (!sameSession()) return;
     const next = { ...inputRef.current, [key]: value };
     inputRef.current = next;
     setInput(next);
     void store
       ?.input(next)
-      .catch(() => setError("Could not save your current inputs locally. Keep this screen open and retry."));
+      .catch(() => { if (sameSession()) setError("Could not save your current inputs locally. Keep this screen open and retry."); });
   }
   async function run(work: () => Promise<void>) {
-    if (guard.current) return;
+    if (guard.current || !sameSession()) return;
     guard.current = true;
+    const attempt = {}; operation.current = attempt;
     setBusy(true);
     setError("");
     try {
       await work();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save on this device.");
+      if (current() && operation.current === attempt) setError(e instanceof Error ? e.message : "Could not save on this device.");
     } finally {
-      guard.current = false;
-      setBusy(false);
+      if (current() && operation.current === attempt) { operation.current = null; guard.current = false; setBusy(false); }
     }
   }
   if (restoreError)
@@ -142,8 +156,10 @@ export default function Training() {
   const rest = remainingSeconds(d.rest_until, now);
   const interval = d.interval_started_at == null ? 0 : Math.max(0, Math.floor((now - d.interval_started_at) / 1000));
   async function log(completed: boolean) {
-    if (!step || !store) return;
-    const optional = (key: string) => (inputRef.current[key]?.trim() ? Number(inputRef.current[key]) : null);
+    if (!current() || !step || !store || store.snapshot().active?.id !== d!.id)
+      throw Error("This session changed. Review the current session before logging.");
+    const submitted = inputRef.current;
+    const optional = (key: string) => (submitted[key]?.trim() ? Number(submitted[key]) : null);
     const load = optional("load");
     const distance = optional("distance");
     const actual: ActualSet = {
@@ -158,19 +174,28 @@ export default function Training() {
       distance_meters: distance == null ? null : units === "imperial" ? distance * 1609.344 : distance,
       load,
       load_unit: load == null ? null : unit,
-      load_convention: load == null ? null : (inputRef.current.convention as ActualSet["load_convention"]) || null,
-      difficulty: (inputRef.current.difficulty as ActualSet["difficulty"]) || null,
+      load_convention: load == null ? null : (submitted.convention as ActualSet["load_convention"]) || null,
+      difficulty: (submitted.difficulty as ActualSet["difficulty"]) || null,
       effort: optional("effort"),
-      pain_reported: inputRef.current.pain === "yes" ? true : inputRef.current.pain === "no" ? false : null,
-      notes: inputRef.current.notes || null,
+      pain_reported: submitted.pain === "yes" ? true : submitted.pain === "no" ? false : null,
+      notes: submitted.notes || null,
     };
     await store.log(actual);
+    if (!sameSession()) return;
+    // Cursor hydration or a newer edit may already own these shared UI refs.
+    // Ownership follows the input object, rather than depending on cursor movement.
+    if (inputRef.current === submitted) {
+      inputRef.current = {};
+      setInput({});
+    }
     if (completed) haptics.light();
   }
-  async function finish(status: "completed" | "partial") {
-    await store!.finish(status);
+  async function finish(status: "completed" | "partial", discardUnlogged = false) {
+    if (!current() || store!.snapshot().active?.id !== d!.id) throw Error("This session changed. Review the current session before finishing.");
+    await store!.finish(status, undefined, discardUnlogged ? "discard" : "keep");
+    if (!current() || store!.snapshot().active != null) return;
     haptics.success();
-    void store!.sync(api.saveSession).then(() => cache.invalidateQueries({ queryKey: [owner, "sessions"] }));
+    void store!.sync(api.saveSession).then(() => { if (current()) void cache.invalidateQueries({ queryKey: [owner, "sessions"] }); });
     router.replace("/(tabs)/progress");
   }
   const recorded = d.actuals.filter((a) => a.completed).length;
@@ -178,7 +203,23 @@ export default function Training() {
   const capRemaining = circuitRemaining(d, now);
   const capReached = timed != null && capRemaining === 0;
   const timedComplete = capReached && recorded > 0 && !timed.limit_reached && !d.actuals.some((a) => !a.completed);
-  const pendingEntry = Object.entries(input).some(([key, value]) => !["load_unit", "convention"].includes(key) && value.trim());
+  const pendingEntry = hasUnloggedInput(input);
+  function requestPartialFinish() {
+    if (guard.current || !sameSession()) return;
+    setMore(false);
+    if (hasUnloggedInput(inputRef.current) || hasUnloggedInput(store!.snapshot().active?.input)) {
+      setFinishReview(true);
+      return;
+    }
+    void run(() => finish("partial"));
+  }
+  function finishWithEntry() {
+    void run(async () => {
+      if (!current() || store!.snapshot().active?.id !== d!.id) throw Error("This session changed. Review the current session before finishing.");
+      if (hasUnloggedInput(inputRef.current)) await log(true);
+      await finish("partial");
+    });
+  }
   const nextStep = d.steps[d.cursor + 1];
   const next = nextStep?.exercise;
   const canFinish = !timed && !structureWarning && d.cursor === d.steps.length && !d.actuals.some((a) => !a.completed);
@@ -253,9 +294,7 @@ export default function Training() {
             title="Finish as partial session"
             size="lg"
             disabled={busy || !d.actuals.length}
-            onPress={() => {
-              void run(() => finish("partial"));
-            }}
+            onPress={requestPartialFinish}
           />
         )
       }
@@ -585,10 +624,7 @@ export default function Training() {
           title="Finish as partial session"
           detail="Saves what you recorded so far"
           disabled={busy || !d.actuals.length}
-          onPress={() => {
-            setMore(false);
-            void run(() => finish("partial"));
-          }}
+          onPress={requestPartialFinish}
         />
         <ListRow
           icon="trash-outline"
@@ -600,6 +636,27 @@ export default function Training() {
             discard();
           }}
         />
+      </Sheet>
+      <Sheet visible={finishReview} onClose={() => { if (!busy) setFinishReview(false); }} title="Keep your current entry?">
+        <Copy>{pendingEntry
+          ? "You have details that have not been logged. Choose what to keep before saving this partial session."
+          : "Your entry is recorded. Finish saving this partial session, or keep training."}</Copy>
+        {!!error && <Notice error>{error}</Notice>}
+        {!d.activity_type && <>
+          <Copy kind="label">Choose an activity type to save</Copy>
+          <ChipRow wrap>
+            {(["general_fitness", "strength_training", "running", "walking", "basketball"] as const).map((type) => (
+              <Chip key={type} label={type.replaceAll("_", " ")}
+                onPress={() => { void run(() => store.activityType(type)); }} />
+            ))}
+          </ChipRow>
+        </>}
+        {d.paused && !capReached && <Notice>Resume training to log this entry, or save only the work already recorded.</Notice>}
+        <Button title={pendingEntry ? "Log and finish" : "Finish and save partial session"} icon="checkmark-done" busy={busy}
+          disabled={pendingEntry && (!step || !!structureWarning || (d.paused && !capReached))} onPress={finishWithEntry} />
+        {pendingEntry && <Button title="Finish without this entry" secondary disabled={busy}
+          onPress={() => { void run(() => finish("partial", true)); }} />}
+        <Button title="Keep training" variant="ghost" disabled={busy} onPress={() => setFinishReview(false)} />
       </Sheet>
     </Screen>
   );

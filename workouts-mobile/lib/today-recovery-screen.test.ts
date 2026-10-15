@@ -224,11 +224,24 @@ it("Today marks only effective recorded work and agrees with corrections, reject
   expect(strip().filter((day) => day.state === "done")).toHaveLength(1);
 });
 
-it("saved-result correction exposes every captured actual and preserves imperial distance and immutable source", async () => {
+it.each(["populated", "zero and absent"] as const)("saved-result correction exposes %s feedback and preserves imperial distance and immutable source", async feedback => {
   fixture.available = true; fixture.units = "imperial";
-  const original = recordedSession(), before = JSON.stringify(original);
+  const original = recordedSession();
+  if (feedback === "zero and absent") Object.assign(original.content.actuals[0], {
+    effort: 0, difficulty: null, notes: null,
+  });
+  const before = JSON.stringify(original);
   fixture.session.mockResolvedValue(original);
   await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(SessionDetail))); }); await settle();
+  expect(text()).toContain(feedback === "populated" ? "Effort · 7/10" : "Effort · 0/10");
+  expect(text()).toContain("No pain reported");
+  if (feedback === "populated") {
+    expect(text()).toContain("Felt hard");
+    expect(text()).toContain("Original cue");
+  } else {
+    expect(text()).not.toContain("Felt ");
+    expect(text()).not.toContain("Original cue");
+  }
   await act(async () => { buttons("Correct these results")[0].props.onPress(); });
   const field = (label: string) => renderer!.root.findAllByType("Field" as never).find((node) => node.props.label === label)!;
   expect(field("Actual distance · miles").props.value).toBe("1");
