@@ -2285,3 +2285,28 @@ def test_visual_name_observation_is_not_reused_as_reps_evidence():
     source = SourceBundle(SourceMetadata(), images=[SourceImage("image:0", "data:image/png;base64,eA==")])
     workout, _, _ = ground_workout(raw, source)
     assert workout.blocks[0].exercises[0].reps_min is None
+
+
+@pytest.mark.parametrize("quote,minimum,maximum", [
+    ("not 10 Squat", 10, 10),
+    ("not 8–12 reps Squat", 8, 12),
+    ("10 reps Row and 20 reps Squat", 10, 10),
+    ("8–12 reps Row and 20 reps Squat", 8, 12),
+])
+def test_reused_name_dose_cannot_be_negated_or_belong_to_another_movement(quote, minimum, maximum):
+    raw = {"title": "Source", "blocks": [{"id": "main", "label": "Main", "exercises": [
+        {"name": "Squat", "reps_min": minimum, "reps_max": maximum,
+         "evidence": [evidence("name", quote)]}]}]}
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", quote)]))
+    item = workout.blocks[0].exercises[0]
+    assert item.reps_min is None and item.reps_max is None
+
+
+@pytest.mark.parametrize("quote", ["10 x Squat", "10× Squat", "10 reps Squat", "10 Squat"])
+def test_complete_single_movement_dose_name_quote_keeps_matching_reps(quote):
+    raw = {"title": "Source", "blocks": [{"id": "main", "label": "Main", "exercises": [
+        {"name": "Squat", "reps_min": 10, "reps_max": 10,
+         "evidence": [evidence("name", quote)]}]}]}
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", quote)]))
+    item = workout.blocks[0].exercises[0]
+    assert item.reps_min == item.reps_max == 10
