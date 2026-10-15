@@ -243,8 +243,8 @@ describe('npm audit report validation', () => {
   });
   it('accepts cycles anchored in a reviewed direct advisory', async () => {
     const findings = {
-      first: { severity: 'high', via: ['second'] },
-      second: { severity: 'high', via: ['first', ...reviewedFinding.via] },
+      first: { severity: 'high', via: ['uuid'] },
+      uuid: { severity: 'high', via: ['first', ...reviewedFinding.via] },
     };
     expect(await runAudit(result(report(findings), 1))).toMatchObject({ status: 0, output: expect.stringContaining('2 inherited') });
   });
