@@ -163,7 +163,13 @@ export default function SessionDetail() {
                     />
                   </>
                 ) : (
-                  <Copy>{a.completed ? summaryOf(a) : "Skipped"}</Copy>
+                  <>
+                    <Copy>{a.completed ? summaryOf(a) : "Skipped"}</Copy>
+                    {a.effort != null && <Copy>Effort · {a.effort}/10</Copy>}
+                    {!!a.difficulty && <Copy>Felt {a.difficulty}</Copy>}
+                    {a.pain_reported != null && <Copy>{a.pain_reported ? "Pain reported" : "No pain reported"}</Copy>}
+                    {!!a.notes && <Copy>{a.notes}</Copy>}
+                  </>
                 )}
               </Card>
             ))}
