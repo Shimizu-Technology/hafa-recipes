@@ -1618,3 +1618,170 @@ async def test_coach_stream_disconnect_is_bounded_while_another_transaction_hold
         if closing is not None:
             await asyncio.gather(closing, return_exceptions=True)
         await events.aclose()
+
+
+@pytest.fixture
+async def coach_tcp_url(coach_api):
+    """Existing opt-in uvicorn pattern; real loopback HTTP, synthetic providers."""
+    import os
+    import socket
+
+    import uvicorn
+
+    if os.environ.get("WORKOUTS_INGRESS_SOCKET_TEST") != "1":
+        pytest.skip("Explicit socket runtime authorization required")
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    server = uvicorn.Server(uvicorn.Config(
+        coach_api.app, log_level="critical", access_log=False, lifespan="off",
+    ))
+    serving = asyncio.create_task(server.serve(sockets=[listener]))
+    try:
+        async with asyncio.timeout(5):
+            while not server.started:
+                if serving.done():
+                    await serving
+                await asyncio.sleep(0.01)
+        yield f"http://127.0.0.1:{listener.getsockname()[1]}"
+    finally:
+        server.should_exit = True
+        try:
+            await asyncio.wait_for(serving, 5)
+        finally:
+            if not serving.done():
+                serving.cancel()
+                await asyncio.gather(serving, return_exceptions=True)
+            listener.close()
+
+
+async def test_coach_real_tcp_delivers_before_completion_and_replays_one_receipt(coach_api, coach_tcp_url, monkeypatch):
+    import httpx
+
+    api = coach_api
+    release = asyncio.Event()
+    calls = []
+
+    async def respond(items, *, tools, on_text_delta):
+        calls.append(items)
+        await on_text_delta("Synthetic early text 🌴")
+        await release.wait()
+        return answer("Synthetic authoritative final")
+
+    request, unused = await stream_fixture(api, monkeypatch, respond)
+    await unused.aclose()
+    body = request.model_dump(mode="json")
+    path = "/api/v1/workouts/coach/messages/stream"
+    try:
+        async with httpx.AsyncClient(base_url=coach_tcp_url, timeout=5) as client:
+            async with client.stream("POST", path, headers=GENERATION, json=body) as response:
+                assert response.status_code == 200
+                assert response.headers["content-type"].startswith("application/x-ndjson")
+                events = response.aiter_lines()
+                assert json.loads(await asyncio.wait_for(anext(events), 5))["type"] == "reset"
+                assert json.loads(await asyncio.wait_for(anext(events), 5))["text"] == "Synthetic early text 🌴"
+                async with api.sessions() as db:
+                    row = await db.scalar(select(WorkoutCoachMessage).where(WorkoutCoachMessage.request_id == request.request_id))
+                    assert row.proposals["state"] == "pending" and row.assistant_message == ""
+                release.set()
+                async with asyncio.timeout(5):
+                    final = [json.loads(line) async for line in events][-1]["receipt"]
+                assert final["state"] == "completed" and final["assistant_message"] == "Synthetic authoritative final"
+            replay = await client.post(path, headers=GENERATION, json=body)
+            assert json.loads(replay.text)["receipt"] == final
+            changed = await client.post(path, headers=GENERATION, json={**body, "message": "Changed"})
+            assert json.loads(changed.text)["type"] == "error" and json.loads(changed.text)["status"] == 409
+        assert len(calls) == 1 and not api.coach._requests and not api.coach._inflight
+    finally:
+        release.set()
+
+
+@pytest.mark.parametrize("retirement", ["stop", "clear"])
+async def test_coach_real_tcp_retirement_drops_late_provider_text_and_replays_privately(coach_api, coach_tcp_url, monkeypatch, retirement):
+    import httpx
+
+    api = coach_api
+    closed = asyncio.Event()
+    calls = []
+
+    async def respond(items, *, tools, on_text_delta):
+        calls.append(items)
+        await on_text_delta("Synthetic text before retirement")
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            # A cancellation-racing provider fragment must not escape its retired authority.
+            await on_text_delta("RETIRED PRIVATE TEXT")
+            raise
+        finally:
+            closed.set()
+
+    request, unused = await stream_fixture(api, monkeypatch, respond)
+    await unused.aclose()
+    body = request.model_dump(mode="json")
+    path = "/api/v1/workouts/coach/messages/stream"
+    async with httpx.AsyncClient(base_url=coach_tcp_url, timeout=5) as client:
+        async with client.stream("POST", path, headers=GENERATION, json=body) as response:
+            assert response.status_code == 200
+            events = response.aiter_lines()
+            assert json.loads(await asyncio.wait_for(anext(events), 5))["type"] == "reset"
+            assert json.loads(await asyncio.wait_for(anext(events), 5))["text"] == "Synthetic text before retirement"
+            if retirement == "stop":
+                stopped = await client.post(f"/api/v1/workouts/coach/messages/{request.request_id}/cancel", headers=GENERATION)
+                assert stopped.status_code == 200 and stopped.json()["cancelled"] is True
+            else:
+                assert (await client.delete("/api/v1/workouts/coach/messages", headers=GENERATION)).status_code == 204
+            async with asyncio.timeout(5):
+                remaining = [json.loads(line) async for line in events]
+            assert "RETIRED PRIVATE TEXT" not in json.dumps(remaining)
+            if retirement == "stop":
+                assert remaining[-1]["receipt"]["cancelled"] is True
+                assert remaining[-1]["receipt"]["actions"] == []
+            else:
+                assert remaining[-1]["type"] == "error"
+        replay = await client.post(path, headers=GENERATION, json=body)
+        if retirement == "stop":
+            assert json.loads(replay.text)["receipt"]["cancelled"] is True
+        else:
+            assert json.loads(replay.text)["type"] == "error" and json.loads(replay.text)["status"] == 410
+    assert closed.is_set() and len(calls) == 1
+    assert not api.coach._requests and not api.coach._inflight
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutProposal)) == 0
+
+
+async def test_coach_real_tcp_slow_reader_disconnect_closes_owned_request_without_resend(coach_api, coach_tcp_url, monkeypatch):
+    import httpx
+
+    api = coach_api
+    closed = asyncio.Event()
+    calls = []
+
+    async def respond(items, *, tools, on_text_delta):
+        calls.append(items)
+        await on_text_delta("Synthetic initial fragment")
+        try:
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    request, unused = await stream_fixture(api, monkeypatch, respond)
+    await unused.aclose()
+    body = request.model_dump(mode="json")
+    path = "/api/v1/workouts/coach/messages/stream"
+    async with httpx.AsyncClient(base_url=coach_tcp_url, timeout=5) as client:
+        async with client.stream("POST", path, headers=GENERATION, json=body) as response:
+            events = response.aiter_lines()
+            assert json.loads(await asyncio.wait_for(anext(events), 5))["type"] == "reset"
+            # Deliberately stop consuming the remaining body. Small bounded output
+            # does not claim to saturate OS buffers; direct queue tests cover that bound.
+            async with api.sessions() as db:
+                row = await db.scalar(select(WorkoutCoachMessage).where(WorkoutCoachMessage.request_id == request.request_id))
+                assert row.proposals["state"] == "pending" and row.assistant_message == ""
+        async with asyncio.timeout(5):
+            await closed.wait()
+            while api.coach._requests or api.coach._inflight:
+                await asyncio.sleep(0.01)
+        replay = await client.post(path, headers=GENERATION, json=body)
+        receipt = json.loads(replay.text)["receipt"]
+        assert receipt["state"] in {"pending", "failed"} and receipt["assistant_message"] != "Synthetic initial fragment"
+    assert len(calls) == 1
