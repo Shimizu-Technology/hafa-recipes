@@ -781,3 +781,38 @@ it("canonical server UUID casing still recognizes an accepted original and creat
   }), () => true);
   expect(create).not.toHaveBeenCalled(); expect(store.snapshot().history[0].state).toBe("synced");
 });
+
+
+it.each(["original", "copy"] as const)("keeps an accepted %s recovery receipt after ordinary history pruning and restart", async outcome => {
+  const { store, storage, original } = await orphaned();
+  const recent = Array.from({ length: 20 }, (_, index) => ({ generation: 1, workout: fixture(), state: "synced" as const,
+    synced_id: `recent-${index}`, request: { ...original.request, client_session_id: `recent-${index}` } }));
+  await storage.setItem(trainingKey("owner", 1), JSON.stringify({ ...store.snapshot(), history: [...recent, original] }));
+  const recovering = createTrainingStore(storage, "owner", 1); await recovering.load();
+  const create = restoreWorkout(), send = outcome === "copy" ? recoverSend() : vi.fn(async request => syncResponse(request));
+  const accepted = outcome === "copy" ? "server-recovered-result" : "server-orphan";
+  await expect(recovering.recoverResult("orphan", recoveryCommand, create, send, () => true)).resolves.toBe(accepted);
+  expect(create).toHaveBeenCalledTimes(outcome === "copy" ? 1 : 0);
+  expect(recovering.snapshot().history).toHaveLength(20);
+  expect(recovering.snapshot().history.every(item => item.request.client_session_id.startsWith("recent-"))).toBe(true);
+  expect(recovering.snapshot().recovery_receipts).toEqual([{ original_id: "orphan", ...recoveryCommand, saved_id: accepted }]);
+  const restarted = createTrainingStore(storage, "owner", 1); await restarted.load();
+  const replayCreate = restoreWorkout(), replaySend = recoverSend();
+  await expect(restarted.recoverResult("orphan", recoveryCommand, replayCreate, replaySend, () => true)).resolves.toBe(accepted);
+  expect(replayCreate).not.toHaveBeenCalled(); expect(replaySend).not.toHaveBeenCalled();
+  await expect(restarted.recoverResult("orphan", { ...recoveryCommand, creation_key: "different" }, replayCreate, replaySend, () => true))
+    .rejects.toThrow("existing recovery");
+});
+
+
+it("does not retain an accepted recovery receipt for a mismatched foreground-sync response", async () => {
+  const { store } = await orphaned(); const create = restoreWorkout();
+  const offline = recoverSend(); offline.mockImplementation(async request => {
+    if (request.client_session_id === "orphan") throw gone();
+    throw Object.assign(Error("Still offline"), { status: 0 });
+  });
+  await expect(store.recoverResult("orphan", recoveryCommand, create, offline, () => true)).rejects.toThrow("Still offline");
+  await store.sync(async request => ({ ...syncResponse(request), generation: 2 }));
+  expect(store.snapshot().history[0].state).toBe("queued");
+  expect(store.snapshot().recovery_receipts).toBeUndefined();
+});

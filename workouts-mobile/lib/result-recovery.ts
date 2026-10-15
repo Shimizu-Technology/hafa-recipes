@@ -3,6 +3,7 @@ import type { AuthoredWorkout, Workout } from "./models";
 import type { SavedLocalSession } from "./training";
 
 export interface ResultRecoveryCommand { creation_key: string; client_session_id: string }
+export interface ResultRecoveryReceipt extends ResultRecoveryCommand { original_id: string; saved_id: string }
 export function canRecoverResult(item: SavedLocalSession) {
   return item.state === "blocked" && [404, 410].includes(item.rejection_status ?? 0) &&
     !item.request.supersedes_session_id;

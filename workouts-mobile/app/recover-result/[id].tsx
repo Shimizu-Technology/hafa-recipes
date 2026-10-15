@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import * as Crypto from "expo-crypto";
@@ -11,6 +11,10 @@ import { canRecoverResult, type ResultRecoveryCommand } from "@/lib/result-recov
 
 export default function RecoverResult() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { owner, enrollment } = useTraining();
+  return <RecoveryScreen key={`${owner}:${enrollment?.generation ?? 0}:${id}`} id={id} />;
+}
+function RecoveryScreen({ id }: { id: string }) {
   const { owner, enrollment, api, storage, isCurrentAccount } = useTraining();
   const offline = useOfflineTraining(), cache = useQueryClient();
   const generation = enrollment?.generation ?? 0, identity = `${owner}:${generation}:${id}`;
@@ -21,18 +25,21 @@ export default function RecoverResult() {
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [loaded, setLoaded] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const mounted = useRef(true), live = useRef(identity), lock = useRef(false);
-  live.current = identity;
+  useLayoutEffect(() => { live.current = identity; }, [identity]);
   const current = () => mounted.current && live.current === identity && storage.isCurrent() && isCurrentAccount();
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
     let active = true; setLoaded(false); setCommand(null); setSavedId(undefined); setError("");
     void form.load().then(box => { if (active && current()) { setCommand(box.command); setSavedId(box.saved_id); setLoaded(true); } })
-      .catch(() => { if (active) setError("Could not restore this recovery. Reopen it before continuing."); });
+      .catch(() => { if (active && current()) setError("Could not restore this recovery. Reopen it before continuing."); });
     return () => { active = false; };
   }, [form, loadAttempt]);
   const item = offline.state.history.find(h => h.generation === generation &&
     (h.request.client_session_id === id || h.recovery_origin?.request.client_session_id === id));
   const original = item?.recovery_origin ?? item;
+  const receipt = offline.state.recovery_receipts?.find(item => item.original_id === id);
+  const resultId = savedId ?? receipt?.saved_id;
+  function openResult(value: string) { if (current()) router.replace({ pathname: "/session/[id]", params: { id: value } }); }
   const allowed = !!item && (canRecoverResult(item) || !!item.recovery || !!item.recovery_origin);
   async function save() {
     if (!offline.store || !loaded || !allowed || !current() || lock.current) return;
@@ -56,7 +63,7 @@ export default function RecoverResult() {
   }
   return <Screen back title="Recover this result." subtitle="Keep the work you recorded, even when its workout was removed.">
     {!offline.ready || !loaded ? <Copy>Loading the result saved on this device…</Copy> : !item || !original ?
-      savedId ? <Button title="View saved result" onPress={() => router.replace({ pathname: "/session/[id]", params: { id: savedId } })} /> :
+      resultId ? <Button title="View saved result" onPress={() => openResult(resultId)} /> :
       <Notice>This local result is no longer available. Check Progress for its saved record.</Notice> : <>
       <Card><Copy kind="heading">{original.workout.title}</Copy>
         <Copy>{new Date(original.request.started_at).toLocaleString()} · {original.request.status}</Copy>
@@ -67,8 +74,7 @@ export default function RecoverResult() {
         {original.request.actuals.length > 6 && <Copy kind="small">{original.request.actuals.length - 6} more recorded sets will also be saved unchanged.</Copy>}
         {!!original.request.notes && <Copy>Session notes · {original.request.notes}</Copy>}
       </Card>
-      {item.state === "synced" && item.synced_id ? <Button title="View saved result" onPress={() =>
-        router.replace({ pathname: "/session/[id]", params: { id: item.synced_id! } })} /> : <>
+      {item.state === "synced" && item.synced_id ? <Button title="View saved result" onPress={() => openResult(item.synced_id!)} /> : <>
         <Notice>Review the preserved workout below. Saving restores it privately and saves your recorded result.
           Already saved results open directly. Your reps, times and notes stay as recorded. Nothing is shared.</Notice>
         <PrescriptionPreview workout={original.workout} />

@@ -4,15 +4,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { TrainingSession, Workout } from "./models";
 import type { SavedLocalSession } from "./training";
-const fixture = vi.hoisted(() => ({ history: [] as SavedLocalSession[], remote: [] as TrainingSession[], session: vi.fn(), sessions: vi.fn(), ready: true, current: true, params: { id: "client-A" }, map: new Map<string, string>(), push: vi.fn(), replace: vi.fn(),
+import type { ResultRecoveryReceipt } from "./result-recovery";
+import { draftKey } from "./drafts";
+const fixture = vi.hoisted(() => ({ owner: "owner", generation: 1, receipts: [] as ResultRecoveryReceipt[], history: [] as SavedLocalSession[], remote: [] as TrainingSession[], session: vi.fn(), sessions: vi.fn(), ready: true, current: true, params: { id: "client-A" }, map: new Map<string, string>(), push: vi.fn(), replace: vi.fn(),
   store: { sync: vi.fn(async () => {}), retry: vi.fn(async () => {}), dismiss: vi.fn(async () => {}), recoverResult: vi.fn(async () => "saved-recovery") }, alert: vi.fn() }));
 vi.mock("@/lib/context", () => {
   const storage = { isCurrent: () => fixture.current, getItem: async (key: string) => fixture.map.get(key) ?? null,
     setItem: async (key: string, value: string) => { fixture.map.set(key, value); }, removeItem: async (key: string) => { fixture.map.delete(key); } };
   const api = { saveWorkout: vi.fn(), sessions: fixture.sessions, session: fixture.session, saveSession: vi.fn(),
     activityLog: async () => ({ items: [], has_more: false, timezone: "UTC", today: "2026-10-10", limit: 50, offset: 0 }) };
-  return { useTraining: () => ({ api, storage, isCurrentAccount: () => fixture.current, owner: "owner", enrollment: { enrolled: true, generation: 1 } }),
-    useOfflineTraining: () => ({ state: { history: fixture.history }, error: "", ready: fixture.ready, store: fixture.store }) };
+  return { useTraining: () => ({ api, storage, isCurrentAccount: () => fixture.current, owner: fixture.owner, enrollment: { enrolled: true, generation: fixture.generation } }),
+    useOfflineTraining: () => ({ state: { history: fixture.history, recovery_receipts: fixture.receipts }, error: "", ready: fixture.ready, store: fixture.store }) };
 });
 vi.mock("react-native", () => ({ AppState: { addEventListener: () => ({ remove() {} }) }, Alert: { alert: fixture.alert } }));
 vi.mock("expo-router", () => ({ router: { push: fixture.push, replace: fixture.replace },
@@ -44,6 +46,7 @@ const text = () => renderer!.root.findAll((node) => String(node.type) === "Copy"
   .map((node) => node.children.filter((child) => typeof child === "string").join("")).join("\n");
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  fixture.owner = "owner"; fixture.generation = 1; fixture.receipts = [];
   fixture.history = []; fixture.remote = []; fixture.ready = true; fixture.current = true; fixture.map.clear();
   fixture.push.mockReset(); fixture.replace.mockReset(); fixture.params = { id: "client-A" }; fixture.store.recoverResult.mockReset();
   fixture.store.recoverResult.mockResolvedValue("saved-recovery"); fixture.sessions.mockReset();
@@ -182,4 +185,44 @@ it("reviewing an orphan shows its prescription and retries the same durable reco
   await act(async () => save().props.onPress()); await settle();
   expect((fixture.store.recoverResult.mock.calls[1] as unknown[])[1]).toEqual(first[1]);
   expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/session/[id]", params: { id: "saved-recovery" } });
+});
+
+
+it.each(["owner", "generation", "id"] as const)("a held recovery cannot keep the next %s scope busy or apply its late acknowledgement", async change => {
+  fixture.history = [{ ...local(saved("A"), "blocked"), rejection_status: 404 }];
+  let release!: (id: string) => void;
+  fixture.store.recoverResult.mockReturnValueOnce(new Promise<string>(resolve => { release = resolve; })).mockResolvedValue("new-result");
+  await act(async () => { renderer = create(tree(RecoverResult)); }); await settle();
+  const save = () => renderer!.root.findAll(node => String(node.type) === "Button")
+    .find(node => /Save private workout and result|Continue saving recovered result/.test(node.props.title))!;
+  const oldPress = save().props.onPress;
+  await act(async () => oldPress()); await settle(); expect(save().props.busy).toBe(true);
+  const oldCurrent = (fixture.store.recoverResult.mock.calls[0] as unknown[])[5] as () => boolean;
+  if (change === "owner") fixture.owner = "next-owner";
+  if (change === "generation") fixture.generation = 2;
+  if (change === "id") fixture.params = { id: "client-B" };
+  const next = local(saved(change === "id" ? "B" : "A"), "blocked");
+  fixture.history = [{ ...next, generation: fixture.generation, rejection_status: 404,
+    workout: { ...next.workout, generation: fixture.generation } }];
+  await act(async () => renderer!.update(tree(RecoverResult))); await settle();
+  expect(save().props.busy).toBe(false); expect(oldCurrent()).toBe(false);
+  await act(async () => oldPress()); await settle(); expect(fixture.store.recoverResult).toHaveBeenCalledTimes(1);
+  await act(async () => save().props.onPress()); await settle();
+  expect(fixture.replace).toHaveBeenCalledTimes(1);
+  expect(fixture.replace).toHaveBeenLastCalledWith({ pathname: "/session/[id]", params: { id: "new-result" } });
+  await act(async () => release("old-result")); await settle(); expect(fixture.replace).toHaveBeenCalledTimes(1);
+});
+it("opens an accepted result from its receipt after history pruning and a lost local form acknowledgement", async () => {
+  fixture.receipts = [{ original_id: "client-A", creation_key: "copy-key", client_session_id: "new-client", saved_id: "accepted-result" }];
+  fixture.map.set(draftKey("owner", "result-recovery:1:client-A"), JSON.stringify({ version: 1, input: { reviewed: true },
+    command: { creation_key: "copy-key", client_session_id: "new-client" }, terminal: false, removed: false }));
+  await act(async () => { renderer = create(tree(RecoverResult)); }); await settle();
+  const open = renderer!.root.findAll(node => String(node.type) === "Button").find(node => node.props.title === "View saved result")!;
+  const oldOpen = open.props.onPress;
+  await act(async () => oldOpen());
+  expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/session/[id]", params: { id: "accepted-result" } });
+  expect(fixture.store.recoverResult).not.toHaveBeenCalled();
+  fixture.replace.mockClear(); fixture.owner = "next-owner"; fixture.receipts = [];
+  await act(async () => renderer!.update(tree(RecoverResult))); await settle();
+  await act(async () => oldOpen()); expect(fixture.replace).not.toHaveBeenCalled();
 });

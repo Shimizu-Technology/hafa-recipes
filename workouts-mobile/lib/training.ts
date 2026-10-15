@@ -1,4 +1,4 @@
-import { canRecoverResult, restoredPrescription, type ResultRecoveryCommand } from "./result-recovery";
+import { canRecoverResult, restoredPrescription, type ResultRecoveryCommand, type ResultRecoveryReceipt } from "./result-recovery";
 import type { ActualSet, Workout, AuthoredWorkout, SessionRequest, TrainingSession, ExercisePrescription } from "./models";
 import type { Storage } from "./drafts";
 import { timedCircuit, circuitRemaining } from "./timed-circuit";
@@ -62,6 +62,8 @@ export interface TrainingState {
   generation: number;
   active: SessionDraft | null;
   history: SavedLocalSession[];
+  /** Bounded content-free receipts outlive normal synced-history pruning. */
+  recovery_receipts?: ResultRecoveryReceipt[];
 }
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 // Synced results live on the server. Keep only the newest few on the device so
@@ -70,6 +72,11 @@ export const syncedHistoryLimit = 20;
 export function pruneHistory(history: SavedLocalSession[]) {
   let synced = 0;
   return history.filter((item) => item.state !== "synced" || ++synced <= syncedHistoryLimit);
+}
+function rememberRecovery(state: TrainingState, original_id: string, command: ResultRecoveryCommand, saved_id: string) {
+  state.recovery_receipts = [{ original_id, creation_key: command.creation_key,
+    client_session_id: command.client_session_id, saved_id },
+    ...(state.recovery_receipts ?? []).filter(item => item.original_id !== original_id)].slice(0, syncedHistoryLimit);
 }
 // Network failures, timeouts, rate limits, expired sign-in and server errors can
 // succeed later. Any other 4xx will fail the same way on every retry.
@@ -278,6 +285,9 @@ export function createTrainingStore(
     for (const item of queue) {
       try {
         const saved = await send(clone(item.request), item.generation);
+        if (item.recovered_with && (saved.generation !== item.generation ||
+          saved.client_session_id?.toLowerCase() !== item.request.client_session_id.toLowerCase()))
+          throw Object.assign(Error("The saved recovery response changed. Retry after refreshing your account."), { local: true });
         previousRejection = null;
         await update((s) => {
           const local = s.history.find((x) => x.request.client_session_id === item.request.client_session_id);
@@ -285,6 +295,8 @@ export function createTrainingStore(
             local.state = "synced";
             local.synced_id = saved.id;
             local.synced_at = clock();
+            if (local.recovery_origin && local.recovered_with)
+              rememberRecovery(s, local.recovery_origin.request.client_session_id, local.recovered_with, saved.id);
             delete local.rejection_status;
             const warning = historicalStructureWarning(local.workout, local.request.actuals, local.cell_identity_version);
             if (warning) local.problem = warning;
@@ -601,15 +613,23 @@ export function createTrainingStore(
       const existing = recoveries.get(id);
       if (existing) return existing;
       const guard = () => { if (!current()) throw Error("Your account changed. Recovery stopped; the original result stays saved."); };
+      let acceptedDuringSend: string | undefined;
       const sendCurrent = async (request: SessionRequest, epoch: number) => {
         guard();
         const saved = await send(request, epoch); guard();
         if (saved.generation !== generation || saved.client_session_id?.toLowerCase() !== request.client_session_id.toLowerCase())
           throw Object.assign(Error("The saved result response changed. Retry the same recovery after refreshing your account."), { local: true });
+        if (request.client_session_id.toLowerCase() === command.client_session_id.toLowerCase()) acceptedDuringSend = saved.id;
         return saved;
       };
       const result = exclusive(async () => {
         await operations.catch(() => undefined); guard();
+        const receipt = state.recovery_receipts?.find(item => item.original_id === id);
+        if (receipt) {
+          if (receipt.creation_key !== command.creation_key || receipt.client_session_id !== command.client_session_id)
+            throw Error("Reload the existing recovery before trying again.");
+          return receipt.saved_id;
+        }
         if (command.client_session_id === id) throw Error("Recovery needs a new result identity.");
         let original = state.history.find(item => item.request.client_session_id === id);
         const replacement = state.history.find(item => item.recovery_origin?.request.client_session_id === id);
@@ -632,7 +652,8 @@ export function createTrainingStore(
               const saved = await sendCurrent(clone(original.request), generation);
               await update(s => { const item = s.history.find(h => h.request.client_session_id === id)!;
                 item.state = "synced"; item.synced_id = saved.id; item.synced_at = clock();
-                delete item.rejection_status; delete item.problem; return s; });
+                delete item.rejection_status; delete item.problem;
+                rememberRecovery(s, id, command, saved.id); return s; });
               return saved.id;
             } catch (error) {
               guard();
@@ -668,8 +689,11 @@ export function createTrainingStore(
           await run(sendCurrent);
         }
         guard();
-        const recovered = state.history.find(item => item.request.client_session_id === command.client_session_id)!;
-        if (recovered.state !== "synced") throw Error(recovered.problem || "The private workout is restored. Your result stays on this device until sync succeeds.");
+        const accepted = state.recovery_receipts?.find(item => item.original_id === id);
+        if (accepted) return accepted.saved_id;
+        const recovered = state.history.find(item => item.request.client_session_id === command.client_session_id);
+        if (!recovered && acceptedDuringSend) return acceptedDuringSend;
+        if (recovered?.state !== "synced") throw Error(recovered?.problem || "The private workout is restored. Your result stays on this device until sync succeeds.");
         return recovered.synced_id!;
       });
       recoveries.set(id, result);
