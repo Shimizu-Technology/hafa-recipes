@@ -47,6 +47,8 @@ async def run_migration(*, configured=None, migration_engine=None):
               AND upload_request_hash ~ '^[0-9a-f]{64}$' AND cover_origin='user'))) NOT VALID""")
         )
     async with (migration_engine or engine).begin() as db:
+        await db.execute(text("SELECT pg_advisory_xact_lock(7340034)"))
+        await db.execute(text("SET LOCAL lock_timeout = '5s'"))
         await db.execute(
             text(
                 "ALTER TABLE workouts_source_media VALIDATE CONSTRAINT ck_workouts_source_media_owner"
