@@ -5,7 +5,7 @@ import * as Crypto from "expo-crypto";
 import { Button, Card, Copy, Notice, Screen } from "@/components/ui";
 import { PrescriptionPreview } from "@/components/program-preview";
 import { useOfflineTraining, useTraining } from "@/lib/context";
-import { summaryOf } from "@/lib/training";
+import { isTransientSyncError, summaryOf } from "@/lib/training";
 import { createPrivateForm } from "@/lib/private-form";
 import { canRecoverResult, type ResultRecoveryCommand } from "@/lib/result-recovery";
 
@@ -41,8 +41,9 @@ function RecoveryScreen({ id }: { id: string }) {
   const resultId = savedId ?? receipt?.saved_id;
   function openResult(value: string) { if (current()) router.replace({ pathname: "/session/[id]", params: { id: value } }); }
   const allowed = !!item && (canRecoverResult(item) || !!item.recovery || !!item.recovery_origin);
+  const needsReview = item?.state === "blocked" && !!item.recovery_origin && !isTransientSyncError(item.rejection_status);
   async function save() {
-    if (!offline.store || !loaded || !allowed || !current() || lock.current) return;
+    if (!offline.store || !loaded || !allowed || needsReview || !current() || lock.current) return;
     lock.current = true; setBusy(true); setError("");
     try {
       const prior = item!.recovery ?? (item!.recovery_origin?.request.client_session_id === id ? item!.recovered_with : undefined);
@@ -78,8 +79,14 @@ function RecoveryScreen({ id }: { id: string }) {
         <Notice>Review the preserved workout below. Saving restores it privately and saves your recorded result.
           Already saved results open directly. Your reps, times and notes stay as recorded. Nothing is shared.</Notice>
         <PrescriptionPreview workout={original.workout} />
-        {allowed ? <Button title={command || item.recovery || item.recovery_origin ? "Continue saving recovered result" : "Save private workout and result"}
-          busy={busy} onPress={() => { void save(); }} /> : <Notice>
+        {needsReview ? <>
+          <Notice error>{item.problem || "The recovered result needs review before saving again."} Your recorded work stays on this device.</Notice>
+          <Button title="Review in Progress" onPress={() => { if (current()) router.replace("/(tabs)/progress"); }} />
+        </> : allowed ? <>
+          {!!error && <Notice error>{error}</Notice>}
+          <Button title={command || item.recovery || item.recovery_origin ? "Continue saving recovered result" : "Save private workout and result"}
+            busy={busy} onPress={() => { void save(); }} />
+        </> : <Notice>
           Try saving the original result again in Progress. Recovery becomes available when its source is confirmed missing.
         </Notice>}
       </>}
@@ -87,6 +94,6 @@ function RecoveryScreen({ id }: { id: string }) {
     {!!offline.error && <><Notice error>{offline.error}</Notice>
       <Button title="Retry loading saved sessions" secondary onPress={offline.retry} /></>}
     {!loaded && !!error && <Button title="Retry loading recovery" secondary onPress={() => setLoadAttempt(value => value + 1)} />}
-    {!!error && <Notice error>{error}</Notice>}
+    {!loaded && !!error && <Notice error>{error}</Notice>}
   </Screen>;
 }

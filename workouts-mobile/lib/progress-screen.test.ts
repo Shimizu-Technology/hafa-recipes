@@ -187,6 +187,34 @@ it("reviewing an orphan shows its prescription and retries the same durable reco
   expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/session/[id]", params: { id: "saved-recovery" } });
 });
 
+it.each([403, 404, 409, 410, 422])("routes a permanently rejected recovery to Progress instead of offering another send after %i", async status => {
+  const original = local(saved("A"), "blocked");
+  fixture.history = [{ ...local(saved("B"), "blocked"), rejection_status: status,
+    problem: "Recovered result needs attention", recovery_origin: { request: original.request, workout: original.workout } }];
+  await act(async () => { renderer = create(tree(RecoverResult)); }); await settle();
+  expect(text()).toContain("Recovered result needs attention");
+  expect(text()).toContain("Your recorded work stays on this device");
+  const buttons = renderer!.root.findAllByType("Button" as never);
+  expect(buttons.some(node => /Continue saving|Save private/.test(node.props.title))).toBe(false);
+  await act(async () => buttons.find(node => node.props.title === "Review in Progress")!.props.onPress());
+  expect(fixture.replace).toHaveBeenCalledWith("/(tabs)/progress");
+  expect(fixture.store.recoverResult).not.toHaveBeenCalled();
+});
+
+it.each([0, 401, 503])("keeps transient recovery status %i retryable with feedback before its action", async status => {
+  const original = local(saved("A"), "blocked");
+  fixture.history = [{ ...local(saved("B"), "blocked"), rejection_status: status,
+    recovery_origin: { request: original.request, workout: original.workout } }];
+  fixture.store.recoverResult.mockRejectedValue(Error("Connection unavailable; result retained"));
+  await act(async () => { renderer = create(tree(RecoverResult)); }); await settle();
+  const retry = renderer!.root.findAllByType("Button" as never).find(node => node.props.title === "Continue saving recovered result")!;
+  await act(async () => retry.props.onPress()); await settle();
+  const ordered = renderer!.root.findAll(node => String(node.type) === "Notice" || String(node.type) === "Button");
+  expect(ordered.findIndex(node => node.children.join("").includes("Connection unavailable; result retained")))
+    .toBeLessThan(ordered.findIndex(node => node.props.title === "Continue saving recovered result"));
+  expect(text()).toContain("Connection unavailable; result retained");
+});
+
 
 it.each(["owner", "generation", "id"] as const)("a held recovery cannot keep the next %s scope busy or apply its late acknowledgement", async change => {
   fixture.history = [{ ...local(saved("A"), "blocked"), rejection_status: 404 }];
