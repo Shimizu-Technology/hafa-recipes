@@ -6,11 +6,13 @@ import { createTrainingStore } from "./training";
 import type { Workout } from "./models";
 
 const fixture = vi.hoisted(() => ({ store: null as ReturnType<typeof createTrainingStore> | null,
+  owner: "owner", generation: 1, current: true, storage: null as { isCurrent(): boolean } | null,
   listeners: new Set<(state: string) => void>(), writeFailure: false, saveSession: vi.fn(), replace: vi.fn() }));
 vi.mock("@/lib/context", async () => {
   const { useSyncExternalStore } = await import("react");
   const api = { sessions: async () => [], saveSession: fixture.saveSession };
-  return { useTraining: () => ({ api, owner: "owner", units: "metric", enrollment: { enrolled: true, generation: 1 } }),
+  return { useTraining: () => ({ api, owner: fixture.owner, units: "metric", enrollment: { enrolled: true, generation: fixture.generation },
+    storage: fixture.storage, isCurrentAccount: () => fixture.current }),
     useOfflineTraining: () => ({ store: fixture.store, state: useSyncExternalStore(fixture.store!.subscribe, fixture.store!.snapshot),
       ready: true, error: "", retry() {} }) };
 });
@@ -37,6 +39,7 @@ const footer = () => renderer!.root.findByType("Screen" as never).props.footer;
 const text = () => renderer!.root.findAllByType("Copy" as never).map((node) => node.children.filter((child) => typeof child === "string").join("")).join("\n");
 beforeEach(async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  fixture.owner = "owner"; fixture.generation = 1; fixture.current = true; fixture.storage = { isCurrent: () => fixture.current };
   vi.useFakeTimers(); vi.setSystemTime(10000); fixture.writeFailure = false; fixture.listeners.clear(); fixture.replace.mockReset(); fixture.saveSession.mockReset();
   const memory = new Map<string, string>();
   fixture.store = createTrainingStore({ getItem: async (key) => memory.get(key) ?? null,
@@ -157,4 +160,28 @@ it("keeps invalid unlogged actuals available to correct instead of finishing or 
   expect(fixture.store!.snapshot().active!.actuals).toHaveLength(1);
   expect(field("Actual reps").props.value).toBe("-1");
   expect(finishSheet().props.visible).toBe(true);
+});
+
+
+it("an old partial finish cannot navigate or sync after its account and store are replaced", async () => {
+  await recordedThenTyped();
+  await act(async () => { partial().props.onPress(); }); await settle();
+  const oldStore = fixture.store!, finish = oldStore.finish;
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  vi.spyOn(oldStore, "finish").mockImplementation(async (...args) => { await held; return finish(...args); });
+  const oldSync = vi.spyOn(oldStore, "sync");
+  await act(async () => { action("Finish without this entry").props.onPress(); }); await settle();
+  const memory = new Map<string, string>();
+  const replacement = createTrainingStore({ getItem: async key => memory.get(key) ?? null,
+    setItem: async (key, value) => { memory.set(key, value); }, removeItem: async key => { memory.delete(key); } }, "other", 1);
+  await replacement.load(); await replacement.start(workout, { workout_id: "source", workout_revision: 1 }, "replacement");
+  await replacement.input({ reps: "6" });
+  fixture.owner = "other"; fixture.storage = { isCurrent: () => true }; fixture.store = replacement;
+  await act(async () => { renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Training))); }); await settle();
+  expect(field("Actual reps").props.value).toBe("6");
+  await act(async () => { release(); }); await settle();
+  expect(fixture.replace).not.toHaveBeenCalled(); expect(oldSync).not.toHaveBeenCalled();
+  expect(replacement.snapshot().active!.input).toEqual({ reps: "6" });
+  expect(footer().props.busy).toBe(false);
 });
