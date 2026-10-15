@@ -35,6 +35,7 @@ from app.domains.workouts.models import (
 )
 from app.domains.workouts.router import content_digest, owned_record
 from app.domains.workouts.schemas import DomainModel
+from app.domains.workouts.source_context import without_source_context
 from app.models.ai import AIInvocation
 
 MAX_MESSAGES_PER_DAY = 50
@@ -734,7 +735,7 @@ class WorkoutCoach:
                                         "call_id": identifier,
                                         "output": json.dumps(
                                             {
-                                                "preview": action["content"],
+                                                "preview": without_source_context(action["content"]),
                                                 "status": "proposed_only",
                                                 "acceptance_required": True,
                                             }

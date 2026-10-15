@@ -20,6 +20,7 @@ from app.domains.workouts.models import (
     WorkoutsProfile,
     WorkoutsProgram,
     WorkoutsSession,
+    WorkoutVersion,
 )
 from app.domains.workouts.programming import build_program
 from app.domains.workouts.router import content_digest
@@ -511,6 +512,12 @@ async def test_comparable_actual_progression_is_result_based_and_actuals_immutab
     api = coach_api
     workout = await create_workout(api, loaded=True)
     async with api.sessions() as db:
+        source = await db.get(WorkoutRecord, UUID(workout["id"]))
+        acquired = {"parts": [{"location": "caption", "text": "PRIVATE RAW PROGRESSION SOURCE"}]}
+        source.content = {**source.content, "source_context": acquired,
+                          "source_title": "Original creator instructions", "notes": ["Keep this instruction"]}
+        version = await db.scalar(select(WorkoutVersion).where(WorkoutVersion.workout_id == source.id))
+        version.content = source.content
         profile = await db.get(WorkoutsProfile, "owner")
         profile.content = dict(profile.content, equipment=["dumbbell"], available_loads_kg=[20, 21])
         profile.revision += 1
@@ -565,6 +572,9 @@ async def test_comparable_actual_progression_is_result_based_and_actuals_immutab
     )
     response = await send(api)
     assert response.status_code == 200, response.text
+    assert len(api.provider.sent) == 2
+    assert "PRIVATE RAW PROGRESSION SOURCE" not in json.dumps(api.provider.sent)
+    assert "source_context" not in json.dumps(api.provider.sent)
     identifier = response.json()["actions"][0]["proposal_id"]
     inspected = await api.client.get(f"/api/v1/workouts/coach/actions/{identifier}")
     assert inspected.json()["proposal"]["evaluation"]["action"] == expected
@@ -574,6 +584,13 @@ async def test_comparable_actual_progression_is_result_based_and_actuals_immutab
         async with api.sessions() as db:
             saved = await db.get(WorkoutRecord, UUID(accepted.json()["record_id"]))
             assert saved.content["blocks"][0]["exercises"][0]["load"] == 21
+            assert "source_context" not in saved.content
+            assert saved.content["notes"] == ["Keep this instruction"]
+            assert saved.content["source_title"] == "Original creator instructions"
+            original = await db.get(WorkoutRecord, UUID(workout["id"]))
+            assert original.content["source_context"] == acquired
+            version = await db.scalar(select(WorkoutVersion).where(WorkoutVersion.workout_id == original.id))
+            assert version.content["source_context"] == acquired
             assert (await db.get(WorkoutRecord, UUID(workout["id"]))).content["blocks"][0][
                 "exercises"
             ][0]["load"] == 20

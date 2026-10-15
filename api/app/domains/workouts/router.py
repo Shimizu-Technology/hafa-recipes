@@ -1104,7 +1104,9 @@ async def record_session(
         block = blocks.get(actual.block_id)
         if block is None or actual.exercise_index >= len(block["exercises"]):
             raise HTTPException(422, "An actual set does not reference the saved prescription")
-    content["prescription_snapshot"] = snapshot
+    from app.domains.workouts.source_context import without_source_context
+
+    content["prescription_snapshot"] = without_source_context(snapshot)
     row = WorkoutsSession(
         app_user_id=user.id,
         generation=generation,

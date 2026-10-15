@@ -10,6 +10,16 @@ from app.domains.workouts.schemas import SourceContext, SourceTextPart
 LOCATIONS = re.compile(r"^(caption|transcript|page_text|provided_text|document_text|document_page:[1-9][0-9]?)$")
 
 
+def without_source_context(value):
+    """Project derived/provider data without copying private acquisition text."""
+    if isinstance(value, dict):
+        return {key: without_source_context(item) for key, item in value.items()
+                if key != "source_context"}
+    if isinstance(value, list):
+        return [without_source_context(item) for item in value]
+    return value
+
+
 def retain_source_context(workout, source):
     # Leave room for server IDs and warning projection without raising the existing
     # 240KB saved-record limit. Never retain image data URLs or metadata as text.

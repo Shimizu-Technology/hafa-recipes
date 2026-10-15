@@ -145,7 +145,8 @@ def comparable_progression(workout, block_id, index, records, profile, *, as_of=
             ), None
         observed.append(cells)
     evidence = [str(row.id) for row in recent]
-    changed = workout.model_dump(mode="json")
+    # A progressed prescription is derived, not a new acquisition of its source.
+    changed = workout.model_dump(mode="json", exclude={"source_context"})
     changed_block = next(item for item in changed["blocks"] if item["id"] == block.id)
     target = changed_block["exercises"][index]
     if prescription.load is not None:
