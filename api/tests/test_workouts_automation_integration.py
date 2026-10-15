@@ -1566,29 +1566,52 @@ async def test_reextract_final_size_failure_keeps_review_receipt_source_and_vers
         assert await db.scalar(select(func.count()).select_from(WorkoutVersion)) == 1
 
 
-async def test_source_text_old_client_roundtrip_clear_and_private_immutable_history(automation_api):
+@pytest.mark.parametrize("clear_instructions_first", [False, True])
+async def test_source_text_old_client_roundtrip_clear_and_private_immutable_history(automation_api, clear_instructions_first):
     api = automation_api
     await consent(api)
     job = (await enqueue(api)).json()
     await api.worker.tick()
+    # A server extraction result can contain both public cues and private raw text.
+    async with api.sessions.begin() as db:
+        pending = await db.get(WorkoutImport, job["id"])
+        result = dict(pending.result)
+        content = dict(result["workout"], instructions=["Repeat in order"], notes=["PRIVATE OWNER NOTE"])
+        content["blocks"] = [{**block, "exercises": [
+            {**exercise, "instructions": "Keep heels down"} for exercise in block["exercises"]
+        ]} for block in content["blocks"]]
+        pending.result = {**result, "workout": content}
     current = (await api.client.get(f"/api/v1/workouts/imports/{job['id']}")).json()
     original = current["result"]["workout"]
     context = original["source_context"]
     assert context["parts"] == [{"location": "provided_text", "text": TEXT}]
-    legacy = {key: value for key, value in original.items() if key != "source_context"}
+    def legacy_body(content):
+        return {**{key: value for key, value in content.items()
+                   if key not in {"id", "version", "parent_version_id", "source_context", "instructions"}},
+                "blocks": [{**block, "exercises": [
+                    {key: value for key, value in exercise.items() if key != "instructions"}
+                    for exercise in block["exercises"]]} for block in content["blocks"]]}
+
+    def assert_cues(content):
+        assert content["instructions"] == ["Repeat in order"]
+        assert content["blocks"][0]["exercises"][0]["instructions"] == "Keep heels down"
+        assert content["notes"] == ["PRIVATE OWNER NOTE"]
+
+    legacy = legacy_body(original)
     accepted = await api.client.post(f"/api/v1/workouts/imports/{job['id']}/accept",
         headers=GENERATION, json={"workout": legacy, "acknowledge_warnings": True})
     assert accepted.status_code == 200, accepted.text
     identifier = accepted.json()["id"]
     assert accepted.json()["content"]["source_context"] == context
-    legacy = {key: value for key, value in accepted.json()["content"].items()
-              if key not in {"id", "version", "parent_version_id", "source_context"}}
+    assert_cues(accepted.json()["content"])
+    legacy = legacy_body(accepted.json()["content"])
     # A URL correction must not silently erase the original acquisition context.
     legacy["source_url"] = "https://example.com/corrected"
     edited = await api.client.put(f"/api/v1/workouts/library/{identifier}?expected_revision=1",
         headers=GENERATION, json={**legacy, "title": "Corrected"})
     assert edited.status_code == 200, edited.text
     assert edited.json()["content"]["source_context"] == context
+    assert_cues(edited.json()["content"])
     forged = {"parts": [{"location": "caption", "text": "AI invented this"}]}
     rejected = await api.client.put(f"/api/v1/workouts/library/{identifier}?expected_revision=2",
         headers=GENERATION, json={**legacy, "source_context": forged})
@@ -1596,13 +1619,32 @@ async def test_source_text_old_client_roundtrip_clear_and_private_immutable_hist
     rejected_create = await api.client.post("/api/v1/workouts/library", headers=GENERATION,
         json={**legacy, "source_context": forged})
     assert rejected_create.status_code == 422
-    cleared = await api.client.put(f"/api/v1/workouts/library/{identifier}?expected_revision=2",
+    if clear_instructions_first:
+        cleared_cues = await api.client.put(f"/api/v1/workouts/library/{identifier}?expected_revision=2",
+            headers=GENERATION, json={**legacy, "instructions": [], "blocks": [
+                {**block, "exercises": [{**exercise, "instructions": None} for exercise in block["exercises"]]}
+                for block in legacy["blocks"]]})
+        assert cleared_cues.status_code == 200, cleared_cues.text
+        assert cleared_cues.json()["content"]["source_context"] == context
+        assert cleared_cues.json()["content"]["instructions"] == []
+        assert cleared_cues.json()["content"]["blocks"][0]["exercises"][0].get("instructions") is None
+        # Omission must preserve the explicit instruction clear while clearing raw text.
+        legacy = legacy_body(cleared_cues.json()["content"])
+    revision = 3 if clear_instructions_first else 2
+    cleared = await api.client.put(f"/api/v1/workouts/library/{identifier}?expected_revision={revision}",
         headers=GENERATION, json={**legacy, "source_context": None})
     assert cleared.status_code == 200, cleared.text
     assert "source_context" not in cleared.json()["content"]
+    if clear_instructions_first:
+        assert cleared.json()["content"]["instructions"] == []
+        assert cleared.json()["content"]["blocks"][0]["exercises"][0].get("instructions") is None
+    else:
+        assert_cues(cleared.json()["content"])
+    assert cleared.json()["content"]["notes"] == ["PRIVATE OWNER NOTE"]
     versions = (await api.client.get(f"/api/v1/workouts/library/{identifier}/versions")).json()
     assert "source_context" not in versions[0]["content"]
     assert versions[-1]["content"]["source_context"] == context
+    assert_cues(versions[-1]["content"])
     await enroll(api, other=True)
     other = await api.client.get(f"/api/v1/workouts/library/{identifier}", headers={"X-Test-User": "other"})
     assert other.status_code == 404

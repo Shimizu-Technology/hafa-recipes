@@ -2610,7 +2610,7 @@ it.each(["recovery", "review"] as const)("committed %s route changes unlock the 
 });
 
 it("keeps source captions and transcripts collapsed and stages explicit clearing independently of workout instructions", async () => {
-  const content: AuthoredWorkout = { ...workout, notes: ["Rest after each round"], source_context: {
+  const content: AuthoredWorkout = { ...workout, instructions: ["Rest after each round"], notes: ["PRIVATE OWNER NOTE"], source_context: {
     parts: [{ location: "caption", text: "PRIVATE CAPTION" }, { location: "caption", text: " CONTINUATION" },
       { location: "transcript", text: "PRIVATE TRANSCRIPT" }], truncated: true } };
   await mountRealWorkoutEditor(content);
@@ -2625,5 +2625,6 @@ it("keeps source captions and transcripts collapsed and stages explicit clearing
   expect(fixture.updateWorkout).toHaveBeenLastCalledWith({ ...content, source_context: null });
   expect(visible()).not.toContain("PRIVATE CAPTION");
   expect(nodes("Field").find(node => node.props.label.startsWith("Workout instructions"))!.props.value).toBe("Rest after each round");
+  expect(nodes("Field").find(node => node.props.label === "Private notes · only you")!.props.value).toBe("PRIVATE OWNER NOTE");
   expect(content.source_context!.parts).toHaveLength(3);
 });

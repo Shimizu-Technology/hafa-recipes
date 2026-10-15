@@ -363,8 +363,11 @@ async def test_duplicate_independent_version_receipt_and_removed_copy_tombstone(
     row = await create(api)
     async with api.sessions() as db:
         source = await db.get(WorkoutRecord, UUID(row["id"]))
-        source.content = {**source.content, "source_context": {
-            "parts": [{"location": "caption", "text": "PRIVATE ACQUIRED TEXT"}], "truncated": False}}
+        source.content = {**source.content, "instructions": ["Repeat in order"], "notes": ["PRIVATE OWNER NOTE"],
+            "blocks": [{**block, "exercises": [{**exercise, "instructions": "Keep heels down"}
+                for exercise in block["exercises"]]} for block in source.content["blocks"]],
+            "source_context": {
+                "parts": [{"location": "caption", "text": "PRIVATE ACQUIRED TEXT"}], "truncated": False}}
         await db.commit()
     collection = await make_collection(api)
     await change(
@@ -378,6 +381,9 @@ async def test_duplicate_independent_version_receipt_and_removed_copy_tombstone(
     assert copied["id"] != row["id"] and copied["content"]["id"] == copied["id"]
     assert copied["content"]["version"] == 1 and copied["content"]["parent_version_id"] is None
     assert "source_context" not in copied["content"]
+    assert copied["content"]["instructions"] == ["Repeat in order"]
+    assert copied["content"]["blocks"][0]["exercises"][0]["instructions"] == "Keep heels down"
+    assert copied["content"]["notes"] == ["PRIVATE OWNER NOTE"]
     original = await api.client.get(f"{PREFIX}/library/{row['id']}")
     assert original.json()["content"]["source_context"]["parts"][0]["text"] == "PRIVATE ACQUIRED TEXT"
     assert copied["organization"]["tags"] == ["Run"]

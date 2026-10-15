@@ -149,10 +149,11 @@ async def test_session_omits_raw_acquisition_text_but_keeps_original_prescriptio
     from app.domains.workouts.source_context import retain_source_context
 
     await enroll(data_api)
-    authored = {**WORKOUT, "notes": ["Keep the creator instruction"] + (["x" * 4000] * 58 if near_limit else []),
+    authored = {**WORKOUT, "instructions": ["Keep the creator instruction"],
+                "notes": ["PRIVATE OWNER NOTE"] + (["x" * 4000] * 58 if near_limit else []),
                 "source_url": "https://example.test/source", "source_title": "Creator title",
                 "source_creator": "Creator", "blocks": [{**WORKOUT["blocks"][0], "exercises": [
-                    {**WORKOUT["blocks"][0]["exercises"][0], "sets": 20}]}]}
+                    {**WORKOUT["blocks"][0]["exercises"][0], "sets": 20, "instructions": "Keep heels down"}]}]}
     created = await data_api.client.post("/api/v1/workouts/library", json=authored, headers=GENERATION)
     assert created.status_code == 201, created.text
     row = created.json()
@@ -180,7 +181,9 @@ async def test_session_omits_raw_acquisition_text_but_keeps_original_prescriptio
     assert snapshot == {key: value for key, value in original.items() if key != "source_context"}
     assert "PRIVATE RAW SESSION SOURCE" not in recorded.text
     assert snapshot["source_url"] == authored["source_url"]
+    assert snapshot["instructions"] == authored["instructions"]
     assert snapshot["notes"] == authored["notes"] and snapshot["blocks"] == original["blocks"]
+    assert snapshot["blocks"][0]["exercises"][0]["instructions"] == "Keep heels down"
     replay = await data_api.client.post("/api/v1/workouts/sessions", json=payload, headers=GENERATION)
     assert replay.status_code == 200 and replay.json() == recorded.json()
     async with data_api.sessions() as db:

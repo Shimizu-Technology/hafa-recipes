@@ -517,7 +517,9 @@ async def test_comparable_actual_progression_is_result_based_and_actuals_immutab
         # first created; updating an existing version is correctly forbidden.
         source = automation_router.store_workout(db, "owner", 1, {
             **workout["content"], "source_context": acquired,
-            "source_title": "Original creator instructions", "notes": ["Keep this instruction"],
+            "source_title": "Original creator instructions", "instructions": ["Repeat in order"],
+            "blocks": [{**block, "exercises": [{**exercise, "instructions": "Keep heels down"}
+                for exercise in block["exercises"]]} for block in workout["content"]["blocks"]],
         })
         workout = {"id": str(source.id), "revision": source.revision}
         profile = await db.get(WorkoutsProfile, "owner")
@@ -587,7 +589,8 @@ async def test_comparable_actual_progression_is_result_based_and_actuals_immutab
             saved = await db.get(WorkoutRecord, UUID(accepted.json()["record_id"]))
             assert saved.content["blocks"][0]["exercises"][0]["load"] == 21
             assert "source_context" not in saved.content
-            assert saved.content["notes"] == ["Keep this instruction"]
+            assert saved.content["instructions"] == ["Repeat in order"]
+            assert saved.content["blocks"][0]["exercises"][0]["instructions"] == "Keep heels down"
             assert saved.content["source_title"] == "Original creator instructions"
             original = await db.get(WorkoutRecord, UUID(workout["id"]))
             assert original.content["source_context"] == acquired

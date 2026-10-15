@@ -291,15 +291,23 @@ def test_legacy_fixed_api_dto_and_creation_hash_stay_identical():
 def test_raw_source_text_never_enters_public_projection_or_repeated_plan_sessions(include_url):
     source = squat().model_copy(update={"source_context": None})
     source = WorkoutContent.model_validate({**source.model_dump(mode="json"), "source_context": {
-        "parts": [{"location": "caption", "text": "PRIVATE CAPTION"}], "truncated": False}})
+        "parts": [{"location": "caption", "text": "PRIVATE CAPTION"}], "truncated": False},
+        "instructions": ["Repeat in order"], "notes": ["PRIVATE OWNER NOTE"],
+        "blocks": [{**block.model_dump(mode="json"), "exercises": [
+            {**exercise.model_dump(mode="json"), "instructions": "Keep heels down"}
+            for exercise in block.exercises]} for block in source.blocks]})
     public, _ = project_workout(source.model_dump(mode="json"), include_source_url=include_url)
     assert "source_context" not in public and "PRIVATE" not in str(public)
+    assert public["instructions"] == ["Repeat in order"]
+    assert public["blocks"][0]["exercises"][0]["instructions"] == "Keep heels down"
     result = compose_library_program(profile(), START, 1, [(uuid4(), source)], mode="selected")
     assert result.sessions
     assert all(session.workout.source_context is None for session in result.sessions)
+    assert all(session.workout.instructions == ["Repeat in order"] for session in result.sessions)
     assert source.source_context.parts[0].text == "PRIVATE CAPTION"
     adapted = adapt_workout(source, profile())
     assert adapted.workout is not None and adapted.workout.source_context is None
+    assert adapted.workout.instructions == ["Repeat in order"]
     result.sessions[0].workout.source_context = source.source_context
     saved = program_content(ProgramRequest(title="My plan", proposal=result))
     assert "source_context" not in saved["proposal"]["sessions"][0]["workout"]
