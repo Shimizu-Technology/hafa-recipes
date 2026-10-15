@@ -170,7 +170,7 @@ export default function Coach() {
     const known = history.filter(item => positions.current.has(item.id));
     const anchor = known.filter(item => positions.current.get(item.id)! <= reading.current.offset).at(-1) ?? known[0];
     reading.current.latest = false; setAwayFromLatest(true);
-    if (anchor && positions.current.get(anchor.id)! < reading.current.offset + reading.current.viewport)
+    if (anchor)
       earlier.current = { id: anchor.id, top: positions.current.get(anchor.id)!,
       offset: reading.current.offset, firstId: history[0].id, measuring: false, positions: new Map([...positions.current].map(([id, top]) => [id, { top, version: positionVersions.current.get(id) ?? 0 }])) };
     const captured = earlier.current;
@@ -186,6 +186,9 @@ export default function Coach() {
         if (!currentConversation() || earlier.current !== captured || scroll.current !== reader || messageViews.current.get(captured.id) !== row) return;
         captured.top = top;
       }
+      // The cached position can be stale after a first-page refresh removes
+      // its previous oldest row. Decide visibility from the measured baseline.
+      if (captured && captured.top >= reading.current.offset + reading.current.viewport) earlier.current = null;
       if (!currentConversation()) return;
       fetching = true;
       const result = await q.fetchNextPage();
