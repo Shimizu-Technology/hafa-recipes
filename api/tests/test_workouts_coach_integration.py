@@ -1535,3 +1535,54 @@ async def test_coach_stream_completion_wins_before_late_stop_and_retains_review(
     async with api.sessions() as db:
         stopped = await api.coach.cancel(db, "owner", 1, request.request_id)
     assert stopped == final and final["state"] == "completed" and not final.get("cancelled")
+
+
+async def test_coach_stream_disconnect_is_bounded_while_another_transaction_holds_owner_lock(coach_api, monkeypatch):
+    from app.domains.workouts.lifecycle import membership_for
+
+    api = coach_api
+    closed = asyncio.Event()
+    calls = []
+
+    async def respond(items, *, tools, on_text_delta):
+        calls.append(items)
+        await on_text_delta("Before disconnect")
+        try:
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    request, events = await stream_fixture(api, monkeypatch, respond)
+    closing = None
+    try:
+        await next_stream_event(events)
+        assert (await next_stream_event(events))["text"] == "Before disconnect"
+        async with api.sessions() as blocker:
+            await membership_for(blocker, "owner", generation=1, write=True)
+            # Keep this lock held through disconnect AND cleanup assertions.
+            baseline = api.engine.pool.checkedout()
+            started = asyncio.get_running_loop().time()
+            closing = asyncio.create_task(events.aclose())
+            done, _ = await asyncio.wait({closing}, timeout=4)
+            assert closing in done, "Owned stream cleanup waited for the held owner lock"
+            await closing
+            assert asyncio.get_running_loop().time() - started < 4
+            assert closed.is_set() and not api.coach._requests and not api.coach._inflight
+            assert api.engine.pool.checkedout() == baseline
+            async with api.sessions() as db:
+                row = await db.scalar(select(WorkoutCoachMessage).where(WorkoutCoachMessage.request_id == request.request_id))
+                assert row.proposals["state"] in {"pending", "failed"}
+                assert row.request_hash != "0" * 64 and not row.assistant_message.startswith("Before")
+            await blocker.rollback()
+        # A timed-out failure finalizer can retain pending; SAME UUID still does
+        # not admit or charge another provider turn after its HTTP owner is gone.
+        replay = await api.client.post("/api/v1/workouts/coach/messages", headers=GENERATION,
+                                       json=request.model_dump(mode="json"))
+        assert replay.status_code == 200 and replay.json()["state"] in {"pending", "failed"}
+        assert len(calls) == 1
+    finally:
+        # On assertion failure the blocker context has already rolled back; let
+        # old buggy code drain rather than hanging this regression's test runner.
+        if closing is not None:
+            await asyncio.gather(closing, return_exceptions=True)
+        await events.aclose()

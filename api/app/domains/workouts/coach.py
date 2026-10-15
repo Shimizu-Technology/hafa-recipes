@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import HTTPException
 from pydantic import Field, model_validator
-from sqlalchemy import String, cast, delete, func, select, update
+from sqlalchemy import String, cast, delete, func, select, text, update
 
 from app.config import get_settings
 from app.db.database import AsyncSessionLocal
@@ -823,25 +823,34 @@ class WorkoutCoach:
             await db.commit()
             return message_response(row)
         except BaseException as error:
-            await db.rollback()
-            # Never resurrect a cleared or erased reservation, even on cancellation.
-            await membership_for(db, user_id, generation=generation, write=True)
-            row = await db.get(WorkoutCoachMessage, message_id, populate_existing=True)
-            if (
-                row
-                and row.proposals.get("token") == token
-                and row.proposals.get("state") == "pending"
-            ):
-                row.proposals = {
-                    "state": "failed",
-                    "actions": [],
-                    "consent_at": consent_at.isoformat(),
-                    "focus": focus,
-                }
-                row.assistant_message = "I couldn't finish this request. Review your current training information and send a new message to retry."
-                await db.commit()
-            else:
-                await db.rollback()
+            # Finalizing failure is best effort, not permission to outlive the
+            # request indefinitely behind another transaction's owner lock.
+            # On timeout the existing pending UUID remains replay-safe: no second
+            # provider admission, and the normal stale-receipt rule still applies.
+            try:
+                async with asyncio.timeout(2):
+                    await db.rollback()
+                    await db.execute(text("SET LOCAL lock_timeout = '500ms'"))
+                    await db.execute(text("SET LOCAL statement_timeout = '1s'"))
+                    await membership_for(db, user_id, generation=generation, write=True)
+                    row = await db.get(WorkoutCoachMessage, message_id, populate_existing=True)
+                    if row and row.proposals.get("token") == token and row.proposals.get("state") == "pending":
+                        row.proposals = {
+                            "state": "failed", "actions": [],
+                            "consent_at": consent_at.isoformat(), "focus": focus,
+                        }
+                        row.assistant_message = "I couldn't finish this request. Review your current training information and send a new message to retry."
+                        await db.commit()
+                    else:
+                        await db.rollback()
+            except (Exception, asyncio.CancelledError):
+                # Release the failed/aborted transaction without waiting for the
+                # owner lock a second time. Do not overwrite Stop or completion.
+                try:
+                    async with asyncio.timeout(1):
+                        await db.rollback()
+                except (Exception, asyncio.CancelledError):
+                    pass  # The owning session context still closes its connection.
             if isinstance(error, (HTTPException, asyncio.CancelledError)):
                 raise
             if isinstance(error, Exception):

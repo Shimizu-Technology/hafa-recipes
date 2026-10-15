@@ -4,6 +4,7 @@ import asyncio
 import json
 from datetime import datetime
 
+from anyio import CancelScope, fail_after
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
@@ -94,20 +95,17 @@ async def message_events(coach, owner, generation, request):
         disconnected = True
         if not task.done() and not task.cancelling():
             task.cancel()
-        cleanup = asyncio.gather(task, return_exceptions=True)
-        while not cleanup.done():
-            try:
-                await asyncio.shield(cleanup)
-            except asyncio.CancelledError:
-                # ASGI disconnect cancellation must not abandon owned provider,
-                # budget finalization or the durable failure transaction.
-                continue
+        # Shield ASGI's repeated cancellation, with an independent finite drain
+        # deadline. _send's failure transaction also has DB lock/statement limits.
+        # Unlike an unbounded shield/retry loop, expiry propagates to the caller.
+        with CancelScope(shield=True), fail_after(5):
+            await asyncio.gather(task, return_exceptions=True)
 
 
 class CoachStreamResponse(StreamingResponse):
     async def __call__(self, scope, receive, send):
-        # Covers ASGI send/backpressure as well as provider work. Closing the
-        # iterator cancels/awaits only its owned task and retains durable failure.
+        # Body/send deadline110s plus at most5s owned cleanup. Disconnect uses
+        # the same bounded drain; no unbounded shield loop extends this deadline.
         try:
             async with asyncio.timeout(110):
                 await super().__call__(scope, receive, send)
