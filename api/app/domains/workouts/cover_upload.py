@@ -11,7 +11,12 @@ from sqlalchemy import select, text
 from app.db.database import AsyncSessionLocal
 from app.domains.workouts.lifecycle import membership_for, now
 from app.domains.workouts.models import WorkoutRecord, WorkoutVersion
-from app.domains.workouts.router import library_responses, owned_record, refresh_library_source
+from app.domains.workouts.router import (
+    bounded_content,
+    library_responses,
+    owned_record,
+    refresh_library_source,
+)
 from app.domains.workouts.source_media import (
     asset_prefix,
     cleanup_job,
@@ -151,20 +156,23 @@ async def save_cover(workout_id, expected_revision, request_id, image, user, db,
                     variants, f"workouts-{identifier}"
                 )
             )
-        await retain_source_cover(final, user.id, generation, receipt.canonical_url)
         prior = await final.scalar(
             select(WorkoutVersion.id).where(
                 WorkoutVersion.workout_id == workout_id, WorkoutVersion.revision == row.revision
             )
         )
+        content = bounded_content(
+            {
+                **row.content,
+                "source_thumbnail_url": receipt.canonical_url,
+                "cover_origin": "user",
+                "version": row.revision + 1,
+                "parent_version_id": str(prior),
+            }
+        )
+        await retain_source_cover(final, user.id, generation, receipt.canonical_url)
         row.revision += 1
-        row.content = {
-            **row.content,
-            "source_thumbnail_url": receipt.canonical_url,
-            "cover_origin": "user",
-            "version": row.revision,
-            "parent_version_id": str(prior),
-        }
+        row.content = content
         row.updated_at = now()
         final.add(
             WorkoutVersion(

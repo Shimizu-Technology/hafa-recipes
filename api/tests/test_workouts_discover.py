@@ -692,6 +692,52 @@ async def test_upload_cover_versions_replay_frozen_request_and_preserve_private_
     assert public["cover_origin"] == "user" and public["notes"] == []
 
 
+async def test_upload_cover_rejects_enlarged_content_without_losing_original_or_cleanup(discover_api, monkeypatch):
+    import math
+    from uuid import uuid4
+
+    from app.domains.workouts import source_media
+    from app.domains.workouts.router import bounded_content
+    from app.domains.workouts.source_media_models import WorkoutSourceMedia
+    from app.models.deletion import DeletionCleanupJob
+
+    row, store = await uploaded_cover_fixture(discover_api, monkeypatch)
+    await importlib.import_module("migrations.048_add_workouts_cover_upload").run_migration(
+        configured=settings(), migration_engine=discover_api.engine)
+    versions_path = f"/api/v1/workouts/library/{row['id']}/versions"
+    original_version = (await discover_api.client.get(versions_path)).json()[0]
+    candidate = {**row["content"], "version": 2, "parent_version_id": original_version["id"], "notes": []}
+    def size():
+        return len(json.dumps(candidate, ensure_ascii=False).encode())
+    target = 240 * 1024 - 8
+    candidate["notes"] = [""] * math.ceil((target - size() + 2) / 4004)
+    remaining = target - size()
+    for index in range(len(candidate["notes"])):
+        count = min(4000, remaining)
+        candidate["notes"][index] = "x" * count
+        remaining -= count
+    assert remaining == 0 and size() == target
+    bounded_content(candidate)  # The existing, fully-versioned prescription is valid.
+    payload = {key: value for key, value in candidate.items() if key not in {"id", "version", "parent_version_id"}}
+    edited = await discover_api.client.put(f"/api/v1/workouts/library/{row['id']}?expected_revision=1",
+                                          json=payload, headers=GENERATION)
+    assert edited.status_code == 200, edited.text
+    row = edited.json()
+    assert len(json.dumps(row["content"], ensure_ascii=False).encode()) == target
+    before = (await discover_api.client.get(versions_path)).json()
+    response = await upload_cover(discover_api, row, uuid4())
+    assert response.status_code == 422 and "saved-record limit" in response.text
+    assert (await discover_api.client.get(f"/api/v1/workouts/library/{row['id']}")).json() == row
+    assert (await discover_api.client.get(versions_path)).json() == before
+    async with discover_api.sessions() as db:
+        receipt = await db.scalar(select(WorkoutSourceMedia).where(WorkoutSourceMedia.purpose == "upload"))
+        assert receipt and not receipt.retained and receipt.canonical_url is None
+        cleanup = await db.get(DeletionCleanupJob, receipt.cleanup_job_id)
+        assert cleanup.status == "queued"
+        assert cleanup.storage_prefixes == [source_media.asset_prefix(receipt.id)]
+        assert any(item["Key"].startswith(source_media.asset_prefix(receipt.id)) for item in store._client.puts)
+
+
 async def test_upload_cover_bounds_owner_generation_and_spoofed_origin(discover_api, monkeypatch):
     from uuid import uuid4
 
