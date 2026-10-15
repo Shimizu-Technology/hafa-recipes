@@ -4,7 +4,7 @@ from datetime import date
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, model_serializer, model_validator
 
 Goal = Literal[
     "general_fitness", "strength", "body_composition", "running", "athletic_conditioning"
@@ -87,9 +87,18 @@ class WorkoutContent(DomainModel):
     equipment_optional: list[str] = Field(default_factory=list, max_length=100)
     estimated_minutes: int | None = Field(default=None, ge=1, le=1440)
     # Sharing whitelists instructions and always removes private notes.
-    instructions: list[str] = Field(default_factory=list, max_length=100, exclude_if=lambda value: not value)
+    instructions: list[str] = Field(default_factory=list, max_length=100)
     notes: list[str] = Field(default_factory=list, max_length=100)
     extraction_warnings: list[str] = Field(default_factory=list, max_length=100)
+
+    @model_serializer(mode="wrap")
+    def serialize_instructions(self, handler):
+        content = handler(self)
+        # Legacy snapshots keep their original shape/hash, while an explicit
+        # clear must survive persistence and suppress the legacy notes fallback.
+        if not self.instructions and "instructions" not in self.model_fields_set:
+            content.pop("instructions", None)
+        return content
 
 
 class RunningBaseline(DomainModel):

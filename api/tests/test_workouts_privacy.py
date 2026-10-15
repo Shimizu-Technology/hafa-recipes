@@ -165,3 +165,45 @@ def test_old_content_hashes_are_unchanged_when_new_instructions_are_absent():
         "exercises": [{"name": "Squat", "notes": "Only private"}]}]))
     assert "instructions" not in content
     assert "instructions" not in content["blocks"][0]["exercises"][0]
+
+
+def test_instruction_clear_survives_round_trip_without_changing_legacy_snapshots():
+    from app.domains.workouts.coach import source_flow_context
+    from app.domains.workouts.instruction_compat import preserve_instructions
+    from app.domains.workouts.schemas import WorkoutContent
+
+    quote = "Rest after each round."
+    original = {"title": "Legacy", "provenance": "source", "notes": [quote],
+                "blocks": [{"id": "main", "label": "Main", "evidence": [
+                    {"field": "workout_notes", "wording": quote, "location": "caption"}]}]}
+    legacy = preserve_instructions(WorkoutContent.model_validate(original), original).model_dump(mode="json")
+    assert "instructions" not in legacy and source_flow_context(legacy) == [quote]
+    cleared = preserve_instructions(WorkoutContent.model_validate(original | {"instructions": []}), original)
+    snapshot = WorkoutContent.model_validate(cleared.model_dump(mode="json")).model_dump(mode="json")
+    assert snapshot["instructions"] == [] and source_flow_context(snapshot) == []
+    edited = preserve_instructions(WorkoutContent.model_validate(original), snapshot).model_dump(mode="json")
+    assert edited["instructions"] == [] and source_flow_context(edited) == []
+
+
+def test_legacy_missing_exercise_id_preserves_only_unambiguous_name_cues():
+    import pytest
+    from fastapi import HTTPException
+
+    from app.domains.workouts.instruction_compat import preserve_instructions
+    from app.domains.workouts.schemas import WorkoutContent
+
+    original = {"title": "Source", "blocks": [{"id": "main", "label": "Main", "exercises": [
+        {"name": "Row", "exercise_id": "row-a", "instructions": "Steady back"}]}]}
+    def submitted(exercises):
+        return WorkoutContent.model_validate({"title": "Edit", "blocks": [
+            {"id": "main", "label": "Main", "exercises": exercises}]})
+    assert preserve_instructions(submitted([{"name": " ROW "}]), original).blocks[0].exercises[0].instructions == "Steady back"
+    assert preserve_instructions(submitted([{"name": "Row", "exercise_id": "different"}]), original).blocks[0].exercises[0].instructions is None
+    for incoming, stored in [
+        ([{"name": "Row"}, {"name": "Row", "exercise_id": "row-a"}], original),
+        ([{"name": "Row"}], {**original, "blocks": [{"id": "main", "label": "Main", "exercises": [
+            *original["blocks"][0]["exercises"], {"name": "Row", "exercise_id": "row-b"}]}]}),
+    ]:
+        with pytest.raises(HTTPException) as error:
+            preserve_instructions(submitted(incoming), stored)
+        assert error.value.status_code == 409
