@@ -1,12 +1,15 @@
 import * as Crypto from "expo-crypto";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { router } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Copy, Field, Notice, Screen } from "@/components/ui";
 import { useTraining } from "@/lib/context";
 import { createPrivateForm } from "@/lib/private-form";
 import type { AuthoredWorkout } from "@/lib/models";
-import { blankWorkout, manualWorkout, type WorkoutDraft } from "@/lib/manual";
+import { blankManualDraft, restoreManualDraft, type ManualDraft } from "@/lib/manual";
+import { WorkoutEditor } from "@/components/workout-editor";
+import { authoredWorkout } from "@/lib/api";
+import { workoutErrors } from "@/lib/library";
 interface Command {
   key: string;
   generation: number;
@@ -18,16 +21,19 @@ export default function AddWorkout() {
   const guard = useRef(false);
   const draftScope = `manual-workout:${enrollment?.generation ?? "none"}`;
   const form = useMemo(
-    () => createPrivateForm<WorkoutDraft, Command>(storage, owner, draftScope),
+    () => createPrivateForm<ManualDraft, Command>(storage, owner, draftScope),
     [storage, owner, draftScope]
   );
   const creationKey = useRef(Crypto.randomUUID());
   const [command, setCommand] = useState<Command | null>(null);
   const [resolved, setResolved] = useState(false);
   const sealed = useRef(false);
-  sealed.current = !!command || resolved;
+  useLayoutEffect(() => { sealed.current = !!command || resolved; }, [command, resolved]);
   const [abandon, setAbandon] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
+  const identity = `${owner}:${draftScope}`;
+  const live = useRef(identity);
+  useLayoutEffect(() => { live.current = identity; }, [identity]);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -36,22 +42,37 @@ export default function AddWorkout() {
     };
   }, []);
   function current() {
-    if (!mounted.current || !storage.isCurrent() || !isCurrentAccount())
+    if (!mounted.current || live.current !== identity || !storage.isCurrent() || !isCurrentAccount())
       throw Error("Your account or training setup changed. This workout save was stopped.");
   }
-  const [draft, setDraft] = useState(blankWorkout);
+  const [draft, setDraft] = useState<ManualDraft>(blankManualDraft);
   const [loaded, setLoaded] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [busyAction, setBusyAction] = useState<"save" | "reset">("save");
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
+    setLoaded(false);
+    setLoadFailed(false);
+    setDraft(blankManualDraft());
+    setCommand(null);
+    setResolved(false);
+    setSavedId(null);
+    setAbandon(false);
+    setError("");
+    creationKey.current = Crypto.randomUUID();
     void form
       .load()
       .then((box) => {
         if (active) {
           if (box.input) {
-            setDraft(box.input);
+            try { setDraft(restoreManualDraft(box.input)); } catch {
+              // Keep invalid legacy strings visible and durable until corrected.
+              setDraft(box.input);
+              setError("Your earlier draft has a sets or reps value to correct below. Its details have been kept.");
+            }
             if (box.input.creation_key) creationKey.current = box.input.creation_key;
           }
           setCommand(box.command);
@@ -62,31 +83,40 @@ export default function AddWorkout() {
       })
       .catch(() => {
         if (active) {
-          setLoaded(true);
-          setError("Could not restore your draft. You can enter the workout again.");
+          setLoadFailed(true);
+          setError("Could not restore your saved draft. Retry before changing it so any pending save is kept.");
         }
       });
     return () => {
       active = false;
     };
-  }, [form]);
-  function update(value: WorkoutDraft) {
-    if (guard.current || sealed.current) return;
+  }, [form, loadAttempt]);
+  function update(value: ManualDraft) {
+    if (!loaded || guard.current || sealed.current) return;
     try {
       current();
     } catch {
       return;
     }
-    setDraft(value);
+    let next = value;
+    try {
+      next = restoreManualDraft(value);
+      if (!("workout" in value)) setError("");
+    } catch { /* Keep legacy numeric input until valid. */ }
+    setDraft(next);
     void form
-      .save({ ...value, creation_key: creationKey.current, generation: enrollment?.generation ?? undefined })
+      .save({ ...next, creation_key: creationKey.current, generation: enrollment?.generation ?? undefined })
       .catch(() => setError("Could not keep this draft locally. Stay here until saved."));
   }
   async function save() {
     if (guard.current || !loaded || resolved) return;
     let workout;
     try {
-      workout = command?.workout ?? manualWorkout(draft);
+      workout = command?.workout ?? authoredWorkout(restoreManualDraft(draft).workout);
+      if (!command) {
+        const errors = workoutErrors(workout);
+        if (errors.length) throw Error(errors.join(" "));
+      }
     } catch (e) {
       setError((e as Error).message);
       return;
@@ -123,9 +153,14 @@ export default function AddWorkout() {
         Your draft is private and saved on this device. Sets and reps can stay blank when you do not know them.
       </Notice>
       {!loaded ? (
-        <Copy>Loading your draft…</Copy>
+        loadFailed
+          ? <Button title="Retry loading draft" secondary onPress={() => setLoadAttempt(value => value + 1)} />
+          : <Copy>Loading your draft…</Copy>
       ) : resolved ? (
         <Notice>Your workout was saved. Open it or start another draft.</Notice>
+      ) : "workout" in draft ? (
+        <WorkoutEditor value={draft.workout} onChange={(workout) => update({ ...draft, workout })}
+          disabled={busy || !!command} context="create" />
       ) : (
         <>
           <Field
@@ -231,7 +266,7 @@ export default function AddWorkout() {
                 await form.reset();
                 current();
                 creationKey.current = Crypto.randomUUID();
-                setDraft(blankWorkout());
+                setDraft(blankManualDraft());
                 setCommand(null);
                 setResolved(false);
                 setSavedId(null);

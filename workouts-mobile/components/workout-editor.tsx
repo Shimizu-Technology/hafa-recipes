@@ -7,14 +7,17 @@ import { blockSummary, changeExecution, changeGrouping, changeTimeCap, execution
 export function WorkoutEditor({
   value,
   onChange,
-  disabled = false
+  disabled = false,
+  context = "edit"
 }: {
   value: AuthoredWorkout;
   onChange(value: AuthoredWorkout): void;
   disabled?: boolean;
+  context?: "create" | "edit";
 }) {
   const [expandedBlocks, setExpandedBlocks] = useState<string[]>([]);
   const [expandedExercises, setExpandedExercises] = useState<string[]>([]);
+  const [removingBlock, setRemovingBlock] = useState<string | null>(null);
   function update(next: AuthoredWorkout) { if (!disabled) onChange(next); }
   function toggle(key: string, selected: string[], set: (keys: string[]) => void) {
     if (!disabled) set(selected.includes(key) ? selected.filter((item) => item !== key) : [...selected, key]);
@@ -67,11 +70,12 @@ export function WorkoutEditor({
         }
       />
       <Notice>
-        Missing facts can remain blank. Changes below are your corrections; they are not newly discovered creator
-        instructions.
+        {context === "create"
+          ? "Use the details you know. Sets, reps and other targets can stay blank. Open block settings for circuits, rounds or AMRAP."
+          : "Missing facts can remain blank. Changes below are your corrections; they are not newly discovered creator instructions."}
       </Notice>
       {value.blocks.map((block, bi) => {
-        const blockInvalid = !!executionError(block) || !block.label.trim() || (block.rounds != null && (!Number.isInteger(block.rounds) || block.rounds < 1 || block.rounds > 100)) ||
+        const blockInvalid = !!executionError(block) || !block.label.trim() || block.label.length > 200 || (block.rounds != null && (!Number.isInteger(block.rounds) || block.rounds < 1 || block.rounds > 100)) ||
           (block.rest_between_rounds_seconds != null && (!Number.isInteger(block.rest_between_rounds_seconds) || block.rest_between_rounds_seconds < 0 || block.rest_between_rounds_seconds > 7200));
         const blockExpanded = expandedBlocks.includes(block.id) || blockInvalid;
         return (
@@ -122,9 +126,10 @@ export function WorkoutEditor({
           </>}
           {block.exercises.map((e, ei) => {
             const key = `${block.id}:${ei}`;
-            const invalidLoad = e.load != null && (!Number.isFinite(e.load) || e.load < 0 || !e.load_unit || !e.load_convention);
+            const invalidLoad = e.load != null && (!Number.isFinite(e.load) || e.load < 0 || e.load > 2000 || !e.load_unit || !e.load_convention);
             const invalidRest = e.rest_seconds != null && (!Number.isInteger(e.rest_seconds) || e.rest_seconds < 0 || e.rest_seconds > 7200);
-            const expanded = expandedExercises.includes(key) || invalidLoad || invalidRest;
+            const invalidText = (e.notes?.length ?? 0) > 2000 || (e.tempo?.length ?? 0) > 100 || (e.effort?.length ?? 0) > 500;
+            const expanded = expandedExercises.includes(key) || invalidLoad || invalidRest || invalidText;
             const range = e.reps_max != null && e.reps_max !== e.reps_min;
             return (
             <Card key={key} tone="sunken" compact>
@@ -196,7 +201,7 @@ export function WorkoutEditor({
               />
               <NumberField
                 disabled={disabled}
-                label={`Source load · ${e.load_unit ?? "select a unit"}`}
+                label={`${context === "create" ? "Load" : "Source load"} · ${e.load_unit ?? "select a unit"}`}
                 value={e.load}
                 onChange={(load) => exercise(bi, ei, { load })}
               />
@@ -241,25 +246,37 @@ export function WorkoutEditor({
             </Card>
           ); })}
           <Button
-            disabled={disabled}
+            disabled={disabled || block.exercises.length >= 100}
             title="Add exercise to this block"
             secondary
-            onPress={() =>
+            onPress={() => {
+              if (block.exercises.length >= 100) return;
               update({
                 ...value,
                 blocks: value.blocks.map((b, i) =>
                   i === bi ? { ...b, exercises: [...b.exercises, { name: "", provenance: "user" }] } : b
                 )
-              })
-            }
+              });
+            }}
           />
+          {removingBlock === block.id ? <Card tone="sunken" compact>
+            <Copy>Remove this block and all its exercises from this draft?</Copy>
+            <Button title="Keep this block" secondary disabled={disabled} onPress={() => { if (!disabled) setRemovingBlock(null); }} />
+            <Button title="Remove this block" variant="destructive" disabled={disabled} onPress={() => {
+              if (disabled) return;
+              update({ ...value, blocks: value.blocks.filter((_, index) => index !== bi) });
+              setRemovingBlock(null);
+            }} />
+          </Card> : <Button title={`Remove block: ${block.label || "Workout block"}`} secondary disabled={disabled}
+            onPress={() => { if (!disabled) setRemovingBlock(block.id); }} />}
         </Card>
       ); })}
       <Button
-        disabled={disabled}
+        disabled={disabled || value.blocks.length >= 100}
         title={value.blocks.length ? "Add another block" : "Add exercises"}
         secondary
-        onPress={() =>
+        onPress={() => {
+          if (value.blocks.length >= 100) return;
           update({
             ...value,
             blocks: [
@@ -271,8 +288,8 @@ export function WorkoutEditor({
                 exercises: [{ name: "", provenance: "user" }]
               }
             ]
-          })
-        }
+          });
+        }}
       />
     </View>
   );

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { initialProfile, profileErrors } from "./models";
-import { manualWorkout, blankWorkout } from "./manual";
+import { manualWorkout, blankWorkout, blankManualDraft, restoreManualDraft } from "./manual";
 describe("training input invariants", () => {
   it("requires adult enrollment while preserving unknown equipment separately from none", () => {
     const p = initialProfile();
@@ -30,4 +30,11 @@ describe("training input invariants", () => {
       manualWorkout({ title: "Legs", equipment: "", exercises: [{ name: "Squat", sets: "2.5", reps: "-1" }] })
     ).toThrow("whole number");
   });
+});
+
+it("upgrades unfinished manual drafts without requiring a title or inventing targets", () => {
+  expect(blankManualDraft().workout.blocks[0].exercises[0]).toMatchObject({ name: "", sets: null, reps_min: null });
+  const upgraded = restoreManualDraft({ ...blankWorkout(), creation_key: "existing", generation: 2 });
+  expect(upgraded).toMatchObject({ creation_key: "existing", generation: 2, workout: { title: "", provenance: "user" } });
+  expect(restoreManualDraft(upgraded)).toBe(upgraded);
 });

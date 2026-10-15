@@ -263,6 +263,25 @@ it("validates editable workout duration and instruction bounds before freezing a
   expect(authoredWorkout(editing).notes).toEqual(["Rest after each round"]);
   expect(authoredWorkout(editedContent({ ...workout, notes: [""] })).notes).toEqual([]);
 });
+
+it("validates all editable rich limits before persisting a command", () => {
+  const block = { id: "main", label: "Main", grouping: "sequential" as const, exercises: [{ name: "Press" }] };
+  const workout = { title: "My session", kind: "session" as const, provenance: "user" as const, blocks: [block] };
+  for (const fields of [{ name: "x".repeat(201) }, { tempo: "x".repeat(101) },
+    { effort: "x".repeat(501) }, { notes: "x".repeat(2001) },
+    { load: 2001, load_unit: "kg" as const, load_convention: "total" as const }]) {
+    expect(workoutErrors({ ...workout, blocks: [{ ...block, exercises: [{ name: "Press", ...fields }] }] }).length).toBeGreaterThan(0);
+  }
+  expect(workoutErrors({ ...workout, blocks: [{ ...block, label: "x".repeat(201) }] }).length).toBeGreaterThan(0);
+  expect(workoutErrors({ ...workout, blocks: Array.from({ length: 101 }, (_, i) => ({ ...block, id: String(i) })) }).length).toBeGreaterThan(0);
+  expect(workoutErrors({ ...workout, blocks: [{ ...block, exercises: Array(101).fill({ name: "Press" }) }] }).length).toBeGreaterThan(0);
+  expect(workoutErrors({ ...workout, equipment_required: Array(101).fill("Kettlebell") }).length).toBeGreaterThan(0);
+  expect(workoutErrors({ ...workout, notes: ["x".repeat(4001)] }).length).toBeGreaterThan(0);
+  expect(workoutErrors({ ...workout, notes: Array(90).fill("界".repeat(2000)) })).toContain(
+    "This workout is too large to save. Shorten its instructions or split it into smaller workouts.");
+  expect(workoutErrors({ ...workout, blocks: [{ ...block, exercises: [{ name: "Press", notes: "x".repeat(2000),
+    tempo: "x".repeat(100), effort: "x".repeat(500), load: 2000, load_unit: "kg", load_convention: "total" }] }] })).toEqual([]);
+});
 it("loads only the explicit public sharing route without private authorization", async () => {
   const calls: Array<[string, RequestInit | undefined]> = [];
   const read = publicShareReader("https://api.example.test", async (url, options) => {
