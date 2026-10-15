@@ -642,6 +642,15 @@ export default function Training() {
           ? "You have details that have not been logged. Choose what to keep before saving this partial session."
           : "Your entry is recorded. Finish saving this partial session, or keep training."}</Copy>
         {!!error && <Notice error>{error}</Notice>}
+        {!d.activity_type && <>
+          <Copy kind="label">Choose an activity type to save</Copy>
+          <ChipRow wrap>
+            {(["general_fitness", "strength_training", "running", "walking", "basketball"] as const).map((type) => (
+              <Chip key={type} label={type.replaceAll("_", " ")}
+                onPress={() => { void run(() => store.activityType(type)); }} />
+            ))}
+          </ChipRow>
+        </>}
         {d.paused && !capReached && <Notice>Resume training to log this entry, or save only the work already recorded.</Notice>}
         <Button title={pendingEntry ? "Log and finish" : "Finish and save partial session"} icon="checkmark-done" busy={busy}
           disabled={pendingEntry && (!step || !!structureWarning || (d.paused && !capReached))} onPress={finishWithEntry} />
