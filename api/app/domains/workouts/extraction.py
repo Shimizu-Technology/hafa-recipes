@@ -14,8 +14,9 @@ import json
 import math
 import re
 from contextlib import suppress
+from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Awaitable, Callable, Literal, Protocol, get_args
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -46,6 +47,21 @@ MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 PROMPT_VERSION = "workout-extraction-evidence-v6"
 SCHEMA_VERSION = "workout-prescription-v2"
 SERVER_CONTENT_FIELDS = {"extraction_warnings", "source_thumbnail_url", "source_context"}
+
+ImportStage = Literal["reading_source", "reading_images", "reading_document", "listening_video", "reading_frames", "extracting_workout", "saving_workout"]
+IMPORT_STAGES = frozenset(get_args(ImportStage))
+ProgressCallback = Callable[[ImportStage], Awaitable[None]]
+_current_progress: ContextVar[ProgressCallback | None] = ContextVar("workout_import_progress", default=None)
+
+
+class ImportProgressStopped(Exception):
+    """Stop source side effects; transient storage failures retain the leased capture."""
+
+    def __init__(self, *, cancel=True):
+        self.cancel = cancel
+        super().__init__("Import progress stopped")
+
+
 
 
 class ExtractionImage(DomainModel):
@@ -116,6 +132,11 @@ class SourceBundle:
     images: list[SourceImage] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     paid_recovery_denied: bool = False
+    progress: ProgressCallback | None = field(default=None, repr=False, compare=False)
+
+    async def report(self, stage: ImportStage):
+        if self.progress is not None:
+            await self.progress(stage)
 
 
 class ExtractionProvider(Protocol):
@@ -661,6 +682,7 @@ class ProductionSourceAcquirer:
         deadline = deadline or asyncio.get_running_loop().time() + MAX_ACQUISITION_SECONDS
         normalized = source.metadata.url
         if video_service.is_tiktok_photo_post(normalized):
+            await source.report("reading_images")
             try:
                 urls = await self._within_deadline(
                     video_service.fetch_tiktok_photo_images(normalized), deadline
@@ -674,6 +696,7 @@ class ProductionSourceAcquirer:
                 )
         else:
             await self._audio(source, normalized, provider, video_service, deadline)
+            await source.report("reading_frames")
             try:
                 frames = await self._within_deadline(
                     video_service.extract_video_frames(normalized), deadline
@@ -719,6 +742,7 @@ class ProductionSourceAcquirer:
         return value.strip()[:limit] or None
 
     async def _audio(self, source, url, provider, video_service, deadline):
+        await source.report("listening_video")
         audio = None
         try:
             audio = await self._within_deadline(video_service.download_audio(url), deadline)
@@ -1601,8 +1625,17 @@ class WorkoutExtractor:
         self.provider = provider or ProductionExtractionProvider()
         self.acquirer = acquirer or ProductionSourceAcquirer()
 
+    async def extract_with_progress(self, request: ExtractionRequest, progress: ProgressCallback):
+        # Keep the original extract(request) adapter contract, including existing fakes.
+        token = _current_progress.set(progress)
+        try:
+            return await self.extract(request)
+        finally:
+            _current_progress.reset(token)
+
     async def extract(self, request: ExtractionRequest) -> WorkoutExtractionResult:
-        source = SourceBundle(SourceMetadata(platform=request.kind))
+        progress = _current_progress.get()
+        source = SourceBundle(SourceMetadata(platform=request.kind), progress=progress)
         staged_media = False
         deadline = asyncio.get_running_loop().time() + MAX_EXTRACTION_SECONDS
 
@@ -1614,6 +1647,7 @@ class WorkoutExtractor:
             if (len(source.images) > MAX_IMAGES or sum(len(image.data_url) * 3 // 4
                                                        for image in source.images) > MAX_TOTAL_IMAGE_BYTES):
                 raise ExtractionFailure("source_image_limit")
+            await source.report("extracting_workout")
             remaining = max(0, deadline - asyncio.get_running_loop().time())
             return await asyncio.wait_for(self.provider.extract(source), timeout=min(130, remaining))
 
@@ -1652,6 +1686,7 @@ class WorkoutExtractor:
                     "AI extraction is unavailable; use a manual draft.",
                 )
             if request.kind == "url":
+                await source.report("reading_source")
                 acquire_text = getattr(self.acquirer, "acquire_text", None)
                 try:
                     source = await (acquire_text or self.acquirer.acquire)(source.metadata.url, self.provider)
@@ -1666,15 +1701,18 @@ class WorkoutExtractor:
                     source.metadata.coverage_notes.append(
                         "The source link could not be read; supplied text instructions were used."
                     )
+                source.progress = progress
                 if request.text:
                     source.parts.append(SourcePart("provided_text", request.text))
                     source.metadata.channels.append("provided_text")
             elif request.kind == "images":
+                await source.report("reading_images")
                 source.images = _validated_images(request.images)
                 source.metadata.channels.append("visual")
                 if request.text:
                     source.parts.append(SourcePart("provided_text", request.text))
             elif request.kind == "document":
+                await source.report("reading_document")
                 data = base64.b64decode(request.document_base64, validate=True)
                 if len(data) > MAX_DOCUMENT_BYTES:
                     raise ExtractionFailure("document_size_limit")
@@ -1700,6 +1738,7 @@ class WorkoutExtractor:
                         "Import a text PDF, UTF-8 text, or page images; this document format is unsupported.",
                     )
             else:
+                await source.report("reading_source")
                 source.parts.append(SourcePart("provided_text", request.text))
                 source.metadata.channels.append("provided_text")
             # Independent bounded context cap; metadata titles are never prescription evidence.
@@ -1766,7 +1805,7 @@ class WorkoutExtractor:
                 warnings=warnings,
                 source=source.metadata,
             )
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, ImportProgressStopped):
             raise  # Job owner records cancellation; no fabricated completed result.
         except ExtractionFailure as exc:
             source = exc.source or source

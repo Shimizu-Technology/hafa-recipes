@@ -12,9 +12,13 @@ from sqlalchemy import func, select
 
 from app.domains.workouts import automation_router, imports, share_router
 from app.domains.workouts.automation_models import WorkoutImport, WorkoutProposal
-from app.domains.workouts.extraction import ExtractionFailure, WorkoutExtractor
+from app.domains.workouts.extraction import (
+    ExtractionFailure,
+    ImportProgressStopped,
+    WorkoutExtractor,
+)
 from app.domains.workouts.lifecycle import now
-from app.domains.workouts.models import WorkoutRecord, WorkoutsMembership
+from app.domains.workouts.models import WorkoutRecord, WorkoutsConsent, WorkoutsMembership
 from tests.test_workouts_data_integration import (  # noqa: F401 -- shared isolated database fixture
     GENERATION,
     data_api,
@@ -33,7 +37,7 @@ def test_import_status_metadata_preserves_actual_timestamps_without_private_capt
     row = SimpleNamespace(id=uuid4(), generation=2, status=status, attempt_count=1,
                           result=None, expires_at=created + timedelta(hours=24), accepted_workout_id=None,
                           created_at=created, updated_at=updated, next_attempt_at=retry,
-                          payload={"text": "private caption", "_save": {"is_public": False}},
+                          payload={"text": "private caption", "_save": {"is_public": False}, "_progress": "reading_frames"},
                           app_user_id="private-owner", lease_token="private-lease")
     projected = automation_router.ImportResponse.model_validate(automation_router.import_response(row))
     assert projected.created_at == created and projected.updated_at == updated
@@ -42,7 +46,8 @@ def test_import_status_metadata_preserves_actual_timestamps_without_private_capt
     assert projected.source_is_public is False and projected.generation == 2
     serialized = projected.model_dump_json()
     assert "private" not in serialized and "payload" not in serialized and "lease_token" not in serialized
-    assert "current_stage" not in serialized and "progress" not in serialized
+    assert projected.current_stage == ("reading_frames" if status == "processing" else None)
+    assert '"_progress"' not in serialized
     assert row.next_attempt_at == retry  # Projection never changes durable job state.
 
 
@@ -51,7 +56,7 @@ def test_import_status_additions_accept_an_older_response_without_timing_fields(
                expires_at=datetime(2026, 10, 16, tzinfo=timezone.utc), accepted_workout_id=None)
     response = automation_router.ImportResponse.model_validate(old)
     assert response.created_at is None and response.updated_at is None
-    assert response.next_attempt_at is None and response.max_attempts is None
+    assert response.next_attempt_at is None and response.max_attempts is None and response.current_stage is None
 
 
 @pytest.mark.parametrize("owner,matching_import,cancelled", [
@@ -1667,3 +1672,92 @@ async def test_source_text_old_client_roundtrip_clear_and_private_immutable_hist
     await enroll(api, other=True)
     other = await api.client.get(f"/api/v1/workouts/library/{identifier}", headers={"X-Test-User": "other"})
     assert other.status_code == 404
+
+
+async def stage_job(api):
+    await consent(api)
+    job = (await enqueue(api)).json()
+    async with api.sessions() as db:
+        row = await db.get(WorkoutImport, job["id"])
+        row.status = "processing"
+        row.lease_token = "current-lease"
+        row.leased_until = now() + timedelta(minutes=5)
+        row.payload = {**row.payload, "_save": {"is_public": False}, "_progress": "reading_source"}
+        epoch = row.ai_accepted_at
+        await db.commit()
+    return job, epoch
+
+
+async def test_worker_stage_projection_preserves_capture_and_save_choices(automation_api):
+    api = automation_api
+    job, epoch = await stage_job(api)
+    await api.worker.report_progress(job["id"], "owner", 1, "current-lease", epoch, "extracting_workout")
+    response = await api.client.get(f"/api/v1/workouts/imports/{job['id']}")
+    assert response.json()["current_stage"] == "extracting_workout"
+    assert "_progress" not in response.text and TEXT not in response.text
+    async with api.sessions() as db:
+        row = await db.get(WorkoutImport, job["id"])
+        assert row.payload["text"] == TEXT and row.payload["_save"] == {"is_public": False}
+        row.payload = {**row.payload, "_progress": "private-unrecognized-stage"}
+        await db.commit()
+    assert (await api.client.get(f"/api/v1/workouts/imports/{job['id']}")).json()["current_stage"] is None
+
+
+@pytest.mark.parametrize("change", ["owner", "generation", "token", "cancelled", "expired", "lease_expired", "consent_revoked", "consent_replaced"])
+async def test_worker_progress_cannot_revive_retired_authority(automation_api, change):
+    api = automation_api
+    job, epoch = await stage_job(api)
+    async with api.sessions() as db:
+        row = await db.get(WorkoutImport, job["id"])
+        if change == "cancelled":
+            row.status = "cancelled"
+        if change == "expired":
+            row.expires_at = now() - timedelta(seconds=1)
+        if change == "lease_expired":
+            row.leased_until = now() - timedelta(seconds=1)
+        if change.startswith("consent"):
+            consent_row = await db.get(WorkoutsConsent, "owner")
+            consent_row.accepted_at = None if change == "consent_revoked" else epoch + timedelta(seconds=1)
+        before = dict(row.payload)
+        await db.commit()
+    with pytest.raises(ImportProgressStopped):
+        await api.worker.report_progress(job["id"], "other" if change == "owner" else "owner", 2 if change == "generation" else 1,
+                                         "old-lease" if change == "token" else "current-lease", epoch, "extracting_workout")
+    async with api.sessions() as db:
+        row = await db.get(WorkoutImport, job["id"])
+        assert row.payload == before
+        assert row.status == ("cancelled" if change == "cancelled" else "processing")
+
+
+async def test_new_import_attempt_resets_stage_and_keeps_legacy_extractor_signature(automation_api):
+    api = automation_api
+    await consent(api)
+    job = (await enqueue(api)).json()
+    async with api.sessions() as db:
+        row = await db.get(WorkoutImport, job["id"])
+        row.payload = {**row.payload, "_progress": "reading_frames"}
+        await db.commit()
+    async def legacy(request):
+        async with api.sessions() as db:
+            row = await db.get(WorkoutImport, job["id"])
+            assert "_progress" not in row.payload
+        return await WorkoutExtractor(Provider()).extract(request)
+    api.worker.extractor = SimpleNamespace(extract=legacy)
+    assert await api.worker.tick()
+    response = (await api.client.get(f"/api/v1/workouts/imports/{job['id']}")).json()
+    assert response["status"] == "ready" and response["current_stage"] is None
+
+async def test_progress_storage_failure_preserves_capture_for_lease_retry(automation_api, monkeypatch):
+    api = automation_api
+    await consent(api)
+    job = (await enqueue(api)).json()
+    async def unavailable(*args):
+        raise ImportProgressStopped(cancel=False)
+    monkeypatch.setattr(api.worker, "report_progress", unavailable)
+    with pytest.raises(ImportProgressStopped) as stopped:
+        await api.worker.tick()
+    assert not stopped.value.cancel
+    async with api.sessions() as db:
+        row = await db.get(WorkoutImport, job["id"])
+        assert row.status == "processing" and row.payload["text"] == TEXT
+        assert row.lease_token is not None and row.result is None

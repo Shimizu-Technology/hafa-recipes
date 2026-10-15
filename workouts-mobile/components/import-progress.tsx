@@ -4,7 +4,7 @@ import { Button, Card, Copy, Notice } from "./ui";
 import type { ImportJob } from "@/lib/capture";
 import { importProgressState } from "@/lib/import-progress";
 
-/** Job states are real; provider stages and estimated completion times are not available. */
+/** Display reported server stages; older responses retain queue/retry fallback wording. */
 export function ImportProgress({ job, autoSave, connectionError, refreshing, refresh, openLibrary, active = true }: {
   job: ImportJob; autoSave?: boolean; connectionError?: Error | null; refreshing: boolean;
   refresh(): void; openLibrary(): void; active?: boolean;

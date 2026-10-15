@@ -13,7 +13,9 @@ from app.config import get_settings
 from app.db.database import AsyncSessionLocal
 from app.domains.workouts.automation_models import WorkoutImport
 from app.domains.workouts.extraction import (
+    IMPORT_STAGES,
     ExtractionRequest,
+    ImportProgressStopped,
     WorkoutExtractionResult,
     WorkoutExtractor,
 )
@@ -306,6 +308,8 @@ class WorkoutImportWorker:
             row.lease_token = token
             row.leased_until = current + timedelta(seconds=300)
             row.status = "processing"
+            if isinstance(row.payload, dict):
+                row.payload = {key: value for key, value in row.payload.items() if key != "_progress"}
             row.attempt_count += 1
             row.updated_at = current
             await db.commit()
@@ -335,23 +339,36 @@ class WorkoutImportWorker:
                 source = dict(row.payload)
                 preferences = source.pop("_save", None)
                 source.pop("_replace", None)
+                source.pop("_progress", None)
                 request = ExtractionRequest.model_validate(source)
                 await db.rollback()
             except HTTPException:
                 await db.rollback()
                 await self.finish_cancelled(identifier, owner, generation, token)
                 return
-        with ai_request_context(
-            request_id=str(identifier), user_id=owner, job_id=None, route="/api/v1/workouts/imports"
-        ):
-            try:
-                result = await asyncio.wait_for(self.extractor.extract(request), timeout=240)
-            except asyncio.TimeoutError:
-                result = WorkoutExtractionResult(
-                    status="incomplete",
-                    error_code="source_or_provider_timeout",
-                    warnings=["Import timed out. Try again or complete the workout manually."],
-                )
+        async def progress(stage):
+            await self.report_progress(identifier, owner, generation, token, consent_epoch, stage)
+
+        try:
+            with ai_request_context(
+                request_id=str(identifier), user_id=owner, job_id=None, route="/api/v1/workouts/imports"
+            ):
+                try:
+                    extracting = getattr(self.extractor, "extract_with_progress", None)
+                    operation = extracting(request, progress) if extracting else self.extractor.extract(request)
+                    result = await asyncio.wait_for(operation, timeout=240)
+                except asyncio.TimeoutError:
+                    result = WorkoutExtractionResult(
+                        status="incomplete",
+                        error_code="source_or_provider_timeout",
+                        warnings=["Import timed out. Try again or complete the workout manually."],
+                    )
+            await progress("saving_workout")
+        except ImportProgressStopped as stopped:
+            if not stopped.cancel:
+                raise  # The normal lease retry preserves capture after a storage outage.
+            await self.finish_cancelled(identifier, owner, generation, token)
+            return
         if request.kind == "url" and result.workout and result.source.thumbnail_url:
             from app.domains.workouts.source_media import prepare_source_cover
 
@@ -389,6 +406,31 @@ class WorkoutImportWorker:
                 await db.rollback()
                 await self.finish_cancelled(identifier, owner, generation, token)
 
+    async def report_progress(self, identifier, owner, generation, token, consent_epoch, stage):
+        if stage not in IMPORT_STAGES:
+            raise ImportProgressStopped()
+        try:
+            async with self.sessions() as db:
+                await membership_for(db, owner, generation=generation, write=True)
+                row = await db.scalar(select(WorkoutImport).where(WorkoutImport.id == identifier).with_for_update())
+                current = now()
+                if (row is None or row.app_user_id != owner or row.generation != generation
+                        or row.status != "processing" or row.lease_token != token
+                        or not row.leased_until or row.leased_until <= current or row.expires_at <= current
+                        or row.ai_accepted_at != consent_epoch or not isinstance(row.payload, dict)):
+                    raise ImportProgressStopped()
+                await require_ai_consent(db, owner, generation, expected=consent_epoch)
+                row.payload = {**row.payload, "_progress": stage}
+                row.updated_at = current
+                await db.commit()
+        except ImportProgressStopped:
+            raise
+        except Exception as error:
+            # A failed authorization/progress commit cannot permit later source work.
+            if isinstance(error, HTTPException):
+                raise ImportProgressStopped() from None
+            raise ImportProgressStopped(cancel=False) from None
+
     async def finish_cancelled(self, identifier, owner, generation, token):
         async with self.sessions() as db:
             try:
@@ -409,7 +451,7 @@ class WorkoutImportWorker:
                 from app.domains.workouts.source_media import release_source_cover
 
                 await release_source_cover(db, owner, generation, identifier)
-                row.status = "cancelled"
+                row.status = "expired" if row.expires_at <= now() else "cancelled"
                 row.payload = None
                 row.result = None
                 row.lease_token = None
