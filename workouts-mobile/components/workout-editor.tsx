@@ -74,7 +74,7 @@ export function WorkoutEditor({
           : "Missing facts can remain blank. Changes below are your corrections; they are not newly discovered creator instructions."}
       </Notice>
       {value.blocks.map((block, bi) => {
-        const blockInvalid = !!executionError(block) || !block.label.trim() || (block.rounds != null && (!Number.isInteger(block.rounds) || block.rounds < 1 || block.rounds > 100)) ||
+        const blockInvalid = !!executionError(block) || !block.label.trim() || block.label.length > 200 || (block.rounds != null && (!Number.isInteger(block.rounds) || block.rounds < 1 || block.rounds > 100)) ||
           (block.rest_between_rounds_seconds != null && (!Number.isInteger(block.rest_between_rounds_seconds) || block.rest_between_rounds_seconds < 0 || block.rest_between_rounds_seconds > 7200));
         const blockExpanded = expandedBlocks.includes(block.id) || blockInvalid;
         return (
@@ -125,9 +125,10 @@ export function WorkoutEditor({
           </>}
           {block.exercises.map((e, ei) => {
             const key = `${block.id}:${ei}`;
-            const invalidLoad = e.load != null && (!Number.isFinite(e.load) || e.load < 0 || !e.load_unit || !e.load_convention);
+            const invalidLoad = e.load != null && (!Number.isFinite(e.load) || e.load < 0 || e.load > 2000 || !e.load_unit || !e.load_convention);
             const invalidRest = e.rest_seconds != null && (!Number.isInteger(e.rest_seconds) || e.rest_seconds < 0 || e.rest_seconds > 7200);
-            const expanded = expandedExercises.includes(key) || invalidLoad || invalidRest;
+            const invalidText = (e.notes?.length ?? 0) > 2000 || (e.tempo?.length ?? 0) > 100 || (e.effort?.length ?? 0) > 500;
+            const expanded = expandedExercises.includes(key) || invalidLoad || invalidRest || invalidText;
             const range = e.reps_max != null && e.reps_max !== e.reps_min;
             return (
             <Card key={key} tone="sunken" compact>

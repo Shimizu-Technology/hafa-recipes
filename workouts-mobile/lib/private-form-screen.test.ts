@@ -986,6 +986,26 @@ it("creates a rich AMRAP with instructions without a second edit and restores it
   expect(fixture.saveWorkout.mock.calls[0][0]).toMatchObject(rich);
 });
 
+it.each([
+  { notes: "x".repeat(2001) },
+  { load: 2001, load_unit: "kg" as const, load_convention: "total" as const },
+])("keeps invalid rich input editable before freezing a save: %j", async invalid => {
+  await mount(AddWorkout);
+  const editor = () => nodes("WorkoutEditor")[0];
+  await act(async () => editor().props.onChange({ ...editor().props.value, title: "Keep my draft",
+    blocks: [{ id: "main", label: "Session", grouping: "sequential", exercises: [{ name: "Press", ...invalid }] }] }));
+  await click("Save to my library");
+  expect(fixture.saveWorkout).not.toHaveBeenCalled();
+  expect(editor().props.disabled).toBe(false);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "manual-workout:1"))!).command).toBeNull();
+  await act(async () => editor().props.onChange({ ...editor().props.value,
+    blocks: [{ ...editor().props.value.blocks[0], exercises: [{ name: "Press", load: 12, load_unit: "kg", load_convention: "total", notes: "Stay tall" }] }] }));
+  fixture.saveWorkout.mockResolvedValueOnce(workout);
+  await click("Save to my library");
+  expect(fixture.saveWorkout).toHaveBeenCalledTimes(1);
+  expect(fixture.saveWorkout.mock.calls[0][0]).toMatchObject({ title: "Keep my draft", blocks: [{ exercises: [{ load: 12, notes: "Stay tall" }] }] });
+});
+
 it("restores legacy manual input and retries its frozen pre-upgrade command unchanged", async () => {
   const key = draftKey(fixture.owner, "manual-workout:1");
   const legacy = { title: "Before update", equipment: "Bench, Dumbbells", creation_key: "old-key",
