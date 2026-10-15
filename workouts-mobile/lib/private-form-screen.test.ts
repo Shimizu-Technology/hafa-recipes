@@ -2608,3 +2608,22 @@ it.each(["recovery", "review"] as const)("committed %s route changes unlock the 
   await settle();
   expect(fixture.replace).toHaveBeenCalledTimes(1);
 });
+
+it("keeps source captions and transcripts collapsed and stages explicit clearing independently of workout instructions", async () => {
+  const content: AuthoredWorkout = { ...workout, notes: ["Rest after each round"], source_context: {
+    parts: [{ location: "caption", text: "PRIVATE CAPTION" }, { location: "caption", text: " CONTINUATION" },
+      { location: "transcript", text: "PRIVATE TRANSCRIPT" }], truncated: true } };
+  await mountRealWorkoutEditor(content);
+  const visible = () => JSON.stringify(renderer!.toJSON());
+  expect(visible()).not.toContain("PRIVATE CAPTION");
+  expect(visible()).not.toContain("PRIVATE TRANSCRIPT");
+  await click("Show caption");
+  expect(visible()).toContain("PRIVATE CAPTION"); expect(visible()).toContain("CONTINUATION");
+  expect(visible()).not.toContain("PRIVATE TRANSCRIPT");
+  await click("Show transcript"); expect(visible()).toContain("PRIVATE TRANSCRIPT");
+  await click("Clear saved source text");
+  expect(fixture.updateWorkout).toHaveBeenLastCalledWith({ ...content, source_context: null });
+  expect(visible()).not.toContain("PRIVATE CAPTION");
+  expect(nodes("Field").find(node => node.props.label.startsWith("Workout instructions"))!.props.value).toBe("Rest after each round");
+  expect(content.source_context!.parts).toHaveLength(3);
+});

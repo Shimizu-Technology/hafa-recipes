@@ -81,6 +81,11 @@ export interface Workout {
   source_title?: string | null;
   source_creator?: string | null;
   source_thumbnail_url?: string | null;
+  source_context?: {
+    source_url?: string | null;
+    parts: Array<{ location: string; text: string }>;
+    truncated: boolean;
+  } | null;
   extraction_warnings?: string[];
   instructions?: string[];
   notes?: string[];

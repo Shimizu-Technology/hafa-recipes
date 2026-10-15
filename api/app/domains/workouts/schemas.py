@@ -78,6 +78,23 @@ class WorkoutBlock(DomainModel):
     evidence: list[Evidence] = Field(default_factory=list, max_length=100)
 
 
+class SourceTextPart(DomainModel):
+    location: str = Field(pattern=r"^(caption|transcript|page_text|provided_text|document_text|document_page:[1-9][0-9]?)$")
+    text: str = Field(min_length=1, max_length=4000)
+
+
+class SourceContext(DomainModel):
+    source_url: str | None = Field(default=None, max_length=2000)
+    parts: list[SourceTextPart] = Field(default_factory=list, max_length=64)
+    truncated: bool = False
+
+    @model_validator(mode="after")
+    def bounded_text(self):
+        if sum(len(part.text) for part in self.parts) > 30_000:
+            raise ValueError("Saved source text exceeds 30000 characters")
+        return self
+
+
 class WorkoutContent(DomainModel):
     id: str | None = Field(default=None, max_length=100)
     version: int = Field(default=1, ge=1)
@@ -91,6 +108,7 @@ class WorkoutContent(DomainModel):
     source_creator: str | None = Field(default=None, max_length=200)
     source_title: str | None = Field(default=None, max_length=200)
     source_thumbnail_url: str | None = Field(default=None, max_length=2000)
+    source_context: SourceContext | None = Field(default=None, exclude_if=lambda value: value is None)
     equipment_required: list[str] = Field(default_factory=list, max_length=100)
     equipment_optional: list[str] = Field(default_factory=list, max_length=100)
     estimated_minutes: int | None = Field(default=None, ge=1, le=1440)

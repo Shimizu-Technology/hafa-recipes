@@ -1564,3 +1564,45 @@ async def test_reextract_final_size_failure_keeps_review_receipt_source_and_vers
         job = await db.get(WorkoutImport, job_id)
         assert (job.payload, job.result, job.accepted_workout_id, job.accepted_content_hash) == before
         assert await db.scalar(select(func.count()).select_from(WorkoutVersion)) == 1
+
+
+async def test_source_text_old_client_roundtrip_clear_and_private_immutable_history(automation_api):
+    api = automation_api
+    await consent(api)
+    job = (await enqueue(api)).json()
+    await api.worker.tick()
+    current = (await api.client.get(f"/api/v1/workouts/imports/{job['id']}")).json()
+    original = current["result"]["workout"]
+    context = original["source_context"]
+    assert context["parts"] == [{"location": "provided_text", "text": TEXT}]
+    legacy = {key: value for key, value in original.items() if key != "source_context"}
+    accepted = await api.client.post(f"/api/v1/workouts/imports/{job['id']}/accept",
+        headers=GENERATION, json={"workout": legacy, "acknowledge_warnings": True})
+    assert accepted.status_code == 200, accepted.text
+    identifier = accepted.json()["id"]
+    assert accepted.json()["content"]["source_context"] == context
+    legacy = {key: value for key, value in accepted.json()["content"].items()
+              if key not in {"id", "version", "parent_version_id", "source_context"}}
+    # A URL correction must not silently erase the original acquisition context.
+    legacy["source_url"] = "https://example.com/corrected"
+    edited = await api.client.put(f"/api/v1/workouts/library/{identifier}?expected_revision=1",
+        headers=GENERATION, json={**legacy, "title": "Corrected"})
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["content"]["source_context"] == context
+    forged = {"parts": [{"location": "caption", "text": "AI invented this"}]}
+    rejected = await api.client.put(f"/api/v1/workouts/library/{identifier}?expected_revision=2",
+        headers=GENERATION, json={**legacy, "source_context": forged})
+    assert rejected.status_code == 422
+    rejected_create = await api.client.post("/api/v1/workouts/library", headers=GENERATION,
+        json={**legacy, "source_context": forged})
+    assert rejected_create.status_code == 422
+    cleared = await api.client.put(f"/api/v1/workouts/library/{identifier}?expected_revision=2",
+        headers=GENERATION, json={**legacy, "source_context": None})
+    assert cleared.status_code == 200, cleared.text
+    assert "source_context" not in cleared.json()["content"]
+    versions = (await api.client.get(f"/api/v1/workouts/library/{identifier}/versions")).json()
+    assert "source_context" not in versions[0]["content"]
+    assert versions[-1]["content"]["source_context"] == context
+    await enroll(api, other=True)
+    other = await api.client.get(f"/api/v1/workouts/library/{identifier}", headers={"X-Test-User": "other"})
+    assert other.status_code == 404

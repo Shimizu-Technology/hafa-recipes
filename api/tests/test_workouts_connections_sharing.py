@@ -7,7 +7,7 @@ import os
 from copy import deepcopy
 from datetime import date, timedelta
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -177,8 +177,13 @@ async def create_workout(api, identifier="publisher", *, content=None):
     return response.json()
 
 
-async def create_share(api, identifier="publisher", *, include_source=False, content=None):
+async def create_share(api, identifier="publisher", *, include_source=False, content=None, source_context=None):
     workout = await create_workout(api, identifier, content=content)
+    if source_context:
+        async with api.sessions() as db:
+            row = await db.get(WorkoutRecord, UUID(workout["id"]))
+            row.content = {**row.content, "source_context": source_context}
+            await db.commit()
     preview = await api.client.post(
         "/api/v1/workouts/sharing/previews",
         json={
@@ -886,11 +891,13 @@ async def test_shared_workout_copy_saves_unchanged_without_invented_url(api, inc
     if timed:
         content["blocks"][0].update(grouping="circuit", execution={"mode": "amrap", "time_cap_seconds": 125})
         content["blocks"][0]["exercises"][0]["sets"] = None
-    original, _, share = await create_share(api, include_source=include_source, content=content)
+    original, _, share = await create_share(api, include_source=include_source, content=content,
+        source_context={"parts": [{"location": "caption", "text": PRIVATE}], "truncated": False})
     public = await api.client.get(share["api_path"])
     assert public.status_code == 200 and PRIVATE not in public.text
     assert public.json()["content"]["instructions"] == ["Rest after each round"]
     assert public.json()["content"]["blocks"][0]["exercises"][0]["instructions"] == "Keep heels down"
+    assert "source_context" not in public.json()["content"]
     expected_execution = content["blocks"][0].get("execution")
     assert public.json()["content"]["blocks"][0].get("execution") == expected_execution
     headers = {**GENERATION, "X-Test-User": "recipient"}
@@ -906,6 +913,7 @@ async def test_shared_workout_copy_saves_unchanged_without_invented_url(api, inc
     assert copied.status_code == 201, copied.text
     record = copied.json()["record"]
     content = record["content"]
+    assert "source_context" not in content and PRIVATE not in str(content)
     assert content["provenance"] == "source"
     assert content["source_url"] == (WORKOUT["source_url"] if include_source else None)
     assert all(

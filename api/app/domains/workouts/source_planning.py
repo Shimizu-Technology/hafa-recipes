@@ -56,7 +56,7 @@ def calendar_questions(profile, sessions):
 
 
 def inspect_personal_source(workout, profile, *, reviewed_custom=False, declared_minutes=None):
-    result = workout.model_copy(deep=True)
+    result = workout.model_copy(deep=True, update={"source_context": None})
     questions = []
     warnings = []
     if workout.kind != "session":

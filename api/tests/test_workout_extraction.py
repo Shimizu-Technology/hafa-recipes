@@ -1204,6 +1204,7 @@ async def test_model_cannot_supply_server_owned_warnings_or_durable_cover():
     raw.update(
         extraction_warnings=["Invented warning"],
         source_thumbnail_url="https://example.com/spoof.jpg",
+        source_context={"parts": [{"location": "caption", "text": "Invented source"}]},
     )
     result = await WorkoutExtractor(FakeProvider(raw)).extract(
         ExtractionRequest(kind="text", text=TEXT, ai_consent=True)
@@ -1211,6 +1212,7 @@ async def test_model_cannot_supply_server_owned_warnings_or_durable_cover():
     assert result.status == "ready" and result.warnings == []
     assert getattr(result.workout, "extraction_warnings", []) == []
     assert getattr(result.workout, "source_thumbnail_url", None) is None
+    assert result.workout.source_context.parts[0].text == TEXT
 
 
 def test_provider_schema_filters_declared_server_owned_fields(monkeypatch):
@@ -2106,3 +2108,57 @@ def test_new_creator_instructions_are_grounded_and_private_notes_stay_empty():
     assert workout.instructions == ["Rest after each round."]
     assert workout.blocks[0].exercises[0].instructions == "Keep your heels planted."
     assert workout.notes == [] and workout.blocks[0].exercises[0].notes is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed", [False, True])
+async def test_acquired_caption_and_transcript_survive_success_and_provider_failure(failed):
+    source = SourceBundle(metadata=SourceMetadata(platform="instagram", title="Metadata only",
+        url="https://www.instagram.com/reel/abc/"), parts=[
+            SourcePart("caption", "Squat: 3 sets of 8 reps."),
+            SourcePart("transcript", "Rest after the round."),
+            SourcePart("image:1", "data:image/png;base64,SHOULD_NOT_BE_RETAINED"),
+        ])
+    provider = FakeProvider(complete_workout("caption"), error=RuntimeError() if failed else None)
+    result = await WorkoutExtractor(provider, FakeAcquirer(source)).extract(
+        ExtractionRequest(kind="url", source_url=source.metadata.url, ai_consent=True))
+    context = result.workout.source_context
+    assert [(part.location, part.text) for part in context.parts] == [
+        ("caption", "Squat: 3 sets of 8 reps."), ("transcript", "Rest after the round.")]
+    assert context.source_url == source.metadata.url and not context.truncated
+    assert "Metadata only" not in context.model_dump_json()
+    assert "source_context" not in json.dumps(workout_response_format())
+
+
+def test_saved_source_text_chunks_and_truncates_inside_existing_record_bounds():
+    from app.domains.workouts.router import bounded_content
+    from app.domains.workouts.source_context import retain_source_context
+
+    source = SourceBundle(metadata=SourceMetadata(platform="text"), parts=[
+        SourcePart("provided_text", "🌴" * 35_000)])
+    workout = retain_source_context(WorkoutContent(title="Text"), source)
+    assert sum(len(part.text) for part in workout.source_context.parts) == 30_000
+    assert workout.source_context.truncated
+    assert all(len(part.text) <= 4000 for part in workout.source_context.parts)
+    bounded_content(workout.model_dump(mode="json"))
+    # Source context cannot make an otherwise valid nearly-full record unsavable.
+    full = WorkoutContent(title="Full", notes=["x" * 4000] * 58)
+    bounded_content(full.model_dump(mode="json"))
+    retain_source_context(full, source)
+    assert full.source_context.truncated
+    bounded_content(full.model_dump(mode="json"))
+    assert sum(len(part.text) for part in full.source_context.parts) < 30_000
+    with pytest.raises(ValidationError):
+        WorkoutContent(title="Invalid", source_context={"parts": [
+            {"location": "caption", "text": "x" * 4000}] * 8})
+
+
+@pytest.mark.asyncio
+async def test_oversized_document_failure_keeps_bounded_decoded_text():
+    text = "Document instructions " * 2000
+    result = await WorkoutExtractor(FakeProvider()).extract(ExtractionRequest(
+        kind="document", document_base64=base64.b64encode(text.encode()).decode(),
+        document_mime="text/plain", ai_consent=True))
+    assert result.error_code == "document_text_limit"
+    assert result.workout.source_context.truncated
+    assert "".join(part.text for part in result.workout.source_context.parts) == text[:30_000]

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { Button, Card, Choice, Copy, Field, Notice } from "./ui";
+import { SavedSourceText } from "./workout-source";
 import { prescriptionLine } from "@/lib/discover";
 import type { AuthoredWorkout, ExercisePrescription } from "@/lib/models";
 import { blockSummary, changeExecution, changeGrouping, changeTimeCap, executionError, parseCap } from "@/lib/amrap-editor";
@@ -75,6 +76,12 @@ export function WorkoutEditor({
           })
         }
       />
+      {value.source_context && <Card compact>
+        <SavedSourceText context={value.source_context} />
+        <Button title="Clear saved source text" variant="ghost" disabled={disabled}
+          onPress={() => update({ ...value, source_context: null })} />
+        <Copy kind="small" tone="muted">Save changes to clear it from this version. Earlier versions keep their original text.</Copy>
+      </Card>}
       <Notice>
         {context === "create"
           ? "Use the details you know. Sets, reps and other targets can stay blank. Open block settings for circuits, rounds or AMRAP."

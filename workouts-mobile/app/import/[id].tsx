@@ -414,7 +414,7 @@ export default function ImportReview() {
         {result && (
           <>
             <WorkoutSource source={{ source_title: workout?.source_title ?? result.source.title,
-              source_creator: workout?.source_creator ?? result.source.creator, source_thumbnail_url: workout?.source_thumbnail_url }} />
+              source_creator: workout?.source_creator ?? result.source.creator, source_thumbnail_url: workout?.source_thumbnail_url, source_context: workout?.source_context }} />
             {usageLimitReached && <Notice tone="warning">AI importing has reached its usage limit. Your source stays saved. Try again later, or add the exercises manually.</Notice>}
             {!usageLimitReached && result.warnings.map((warning, index) => (
               <Notice key={index} tone="warning">{warning}</Notice>

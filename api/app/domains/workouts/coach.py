@@ -352,7 +352,7 @@ async def build_context(db, user_id, generation, consent, *, focus=None):
                         return {
                             key: clean(item)
                             for key, item in value.items()
-                            if key not in {"source_url", "evidence", "notes", "parent_version_id"}
+                            if key not in {"source_url", "source_context", "evidence", "notes", "parent_version_id"}
                         }
                     if isinstance(value, list):
                         return [clean(item) for item in value]

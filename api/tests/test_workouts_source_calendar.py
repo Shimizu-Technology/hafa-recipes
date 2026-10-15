@@ -9,7 +9,12 @@ from fastapi import HTTPException
 
 from app.domains.workouts.execution import timed_duration_minutes
 from app.domains.workouts.programming import PROGRESSION_POLICY, RULE_VERSION, adapt_workout
-from app.domains.workouts.router import content_digest, validated_workout
+from app.domains.workouts.router import (
+    ProgramRequest,
+    content_digest,
+    program_content,
+    validated_workout,
+)
 from app.domains.workouts.schemas import (
     Evidence,
     ProgramProposal,
@@ -280,3 +285,22 @@ def test_legacy_fixed_api_dto_and_creation_hash_stay_identical():
     nullable = fixed.model_dump(mode="json", exclude={"id", "version", "parent_version_id"})
     nullable["blocks"][0]["execution"] = None
     assert validated_workout(WorkoutContent.model_validate(nullable)) == content
+
+
+@pytest.mark.parametrize("include_url", [False, True])
+def test_raw_source_text_never_enters_public_projection_or_repeated_plan_sessions(include_url):
+    source = squat().model_copy(update={"source_context": None})
+    source = WorkoutContent.model_validate({**source.model_dump(mode="json"), "source_context": {
+        "parts": [{"location": "caption", "text": "PRIVATE CAPTION"}], "truncated": False}})
+    public, _ = project_workout(source.model_dump(mode="json"), include_source_url=include_url)
+    assert "source_context" not in public and "PRIVATE" not in str(public)
+    result = compose_library_program(profile(), START, 1, [(uuid4(), source)], mode="selected")
+    assert result.sessions
+    assert all(session.workout.source_context is None for session in result.sessions)
+    assert source.source_context.parts[0].text == "PRIVATE CAPTION"
+    adapted = adapt_workout(source, profile())
+    assert adapted.workout is not None and adapted.workout.source_context is None
+    result.sessions[0].workout.source_context = source.source_context
+    saved = program_content(ProgramRequest(title="My plan", proposal=result))
+    assert "source_context" not in saved["proposal"]["sessions"][0]["workout"]
+    assert result.sessions[0].workout.source_context is not None

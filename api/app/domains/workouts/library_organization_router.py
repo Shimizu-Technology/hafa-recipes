@@ -576,6 +576,7 @@ async def duplicate_workout(
     if source.revision != payload.expected_revision:
         raise HTTPException(409, "Workout changed; refresh before making a copy")
     content = copy.deepcopy(source.content)
+    content.pop("source_context", None)  # The new copy has no acquisition of its own.
     identifier = uuid4()
     content.update(id=str(identifier), version=1, parent_version_id=None)
     if payload.title is not None:

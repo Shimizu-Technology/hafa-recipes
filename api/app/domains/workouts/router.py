@@ -442,6 +442,9 @@ async def create_workout(
     idempotency_key: CreationKey = None,
 ):
     await membership_for(db, user.id, generation=generation, write=True)
+    from app.domains.workouts.source_context import preserve_source_context
+
+    workout = preserve_source_context(workout, {})
     content = validated_workout(workout)
     from app.domains.workouts.source_media import retain_source_cover
 
@@ -515,6 +518,9 @@ async def update_workout(
             for field in ("source_thumbnail_url", "source_title", "source_creator")
             if field not in workout.model_fields_set and field in row.content
         })
+    from app.domains.workouts.source_context import preserve_source_context
+
+    workout = preserve_source_context(workout, row.content)
     content = validated_workout(workout)
     await append_workout_version(db, row, content)
     result = (await library_responses(db, [row]))[0]
@@ -667,7 +673,10 @@ class ProgramRequest(DomainModel):
 def program_content(request):
     for session in request.proposal.sessions:
         validated_workout(session.workout, authored=False)
-    return bounded_content(request.model_dump(mode="json"))
+    content = request.model_dump(mode="json")
+    for session in content["proposal"]["sessions"]:
+        session["workout"].pop("source_context", None)
+    return bounded_content(content)
 
 
 @router.get("/programs", response_model=list[RecordResponse])

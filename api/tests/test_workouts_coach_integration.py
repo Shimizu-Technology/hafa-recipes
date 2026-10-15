@@ -799,7 +799,8 @@ async def test_coach_receives_source_flow_and_timed_actuals_without_private_note
     async with api.sessions() as db:
         row = await db.get(WorkoutRecord, UUID(workout["id"]))
         content = json.loads(json.dumps(row.content))
-        content.update(provenance="source", notes=[flow, "PRIVATE WORKOUT NOTE"])
+        content.update(provenance="source", notes=[flow, "PRIVATE WORKOUT NOTE"],
+            source_context={"parts": [{"location": "caption", "text": "PRIVATE RAW CAPTION"}]})
         content["blocks"][0]["evidence"] = [
             {"field": "workout_notes", "wording": flow, "location": "caption"}
         ]

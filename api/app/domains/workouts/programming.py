@@ -526,7 +526,7 @@ def adapt_workout(
         return AdaptationProposal(
             status="needs_information", rule_version=RULE_VERSION, questions=questions
         )
-    adapted = content.model_copy(deep=True)
+    adapted = content.model_copy(deep=True, update={"source_context": None})
     adapted.parent_version_id = content.id or _id(content.model_dump(mode="json"))
     adapted.id = None
     adapted.version += 1

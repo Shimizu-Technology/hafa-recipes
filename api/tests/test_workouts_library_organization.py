@@ -361,6 +361,11 @@ async def test_source_duplicates_advisory_owner_scoped_and_edit_index(organizati
 async def test_duplicate_independent_version_receipt_and_removed_copy_tombstone(organization_api):
     api = organization_api
     row = await create(api)
+    async with api.sessions() as db:
+        source = await db.get(WorkoutRecord, UUID(row["id"]))
+        source.content = {**source.content, "source_context": {
+            "parts": [{"location": "caption", "text": "PRIVATE ACQUIRED TEXT"}], "truncated": False}}
+        await db.commit()
     collection = await make_collection(api)
     await change(
         api, row, tags=["Run"], collection_ids=[collection["id"]], favorite=True, archived=True
@@ -372,6 +377,9 @@ async def test_duplicate_independent_version_receipt_and_removed_copy_tombstone(
     copied = response.json()
     assert copied["id"] != row["id"] and copied["content"]["id"] == copied["id"]
     assert copied["content"]["version"] == 1 and copied["content"]["parent_version_id"] is None
+    assert "source_context" not in copied["content"]
+    original = await api.client.get(f"{PREFIX}/library/{row['id']}")
+    assert original.json()["content"]["source_context"]["parts"][0]["text"] == "PRIVATE ACQUIRED TEXT"
     assert copied["organization"]["tags"] == ["Run"]
     assert copied["organization"]["collection_ids"] == [collection["id"]]
     assert not copied["organization"]["archived"] and not copied["organization"]["favorite"]
