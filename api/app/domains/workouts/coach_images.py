@@ -25,7 +25,12 @@ def priced():
 
 
 async def available(db):
+    # Reuse provider readiness without opening HTTP or probing budget authority.
+    from app.domains.workouts.coach import ProductionCoachProvider
+
     try:
+        if not ProductionCoachProvider().enabled or not get_settings().workouts_ai_budget_database_url:
+            return False
         priced()
         return images.storage_service.is_enabled and await images.attachments_ready(db)
     except Exception:

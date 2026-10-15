@@ -2232,7 +2232,7 @@ async def photo_message_fixture(api, monkeypatch):
 
     images, writes = await private_attachment_fixture(api, monkeypatch)
     configured = settings(workouts_ai_enabled=True, workouts_ai_budget_24h_microusd=5_000_000,
-                          workouts_ai_budget_database_url=str(api.engine.url))
+                          workouts_ai_budget_database_url=str(api.engine.url)).model_copy(update={"environment": "production"})
     monkeypatch.setattr(coach_images, "get_settings", lambda: configured)
     monkeypatch.setattr(automation_router, "get_settings", lambda: configured)
     monkeypatch.setattr(coach, "get_settings", lambda: configured)
@@ -2363,3 +2363,50 @@ async def test_photo_capability_requires_priced_vision_and_private_schema(coach_
         workouts_ai_budget_24h_microusd=5_000_000, workout_coach_model="unpriced-model"))
     assert (await api.client.get("/api/v1/workouts/capabilities")).json()["coach_images"] is False
     assert (await send_photo(api, image)).status_code == 503 and not api.provider.sent
+
+
+@pytest.mark.parametrize("changes", [
+    {"environment": "test"},
+    {"openai_api_key": ""},
+    {"environment": "development", "allow_paid_ai_in_development": False,
+     "workouts_development_ai_api_key": "synthetic-development-key"},
+    {"environment": "development", "allow_paid_ai_in_development": True,
+     "workouts_development_ai_api_key": None},  # Production key cannot authorize development.
+    {"workouts_ai_budget_database_url": None},
+    {"workouts_ai_budget_24h_microusd": 0},
+    {"workouts_ai_enabled": False},
+    {"ai_disabled_capabilities": "workout_coach"},
+])
+async def test_photo_capability_stays_false_when_provider_or_budget_is_unavailable(coach_api, monkeypatch, changes):
+    from pydantic import SecretStr
+
+    from app.domains.workouts import coach_images
+
+    api = coach_api
+    await photo_message_fixture(api, monkeypatch)
+    updates = dict(changes)
+    if isinstance(updates.get("workouts_development_ai_api_key"), str):
+        updates["workouts_development_ai_api_key"] = SecretStr(updates["workouts_development_ai_api_key"])
+    configured = coach_images.get_settings().model_copy(update=updates)
+    for module in (coach, coach_images, automation_router):
+        monkeypatch.setattr(module, "get_settings", lambda: configured)
+    response = await api.client.get("/api/v1/workouts/capabilities")
+    assert response.status_code == 200 and response.json()["coach_images"] is False
+    assert not api.provider.sent
+
+
+async def test_photo_capability_accepts_explicit_development_key_and_permission_without_provider_io(coach_api, monkeypatch):
+    from pydantic import SecretStr
+
+    from app.domains.workouts import coach_images
+
+    api = coach_api
+    await photo_message_fixture(api, monkeypatch)
+    configured = coach_images.get_settings().model_copy(update={
+        "environment": "development", "openai_api_key": "", "allow_paid_ai_in_development": True,
+        "workouts_development_ai_api_key": SecretStr("synthetic-development-key"),
+    })
+    for module in (coach, coach_images, automation_router):
+        monkeypatch.setattr(module, "get_settings", lambda: configured)
+    assert (await api.client.get("/api/v1/workouts/capabilities")).json()["coach_images"] is True
+    assert not api.provider.sent

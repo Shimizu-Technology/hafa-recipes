@@ -76,8 +76,8 @@ imports_router = APIRouter(
 async def capabilities(user: User, db: Database):
     membership = await membership_for(db, user.id)
     configured = get_settings()
-    from app.domains.workouts.cover_upload import storage_service, upload_ready
     from app.domains.workouts.coach_images import available
+    from app.domains.workouts.cover_upload import storage_service, upload_ready
 
     return {
         "generation": membership.generation,
