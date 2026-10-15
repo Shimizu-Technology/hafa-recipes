@@ -940,3 +940,41 @@ it("a new enrollment resets private bulk selection and fences an old in-flight r
   expect(fixture.saveOrganization).not.toHaveBeenCalled(); expect(button("Select workouts")).toBeDefined();
   expect(nodes("Sheet").find(node => node.props.title === "Add workouts to a collection")!.props.visible).toBe(false);
 });
+
+it("freezes a pending bulk target and selection despite captured controls and changing filters", async () => {
+  const second = { ...saved, id: "second", title: "Second workout" };
+  fixture.collections.mockResolvedValue([{ id: "gym", title: "Gym", workout_count: 0 }, { id: "home", title: "Home", workout_count: 0 }]);
+  fixture.searchLibrary.mockResolvedValue({ items: [saved, second], total: 2, has_more: false });
+  let resolve!: (organization: ReturnType<typeof emptyOrganization>) => void;
+  fixture.organization.mockImplementationOnce(() => new Promise(done => { resolve = done; })).mockResolvedValue(emptyOrganization());
+  fixture.saveOrganization.mockImplementation(async (_id, body) => ({ ...emptyOrganization(), revision: 1, collection_ids: body.collection_ids }));
+  await mount(Library); await act(async () => button("Select workouts")!.props.onPress());
+  const selectSecond = choice(second.title)!.props.onPress;
+  await act(async () => choice(saved.title)!.props.onPress()); await act(async () => button("Add selected to collection")!.props.onPress());
+  const chooseHome = choice("Home")!.props.onPress;
+  const doneSelecting = button("Done selecting")!.props.onPress;
+  await act(async () => button("Add to collection")!.props.onPress());
+  await act(async () => { selectSecond(); chooseHome(); doneSelecting(); });
+  const chips = nodes("ChipRow").find(node => node.props.label === "Collections")!;
+  await act(async () => chips.findAllByType("Chip" as never).find(node => node.props.label === "Home")!.props.onPress()); await settle();
+  await act(async () => resolve(emptyOrganization())); await settle();
+  expect(fixture.saveOrganization).toHaveBeenCalledExactlyOnceWith(saved.id, { expected_revision: 0, collection_ids: ["gym"] }, 1);
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0].collection_id).toBe("home");
+});
+
+it("keeps an organization conflict pending until the user explicitly retries the remaining selection", async () => {
+  fixture.collections.mockResolvedValue([{ id: "gym", title: "Gym", workout_count: 0 }]);
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  fixture.organization.mockResolvedValueOnce({ ...emptyOrganization(), revision: 1 })
+    .mockResolvedValue({ ...emptyOrganization(), revision: 2, favorite: true, collection_ids: ["concurrent"] });
+  fixture.saveOrganization.mockRejectedValueOnce(new ApiError("Organization changed. Review and retry.", 409))
+    .mockResolvedValue({ ...emptyOrganization(), revision: 3, collection_ids: ["concurrent", "gym"] });
+  await mount(Library); await act(async () => button("Select workouts")!.props.onPress());
+  await act(async () => choice(saved.title)!.props.onPress()); await act(async () => button("Add selected to collection")!.props.onPress());
+  await act(async () => button("Add to collection")!.props.onPress()); await settle();
+  expect(choice(saved.title)!.props.selected).toBe(true);
+  expect(fixture.saveOrganization).toHaveBeenCalledTimes(1); expect(fixture.organization).toHaveBeenCalledTimes(1);
+  expect(button("Retry remaining workouts")).toBeDefined();
+  await act(async () => button("Retry remaining workouts")!.props.onPress()); await settle();
+  expect(fixture.saveOrganization.mock.calls[1]).toEqual([saved.id, { expected_revision: 2, collection_ids: ["concurrent", "gym"] }, 1]);
+});

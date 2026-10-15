@@ -143,3 +143,16 @@ it("keeps a full collection membership failure retryable without dropping its ex
   const result = await addWorkoutsToCollection(["a"], "new", 1, api, () => undefined);
   expect(result.failed[0].message).toContain("20 collections"); expect(api.saveOrganization).not.toHaveBeenCalled();
 });
+
+it("leaves revision conflicts for explicit retry and merges only then with the reviewed latest memberships", async () => {
+  const old = { ...emptyOrganization(), revision: 3, collection_ids: ["old"] };
+  const changed = { ...old, revision: 4, favorite: true, tags: ["Keep private"], collection_ids: ["old", "concurrent"] };
+  const api = { organization: vi.fn().mockResolvedValueOnce(old).mockResolvedValue(changed),
+    saveOrganization: vi.fn().mockRejectedValueOnce(Object.assign(Error("Organization changed; review and retry."), { status: 409 }))
+      .mockResolvedValue({ ...changed, revision: 5, collection_ids: [...changed.collection_ids, "target"] }) };
+  const first = await addWorkoutsToCollection(["a"], "target", 1, api, () => undefined);
+  expect(first.added).toEqual([]); expect(first.failed).toEqual([{ id: "a", message: "Organization changed; review and retry." }]);
+  expect(api.organization).toHaveBeenCalledTimes(1); expect(api.saveOrganization).toHaveBeenCalledTimes(1);
+  await addWorkoutsToCollection(first.failed.map(item => item.id), "target", 1, api, () => undefined);
+  expect(api.saveOrganization.mock.calls[1]).toEqual(["a", { expected_revision: 4, collection_ids: ["old", "concurrent", "target"] }, 1]);
+});

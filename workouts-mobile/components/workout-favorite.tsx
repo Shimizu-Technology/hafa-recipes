@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button, Notice } from "@/components/ui";
@@ -10,15 +10,16 @@ export function WorkoutFavorite({ workout }: { workout: Workout }) {
   const { api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const cache = useQueryClient();
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
-  const lock = useRef<object | null>(null), mounted = useRef(true);
-  const scope = `${owner}:${enrollment?.generation}:${workout.id}`;
-  const live = useRef(scope); live.current = scope;
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  useEffect(() => { lock.current = null; setError(""); setBusy(false); }, [scope]);
-  function current() { return mounted.current && live.current === scope && storage.isCurrent() && isCurrentAccount(); }
+  const scope = useMemo(() => ({ lock: null as object | null }), [owner, enrollment?.generation, storage, workout.id]);
+  const live = useRef<typeof scope | null>(null);
+  useLayoutEffect(() => {
+    live.current = scope; setError(""); setBusy(false);
+    return () => { if (live.current === scope) live.current = null; };
+  }, [scope]);
+  function current() { return live.current === scope && storage.isCurrent() && isCurrentAccount(); }
   async function toggle() {
-    if (lock.current || !current() || workout.generation !== enrollment?.generation) return;
-    const token = {}; lock.current = token; setBusy(true); setError("");
+    if (scope.lock || !current() || workout.generation !== enrollment?.generation) return;
+    const token = {}; scope.lock = token; setBusy(true); setError("");
     const favorite = !workout.organization?.favorite;
     try {
       const latest = await api.organization(workout.id, workout.generation);
@@ -33,7 +34,7 @@ export function WorkoutFavorite({ workout }: { workout: Workout }) {
       void cache.invalidateQueries({ queryKey: [owner, "library"] });
     } catch (error) {
       if (current()) setError(error instanceof Error ? error.message : "Could not change this favorite. Try again.");
-    } finally { if (lock.current === token) lock.current = null; if (current()) setBusy(false); }
+    } finally { if (scope.lock === token) scope.lock = null; if (current()) setBusy(false); }
   }
   return <View style={{ flex: 1, minWidth: 160, gap: 8 }}>
     <Button title={workout.organization?.favorite ? "Remove favorite" : "Favorite workout"}
