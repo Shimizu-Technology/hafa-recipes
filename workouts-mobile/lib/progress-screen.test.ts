@@ -215,6 +215,20 @@ it.each([0, 401, 503])("keeps transient recovery status %i retryable with feedba
   expect(text()).toContain("Connection unavailable; result retained");
 });
 
+it.each([404, 410])("can deliberately recover a newer missing source after status %i without resending the earlier recovery", async status => {
+  const prior = local(saved("A"), "blocked");
+  const latest = { ...local(saved("B"), "blocked"), rejection_status: status,
+    workout: { ...workout, title: "Newest recovered prescription" },
+    recovery_origin: { request: prior.request, workout: { ...prior.workout, title: "Older prescription" } } };
+  fixture.history = [latest]; fixture.params = { id: "client-B" };
+  await act(async () => { renderer = create(tree(RecoverResult)); }); await settle();
+  expect(text()).toContain("Newest recovered prescription"); expect(text()).not.toContain("Older prescription");
+  const save = renderer!.root.findAllByType("Button" as never).find(node => node.props.title === "Save private workout and result")!;
+  expect(save).toBeDefined();
+  await act(async () => save.props.onPress()); await settle();
+  expect((fixture.store.recoverResult.mock.calls[0] as unknown[])[0]).toBe("client-B");
+});
+
 
 it.each(["owner", "generation", "id"] as const)("a held recovery cannot keep the next %s scope busy or apply its late acknowledgement", async change => {
   fixture.history = [{ ...local(saved("A"), "blocked"), rejection_status: 404 }];

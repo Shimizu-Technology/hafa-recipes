@@ -36,12 +36,14 @@ function RecoveryScreen({ id }: { id: string }) {
   }, [form, loadAttempt]);
   const item = offline.state.history.find(h => h.generation === generation &&
     (h.request.client_session_id === id || h.recovery_origin?.request.client_session_id === id));
-  const original = item?.recovery_origin ?? item;
+  const continuedRecovery = item?.recovery_origin?.request.client_session_id === id;
+  const original = continuedRecovery ? item?.recovery_origin : item;
   const receipt = offline.state.recovery_receipts?.find(item => item.original_id === id);
   const resultId = savedId ?? receipt?.saved_id;
   function openResult(value: string) { if (current()) router.replace({ pathname: "/session/[id]", params: { id: value } }); }
   const allowed = !!item && (canRecoverResult(item) || !!item.recovery || !!item.recovery_origin);
-  const needsReview = item?.state === "blocked" && !!item.recovery_origin && !isTransientSyncError(item.rejection_status);
+  const needsReview = item?.state === "blocked" && !isTransientSyncError(item.rejection_status) &&
+    (continuedRecovery || !canRecoverResult(item));
   async function save() {
     if (!offline.store || !loaded || !allowed || needsReview || !current() || lock.current) return;
     lock.current = true; setBusy(true); setError("");
@@ -84,7 +86,7 @@ function RecoveryScreen({ id }: { id: string }) {
           <Button title="Review in Progress" onPress={() => { if (current()) router.replace("/(tabs)/progress"); }} />
         </> : allowed ? <>
           {!!error && <Notice error>{error}</Notice>}
-          <Button title={command || item.recovery || item.recovery_origin ? "Continue saving recovered result" : "Save private workout and result"}
+          <Button title={command || item.recovery || continuedRecovery ? "Continue saving recovered result" : "Save private workout and result"}
             busy={busy} onPress={() => { void save(); }} />
         </> : <Notice>
           Try saving the original result again in Progress. Recovery becomes available when its source is confirmed missing.
