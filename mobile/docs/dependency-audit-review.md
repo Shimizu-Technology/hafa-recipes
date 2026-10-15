@@ -67,3 +67,27 @@ Production audit retains 48 inherited findings, the same advisory IDs and zero
 critical or unexpected findings. All 831 tests, typecheck and Doctor 21/21 pass.
 The November 3 expiry remains unchanged. Fresh native builds and normal affected
 journeys remain release gates; these exports are dependency reachability evidence.
+
+
+## October 16 SDK 57 patch alignment
+
+Against `ad16ff8`, Expo 57.0.30 and Router 57.0.28 align with Doctor's current
+SDK 57 recommendations. Their required transitive patches are UI 57.0.25,
+CLI 57.0.31, router-server 57.0.13 and Babel preset 57.0.16. All other lock nodes,
+metadata and edges are unchanged. Fresh Node 22.22.3/npm 10.9.8 `npm ci` passes
+and applies the existing share-intent patch. Typecheck, Doctor 21/21, all 831
+tests and the production audit pass: 48 inherited findings, 12 reviewed advisory
+IDs and zero unexpected findings. The CLI signing helper and certificate utility
+are byte-identical to the previously reviewed installation. Only the exact CLI
+version/integrity fingerprint is renewed; no advisory or expiry changes.
+
+Fresh preview-configured iOS/Android Hermes exports contain 2,913/2,997 sources,
+select native Clerk and the Router fork, and exclude forge, braces, micromatch,
+stream-json, Jayson and Solana. Map SHA-256: iOS
+`afa7842e4bceb1610a7975667fae2969e854c409fa520ceaad4e5a4caf9f2073`;
+Android `80e00ff8d448cbca40731ef58bec0f3d64169bdf73417c57b8a189f41a17611f`.
+An additional web static export failed with a tslib `__extends` destructuring
+error; it is not claimed passed or diagnosed here. Native builds and share,
+OAuth and navigation acceptance remain release gates. UI 57.0.25 includes an
+[Android TextInput placeholder style fix](https://github.com/expo/expo/blob/396da4641605bb19c1e6b3efff1cafaab8890a29/packages/expo-ui/CHANGELOG.md#57025--2026-10-15),
+so installed binaries must be rebuilt to exercise that native change.

@@ -139,6 +139,58 @@ async def workout(api):
     return response.json()
 
 
+@pytest.mark.parametrize("near_limit", [False, True])
+async def test_session_omits_raw_acquisition_text_but_keeps_original_prescription(data_api, near_limit):
+    import json
+
+    from app.domains.workouts.extraction import SourceBundle, SourceMetadata, SourcePart
+    from app.domains.workouts.router import SessionRequest, bounded_content
+    from app.domains.workouts.schemas import WorkoutContent
+    from app.domains.workouts.source_context import retain_source_context
+
+    await enroll(data_api)
+    authored = {**WORKOUT, "instructions": ["Keep the creator instruction"],
+                "notes": ["PRIVATE OWNER NOTE"] + (["x" * 4000] * 58 if near_limit else []),
+                "source_url": "https://example.test/source", "source_title": "Creator title",
+                "source_creator": "Creator", "blocks": [{**WORKOUT["blocks"][0], "exercises": [
+                    {**WORKOUT["blocks"][0]["exercises"][0], "sets": 20, "instructions": "Keep heels down"}]}]}
+    created = await data_api.client.post("/api/v1/workouts/library", json=authored, headers=GENERATION)
+    assert created.status_code == 201, created.text
+    row = created.json()
+    # Model the server's successful acquisition, without allowing a client to forge it.
+    acquired = retain_source_context(WorkoutContent.model_validate(row["content"]), SourceBundle(
+        metadata=SourceMetadata(platform="web", url=authored["source_url"]),
+        parts=[SourcePart("caption", "PRIVATE RAW SESSION SOURCE " * (1500 if near_limit else 1))]))
+    original = acquired.model_dump(mode="json")
+    bounded_content(original)
+    from app.domains.workouts.automation_router import store_workout
+
+    async with data_api.sessions.begin() as db:
+        saved = store_workout(db, "owner", 1, original)
+        original = saved.content
+        row = {"id": str(saved.id), "revision": saved.revision}
+    payload = session_payload(row)
+    payload["actuals"] = [{**payload["actuals"][0], "set_index": index} for index in range(1, 21)]
+    if near_limit:
+        unprojected = {**SessionRequest.model_validate(payload).model_dump(mode="json"),
+                       "prescription_snapshot": original}
+        assert len(json.dumps(unprojected, ensure_ascii=False).encode()) > 240 * 1024
+    recorded = await data_api.client.post("/api/v1/workouts/sessions", json=payload, headers=GENERATION)
+    assert recorded.status_code == 201, recorded.text
+    snapshot = recorded.json()["content"]["prescription_snapshot"]
+    assert snapshot == {key: value for key, value in original.items() if key != "source_context"}
+    assert "PRIVATE RAW SESSION SOURCE" not in recorded.text
+    assert snapshot["source_url"] == authored["source_url"]
+    assert snapshot["instructions"] == authored["instructions"]
+    assert snapshot["notes"] == authored["notes"] and snapshot["blocks"] == original["blocks"]
+    assert snapshot["blocks"][0]["exercises"][0]["instructions"] == "Keep heels down"
+    replay = await data_api.client.post("/api/v1/workouts/sessions", json=payload, headers=GENERATION)
+    assert replay.status_code == 200 and replay.json() == recorded.json()
+    async with data_api.sessions() as db:
+        assert (await db.get(WorkoutRecord, row["id"])).content == original
+        assert (await db.scalar(select(WorkoutVersion).where(WorkoutVersion.workout_id == row["id"]))).content == original
+
+
 def session_payload(row, **changes):
     payload = {
         "client_session_id": str(uuid4()),

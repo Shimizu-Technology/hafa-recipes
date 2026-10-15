@@ -648,10 +648,10 @@ it("a save acknowledged while backgrounded defers its cache refresh until foregr
 
 const recoveryCommand = { creation_key: "restore-workout", client_session_id: "recovered-result" };
 const gone = () => Object.assign(Error("Source removed"), { status: 404 });
-async function orphaned(storage = memory(), status = 404) {
+async function orphaned(storage = memory(), status = 404, prescription = fixture()) {
   const store = createTrainingStore(storage, "owner", 1, () => 10000);
   await store.load();
-  await store.start(fixture(), { workout_id: "workout", workout_revision: 3 }, "orphan");
+  await store.start(prescription, { workout_id: "workout", workout_revision: 3 }, "orphan");
   await store.log(next(store)); await store.activityType("strength_training"); await store.finish("partial");
   await store.sync(async () => { throw Object.assign(Error("Rejected"), { status }); });
   return { store, storage, original: JSON.parse(JSON.stringify(store.snapshot().history[0])) };
@@ -663,13 +663,24 @@ const recoverSend = (status = 404) => vi.fn(async (request: SessionRequest) => {
   return syncResponse(request);
 });
 it.each([404, 410])("explicit recovery after%i saves one new result and retains original bytes", async status => {
-  const { store, original } = await orphaned(memory(), status);
+  const prescription: Workout = { ...fixture(), instructions: ["Rest after each round."], notes: ["Private workout note"],
+    source_context: { parts: [{ location: "caption", text: "PRIVATE ACQUIRED CAPTION" }], truncated: false },
+    blocks: fixture().blocks.map(block => ({ ...block, exercises: block.exercises.map(exercise => ({ ...exercise,
+      instructions: "Keep heels down.", notes: "Private exercise note" })) })) };
+  const { store, original } = await orphaned(memory(), status, prescription);
+  const originalBytes = JSON.stringify(original);
   const create = restoreWorkout(), send = recoverSend(status);
   await store.recoverResult("orphan", recoveryCommand, create, send, () => true);
   expect(create).toHaveBeenCalledOnce(); expect(create.mock.calls[0][1]).toBe(recoveryCommand.creation_key);
+  expect(create.mock.calls[0][0]).toMatchObject({ source_context: null,
+    instructions: prescription.instructions, notes: prescription.notes });
+  expect(create.mock.calls[0][0].blocks[0].exercises[0]).toMatchObject({ instructions: "Keep heels down.", notes: "Private exercise note" });
   expect(store.snapshot().history).toHaveLength(1);
   const recovered = store.snapshot().history[0];
   expect(recovered.recovery_origin).toEqual({ request: original.request, workout: original.workout });
+  expect(recovered.recovery_origin?.workout.source_context).toEqual(prescription.source_context);
+  expect(recovered.workout.source_context).toBeNull();
+  expect(JSON.stringify(original)).toBe(originalBytes);
   expect(recovered.request).toEqual({ ...original.request, client_session_id: "recovered-result",
     workout_id: "restored-private", workout_revision: 1 });
   expect(recovered.state).toBe("synced"); expect(selectProgressSessions([recovered], [], 1).sessions).toHaveLength(1);
@@ -752,15 +763,16 @@ it("account change after workout acceptance cannot register or upload into a dif
 
 it("restored prescriptions remove source covers/evidence/generated claims without changing the original", () => {
   const original = { ...fixture(), provenance: "suggestion" as const, source_thumbnail_url: "https://old.example/cover",
-    instructions: ["Repeat in order."],
+    instructions: ["Repeat in order."], notes: ["Private workout note"],
+    source_context: { parts: [{ location: "caption", text: "PRIVATE ACQUIRED CAPTION" }], truncated: false },
     blocks: fixture().blocks.map(block => ({ ...block, evidence: [{ field: "name", wording: "Private evidence" }],
       exercises: block.exercises.map(exercise => ({ ...exercise, provenance: "suggestion" as const,
-        instructions: "Keep heels down.", evidence: [{ field: "name", wording: "Private evidence" }] })) })) };
+        instructions: "Keep heels down.", notes: "Private exercise note", evidence: [{ field: "name", wording: "Private evidence" }] })) })) };
   const before = JSON.stringify(original), content = restoredPrescription(original);
-  expect(content).toMatchObject({ provenance: "user", source_thumbnail_url: null, instructions: ["Repeat in order."] });
+  expect(content).toMatchObject({ provenance: "user", source_thumbnail_url: null, source_context: null, instructions: ["Repeat in order."], notes: ["Private workout note"] });
   expect(content).not.toHaveProperty("id"); expect(content).not.toHaveProperty("generation");
   expect(content.blocks[0]).toMatchObject({ evidence: [] });
-  expect(content.blocks[0].exercises[0]).toMatchObject({ provenance: "user", evidence: [], instructions: "Keep heels down." });
+  expect(content.blocks[0].exercises[0]).toMatchObject({ provenance: "user", evidence: [], instructions: "Keep heels down.", notes: "Private exercise note" });
   expect(JSON.stringify(original)).toBe(before);
 });
 it("rejected corrections are never turned into independent duplicate training", async () => {

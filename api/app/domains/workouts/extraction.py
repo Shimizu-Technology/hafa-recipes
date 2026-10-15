@@ -25,6 +25,7 @@ from pydantic import Field, ValidationError, model_validator
 from app.domains.workouts.budget import BudgetError, BudgetGuard, BudgetPolicy, ProviderEnvelope
 from app.domains.workouts.execution import is_amrap, supports_amrap
 from app.domains.workouts.schemas import DomainModel, Evidence, WorkoutContent
+from app.domains.workouts.source_context import retain_source_context
 from app.image_validation import (
     ImageValidationError,
     decode_and_validate_base64_image,
@@ -44,7 +45,7 @@ MAX_EXTRACTION_SECONDS = 210
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 PROMPT_VERSION = "workout-extraction-evidence-v6"
 SCHEMA_VERSION = "workout-prescription-v2"
-SERVER_CONTENT_FIELDS = {"extraction_warnings", "source_thumbnail_url"}
+SERVER_CONTENT_FIELDS = {"extraction_warnings", "source_thumbnail_url", "source_context"}
 
 
 class ExtractionImage(DomainModel):
@@ -243,6 +244,8 @@ def _provider_workout_schema():
     schema["required"] = [
         key for key in schema.get("required", []) if key not in SERVER_CONTENT_FIELDS
     ]
+    for key in ("SourceContext", "SourceTextPart"):
+        schema.get("$defs", {}).pop(key, None)
     return schema
 
 
@@ -1624,6 +1627,8 @@ class WorkoutExtractor:
                 source.metadata.coverage_notes.append("Additional media reached the extraction time limit.")
 
         def draft(bundle, code, warning):
+            if request.text and not any(part.location == "provided_text" for part in bundle.parts):
+                bundle.parts.append(SourcePart("provided_text", request.text))
             return self._draft(bundle, code, warning, request.kind)
 
         try:
@@ -1684,9 +1689,9 @@ class WorkoutExtractor:
                         )
                 elif request.document_mime in {"text/plain", "text/markdown"}:
                     text = data.decode("utf-8")
+                    source.parts.append(SourcePart("document_text", text))
                     if len(text) > MAX_TEXT_CHARS:
                         raise ExtractionFailure("document_text_limit")
-                    source.parts.append(SourcePart("document_text", text))
                     source.metadata.channels.append("document_text")
                 else:
                     return draft(
@@ -1744,6 +1749,7 @@ class WorkoutExtractor:
                         "Additional media could not improve extraction; supported caption facts were kept."
                     )
             workout.capture_kind = request.kind
+            retain_source_context(workout, source)
             warnings = source.warnings + warnings
             if _missing_source_movements(workout, source):
                 warnings.append(
@@ -1802,14 +1808,14 @@ class WorkoutExtractor:
     ) -> WorkoutExtractionResult:
         return WorkoutExtractionResult(
             status="incomplete",
-            workout=WorkoutContent(
+            workout=retain_source_context(WorkoutContent(
                 title=source.metadata.title or "Workout source draft",
                 provenance="source",
                 source_url=source.metadata.url,
                 source_title=source.metadata.title,
                 source_creator=source.metadata.creator,
                 capture_kind=capture_kind,
-            ),
+            ), source),
             warnings=source.warnings + [warning],
             source=source.metadata,
             error_code=code,
