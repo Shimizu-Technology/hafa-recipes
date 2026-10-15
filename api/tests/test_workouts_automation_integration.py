@@ -191,7 +191,7 @@ async def enqueue(api, request_id=None, text=TEXT):
     )
 
 
-async def test_reextract_updates_existing_version_once_and_preserves_private_notes_and_actuals(automation_api):
+async def test_reextract_updates_existing_version_once_and_preserves_private_notes_and_actuals(automation_api, monkeypatch):
     from app.domains.workouts.models import WorkoutVersion
     from tests.test_workouts_data_integration import WORKOUT, session_payload
 
@@ -208,7 +208,20 @@ async def test_reextract_updates_existing_version_once_and_preserves_private_not
     body = {"request_id": str(uuid4()), "source": {"kind": "text", "text": TEXT, "ai_consent": True}, "replace_target": target}
     queued = await api.client.post("/api/v1/workouts/imports", json=body, headers=GENERATION)
     assert queued.status_code == 202 and queued.json()["replace_target"] == target
+    stages = []
+    report_progress = api.worker.report_progress
+
+    async def checked_progress(*args):
+        await report_progress(*args)
+        async with api.sessions() as db:
+            row = await db.get(WorkoutImport, queued.json()["id"])
+            assert row.payload["_replace"] == target
+            assert row.payload["text"] == TEXT
+            stages.append(row.payload["_progress"])
+
+    monkeypatch.setattr(api.worker, "report_progress", checked_progress)
     await api.worker.tick()
+    assert stages == ["reading_source", "extracting_workout", "saving_workout"]
     job_id = queued.json()["id"]
     job = (await api.client.get(f"/api/v1/workouts/imports/{job_id}")).json()
     assert job["accepted_workout_id"] is None and job["status"] in {"ready", "incomplete"}
