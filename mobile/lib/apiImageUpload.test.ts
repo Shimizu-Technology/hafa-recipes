@@ -160,6 +160,28 @@ describe('recipe image multipart requests', () => {
     } finally { api.setTokenGetter(null); }
   });
 
+  it.each(['clear', 'replace'] as const)('retires a held delete token when legacy auth callers %s credentials', async action => {
+    let finishToken!: (token: string) => void;
+    api.setAuthContext(() => new Promise<string>(resolve => { finishToken = resolve; }), 'owner-a');
+    const admittedScope = api.getAuthScope();
+    const guard = () => { if (api.getAuthScope() !== admittedScope) throw new Error('Root authentication changed'); };
+    const transport = vi.fn(async () => ({ data: { id: 'recipe-a' } }));
+    const interceptor = mocks.client.interceptors.request.use.mock.calls[0][0];
+    mocks.client.delete.mockImplementationOnce(async (url, config) => {
+      await interceptor({ ...config, url, headers: {} }); return transport();
+    });
+    try {
+      const pending = api.deleteRecipe('recipe-a', guard); void pending.catch(() => undefined);
+      for (let tick = 0; tick < 20 && !finishToken; tick += 1) await Promise.resolve();
+      api.setTokenGetter(action === 'clear' ? null : async () => 'unidentified-token');
+      finishToken('held-owner-a-token');
+      await expect(pending).rejects.toThrow('Root authentication changed');
+      expect(transport).not.toHaveBeenCalled();
+      expect(api.getAuthScope().userId).toBeNull();
+      expect(api.getAuthScope()).not.toBe(admittedScope);
+    } finally { api.setAuthContext(null, null); }
+  });
+
   it('keeps root request authority across token refreshes but retires it at sign-out and account changes', () => {
     try {
       api.setAuthContext(async () => 'token-a', 'owner-a');
