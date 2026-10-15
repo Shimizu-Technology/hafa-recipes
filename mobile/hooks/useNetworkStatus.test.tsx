@@ -1,14 +1,14 @@
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const f = vi.hoisted(() => ({ fetch: vi.fn(), listener: null as null | ((state: unknown) => void), unsubscribe: vi.fn() }));
-vi.mock('@react-native-community/netinfo', () => ({ default: { fetch: async () => ({ isConnected: true, isInternetReachable: true, type: 'wifi' }), addEventListener: (listener: (state: unknown) => void) => { f.listener = listener; return f.unsubscribe; } } }));
+const f = vi.hoisted(() => ({ fetch: vi.fn(), networkFetch: vi.fn(), listener: null as null | ((state: unknown) => void), unsubscribe: vi.fn() }));
+vi.mock('@react-native-community/netinfo', () => ({ default: { fetch: () => f.networkFetch(), addEventListener: (listener: (state: unknown) => void) => { f.listener = listener; return f.unsubscribe; } } }));
 vi.mock('@/lib/apiConfig', () => ({ API_BASE_URL: 'https://example.test' }));
 import { useNetworkStatus } from './useNetworkStatus';
 let view: ReactTestRenderer | undefined, status: ReturnType<typeof useNetworkStatus>;
 function Probe() { status = useNetworkStatus(); return null; }
 const flush = async () => { await act(async () => { await Promise.resolve(); await Promise.resolve(); }); };
-beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; vi.useFakeTimers(); f.fetch.mockReset(); f.fetch.mockResolvedValue({ ok: true }); vi.stubGlobal('fetch', f.fetch); f.unsubscribe.mockReset(); });
+beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; vi.useFakeTimers(); f.networkFetch.mockReset().mockResolvedValue({ isConnected: true, isInternetReachable: true, type: 'wifi' }); f.fetch.mockReset(); f.fetch.mockResolvedValue({ ok: true }); vi.stubGlobal('fetch', f.fetch); f.unsubscribe.mockReset(); });
 afterEach(async () => { if (view) await act(async () => view!.unmount()); view = undefined; vi.unstubAllGlobals(); vi.useRealTimers(); });
 it('returns the actual retry promise/result and marks an explicit failed check immediately', async () => {
   await act(async () => { view = create(<Probe />); }); await flush(); expect(status.isApiReachable).toBe(true);
@@ -54,4 +54,16 @@ it('aborts an in-flight health check and clears its timer when unmounted', async
   }));
   await act(async () => { view = create(<Probe />); }); await flush(); expect(signal.aborted).toBe(false);
   await act(async () => view!.unmount()); view = undefined; expect(signal.aborted).toBe(true); expect(vi.getTimerCount()).toBe(0);
+});
+
+it.each([false, null])('ignores a delayed initial snapshot after a newer network event (%s)', async connected => {
+  let release!: (state: unknown) => void;
+  f.networkFetch.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  await act(async () => { view = create(<Probe />); }); await flush();
+  await act(async () => f.listener!({ isConnected: connected, isInternetReachable: connected, type: connected === false ? 'none' : 'unknown' }));
+  await act(async () => { release({ isConnected: true, isInternetReachable: true, type: 'wifi' }); }); await flush();
+  expect(status.isConnected).toBe(connected);
+  expect(status.isApiReachable).toBe(connected === false ? false : null);
+  expect(status.isOnline).toBe(false);
+  expect(f.fetch).not.toHaveBeenCalled();
 });

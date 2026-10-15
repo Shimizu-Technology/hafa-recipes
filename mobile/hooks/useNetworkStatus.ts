@@ -118,11 +118,13 @@ export function useNetworkStatus() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    let receivedNetworkEvent = false;
     isMountedRef.current = true;
 
     // Get initial network state
     NetInfo.fetch().then((state: NetInfoState) => {
-      if (!isMountedRef.current) return;
+      if (!active || receivedNetworkEvent || !isMountedRef.current) return;
       
       setNetworkStatus(prev => ({
         ...prev,
@@ -139,7 +141,8 @@ export function useNetworkStatus() {
 
     // Subscribe to network changes
     const unsubscribe = NetInfo.addEventListener((state: NetInfoState) => {
-      if (!isMountedRef.current) return;
+      if (!active || !isMountedRef.current) return;
+      receivedNetworkEvent = true;
       
       setNetworkStatus(prev => ({
         ...prev,
@@ -165,6 +168,7 @@ export function useNetworkStatus() {
     });
 
     return () => {
+      active = false;
       isMountedRef.current = false;
       checkEpoch.current += 1;
       unsubscribe();
