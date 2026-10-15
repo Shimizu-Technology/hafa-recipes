@@ -73,9 +73,15 @@ export default function WorkoutHistory() {
     finally { if (working.current === operation) working.current = null; if (current()) setBusy(false); }
   }
   const workout = selected?.workout;
-  return <Screen back title="Version history." subtitle="Restore an earlier prescription as a new version. Recorded sessions and plans keep their original workout.">
-    {!!error && <Notice error>{error}</Notice>}
-    {conflict && <Button title="Reload latest workout" busy={busy} onPress={() => { void reload(); }} />}
+  return <Screen back title="Version history." subtitle="Restore an earlier prescription as a new version. Recorded sessions and plans keep their original workout."
+    footer={selected && <>
+      {!!error && <Notice error>{error}</Notice>}
+      {conflict ? <Button title="Reload latest workout" busy={busy} onPress={() => { void reload(); }} /> :
+        <Button title={command ? "Retry restoring this version" : "Restore as new version"} busy={busy}
+          disabled={!q.data || !!q.error || selected.revision === q.data.revision} onPress={() => { void restore(); }} />}
+      {!!command && !conflict && <Button title="Reload latest workout" secondary busy={busy} onPress={() => { void reload(); }} />}
+    </>}>
+    {!selected && !!error && <Notice error>{error}</Notice>}
     <QueryState loading={q.isPending || versions.isPending} error={q.error ?? versions.error} retry={() => { void q.refetch(); void versions.refetch(); }}>
       {!selected && <>
         <SectionHeader title={q.data ? `Current · Version ${q.data.revision}` : "Saved versions"} />
@@ -101,10 +107,7 @@ export default function WorkoutHistory() {
         <WorkoutSource source={workout} />
         {!!workout.source_url && <Copy kind="small" tone="muted">{workout.source_url}</Copy>}
         <Copy kind="small" tone="muted">This restores the selected version’s instructions, source and notes. Your organization stays the same.</Copy>
-        {!conflict && <Button title={command ? "Retry restoring this version" : "Restore as new version"} busy={busy}
-          disabled={selected.revision === q.data?.revision} onPress={() => { void restore(); }} />}
       </>}
     </QueryState>
-    {!!command && !conflict && <Button title="Reload latest workout" secondary busy={busy} onPress={() => { void reload(); }} />}
   </Screen>;
 }

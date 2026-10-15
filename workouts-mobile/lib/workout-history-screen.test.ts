@@ -1,4 +1,4 @@
-import { createContext, createElement, startTransition, Suspense, useContext, type Context, type PropsWithChildren } from "react";
+import { createContext, createElement, startTransition, Suspense, useContext, type Context, type PropsWithChildren, type ReactNode } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -11,7 +11,10 @@ vi.mock("@/lib/context", () => ({ useTraining: () => ({
   storage: { isCurrent: () => f.current }, isCurrentAccount: () => f.current,
 }) }));
 vi.mock("expo-router", () => ({ router: { dismissTo: f.dismissTo }, useLocalSearchParams: () => ({ id: useContext(f.paramsContext!) }) }));
-vi.mock("@/components/ui", () => ({ Screen: "Screen", Button: "Button", Card: "Card", Copy: "Copy", Notice: "Notice", SectionHeader: "SectionHeader" }));
+vi.mock("@/components/ui", () => ({
+  Screen: ({ children, footer }: PropsWithChildren<{ footer?: ReactNode }>) => createElement("Screen", null, children, footer),
+  Button: "Button", Card: "Card", Copy: "Copy", Notice: "Notice", SectionHeader: "SectionHeader",
+}));
 vi.mock("@/components/query-state", () => ({ QueryState: ({ children }: PropsWithChildren) => children }));
 vi.mock("@/components/workout-instructions", () => ({ WorkoutInstructions: "Instructions" }));
 vi.mock("@/components/workout-source", () => ({ WorkoutSource: "Source" }));
