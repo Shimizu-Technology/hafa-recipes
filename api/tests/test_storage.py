@@ -863,3 +863,56 @@ def test_workout_public_projection_only_exposes_canonical_link_preview(monkeypat
     content["source_thumbnail_url"] = f"{base}{identifier}/{'a' * 64}/hero.webp"
     assert "source_thumbnail_url" not in project_workout(content, include_source_url=True)[0]
     assert "source_thumbnail_url" not in validated_workout(WorkoutContent(title="Legacy workout"))
+
+
+@pytest.mark.asyncio
+async def test_private_coach_image_uses_exact_private_key_and_bounded_owner_read(monkeypatch):
+    from uuid import uuid4
+
+    from app.image_validation import ValidatedImage
+
+    fake = RecordingS3()
+    signed = []
+    def sign(operation, **options):
+        signed.append((operation, options))
+        return "https://signed.test/private"
+    monkeypatch.setattr(storage, "get_settings", lambda: SimpleNamespace(
+        s3_enabled=True, s3_bucket_name="recipe-images", aws_region="us-west-2"))
+    service = StorageService()
+    service._workouts_thumbnail_client = fake
+    service._presign_client = SimpleNamespace(generate_presigned_url=sign)
+    identifier = uuid4()
+    image = ValidatedImage(b"prepared", "image/webp", 8, 8)
+    await service.store_private_coach_image_locked(identifier, image)
+    assert fake.puts == [{"Bucket": "recipe-images", "Key": f"workout-coach-images/{identifier}/image.webp",
+                          "Body": b"prepared", "ContentType": "image/webp", "CacheControl": "private, no-store"}]
+    assert "ACL" not in fake.puts[0]
+    assert service.private_coach_image_url(identifier) == "https://signed.test/private"
+    assert signed == [("get_object", {"Params": {"Bucket": "recipe-images", "Key": f"workout-coach-images/{identifier}/image.webp"}, "ExpiresIn": 60})]
+
+
+@pytest.mark.asyncio
+async def test_private_coach_image_cancellation_waits_for_the_exact_writer(monkeypatch):
+    import asyncio
+    import threading
+    from uuid import uuid4
+
+    from app.image_validation import ValidatedImage
+
+    entered, release = threading.Event(), threading.Event()
+    def put(**_kwargs):
+        entered.set()
+        assert release.wait(timeout=5)
+    monkeypatch.setattr(storage, "get_settings", lambda: SimpleNamespace(s3_enabled=True, s3_bucket_name="recipe-images"))
+    service = StorageService()
+    service._workouts_thumbnail_client = SimpleNamespace(put_object=put)
+    writing = asyncio.create_task(service.store_private_coach_image_locked(uuid4(), ValidatedImage(b"prepared", "image/webp", 8, 8)))
+    try:
+        assert await asyncio.to_thread(entered.wait, 2)
+        writing.cancel()
+        await asyncio.sleep(0)
+        assert not writing.done()  # Caller cannot release owner/media lock yet.
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await writing

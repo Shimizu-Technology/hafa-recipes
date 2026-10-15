@@ -692,6 +692,45 @@ class StorageService:
             print(f"❌ Unexpected error uploading thumbnail: {e}")
             return None
 
+    async def store_private_coach_image_locked(self, identifier: UUID, image) -> None:
+        """Caller holds owner/asset locks and committed an exact cleanup receipt.
+
+        Like private Recipes chat objects, this never sets public-read ACLs.
+        The prepared image must already be validated/re-encoded metadata-free.
+        """
+        if not self.is_enabled:
+            raise StorageCleanupError("Private object storage unavailable")
+        key = f"workout-coach-images/{UUID(str(identifier))}/image.webp"
+        client = self.workouts_thumbnail_client
+        write = asyncio.create_task(asyncio.to_thread(client.put_object,
+            Bucket=self.bucket_name, Key=key, Body=image.data, ContentType="image/webp",
+            CacheControl="private, no-store"))
+        try:
+            await asyncio.shield(write)
+        except asyncio.CancelledError:
+            while not write.done():
+                try:
+                    await asyncio.shield(write)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break
+            if write.done() and not write.cancelled():
+                write.exception()
+            raise
+
+    def private_coach_image_url(self, identifier: UUID, *, expires_in: int = 60) -> Optional[str]:
+        """Only an authorized registry lookup may sign this private namespace."""
+        if not self.is_enabled or self.presign_client is None:
+            return None
+        try:
+            return self.presign_client.generate_presigned_url("get_object", Params={
+                "Bucket": self.bucket_name,
+                "Key": f"workout-coach-images/{UUID(str(identifier))}/image.webp",
+            }, ExpiresIn=min(60, max(1, expires_in)))
+        except Exception:
+            return None
+
     async def upload_chat_image(
         self,
         image_base64: str,
