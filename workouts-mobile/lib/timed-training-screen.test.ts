@@ -209,3 +209,26 @@ it("an old logged entry acknowledgement cannot clear a newer same-store session 
   expect(store.snapshot().active!.actuals).toEqual([]);
   expect(fixture.replace).not.toHaveBeenCalled(); expect(fixture.saveSession).not.toHaveBeenCalled();
 });
+
+
+it("a delayed log acknowledgement preserves the next cursor's edited reps and notes", async () => {
+  await recordedThenTyped();
+  const store = fixture.store!, log = store.log;
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  vi.spyOn(store, "log").mockImplementation(async actual => { await log(actual); await held; });
+  const session = store.snapshot().active!.id, cursor = store.snapshot().active!.cursor;
+  await act(async () => { footer().props.onPress(); }); await settle();
+  expect(store.snapshot().active!.id).toBe(session);
+  expect(store.snapshot().active!.cursor).toBe(cursor + 1);
+  await act(async () => { action("Add load or feedback").props.onPress(); }); await settle();
+  await act(async () => { field("Actual reps").props.onChange("6"); field("Set notes").props.onChange("Next cursor entry"); }); await settle();
+  expect(store.snapshot().active!.input).toMatchObject({ reps: "6", notes: "Next cursor entry" });
+  await act(async () => { release(); }); await settle();
+  expect(field("Actual reps").props.value).toBe("6");
+  expect(field("Set notes").props.value).toBe("Next cursor entry");
+  expect(store.snapshot().active!.input).toMatchObject({ reps: "6", notes: "Next cursor entry" });
+  // Use the retained UI ref on the next real log, not merely persisted state.
+  await act(async () => { footer().props.onPress(); }); await settle();
+  expect(store.snapshot().active!.actuals.at(-1)).toMatchObject({ reps: 6, notes: "Next cursor entry" });
+});

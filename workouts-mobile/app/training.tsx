@@ -158,7 +158,8 @@ export default function Training() {
   async function log(completed: boolean) {
     if (!current() || !step || !store || store.snapshot().active?.id !== d!.id)
       throw Error("This session changed. Review the current session before logging.");
-    const optional = (key: string) => (inputRef.current[key]?.trim() ? Number(inputRef.current[key]) : null);
+    const submitted = inputRef.current;
+    const optional = (key: string) => (submitted[key]?.trim() ? Number(submitted[key]) : null);
     const load = optional("load");
     const distance = optional("distance");
     const actual: ActualSet = {
@@ -173,16 +174,20 @@ export default function Training() {
       distance_meters: distance == null ? null : units === "imperial" ? distance * 1609.344 : distance,
       load,
       load_unit: load == null ? null : unit,
-      load_convention: load == null ? null : (inputRef.current.convention as ActualSet["load_convention"]) || null,
-      difficulty: (inputRef.current.difficulty as ActualSet["difficulty"]) || null,
+      load_convention: load == null ? null : (submitted.convention as ActualSet["load_convention"]) || null,
+      difficulty: (submitted.difficulty as ActualSet["difficulty"]) || null,
       effort: optional("effort"),
-      pain_reported: inputRef.current.pain === "yes" ? true : inputRef.current.pain === "no" ? false : null,
-      notes: inputRef.current.notes || null,
+      pain_reported: submitted.pain === "yes" ? true : submitted.pain === "no" ? false : null,
+      notes: submitted.notes || null,
     };
     await store.log(actual);
     if (!sameSession()) return;
-    inputRef.current = {};
-    setInput({});
+    // Cursor hydration or a newer edit may already own these shared UI refs.
+    // Ownership follows the input object, rather than depending on cursor movement.
+    if (inputRef.current === submitted) {
+      inputRef.current = {};
+      setInput({});
+    }
     if (completed) haptics.light();
   }
   async function finish(status: "completed" | "partial", discardUnlogged = false) {
