@@ -128,6 +128,10 @@ vi.mock("react-native", () => ({
   Platform: { get OS() { return fixture.os; } },
   View: "View",
   Image: "Image",
+  Modal: "Modal",
+  Pressable: "Pressable",
+  ScrollView: "ScrollView",
+  useWindowDimensions: () => ({ width: 390, height: 844 }),
   Alert: { alert: fixture.alert },
   AppState: { currentState: "active", addEventListener: (_event: string, listener: (state: string) => void) => {
     fixture.foreground.add(listener); return { remove: () => fixture.foreground.delete(listener) };
@@ -138,6 +142,7 @@ vi.mock("@/components/native-share-session", () => ({ useNativeShareSession() {}
 vi.mock("@/modules/hafa-workouts-share/src", () => ({
   get nativeSharingAvailable() { return fixture.nativeSharing; }, captures: fixture.nativeCaptures, acknowledge: fixture.nativeAck,
 }));
+vi.mock("react-native-safe-area-context", () => ({ SafeAreaView: "SafeAreaView" }));
 vi.mock("@/components/source-image", () => ({ SourceImage: "SourceImage" }));
 vi.mock("@/lib/capture-io", () => ({
   normalizeImages: fixture.normalizeImages,
@@ -155,6 +160,7 @@ vi.mock("expo-router", () => ({
 vi.mock("expo-crypto", () => ({ randomUUID: () => `command-${++fixture.next}` }));
 vi.mock("@/components/ui", () => ({
   Screen: ({ children, footer }: PropsWithChildren<{ footer?: ReactNode }>) => createElement("Screen", null, children, footer),
+  useColors: () => ({ background: "#000" }),
   Card: "Card",
   Copy: "Copy",
   Field: "Field",
@@ -2627,4 +2633,35 @@ it("keeps source captions and transcripts collapsed and stages explicit clearing
   expect(nodes("Field").find(node => node.props.label.startsWith("Workout instructions"))!.props.value).toBe("Rest after each round");
   expect(nodes("Field").find(node => node.props.label === "Private notes · only you")!.props.value).toBe("PRIVATE OWNER NOTE");
   expect(content.source_context!.parts).toHaveLength(3);
+});
+
+// Exercise the real shared image viewer within the existing mounted form harness.
+it.each([
+  undefined, null, {}, { width: 0, height: 100 }, { width: 100, height: 0 },
+  { width: -1, height: 100 }, { width: 100, height: -1 },
+  { width: Infinity, height: 100 }, { width: 100, height: Infinity },
+  { width: NaN, height: 100 }, { width: 100, height: NaN },
+  { width: "100", height: 200 }, { width: Number.MIN_VALUE, height: Number.MAX_VALUE },
+])("source image ignores missing or invalid load dimensions: %j", async (source) => {
+  const { SourceImage } = await vi.importActual<typeof import("../components/source-image")>("../components/source-image");
+  await mount(() => createElement(SourceImage, { uri: "https://example.test/source.webp", label: "Source" }));
+  await act(async () => nodes("Image")[0].props.onLoad({ nativeEvent: { source } }));
+  expect(nodes("Image")[1].props.style).toMatchObject({ width: 390, height: 390 });
+  await act(async () => nodes("Pressable")[0].props.onPress());
+  expect(nodes("Modal")[0].props.visible).toBe(true);
+  await click("Zoom in");
+  expect(nodes("Image")[1].props.style).toMatchObject({ width: 585, height: 585 });
+});
+
+it("source image preserves native portrait and landscape aspect ratios while zooming", async () => {
+  const { SourceImage } = await vi.importActual<typeof import("../components/source-image")>("../components/source-image");
+  await mount(() => createElement(SourceImage, { uri: "https://example.test/source.webp", label: "Source" }));
+  await act(async () => nodes("Image")[0].props.onLoad({ nativeEvent: { source: { width: 600, height: 1200 } } }));
+  expect(nodes("Image")[1].props.style).toMatchObject({ width: 390, height: 780 });
+  await click("Zoom in");
+  expect(nodes("Image")[1].props.style).toMatchObject({ width: 585, height: 1170 });
+  await act(async () => nodes("Image")[0].props.onLoad({ nativeEvent: { source: { width: 1200, height: 600 } } }));
+  expect(nodes("Image")[1].props.style).toMatchObject({ width: 585, height: 292.5 });
+  await act(async () => nodes("Image")[0].props.onLoad({ nativeEvent: {} }));
+  expect(nodes("Image")[1].props.style.height).toBe(292.5);
 });

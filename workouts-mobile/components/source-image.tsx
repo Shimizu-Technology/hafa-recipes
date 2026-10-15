@@ -25,8 +25,11 @@ export function SourceImage({ uri, label }: { uri: string; label: string }) {
           accessibilityLabel={label}
           onError={() => setFailed(true)}
           onLoad={(event) => {
-            const source = event.nativeEvent.source;
-            if (source.width > 0) setRatio(source.height / source.width);
+            const source = event.nativeEvent?.source;
+            if (Number.isFinite(source?.width) && Number.isFinite(source?.height) && source.width > 0 && source.height > 0) {
+              const nextRatio = source.height / source.width;
+              if (Number.isFinite(nextRatio) && nextRatio > 0) setRatio(nextRatio);
+            }
           }}
           style={{ width: "100%", height: 260, resizeMode: "contain" }}
         />
