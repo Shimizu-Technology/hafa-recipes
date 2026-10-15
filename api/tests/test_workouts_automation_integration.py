@@ -214,7 +214,8 @@ async def test_reextract_updates_existing_version_once_and_preserves_private_not
     saved = first.json()
     assert saved["id"] == created["id"] and saved["revision"] == 2
     assert saved["content"]["blocks"][0]["exercises"][0]["notes"] == "Use my comfortable stance"
-    assert "Private workout note" in saved["content"]["notes"] and "Row: Private row cue" in saved["content"]["notes"]
+    assert "Private workout note" in saved["content"]["notes"]
+    assert any("Row" in note and "Private row cue" in note for note in saved["content"]["notes"])
     retry = await api.client.post(path, json=request, headers=GENERATION)
     assert retry.status_code == 200 and retry.json() == saved
     assert (await api.client.post(path, json={"acknowledge_warnings": True}, headers=GENERATION)).status_code == 409
@@ -1436,3 +1437,83 @@ async def test_zero_exercise_auto_import_can_be_cleared_without_creating_a_worko
         job = await db.get(WorkoutImport, queued.json()["id"])
         assert job.payload is None
         assert await db.scalar(select(func.count()).select_from(WorkoutRecord)) == 0
+
+
+async def test_reextract_repeated_names_keep_qualified_private_notes_instead_of_reassigning_by_order(automation_api):
+    from tests.test_workouts_data_integration import WORKOUT
+
+    api = automation_api
+    await consent(api)
+    old = {**WORKOUT, "blocks": [
+        {"id": "first", "label": "Warmup", "exercises": [
+            {"name": "Squat", "reps_min": 5, "notes": "Warmup stance"},
+            {"name": "Row", "reps_min": 5, "notes": "Unique row cue"}]},
+        {"id": "last", "label": "Heavy", "exercises": [
+            {"name": "Squat", "reps_min": 8, "notes": "Heavy stance"},
+            {"name": "Press", "reps_min": 5, "notes": "Unmatched press cue"}]},
+    ]}
+    created = (await api.client.post("/api/v1/workouts/library", headers=GENERATION, json=old)).json()
+    body = {"request_id": str(uuid4()), "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+            "replace_target": {"workout_id": created["id"], "expected_revision": 1}}
+    queued = await api.client.post("/api/v1/workouts/imports", json=body, headers=GENERATION)
+    await api.worker.tick()
+    job_id = queued.json()["id"]
+    async with api.sessions.begin() as db:
+        job = await db.get(WorkoutImport, job_id)
+        result = dict(job.result)
+        result["workout"] = {**result["workout"], "blocks": [
+            {"id": "new-heavy", "label": "Heavy first", "exercises": [{"name": "Squat", "reps_min": 8}]},
+            {"id": "new-warmup", "label": "Warmup last", "exercises": [
+                {"name": "Squat", "reps_min": 5}, {"name": "Row", "reps_min": 5}]},
+        ]}
+        job.result = result
+    saved = await api.client.post(f"/api/v1/workouts/imports/{job_id}/accept", headers=GENERATION,
+                                 json={"update_existing": True, "acknowledge_warnings": True})
+    assert saved.status_code == 200, saved.text
+    content = saved.json()["content"]
+    assert all(not exercise["notes"] for block in content["blocks"] for exercise in block["exercises"] if exercise["name"] == "Squat")
+    assert content["blocks"][1]["exercises"][1]["notes"] == "Unique row cue"
+    assert content["notes"] == [
+        "Block 1 (Warmup), exercise 1 (Squat): Warmup stance",
+        "Block 2 (Heavy), exercise 1 (Squat): Heavy stance",
+        "Block 2 (Heavy), exercise 2 (Press): Unmatched press cue",
+    ]
+
+
+@pytest.mark.parametrize("update_existing", [True, False])
+async def test_reextract_final_size_failure_keeps_review_receipt_source_and_version_untouched(automation_api, monkeypatch, update_existing):
+    from app.domains.workouts import export_service, source_media
+    from app.domains.workouts.models import WorkoutVersion
+    from tests.test_workouts_data_integration import WORKOUT, near_record_limit_workout
+
+    api = automation_api
+    await consent(api)
+    created = (await api.client.post("/api/v1/workouts/library", headers=GENERATION, json=WORKOUT)).json()
+    body = {"request_id": str(uuid4()), "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+            "replace_target": {"workout_id": created["id"], "expected_revision": 1}}
+    queued = await api.client.post("/api/v1/workouts/imports", json=body, headers=GENERATION)
+    await api.worker.tick()
+    job_id = queued.json()["id"]
+    async with api.sessions.begin() as db:
+        job = await db.get(WorkoutImport, job_id)
+        job.result = {**job.result, "workout": near_record_limit_workout()}
+        before = (job.payload, job.result, job.accepted_workout_id, job.accepted_content_hash)
+    calls = []
+
+    async def early(*args, **kwargs):
+        calls.append(True)
+        raise AssertionError("Final bounds must precede retention and export invalidation")
+
+    monkeypatch.setattr(source_media, "retain_source_cover", early)
+    monkeypatch.setattr(export_service, "invalidate_export_snapshots", early)
+    rejected = await api.client.post(f"/api/v1/workouts/imports/{job_id}/accept", headers=GENERATION,
+                                    json={"update_existing": update_existing, "acknowledge_warnings": True})
+    assert rejected.status_code == 422, rejected.text
+    assert not calls
+    assert (await api.client.get(f"/api/v1/workouts/library/{created['id']}")).json() == created
+    source = await api.client.get(f"/api/v1/workouts/imports/{job_id}/source")
+    assert source.status_code == 200 and source.json()["source"]["text"] == TEXT
+    async with api.sessions() as db:
+        job = await db.get(WorkoutImport, job_id)
+        assert (job.payload, job.result, job.accepted_workout_id, job.accepted_content_hash) == before
+        assert await db.scalar(select(func.count()).select_from(WorkoutVersion)) == 1

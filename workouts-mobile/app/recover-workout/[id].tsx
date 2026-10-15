@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Crypto from "expo-crypto";
@@ -14,16 +14,15 @@ export default function RecoverWorkout() {
   const { api, owner, enrollment, storage, localDrafts, isCurrentAccount } = useTraining();
   const generation = enrollment?.generation ?? 0, scope = `source-recovery:${generation}:${id}`;
   const form = useMemo(() => createPrivateForm<SourceRecoveryInput, SourceRecoveryCommand>(storage, owner, scope), [storage, owner, scope]);
-  const live = useRef({ scope, owner, storage, epoch: 0 });
-  if (live.current.scope !== scope || live.current.owner !== owner || live.current.storage !== storage)
-    live.current = { scope, owner, storage, epoch: live.current.epoch + 1 };
-  const epoch = live.current.epoch;
+  const epoch = useMemo(() => ({}), [scope, owner, storage]);
+  const live = useRef(epoch);
+  useLayoutEffect(() => { live.current = epoch; }, [epoch]);
   const mounted = useRef(true), submitting = useRef(false);
   const [input, setInput] = useState<SourceRecoveryInput | null>(null);
   const [command, setCommand] = useState<SourceRecoveryCommand | null>(null);
   const [savedImport, setSavedImport] = useState<string>();
   const [loaded, setLoaded] = useState(false), [loadAttempt, setLoadAttempt] = useState(0);
-  const [readyEpoch, setReadyEpoch] = useState(-1);
+  const [readyEpoch, setReadyEpoch] = useState<object | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const cache = useQueryClient();
   const enabled = !!enrollment?.enrolled;
@@ -31,17 +30,19 @@ export default function RecoverWorkout() {
   const capabilities = useQuery({ queryKey: [owner, "capabilities", generation], queryFn: api.capabilities, enabled });
   const consent = useQuery({ queryKey: [owner, "ai-consent", generation], queryFn: api.aiConsent, enabled });
   function current() {
-    if (!mounted.current || live.current.epoch !== epoch || !storage.isCurrent() || !isCurrentAccount())
+    if (!mounted.current || live.current !== epoch || !storage.isCurrent() || !isCurrentAccount())
       throw Error("This workout or account changed. Recovery was stopped.");
   }
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  useEffect(() => {
+  function isCurrent() { try { current(); return true; } catch { return false; } }
+  useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useLayoutEffect(() => {
     let active = true;
+    submitting.current = false; setBusy(false);
     setLoaded(false); setInput(null); setCommand(null); setSavedImport(undefined); setError("");
     void form.load().then(box => {
       current(); if (!active) return;
       setInput(box.input); setCommand(box.command); setSavedImport(box.saved_id); setReadyEpoch(epoch); setLoaded(true);
-    }).catch(() => { if (active) setError("Could not restore this recovery draft. Try loading it again before continuing."); });
+    }).catch(() => { if (active && isCurrent()) setError("Could not restore this recovery draft. Try loading it again before continuing."); });
     return () => { active = false; };
   }, [form, loadAttempt, epoch]);
   useEffect(() => {
@@ -52,10 +53,10 @@ export default function RecoverWorkout() {
     if (!input || readyEpoch !== epoch || submitting.current || command || savedImport) return;
     try { current(); } catch { return; }
     const next = { ...input, ...patch }; setInput(next);
-    void form.save(next).catch(() => { if (mounted.current) setError("Could not keep this recovery draft on your device. Stay here until saved."); });
+    void form.save(next).catch(() => { if (isCurrent()) setError("Could not keep this recovery draft on your device. Stay here until saved."); });
   }
   async function recover(agree: boolean) {
-    if (submitting.current || !input || !loaded || readyEpoch !== epoch || !workout.data || !capabilities.data?.imports || !generation || savedImport) return;
+    if (!isCurrent() || submitting.current || !input || !loaded || readyEpoch !== epoch || !workout.data || !capabilities.data?.imports || !generation || savedImport) return;
     submitting.current = true; setBusy(true); setError("");
     try {
       current();
@@ -81,8 +82,8 @@ export default function RecoverWorkout() {
       await form.complete(frozen, job.id); current(); setSavedImport(job.id); setCommand(null);
       await cache.invalidateQueries({ queryKey: [owner, "imports"] }); current();
       router.replace({ pathname: "/import/[id]", params: { id: job.id } });
-    } catch (e) { if (mounted.current && storage.isCurrent() && isCurrentAccount()) setError((e as Error).message); }
-    finally { submitting.current = false; if (mounted.current) setBusy(false); }
+    } catch (e) { if (isCurrent()) setError((e as Error).message); }
+    finally { if (isCurrent()) { submitting.current = false; setBusy(false); } }
   }
   const locked = busy || readyEpoch !== epoch || !!command || !!savedImport;
   const needsConsent = !consent.data?.accepted || consent.data.disclosure_version !== 1;
@@ -93,7 +94,7 @@ export default function RecoverWorkout() {
       {workout.data && <Card compact><Copy kind="subheading">{workout.data.title}</Copy>
         <Copy kind="small">Review the extraction before updating this workout. Its earlier versions and recorded sessions stay saved. You can also save a separate copy.</Copy></Card>}
       {!loaded ? <Button title="Load recovery draft" secondary onPress={() => setLoadAttempt(value => value + 1)} /> : savedImport ?
-        <Button title="Open recovery import" onPress={() => router.replace({ pathname: "/import/[id]", params: { id: savedImport } })} /> : input && <>
+        <Button title="Open recovery import" onPress={() => { if (isCurrent()) router.replace({ pathname: "/import/[id]", params: { id: savedImport } }); }} /> : input && <>
           <Field label="Original source link" purpose="url" optional value={input.source_url} onChange={source_url => update({ source_url })} disabled={locked} />
           <Field label="Creator caption or transcript" multiline optional value={input.caption} onChange={caption => update({ caption })} disabled={locked} />
           {capabilities.data?.existing_workout_updates && <Choice label="Update this saved workout after review" selected={input.update_existing !== false} disabled={locked}

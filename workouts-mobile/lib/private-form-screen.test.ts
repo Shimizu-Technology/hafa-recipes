@@ -2500,3 +2500,60 @@ it.each(["instructions", "notes"] as const)("keeps oversized workout %s editable
   await click("Save to my library");
   expect(fixture.saveWorkout.mock.calls[0][0][field]).toEqual(["Rest as needed"]);
 });
+
+
+it.each(["recovery", "review"] as const)("an abandoned %s route render preserves its committed save acknowledgement", async kind => {
+  fixture.params = { id: "committed-A" };
+  fixture.capabilities.mockResolvedValue({ imports: true, existing_workout_updates: true });
+  fixture.workout.mockResolvedValue({ ...workout, source_url: "https://example.test/source" });
+  fixture.importJob.mockImplementation(async id => ({ id, generation: 1, status: "ready",
+    replace_target: { workout_id: "workout", expected_revision: 1 },
+    result: { status: "ready", workout, warnings: [], evidence: [], source: { platform: "text", channels: [], coverage_notes: [] } } }));
+  const held = deferred<Workout | { id: string; generation: number; status: string }>();
+  if (kind === "recovery") fixture.startImport.mockReturnValueOnce(held.promise);
+  else fixture.acceptImport.mockReturnValueOnce(held.promise);
+  let suspend = false, attempts = 0;
+  const waiting = new Promise<void>(() => undefined);
+  function Blocker() { if (suspend) { attempts++; throw waiting; } return null; }
+  const Component = kind === "recovery" ? RecoverWorkout : ImportReview;
+  function Source() { return createElement("CommittedRecovery", { id: fixture.params.id }, createElement(Component), createElement(Blocker)); }
+  function Harness() { return createElement(Suspense, { fallback: null }, createElement(Source)); }
+  await mount(Harness);
+  await click(kind === "recovery" ? "Recover as a private import" : "Update saved workout");
+  suspend = true; fixture.params = { id: "speculative-B" };
+  await act(async () => { startTransition(() => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Harness)))); });
+  expect(attempts).toBeGreaterThan(0);
+  expect(nodes("CommittedRecovery")[0].props.id).toBe("committed-A");
+  await act(async () => held.resolve(kind === "recovery" ? { id: "accepted-import", generation: 1, status: "queued" } : { ...workout, id: "accepted-workout" }));
+  await settle();
+  expect(fixture.replace).toHaveBeenCalledWith({ pathname: kind === "recovery" ? "/import/[id]" : "/workout/[id]",
+    params: { id: kind === "recovery" ? "accepted-import" : "accepted-workout" } });
+});
+
+it.each(["recovery", "review"] as const)("committed %s route changes unlock the new scope and ignore stale save handlers", async kind => {
+  fixture.params = { id: "old-A" };
+  fixture.capabilities.mockResolvedValue({ imports: true, existing_workout_updates: true });
+  fixture.workout.mockResolvedValue({ ...workout, source_url: "https://example.test/source" });
+  fixture.importJob.mockImplementation(async id => ({ id, generation: 1, status: "ready",
+    replace_target: { workout_id: "workout", expected_revision: 1 },
+    result: { status: "ready", workout, warnings: [], evidence: [], source: { platform: "text", channels: [], coverage_notes: [] } } }));
+  const held = deferred<Workout | { id: string; generation: number; status: string }>();
+  const method = kind === "recovery" ? fixture.startImport : fixture.acceptImport;
+  method.mockReturnValueOnce(held.promise).mockResolvedValue({ ...workout, id: "new-saved", generation: 1, status: "queued" });
+  const Component = kind === "recovery" ? RecoverWorkout : ImportReview;
+  const title = kind === "recovery" ? "Recover as a private import" : "Update saved workout";
+  await mount(Component);
+  const oldPress = button(title).props.onPress;
+  await click(title);
+  fixture.params = { id: "new-B" }; await rerender(Component);
+  expect(button(title).props.busy).toBe(false);
+  await act(async () => oldPress()); await settle();
+  expect(method).toHaveBeenCalledTimes(1);
+  expect(button(title).props.busy).toBe(false);
+  await click(title);
+  expect(method).toHaveBeenCalledTimes(2);
+  expect(fixture.replace).toHaveBeenCalledTimes(1);
+  await act(async () => held.resolve({ ...workout, id: "old-saved", generation: 1, status: "queued" }));
+  await settle();
+  expect(fixture.replace).toHaveBeenCalledTimes(1);
+});

@@ -1,5 +1,6 @@
 """Source review and deterministic proposals share the same private data domain."""
 
+from collections import Counter
 from datetime import date, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
@@ -36,6 +37,7 @@ from app.domains.workouts.router import (
     RecordResponse,
     User,
     append_workout_version,
+    bounded_content,
     content_digest,
     owned_record,
     record_response,
@@ -261,6 +263,8 @@ def store_workout(
         if changed
         else first
     )
+    bounded_content(first)
+    bounded_content(current)
     row = WorkoutRecord(
         id=identifier,
         app_user_id=user_id,
@@ -335,9 +339,6 @@ async def accept_import(
     ):
         raise HTTPException(422, "An import cannot claim generated coaching provenance")
     content = validated_workout(workout, authored=False)
-    from app.domains.workouts.source_media import retain_source_cover
-
-    await retain_source_cover(db, user.id, generation, workout.source_thumbnail_url)
     try:
         original_content = validated_workout(
             WorkoutContent.model_validate(row.result["workout"]), authored=False
@@ -383,12 +384,12 @@ async def accept_import(
         if saved.revision != target["expected_revision"]:
             raise HTTPException(409, "Workout changed; save a separate copy or extract again from its latest version")
         content = preserve_private_notes(content, saved.content)
-        from app.domains.workouts.export_service import invalidate_export_snapshots
-
-        await invalidate_export_snapshots(db, user.id, generation)
         await append_workout_version(db, saved, content)
     else:
         saved = store_workout(db, user.id, generation, content, original_content=original_content)
+        from app.domains.workouts.source_media import retain_source_cover
+
+        await retain_source_cover(db, user.id, generation, workout.source_thumbnail_url)
     # Retain only the frozen target for content/mode-bound acceptance replay.
     row.payload = {"_replace": target} if target else None
     row.accepted_workout_id = saved.id
@@ -405,19 +406,27 @@ async def accept_import(
 def preserve_private_notes(content, previous):
     """New extraction changes the prescription; existing private annotations survive."""
     notes = list(content.get("notes") or []) + list(previous.get("notes") or [])
-    by_name = {}
-    for block in previous.get("blocks", []):
-        for exercise in block.get("exercises", []):
-            if exercise.get("notes"):
-                by_name.setdefault(exercise["name"].strip().casefold(), []).append(exercise)
-    for block in content.get("blocks", []):
-        for exercise in block.get("exercises", []):
-            matches = by_name.get(exercise["name"].strip().casefold(), [])
-            if matches:
-                prior = matches.pop(0)
-                exercise["notes"] = "\n".join(dict.fromkeys(filter(None, [exercise.get("notes"), prior["notes"]])))
-    for exercises in by_name.values():
-        notes.extend(f"{exercise['name']}: {exercise['notes']}" for exercise in exercises)
+    def name(exercise):
+        return exercise["name"].strip().casefold()
+
+    old = [(bi, block, ei, exercise)
+           for bi, block in enumerate(previous.get("blocks", []))
+           for ei, exercise in enumerate(block.get("exercises", []))]
+    new = [exercise for block in content.get("blocks", []) for exercise in block.get("exercises", [])]
+    old_counts = Counter(name(exercise) for _, _, _, exercise in old)
+    new_counts = Counter(name(exercise) for exercise in new)
+    unique = {name(exercise): exercise for exercise in new if new_counts[name(exercise)] == 1}
+    for bi, block, ei, prior in old:
+        if not prior.get("notes"):
+            continue
+        match = unique.get(name(prior)) if old_counts[name(prior)] == 1 else None
+        if match and (not prior.get("exercise_id") or not match.get("exercise_id")
+                      or prior["exercise_id"] == match["exercise_id"]):
+            match["notes"] = "\n".join(dict.fromkeys(filter(None, [match.get("notes"), prior["notes"]])))
+        else:
+            # Re-extraction has no stable movement occurrence IDs. Repeated,
+            # replaced or missing movements keep their note with its old context.
+            notes.append(f"Block {bi + 1} ({block['label']}), exercise {ei + 1} ({prior['name']}): {prior['notes']}")
     content["notes"] = list(dict.fromkeys(notes))
     # Revalidate limits after merging annotations; never silently truncate them.
     try:

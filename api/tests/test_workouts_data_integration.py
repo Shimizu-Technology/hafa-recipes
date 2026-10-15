@@ -2,6 +2,7 @@
 
 import asyncio
 import importlib
+import json
 import os
 from datetime import date
 from types import SimpleNamespace
@@ -1060,3 +1061,41 @@ async def test_cleared_instructions_stay_cleared_in_saved_session_and_legacy_edi
     snapshot = saved.json()["content"]["prescription_snapshot"]
     assert snapshot["instructions"] == [] and snapshot["notes"] == [quote]
     assert source_flow_context(snapshot) == []
+
+
+def near_record_limit_workout():
+    """Valid input that exceeds the record cap only after server version IDs."""
+    from app.domains.workouts.router import validated_workout
+    from app.domains.workouts.schemas import WorkoutContent
+
+    content = validated_workout(WorkoutContent.model_validate(WORKOUT))
+    content["notes"] = []
+    while True:
+        content["notes"].append("")
+        remaining = 240 * 1024 - 1 - len(json.dumps(content, ensure_ascii=False).encode())
+        content["notes"][-1] = (str(len(content["notes"])) + ":" + "x" * 4000)[:min(4000, remaining)]
+        if remaining <= 4000:
+            break
+    assert len(json.dumps(content, ensure_ascii=False).encode()) == 240 * 1024 - 1
+    return {key: value for key, value in content.items() if key not in {"id", "version", "parent_version_id"}}
+
+
+async def test_append_rejects_final_version_size_before_retention_or_export_mutations(data_api, monkeypatch):
+    from app.domains.workouts import export_service, source_media
+
+    created = await workout(data_api)
+    calls = []
+
+    async def early(*args, **kwargs):
+        calls.append(True)
+        raise AssertionError("No side effects before final candidate bounds")
+
+    monkeypatch.setattr(source_media, "retain_source_cover", early)
+    monkeypatch.setattr(export_service, "invalidate_export_snapshots", early)
+    rejected = await data_api.client.put(f"/api/v1/workouts/library/{created['id']}?expected_revision=1",
+        headers=GENERATION, json=near_record_limit_workout())
+    assert rejected.status_code == 422, rejected.text
+    assert not calls
+    assert (await data_api.client.get(f"/api/v1/workouts/library/{created['id']}")).json() == created
+    async with data_api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutVersion)) == 1

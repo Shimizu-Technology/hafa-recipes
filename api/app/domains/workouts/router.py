@@ -524,16 +524,22 @@ async def update_workout(
 
 async def append_workout_version(db, row, content):
     """Caller holds the owner write lock and checked the live revision."""
-    from app.domains.workouts.source_media import retain_source_cover
-
-    await retain_source_cover(db, row.app_user_id, row.generation, content.get("source_thumbnail_url"))
     prior = await db.scalar(
         select(WorkoutVersion.id).where(
             WorkoutVersion.workout_id == row.id, WorkoutVersion.revision == row.revision
         )
     )
+    # Size the complete stored candidate before any retention, export or write.
+    # Preserve trusted JSON; do not coerce an existing snapshot through a DTO.
+    content = bounded_content(dict(content) | {
+        "id": str(row.id), "version": row.revision + 1, "parent_version_id": str(prior),
+    })
+    from app.domains.workouts.export_service import invalidate_export_snapshots
+    from app.domains.workouts.source_media import retain_source_cover
+
+    await retain_source_cover(db, row.app_user_id, row.generation, content.get("source_thumbnail_url"))
+    await invalidate_export_snapshots(db, row.app_user_id, row.generation)
     row.revision += 1
-    content.update(id=str(row.id), version=row.revision, parent_version_id=str(prior))
     row.content = content
     row.updated_at = now()
     db.add(

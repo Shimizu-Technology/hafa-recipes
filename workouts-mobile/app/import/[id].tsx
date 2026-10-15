@@ -1,6 +1,6 @@
 import { workoutErrors } from "@/lib/library";
 import { SourceImage } from "@/components/source-image";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, useCallback, useRef } from "react";
 import { ActivityIndicator, AppState, Image, Linking } from "react-native";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -25,24 +25,18 @@ export default function ImportReview() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const generation = enrollment?.generation;
-  const live = useRef({ owner, id, generation, storage, epoch: 0 });
-  if (
-    live.current.owner !== owner ||
-    live.current.id !== id ||
-    live.current.generation !== generation ||
-    live.current.storage !== storage
-  )
-    live.current = { owner, id, generation, storage, epoch: live.current.epoch + 1 };
-  const epoch = live.current.epoch;
+  const epoch = useMemo(() => ({}), [owner, id, generation, storage]);
+  const live = useRef(epoch);
+  useLayoutEffect(() => { live.current = epoch; }, [epoch]);
   const mounted = useRef(true);
-  useEffect(() => {
+  useLayoutEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
     };
   }, []);
   function current() {
-    if (!mounted.current || live.current.epoch !== epoch || !storage.isCurrent() || !isCurrentAccount())
+    if (!mounted.current || live.current !== epoch || !storage.isCurrent() || !isCurrentAccount())
       throw Error("This import or account changed. Open the current import before continuing.");
   }
   function isCurrent() {
@@ -65,8 +59,8 @@ export default function ImportReview() {
   const [autoAllowed, setAutoAllowed] = useState(false);
   const saving = useRef(false);
   const visibilityWrites = useRef<Promise<void>>(Promise.resolve());
-  const autoAttempt = useRef<number | null>(null);
-  const reconciledSave = useRef<number | null>(null);
+  const autoAttempt = useRef<object | null>(null);
+  const reconciledSave = useRef<object | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   /** null = the default for this source (link imports public, everything else private). */
@@ -97,8 +91,9 @@ export default function ImportReview() {
     refetchInterval: (query) =>
       visible && active && query.state.data && !importIsTerminal(query.state.data.status) ? 2500 : false
   });
-  useEffect(() => {
+  useLayoutEffect(() => {
     let valid = true;
+    saving.current = false;
     setStateEpoch(epoch);
     setOriginal(null);
     setEdited(null);
@@ -236,8 +231,7 @@ export default function ImportReview() {
             : (e as Error).message
         );
     } finally {
-      saving.current = false;
-      if (isCurrent()) setBusy(false);
+      if (isCurrent()) { saving.current = false; setBusy(false); }
     }
   }
   async function retryExtraction() {
@@ -283,7 +277,7 @@ export default function ImportReview() {
       await localDrafts.remove(owner, `import-retry-caption:${generation}:${id}`); current();
       router.replace({ pathname: "/import/[id]", params: { id: next.id } });
     } catch (e) { if (isCurrent()) setError((e as Error).message); }
-    finally { saving.current = false; if (isCurrent()) setBusy(false); }
+    finally { if (isCurrent()) { saving.current = false; setBusy(false); } }
   }
   async function cancel(dismiss = false) {
     const absent = [404, 410].includes((q.error as { status?: number } | null)?.status ?? 0);
@@ -309,8 +303,7 @@ export default function ImportReview() {
     } catch (e) {
       if (isCurrent()) setError((e as Error).message);
     } finally {
-      saving.current = false;
-      if (isCurrent()) setBusy(false);
+      if (isCurrent()) { saving.current = false; setBusy(false); }
     }
   }
   const source = useQuery({
