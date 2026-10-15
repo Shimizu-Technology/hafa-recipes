@@ -501,6 +501,9 @@ async def update_workout(
     row = await owned_record(db, WorkoutRecord, workout_id, user.id, generation)
     if row.revision != expected_revision:
         raise HTTPException(409, "Workout changed; refresh before saving")
+    from app.domains.workouts.instruction_compat import preserve_instructions
+
+    workout = preserve_instructions(workout, row.content)
     if "extraction_warnings" not in workout.model_fields_set:
         workout = workout.model_copy(
             update={"extraction_warnings": row.content.get("extraction_warnings", [])}

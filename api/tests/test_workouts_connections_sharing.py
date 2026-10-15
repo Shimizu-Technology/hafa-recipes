@@ -881,12 +881,16 @@ async def test_stale_nutrition_is_not_presented_as_current_dietary_evidence(api)
 @pytest.mark.parametrize("timed", [False, True])
 async def test_shared_workout_copy_saves_unchanged_without_invented_url(api, include_source, timed):
     content = deepcopy(WORKOUT)
+    content["instructions"] = ["Rest after each round"]
+    content["blocks"][0]["exercises"][0]["instructions"] = "Keep heels down"
     if timed:
         content["blocks"][0].update(grouping="circuit", execution={"mode": "amrap", "time_cap_seconds": 125})
         content["blocks"][0]["exercises"][0]["sets"] = None
     original, _, share = await create_share(api, include_source=include_source, content=content)
     public = await api.client.get(share["api_path"])
     assert public.status_code == 200 and PRIVATE not in public.text
+    assert public.json()["content"]["instructions"] == ["Rest after each round"]
+    assert public.json()["content"]["blocks"][0]["exercises"][0]["instructions"] == "Keep heels down"
     expected_execution = content["blocks"][0].get("execution")
     assert public.json()["content"]["blocks"][0].get("execution") == expected_execution
     headers = {**GENERATION, "X-Test-User": "recipient"}
@@ -921,6 +925,10 @@ async def test_shared_workout_copy_saves_unchanged_without_invented_url(api, inc
     )
     assert saved.status_code == 200, saved.text
     assert saved.json()["content"]["capture_kind"] == "shared"
+    assert saved.json()["content"]["instructions"] == ["Rest after each round"]
+    assert saved.json()["content"]["blocks"][0]["exercises"][0]["instructions"] == "Keep heels down"
+    assert not saved.json()["content"]["notes"]
+    assert saved.json()["content"]["blocks"][0]["exercises"][0]["notes"] is None
     assert saved.json()["content"]["source_url"] == content["source_url"]
     assert saved.json()["content"]["blocks"][0].get("execution") == expected_execution
     assert saved.json()["content"]["blocks"][0]["exercises"][0]["sets"] == (None if timed else 2)

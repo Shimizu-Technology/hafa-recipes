@@ -905,3 +905,59 @@ async def test_circuit_rounds_and_unilateral_sides_are_distinct_actuals(data_api
         headers=GENERATION,
     )
     assert duplicate.status_code == 422
+
+
+async def test_older_edit_preserves_instructions_and_new_client_can_clear_them(data_api):
+    await enroll(data_api)
+    original = {"title": "Cues", "instructions": ["Rest after rounds"], "notes": ["Private"],
+        "blocks": [{"id": "flow", "label": "Flow", "exercises": [
+            {"name": "Row", "reps_min": 5, "instructions": "Keep back steady"},
+            {"name": "Squat", "reps_min": 10, "instructions": "Keep heels down"}]}]}
+    created = await data_api.client.post("/api/v1/workouts/library", json=original, headers=GENERATION)
+    assert created.status_code == 201, created.text
+    identifier = created.json()["id"]
+    legacy = {"title": "Edited", "notes": ["Still private"], "blocks": [{"id": "flow", "label": "Flow",
+        "exercises": [{"name": "Squat", "reps_min": 12}, {"name": "Row", "reps_min": 5}]}]}
+    edited = await data_api.client.put(f"/api/v1/workouts/library/{identifier}?expected_revision=1",
+        json=legacy, headers=GENERATION)
+    assert edited.status_code == 200, edited.text
+    content = edited.json()["content"]
+    assert content["instructions"] == ["Rest after rounds"]
+    assert [ex["instructions"] for ex in content["blocks"][0]["exercises"]] == ["Keep heels down", "Keep back steady"]
+    legacy["instructions"] = []
+    legacy["blocks"][0]["exercises"][0]["instructions"] = None
+    cleared = await data_api.client.put(f"/api/v1/workouts/library/{identifier}?expected_revision=2",
+        json=legacy, headers=GENERATION)
+    assert cleared.status_code == 200, cleared.text
+    assert not cleared.json()["content"].get("instructions")
+    assert not cleared.json()["content"]["blocks"][0]["exercises"][0].get("instructions")
+    assert cleared.json()["content"]["blocks"][0]["exercises"][1]["instructions"] == "Keep back steady"
+
+
+async def test_cleared_instructions_stay_cleared_in_saved_session_and_legacy_edit(data_api):
+    from app.domains.workouts.coach import source_flow_context
+
+    await enroll(data_api)
+    quote = "Rest after each round."
+    original = WORKOUT | {"provenance": "source", "source_url": "https://example.test/workout",
+                          "instructions": [quote], "notes": [quote]}
+    original["blocks"] = [WORKOUT["blocks"][0] | {"evidence": [
+        {"field": "workout_notes", "wording": quote, "location": "caption"}]}]
+    created = await data_api.client.post("/api/v1/workouts/library", json=original, headers=GENERATION)
+    assert created.status_code == 201, created.text
+    identifier = created.json()["id"]
+    cleared = await data_api.client.put(f"/api/v1/workouts/library/{identifier}?expected_revision=1",
+        json=original | {"instructions": []}, headers=GENERATION)
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["content"]["instructions"] == []
+    legacy = {key: value for key, value in original.items() if key != "instructions"}
+    edited = await data_api.client.put(f"/api/v1/workouts/library/{identifier}?expected_revision=2",
+        json=legacy, headers=GENERATION)
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["content"]["instructions"] == []
+    saved = await data_api.client.post("/api/v1/workouts/sessions",
+        json=session_payload(edited.json()), headers=GENERATION)
+    assert saved.status_code == 201, saved.text
+    snapshot = saved.json()["content"]["prescription_snapshot"]
+    assert snapshot["instructions"] == [] and snapshot["notes"] == [quote]
+    assert source_flow_context(snapshot) == []

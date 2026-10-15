@@ -206,7 +206,7 @@ export const PUBLISHING_DISCLOSURE_TITLE = "Before you share to Discover";
 export const PUBLISHING_DISCLOSURE_POINTS = [
   "People using Håfa Workouts can find, open and save this workout.",
   "They see the title, blocks and exercises with sets, reps, time and rest, the equipment, the source link and creator credit, and your contributor name.",
-  "Your notes, effort, training history, profile and health data stay private.",
+  "Workout instructions are included. Private notes, effort, training history, profile and health data stay private.",
   "You can remove it from Discover at any time. Copies people already saved stay in their libraries.",
   "This is the same sharing agreement as Håfa Recipes, so it also covers recipes you choose to make public.",
 ];

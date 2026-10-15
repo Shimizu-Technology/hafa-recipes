@@ -465,7 +465,7 @@ async def test_unreadable_link_does_not_discard_complete_supplied_caption(error)
         kind="url", source_url=REEL, text=REEL_CAPTION, ai_consent=True))
     assert len(provider.calls) == 1 and result.error_code is None
     assert [item.reps_min for item in result.workout.blocks[0].exercises] == [10, 10, 10, 5, 5, 10, 10, 10, 10]
-    assert result.workout.estimated_minutes == 20 and result.workout.notes == [REEL_INSTRUCTIONS]
+    assert result.workout.estimated_minutes == 20 and result.workout.instructions == [REEL_INSTRUCTIONS]
     assert result.source.url == REEL and "provided_text" in result.source.channels
     assert any("supplied text instructions" in note for note in result.source.coverage_notes)
 
@@ -848,7 +848,7 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
     ]
     assert all(attempt.values["capability"] == "workout_extraction" for attempt in attempts)
     assert all(
-        attempt.values["schema_version"] == "workout-prescription-v1" for attempt in attempts
+        attempt.values["schema_version"] == "workout-prescription-v2" for attempt in attempts
     )
     assert payloads[0]["store"] is False and payloads[0]["response_format"]["type"] == "json_schema"
     assert len(payloads) == (1 if denied else 2)
@@ -857,7 +857,7 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
     assert all(payload["service_tier"] == "default" for payload in payloads)
     if primary == "partial_recovery_loses_context":
         grounded, _, _ = ground_workout(result, source)
-        assert grounded.estimated_minutes == 20 and grounded.notes == [REEL_INSTRUCTIONS]
+        assert grounded.estimated_minutes == 20 and grounded.instructions == [REEL_INSTRUCTIONS]
         assert any("omitted supported prescription" in note for note in source.metadata.coverage_notes)
 
 
@@ -1319,7 +1319,7 @@ async def test_description_amrap_preserves_reps_and_overall_context_without_inve
         [SourcePart("caption", caption)]))).extract(ExtractionRequest(
             kind="url", source_url="https://www.instagram.com/reel/DdvIrwhTj90/", ai_consent=True))
     assert [item.reps_min for item in result.workout.blocks[0].exercises] == [12, 6, 12, 16]
-    assert result.workout.estimated_minutes == 20 and result.workout.notes == [instructions]
+    assert result.workout.estimated_minutes == 20 and result.workout.instructions == [instructions]
     assert result.workout.blocks[0].rounds is None
     assert all(item.sets is None and item.duration_seconds is None
                for item in result.workout.blocks[0].exercises)
@@ -1365,7 +1365,7 @@ async def test_actual_nine_exercise_caption_keeps_total_and_side_counts_and_skip
     assert [item.reps_min for item in exercises] == [10, 10, 10, 5, 5, 10, 10, 10, 10]
     assert [item.reps_max for item in exercises] == [10, 10, 10, 5, 5, 10, 10, 10, 10]
     assert all(exercises[index].per_side is True for index in (3, 4))
-    assert result.workout.estimated_minutes == 20 and result.workout.notes == [REEL_INSTRUCTIONS]
+    assert result.workout.estimated_minutes == 20 and result.workout.instructions == [REEL_INSTRUCTIONS]
     assert all(item.sets is None for item in exercises) and result.workout.blocks[0].rounds is None
     if timed:
         assert result.status == "ready" and result.warnings == []
@@ -1413,7 +1413,7 @@ async def test_missing_caption_movement_recovers_from_media_without_losing_capti
     assert len(provider.calls) == 2 and media_calls == ["frames"]
     assert result.source.channels == ["caption", "visual"]
     assert len(result.workout.blocks[0].exercises) == 9
-    assert result.workout.estimated_minutes == 20 and result.workout.notes == [REEL_INSTRUCTIONS]
+    assert result.workout.estimated_minutes == 20 and result.workout.instructions == [REEL_INSTRUCTIONS]
     if timed:
         assert result.status == "ready" and result.warnings == []
         assert result.workout.blocks[0].execution.time_cap_seconds == 1200
@@ -1529,7 +1529,7 @@ def test_recovery_preserves_source_structure_repetitions_and_cues(lost):
     from app.domains.workouts.schemas import WorkoutContent
 
     raw = complete_workout()
-    raw["notes"] = ["Rest after each round."]
+    raw["instructions"] = ["Rest after each round."]
     block = raw["blocks"][0]
     block.update(grouping="circuit", rounds=3, rest_between_rounds_seconds=60)
     block["exercises"][0]["per_side"] = True
@@ -1539,7 +1539,7 @@ def test_recovery_preserves_source_structure_repetitions_and_cues(lost):
     if lost == "order":
         candidate["blocks"][0]["exercises"].reverse()
     elif lost == "notes":
-        candidate["notes"] = []
+        candidate["instructions"] = []
     elif lost in {"rounds", "grouping", "rest_between_rounds_seconds"}:
         candidate["blocks"][0][lost] = "sequential" if lost == "grouping" else None
     else:
@@ -1759,7 +1759,7 @@ async def test_actual_nine_movement_reel_headline_and_mode_are_read_together():
     assert [item.reps_min for item in result.workout.blocks[0].exercises] == [10, 10, 10, 5, 5, 10, 10, 10, 10]
     assert all(result.workout.blocks[0].exercises[index].per_side is True for index in (3, 4))
     assert all(item.sets is None for item in result.workout.blocks[0].exercises)
-    assert result.workout.notes == [instruction]
+    assert result.workout.instructions == [instruction]
     assert result.workout.blocks[0].rounds is None
     assert not any("timed execution" in warning for warning in result.warnings)
 
@@ -1971,7 +1971,7 @@ def test_directional_cues_preserve_source_wording_without_per_limb_inference():
         "provided_text", "10 halos, five each way. keep repeating for 20 minutes")]))
     actual = workout.blocks[0].exercises[0]
     assert actual.reps_min == actual.reps_max == 10 and actual.per_side is None
-    assert actual.notes == "five each way" and workout.estimated_minutes == 20
+    assert actual.instructions == "five each way" and workout.estimated_minutes == 20
 
 
 @pytest.mark.parametrize("quote,minutes,supported", [
@@ -2091,3 +2091,18 @@ async def test_visual_rest_cannot_borrow_invalid_cropped_text(source_time, visua
         kind="url", source_url="https://example.com/squat", ai_consent=True))
     assert result.workout.blocks[0].exercises[0].rest_seconds == 120
     assert any("Visual extraction" in warning for warning in result.warnings) is visual_review
+
+
+def test_new_creator_instructions_are_grounded_and_private_notes_stay_empty():
+    raw = complete_workout()
+    raw["notes"] = ["Do not publish a model annotation"]
+    raw["blocks"][0]["evidence"] = [evidence("workout_instructions", "Rest after each round.")]
+    exercise = raw["blocks"][0]["exercises"][0]
+    exercise["instructions"] = "Keep your heels planted."
+    exercise["evidence"].append(evidence("instructions", "Keep your heels planted."))
+    source = SourceBundle(SourceMetadata(), [SourcePart("provided_text",
+        TEXT + " Rest after each round. Keep your heels planted.")])
+    workout, _, _ = ground_workout(raw, source)
+    assert workout.instructions == ["Rest after each round."]
+    assert workout.blocks[0].exercises[0].instructions == "Keep your heels planted."
+    assert workout.notes == [] and workout.blocks[0].exercises[0].notes is None

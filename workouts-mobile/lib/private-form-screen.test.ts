@@ -975,10 +975,10 @@ it("fences stale create callbacks and restores a separate draft when account or 
 it("creates a rich AMRAP with instructions without a second edit and restores its device draft", async () => {
   await mount(AddWorkout);
   const rich: AuthoredWorkout = { title: "20-minute kettlebell circuit", kind: "session", provenance: "user",
-    equipment_required: ["Kettlebell"], estimated_minutes: 20, notes: ["Rest after each round."],
+    equipment_required: ["Kettlebell"], estimated_minutes: 20, instructions: ["Rest after each round."], notes: ["My private target"],
     blocks: [{ id: "main", label: "Circuit", grouping: "circuit", execution: { mode: "amrap", time_cap_seconds: 1200 },
       rest_between_rounds_seconds: 30, exercises: [{ name: "Press", reps_min: 5, per_side: true, rest_seconds: 10,
-        duration_seconds: 30, distance_meters: 20, load: 12, load_unit: "kg", load_convention: "total", notes: "Stay tall." }] }] };
+        duration_seconds: 30, distance_meters: 20, load: 12, load_unit: "kg", load_convention: "total", instructions: "Stay tall.", notes: "My private cue" }] }] };
   await act(async () => nodes("WorkoutEditor")[0].props.onChange(rich));
   await unmount(); await mount(AddWorkout);
   expect(nodes("WorkoutEditor")[0].props.value).toEqual(rich);
@@ -988,6 +988,7 @@ it("creates a rich AMRAP with instructions without a second edit and restores it
 });
 
 it.each([
+  { instructions: "x".repeat(2001) },
   { notes: "x".repeat(2001) },
   { load: 2001, load_unit: "kg" as const, load_convention: "total" as const },
 ])("keeps invalid rich input editable before freezing a save: %j", async invalid => {
@@ -1117,9 +1118,11 @@ it("mounted profile retains the frozen revision and values across background ref
 it("mounted workout editing preserves spaces and newlines while instructions are being typed", async () => {
   fixture.params = { id: "workout" };
   await mount(EditWorkout);
-  for (const notes of [["Rest "], ["Rest after each round.", ""], ["Rest after each round.", "Repeat "]]) {
-    await act(async () => find("WorkoutEditor").props.onChange({ ...find("WorkoutEditor").props.value, notes }));
-    expect(find("WorkoutEditor").props.value.notes).toEqual(notes);
+  for (const field of ["instructions", "notes"] as const) {
+    for (const lines of [["Rest "], ["Rest after each round.", ""], ["Rest after each round.", "Repeat "]]) {
+      await act(async () => find("WorkoutEditor").props.onChange({ ...find("WorkoutEditor").props.value, [field]: lines }));
+      expect(find("WorkoutEditor").props.value[field]).toEqual(lines);
+    }
   }
   await act(async () => find("WorkoutEditor").props.onChange({ ...find("WorkoutEditor").props.value,
     notes: ["Rest after each round.", "Repeat at your own pace."] }));
@@ -1802,7 +1805,7 @@ it("keeps unknowns and less common prescription values intact through simple edi
       load: 10, load_unit: "kg", load_convention: "per_hand", tempo: "3-1-1", notes: "Control the movement", per_side: null }],
   }] };
   await mountRealWorkoutEditor(content);
-  expect(nodes("Field").map((n) => n.props.label)).toEqual(["Workout title", "Estimated duration · minutes", "Workout instructions · one instruction per line", "Required equipment · comma separated", "Exercise name", "Sets", "Reps"]);
+  expect(nodes("Field").map((n) => n.props.label)).toEqual(["Workout title", "Estimated duration · minutes", "Workout instructions · included when sharing", "Private notes · only you", "Required equipment · comma separated", "Exercise name", "Sets", "Reps"]);
   expect(fixture.updateWorkout).not.toHaveBeenCalled();
   await click("More details for Row");
   expect(nodes("Field").find((n) => n.props.label === "Rest · seconds")!.props.value).toBe("45");
@@ -1820,13 +1823,14 @@ it("keeps unknowns and less common prescription values intact through simple edi
   expect(corrected.blocks[0].exercises[0].reps_max).toBeNull();
 });
 it("corrects overall duration and instructions without changing the exercise prescription", async () => {
-  const content: AuthoredWorkout = { ...workout, estimated_minutes: null, notes: ["Repeat the circuit"], provenance: "source" };
+  const content: AuthoredWorkout = { ...workout, estimated_minutes: null, instructions: ["Repeat the circuit"], notes: ["Private concern"], provenance: "source" };
   await mountRealWorkoutEditor(content);
   await act(async () => nodes("Field").find((n) => n.props.label === "Estimated duration · minutes")!.props.onChange("20"));
-  await act(async () => nodes("Field").find((n) => n.props.label === "Workout instructions · one instruction per line")!.props.onChange("Repeat for 20 minutes\nRest after each round"));
+  await act(async () => nodes("Field").find((n) => n.props.label === "Workout instructions · included when sharing")!.props.onChange("Repeat for 20 minutes\nRest after each round"));
   const corrected = fixture.updateWorkout.mock.calls.at(-1)![0];
   expect(corrected.estimated_minutes).toBe(20);
-  expect(corrected.notes).toEqual(["Repeat for 20 minutes", "Rest after each round"]);
+  expect(corrected.instructions).toEqual(["Repeat for 20 minutes", "Rest after each round"]);
+  expect(corrected.notes).toEqual(["Private concern"]);
   expect(corrected.blocks).toEqual(content.blocks);
   await act(async () => nodes("Field").find((n) => n.props.label === "Estimated duration · minutes")!.props.onChange(""));
   expect(fixture.updateWorkout.mock.calls.at(-1)![0].estimated_minutes).toBeNull();
@@ -2428,4 +2432,39 @@ it("explains a usage limit without blaming an available source caption", async (
   expect(view).toContain("usage limit"); expect(view).not.toContain("Source extraction could not finish");
   expect(button("Add exercises manually")).toBeDefined();
   expect(nodes("Button").some(node => node.props.title === "Save workout")).toBe(false);
+});
+
+it("keeps legacy notes private until the owner explicitly moves them to shared instructions", async () => {
+  await mountRealWorkoutEditor({ ...workout, notes: ["Old caption or private note"], instructions: undefined });
+  expect(nodes("Field").find(n => n.props.label === "Workout instructions · included when sharing")!.props.value).toBe("");
+  expect(nodes("Field").find(n => n.props.label === "Private notes · only you")!.props.value).toBe("Old caption or private note");
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+  await click("Move private notes to shared instructions");
+  expect(fixture.updateWorkout.mock.lastCall![0]).toMatchObject({ instructions: ["Old caption or private note"], notes: [] });
+});
+
+
+it.each(["instructions", "notes"] as const)("shows oversized exercise %s immediately for correction", async field => {
+  const oversized = "x".repeat(2001);
+  await mountRealWorkoutEditor({ ...workout, blocks: [{ ...workout.blocks[0], exercises: [{ name: "Row", [field]: oversized }] }] });
+  const label = field === "instructions" ? "Instructions or cues · included when sharing" : "Private exercise notes · only you";
+  const input = nodes("Field").find(n => n.props.label === label)!;
+  expect(input.props.value).toBe(oversized);
+  await act(async () => input.props.onChange("Keep this cue"));
+  expect(fixture.updateWorkout.mock.lastCall![0].blocks[0].exercises[0][field]).toBe("Keep this cue");
+});
+
+it.each(["instructions", "notes"] as const)("keeps oversized workout %s editable until repaired before freezing creation", async field => {
+  await mount(AddWorkout);
+  const editor = () => nodes("WorkoutEditor")[0];
+  await act(async () => editor().props.onChange({ ...editor().props.value, title: "Repair me", [field]: ["x".repeat(4001)],
+    blocks: [{ id: "main", label: "Main", grouping: "sequential", exercises: [{ name: "Row" }] }] }));
+  await click("Save to my library");
+  expect(fixture.saveWorkout).not.toHaveBeenCalled();
+  expect(editor().props.disabled).toBe(false);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "manual-workout:1"))!).command).toBeNull();
+  await act(async () => editor().props.onChange({ ...editor().props.value, [field]: ["Rest as needed"] }));
+  fixture.saveWorkout.mockResolvedValueOnce(workout);
+  await click("Save to my library");
+  expect(fixture.saveWorkout.mock.calls[0][0][field]).toEqual(["Rest as needed"]);
 });

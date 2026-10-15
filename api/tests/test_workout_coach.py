@@ -297,3 +297,11 @@ def test_source_quote_budget_can_keep_a_later_whole_short_quote():
     assert fit_source_flow_context(item, workout)
     assert item["content"]["source_instructions"] == [short_quote]
     assert len(json.dumps(item)) < 14000
+
+
+def test_coach_reads_new_grounded_instructions_without_legacy_private_annotations():
+    quote = "Rest after each round."
+    workout = {"provenance": "source", "instructions": [quote], "notes": ["Private health note"],
+        "blocks": [{"evidence": [{"field": "workout_instructions", "wording": quote, "location": "caption"},
+            {"field": "workout_notes", "wording": "Private health note", "location": "caption"}]}]}
+    assert source_flow_context(workout) == [quote]

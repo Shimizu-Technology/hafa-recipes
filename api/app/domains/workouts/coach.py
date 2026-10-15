@@ -55,7 +55,7 @@ def source_flow_context(workout):
     """
     if workout.get("provenance") != "source":
         return []
-    notes = workout.get("notes", [])
+    notes = workout.get("instructions", workout.get("notes", []))
     if not isinstance(notes, list):
         return []
     retained = {note.strip() for note in notes if isinstance(note, str)}
@@ -66,7 +66,7 @@ def source_flow_context(workout):
             field = entry.get("field")
             if not isinstance(wording, str) or wording.strip() not in retained or not entry.get("location"):
                 continue
-            if field != "workout_notes" and not (
+            if field not in {"workout_notes", "workout_instructions"} and not (
                 field in {"label", "grouping"}
                 and re.search(r"\bamrap\b|\brepeat(?:ing)?\b", wording, re.I)
             ):

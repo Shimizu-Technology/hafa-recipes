@@ -82,6 +82,7 @@ export interface Workout {
   source_creator?: string | null;
   source_thumbnail_url?: string | null;
   extraction_warnings?: string[];
+  instructions?: string[];
   notes?: string[];
 }
 export interface ExercisePrescription {
@@ -100,6 +101,7 @@ export interface ExercisePrescription {
   load_unit?: "kg" | "lb" | null;
   load_convention?: "total" | "per_hand" | "added" | "assistance" | null;
   effort?: string | null;
+  instructions?: string | null;
   notes?: string | null;
   evidence?: Array<{ field: string; wording: string; location?: string | null }>;
 }

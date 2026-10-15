@@ -125,7 +125,11 @@ export function authoredWorkout(workout: AuthoredWorkout | Workout): AuthoredWor
     publication: _publication,
     ...body
   } = workout as Workout;
-  return { ...body, ...(body.notes ? { notes: body.notes.map(note => note.trim()).filter(Boolean) } : {}) };
+  return {
+    ...body,
+    ...(body.instructions ? { instructions: body.instructions.map(line => line.trim()).filter(Boolean) } : {}),
+    ...(body.notes ? { notes: body.notes.map(note => note.trim()).filter(Boolean) } : {}),
+  };
 }
 function programRecord(
   row: RecordEnvelope<{

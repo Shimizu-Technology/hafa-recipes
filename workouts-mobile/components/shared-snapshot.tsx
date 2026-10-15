@@ -1,3 +1,4 @@
+import { WorkoutInstructions } from "./workout-instructions";
 import { Card, Copy, Notice } from "./ui";
 import type { ShareSnapshot, SharedProgram } from "@/lib/sharing";
 import type { AuthoredWorkout } from "@/lib/models";
@@ -9,8 +10,8 @@ export function SharedSnapshot({ snapshot }: { snapshot: ShareSnapshot }) {
         <Copy>Shared by {snapshot.attribution.shared_by_display_name}</Copy>
       )}
       <Notice>
-        This snapshot contains the selected prescription and displayed attribution. It does not include profile, health
-        data, chat or training history.
+        This snapshot includes workout instructions and displayed attribution. Private notes, profile, health data,
+        chat and training history are excluded.
       </Notice>
       {snapshot.kind === "program" ? (
         <>
@@ -37,6 +38,7 @@ function WorkoutSummary({ workout }: { workout: AuthoredWorkout }) {
   return (
     <>
       <Copy kind="heading">{workout.title}</Copy>
+      <WorkoutInstructions instructions={workout.instructions} />
       <Copy>Equipment · {workout.equipment_required?.join(", ") || "Not specified"}</Copy>
       {!!workout.source_url && <Copy>Source · {workout.source_url}</Copy>}
       {workout.blocks.map((block) => (
@@ -56,6 +58,7 @@ function WorkoutSummary({ workout }: { workout: AuthoredWorkout }) {
               {e.rest_seconds != null ? ` · rest ${e.rest_seconds}s` : ""}
               {e.load != null ? ` · ${e.load} ${e.load_unit} (${e.load_convention?.replaceAll("_", " ")})` : ""}
               {e.tempo ? ` · tempo ${e.tempo}` : ""}
+              {e.instructions ? `\n${e.instructions}` : ""}
             </Copy>
           ))}
         </Card>
