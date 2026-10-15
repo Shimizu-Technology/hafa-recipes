@@ -713,8 +713,11 @@ async def create_program(
 ):
     await membership_for(db, user.id, generation=generation, write=True)
     content = program_content(request)
-    from app.domains.workouts.source_media import retain_source_cover
+    from app.domains.workouts.source_media import normalize_cover_origin, retain_source_cover
 
+    for session in content["proposal"]["sessions"]:
+        await normalize_cover_origin(db, user.id, generation, session["workout"])
+    content = bounded_content(content)
     for session in content["proposal"]["sessions"]:
         workout = session["workout"]
         await retain_source_cover(
@@ -784,9 +787,12 @@ async def update_program(
         validate_calendar,
     )
     from app.domains.workouts.schedule import validate_other_program_dates
-    from app.domains.workouts.source_media import retain_source_cover
+    from app.domains.workouts.source_media import normalize_cover_origin, retain_source_cover
 
     content = row.content | program_content(request)
+    for session in content["proposal"]["sessions"]:
+        await normalize_cover_origin(db, user.id, generation, session["workout"])
+    content = bounded_content(content)
     for session in content["proposal"]["sessions"]:
         workout = session["workout"]
         await retain_source_cover(
