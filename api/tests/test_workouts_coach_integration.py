@@ -1975,6 +1975,50 @@ async def test_private_image_discard_before_upload_fences_late_source_bytes(coac
         assert row.state == "deleted" and row.byte_hash == "0" * 64
 
 
+async def test_private_image_clear_during_normalization_tombstones_pending_upload(coach_api, monkeypatch):
+    import threading
+
+    from app.domains.workouts.coach_attachment_models import CoachAttachment
+    from app.models.deletion import DeletionCleanupJob
+
+    api = coach_api
+    images, writes = await private_attachment_fixture(api, monkeypatch)
+    started, release = threading.Event(), threading.Event()
+    normalize = images.normalized_image
+    def blocked_normalize(*args):
+        started.set()
+        if not release.wait(10):
+            raise RuntimeError("Test did not release normalization")
+        return normalize(*args)
+    monkeypatch.setattr(images, "normalized_image", blocked_normalize)
+    upload_id = uuid4()
+    identifier = images.attachment_id("owner", 1, upload_id)
+    uploading = asyncio.create_task(images.upload(
+        api.sessions, "owner", 1, upload_id, private_attachment_bytes(), "image/jpeg"))
+    try:
+        assert await asyncio.wait_for(asyncio.to_thread(started.wait, 5), timeout=6)
+        async with api.sessions() as db:
+            row = await db.get(CoachAttachment, identifier)
+            assert row.state == "pending" and row.byte_hash != "0" * 64
+            cleanup = await db.get(DeletionCleanupJob, row.cleanup_job_id)
+            assert cleanup.storage_prefixes == [images.prefix(identifier)]
+            assert cleanup.status == "queued" and cleanup.next_attempt_at == row.expires_at
+        async with api.sessions.begin() as db:
+            await coach.clear_conversation(db, "owner", 1)
+    finally:
+        release.set()
+        outcome, = await asyncio.wait_for(asyncio.gather(uploading, return_exceptions=True), timeout=6)
+    assert isinstance(outcome, HTTPException) and outcome.status_code == 410 and not writes
+    async with api.sessions() as db:
+        assert (await db.get(CoachAttachment, identifier)).state == "deleted"
+        with pytest.raises(HTTPException) as error:
+            await images.read_url(db, "owner", 1, identifier)
+        assert error.value.status_code == 410
+    with pytest.raises(HTTPException) as error:
+        await images.upload(api.sessions, "owner", 1, upload_id, private_attachment_bytes(), "image/jpeg")
+    assert error.value.status_code == 410 and not writes
+
+
 async def test_private_image_rechecks_consent_after_normalizing_before_storage(coach_api, monkeypatch):
     from app.domains.workouts.coach_attachment_models import CoachAttachment
     from app.domains.workouts.models import WorkoutsConsent
@@ -1992,7 +2036,13 @@ async def test_private_image_rechecks_consent_after_normalizing_before_storage(c
         await images.upload(api.sessions, "owner", 1, uuid4(), private_attachment_bytes(), "image/jpeg")
     assert error.value.status_code == 403 and not writes
     async with api.sessions() as db:
-        assert await db.scalar(select(func.count()).select_from(CoachAttachment)) == 0
+        rows = (await db.scalars(select(CoachAttachment))).all()
+        assert len(rows) == 1 and rows[0].state == "pending"
+        from app.models.deletion import DeletionCleanupJob
+
+        cleanup = await db.get(DeletionCleanupJob, rows[0].cleanup_job_id)
+        assert cleanup.storage_prefixes == [images.prefix(rows[0].id)]
+        assert cleanup.status == "queued" and cleanup.next_attempt_at == rows[0].expires_at
 
 
 async def test_private_image_signed_read_cannot_outlive_capture_expiry(coach_api, monkeypatch):

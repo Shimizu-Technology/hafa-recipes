@@ -91,7 +91,8 @@ async def upload(sessions, owner, generation, upload_id, data, content_type):
     """Internal only: the future bulk route must bound JSON/base64 before decode.
 
     Returns metadata, never a public URL. Normalization occurs outside owner
-    locks; authorization and the exact consent epoch are rechecked before write.
+    locks, after durable pending admission; clear can retire that reservation.
+    Authorization and the exact consent epoch are rechecked before write.
     """
     if not storage_service.is_enabled:
         raise HTTPException(503, "Private coach images are unavailable")
@@ -112,20 +113,7 @@ async def upload(sessions, owner, generation, upload_id, data, content_type):
             raise HTTPException(409, "This image upload identity has different content")
         if prior and prior.state == "ready":
             return {"id": str(identifier), "expires_at": prior.expires_at}
-        await db.rollback()
-    image = await asyncio.to_thread(normalized_image, data, content_type)
-    async with sessions() as db:
-        await require_schema(db)
-        await membership_for(db, owner, generation=generation, write=True)
-        await require_ai_consent(db, owner, generation, expected=consent_at)
-        row = await db.get(CoachAttachment, identifier)
-        if row and (row.app_user_id != owner or row.generation != generation):
-            raise HTTPException(404, "Private image unavailable")
-        if row and (row.state == "deleted" or row.expires_at <= now()):
-            raise HTTPException(410, "Private image expired or removed")
-        if row and row.byte_hash != digest:
-            raise HTTPException(409, "This image upload identity has different content")
-        if row is None:
+        if prior is None:
             count = await db.scalar(select(func.count()).select_from(CoachAttachment).where(
                 CoachAttachment.app_user_id == owner, CoachAttachment.created_at > now() - timedelta(days=1)))
             if count >= MAX_UPLOADS:
@@ -137,7 +125,8 @@ async def upload(sessions, owner, generation, upload_id, data, content_type):
             db.add(CoachAttachment(id=identifier, app_user_id=owner, generation=generation,
                 upload_id=UUID(str(upload_id)), byte_hash=digest, consent_at=consent_at,
                 expires_at=expires, cleanup_job_id=cleanup.id))
-        await db.commit()  # Receipt and exact cleanup survive upload/ACK failures.
+        await db.commit()  # Clear can now retire even an image still normalizing.
+    image = await asyncio.to_thread(normalized_image, data, content_type)
     async with sessions() as db:
         await membership_for(db, owner, generation=generation, write=True)
         await require_ai_consent(db, owner, generation, expected=consent_at)
