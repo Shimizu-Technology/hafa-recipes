@@ -5,14 +5,16 @@ export function QueryState({
   loading,
   error,
   retry,
+  loadingLabel = "Loading your training",
+  errorMessage,
   children,
-}: PropsWithChildren<{ loading: boolean; error: Error | null; retry(): void }>) {
+}: PropsWithChildren<{ loading: boolean; error: Error | null; retry(): void; loadingLabel?: string; errorMessage?: string }>) {
   const c = useColors();
-  if (loading) return <ActivityIndicator accessibilityLabel="Loading your training" color={c.action} />;
+  if (loading) return <ActivityIndicator accessibilityLabel={loadingLabel} color={c.action} />;
   if (error)
     return (
       <>
-        <Notice error>{error.message}</Notice>
+        <Notice error>{errorMessage ?? error.message}</Notice>
         <Button title="Try again" secondary onPress={retry} />
       </>
     );

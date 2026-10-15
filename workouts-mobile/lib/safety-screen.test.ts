@@ -3,6 +3,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { blockedContributorsKey, contributorName } from "./safety";
+import { ApiError } from "./api";
 
 const f = vi.hoisted(() => ({
   owner: "owner", generation: 1, current: true, storage: null as { isCurrent(): boolean } | null,
@@ -16,8 +17,8 @@ vi.mock("@/components/ui", () => ({
   Screen: "Screen", Button: "Button", Card: "Card", Copy: "Copy", Empty: "Empty", Notice: "Notice", SectionHeader: "SectionHeader",
   Sheet: ({ visible, children, ...props }: PropsWithChildren<{ visible: boolean }>) => visible ? createElement("Sheet", props, children) : null,
 }));
-vi.mock("@/components/query-state", () => ({ QueryState: ({ loading, error, retry, children }: PropsWithChildren<{ loading: boolean; error: Error | null; retry(): void }>) =>
-  loading ? createElement("Loading") : error ? createElement("Error", { retry }, error.message) : children,
+vi.mock("@/components/query-state", () => ({ QueryState: ({ loading, error, retry, children, loadingLabel, errorMessage }: PropsWithChildren<{ loading: boolean; error: Error | null; retry(): void; loadingLabel?: string; errorMessage?: string }>) =>
+  loading ? createElement("Loading", { label: loadingLabel }) : error ? createElement("Error", { retry }, errorMessage ?? error.message) : children,
 }));
 import SafetyCenter from "../app/safety";
 
@@ -78,7 +79,7 @@ it("keeps the contributor and a retryable confirmation after an unblock fails", 
   await render(); await click("Unblock Håfa member"); await click("Unblock");
   expect(cache.getQueryData(key())).toEqual(rows);
   expect(nodes("Sheet")).toHaveLength(1);
-  expect(JSON.stringify(tree!.toJSON())).toContain("Could not reach the service.");
+  expect(JSON.stringify(tree!.toJSON())).toContain("Couldn’t confirm the unblock. Try again.");
   f.blockedContributors.mockResolvedValue([]);
   await click("Unblock");
   expect(f.unblockContributor).toHaveBeenCalledTimes(2);
@@ -89,8 +90,20 @@ it("shows load failures as failures and recovers through retry", async () => {
   await render();
   expect(nodes("Empty")).toHaveLength(0);
   expect(nodes("Error")).toHaveLength(1);
+  expect(JSON.stringify(tree!.toJSON())).toContain("Couldn’t load blocked contributors. Try again.");
   await act(async () => { nodes("Error")[0].props.retry(); }); await settle();
   expect(button("Unblock Håfa member")).toBeDefined();
+});
+it("keeps account recovery guidance instead of replacing it with a loading error", async () => {
+  f.blockedContributors.mockRejectedValueOnce(new ApiError("Sign in again to manage this account.", 401));
+  await render();
+  expect(JSON.stringify(tree!.toJSON())).toContain("Sign in again to manage this account.");
+  expect(nodes("Empty")).toHaveLength(0);
+});
+it("announces what is loading while the blocked contributors request is pending", async () => {
+  f.blockedContributors.mockReturnValue(new Promise(() => {}));
+  await render();
+  expect(nodes("Loading")[0].props.label).toBe("Loading blocked contributors");
 });
 it("fences a stale confirmation after local account storage is retired", async () => {
   await render(); await click("Unblock Håfa member");

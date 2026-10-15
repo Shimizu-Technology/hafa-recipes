@@ -7,6 +7,10 @@ import { useTraining } from "@/lib/context";
 import { discoverKeys } from "@/lib/discover";
 import { blockedContributorsKey, contributorName, type BlockedContributor } from "@/lib/safety";
 
+function safetyError(error: unknown, fallback: string) {
+  return error instanceof ApiError && [401, 403, 409, 410].includes(error.status) ? error.message : fallback;
+}
+
 export default function SafetyCenter() {
   const { api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const cache = useQueryClient();
@@ -55,7 +59,7 @@ export default function SafetyCenter() {
       void cache.invalidateQueries({ queryKey: blockedContributorsKey(owner, generation) });
       void cache.invalidateQueries({ queryKey: discoverKeys.all(owner) });
     } catch (e) {
-      if (current()) setError(e instanceof Error ? e.message : "Couldn’t unblock this contributor. Try again.");
+      if (current()) setError(safetyError(e, "Couldn’t confirm the unblock. Try again."));
     } finally {
       if (working.current === operation) working.current = null;
       if (current()) setBusy(false);
@@ -66,7 +70,9 @@ export default function SafetyCenter() {
     <Screen back title="Safety Center." subtitle="Control whose public content you see.">
       <Copy tone="muted">Blocking applies across Håfa Workouts and Håfa Recipes. People aren’t told when you block or unblock them. Your saved copies stay in your library.</Copy>
       <SectionHeader title="Blocked contributors" />
-      <QueryState loading={q.isPending && generation != null} error={q.error} retry={() => { void q.refetch(); }}>
+      <QueryState loading={q.isPending && generation != null} loadingLabel="Loading blocked contributors"
+        error={q.error} errorMessage={q.error ? safetyError(q.error, "Couldn’t load blocked contributors. Try again.") : undefined}
+        retry={() => { void q.refetch(); }}>
         {!q.data?.length ? (
           <Empty icon="people-outline" title="No blocked contributors" description="You can block a contributor from a workout’s options in Discover." />
         ) : q.data.map((contributor) => (
