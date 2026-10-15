@@ -2350,6 +2350,38 @@ it("reconnects the exact private recovery request after remount even when saving
   expect(fixture.startImport.mock.calls[1]).toEqual(original);
 });
 
+it("freezes the selected workout revision for reviewed re-extraction and retries it after remount", async () => {
+  fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue({ ...serverCaps, existing_workout_updates: true });
+  fixture.workout.mockResolvedValue({ ...workout, revision: 4, source_url: "https://example.test/source" });
+  fixture.startImport.mockRejectedValueOnce(Error("Lost acknowledgement"));
+  await mount(RecoverWorkout); await click("Recover as a private import");
+  expect(fixture.startImport.mock.calls[0][3]).toEqual({ auto_save: false, is_public: false,
+    replace_target: { workout_id: "workout", expected_revision: 4 } });
+  const frozen = fixture.startImport.mock.calls[0]; await unmount();
+  fixture.workout.mockResolvedValue({ ...workout, revision: 5 });
+  fixture.startImport.mockResolvedValue({ id: "reextract", generation: 1, status: "queued" });
+  await mount(RecoverWorkout); await click("Reconnect recovery");
+  expect(fixture.startImport.mock.calls[1]).toEqual(frozen);
+});
+
+it("keeps a conflicted existing-workout review and lets the person save a separate private copy", async () => {
+  fixture.params = { id: "job-A" }; fixture.capabilities.mockResolvedValue({ ...serverCaps, existing_workout_updates: true });
+  const extracted = { ...workout, capture_kind: "url", source_url: "https://example.test/source",
+    blocks: [{ ...workout.blocks[0], exercises: [{ name: "Row", reps_min: 10 }] }] };
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "ready", replace_target: { workout_id: "workout", expected_revision: 4 },
+    result: { status: "ready", workout: extracted, warnings: [], evidence: [], source: { platform: "web", channels: [], coverage_notes: [] } } });
+  fixture.acceptImport.mockRejectedValueOnce(new ApiError("This workout changed. Your review is safe.", 409));
+  await mount(ImportReview);
+  expect(nodes("Choice").find(node => node.props.label === "Share to Discover")).toBeUndefined();
+  await click("Update saved workout");
+  expect(fixture.acceptImport).toHaveBeenCalledWith("job-A", extracted, 1, false, true, true);
+  expect(button("Correct workout details")).toBeDefined();
+  fixture.acceptImport.mockResolvedValueOnce({ ...workout, id: "separate-copy" });
+  await click("Save as a separate private workout");
+  expect(fixture.acceptImport.mock.calls.at(-1)).toEqual(["job-A", extracted, 1, false, true]);
+  expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "separate-copy" } });
+});
+
 it("does not silently restore revoked AI consent while recovering an existing source", async () => {
   fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue(serverCaps);
   fixture.workout.mockResolvedValue({ ...workout, source_url: "https://example.test/source" });

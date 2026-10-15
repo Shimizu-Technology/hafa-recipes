@@ -99,8 +99,10 @@ export interface ImportJob {
   expires_at: string;
   source_is_public?: boolean | null;
   accepted_workout_id: string | null;
+  replace_target?: { workout_id: string; expected_revision: number } | null;
 }
 export interface Capabilities {
+  existing_workout_updates?: boolean;
   server_auto_save?: boolean;
   /** Absent on old servers; only an explicit true selects durable jobs. */
   export_jobs?: boolean;
@@ -142,7 +144,7 @@ export function importIsTerminal(status: ImportJob["status"]) {
 }
 /** Only an unchanged complete extraction can skip the missing-details review. */
 export function canSaveAutomatically(job: ImportJob) {
-  return !job.accepted_workout_id && job.status === "ready" && job.result?.status === "ready" &&
+  return !job.replace_target && !job.accepted_workout_id && job.status === "ready" && job.result?.status === "ready" &&
     !!job.result.workout && job.result.warnings.length === 0;
 }
 const sourceLifecycles = new Map<string, Promise<unknown>>();

@@ -186,6 +186,110 @@ async def enqueue(api, request_id=None, text=TEXT):
     )
 
 
+async def test_reextract_updates_existing_version_once_and_preserves_private_notes_and_actuals(automation_api):
+    from app.domains.workouts.models import WorkoutVersion
+    from tests.test_workouts_data_integration import WORKOUT, session_payload
+
+    api = automation_api
+    await consent(api)
+    old = {**WORKOUT, "notes": ["Private workout note"], "blocks": [{**WORKOUT["blocks"][0], "exercises": [
+        {"name": "Squat", "sets": 2, "reps_min": 8, "notes": "Use my comfortable stance"},
+        {"name": "Row", "sets": 2, "reps_min": 8, "notes": "Private row cue"},
+    ]}]}
+    created = (await api.client.post("/api/v1/workouts/library", json=old, headers=GENERATION)).json()
+    actual = await api.client.post("/api/v1/workouts/sessions", json=session_payload(created), headers=GENERATION)
+    assert actual.status_code == 201, actual.text
+    target = {"workout_id": created["id"], "expected_revision": 1}
+    body = {"request_id": str(uuid4()), "source": {"kind": "text", "text": TEXT, "ai_consent": True}, "replace_target": target}
+    queued = await api.client.post("/api/v1/workouts/imports", json=body, headers=GENERATION)
+    assert queued.status_code == 202 and queued.json()["replace_target"] == target
+    await api.worker.tick()
+    job_id = queued.json()["id"]
+    job = (await api.client.get(f"/api/v1/workouts/imports/{job_id}")).json()
+    assert job["accepted_workout_id"] is None and job["status"] in {"ready", "incomplete"}
+    path = f"/api/v1/workouts/imports/{job_id}/accept"
+    request = {"update_existing": True, "acknowledge_warnings": True}
+    first = await api.client.post(path, json=request, headers=GENERATION)
+    assert first.status_code == 200, first.text
+    saved = first.json()
+    assert saved["id"] == created["id"] and saved["revision"] == 2
+    assert saved["content"]["blocks"][0]["exercises"][0]["notes"] == "Use my comfortable stance"
+    assert "Private workout note" in saved["content"]["notes"] and "Row: Private row cue" in saved["content"]["notes"]
+    retry = await api.client.post(path, json=request, headers=GENERATION)
+    assert retry.status_code == 200 and retry.json() == saved
+    assert (await api.client.post(path, json={"acknowledge_warnings": True}, headers=GENERATION)).status_code == 409
+    assert (await api.client.get(f"/api/v1/workouts/imports/{job_id}/source")).status_code == 410
+    assert (await api.client.get("/api/v1/workouts/sessions")).json()[0] == actual.json()
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutRecord)) == 1
+        assert await db.scalar(select(func.count()).select_from(WorkoutVersion)) == 2
+        assert (await db.get(WorkoutImport, job_id)).payload == {"_replace": target}
+
+
+async def test_reextract_conflict_keeps_review_and_source_and_can_save_private_copy(automation_api):
+    from tests.test_workouts_data_integration import WORKOUT
+
+    api = automation_api
+    await consent(api)
+    original = (await api.client.post("/api/v1/workouts/library", json=WORKOUT, headers=GENERATION)).json()
+    body = {"request_id": str(uuid4()), "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+            "replace_target": {"workout_id": original["id"], "expected_revision": 1}}
+    assert (await api.client.post("/api/v1/workouts/imports", json={**body, "auto_save": True}, headers=GENERATION)).status_code == 422
+    queued = await api.client.post("/api/v1/workouts/imports", json=body, headers=GENERATION)
+    await api.worker.tick()
+    changed = await api.client.put(f"/api/v1/workouts/library/{original['id']}?expected_revision=1", json={**WORKOUT, "title": "Newer edit"}, headers=GENERATION)
+    assert changed.status_code == 200
+    path = f"/api/v1/workouts/imports/{queued.json()['id']}/accept"
+    assert (await api.client.post(path, json={"update_existing": True, "acknowledge_warnings": True}, headers=GENERATION)).status_code == 409
+    source = await api.client.get(f"/api/v1/workouts/imports/{queued.json()['id']}/source")
+    assert source.status_code == 200 and source.json()["source"]["text"] == TEXT
+    assert (await api.client.post("/api/v1/workouts/imports", json=body, headers=GENERATION)).json()["id"] == queued.json()["id"]
+    assert (await api.client.post("/api/v1/workouts/imports", json={**body, "request_id": str(uuid4())}, headers=GENERATION)).status_code == 409
+    saved = await api.client.post(path, json={"acknowledge_warnings": True}, headers=GENERATION)
+    assert saved.status_code == 200 and saved.json()["id"] != original["id"]
+    assert (await api.client.post(path, json={"acknowledge_warnings": True}, headers=GENERATION)).json()["id"] == saved.json()["id"]
+    assert (await api.client.get(f"/api/v1/workouts/library/{original['id']}")).json() == changed.json()
+
+
+@pytest.mark.parametrize("retired", ["cancelled", "expired"])
+async def test_reextract_acceptance_cannot_revive_a_retired_import(automation_api, retired):
+    from tests.test_workouts_data_integration import WORKOUT
+
+    api = automation_api
+    await consent(api)
+    original = (await api.client.post("/api/v1/workouts/library", json=WORKOUT, headers=GENERATION)).json()
+    body = {"request_id": str(uuid4()), "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+            "replace_target": {"workout_id": original["id"], "expected_revision": 1}}
+    queued = await api.client.post("/api/v1/workouts/imports", json=body, headers=GENERATION)
+    await api.worker.tick()
+    job_id = queued.json()["id"]
+    if retired == "cancelled":
+        assert (await api.client.delete(f"/api/v1/workouts/imports/{job_id}", headers=GENERATION)).status_code == 200
+    else:
+        async with api.sessions.begin() as db:
+            (await db.get(WorkoutImport, job_id)).expires_at = now() - timedelta(seconds=1)
+    result = await api.client.post(f"/api/v1/workouts/imports/{job_id}/accept", json={"update_existing": True, "acknowledge_warnings": True}, headers=GENERATION)
+    assert result.status_code == (409 if retired == "cancelled" else 410)
+    assert (await api.client.get(f"/api/v1/workouts/library/{original['id']}")).json() == original
+
+
+async def test_reextract_target_is_owned_and_generation_fenced_before_extraction(automation_api):
+    from tests.test_workouts_data_integration import WORKOUT
+
+    api = automation_api
+    await consent(api)
+    original = (await api.client.post("/api/v1/workouts/library", json=WORKOUT, headers=GENERATION)).json()
+    await enroll(api, other=True)
+    other = {**GENERATION, "X-Test-User": "other"}
+    await api.client.put("/api/v1/workouts/ai-consent", headers=other, json={"accepted": True, "disclosure_version": 1})
+    body = {"request_id": str(uuid4()), "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+            "replace_target": {"workout_id": original["id"], "expected_revision": 1}}
+    assert (await api.client.post("/api/v1/workouts/imports", json=body, headers=other)).status_code == 404
+    assert (await api.client.post("/api/v1/workouts/imports", json=body, headers={"X-Workouts-Generation": "2"})).status_code == 409
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutImport)) == 0
+
+
 async def ready_profile(api):
     r = await api.client.put(
         "/api/v1/workouts/profile",

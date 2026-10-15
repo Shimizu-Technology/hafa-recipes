@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Crypto from "expo-crypto";
-import { Button, Card, Copy, Field, Notice, Screen } from "@/components/ui";
+import { Button, Card, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
 import { createPrivateForm } from "@/lib/private-form";
@@ -66,9 +66,13 @@ export default function RecoverWorkout() {
         await api.setAiConsent(true, generation); current();
         await consent.refetch(); current();
       }
-      const frozen = await form.begin(input, command ?? { request_id: Crypto.randomUUID(), source, auto_save: capabilities.data.server_auto_save === true });
+      const target = input.update_existing !== false && capabilities.data.existing_workout_updates === true
+        ? { workout_id: id, expected_revision: workout.data.revision } : undefined;
+      const frozen = await form.begin(input, command ?? { request_id: Crypto.randomUUID(), source,
+        auto_save: target ? false : capabilities.data.server_auto_save === true, ...(target ? { replace_target: target } : {}) });
       current(); setCommand(frozen);
-      const job = await api.startImport(frozen.request_id, frozen.source, generation, { auto_save: frozen.auto_save, is_public: false }); current();
+      const job = await api.startImport(frozen.request_id, frozen.source, generation, { auto_save: frozen.auto_save, is_public: false,
+        ...(frozen.replace_target ? { replace_target: frozen.replace_target } : {}) }); current();
       await localDrafts.save(owner, `import-visibility:${generation}:${job.id}`, false); current();
       await updateImportReferences(localDrafts, owner, generation, current, items => [
         { id: job.id, generation, label: frozen.source.source_url ?? "Workout from caption or transcript", auto_save: frozen.auto_save, created_at: new Date().toISOString() },
@@ -87,13 +91,15 @@ export default function RecoverWorkout() {
   return <Screen back title="Recover this workout." subtitle="Try the source again or paste its caption or transcript.">
     <QueryState loading={workout.isPending} error={workout.error} retry={() => { void workout.refetch(); }}>
       {workout.data && <Card compact><Copy kind="subheading">{workout.data.title}</Copy>
-        <Copy kind="small">Your saved workout stays unchanged. Recovery creates a separate private import, and your other unfinished source stays saved.</Copy></Card>}
+        <Copy kind="small">Review the extraction before updating this workout. Its earlier versions and recorded sessions stay saved. You can also save a separate copy.</Copy></Card>}
       {!loaded ? <Button title="Load recovery draft" secondary onPress={() => setLoadAttempt(value => value + 1)} /> : savedImport ?
         <Button title="Open recovery import" onPress={() => router.replace({ pathname: "/import/[id]", params: { id: savedImport } })} /> : input && <>
           <Field label="Original source link" purpose="url" optional value={input.source_url} onChange={source_url => update({ source_url })} disabled={locked} />
           <Field label="Creator caption or transcript" multiline optional value={input.caption} onChange={caption => update({ caption })} disabled={locked} />
+          {capabilities.data?.existing_workout_updates && <Choice label="Update this saved workout after review" selected={input.update_existing !== false} disabled={locked}
+            detail="Turn off to create a separate private copy instead." onPress={() => update({ update_existing: input.update_existing === false })} />}
           <Copy kind="small">Paste the creator’s actual instructions, including exercise names, reps, time and equipment. If the original upload is gone, the caption or transcript can be used on its own.</Copy>
-          <Notice>Recovery sends this source to OpenAI to read the workout. The recovered import stays private; nothing in Discover is changed.</Notice>
+          <Notice>Recovery sends this source to OpenAI. Your saved workout stays unchanged until you review and save the result. New copies stay private.</Notice>
           {command && <Notice>Your recovery request is saved on this device. Reconnect sends the same source and caption.</Notice>}
           <Button title={needsConsent ? "Agree and recover privately" : command ? "Reconnect recovery" : "Recover as a private import"} busy={busy}
             disabled={!capabilities.data?.imports || !workout.data || consent.isPending || !!consent.error}

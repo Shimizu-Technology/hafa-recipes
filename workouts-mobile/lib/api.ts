@@ -768,7 +768,7 @@ export function createWorkoutsApi(
       ).data;
     },
     async startImport(request_id: string, source: ExtractionRequest, generation: number,
-      policy?: { auto_save: boolean; is_public: boolean }) {
+      policy?: { auto_save: boolean; is_public: boolean; replace_target?: ImportJob["replace_target"] }) {
       return (await request<ImportJob>("/imports", "POST", { request_id, source, ...policy }, { generation })).data;
     },
     async createShareSession(installation_id: string, is_public: boolean, generation: number) {
@@ -786,14 +786,14 @@ export function createWorkoutsApi(
     async importJobs() {
       return (await request<ImportJob[]>("/imports?limit=30")).data;
     },
-    async acceptImport(id: string, workout: AuthoredWorkout, generation: number, isPublic = false, acknowledgeWarnings = true) {
+    async acceptImport(id: string, workout: AuthoredWorkout, generation: number, isPublic = false, acknowledgeWarnings = true, updateExisting = false) {
       return workoutRecord(
         (
           await request<RecordEnvelope<Workout>>(
             `/imports/${encodeURIComponent(id)}/accept`,
             "POST",
             // is_public is only sent when sharing, so the server's private default stays authoritative.
-            { workout: authoredWorkout(workout), acknowledge_warnings: acknowledgeWarnings, ...(isPublic ? { is_public: true } : {}) },
+            { workout: authoredWorkout(workout), acknowledge_warnings: acknowledgeWarnings, ...(isPublic ? { is_public: true } : {}), ...(updateExisting ? { update_existing: true } : {}) },
             { generation }
           )
         ).data

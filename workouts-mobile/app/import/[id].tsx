@@ -12,7 +12,7 @@ import { useTraining } from "@/lib/context";
 import { canSaveAutomatically, importIsTerminal, updateImportReferences, loadCapturedImport, retireCapturedImport, type CaptureDraft, type ImportReference } from "@/lib/capture";
 import { cleanupCaptureFiles, sourceFor } from "@/lib/capture-io";
 import { recoverySource } from "@/lib/import-recovery";
-import type { ExtractionRequest } from "@/lib/capture";
+import type { ExtractionRequest, ImportJob } from "@/lib/capture";
 import * as Crypto from "expo-crypto";
 import { type PrivateDraftSnapshot } from "@/lib/private-form";
 import type { AuthoredWorkout } from "@/lib/models";
@@ -74,7 +74,7 @@ export default function ImportReview() {
   const [notice, setNotice] = useState("");
   const [caption, setCaption] = useState("");
   const captionWrites = useRef<Promise<void>>(Promise.resolve());
-  const [retryCommand, setRetryCommand] = useState<{ request_id: string; source: ExtractionRequest; auto_save: boolean; saved_id?: string } | null>(null);
+  const [retryCommand, setRetryCommand] = useState<{ request_id: string; source: ExtractionRequest; auto_save: boolean; saved_id?: string; replace_target?: ImportJob["replace_target"] } | null>(null);
   const disclosure = usePublishingDisclosure();
   const [stateEpoch, setStateEpoch] = useState(epoch);
   const routeReady = stateEpoch === epoch;
@@ -176,7 +176,7 @@ export default function ImportReview() {
     current();
     setOriginal(null);
   }
-  async function accept(automatic = false) {
+  async function accept(automatic = false, updateExisting = false) {
     if (saving.current || !routeReady || !restored || !isCurrent() || !q.data?.result?.workout) return;
     if (automatic && (edited || !canSaveAutomatically(q.data))) return;
     const content = edited ?? q.data.result.workout;
@@ -203,7 +203,9 @@ export default function ImportReview() {
             current();
             return api.acceptImport(id, content, importGeneration, true, !automatic);
           })
-        : await api.acceptImport(id, content, importGeneration, false, !automatic);
+        : updateExisting
+          ? await api.acceptImport(id, content, importGeneration, false, !automatic, true)
+          : await api.acceptImport(id, content, importGeneration, false, !automatic);
       current();
       if (accepted === DECLINED) {
         await chooseVisibility(false, true);
@@ -212,6 +214,11 @@ export default function ImportReview() {
         current();
       }
       const saved = accepted;
+      if (updateExisting) {
+        cache.setQueryData([owner, "workout", saved.id, generation], saved);
+        void cache.invalidateQueries({ queryKey: [owner, "workout-versions", saved.id] });
+        void cache.invalidateQueries({ queryKey: [owner, "discover"] });
+      }
       await cache.invalidateQueries({ queryKey: [owner, "library"] });
       current();
       cache.removeQueries({ queryKey: [owner, "import-source", id] });
@@ -258,12 +265,13 @@ export default function ImportReview() {
         current();
         command = { request_id: Crypto.randomUUID(),
           source: recoverySource(retained, q.data.result?.source.url ?? q.data.result?.workout?.source_url, caption),
-          auto_save: capabilities.data.server_auto_save === true };
+          auto_save: q.data.replace_target ? false : capabilities.data.server_auto_save === true,
+          ...(q.data.replace_target ? { replace_target: q.data.replace_target } : {}) };
         await localDrafts.save(owner, `import-retry:${generation}:${id}`, command); current();
         setRetryCommand(command);
       }
       const next = await api.startImport(command.request_id, command.source, q.data.generation,
-        { auto_save: command.auto_save, is_public: false }); current();
+        { auto_save: command.auto_save, is_public: false, ...(command.replace_target ? { replace_target: command.replace_target } : {}) }); current();
       command = { ...command, saved_id: next.id };
       await localDrafts.save(owner, `import-retry:${generation}:${id}`, command); current();
       setRetryCommand(command);
@@ -325,7 +333,7 @@ export default function ImportReview() {
   const shareable =
     !!workout && publishable(workout) && !(q.data?.status === "incomplete" && !(routeReady && edited));
   const wantsShare = shareChoice ?? originalSource?.is_public ?? q.data?.source_is_public ?? defaultShareToDiscover(result?.workout?.capture_kind ?? originalSource?.kind);
-  const sharing = discoverOn && shareable && wantsShare;
+  const sharing = !q.data?.replace_target && discoverOn && shareable && wantsShare;
   useEffect(() => {
     if ((!autoAllowed && !originalSource?.auto_save) || !routeReady || !restored || !q.data || edited || editing ||
       error || !visible || !active || !capabilities.data || capabilities.data.server_auto_save || !canSaveAutomatically(q.data) || autoAttempt.current === epoch) return;
@@ -443,7 +451,7 @@ export default function ImportReview() {
                     if (routeReady && isCurrent()) setEditing(!editing);
                   }}
                 />
-                {discoverOn && hasExercises && (
+                {discoverOn && hasExercises && !q.data?.replace_target && (
                   <Choice
                     icon="globe-outline"
                     label="Share to Discover"
@@ -466,15 +474,19 @@ export default function ImportReview() {
                 </Notice>}
                 {!!notice && <Notice>{notice}</Notice>}
                 {hasExercises && <Button
-                  title={sharing ? "Save and share to Discover" : "Save workout"}
+                  title={q.data?.replace_target ? "Update saved workout" : sharing ? "Save and share to Discover" : "Save workout"}
                   icon={sharing ? "globe-outline" : "lock-closed-outline"}
                   size="lg"
                   busy={busy}
                   disabled={!routeReady || !restored || busy || !!q.data?.accepted_workout_id}
                   onPress={() => {
-                    void accept();
+                    void accept(false, !!q.data?.replace_target);
                   }}
-                />}</>}
+                />}
+                {hasExercises && q.data?.replace_target && <>
+                  <Copy kind="small">Updating creates a new version. Your private notes, organization and recorded sessions stay saved. This replaces version {q.data.replace_target.expected_revision}; a newer edit will be protected. If already shared to Discover, its public instructions will update there.</Copy>
+                  <Button title="Save as a separate private workout" secondary busy={busy} disabled={!routeReady || !restored || !!savedId} onPress={() => { void accept(); }} />
+                </>}</>}
               </>
             )}
             <Button title={sourceDetails ? "Hide source details" : "Source details"} variant="ghost" onPress={() => setSourceDetails(!sourceDetails)} />

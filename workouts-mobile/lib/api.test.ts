@@ -15,6 +15,18 @@ describe("authenticated API boundary", () => {
     expect(transport.mock.calls[1][1]).toMatchObject({ method: "POST", headers: { "X-Workouts-Generation": "7" } });
     expect(transport.mock.calls[1][1].body).toBeUndefined();
   });
+  it("freezes a private re-extraction target and explicitly chooses an existing-workout update", async () => {
+    const transport = vi.fn().mockResolvedValueOnce(new Response("{}"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "workout", generation: 4, revision: 3, content: { title: "Updated", blocks: [] } })));
+    const api = createWorkoutsApi("https://example.test", async () => "token", transport);
+    const replace_target = { workout_id: "workout", expected_revision: 2 };
+    await api.startImport("request", { kind: "text", text: "Squat 10 reps", ai_consent: true }, 4,
+      { auto_save: false, is_public: false, replace_target });
+    await api.acceptImport("job", { title: "Updated", kind: "session", provenance: "source", blocks: [] }, 4, false, true, true);
+    expect(JSON.parse(transport.mock.calls[0][1].body)).toMatchObject({ replace_target, auto_save: false, is_public: false });
+    expect(JSON.parse(transport.mock.calls[1][1].body)).toMatchObject({ update_existing: true, acknowledge_warnings: true });
+    expect(transport.mock.calls[1][1].headers["X-Workouts-Generation"]).toBe("4");
+  });
   it("archives using the frozen owner/generation/revision and retains paused history in the response", async () => {
     const row = { id: "plan", revision: 4, generation: 7, content: { title: "Saved plan", proposal: { sessions: [] },
       schedule_state: { status: "paused", archived_at: "2026-10-10", archive_previous_status: "paused", paused_sessions: [{ id: "queued" }] } } };

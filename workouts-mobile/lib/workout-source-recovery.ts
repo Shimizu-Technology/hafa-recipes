@@ -1,6 +1,6 @@
 import type { ExtractionRequest } from "./capture";
-export interface SourceRecoveryInput { source_url: string; caption: string }
-export interface SourceRecoveryCommand { request_id: string; source: ExtractionRequest; auto_save: boolean }
+export interface SourceRecoveryInput { source_url: string; caption: string; update_existing?: boolean }
+export interface SourceRecoveryCommand { request_id: string; source: ExtractionRequest; auto_save: boolean; replace_target?: { workout_id: string; expected_revision: number } }
 export function sourceRecoveryRequest(input: SourceRecoveryInput): ExtractionRequest {
   const url = input.source_url.trim(), text = input.caption.trim();
   if (url) {

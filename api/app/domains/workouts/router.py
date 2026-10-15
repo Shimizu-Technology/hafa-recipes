@@ -516,9 +516,17 @@ async def update_workout(
             if field not in workout.model_fields_set and field in row.content
         })
     content = validated_workout(workout)
+    await append_workout_version(db, row, content)
+    result = (await library_responses(db, [row]))[0]
+    await db.commit()
+    return result
+
+
+async def append_workout_version(db, row, content):
+    """Caller holds the owner write lock and checked the live revision."""
     from app.domains.workouts.source_media import retain_source_cover
 
-    await retain_source_cover(db, user.id, generation, content.get("source_thumbnail_url"))
+    await retain_source_cover(db, row.app_user_id, row.generation, content.get("source_thumbnail_url"))
     prior = await db.scalar(
         select(WorkoutVersion.id).where(
             WorkoutVersion.workout_id == row.id, WorkoutVersion.revision == row.revision
@@ -530,8 +538,8 @@ async def update_workout(
     row.updated_at = now()
     db.add(
         WorkoutVersion(
-            app_user_id=user.id,
-            generation=generation,
+            app_user_id=row.app_user_id,
+            generation=row.generation,
             workout_id=row.id,
             revision=row.revision,
             content=content,
@@ -542,9 +550,6 @@ async def update_workout(
     from app.domains.workouts.discover import refresh_publication_after_edit
 
     await refresh_publication_after_edit(db, row)
-    result = (await library_responses(db, [row]))[0]
-    await db.commit()
-    return result
 
 
 @router.get("/library/{workout_id}/versions", response_model=list[RecordResponse])
