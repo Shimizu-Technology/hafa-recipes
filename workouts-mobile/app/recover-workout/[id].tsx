@@ -85,6 +85,18 @@ export default function RecoverWorkout() {
     } catch (e) { if (isCurrent()) setError((e as Error).message); }
     finally { if (isCurrent()) { submitting.current = false; setBusy(false); } }
   }
+  async function startAnother() {
+    if (!isCurrent() || submitting.current || !savedImport || readyEpoch !== epoch) return;
+    submitting.current = true; setBusy(true); setError("");
+    try {
+      const latest = await workout.refetch(); current();
+      if (!latest.data || latest.error) throw Error("Could not load the latest workout. Try again before starting another update.");
+      const next = { source_url: latest.data.source_url ?? "", caption: "" };
+      await form.reopen(next); current();
+      setInput(next); setCommand(null); setSavedImport(undefined);
+    } catch (e) { if (isCurrent()) setError((e as Error).message); }
+    finally { if (isCurrent()) { submitting.current = false; setBusy(false); } }
+  }
   const locked = busy || readyEpoch !== epoch || !!command || !!savedImport;
   const needsConsent = !consent.data?.accepted || consent.data.disclosure_version !== 1;
   if (!enabled) return <Screen back title="Recover this workout."><Copy>Set up your Workouts account before recovering a saved source.</Copy>
@@ -94,7 +106,9 @@ export default function RecoverWorkout() {
       {workout.data && <Card compact><Copy kind="subheading">{workout.data.title}</Copy>
         <Copy kind="small">Review the extraction before updating this workout. Its earlier versions and recorded sessions stay saved. You can also save a separate copy.</Copy></Card>}
       {!loaded ? <Button title="Load recovery draft" secondary onPress={() => setLoadAttempt(value => value + 1)} /> : savedImport ?
-        <Button title="Open recovery import" onPress={() => { if (isCurrent()) router.replace({ pathname: "/import/[id]", params: { id: savedImport } }); }} /> : input && <>
+        <><Button title="Open recovery import" onPress={() => { if (isCurrent()) router.replace({ pathname: "/import/[id]", params: { id: savedImport } }); }} />
+          <Copy kind="small">Your earlier import stays available in your library. Start another update to use a different caption or source.</Copy>
+          <Button title="Start another update" secondary busy={busy} onPress={() => { void startAnother(); }} /></> : input && <>
           <Field label="Original source link" purpose="url" optional value={input.source_url} onChange={source_url => update({ source_url })} disabled={locked} />
           <Field label="Creator caption or transcript" multiline optional value={input.caption} onChange={caption => update({ caption })} disabled={locked} />
           {capabilities.data?.existing_workout_updates && <Choice label="Update this saved workout after review" selected={input.update_existing !== false} disabled={locked}

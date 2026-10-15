@@ -1,4 +1,4 @@
-import { createElement, Fragment, Suspense, startTransition, useLayoutEffect, useState, type ComponentType } from "react";
+import { createElement, Fragment, Suspense, startTransition, useLayoutEffect, useState, type ComponentType, type PropsWithChildren, type ReactNode } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -154,7 +154,7 @@ vi.mock("expo-router", () => ({
 }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => `command-${++fixture.next}` }));
 vi.mock("@/components/ui", () => ({
-  Screen: "Screen",
+  Screen: ({ children, footer }: PropsWithChildren<{ footer?: ReactNode }>) => createElement("Screen", null, children, footer),
   Card: "Card",
   Copy: "Copy",
   Field: "Field",
@@ -2380,6 +2380,24 @@ it("keeps a conflicted existing-workout review and lets the person save a separa
   await click("Save as a separate private workout");
   expect(fixture.acceptImport.mock.calls.at(-1)).toEqual(["job-A", extracted, 1, false, true]);
   expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "separate-copy" } });
+});
+
+it("starts another explicit update with a fresh command and latest revision while keeping the earlier import", async () => {
+  fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue({ ...serverCaps, existing_workout_updates: true });
+  fixture.workout.mockResolvedValue({ ...workout, revision: 4, source_url: "https://example.test/source" });
+  fixture.startImport.mockResolvedValueOnce({ id: "first-update", generation: 1, status: "queued" });
+  await mount(RecoverWorkout); await click("Recover as a private import");
+  const first = fixture.startImport.mock.calls[0];
+  await unmount(); await mount(RecoverWorkout);
+  fixture.workout.mockResolvedValue({ ...workout, revision: 6, source_url: "https://example.test/new" });
+  await click("Start another update");
+  expect(nodes("Field").find(node => node.props.label === "Original source link")!.props.value).toBe("https://example.test/new");
+  fixture.startImport.mockResolvedValueOnce({ id: "second-update", generation: 1, status: "queued" });
+  await click("Recover as a private import");
+  const second = fixture.startImport.mock.calls[1];
+  expect(second[0]).not.toBe(first[0]);
+  expect(second[3].replace_target).toEqual({ workout_id: "workout", expected_revision: 6 });
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "imports:1"))!).map((item: { id: string }) => item.id)).toEqual(["second-update", "first-update"]);
 });
 
 it("does not silently restore revoked AI consent while recovering an existing source", async () => {
