@@ -43,6 +43,7 @@ OPTIONAL_MIGRATIONS = (
     "migrations.045_add_workouts_discover",
     "migrations.046_add_workouts_share_credentials",
     "migrations.047_add_workouts_source_media",
+    "migrations.048_add_workouts_cover_upload",
 )
 
 
