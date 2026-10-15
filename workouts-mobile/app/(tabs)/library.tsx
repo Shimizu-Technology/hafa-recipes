@@ -73,7 +73,7 @@ export default function Library() {
       const result = await addWorkoutsToCollection(command.ids, command.target, command.generation, api, current);
       current();
       setSelectedIds(result.failed.map(item => item.id));
-      setBulkMessage(`${result.added.length} added to the collection.${result.failed.length ? ` ${result.failed.length} need retry.` : ""}`);
+      setBulkMessage(`${result.added.length} added to the collection.${result.failed.length ? ` ${result.failed.length} ${result.failed.length === 1 ? "needs" : "need"} retry.` : ""}`);
       setBulkError(result.failed[0]?.message ?? "");
       if (!result.failed.length) { setBulkOpen(false); setSelecting(false); }
       await Promise.all([cache.invalidateQueries({ queryKey: [owner, "library"] }), cache.invalidateQueries({ queryKey: [owner, "collections"] }),
@@ -204,7 +204,7 @@ export default function Library() {
         ) : (
           <>
             <Copy kind="small" tone="muted">
-              {q.data?.pages[0].total} {archived ? "archived " : ""}workouts · {visible.length} shown
+              {q.data?.pages[0].total} {archived ? "archived " : ""}{q.data?.pages[0].total === 1 ? "workout" : "workouts"} · {visible.length} shown
             </Copy>
             {visible.map((w) => selecting ? <Choice key={w.id} label={w.title} detail={w.source_creator ? `By ${w.source_creator}` : w.kind}
               selected={selectedIds.includes(w.id)} disabled={bulkBusy} onPress={() => select(w.id)} /> : (
