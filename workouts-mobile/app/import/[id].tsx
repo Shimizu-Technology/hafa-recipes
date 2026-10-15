@@ -63,6 +63,7 @@ export default function ImportReview() {
   const reconciledSave = useRef<object | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [attemptedUpdate, setAttemptedUpdate] = useState<boolean | null>(null);
   /** null = the default for this source (link imports public, everything else private). */
   const [shareChoice, setShareChoice] = useState<boolean | null>(null);
   const [notice, setNotice] = useState("");
@@ -103,6 +104,7 @@ export default function ImportReview() {
     setAutoAllowed(false);
     setBusy(false);
     setError("");
+    setAttemptedUpdate(null);
     setShareChoice(null);
     setNotice("");
     setCaption("");
@@ -183,6 +185,7 @@ export default function ImportReview() {
       return;
     }
     saving.current = true;
+    setAttemptedUpdate(updateExisting);
     setBusy(true);
     setError("");
     setNotice("");
@@ -355,10 +358,10 @@ export default function ImportReview() {
       subtitle={savedDraft ? "Saved privately in your library. Check the missing details before training." : savedId ? "Ready in your library. Check or edit the details whenever you need." : busy ? "Saving your workout…" : "Your source becomes a workout you can use."}
       footer={!!error && <>
         <Notice error>{error}</Notice>
-        {q.data?.replace_target && hasExercises && !editing && !savedId && <Button
-          title={error.startsWith("Your saved workout changed while") ? "Save as a separate private workout" : "Retry updating saved workout"}
+        {q.data?.replace_target && attemptedUpdate !== null && hasExercises && !editing && !savedId && <Button
+          title={error.startsWith("Your saved workout changed while") ? "Save as a separate private workout" : attemptedUpdate ? "Retry updating saved workout" : "Retry saving private workout"}
           secondary busy={busy} disabled={!routeReady || !restored}
-          onPress={() => { void accept(false, !error.startsWith("Your saved workout changed while")); }} />}
+          onPress={() => { void accept(false, !error.startsWith("Your saved workout changed while") && attemptedUpdate); }} />}
         {!restored && <Button title="Try loading again" secondary disabled={busy} onPress={() => {
           setError(""); setRestoreAttempt((value) => value + 1); void q.refetch();
         }} />}

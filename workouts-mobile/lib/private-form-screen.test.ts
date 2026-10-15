@@ -2393,6 +2393,17 @@ it("retries an uncertain update in the original mode instead of offering a diffe
   expect(fixture.acceptImport.mock.calls[1]).toEqual(fixture.acceptImport.mock.calls[0]);
 });
 
+it("retries an uncertain private copy without changing it into an update", async () => {
+  fixture.params = { id: "job-A" }; fixture.capabilities.mockResolvedValue({ ...serverCaps, existing_workout_updates: true });
+  fixture.importJob.mockResolvedValue({ id: "job-A", generation: 1, status: "ready", replace_target: { workout_id: "workout", expected_revision: 4 },
+    result: { status: "ready", workout, warnings: [], evidence: [], source: { platform: "web", channels: [], coverage_notes: [] } } });
+  fixture.acceptImport.mockRejectedValueOnce(new ApiError("Acknowledgement unavailable", 503));
+  await mount(ImportReview); await click("Save as a separate private workout");
+  expect(button("Retry updating saved workout")).toBeUndefined();
+  await click("Retry saving private workout");
+  expect(fixture.acceptImport.mock.calls[1]).toEqual(fixture.acceptImport.mock.calls[0]);
+});
+
 it("starts another explicit update with a fresh command and latest revision while keeping the earlier import", async () => {
   fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue({ ...serverCaps, existing_workout_updates: true });
   fixture.workout.mockResolvedValue({ ...workout, revision: 4, source_url: "https://example.test/source" });
