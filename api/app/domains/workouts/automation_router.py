@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import Field, StrictBool, model_validator
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.config import get_settings
 from app.domains.workouts.automation_models import WorkoutImport, WorkoutProposal, WorkoutReadiness
@@ -18,7 +18,7 @@ from app.domains.workouts.imports import (
     create_import,
     workout_import_worker,
 )
-from app.domains.workouts.lifecycle import membership_for, now
+from app.domains.workouts.lifecycle import membership_for, now, optional_table_exists
 from app.domains.workouts.models import (
     WorkoutRecord,
     WorkoutsActivity,
@@ -372,6 +372,16 @@ async def remove_workout(workout_id: UUID, user: User, db: Database, generation:
     from app.domains.workouts.export_service import invalidate_export_snapshots
 
     await invalidate_export_snapshots(db, user.id, generation)
+    if await optional_table_exists(db, "workouts_import_jobs"):
+        # Keep the request-identity tombstone and separate usage ledger, while
+        # removing captures and dead links. Delayed retries cannot recreate it.
+        await db.execute(update(WorkoutImport).where(
+            WorkoutImport.app_user_id == user.id,
+            WorkoutImport.generation == generation,
+            WorkoutImport.accepted_workout_id == row.id,
+        ).values(status="cancelled", payload=None, result=None, accepted_workout_id=None,
+                 accepted_content_hash=None, lease_token=None, leased_until=None,
+                 next_attempt_at=None, updated_at=now()))
     await db.delete(row)
     from app.domains.workouts.source_media import retire_unused_covers
 
