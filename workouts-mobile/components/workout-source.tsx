@@ -3,8 +3,9 @@ import { View } from "react-native";
 import { Button, Card, Copy } from "@/components/ui";
 import { SourceImage } from "@/components/source-image";
 import type { Workout } from "@/lib/models";
-export function WorkoutSource({ source }: { source: Pick<Workout, "source_title" | "source_creator" | "source_thumbnail_url" | "source_context" | "cover_origin"> }) {
-  if (!source.source_title && !source.source_creator && !source.source_thumbnail_url && !source.source_context) return null;
+import { SourcePlayback } from "./source-playback";
+export function WorkoutSource({ source, showOriginal = true }: { source: Pick<Workout, "source_title" | "source_creator" | "source_thumbnail_url" | "source_context" | "source_url" | "cover_origin">; showOriginal?: boolean }) {
+  if (!source.source_title && !source.source_creator && !source.source_thumbnail_url && !source.source_context && !source.source_url) return null;
   return <Card compact>
     {source.source_thumbnail_url && <SourceImage uri={source.source_thumbnail_url} label={source.cover_origin === "user" ? "Custom workout cover photo" : source.source_title ?? "Original workout source"} />}
     {source.cover_origin === "user" && <Copy kind="small" tone="muted">Custom cover photo</Copy>}
@@ -12,6 +13,7 @@ export function WorkoutSource({ source }: { source: Pick<Workout, "source_title"
     {!!source.source_title && <Copy kind="subheading">{source.source_title}</Copy>}
     {!!source.source_creator && <Copy kind="small" tone="muted">By {source.source_creator}</Copy>}
     <SavedSourceText context={source.source_context} />
+    <SourcePlayback key={source.source_url} url={source.source_url} title={source.source_title ?? "Workout source"} showOriginal={showOriginal} />
   </Card>;
 }
 

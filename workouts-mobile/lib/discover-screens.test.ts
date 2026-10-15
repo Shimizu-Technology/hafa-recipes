@@ -94,6 +94,7 @@ vi.mock("@/components/publishing-disclosure", async () => {
   };
 });
 vi.mock("react-native", () => ({
+  Platform: { OS: "web" },
   ActivityIndicator: "ActivityIndicator",
   View: "View",
   Image: "Image",

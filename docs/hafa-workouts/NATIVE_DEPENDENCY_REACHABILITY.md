@@ -331,3 +331,31 @@ Typed routes, 211 focused mounted/domain tests, TypeScript, Doctor 21/21, all-pl
 The loading-to-ready mounted regression failed on the preceding runtime specifically because Jump could not call the mounted scroll ref, then passed after the correction. These results establish dependency reachability and focused engineering behavior. Complete repository checks, actual reading/copy/link/keyboard journeys and native Clipboard acceptance remain separate gates; no device acceptance is inferred from export maps.
 
 The historical verification above records its named source and 211 focused tests; it does not describe the later `3fbc8dee37f82189970620e8a60b8ae3040a3b4e` (212 focused tests). Public reading source `96f4cc16453528eb2b1e2cd32a8377c416f5ac39` subsequently passed 224 focused tests and its complete repository gate on October 15 UTC (October 16 Guam). Browser acceptance for that exact source covered phone and desktop, light and dark; native acceptance remains pending.
+
+## Official source playback (2026-10-15, original branch evidence)
+
+Workouts now directly declares `react-native-webview 13.16.1`, the exact version
+already used by Recipes. Compared with `8d654fc`, the lock changes only that root
+dependency edge and removes the existing WebView node’s optional/peer flags.
+No package version, resolved tarball, integrity or existing dependency edge changed.
+
+Fresh iOS/Android Hermes maps contain 1,833/1,832 sources and select the native
+player and the corresponding WebView platform implementation. Native Clerk and
+the Router fork remain selected. Forge, braces, micromatch, stream-json, Jayson
+and Solana remain absent. The legacy decoder remains bundled under the existing
+constraints; source-player URL handling uses built-in URL parsing. The web
+surface opens the original source and does not load a native player.
+
+The fresh production audit retains 32 inherited findings (5 moderate, 27 high),
+the same six advisory IDs, zero critical and zero unexpected findings. Typecheck,
+Doctor 21/21, all-platform export and native bundle checks pass. The reviewed
+lock SHA-256 is `b85b6d57e2b55d250636a53612d5eb06bf1bf04bad074687ace67ba080109d93`.
+No exception or advisory ID was added; the expiry remains 2026-11-03.
+
+Players are created only after an explicit tap, use official identified provider
+documents, require a play action, and restrict navigation and popups. Instagram
+and unsupported sources open externally. Mounted tests cover load/error/timeout,
+retry, closure and navigation guards; actual native provider playback, background
+closure and return-to-workout acceptance remain required before release.
+
+The combined SDK patch/source-player lock is being revalidated against main `66d7e4b`. The preceding player audit and map counts describe the original branch only; they do not establish combined-head or native acceptance.

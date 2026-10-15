@@ -283,7 +283,7 @@ export default function WorkoutDetail() {
                 onPress={() => setDiagnosticScope(diagnosticScope === scope ? null : scope)} />
               {diagnosticScope === scope && diagnostics.map((warning, index) => <Copy key={index} kind="small">{warning}</Copy>)}
             </Card>}
-            <WorkoutSource source={workout} />
+            <WorkoutSource source={workout} showOriginal={false} />
             {capabilities.data?.cover_upload === true && <Button
               title={workout.source_thumbnail_url ? "Change cover photo" : "Choose cover photo"} secondary icon="image-outline"
               disabled={busy || deleteBusy || publishing} onPress={() => { if (!action.current && isCurrentAccount()) router.push({ pathname: "/workout-cover/[id]", params: { id: workout.id } }); }} /> }

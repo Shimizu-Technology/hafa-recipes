@@ -1,6 +1,6 @@
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { useState } from "react";
-import { Linking, View } from "react-native";
+import { View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -41,6 +41,7 @@ import {
 import type { Workout } from "@/lib/models";
 import { blockSummary } from "@/lib/amrap-editor";
 import { blockedContributorsKey, contributorName } from "@/lib/safety";
+import { SourcePlayback } from "@/components/source-playback";
 
 const reportCategories: Array<{ value: ReportCategory; label: string; detail: string }> = [
   { value: "unsafe", label: "Unsafe exercise advice", detail: "Could hurt someone who follows it" },
@@ -51,10 +52,6 @@ const reportCategories: Array<{ value: ReportCategory; label: string; detail: st
   { value: "other", label: "Something else", detail: "Tell us what’s wrong" },
 ];
 type SheetMode = "menu" | "report" | "block" | "saved" | null;
-
-function isWebLink(url: string | null | undefined): url is string {
-  return !!url && /^https?:\/\//i.test(url);
-}
 
 export default function DiscoverWorkout() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -166,11 +163,6 @@ export default function DiscoverWorkout() {
       setBusy(null);
     }
   }
-  function openOriginal() {
-    if (!isWebLink(item?.source_url)) return;
-    void Linking.openURL(item.source_url).catch(() => setError("Couldn’t open the original video."));
-  }
-
   const workout = item?.workout;
   const credit = item ? creatorCredit(item) : null;
   const savedId = item?.saved_workout_id;
@@ -297,16 +289,9 @@ export default function DiscoverWorkout() {
                 disabled={generation == null || !!busy}
                 onPress={() => void askCoach()}
               />
-              {isWebLink(item.source_url) && (
-                <ListRow icon="play-circle-outline" title="Open original video" trailing="external" onPress={openOriginal} />
-              )}
             </ListGroup>
           )}
-          {item.is_owner && isWebLink(item.source_url) && (
-            <ListGroup>
-              <ListRow icon="play-circle-outline" title="Open original video" trailing="external" onPress={openOriginal} />
-            </ListGroup>
-          )}
+          <SourcePlayback key={item.source_url} url={item.source_url} title={item.title} />
 
           <SectionHeader title="The workout" />
           <WorkoutInstructions instructions={workout.instructions} />
