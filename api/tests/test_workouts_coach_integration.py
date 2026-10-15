@@ -2058,3 +2058,168 @@ async def test_private_image_signed_read_cannot_outlive_capture_expiry(coach_api
         (await db.get(CoachAttachment, identifier)).expires_at = clock + timedelta(seconds=10)
     async with api.sessions() as db:
         assert (await images.read_url(db, "owner", 1, identifier))["expires_in"] == 10
+
+
+async def private_image_transport_fixture(api, monkeypatch):
+    from app.domains.workouts import coach_attachment_router
+
+    images, writes = await private_attachment_fixture(api, monkeypatch)
+    api.app.include_router(coach_attachment_router.router)
+    api.app.include_router(coach_attachment_router.upload_router)
+    api.app.dependency_overrides[coach_attachment_router.attachment_sessions] = lambda: api.sessions
+    monkeypatch.setattr(coach_attachment_router, "get_settings", lambda: settings(workouts_ai_enabled=True))
+    return coach_attachment_router, images, writes
+
+
+def private_image_upload_payload(color="red"):
+    import base64
+
+    return {"content_type": "image/jpeg", "base64_data": base64.b64encode(private_attachment_bytes(color)).decode("ascii")}
+
+
+async def test_private_image_transport_replays_and_enforces_owner_generation_and_privacy(coach_api, monkeypatch):
+    api = coach_api
+    routes, images, writes = await private_image_transport_fixture(api, monkeypatch)
+    upload_id = uuid4()
+    path = f"/api/v1/workouts/coach/image-uploads/{upload_id}"
+    payload = private_image_upload_payload()
+    response = await api.client.post(path, headers=GENERATION, json=payload)
+    assert response.status_code == 200, response.text
+    assert response.headers["Cache-Control"] == "no-store"
+    assert set(response.json()) == {"id", "expires_at"}
+    assert (await api.client.post(path, headers=GENERATION, json=payload)).json() == response.json()
+    changed = await api.client.post(path, headers=GENERATION, json=private_image_upload_payload("blue"))
+    assert changed.status_code == 409 and len(writes) == 1
+    read = f"/api/v1/workouts/coach/images/{response.json()['id']}"
+    signed = await api.client.get(read, headers=GENERATION)
+    assert signed.status_code == 200 and signed.json()["expires_in"] == 60
+    assert signed.headers["Cache-Control"] == "no-store"
+    await enroll(api, other=True)
+    for method in [api.client.get, api.client.delete]:
+        assert (await method(read, headers=GENERATION | {"X-Test-User": "other"})).status_code == 404
+        assert (await method(read, headers={"X-Workouts-Generation": "2"})).status_code == 409
+    assert (await api.client.post(path, headers=GENERATION | {"X-Hafa-Account-ID": "other"}, json=payload)).status_code == 409
+    assert (await api.client.post(path, json=payload)).status_code == 422
+    assert (await api.client.get(read, headers=GENERATION)).status_code == 200
+    assert not api.provider.sent
+    assert (await api.client.get("/api/v1/workouts/capabilities")).json()["coach_images"] is False
+    # Storage is not photo coaching: the old strict message contract stays closed.
+    rejected = await api.client.post("/api/v1/workouts/coach/messages", headers=GENERATION,
+        json={"request_id": str(uuid4()), "message": "Inspect this", "attachment_id": response.json()["id"]})
+    assert rejected.status_code == 422 and not api.provider.sent
+    monkeypatch.setattr(routes, "get_settings", lambda: settings(workouts_ai_enabled=False))
+    async with api.sessions.begin() as db:
+        from app.domains.workouts.models import WorkoutsConsent
+
+        (await db.get(WorkoutsConsent, "owner")).accepted_at = None
+    assert (await api.client.post(path, headers=GENERATION, json=payload)).status_code == 503
+    assert (await api.client.delete(read, headers=GENERATION)).status_code == 204
+    assert (await api.client.delete(read, headers=GENERATION)).status_code == 204
+    assert (await api.client.get(read, headers=GENERATION)).status_code == 410
+    assert (await api.client.delete(path, headers=GENERATION)).status_code == 204
+    assert (await api.client.delete(f"/api/v1/workouts/coach/image-uploads/{uuid4()}", headers=GENERATION)).status_code == 204
+
+
+@pytest.mark.parametrize("bad", [
+    {"content_type": "image/jpeg", "base64_data": "PRIVATE_INVALID_PHOTO"},
+    {"content_type": "image/jpeg", "base64_data": 123},
+    {"content_type": "image/svg+xml", "base64_data": "PRIVATE_INVALID_PHOTO"},
+    {"content_type": "image/jpeg", "base64_data": "x" * 2_796_205},
+    {"content_type": "image/jpeg", "base64_data": "eA==", "url": "https://private.test/photo"},
+])
+async def test_private_image_transport_rejects_input_without_echoing_photo_or_writing(coach_api, monkeypatch, bad):
+    from app.domains.workouts.coach_attachment_models import CoachAttachment
+
+    api = coach_api
+    _, _, writes = await private_image_transport_fixture(api, monkeypatch)
+    response = await api.client.post(f"/api/v1/workouts/coach/image-uploads/{uuid4()}", headers=GENERATION, json=bad)
+    assert response.status_code == 422 and len(response.content) < 200
+    assert "PRIVATE_INVALID_PHOTO" not in response.text and "private.test" not in response.text
+    assert not writes
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(CoachAttachment)) == 0
+
+
+async def test_private_image_transport_bounds_chunked_body_and_decoded_bytes_before_admission(coach_api, monkeypatch):
+    import base64
+
+    from app.domains.workouts.coach_attachment_models import CoachAttachment
+
+    api = coach_api
+    _, _, writes = await private_image_transport_fixture(api, monkeypatch)
+    path = f"/api/v1/workouts/coach/image-uploads/{uuid4()}"
+    payload = {"content_type": "image/jpeg", "base64_data": base64.b64encode(b"x" * (2 * 1024 * 1024 + 1)).decode()}
+    assert (await api.client.post(path, headers=GENERATION, json=payload)).status_code == 422
+    async def oversized():
+        yield b'{"base64_data":"'
+        yield b"x" * (3 * 1024 * 1024)
+        yield b'","content_type":"image/jpeg"}'
+    response = await api.client.post(path, headers=GENERATION | {"Content-Type": "application/json"}, content=oversized())
+    assert response.status_code == 413 and not writes
+    malformed = await api.client.post(path, headers=GENERATION | {"Content-Type": "application/json"}, content=b'{"PRIVATE_PHOTO":')
+    assert malformed.status_code == 422 and "PRIVATE_PHOTO" not in malformed.text
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(CoachAttachment)) == 0
+
+
+async def test_private_image_transport_discard_original_uuid_prevents_late_upload(coach_api, monkeypatch):
+    api = coach_api
+    _, _, writes = await private_image_transport_fixture(api, monkeypatch)
+    path = f"/api/v1/workouts/coach/image-uploads/{uuid4()}"
+    assert (await api.client.delete(path, headers=GENERATION)).status_code == 204
+    response = await api.client.post(path, headers=GENERATION, json=private_image_upload_payload())
+    assert response.status_code == 410 and not writes
+
+
+async def test_private_image_transport_clear_during_normalization_blocks_late_http_upload(coach_api, monkeypatch):
+    import threading
+
+    from app.domains.workouts.coach_attachment_models import CoachAttachment
+
+    api = coach_api
+    _, images, writes = await private_image_transport_fixture(api, monkeypatch)
+    started, release = threading.Event(), threading.Event()
+    normalize = images.normalized_image
+    def blocked(*args):
+        started.set()
+        if not release.wait(10):
+            raise RuntimeError("Test did not release normalization")
+        return normalize(*args)
+    monkeypatch.setattr(images, "normalized_image", blocked)
+    upload_id = uuid4()
+    pending = asyncio.create_task(api.client.post(f"/api/v1/workouts/coach/image-uploads/{upload_id}",
+        headers=GENERATION, json=private_image_upload_payload()))
+    try:
+        assert await asyncio.wait_for(asyncio.to_thread(started.wait, 5), 6)
+        cleared = await api.client.delete("/api/v1/workouts/coach/messages", headers=GENERATION)
+        assert cleared.status_code == 204, cleared.text
+    finally:
+        release.set()
+        outcome, = await asyncio.wait_for(asyncio.gather(pending, return_exceptions=True), 6)
+    assert not isinstance(outcome, BaseException) and outcome.status_code == 410 and not writes
+    identifier = images.attachment_id("owner", 1, upload_id)
+    assert (await api.client.get(f"/api/v1/workouts/coach/images/{identifier}", headers=GENERATION)).status_code == 410
+    async with api.sessions() as db:
+        assert (await db.get(CoachAttachment, identifier)).state == "deleted"
+
+
+async def test_private_image_transport_denies_missing_consent_and_optional_schema(coach_api, monkeypatch):
+    from app.domains.workouts.models import WorkoutsConsent
+
+    api = coach_api
+    routes, images, writes = await private_image_transport_fixture(api, monkeypatch)
+    path = f"/api/v1/workouts/coach/image-uploads/{uuid4()}"
+    async with api.sessions.begin() as db:
+        consent_row = await db.get(WorkoutsConsent, "owner")
+        accepted_at = consent_row.accepted_at
+        consent_row.accepted_at = None
+    assert (await api.client.post(path, headers=GENERATION, json=private_image_upload_payload())).status_code == 403
+    async with api.sessions.begin() as db:
+        (await db.get(WorkoutsConsent, "owner")).accepted_at = accepted_at
+    async def unavailable(_db):
+        return False
+    monkeypatch.setattr(images, "attachments_ready", unavailable)
+    assert (await api.client.post(path, headers=GENERATION, json=private_image_upload_payload())).status_code == 503
+    monkeypatch.setattr(routes, "get_settings", lambda: settings(workouts_api_enabled=False))
+    assert (await api.client.post(path, headers=GENERATION, content=b"not-json")).status_code == 404
+    assert not writes and not api.provider.sent
