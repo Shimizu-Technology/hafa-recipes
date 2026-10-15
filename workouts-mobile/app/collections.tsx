@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Copy, Field, Notice, Screen } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
@@ -9,30 +9,48 @@ function CollectionEditor({
   save,
   remove,
   busy,
+  scopeToken,
+  isCurrent,
 }: {
   item: Collection;
   save(title: string, revision: number): Promise<boolean>;
   remove(revision: number): Promise<boolean>;
   busy: boolean;
+  scopeToken: object;
+  isCurrent(): boolean;
 }) {
   const [title, setTitle] = useState(item.title);
   const [base, setBase] = useState({ title: item.title, revision: item.revision });
   const [confirmRevision, setConfirmRevision] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const scope = useMemo(() => ({ lock: null as object | null }), [scopeToken, item.id]);
+  const live = useRef<typeof scope | null>(null);
+  useLayoutEffect(() => {
+    live.current = scope; setTitle(item.title); setBase({ title: item.title, revision: item.revision });
+    setConfirmRevision(null); setError("");
+    return () => { if (live.current === scope) live.current = null; };
+  }, [scope]);
+  const current = () => live.current === scope && isCurrent();
   useEffect(() => {
-    if (title === base.title) {
+    if (current() && title === base.title) {
       setTitle(item.title);
       setBase({ title: item.title, revision: item.revision });
     }
   }, [item.title, item.revision]);
   async function rename() {
+    if (!current() || busy || scope.lock) return;
     const problem = collectionTitleError(title);
     if (problem) {
       setError(problem);
       return;
     }
+    const token = {}; scope.lock = token;
+    const submitted = { title: title.trim(), revision: base.revision };
     setError("");
-    if (await save(title.trim(), base.revision)) setBase({ title: title.trim(), revision: base.revision + 1 });
+    try {
+      if (await save(submitted.title, submitted.revision) && current() && scope.lock === token)
+        setBase({ title: submitted.title, revision: submitted.revision + 1 });
+    } finally { if (scope.lock === token) scope.lock = null; }
   }
   return (
     <Card>
@@ -41,7 +59,7 @@ function CollectionEditor({
         label={`Collection name: ${base.title}`}
         value={title}
         onChange={(value) => {
-          if (!busy) setTitle(value);
+          if (current() && !busy && !scope.lock) setTitle(value);
         }}
       />
       {!!error && <Notice error>{error}</Notice>}
@@ -56,6 +74,7 @@ function CollectionEditor({
             secondary
             disabled={busy}
             onPress={() => {
+              if (!current() || busy || scope.lock) return;
               setTitle(item.title);
               setBase({ title: item.title, revision: item.revision });
             }}
@@ -79,19 +98,19 @@ function CollectionEditor({
             secondary
             busy={busy}
             onPress={() => {
-              void remove(confirmRevision);
+              if (current() && !busy && !scope.lock) void remove(confirmRevision);
             }}
           />
-          <Button title="Keep collection" secondary disabled={busy} onPress={() => setConfirmRevision(null)} />
+          <Button title="Keep collection" secondary disabled={busy} onPress={() => { if (current() && !busy && !scope.lock) setConfirmRevision(null); }} />
         </>
       ) : (
-        <Button title="Remove collection" secondary disabled={busy} onPress={() => setConfirmRevision(item.revision)} />
+        <Button title="Remove collection" secondary disabled={busy} onPress={() => { if (current() && !busy && !scope.lock) setConfirmRevision(item.revision); }} />
       )}
     </Card>
   );
 }
 export default function Collections() {
-  const { api, owner, enrollment } = useTraining();
+  const { api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const generation = enrollment?.generation ?? 0;
   const cache = useQueryClient();
   const q = useQuery({
@@ -102,29 +121,41 @@ export default function Collections() {
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const scope = useMemo(() => ({ lock: null as object | null }), [owner, generation, enrollment?.enrolled, storage]);
+  const live = useRef<typeof scope | null>(null);
+  useLayoutEffect(() => {
+    live.current = scope; setTitle(""); setBusy(false); setError("");
+    return () => { if (live.current === scope) live.current = null; };
+  }, [scope]);
+  const current = () => live.current === scope && !!enrollment?.enrolled && storage.isCurrent() && isCurrentAccount();
   async function run(work: () => Promise<unknown>): Promise<boolean> {
-    setBusy(true);
-    setError("");
+    if (!current() || scope.lock) return false;
+    const token = {}; scope.lock = token; setBusy(true); setError("");
     try {
       await work();
+      if (!current()) return false;
       await cache.invalidateQueries({ queryKey: [owner, "collections"] });
+      if (!current()) return false;
       await cache.invalidateQueries({ queryKey: [owner, "library"] });
+      if (!current()) return false;
       await cache.invalidateQueries({ queryKey: [owner, "organization"] });
-      return true;
+      return current();
     } catch (e) {
-      setError((e as Error).message);
+      if (current()) setError(e instanceof Error ? e.message : "Could not update this collection.");
       return false;
     } finally {
-      setBusy(false);
+      if (scope.lock === token) { scope.lock = null; if (current()) setBusy(false); }
     }
   }
   async function create() {
+    if (!current() || scope.lock) return;
     const problem = collectionTitleError(title);
     if (problem) {
       setError(problem);
       return;
     }
-    if (await run(() => api.createCollection(title.trim(), generation))) setTitle("");
+    const submitted = title.trim();
+    if (await run(() => api.createCollection(submitted, generation)) && current()) setTitle("");
   }
   return (
     <Screen back title="Collections that make sense." subtitle="Group saved workouts for your own routines.">
@@ -133,7 +164,7 @@ export default function Collections() {
           label="New collection name"
           value={title}
           onChange={(value) => {
-            if (!busy) setTitle(value);
+            if (current() && !busy && !scope.lock) setTitle(value);
           }}
           placeholder="Gym days, Basketball prep…"
         />
@@ -153,7 +184,7 @@ export default function Collections() {
             title="Refresh saved collections"
             secondary
             onPress={() => {
-              void q.refetch();
+              if (current()) void q.refetch();
             }}
           />
         </>
@@ -162,7 +193,7 @@ export default function Collections() {
         loading={q.isPending && !!enrollment?.enrolled}
         error={q.error}
         retry={() => {
-          void q.refetch();
+          if (current()) void q.refetch();
         }}
       >
         {!q.data?.length && <Copy>No collections yet. Create one above, then organize a workout into it.</Copy>}
@@ -171,6 +202,8 @@ export default function Collections() {
             key={item.id}
             item={item}
             busy={busy}
+            scopeToken={scope}
+            isCurrent={current}
             save={(title, revision) => run(() => api.renameCollection(item.id, title, revision, generation))}
             remove={(revision) => run(() => api.removeCollection(item.id, revision, generation))}
           />

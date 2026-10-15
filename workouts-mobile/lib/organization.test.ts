@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { createWorkoutsApi, authoredWorkout } from "./api";
 import {
   libraryQuery,
+  addWorkoutsToCollection,
+  type OrganizationWrite,
   tagsFromText,
   emptyOrganization,
   organizationErrors,
@@ -108,4 +110,49 @@ describe("private library organization", () => {
     expect(page.items[0].organization?.revision).toBe(7);
     expect(transport.mock.calls[0][0]).toContain("/library/search?limit=30&favorite_only=true");
   });
+});
+
+it("bulk collection adds merge current memberships and patch no other private choices", async () => {
+  const original = { ...emptyOrganization(), revision: 7, favorite: true, archived: true, tags: ["Private"], collection_ids: ["existing"] };
+  const api = { organization: vi.fn(async () => original), saveOrganization: vi.fn(async () => ({ ...original, revision: 8, collection_ids: ["existing", "new"] })) };
+  expect(await addWorkoutsToCollection(["a", "a"], "new", 3, api, () => undefined)).toEqual({ added: ["a"], failed: [] });
+  expect(api.organization).toHaveBeenCalledWith("a", 3);
+  expect(api.saveOrganization).toHaveBeenCalledExactlyOnceWith("a", { expected_revision: 7, collection_ids: ["existing", "new"] }, 3);
+  expect(original.collection_ids).toEqual(["existing"]);
+});
+it("bulk retry reconciles accepted-but-unacknowledged memberships and does not replay successful items", async () => {
+  const rows = new Map(["a", "b"].map(id => [id, { ...emptyOrganization(), revision: 1 }]));
+  const api = { organization: vi.fn(async (id: string) => rows.get(id)!), saveOrganization: vi.fn(async (id: string, body: OrganizationWrite) => {
+    const saved = { ...rows.get(id)!, revision: 2, collection_ids: body.collection_ids ?? rows.get(id)!.collection_ids }; rows.set(id, saved);
+    if (id === "b") throw Error("Acknowledgment lost"); return saved;
+  }) };
+  const first = await addWorkoutsToCollection(["a", "b"], "new", 1, api, () => undefined);
+  expect(first.added).toEqual(["a"]); expect(first.failed).toEqual([{ id: "b", message: "Acknowledgment lost" }]);
+  expect(await addWorkoutsToCollection(first.failed.map(item => item.id), "new", 1, api, () => undefined)).toEqual({ added: ["b"], failed: [] });
+  expect(api.saveOrganization).toHaveBeenCalledTimes(2);
+  expect(api.organization.mock.calls.map(([id]) => id)).toEqual(["a", "b", "b"]);
+});
+it("bulk additions stop before writing or advancing when their account generation retires", async () => {
+  let current = true;
+  const api = { organization: vi.fn(async () => { current = false; return emptyOrganization(); }), saveOrganization: vi.fn() };
+  await expect(addWorkoutsToCollection(["a", "b"], "new", 2, api, () => { if (!current) throw Error("Retired generation"); })).rejects.toThrow("Retired generation");
+  expect(api.organization).toHaveBeenCalledTimes(1); expect(api.saveOrganization).not.toHaveBeenCalled();
+});
+it("keeps a full collection membership failure retryable without dropping its existing collections", async () => {
+  const api = { organization: vi.fn(async () => ({ ...emptyOrganization(), collection_ids: Array.from({ length: 20 }, (_, i) => String(i)) })), saveOrganization: vi.fn() };
+  const result = await addWorkoutsToCollection(["a"], "new", 1, api, () => undefined);
+  expect(result.failed[0].message).toContain("20 collections"); expect(api.saveOrganization).not.toHaveBeenCalled();
+});
+
+it("leaves revision conflicts for explicit retry and merges only then with the reviewed latest memberships", async () => {
+  const old = { ...emptyOrganization(), revision: 3, collection_ids: ["old"] };
+  const changed = { ...old, revision: 4, favorite: true, tags: ["Keep private"], collection_ids: ["old", "concurrent"] };
+  const api = { organization: vi.fn().mockResolvedValueOnce(old).mockResolvedValue(changed),
+    saveOrganization: vi.fn().mockRejectedValueOnce(Object.assign(Error("Organization changed; review and retry."), { status: 409 }))
+      .mockResolvedValue({ ...changed, revision: 5, collection_ids: [...changed.collection_ids, "target"] }) };
+  const first = await addWorkoutsToCollection(["a"], "target", 1, api, () => undefined);
+  expect(first.added).toEqual([]); expect(first.failed).toEqual([{ id: "a", message: "Organization changed; review and retry." }]);
+  expect(api.organization).toHaveBeenCalledTimes(1); expect(api.saveOrganization).toHaveBeenCalledTimes(1);
+  await addWorkoutsToCollection(first.failed.map(item => item.id), "target", 1, api, () => undefined);
+  expect(api.saveOrganization.mock.calls[1]).toEqual(["a", { expected_revision: 4, collection_ids: ["old", "concurrent", "target"] }, 1]);
 });
