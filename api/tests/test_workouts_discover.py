@@ -657,13 +657,27 @@ async def test_upload_cover_versions_replay_frozen_request_and_preserve_private_
     row, store = await uploaded_cover_fixture(discover_api, monkeypatch)
     await importlib.import_module("migrations.048_add_workouts_cover_upload").run_migration(
         configured=settings(), migration_engine=discover_api.engine)
+    from copy import deepcopy
+    from uuid import UUID
+
+    from app.domains.workouts.models import WorkoutRecord, WorkoutVersion
+    # Server-owned source context and unknown historical JSON must stay exact.
+    async with discover_api.sessions() as db:
+        saved = await db.get(WorkoutRecord, UUID(row["id"]))
+        saved.content = {**saved.content,
+            "instructions": ["Complete the source circuit."],
+            "source_context": {"parts": [{"location": "caption", "text": "PRIVATE RAW SOURCE"}]}}
+        initial = await db.scalar(select(WorkoutVersion).where(WorkoutVersion.workout_id == saved.id))
+        initial.content = deepcopy(saved.content)
+        await db.commit()
+        row["content"] = deepcopy(saved.content)
     key = uuid4()
     response = await upload_cover(discover_api, row, key)
     assert response.status_code == 200, response.text
     updated = response.json()
     assert updated["revision"] == 2 and updated["content"]["cover_origin"] == "user"
     content = updated["content"]
-    for field in ("source_url", "source_title", "source_creator", "notes", "blocks"):
+    for field in ("source_url", "source_title", "source_creator", "notes", "blocks", "instructions", "source_context"):
         assert content[field] == row["content"][field]
     assert content["source_thumbnail_url"] != row["content"]["source_thumbnail_url"]
     writes = len(store._client.puts)
@@ -690,6 +704,22 @@ async def test_upload_cover_versions_replay_frozen_request_and_preserve_private_
     assert len((await discover_api.client.get(f"/api/v1/workouts/library/{row['id']}/versions")).json()) == 3
     public, _ = discover.public_workout(edited.json()["content"])
     assert public["cover_origin"] == "user" and public["notes"] == []
+    assert "source_context" not in public
+    async with discover_api.sessions() as db:
+        historical = await db.get(WorkoutVersion, UUID(versions[0]["id"]))
+        historical.content = {**historical.content, "future_server_field": {"keep": True}}
+        await db.commit()
+    before_restore = (await discover_api.client.get(f"/api/v1/workouts/library/{row['id']}/versions")).json()
+    restored = await discover_api.client.post(
+        f"/api/v1/workouts/library/{row['id']}/versions/{versions[0]['id']}/restore?expected_revision=3",
+        headers=GENERATION)
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["content"]["source_context"] == content["source_context"]
+    assert restored.json()["content"]["instructions"] == content["instructions"]
+    assert restored.json()["content"]["source_thumbnail_url"] == content["source_thumbnail_url"]
+    assert restored.json()["content"]["cover_origin"] == "user"
+    assert restored.json()["content"]["future_server_field"] == {"keep": True}
+    assert (await discover_api.client.get(f"/api/v1/workouts/library/{row['id']}/versions")).json()[1:] == before_restore
 
 
 async def test_upload_cover_rejects_enlarged_content_without_losing_original_or_cleanup(discover_api, monkeypatch):

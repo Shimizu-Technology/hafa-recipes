@@ -427,6 +427,9 @@ async def accept_import(
         if saved.revision != target["expected_revision"]:
             raise HTTPException(409, "Workout changed; save a separate copy or extract again from its latest version")
         content = preserve_private_notes(content, saved.content)
+        # Re-extraction replaces source instructions, not an owner's chosen photo.
+        if saved.content.get("cover_origin") == "user":
+            content["source_thumbnail_url"] = saved.content.get("source_thumbnail_url")
         await append_workout_version(db, saved, content)
     else:
         saved = store_workout(db, user.id, generation, content, original_content=original_content)
