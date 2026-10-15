@@ -105,7 +105,7 @@ export default function RecoverWorkout() {
           <Button title={needsConsent ? "Agree and recover privately" : command ? "Reconnect recovery" : "Recover as a private import"} busy={busy}
             disabled={!capabilities.data?.imports || !workout.data || consent.isPending || !!consent.error}
             onPress={() => { void recover(needsConsent); }} />
-          <Button title="Use photos or screenshots instead" variant="ghost" onPress={() => router.push("/capture")} />
+          <Button title="Import photos as a new workout" variant="ghost" onPress={() => router.push("/capture")} />
         </>}
     </QueryState>
     {capabilities.error && <><Notice error>{capabilities.error.message}</Notice><Button title="Retry import availability" secondary onPress={() => { void capabilities.refetch(); }} /></>}
