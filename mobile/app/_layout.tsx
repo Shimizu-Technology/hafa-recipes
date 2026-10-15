@@ -135,22 +135,15 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
   const [offlineIdentityBindingFailed, setOfflineIdentityBindingFailed] = useState(false);
   const [offlineIdentityBindingAttempt, setOfflineIdentityBindingAttempt] = useState(0);
 
-  // Use useLayoutEffect to set token getter BEFORE children render/effects run
-  // This ensures token is available before any API calls
+  // Commit token lookup and its account authority together before request dispatch.
   useLayoutEffect(() => {
-    if (!isLoaded) return;
-    
-    if (isSignedIn) {
-      // Pass the getToken function - it will be called on each request
-      // to get a fresh token (Clerk tokens expire in ~60 seconds)
-      // Use our custom JWT template that includes public_metadata (for admin role)
-      api.setTokenGetter(async () => {
-        return await getToken({ template: "recipe-extractor-public-metadata" });
-      });
-    } else {
-      api.setTokenGetter(null);
-    }
-  }, [isSignedIn, isLoaded, getToken]);
+    const owner = isLoaded && isSignedIn ? user?.id ?? null : null;
+    api.setAuthContext(owner ? async () => {
+      return await getToken({ template: "recipe-extractor-public-metadata" });
+    } : null, owner);
+  }, [isSignedIn, isLoaded, getToken, user?.id]);
+
+  useLayoutEffect(() => () => { api.setAuthContext(null, null); }, []);
 
   // Clear before descendants run effects for every loaded identity boundary:
   // user -> signed out, signed out -> user, and direct account switches.

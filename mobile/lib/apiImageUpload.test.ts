@@ -160,6 +160,24 @@ describe('recipe image multipart requests', () => {
     } finally { api.setTokenGetter(null); }
   });
 
+  it('keeps root request authority across token refreshes but retires it at sign-out and account changes', () => {
+    try {
+      api.setAuthContext(async () => 'token-a', 'owner-a');
+      const original = api.getAuthScope();
+      api.setAuthContext(async () => 'refreshed-a', 'owner-a');
+      expect(api.getAuthScope()).toBe(original);
+      api.setAuthContext(null, null);
+      expect(api.getAuthScope().userId).toBeNull();
+      api.setAuthContext(async () => 'new-a', 'owner-a');
+      expect(api.getAuthScope()).not.toBe(original);
+      expect(api.getAuthScope().epoch).toBeGreaterThan(original.epoch);
+      const signedInAgain = api.getAuthScope();
+      api.setAuthContext(async () => 'token-b', 'owner-b');
+      api.setAuthContext(async () => 'returned-a', 'owner-a');
+      expect(api.getAuthScope()).not.toBe(signedInAgain);
+    } finally { api.setAuthContext(null, null); }
+  });
+
   it('checks the frozen delete account after delayed token lookup', async () => {
     let owner = 'owner-a';
     let finishToken!: (token: string) => void;

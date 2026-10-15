@@ -1119,7 +1119,11 @@ export function useDeleteRecipe() {
 
   const freeze = (id: string) => {
     const current = () => !!userId && identity.current === captured;
-    const guard = () => { if (!current()) throw new Error('Account changed; reopen your library.'); };
+    const authScope = api.getAuthScope();
+    const admitted = current() && authScope.userId === userId;
+    const guard = () => {
+      if (!admitted || api.getAuthScope() !== authScope) throw new Error('Account changed; reopen your library.');
+    };
     return { id, current, guard };
   };
   const mutation = useMutation({
@@ -1132,7 +1136,7 @@ export function useDeleteRecipe() {
       await queryClient.cancelQueries({ queryKey: recipeKeys.all });
       await queryClient.cancelQueries({ queryKey: recipeKeys.discover() });
       await queryClient.cancelQueries({ queryKey: recipeKeys.saved() });
-      if (!current()) throw new Error('Account changed; reopen your library.');
+      guard();
       
       // Snapshot previous data for rollback
       const previousRecipeQueries = queryClient.getQueriesData({ queryKey: recipeKeys.all });

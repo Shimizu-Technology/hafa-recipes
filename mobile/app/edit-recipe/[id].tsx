@@ -398,7 +398,6 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
       return api.editRecipe(id!, data, imageUri, guard);
     },
     onSuccess: (updatedRecipe) => {
-      if (!alive.current) return;
       // Invalidate recipe queries to refresh
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
       queryClient.invalidateQueries({ queryKey: ['recipe', id] });
@@ -406,6 +405,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
       // Also invalidate version history (new version was created)
       queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'list', id] });
       queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'count', id] });
+      if (!alive.current) return;
       
       const message = updatedRecipe.review_state === 'source_incomplete'
         ? 'Saved as a private draft. Add the missing ingredients or instructions whenever you’re ready.'
@@ -424,13 +424,13 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
   const restoreMutation = useMutation({
     mutationFn: () => api.restoreOriginalRecipe(id!, guard),
     onSuccess: () => {
-      if (!alive.current) return;
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
       queryClient.invalidateQueries({ queryKey: ['recipe', id] });
       queryClient.invalidateQueries({ queryKey: ['recipe-original', id] });
       // Also invalidate version history
       queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'list', id] });
       queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'count', id] });
+      if (!alive.current) return;
       
       Alert.alert('Restored!', 'Recipe has been restored to the original version.', [
         { text: 'OK', onPress: () => { if (alive.current) router.back(); } },
