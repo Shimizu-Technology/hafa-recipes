@@ -2268,6 +2268,8 @@ async def test_direct_capture_reports_its_real_reading_stage(kind, first_stage):
     ("10 x Squat", "20 x Squat", 10),  # Fabricated quote.
     ("10 kg Squat", "10 kg Squat", 10),
     ("10 Squat", "not 10 Squat", 10),  # A positive quote can omit its negation.
+    ("10 x Squat", "not 10 x Squat", 10),
+    ("10× Squat", "not 10× Squat", 10),
     ("10 reps Squat", "10 reps Squat and 20 reps Row", 10),
 ])
 def test_name_quote_reps_do_not_borrow_unrelated_or_unsupported_doses(quote, source_text, candidate):
