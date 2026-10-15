@@ -648,6 +648,9 @@ async def test_restore_retains_historical_cover_and_refreshes_public_source_orga
     changed = await api.client.put(f"/api/v1/workouts/library/{row['id']}?expected_revision=1",
                                   json={**REEL, "source_url": "https://youtu.be/changed12345"}, headers=GENERATION)
     assert changed.status_code == 200 and "source_thumbnail_url" not in changed.json()["content"]
+    async with api.sessions() as db:
+        epoch = await db.get(WorkoutsExportEpoch, ("owner", 1))
+        before_restore_epoch = epoch.revision if epoch else 0
     restored = await api.client.post(f"{versions}/{original['id']}/restore?expected_revision=2", headers=GENERATION)
     assert restored.status_code == 200, restored.text
     assert restored.json()["content"]["source_thumbnail_url"] == url
@@ -656,7 +659,7 @@ async def test_restore_retains_historical_cover_and_refreshes_public_source_orga
     async with api.sessions() as db:
         assert (await db.get(WorkoutSourceMedia, source_media.asset_id(url))).retained
         assert (await db.get(WorkoutLibraryOrganization, UUID(row["id"]))).source_key == source_key(SOURCE)
-        assert (await db.get(WorkoutsExportEpoch, ("owner", 1))).revision == 1
+        assert (await db.get(WorkoutsExportEpoch, ("owner", 1))).revision == before_restore_epoch + 1
     assert len(store._client.puts) == 2  # Restoring reuses the owned historical cover.
 
 
