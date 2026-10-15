@@ -213,6 +213,7 @@ async def test_reextract_updates_existing_version_once_and_preserves_private_not
     assert first.status_code == 200, first.text
     saved = first.json()
     assert saved["id"] == created["id"] and saved["revision"] == 2
+    assert saved["content"]["source_context"] == job["result"]["workout"]["source_context"]
     assert saved["content"]["blocks"][0]["exercises"][0]["notes"] == "Use my comfortable stance"
     assert "Private workout note" in saved["content"]["notes"]
     assert any("Row" in note and "Private row cue" in note for note in saved["content"]["notes"])
@@ -259,13 +260,14 @@ async def test_reextract_keeps_new_shared_instructions_separate_from_target_priv
                 {"name": "Squat", "reps_min": 10, "instructions": "New shared cue"}]}]}
         job.result = {**job.result, "workout": extracted}
     # An installed older editor omits the newly introduced shared instruction fields.
-    legacy = {key: value for key, value in extracted.items() if key != "instructions"}
+    legacy = {key: value for key, value in extracted.items() if key not in {"instructions", "source_context"}}
     legacy["blocks"] = [{**extracted["blocks"][0], "exercises": [{"name": "Squat", "reps_min": 10}]}]
     saved = await api.client.post(f"/api/v1/workouts/imports/{job_id}/accept", headers=GENERATION,
         json={"workout": legacy, "update_existing": update_existing, "acknowledge_warnings": True})
     assert saved.status_code == 200, saved.text
     content = saved.json()["content"]
     assert content["instructions"] == ["New source instruction"]
+    assert content["source_context"] == extracted["source_context"]
     assert content["blocks"][0]["exercises"][0]["instructions"] == "New shared cue"
     assert content["notes"] == (["Owner private note"] if update_existing else [])
     assert content["blocks"][0]["exercises"][0]["notes"] == ("Owner private cue" if update_existing else None)
@@ -1644,6 +1646,23 @@ async def test_source_text_old_client_roundtrip_clear_and_private_immutable_hist
     versions = (await api.client.get(f"/api/v1/workouts/library/{identifier}/versions")).json()
     assert "source_context" not in versions[0]["content"]
     assert versions[-1]["content"]["source_context"] == context
+    # Restoring trusted history must retain the acquired text of that version;
+    # restoring its explicitly cleared successor must not resurrect that text.
+    path = f"/api/v1/workouts/library/{identifier}/versions"
+    restored = await api.client.post(f"{path}/{versions[-1]['id']}/restore?expected_revision={cleared.json()['revision']}", headers=GENERATION)
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["content"]["source_context"] == context
+    assert_cues(restored.json()["content"])
+    cleared_again = await api.client.post(f"{path}/{versions[0]['id']}/restore?expected_revision={restored.json()['revision']}", headers=GENERATION)
+    assert cleared_again.status_code == 200, cleared_again.text
+    assert "source_context" not in cleared_again.json()["content"]
+    assert cleared_again.json()["content"]["notes"] == ["PRIVATE OWNER NOTE"]
+    if clear_instructions_first:
+        assert cleared_again.json()["content"]["instructions"] == []
+        assert cleared_again.json()["content"]["blocks"][0]["exercises"][0].get("instructions") is None
+    else:
+        assert_cues(cleared_again.json()["content"])
+    assert (await api.client.get(path)).json()[2:] == versions
     assert_cues(versions[-1]["content"])
     await enroll(api, other=True)
     other = await api.client.get(f"/api/v1/workouts/library/{identifier}", headers={"X-Test-User": "other"})
