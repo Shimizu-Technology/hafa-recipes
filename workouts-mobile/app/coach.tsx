@@ -145,13 +145,14 @@ export default function Coach() {
   const scroll = useRef<ScrollView | null>(null);
   const reading = useRef({ offset: 0, latest: true, viewport: 0 });
   const positions = useRef(new Map<string, number>());
+  const positionVersions = useRef(new Map<string, number>());
   const messageViews = useRef(new Map<string, View>());
-  const earlier = useRef<{ id: string; top: number; offset: number; firstId: string; positions: Map<string, number> } | null>(null);
+  const earlier = useRef<{ id: string; top: number; offset: number; firstId: string; positions: Map<string, { top: number; version: number }> } | null>(null);
   const loadingEarlier = useRef(false);
   const [awayFromLatest, setAwayFromLatest] = useState(false);
   useLayoutEffect(() => {
     reading.current = { offset: 0, latest: true, viewport: 0 };
-    positions.current.clear(); earlier.current = null; loadingEarlier.current = false;
+    positions.current.clear(); positionVersions.current.clear(); earlier.current = null; loadingEarlier.current = false;
     setAwayFromLatest(false);
   }, [owner, generation, focusKey, focusToken, storage, epoch]);
   function latest() {
@@ -169,7 +170,7 @@ export default function Coach() {
     reading.current.latest = false; setAwayFromLatest(true);
     if (anchor && positions.current.get(anchor.id)! < reading.current.offset + reading.current.viewport)
       earlier.current = { id: anchor.id, top: positions.current.get(anchor.id)!,
-      offset: reading.current.offset, firstId: history[0].id, positions: new Map(positions.current) };
+      offset: reading.current.offset, firstId: history[0].id, positions: new Map([...positions.current].map(([id, top]) => [id, { top, version: positionVersions.current.get(id) ?? 0 }])) };
     try {
       const result = await q.fetchNextPage();
       const oldest = result.data?.pages.flatMap(page => page.messages).sort(messageOrder)[0]?.id;
@@ -180,11 +181,13 @@ export default function Coach() {
   function messageLayout(id: string, top: number) {
     if (!currentConversation()) return;
     positions.current.set(id, top);
+    positionVersions.current.set(id, (positionVersions.current.get(id) ?? 0) + 1);
     const anchor = earlier.current;
     if (anchor?.id === id && history[0]?.id !== anchor.firstId) {
       earlier.current = null;
       const delta = top - anchor.top;
-      for (const [oldId, oldTop] of anchor.positions) positions.current.set(oldId, oldTop + delta);
+      for (const [oldId, previous] of anchor.positions)
+        if (positionVersions.current.get(oldId) === previous.version) positions.current.set(oldId, previous.top + delta);
       const offset = Math.max(0, anchor.offset + delta);
       reading.current.offset = offset;
       scroll.current?.scrollTo({ y: offset, animated: false });
