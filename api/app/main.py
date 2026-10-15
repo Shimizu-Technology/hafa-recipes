@@ -17,6 +17,10 @@ from app.domains.workouts.automation_router import router as workouts_automation
 from app.domains.workouts.automation_runtime import verify_automation_schema
 from app.domains.workouts.budget_router import router as workouts_budget_router
 from app.domains.workouts.coach import workout_coach
+from app.domains.workouts.coach_attachment_router import router as workouts_coach_images_router
+from app.domains.workouts.coach_attachment_router import (
+    upload_router as workouts_coach_image_uploads_router,
+)
 from app.domains.workouts.coach_router import router as workouts_coach_router
 from app.domains.workouts.coach_router import send_router as workouts_coach_send_router
 from app.domains.workouts.connection_router import router as workouts_connections_router
@@ -125,6 +129,8 @@ app.include_router(workouts_connections_router)
 app.include_router(workouts_health_router)
 app.include_router(workouts_coach_router)
 app.include_router(workouts_coach_send_router)
+app.include_router(workouts_coach_images_router)
+app.include_router(workouts_coach_image_uploads_router)
 app.include_router(workouts_budget_router)
 app.include_router(workouts_export_router)
 app.include_router(workouts_export_read_router)

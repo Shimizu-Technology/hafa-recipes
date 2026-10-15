@@ -222,6 +222,9 @@ async def delete_account(
         from app.domains.workouts.source_media import owned_cleanup_prefixes
 
         storage_prefixes.extend(await owned_cleanup_prefixes(db, user_id))
+        from app.domains.workouts.coach_attachments import owned_prefixes
+
+        storage_prefixes.extend(await owned_prefixes(db, user_id))
 
         cleanup_job = DeletionCleanupJob(
             kind="account",

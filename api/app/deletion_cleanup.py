@@ -53,6 +53,11 @@ def is_allowed_cleanup_prefix(prefix: str) -> bool:
     """Restrict durable cleanup to one recipe or one user's owned namespace."""
     if not isinstance(prefix, str) or not prefix or ".." in prefix:
         return False
+    if prefix.startswith("workout-coach-images/") and prefix.endswith("/"):
+        try:
+            return prefix == f"workout-coach-images/{UUID(prefix.split('/')[1])}/"
+        except (ValueError, IndexError):
+            return False
     if prefix.startswith("thumbnails/") and prefix[-1:] in {".", "/"}:
         recipe_id = prefix.removeprefix("thumbnails/")[:-1]
         if recipe_id.startswith("workouts-"):
@@ -312,9 +317,9 @@ class DurableDeletionCleanupWorker:
         failures = 0
         for prefix in prefixes:
             try:
-                if prefix.startswith("thumbnails/workouts-"):
+                if prefix.startswith(("thumbnails/workouts-", "workout-coach-images/")):
                     # Fence the asset even after account/product rows have been erased.
-                    identifier = UUID(prefix.removeprefix("thumbnails/workouts-").removesuffix("/"))
+                    identifier = UUID(prefix.removeprefix("thumbnails/workouts-").removeprefix("workout-coach-images/").removesuffix("/"))
                     async with AsyncSessionLocal() as db, db.begin():
                         await acquire_recipe_media_lock(db, identifier)
                         deletion = asyncio.create_task(storage_service.delete_prefix(prefix))

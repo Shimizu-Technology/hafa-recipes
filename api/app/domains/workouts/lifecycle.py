@@ -76,6 +76,9 @@ async def erase_product_data(db, membership, requested_generation: int):
     from app.domains.workouts.source_media import erase_source_media
 
     await erase_source_media(db, owner)
+    from app.domains.workouts.coach_attachments import clear_attachments
+
+    await clear_attachments(db, owner, erase=True)
     if await optional_table_exists(db, "workouts_health_connections"):
         from app.domains.workouts.health_models import HEALTH_TABLES
         from app.domains.workouts.health_service import erase_health_product_data
