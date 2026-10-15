@@ -344,7 +344,8 @@ async def test_concurrent_workout_updates_allocate_only_one_next_version(data_ap
         assert await db.scalar(select(func.count()).select_from(WorkoutVersion)) == 2
 
 
-async def test_restore_appends_snapshot_without_rewriting_versions_or_recorded_actuals(data_api, monkeypatch):
+@pytest.mark.parametrize("instructions", [None, [], ["Rest after each round"]])
+async def test_restore_appends_snapshot_without_rewriting_versions_or_recorded_actuals(data_api, monkeypatch, instructions):
     row = await workout(data_api)
     session = await data_api.client.post("/api/v1/workouts/sessions", json=session_payload(row), headers=GENERATION)
     versions_url = f"/api/v1/workouts/library/{row['id']}/versions"
@@ -356,6 +357,9 @@ async def test_restore_appends_snapshot_without_rewriting_versions_or_recorded_a
         trusted = {**saved.content, "provenance": "suggestion", "notes": ["Private note"],
                    "future_instructions": ["Rest after each round"], "version": 2,
                    "parent_version_id": first["id"]}
+        if instructions is not None:
+            trusted["instructions"] = instructions
+        trusted["blocks"][0]["exercises"][0]["instructions"] = "Keep heels down."
         saved.content, saved.revision = trusted, 2
         original = WorkoutVersion(app_user_id="owner", generation=1, workout_id=saved.id, revision=2, content=trusted)
         db.add(original)
