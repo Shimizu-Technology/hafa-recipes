@@ -1,5 +1,5 @@
 import WorkoutDetail from "../app/workout/[id]";
-import { createElement, type ComponentType } from "react";
+import { createElement, type ComponentType, type PropsWithChildren, type ReactNode } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -110,7 +110,9 @@ vi.mock("expo-crypto", () => ({ randomUUID: () => "uuid" }));
 vi.mock("@/components/ui", () => {
   const names = ["AccountButton", "Button", "Card", "Chip", "ChipRow", "Choice", "Copy", "Empty", "Field", "IconButton",
     "ListGroup", "ListRow", "MediaCard", "Notice", "Row", "Screen", "SectionHeader", "Sheet", "Skeleton", "SkeletonCard", "Stack", "StatTile"];
-  return { ...Object.fromEntries(names.map((name) => [name, name])), useToast: () => fixture.toast };
+  return { ...Object.fromEntries(names.map((name) => [name, name])),
+    Screen: ({ children, footer }: PropsWithChildren<{ footer?: ReactNode }>) => createElement("Screen", null, children, footer),
+    useToast: () => fixture.toast };
 });
 vi.mock("@/components/discover-card", () => ({
   DiscoverCardView: "DiscoverCardView",
