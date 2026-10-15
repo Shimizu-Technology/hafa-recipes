@@ -428,8 +428,8 @@ class ApiClient {
     return data;
   }
 
-  async deleteRecipe(id: string): Promise<{ message: string; id: string }> {
-    const { data } = await this.client.delete(`/api/recipes/${id}`);
+  async deleteRecipe(id: string, requestGuard?: RequestGuard): Promise<{ message: string; id: string }> {
+    const { data } = await this.client.delete(`/api/recipes/${id}`, { requestGuard } as GuardedRequestConfig);
     return data;
   }
 
@@ -1264,11 +1264,12 @@ class ApiClient {
       verified_paths?: string[];
       resolved_issue_ids?: string[];
     },
-    imageUri?: string | null
+    imageUri?: string | null,
+    requestGuard?: RequestGuard,
   ): Promise<Recipe> {
     // If no image, use simple PATCH
     if (!imageUri) {
-      const { data } = await this.client.patch(`/api/recipes/${recipeId}`, editData);
+      const { data } = await this.client.patch(`/api/recipes/${recipeId}`, editData, { requestGuard } as GuardedRequestConfig);
       return data;
     }
 
@@ -1279,6 +1280,7 @@ class ApiClient {
     await appendRecipeImage(formData, 'image', imageUri);
 
     const token = this.getTokenFn ? await this.getTokenFn() : null;
+    requestGuard?.();
     
     const response = await fetch(`${API_BASE_URL}/api/recipes/${recipeId}/edit`, {
       method: 'POST',
@@ -1301,13 +1303,13 @@ class ApiClient {
     return response.json();
   }
 
-  async restoreOriginalRecipe(recipeId: string): Promise<Recipe> {
-    const { data } = await this.client.post(`/api/recipes/${recipeId}/restore`);
+  async restoreOriginalRecipe(recipeId: string, requestGuard?: RequestGuard): Promise<Recipe> {
+    const { data } = await this.client.post(`/api/recipes/${recipeId}/restore`, null, { requestGuard } as GuardedRequestConfig);
     return data;
   }
 
-  async checkHasOriginal(recipeId: string): Promise<{ has_original: boolean; source_type: string }> {
-    const { data } = await this.client.get(`/api/recipes/${recipeId}/has-original`);
+  async checkHasOriginal(recipeId: string, signal?: AbortSignal, requestGuard?: RequestGuard): Promise<{ has_original: boolean; source_type: string }> {
+    const { data } = await this.client.get(`/api/recipes/${recipeId}/has-original`, { signal, requestGuard } as GuardedRequestConfig);
     return data;
   }
 

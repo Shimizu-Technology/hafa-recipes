@@ -6,6 +6,7 @@ import type { Recipe } from '@/types/recipe';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const mocks = vi.hoisted(() => ({
   editRecipe: vi.fn(), close: vi.fn(), alert: vi.fn(), setQueryData: vi.fn(), invalidateQueries: vi.fn(),
+  editorRecipe: null as Recipe | null, editorSubmit: vi.fn(), owner: 'owner-a', routeId: 'r1',
 }));
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
@@ -15,21 +16,109 @@ vi.mock('react-native', async () => {
     Modal: host('Modal'), Platform: { OS: 'ios' }, ScrollView: host('ScrollView'),
     StyleSheet: { create: <T,>(styles: T) => styles }, TextInput: host('TextInput'),
     TouchableOpacity: host('TouchableOpacity'), View: host('View'),
+    ActivityIndicator: host('ActivityIndicator'), Image: host('Image'), Keyboard: { dismiss: vi.fn() },
   };
 });
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: () => null }));
-vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ setQueryData: mocks.setQueryData, invalidateQueries: mocks.invalidateQueries }) }));
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => ({ setQueryData: mocks.setQueryData, invalidateQueries: mocks.invalidateQueries }),
+  useQuery: (options: { queryKey: string[] }) => options.queryKey[0] === 'recipe'
+    ? { data: mocks.editorRecipe, isLoading: !mocks.editorRecipe }
+    : { data: { has_original: false } },
+  useMutation: () => ({ mutate: mocks.editorSubmit, isPending: false }),
+}));
+vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: mocks.owner, isLoaded: true }) }));
+vi.mock('expo-router', async () => {
+  const ReactModule = await import('react');
+  return {
+    useRouter: () => ({ back: mocks.close }), useLocalSearchParams: () => ({ id: mocks.routeId }),
+    Stack: { Screen: ({ options }: any) => ReactModule.createElement('StackScreen', {}, options.headerRight?.()) },
+  };
+});
+vi.mock('expo-image-picker', () => ({}));
+vi.mock('@/components/NutritionPanel', () => ({ NutritionPanel: () => null }));
+vi.mock('@/hooks/usePublishingDisclosure', () => ({ usePublishingDisclosure: () => ({ requestPublishing: vi.fn(), isCheckingDisclosure: false }) }));
 vi.mock('@/lib/api', () => ({ api: { editRecipe: mocks.editRecipe } }));
 vi.mock('@/components/Themed', async () => {
   const ReactModule = await import('react');
   return {
     Text: (props: Record<string, unknown>) => ReactModule.createElement('Text', props, props.children as React.ReactNode),
     Button: (props: Record<string, unknown>) => ReactModule.createElement('Button', props),
+    View: (props: Record<string, unknown>) => ReactModule.createElement('View', props, props.children as React.ReactNode),
     useColors: () => ({ tint: '#37745B', text: '#222', textSecondary: '#555', background: '#fff', backgroundSecondary: '#eee', border: '#ccc' }),
   };
 });
 import { RecipeDetailsReview } from '@/components/RecipeDetailsReview';
+import EditRecipeScreen from '../app/edit-recipe/[id]';
+
+describe('recipe editor draft preservation', () => {
+  it('keeps unsaved scalar, ingredient, and step edits when a foreground refetch replaces the recipe object', async () => {
+    mocks.editorRecipe = { ...recipe, is_public: false };
+    let tree!: ReactTestRenderer;
+    await act(async () => { tree = create(<EditRecipeScreen />); });
+    try {
+      const input = (placeholder: string) => host(tree, 'TextInput', props => props.placeholder === placeholder)[0];
+      await act(async () => {
+        input('Recipe name').props.onChangeText('My rice');
+        input('Ingredient name').props.onChangeText('Brown rice');
+        input('Describe this step...').props.onChangeText('Simmer gently.');
+        input('Additional notes, tips, or variations...').props.onChangeText('My private draft');
+      });
+      mocks.editorRecipe = { ...structuredClone(recipe), thumbnail_url: 'https://example.test/new-cover.webp', is_public: false };
+      await act(async () => tree.update(<EditRecipeScreen />));
+      expect(input('Recipe name').props.value).toBe('My rice');
+      expect(input('Ingredient name').props.value).toBe('Brown rice');
+      expect(input('Describe this step...').props.value).toBe('Simmer gently.');
+      expect(input('Additional notes, tips, or variations...').props.value).toBe('My private draft');
+      await act(async () => host(tree, 'TouchableOpacity')[0].props.onPress());
+      expect(mocks.editorSubmit).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+        title: 'My rice', review_content_revision: 5,
+      }) }));
+    } finally { await act(async () => tree.unmount()); }
+  });
+  it('keeps a draft when a newer content revision arrives and reloads only after confirmation', async () => {
+    mocks.editorRecipe = { ...recipe, is_public: false };
+    let tree!: ReactTestRenderer;
+    await act(async () => { tree = create(<EditRecipeScreen />); });
+    try {
+      const title = () => host(tree, 'TextInput', props => props.placeholder === 'Recipe name')[0];
+      await act(async () => title().props.onChangeText('Unsaved title'));
+      mocks.editorRecipe = { ...structuredClone(recipe), is_public: false, content_revision: 6,
+        extracted: { ...recipe.extracted, title: 'Updated rice' } };
+      await act(async () => tree.update(<EditRecipeScreen />));
+      expect(title().props.value).toBe('Unsaved title');
+      await act(async () => host(tree, 'TouchableOpacity')[0].props.onPress());
+      expect(mocks.editorSubmit).not.toHaveBeenCalled();
+      expect(mocks.alert).toHaveBeenCalledWith('Recipe changed', expect.any(String));
+      await act(async () => host(tree, 'TouchableOpacity', props => props.accessibilityLabel === 'Reload latest recipe')[0].props.onPress());
+      expect(title().props.value).toBe('Unsaved title');
+      const confirmation = mocks.alert.mock.calls.at(-1)![2];
+      await act(async () => confirmation.find((option: any) => option.text === 'Reload').onPress());
+      expect(title().props.value).toBe('Updated rice');
+      await act(async () => host(tree, 'TouchableOpacity')[0].props.onPress());
+      expect(mocks.editorSubmit.mock.calls.at(-1)![0].data.review_content_revision).toBe(6);
+    } finally { await act(async () => tree.unmount()); }
+  });
+  it('starts a separate form when the recipe or account changes', async () => {
+    mocks.editorRecipe = { ...recipe, is_public: false };
+    let tree!: ReactTestRenderer;
+    await act(async () => { tree = create(<EditRecipeScreen />); });
+    try {
+      const title = () => host(tree, 'TextInput', props => props.placeholder === 'Recipe name')[0];
+      await act(async () => title().props.onChangeText('Private first draft'));
+      mocks.routeId = 'r2';
+      mocks.editorRecipe = { ...recipe, id: 'r2', extracted: { ...recipe.extracted, title: 'Beans' } };
+      await act(async () => tree.update(<EditRecipeScreen />));
+      expect(title().props.value).toBe('Beans');
+      await act(async () => title().props.onChangeText('Private second draft'));
+      mocks.owner = 'owner-b';
+      mocks.editorRecipe = { ...recipe, id: 'r2', extracted: { ...recipe.extracted, title: 'New account recipe' } };
+      await act(async () => tree.update(<EditRecipeScreen />));
+      expect(title().props.value).toBe('New account recipe');
+    } finally { await act(async () => tree.unmount()); }
+  });
+});
 
 const recipe = {
   id: 'r1', content_revision: 5, is_public: true, review_state: 'needs_review',
@@ -48,7 +137,10 @@ function host(tree: ReactTestRenderer, type: string, predicate: (props: any) => 
   return tree.root.findAll(node => node.type === type && predicate(node.props));
 }
 
-beforeEach(() => { vi.clearAllMocks(); mocks.editRecipe.mockResolvedValue({ ...recipe, review_state: 'ready' }); });
+beforeEach(() => {
+  vi.clearAllMocks(); mocks.editRecipe.mockResolvedValue({ ...recipe, review_state: 'ready' });
+  mocks.editorRecipe = structuredClone(recipe); mocks.owner = 'owner-a'; mocks.routeId = 'r1';
+});
 
 describe('optional saved recipe review', () => {
   it('shows just the uncertain amount and allows leaving with no mutation', async () => {

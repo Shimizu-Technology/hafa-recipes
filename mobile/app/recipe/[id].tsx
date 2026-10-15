@@ -35,7 +35,6 @@ import VersionHistoryModal from '@/components/VersionHistoryModal';
 import { SafetyActionModal } from '@/components/SafetyActionModal';
 import { 
   useRecipe, 
-  useDeleteRecipe, 
   useToggleRecipeSharing,
   useIsRecipeSaved,
   useSaveRecipe,
@@ -44,6 +43,7 @@ import {
   useUpdateRecipeNote,
   useSimilarRecipes,
 } from '@/hooks/useRecipes';
+import { useRecipeDeletion } from '@/hooks/useRecipeDeletion';
 import { useAsyncExtraction } from '@/contexts/ExtractionContext';
 import { RecipeListItem } from '@/types/recipe';
 import { useAddFromRecipe } from '@/hooks/useGrocery';
@@ -142,7 +142,7 @@ export default function RecipeDetailScreen() {
   const [cookDockHeight, setCookDockHeight] = useState(0);
   
   const { data: recipe, isLoading, isFetching, error, refetch, thumbnailPending } = useRecipe(id);
-  const deleteMutation = useDeleteRecipe();
+  const handleDelete = useRecipeDeletion(id, () => router.back());
   const toggleSharingMutation = useToggleRecipeSharing();
   const addToGroceryMutation = useAddFromRecipe();
   const extraction = useAsyncExtraction();
@@ -321,30 +321,6 @@ export default function RecipeDetailScreen() {
           Alert.alert('Error', 'Failed to add ingredients to grocery list.');
         },
       }
-    );
-  };
-
-  const handleDelete = () => {
-    Alert.alert(
-      'Delete Recipe',
-      'Are you sure you want to delete this recipe? This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            // Navigate back immediately (optimistic) - don't wait for server
-            router.back();
-            // Fire delete in background
-            deleteMutation.mutate(id, {
-              onError: () => {
-                Alert.alert('Error', 'Failed to delete recipe. Please try again.');
-              },
-            });
-          },
-        },
-      ]
     );
   };
 

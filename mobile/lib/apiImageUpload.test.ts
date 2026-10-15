@@ -135,9 +135,49 @@ describe('recipe image multipart requests', () => {
 
     await api.editRecipe('recipe-1', edit);
 
-    expect(mocks.client.patch).toHaveBeenCalledWith('/api/recipes/recipe-1', edit);
+    expect(mocks.client.patch).toHaveBeenCalledWith('/api/recipes/recipe-1', edit, { requestGuard: undefined });
   });
 
+  it.each([false, true])('checks an editor account after delayed auth (photo=%s)', async (photo) => {
+    let owner = 'owner-a';
+    let finishToken!: (token: string) => void;
+    api.setTokenGetter(() => new Promise<string>((resolve) => { finishToken = resolve; }));
+    const transport = vi.fn(async () => ({ data: { id: 'recipe-a' } }));
+    const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
+    const guard = () => { if (owner !== 'owner-a') throw new Error('Editor account changed'); };
+    const interceptor = mocks.client.interceptors.request.use.mock.calls[0][0];
+    mocks.client.patch.mockImplementationOnce(async (url, _body, config) => {
+      await interceptor({ ...config, url, headers: {} });
+      return transport();
+    });
+    try {
+      const request = api.editRecipe('recipe-a', { title: 'A', ingredients: [], steps: [] }, photo ? 'file:///recipe.jpg' : null, guard);
+      void request.catch(() => undefined);
+      for (let tick = 0; tick < 20 && !finishToken; tick += 1) await Promise.resolve();
+      owner = 'owner-b'; finishToken('new-account-token');
+      await expect(request).rejects.toThrow('Editor account changed');
+      expect(transport).not.toHaveBeenCalled(); expect(fetchMock).not.toHaveBeenCalled();
+    } finally { api.setTokenGetter(null); }
+  });
+
+  it('checks the frozen delete account after delayed token lookup', async () => {
+    let owner = 'owner-a';
+    let finishToken!: (token: string) => void;
+    api.setTokenGetter(() => new Promise<string>(resolve => { finishToken = resolve; }));
+    const transport = vi.fn(async () => ({ data: { id: 'recipe-a' } }));
+    const guard = () => { if (owner !== 'owner-a') throw new Error('Delete account changed'); };
+    const interceptor = mocks.client.interceptors.request.use.mock.calls[0][0];
+    mocks.client.delete.mockImplementationOnce(async (url, config) => {
+      await interceptor({ ...config, url, headers: {} }); return transport();
+    });
+    try {
+      const request = api.deleteRecipe('recipe-a', guard); void request.catch(() => undefined);
+      for (let tick = 0; tick < 20 && !finishToken; tick += 1) await Promise.resolve();
+      owner = 'owner-b'; finishToken('new-account-token');
+      await expect(request).rejects.toThrow('Delete account changed');
+      expect(transport).not.toHaveBeenCalled();
+    } finally { api.setTokenGetter(null); }
+  });
   it('preserves review fields in image edits and surfaces structured stale-review errors', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({

@@ -15,7 +15,12 @@ const mocks = vi.hoisted(() => ({
   getUserId: vi.fn(),
   removeItem: vi.fn(),
   setItem: vi.fn(),
+  deleteRecipe: vi.fn(),
+  alert: vi.fn(),
+  focused: true,
 }));
+
+vi.mock('expo-router', () => ({ useIsFocused: () => mocks.focused }));
 
 vi.mock('@clerk/expo', () => ({
   useAuth: () => ({ isLoaded: true, userId: mocks.getUserId() }),
@@ -28,6 +33,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
   },
 }));
 vi.mock('react-native', () => ({
+  Alert: { alert: mocks.alert },
   AppState: {
     currentState: 'active',
     addEventListener: vi.fn(() => ({ remove: vi.fn() })),
@@ -39,16 +45,18 @@ vi.mock('../lib/api', () => ({
     getCurrentUserIdentity: mocks.getCurrentUserIdentity,
     getExtractionJobs: mocks.getExtractionJobs,
     getJobStatus: mocks.getJobStatus,
+    deleteRecipe: mocks.deleteRecipe,
   },
 }));
 
-import { useAsyncExtractionController, useExtractionJobs } from './useRecipes';
+import { useRecipeDeletion } from './useRecipeDeletion';
+import { recipeKeys, useAsyncExtractionController, useDeleteRecipe, useExtractionJobs } from './useRecipes';
 
 type Controller = ReturnType<typeof useAsyncExtractionController>;
 
 describe('durable extraction recovery', () => {
   beforeEach(() => {
-    Object.values(mocks).forEach((mock) => mock.mockReset());
+    Object.values(mocks).forEach((mock) => { if (typeof mock === 'function') mock.mockReset(); });
     mocks.getItem.mockResolvedValue(null);
     mocks.getUserId.mockReturnValue('clerk-current-user');
     mocks.getCurrentUserIdentity.mockResolvedValue({ id: 'app-stable-user' });
@@ -520,5 +528,214 @@ describe('durable extraction recovery', () => {
 
     await act(async () => renderer!.unmount());
     queryClient.clear();
+  });
+});
+
+describe('recipe deletion connected caches', () => {
+  it('refreshes server-deleted relationships and leaves unrelated filtered totals alone', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const cache = (id: string, total: number) => ({ pages: [{ items: [{ id }], total }], pageParams: [0] });
+    const filtered = recipeKeys.discoverInfinite('youtube');
+    client.setQueryData(filtered, cache('other', 7));
+    const related = [['collections', 'list'], ['meal-plans', 'week', '2026-10-12'], ['savedRecipes', 'infinite'], ['savedRecipesCount']];
+    for (const key of related) client.setQueryData(key, {});
+    mocks.deleteRecipe.mockResolvedValue({ id: 'deleted', message: 'Deleted' });
+    mocks.getUserId.mockReturnValue('owner-a');
+    let mutation!: ReturnType<typeof useDeleteRecipe>;
+    function Hook() { mutation = useDeleteRecipe(); return null; }
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(<QueryClientProvider client={client}><Hook /></QueryClientProvider>); });
+      await act(async () => { await mutation.mutateAsync('deleted'); });
+      expect((client.getQueryData(filtered) as any).pages[0].total).toBe(7);
+      for (const key of related) expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    } finally { await act(async () => renderer.unmount()); client.clear(); }
+  });
+  it('restores saved/list rows after a rejected deletion and refreshes linked views', async () => {
+    const client = new QueryClient();
+    const data = { pages: [{ items: [{ id: 'deleted' }], total: 1 }], pageParams: [0] };
+    client.setQueryData(recipeKeys.infinite(), data);
+    client.setQueryData(recipeKeys.savedInfinite(), data);
+    mocks.deleteRecipe.mockRejectedValue(new Error('Forbidden'));
+    mocks.getUserId.mockReturnValue('owner-a');
+    let mutation!: ReturnType<typeof useDeleteRecipe>;
+    function Hook() { mutation = useDeleteRecipe(); return null; }
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(<QueryClientProvider client={client}><Hook /></QueryClientProvider>); });
+      await act(async () => { await mutation.mutateAsync('deleted').catch(() => undefined); });
+      expect(client.getQueryData(recipeKeys.infinite())).toEqual(data);
+      expect(client.getQueryData(recipeKeys.savedInfinite())).toEqual(data);
+      expect(client.getQueryState(recipeKeys.savedInfinite())?.isInvalidated).toBe(true);
+    } finally { await act(async () => renderer.unmount()); client.clear(); }
+  });
+  it('freezes the delete transport account while its token is pending', async () => {
+    const client = new QueryClient();
+    let finish!: () => void;
+    mocks.deleteRecipe.mockImplementation((_id, guard) => new Promise<void>(resolve => { finish = resolve; }).then(() => { guard(); return { id: 'deleted', message: 'Deleted' }; }));
+    mocks.getUserId.mockReturnValue('owner-a');
+    let mutation!: ReturnType<typeof useDeleteRecipe>;
+    function Hook() { mutation = useDeleteRecipe(); return null; }
+    const tree = () => <QueryClientProvider client={client}><Hook /></QueryClientProvider>;
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(tree()); });
+      let pending!: Promise<unknown>;
+      await act(async () => { pending = mutation.mutateAsync('deleted').catch(error => error); });
+      mocks.getUserId.mockReturnValue('owner-b'); await act(async () => renderer.update(tree()));
+      await act(async () => finish());
+      expect(await pending).toMatchObject({ message: 'Account changed; reopen your library.' });
+    } finally { await act(async () => renderer.unmount()); client.clear(); }
+  });
+  it('does not navigate a new account after an accepted old account deletion completes', async () => {
+    const client = new QueryClient();
+    let finish!: () => void;
+    mocks.deleteRecipe.mockImplementation(() => new Promise(resolve => { finish = () => resolve({ id: 'deleted', message: 'Deleted' }); }));
+    mocks.getUserId.mockReturnValue('owner-a');
+    let mutation!: ReturnType<typeof useDeleteRecipe>;
+    function Hook() { mutation = useDeleteRecipe(); return null; }
+    const tree = () => <QueryClientProvider client={client}><Hook /></QueryClientProvider>;
+    const navigate = vi.fn(), settled = vi.fn();
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(tree()); });
+      let pending!: Promise<unknown>;
+      await act(async () => { pending = mutation.mutateAsync('deleted', { onSuccess: navigate, onSettled: settled }); });
+      mocks.getUserId.mockReturnValue('owner-b'); await act(async () => renderer.update(tree()));
+      await act(async () => { finish(); await pending; });
+      expect(navigate).not.toHaveBeenCalled(); expect(settled).not.toHaveBeenCalled();
+    } finally { await act(async () => renderer.unmount()); client.clear(); }
+  });
+  it('does not refill cleared caches when an old account deletion fails late', async () => {
+    const client = new QueryClient();
+    client.setQueryData(recipeKeys.infinite(), { pages: [{ items: [{ id: 'deleted' }], total: 1 }] });
+    let fail!: (error: Error) => void;
+    mocks.deleteRecipe.mockImplementation(() => new Promise((_, reject) => { fail = reject; }));
+    mocks.getUserId.mockReturnValue('owner-a');
+    let mutation!: ReturnType<typeof useDeleteRecipe>;
+    function Hook() { mutation = useDeleteRecipe(); return null; }
+    const tree = () => <QueryClientProvider client={client}><Hook /></QueryClientProvider>;
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(tree()); });
+      let pending!: Promise<unknown>;
+      await act(async () => { pending = mutation.mutateAsync('deleted').catch(() => undefined); });
+      client.clear(); mocks.getUserId.mockReturnValue('owner-b');
+      const current = { pages: [{ items: [{ id: 'new-account' }], total: 1 }] };
+      client.setQueryData(recipeKeys.infinite(), current);
+      await act(async () => renderer.update(tree()));
+      await act(async () => { fail(new Error('Offline')); await pending; });
+      expect(client.getQueryData(recipeKeys.infinite())).toEqual(current);
+      expect(client.getQueryData(recipeKeys.savedInfinite())).toBeUndefined();
+    } finally { await act(async () => renderer.unmount()); client.clear(); }
+  });
+});
+
+
+describe('recipe detail deletion navigation', () => {
+  beforeEach(() => { mocks.alert.mockReset(); mocks.deleteRecipe.mockReset(); mocks.focused = true; });
+  const confirm = () => mocks.alert.mock.calls.at(-1)![2].find((button: { text: string }) => button.text === 'Delete').onPress;
+
+  it.each(['cancelQueries', 'token'] as const)('keeps the detail mounted during a held %s and leaves only after the accepted delete', async held => {
+    const client = new QueryClient();
+    mocks.getUserId.mockReturnValue('owner-a');
+    let release!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    if (held === 'cancelQueries') vi.spyOn(client, 'cancelQueries').mockImplementationOnce(() => barrier);
+    const sent = vi.fn();
+    mocks.deleteRecipe.mockImplementation(async (_id, guard) => {
+      if (held === 'token') await barrier;
+      guard(); sent(); return { id: 'deleted' };
+    });
+    let request!: ReturnType<typeof useRecipeDeletion>, renderer!: ReactTestRenderer;
+    const back = vi.fn(() => renderer.update(<QueryClientProvider client={client}>{null}</QueryClientProvider>));
+    function Detail() { request = useRecipeDeletion('deleted', back); return null; }
+    try {
+      await act(async () => { renderer = create(<QueryClientProvider client={client}><Detail /></QueryClientProvider>); });
+      await act(async () => { request(); confirm()(); });
+      expect(back).not.toHaveBeenCalled(); expect(sent).not.toHaveBeenCalled();
+      await act(async () => { release(); });
+      expect(sent).toHaveBeenCalledOnce(); expect(back).toHaveBeenCalledOnce();
+    } finally { await act(async () => renderer.unmount()); client.clear(); }
+  });
+
+  it('keeps the detail after failure and permits one explicit retry without duplicate requests', async () => {
+    const client = new QueryClient(); mocks.getUserId.mockReturnValue('owner-a');
+    mocks.deleteRecipe.mockRejectedValueOnce(new Error('503')).mockResolvedValueOnce({ id: 'deleted' });
+    let request!: ReturnType<typeof useRecipeDeletion>, renderer!: ReactTestRenderer;
+    const back = vi.fn();
+    function Detail() { request = useRecipeDeletion('deleted', back); return null; }
+    try {
+      await act(async () => { renderer = create(<QueryClientProvider client={client}><Detail /></QueryClientProvider>); });
+      await act(async () => { request(); const press = confirm(); press(); press(); });
+      expect(back).not.toHaveBeenCalled(); expect(mocks.deleteRecipe).toHaveBeenCalledTimes(1);
+      expect(mocks.alert).toHaveBeenLastCalledWith('Error', expect.stringContaining('Please try again'));
+      await act(async () => { request(); confirm()(); });
+      expect(mocks.deleteRecipe).toHaveBeenCalledTimes(2); expect(back).toHaveBeenCalledOnce();
+    } finally { await act(async () => renderer.unmount()); client.clear(); }
+  });
+
+  it('blocks a hidden confirmation and a replacement focused activation while the previous delete is still pending', async () => {
+    const client = new QueryClient(); mocks.getUserId.mockReturnValue('owner-a');
+    let release!: () => void;
+    mocks.deleteRecipe.mockImplementation(() => new Promise(resolve => { release = () => resolve({ id: 'deleted' }); }));
+    let request!: ReturnType<typeof useRecipeDeletion>, renderer!: ReactTestRenderer;
+    const back = vi.fn();
+    function Detail() { request = useRecipeDeletion('deleted', back); return null; }
+    const tree = () => <QueryClientProvider client={client}><Detail /></QueryClientProvider>;
+    try {
+      await act(async () => { renderer = create(tree()); });
+      await act(async () => { request(); confirm()(); });
+      mocks.focused = false; await act(async () => renderer.update(tree()));
+      await act(async () => request());
+      mocks.focused = true; await act(async () => renderer.update(tree()));
+      await act(async () => request());
+      expect(mocks.alert).toHaveBeenCalledTimes(1);
+      expect(mocks.deleteRecipe).toHaveBeenCalledOnce();
+      await act(async () => release());
+      expect(back).not.toHaveBeenCalled();
+    } finally { await act(async () => renderer.unmount()); client.clear(); }
+  });
+
+  it.each(['account', 'recipe', 'unmount', 'blur', 'blur-return'] as const)('ignores an accepted old deletion after %s changes', async change => {
+    const client = new QueryClient(); mocks.getUserId.mockReturnValue('owner-a');
+    let release!: () => void;
+    mocks.deleteRecipe.mockImplementation(() => new Promise(resolve => { release = () => resolve({ id: 'deleted' }); }));
+    let request!: ReturnType<typeof useRecipeDeletion>, renderer!: ReactTestRenderer, id = 'deleted';
+    const back = vi.fn();
+    function Detail() { request = useRecipeDeletion(id, back); return null; }
+    const tree = () => <QueryClientProvider client={client}><Detail /></QueryClientProvider>;
+    try {
+      await act(async () => { renderer = create(tree()); });
+      await act(async () => { request(); confirm()(); });
+      if (change === 'account') mocks.getUserId.mockReturnValue('owner-b');
+      if (change === 'recipe') id = 'another';
+      if (change === 'blur' || change === 'blur-return') mocks.focused = false;
+      await act(async () => { if (change === 'unmount') renderer.unmount(); else renderer.update(tree()); });
+      if (change === 'blur-return') { mocks.focused = true; await act(async () => renderer.update(tree())); }
+      await act(async () => release());
+      expect(back).not.toHaveBeenCalled();
+      expect(mocks.alert).toHaveBeenCalledTimes(1);
+    } finally { if (change !== 'unmount') await act(async () => renderer.unmount()); client.clear(); }
+  });
+
+  it.each(['account', 'recipe', 'unmount', 'blur', 'blur-return'] as const)('rejects a retired confirmation after %s changes', async change => {
+    const client = new QueryClient(); mocks.getUserId.mockReturnValue('owner-a');
+    let request!: ReturnType<typeof useRecipeDeletion>, renderer!: ReactTestRenderer, id = 'deleted';
+    const back = vi.fn();
+    function Detail() { request = useRecipeDeletion(id, back); return null; }
+    const tree = () => <QueryClientProvider client={client}><Detail /></QueryClientProvider>;
+    try {
+      await act(async () => { renderer = create(tree()); });
+      await act(async () => { request(); });
+      const press = confirm();
+      if (change === 'account') mocks.getUserId.mockReturnValue('owner-b');
+      if (change === 'recipe') id = 'another';
+      if (change === 'blur' || change === 'blur-return') mocks.focused = false;
+      await act(async () => { if (change === 'unmount') renderer.unmount(); else renderer.update(tree()); });
+      if (change === 'blur-return') { mocks.focused = true; await act(async () => renderer.update(tree())); }
+      await act(async () => press());
+      expect(mocks.deleteRecipe).not.toHaveBeenCalled(); expect(back).not.toHaveBeenCalled();
+    } finally { if (change !== 'unmount') await act(async () => renderer.unmount()); client.clear(); }
   });
 });
