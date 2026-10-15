@@ -1785,6 +1785,16 @@ async def test_reextract_keeps_registered_owner_cover_and_original_training_snap
     await importlib.import_module("migrations.045_add_workouts_discover").run_migration(
         configured=settings(), migration_engine=api.engine)
     created, _ = await uploaded_cover_fixture(api, monkeypatch)
+    from app.domains.workouts.source_media import asset_id
+    from app.domains.workouts.source_media_models import WorkoutSourceMedia
+
+    # The media fixture's placeholder is not an executable import request.
+    async with api.sessions() as db:
+        media = await db.get(WorkoutSourceMedia, asset_id(created["content"]["source_thumbnail_url"]))
+        placeholder = await db.get(WorkoutImport, media.source_id)
+        assert placeholder.payload == {"kind": "url"}
+        placeholder.status, placeholder.payload = "cancelled", None
+        await db.commit()
     await importlib.import_module("migrations.048_add_workouts_cover_upload").run_migration(
         configured=settings(), migration_engine=api.engine)
     chosen = (await upload_cover(api, created, uuid4())).json()
