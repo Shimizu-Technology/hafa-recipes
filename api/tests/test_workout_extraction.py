@@ -1205,6 +1205,7 @@ async def test_model_cannot_supply_server_owned_warnings_or_durable_cover():
     raw.update(
         extraction_warnings=["Invented warning"],
         source_thumbnail_url="https://example.com/spoof.jpg",
+        cover_origin="user",
         source_context={"parts": [{"location": "caption", "text": "Invented source"}]},
     )
     result = await WorkoutExtractor(FakeProvider(raw)).extract(
@@ -1213,6 +1214,7 @@ async def test_model_cannot_supply_server_owned_warnings_or_durable_cover():
     assert result.status == "ready" and result.warnings == []
     assert getattr(result.workout, "extraction_warnings", []) == []
     assert getattr(result.workout, "source_thumbnail_url", None) is None
+    assert result.workout.cover_origin is None
     assert result.workout.source_context.parts[0].text == TEXT
 
 
@@ -1222,8 +1224,9 @@ def test_provider_schema_filters_declared_server_owned_fields(monkeypatch):
     class ServerOwnedWorkout(module.WorkoutContent):
         extraction_warnings: list[str]
         source_thumbnail_url: str | None
+        cover_origin: str | None
 
-    fields = {"extraction_warnings", "source_thumbnail_url"}
+    fields = {"extraction_warnings", "source_thumbnail_url", "cover_origin"}
     declared = ServerOwnedWorkout.model_json_schema()
     assert fields <= declared["properties"].keys()
     assert fields <= set(declared["required"])

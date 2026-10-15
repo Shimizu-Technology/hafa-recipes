@@ -46,7 +46,7 @@ MAX_EXTRACTION_SECONDS = 210
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 PROMPT_VERSION = "workout-extraction-evidence-v6"
 SCHEMA_VERSION = "workout-prescription-v2"
-SERVER_CONTENT_FIELDS = {"extraction_warnings", "source_thumbnail_url", "source_context"}
+SERVER_CONTENT_FIELDS = {"extraction_warnings", "source_thumbnail_url", "source_context", "cover_origin"}
 
 ImportStage = Literal["reading_source", "reading_images", "reading_document", "listening_video", "reading_frames", "extracting_workout", "saving_workout"]
 IMPORT_STAGES = frozenset(get_args(ImportStage))

@@ -585,6 +585,311 @@ async def prepare_test_source_cover(
     return url, identifier, store, downloads
 
 
+async def uploaded_cover_fixture(api, monkeypatch):
+    from app.domains.workouts import cover_upload
+
+    url, _, store, _ = await prepare_test_source_cover(api, monkeypatch)
+    api.app.include_router(automation_router.imports_router)
+    api.app.include_router(automation_router.router)
+    monkeypatch.setattr(cover_upload, "storage_service", store)
+    monkeypatch.setattr(cover_upload, "AsyncSessionLocal", api.sessions)
+    created = await api.client.post("/api/v1/workouts/library", headers=GENERATION,
+                                    json={**REEL, "source_thumbnail_url": url})
+    assert created.status_code == 201, created.text
+    return created.json(), store
+
+
+async def upload_cover(api, row, key, *, data=None, revision=None, headers=None):
+    from tests.test_storage import _png_bytes
+
+    return await api.client.post(
+        f"/api/v1/workouts/library/{row['id']}/cover",
+        params={"expected_revision": revision or row["revision"]},
+        headers={**GENERATION, "Idempotency-Key": str(key), **(headers or {})},
+        files={"image": ("cover.png", data if data is not None else _png_bytes("blue"), "image/png")},
+    )
+
+
+async def test_cover_upload_optional048_preserves_047_readers_and_requires_restore(
+    discover_api, assembled_exports, monkeypatch  # noqa: F811
+):
+    from uuid import uuid4
+
+    from app.domains.workouts import cover_upload
+    from app.domains.workouts.source_media_models import WorkoutSourceMedia
+
+    row, store = await uploaded_cover_fixture(discover_api, monkeypatch)
+    capability = await discover_api.client.get("/api/v1/workouts/capabilities")
+    assert capability.json()["cover_upload"] is False
+    assert (await upload_cover(discover_api, row, uuid4())).status_code == 503
+    await verify_optional_workouts_schema(configured=settings(), target_engine=discover_api.engine)
+    # New application code uses only old mapped columns before migration048.
+    async with discover_api.sessions() as db:
+        assert (await db.scalars(select(WorkoutSourceMedia))).all()
+        assert not await cover_upload.upload_ready(db)
+    migration048 = importlib.import_module("migrations.048_add_workouts_cover_upload")
+    monkeypatch.delenv("MIGRATION_048_RESTORE_POINT", raising=False)
+    configured = settings().model_copy(update={"environment": "production"})
+    with pytest.raises(RuntimeError, match="verified restore point"):
+        await migration048.run_migration(configured=configured, migration_engine=discover_api.engine)
+    from sqlalchemy import event
+
+    validation_state = []
+    def inspect_validation(connection, cursor, statement, parameters, context, executemany):
+        if statement.startswith("ALTER TABLE workouts_source_media VALIDATE CONSTRAINT"):
+            validation_state.append(connection.exec_driver_sql("""SELECT
+                current_setting('lock_timeout'), EXISTS(SELECT 1 FROM pg_locks
+                WHERE locktype='advisory' AND pid=pg_backend_pid()
+                AND classid=0 AND objid=7340034 AND granted)""").one())
+
+    event.listen(discover_api.engine.sync_engine, "before_cursor_execute", inspect_validation)
+    try:
+        await migration048.run_migration(configured=settings(), migration_engine=discover_api.engine)
+    finally:
+        event.remove(discover_api.engine.sync_engine, "before_cursor_execute", inspect_validation)
+    assert validation_state == [("5s", True)]
+    await migration048.run_migration(configured=configured, migration_engine=discover_api.engine)
+    capability = await discover_api.client.get("/api/v1/workouts/capabilities")
+    assert capability.json()["cover_upload"] is True
+    # Widened CHECK still rejects arbitrary purposes and uploads missing frozen metadata.
+    for purpose in ("upload", "invalid"):
+        async with discover_api.sessions() as db:
+            from sqlalchemy.exc import IntegrityError
+
+            with pytest.raises(IntegrityError):
+                await db.execute(text("""INSERT INTO workouts_source_media
+                    (id,app_user_id,generation,source_id,purpose)
+                    VALUES(:id,'owner',1,:source,:purpose)"""),
+                    {"id": uuid4(), "source": uuid4(), "purpose": purpose})
+    assert len(store._client.puts) == 2  # Only original test cover was written.
+
+
+async def test_upload_cover_versions_replay_frozen_request_and_preserve_private_credit(discover_api, monkeypatch):
+    from uuid import uuid4
+
+    from tests.test_storage import _png_bytes
+
+    row, store = await uploaded_cover_fixture(discover_api, monkeypatch)
+    await importlib.import_module("migrations.048_add_workouts_cover_upload").run_migration(
+        configured=settings(), migration_engine=discover_api.engine)
+    from copy import deepcopy
+    from uuid import UUID
+
+    from app.domains.workouts.models import WorkoutRecord
+    # Server-owned source context and unknown historical JSON must stay exact.
+    async with discover_api.sessions() as db:
+        saved = await db.get(WorkoutRecord, UUID(row["id"]))
+        saved.content = {**saved.content,
+            "instructions": ["Complete the source circuit."],
+            "future_server_field": {"keep": True},
+            "source_context": {"parts": [{"location": "caption", "text": "PRIVATE RAW SOURCE"}]}}
+        await db.commit()
+        row["content"] = deepcopy(saved.content)
+    key = uuid4()
+    response = await upload_cover(discover_api, row, key)
+    assert response.status_code == 200, response.text
+    updated = response.json()
+    assert updated["revision"] == 2 and updated["content"]["cover_origin"] == "user"
+    content = updated["content"]
+    for field in ("source_url", "source_title", "source_creator", "notes", "blocks", "instructions", "source_context"):
+        assert content[field] == row["content"][field]
+    assert content["source_thumbnail_url"] != row["content"]["source_thumbnail_url"]
+    writes = len(store._client.puts)
+    replay = await upload_cover(discover_api, row, key)
+    assert replay.status_code == 200 and replay.json()["revision"] == 2
+    assert len(store._client.puts) == writes
+    changed = await upload_cover(discover_api, row, key, data=_png_bytes("green"))
+    assert changed.status_code == 409
+    assert (await upload_cover(discover_api, row, key, revision=2)).status_code == 409
+    assert (await upload_cover(discover_api, row, uuid4())).status_code == 409
+    versions = (await discover_api.client.get(f"/api/v1/workouts/library/{row['id']}/versions")).json()
+    assert len(versions) == 2
+    assert versions[1]["content"]["source_thumbnail_url"] == row["content"]["source_thumbnail_url"]
+    assert "cover_origin" not in versions[1]["content"]
+    # Old mobile omitted the new marker: save keeps the cover and honest origin.
+    old_content = {k: v for k, v in content.items() if k not in {
+        "id", "version", "parent_version_id", "cover_origin", "source_thumbnail_url", "future_server_field"}}
+    edited = await discover_api.client.put(f"/api/v1/workouts/library/{row['id']}?expected_revision=2",
+                                           json=old_content, headers=GENERATION)
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["content"]["cover_origin"] == "user"
+    replay = await upload_cover(discover_api, row, key)
+    assert replay.status_code == 200 and replay.json()["revision"] == 3
+    assert len((await discover_api.client.get(f"/api/v1/workouts/library/{row['id']}/versions")).json()) == 3
+    public, _ = discover.public_workout(edited.json()["content"])
+    assert public["cover_origin"] == "user" and public["notes"] == []
+    assert "source_context" not in public
+    before_restore = (await discover_api.client.get(f"/api/v1/workouts/library/{row['id']}/versions")).json()
+    restored = await discover_api.client.post(
+        f"/api/v1/workouts/library/{row['id']}/versions/{versions[0]['id']}/restore?expected_revision=3",
+        headers=GENERATION)
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["content"]["source_context"] == content["source_context"]
+    assert restored.json()["content"]["instructions"] == content["instructions"]
+    assert restored.json()["content"]["source_thumbnail_url"] == content["source_thumbnail_url"]
+    assert restored.json()["content"]["cover_origin"] == "user"
+    assert restored.json()["content"]["future_server_field"] == {"keep": True}
+    assert (await discover_api.client.get(f"/api/v1/workouts/library/{row['id']}/versions")).json()[1:] == before_restore
+
+
+async def test_upload_cover_rejects_enlarged_content_without_losing_original_or_cleanup(discover_api, monkeypatch):
+    import math
+    from uuid import uuid4
+
+    from app.domains.workouts import source_media
+    from app.domains.workouts.router import bounded_content
+    from app.domains.workouts.source_media_models import WorkoutSourceMedia
+    from app.models.deletion import DeletionCleanupJob
+
+    row, store = await uploaded_cover_fixture(discover_api, monkeypatch)
+    await importlib.import_module("migrations.048_add_workouts_cover_upload").run_migration(
+        configured=settings(), migration_engine=discover_api.engine)
+    versions_path = f"/api/v1/workouts/library/{row['id']}/versions"
+    original_version = (await discover_api.client.get(versions_path)).json()[0]
+    candidate = {**row["content"], "version": 2, "parent_version_id": original_version["id"], "notes": []}
+    def size():
+        return len(json.dumps(candidate, ensure_ascii=False).encode())
+    target = 240 * 1024 - 8
+    candidate["notes"] = [""] * math.ceil((target - size() + 2) / 4004)
+    remaining = target - size()
+    for index in range(len(candidate["notes"])):
+        count = min(4000, remaining)
+        candidate["notes"][index] = "x" * count
+        remaining -= count
+    assert remaining == 0 and size() == target
+    bounded_content(candidate)  # The existing, fully-versioned prescription is valid.
+    payload = {key: value for key, value in candidate.items() if key not in {"id", "version", "parent_version_id"}}
+    edited = await discover_api.client.put(f"/api/v1/workouts/library/{row['id']}?expected_revision=1",
+                                          json=payload, headers=GENERATION)
+    assert edited.status_code == 200, edited.text
+    row = edited.json()
+    assert len(json.dumps(row["content"], ensure_ascii=False).encode()) == target
+    before = (await discover_api.client.get(versions_path)).json()
+    response = await upload_cover(discover_api, row, uuid4())
+    assert response.status_code == 422 and "saved-record limit" in response.text
+    assert (await discover_api.client.get(f"/api/v1/workouts/library/{row['id']}")).json() == row
+    assert (await discover_api.client.get(versions_path)).json() == before
+    async with discover_api.sessions() as db:
+        receipt = await db.scalar(select(WorkoutSourceMedia).where(WorkoutSourceMedia.purpose == "upload"))
+        assert receipt and not receipt.retained and receipt.canonical_url is None
+        cleanup = await db.get(DeletionCleanupJob, receipt.cleanup_job_id)
+        assert cleanup.status == "queued"
+        assert cleanup.storage_prefixes == [source_media.asset_prefix(receipt.id)]
+        assert any(item["Key"].startswith(source_media.asset_prefix(receipt.id)) for item in store._client.puts)
+
+
+async def test_upload_cover_bounds_owner_generation_and_spoofed_origin(discover_api, monkeypatch):
+    from uuid import uuid4
+
+    from app.domains.workouts.cover_upload import MAX_COVER_BYTES
+
+    row, store = await uploaded_cover_fixture(discover_api, monkeypatch)
+    await importlib.import_module("migrations.048_add_workouts_cover_upload").run_migration(
+        configured=settings(), migration_engine=discover_api.engine)
+    writes = len(store._client.puts)
+    for payload in (b"not an image", b"x" * (MAX_COVER_BYTES + 1)):
+        response = await upload_cover(discover_api, row, uuid4(), data=payload)
+        assert response.status_code == 422, response.text
+    assert (await upload_cover(discover_api, row, uuid4(), headers=OTHER)).status_code == 404
+    assert (await upload_cover(discover_api, row, uuid4(), headers={"X-Workouts-Generation": "2"})).status_code == 409
+    spoof = await discover_api.client.post("/api/v1/workouts/library", headers=GENERATION,
+        json={**REEL, "source_thumbnail_url": row["content"]["source_thumbnail_url"], "cover_origin": "user"})
+    assert spoof.status_code == 201, spoof.text
+    assert "cover_origin" not in spoof.json()["content"]
+    assert len(store._client.puts) == writes
+
+
+async def test_upload_failure_has_durable_cleanup_and_retry_uses_one_version(discover_api, monkeypatch):
+    from uuid import uuid4
+
+    from app.domains.workouts import source_media
+    from app.domains.workouts.models import WorkoutsConsent
+    from app.domains.workouts.source_media_models import WorkoutSourceMedia
+    from app.models.deletion import DeletionCleanupJob
+
+    row, store = await uploaded_cover_fixture(discover_api, monkeypatch)
+    await importlib.import_module("migrations.048_add_workouts_cover_upload").run_migration(
+        configured=settings(), migration_engine=discover_api.engine)
+    async with discover_api.sessions.begin() as db:
+        await db.delete(await db.get(WorkoutsConsent, "owner"))  # A photo needs no AI permission.
+    writer = store.store_prepared_workouts_thumbnail_variants_locked
+    namespaces = []
+
+    async def fail_after_durable_write(variants, namespace):
+        namespaces.append(namespace)
+        await writer(variants, namespace)
+        raise RuntimeError("synthetic lost storage acknowledgement")
+
+    monkeypatch.setattr(store, "store_prepared_workouts_thumbnail_variants_locked", fail_after_durable_write)
+    key = uuid4()
+    with pytest.raises(RuntimeError, match="lost storage acknowledgement"):
+        await upload_cover(discover_api, row, key)
+    async with discover_api.sessions() as db:
+        receipt = await db.scalar(select(WorkoutSourceMedia).where(WorkoutSourceMedia.purpose == "upload"))
+        assert receipt and not receipt.retained and receipt.canonical_url is None
+        identifier = receipt.id
+        cleanup = await db.get(DeletionCleanupJob, receipt.cleanup_job_id)
+        assert cleanup.status == "queued" and cleanup.storage_prefixes == [source_media.asset_prefix(identifier)]
+    original = (await discover_api.client.get(f"/api/v1/workouts/library/{row['id']}")).json()
+    assert original == row
+    monkeypatch.setattr(store, "store_prepared_workouts_thumbnail_variants_locked", writer)
+    retried = await upload_cover(discover_api, row, key)
+    assert retried.status_code == 200, retried.text
+    assert source_media.asset_id(retried.json()["content"]["source_thumbnail_url"]) == identifier
+    assert namespaces == [f"workouts-{identifier}"]
+    async with discover_api.sessions() as db:
+        receipt = await db.get(WorkoutSourceMedia, identifier)
+        assert receipt.retained and receipt.canonical_url
+        assert (await db.get(DeletionCleanupJob, receipt.cleanup_job_id)).status == "completed"
+    assert len((await discover_api.client.get(f"/api/v1/workouts/library/{row['id']}/versions")).json()) == 2
+
+
+async def test_upload_rechecks_edit_before_apply_and_public_copy_preserves_origin(discover_api, monkeypatch):
+    import asyncio
+    from uuid import uuid4
+
+    from app.domains.workouts import source_media
+    from app.domains.workouts.source_media_models import WorkoutSourceMedia
+
+    row, store = await uploaded_cover_fixture(discover_api, monkeypatch)
+    await importlib.import_module("migrations.048_add_workouts_cover_upload").run_migration(
+        configured=settings(), migration_engine=discover_api.engine)
+    prepare = store.prepare_thumbnail_variants
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def held_prepare(image):
+        entered.set()
+        await release.wait()
+        return await prepare(image)
+
+    monkeypatch.setattr(store, "prepare_thumbnail_variants", held_prepare)
+    pending = asyncio.create_task(upload_cover(discover_api, row, uuid4()))
+    await asyncio.wait_for(entered.wait(), timeout=5)
+    try:
+        edit = await discover_api.client.put(f"/api/v1/workouts/library/{row['id']}?expected_revision=1",
+                                             json={**REEL, "title": "Owner's newer edit"}, headers=GENERATION)
+        assert edit.status_code == 200, edit.text
+    finally:
+        release.set()
+    assert (await pending).status_code == 409
+    async with discover_api.sessions() as db:
+        receipt = await db.scalar(select(WorkoutSourceMedia).where(WorkoutSourceMedia.purpose == "upload"))
+        assert receipt and receipt.canonical_url is None and not receipt.retained
+    monkeypatch.setattr(store, "prepare_thumbnail_variants", prepare)
+    uploaded = await upload_cover(discover_api, edit.json(), uuid4())
+    assert uploaded.status_code == 200, uploaded.text
+    await accept_disclosure(discover_api, "owner")
+    assert (await publish(discover_api, row["id"])).status_code == 200
+    copied = await discover_api.client.post(f"/api/v1/workouts/discover/{row['id']}/save", headers=GENERATION | OTHER)
+    assert copied.status_code == 201, copied.text
+    assert copied.json()["content"]["cover_origin"] == "user"
+    assert copied.json()["content"]["source_creator"] == REEL["source_creator"]
+    assert copied.json()["content"]["source_thumbnail_url"] != uploaded.json()["content"]["source_thumbnail_url"]
+    async with discover_api.sessions() as db:
+        identifier = source_media.asset_id(copied.json()["content"]["source_thumbnail_url"])
+        assert (await db.get(WorkoutSourceMedia, identifier)).retained
+
+
 async def test_public_cover_receipt_precedes_upload_and_product_erasure_is_exact(
     discover_api, monkeypatch
 ):

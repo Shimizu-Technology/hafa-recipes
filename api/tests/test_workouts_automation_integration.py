@@ -1361,8 +1361,9 @@ async def test_legacy_accept_preserves_server_source_fields(automation_api, monk
         await db.commit()
     from app.domains.workouts import source_media
 
-    async def entitled(db, owner, generation, url):
+    async def entitled(db, owner, generation, url, *, content=None):
         assert url == cover
+        assert content["source_thumbnail_url"] == cover
 
     monkeypatch.setattr(source_media, "retain_source_cover", entitled)
     legacy = dict(result["workout"])
@@ -1774,3 +1775,47 @@ async def test_progress_storage_failure_preserves_capture_for_lease_retry(automa
         row = await db.get(WorkoutImport, job["id"])
         assert row.status == "processing" and row.payload["text"] == TEXT
         assert row.lease_token is not None and row.result is None
+
+
+async def test_reextract_keeps_registered_owner_cover_and_original_training_snapshot(automation_api, monkeypatch):
+    from tests.test_workouts_data_integration import session_payload
+    from tests.test_workouts_discover import upload_cover, uploaded_cover_fixture
+
+    api = automation_api
+    await importlib.import_module("migrations.045_add_workouts_discover").run_migration(
+        configured=settings(), migration_engine=api.engine)
+    created, _ = await uploaded_cover_fixture(api, monkeypatch)
+    from app.domains.workouts.source_media import asset_id
+    from app.domains.workouts.source_media_models import WorkoutSourceMedia
+
+    # The media fixture's placeholder is not an executable import request.
+    async with api.sessions() as db:
+        media = await db.get(WorkoutSourceMedia, asset_id(created["content"]["source_thumbnail_url"]))
+        placeholder = await db.get(WorkoutImport, media.source_id)
+        assert placeholder.payload == {"kind": "url"}
+        placeholder.status, placeholder.payload = "cancelled", None
+        await db.commit()
+    await importlib.import_module("migrations.048_add_workouts_cover_upload").run_migration(
+        configured=settings(), migration_engine=api.engine)
+    chosen = (await upload_cover(api, created, uuid4())).json()
+    assert chosen["revision"] == 2 and chosen["content"]["cover_origin"] == "user"
+    recorded = session_payload(chosen)
+    recorded["actuals"][0]["block_id"] = chosen["content"]["blocks"][0]["id"]
+    actual = await api.client.post("/api/v1/workouts/sessions", json=recorded, headers=GENERATION)
+    assert actual.status_code == 201, actual.text
+    queued = await api.client.post("/api/v1/workouts/imports", headers=GENERATION, json={
+        "request_id": str(uuid4()), "source": {"kind": "text", "text": TEXT, "ai_consent": True},
+        "replace_target": {"workout_id": chosen["id"], "expected_revision": 2}})
+    assert queued.status_code == 202, queued.text
+    await api.worker.tick()
+    path = f"/api/v1/workouts/imports/{queued.json()['id']}/accept"
+    request = {"update_existing": True, "acknowledge_warnings": True}
+    saved = await api.client.post(path, json=request, headers=GENERATION)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["revision"] == 3
+    for field in ("source_thumbnail_url", "cover_origin"):
+        assert saved.json()["content"][field] == chosen["content"][field]
+    retry = await api.client.post(path, json=request, headers=GENERATION)
+    assert retry.status_code == 200 and retry.json()["revision"] == 3
+    original = await api.client.get(f"/api/v1/workouts/sessions/{actual.json()['id']}")
+    assert original.json() == actual.json()

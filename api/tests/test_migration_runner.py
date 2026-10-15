@@ -15,7 +15,8 @@ thumbnail_audit_migration = import_module(
 
 
 @pytest.mark.asyncio
-async def test_runner_executes_every_active_migration_in_order(monkeypatch):
+@pytest.mark.parametrize("workouts_enabled", [False, True])
+async def test_runner_executes_every_active_migration_in_order(monkeypatch, workouts_enabled):
     calls: list[str] = []
 
     def load(module_name: str):
@@ -26,9 +27,11 @@ async def test_runner_executes_every_active_migration_in_order(monkeypatch):
 
     monkeypatch.setattr(migration_runner, "import_module", load)
 
+    monkeypatch.setattr(migration_runner, "get_settings", lambda: SimpleNamespace(workouts_api_enabled=workouts_enabled))
     await migration_runner.run_migrations()
 
-    assert calls == list(migration_runner.ACTIVE_MIGRATIONS)
+    expected = migration_runner.ACTIVE_MIGRATIONS + (migration_runner.OPTIONAL_MIGRATIONS if workouts_enabled else ())
+    assert calls == list(expected)
     assert migration_runner.ACTIVE_MIGRATIONS[-1].startswith(
         f"migrations.{migration_runner.LATEST_MIGRATION:03d}_"
     )

@@ -237,6 +237,7 @@ def validated_workout(workout, *, authored=True):
                     422, "Client-authored exercises cannot claim server suggestions"
                 )
     content = workout.model_dump(mode="json")
+    content.pop("cover_origin", None)  # Derived only from the owned media registry.
     # Keep accepted-content hashes compatible with imports saved before this
     # optional server field existed.
     if not content.get("extraction_warnings"):
@@ -448,7 +449,9 @@ async def create_workout(
     content = validated_workout(workout)
     from app.domains.workouts.source_media import retain_source_cover
 
-    await retain_source_cover(db, user.id, generation, content.get("source_thumbnail_url"))
+    await retain_source_cover(
+        db, user.id, generation, content.get("source_thumbnail_url"), content=content
+    )
     digest = content_digest(content)
     existing = await replay_creation(
         db, WorkoutRecord, user.id, generation, idempotency_key, digest
@@ -535,6 +538,10 @@ async def append_workout_version(db, row, content):
             WorkoutVersion.workout_id == row.id, WorkoutVersion.revision == row.revision
         )
     )
+    from app.domains.workouts.source_media import normalize_cover_origin
+
+    content = dict(content)
+    await normalize_cover_origin(db, row.app_user_id, row.generation, content)
     # Size the complete stored candidate before any retention, export or write.
     # Preserve trusted JSON; do not coerce an existing snapshot through a DTO.
     content = bounded_content(dict(content) | {
@@ -543,7 +550,8 @@ async def append_workout_version(db, row, content):
     from app.domains.workouts.export_service import invalidate_export_snapshots
     from app.domains.workouts.source_media import retain_source_cover
 
-    await retain_source_cover(db, row.app_user_id, row.generation, content.get("source_thumbnail_url"))
+    await retain_source_cover(db, row.app_user_id, row.generation, content.get("source_thumbnail_url"), content=content)
+    content = bounded_content(content)
     await invalidate_export_snapshots(db, row.app_user_id, row.generation)
     row.revision += 1
     row.content = content
@@ -620,13 +628,17 @@ async def restore_workout_version(
     # This is a trusted immutable server snapshot, not a client-authored payload.
     # Preserve source/generated provenance, private notes and newer JSON fields.
     content = deepcopy(version.content)
+    from app.domains.workouts.source_media import normalize_cover_origin
+
+    await normalize_cover_origin(db, user.id, generation, content)
     content.update(id=str(row.id), version=row.revision + 1, parent_version_id=str(prior))
     content = bounded_content(content)
     from app.domains.workouts.discover import refresh_publication_after_edit
     from app.domains.workouts.export_service import invalidate_export_snapshots
     from app.domains.workouts.source_media import retain_source_cover
 
-    await retain_source_cover(db, user.id, generation, content.get("source_thumbnail_url"))
+    await retain_source_cover(db, user.id, generation, content.get("source_thumbnail_url"), content=content)
+    content = bounded_content(content)
     await invalidate_export_snapshots(db, user.id, generation)
     row.revision += 1
     row.content = content
@@ -701,10 +713,16 @@ async def create_program(
 ):
     await membership_for(db, user.id, generation=generation, write=True)
     content = program_content(request)
-    from app.domains.workouts.source_media import retain_source_cover
+    from app.domains.workouts.source_media import normalize_cover_origin, retain_source_cover
 
-    for session in request.proposal.sessions:
-        await retain_source_cover(db, user.id, generation, session.workout.source_thumbnail_url)
+    for session in content["proposal"]["sessions"]:
+        await normalize_cover_origin(db, user.id, generation, session["workout"])
+    content = bounded_content(content)
+    for session in content["proposal"]["sessions"]:
+        workout = session["workout"]
+        await retain_source_cover(
+            db, user.id, generation, workout.get("source_thumbnail_url"), content=workout
+        )
     digest = content_digest(content)
     existing = await replay_creation(
         db, WorkoutsProgram, user.id, generation, idempotency_key, digest
@@ -769,9 +787,17 @@ async def update_program(
         validate_calendar,
     )
     from app.domains.workouts.schedule import validate_other_program_dates
-    from app.domains.workouts.source_media import retain_source_cover
+    from app.domains.workouts.source_media import normalize_cover_origin, retain_source_cover
 
     content = row.content | program_content(request)
+    for session in content["proposal"]["sessions"]:
+        await normalize_cover_origin(db, user.id, generation, session["workout"])
+    content = bounded_content(content)
+    for session in content["proposal"]["sessions"]:
+        workout = session["workout"]
+        await retain_source_cover(
+            db, user.id, generation, workout.get("source_thumbnail_url"), content=workout
+        )
     originals, updated = logical_sessions(row.content), logical_sessions(content)
     changed_ids = {
         key for key in set(originals) | set(updated) if originals.get(key) != updated.get(key)
@@ -791,8 +817,6 @@ async def update_program(
             future_change_guard(row.content, content, changed_ids, recorded, today)
             validate_calendar(content, profile, changed_ids)
         await validate_other_program_dates(db, user.id, generation, row.id, content, changed_ids)
-    for session in request.proposal.sessions:
-        await retain_source_cover(db, user.id, generation, session.workout.source_thumbnail_url)
     row.content = content
     row.revision += 1
     row.updated_at = now()
