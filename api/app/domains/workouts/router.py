@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from copy import deepcopy
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Literal
 from urllib.parse import urlsplit
@@ -576,6 +577,57 @@ async def workout_versions(
         )
         for row in rows
     ]
+
+
+@router.post("/library/{workout_id}/versions/{version_id}/restore", response_model=LibraryRecordResponse)
+async def restore_workout_version(
+    workout_id: UUID,
+    version_id: UUID,
+    user: User,
+    db: Database,
+    generation: Generation,
+    expected_revision: Revision,
+):
+    await membership_for(db, user.id, generation=generation, write=True)
+    row = await owned_record(db, WorkoutRecord, workout_id, user.id, generation)
+    if row.revision != expected_revision:
+        raise HTTPException(409, "Workout changed; refresh before restoring")
+    version = await owned_record(db, WorkoutVersion, version_id, user.id, generation)
+    if version.workout_id != row.id:
+        raise HTTPException(404, "Version not found")
+    prior = await db.scalar(
+        select(WorkoutVersion.id).where(
+            WorkoutVersion.workout_id == row.id, WorkoutVersion.revision == row.revision
+        )
+    )
+    # This is a trusted immutable server snapshot, not a client-authored payload.
+    # Preserve source/generated provenance, private notes and newer JSON fields.
+    content = deepcopy(version.content)
+    from app.domains.workouts.discover import refresh_publication_after_edit
+    from app.domains.workouts.export_service import invalidate_export_snapshots
+    from app.domains.workouts.source_media import retain_source_cover
+
+    await retain_source_cover(db, user.id, generation, content.get("source_thumbnail_url"))
+    await invalidate_export_snapshots(db, user.id, generation)
+    row.revision += 1
+    content.update(id=str(row.id), version=row.revision, parent_version_id=str(prior))
+    row.content = content
+    row.updated_at = now()
+    db.add(
+        WorkoutVersion(
+            app_user_id=user.id,
+            generation=generation,
+            workout_id=row.id,
+            revision=row.revision,
+            content=content,
+        )
+    )
+    await refresh_library_source(db, row)
+    await db.flush()
+    await refresh_publication_after_edit(db, row)
+    result = (await library_responses(db, [row]))[0]
+    await db.commit()
+    return result
 
 
 class ProgramRequest(DomainModel):

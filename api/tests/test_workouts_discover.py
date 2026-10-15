@@ -625,6 +625,54 @@ async def test_public_cover_receipt_precedes_upload_and_product_erasure_is_exact
         )
 
 
+async def test_restore_retains_historical_cover_and_refreshes_public_source_organization_and_export(discover_api, monkeypatch):
+    from uuid import UUID
+
+    from app.domains.workouts import source_media
+    from app.domains.workouts.export_models import WorkoutsExportEpoch
+    from app.domains.workouts.library_organization_models import WorkoutLibraryOrganization
+    from app.domains.workouts.library_organization_service import source_key
+    from app.domains.workouts.source_media_models import WorkoutSourceMedia
+
+    api = discover_api
+    for name in ("038_add_workouts_library_organization", "043_add_workouts_export_snapshots"):
+        await importlib.import_module("migrations." + name).run_migration(configured=settings(), migration_engine=api.engine)
+    url, _, store, _ = await prepare_test_source_cover(api, monkeypatch)
+    row = await save(api, {**REEL, "source_thumbnail_url": url})
+    assert (await publish(api, row["id"])).status_code == 200
+    versions = f"/api/v1/workouts/library/{row['id']}/versions"
+    original = (await api.client.get(versions)).json()[0]
+    async with api.sessions.begin() as db:
+        organization = await db.get(WorkoutLibraryOrganization, UUID(row["id"]))
+        organization.favorite, organization.tags, organization.tag_keys = True, ["Keep"], ["keep"]
+    changed = await api.client.put(f"/api/v1/workouts/library/{row['id']}?expected_revision=1",
+                                  json={**REEL, "source_url": "https://youtu.be/changed12345"}, headers=GENERATION)
+    assert changed.status_code == 200 and "source_thumbnail_url" not in changed.json()["content"]
+    restored = await api.client.post(f"{versions}/{original['id']}/restore?expected_revision=2", headers=GENERATION)
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["content"]["source_thumbnail_url"] == url
+    assert restored.json()["organization"]["favorite"] and restored.json()["organization"]["tags"] == ["Keep"]
+    assert (await feed(api))["items"][0]["source_url"] == SOURCE
+    async with api.sessions() as db:
+        assert (await db.get(WorkoutSourceMedia, source_media.asset_id(url))).retained
+        assert (await db.get(WorkoutLibraryOrganization, UUID(row["id"]))).source_key == source_key(SOURCE)
+        assert (await db.get(WorkoutsExportEpoch, ("owner", 1))).revision == 1
+    assert len(store._client.puts) == 2  # Restoring reuses the owned historical cover.
+
+
+async def test_restoring_an_incomplete_version_removes_it_from_discover(discover_api):
+    api = discover_api
+    row = await save(api, {**REEL, "blocks": []})
+    versions = f"/api/v1/workouts/library/{row['id']}/versions"
+    original = (await api.client.get(versions)).json()[0]
+    changed = await api.client.put(f"/api/v1/workouts/library/{row['id']}?expected_revision=1", json=REEL, headers=GENERATION)
+    assert changed.status_code == 200
+    assert (await publish(api, row["id"])).status_code == 200
+    restored = await api.client.post(f"{versions}/{original['id']}/restore?expected_revision=2", headers=GENERATION)
+    assert restored.status_code == 200 and not restored.json()["publication"]["is_public"]
+    assert (await feed(api))["items"] == []
+
+
 @pytest.mark.parametrize("kind,failed", [("images", False), ("url", True)])
 async def test_private_capture_or_failed_upload_never_attaches_cover(
     discover_api, monkeypatch, kind, failed

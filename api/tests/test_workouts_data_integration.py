@@ -344,6 +344,57 @@ async def test_concurrent_workout_updates_allocate_only_one_next_version(data_ap
         assert await db.scalar(select(func.count()).select_from(WorkoutVersion)) == 2
 
 
+async def test_restore_appends_snapshot_without_rewriting_versions_or_recorded_actuals(data_api, monkeypatch):
+    row = await workout(data_api)
+    session = await data_api.client.post("/api/v1/workouts/sessions", json=session_payload(row), headers=GENERATION)
+    versions_url = f"/api/v1/workouts/library/{row['id']}/versions"
+    first = (await data_api.client.get(versions_url)).json()[0]
+    # Generated prescriptions and forward-compatible fields are trusted only
+    # because this fixture inserts them as immutable server-owned snapshots.
+    async with data_api.sessions() as db:
+        saved = await db.get(WorkoutRecord, row["id"])
+        trusted = {**saved.content, "provenance": "suggestion", "notes": ["Private note"],
+                   "future_instructions": ["Rest after each round"], "version": 2,
+                   "parent_version_id": first["id"]}
+        saved.content, saved.revision = trusted, 2
+        original = WorkoutVersion(app_user_id="owner", generation=1, workout_id=saved.id, revision=2, content=trusted)
+        db.add(original)
+        await db.commit()
+        original_id = str(original.id)
+    changed = await data_api.client.put(f"/api/v1/workouts/library/{row['id']}?expected_revision=2", json={**WORKOUT, "title": "Later edit"}, headers=GENERATION)
+    assert changed.status_code == 200
+    before = (await data_api.client.get(versions_url)).json()
+    from unittest.mock import AsyncMock
+
+    from app.domains.workouts import export_service, source_media
+    invalidated, retained = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(export_service, "invalidate_export_snapshots", invalidated)
+    monkeypatch.setattr(source_media, "retain_source_cover", retained)
+    result = await data_api.client.post(f"{versions_url}/{original_id}/restore?expected_revision=3", headers=GENERATION)
+    assert result.status_code == 200, result.text
+    restored = result.json()
+    assert restored["revision"] == 4
+    assert restored["content"] == {**trusted, "version": 4, "parent_version_id": before[0]["id"]}
+    assert (await data_api.client.get(versions_url)).json()[1:] == before
+    assert (await data_api.client.get("/api/v1/workouts/sessions")).json()[0] == session.json()
+    invalidated.assert_awaited_once()
+    retained.assert_awaited_once()
+    # A lost acknowledgement retried with the same frozen revision cannot append twice.
+    assert (await data_api.client.post(f"{versions_url}/{original_id}/restore?expected_revision=3", headers=GENERATION)).status_code == 409
+
+
+async def test_restore_rejects_other_workouts_owners_and_stale_generations(data_api):
+    row, another = await workout(data_api), await workout(data_api)
+    version = (await data_api.client.get(f"/api/v1/workouts/library/{row['id']}/versions")).json()[0]
+    url = f"/api/v1/workouts/library/{row['id']}/versions/{version['id']}/restore?expected_revision=1"
+    await enroll(data_api, other=True)
+    assert (await data_api.client.post(url, headers={**GENERATION, "X-Test-User": "other"})).status_code == 404
+    assert (await data_api.client.post(url.replace(row['id'], another['id']), headers=GENERATION)).status_code == 404
+    assert (await data_api.client.post(url, headers={"X-Workouts-Generation": "2"})).status_code == 409
+    responses = await asyncio.gather(*(data_api.client.post(url, headers=GENERATION) for _ in range(2)))
+    assert sorted(response.status_code for response in responses) == [200, 409]
+
+
 async def test_finalized_sessions_are_idempotent_and_snapshot_old_prescription(data_api):
     row = await workout(data_api)
     payload = session_payload(row)

@@ -365,6 +365,7 @@ export default function WorkoutDetail() {
             title="Organize or duplicate workout"
             onPress={() => go({ pathname: "/organize/[id]", params: { id: workout.id } })}
           />
+          <ListRow icon="time-outline" title="Version history" onPress={() => go({ pathname: "/workout-history/[id]", params: { id: workout.id } })} />
           <ListRow
             icon="create-outline"
             title="Edit workout details"

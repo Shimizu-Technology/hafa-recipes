@@ -90,6 +90,12 @@ interface RecordEnvelope<T> {
   organization?: Organization;
   publication?: Publication | null;
 }
+export interface WorkoutVersion {
+  id: string;
+  revision: number;
+  created_at: string;
+  workout: Workout;
+}
 interface SessionEnvelope {
   id: string;
   generation: number;
@@ -951,6 +957,17 @@ export function createWorkoutsApi(
     },
     async workout(id: string) {
       return workoutRecord((await request<RecordEnvelope<Workout>>(`/library/${encodeURIComponent(id)}`)).data);
+    },
+    async workoutVersions(id: string, offset = 0): Promise<WorkoutVersion[]> {
+      const { data } = await request<RecordEnvelope<Workout>[]>(`/library/${encodeURIComponent(id)}/versions?limit=20&offset=${offset}`);
+      return data.map((row) => ({ id: row.id, revision: row.revision, created_at: row.created_at,
+        workout: { ...row.content, id, generation: row.generation, revision: row.revision } }));
+    },
+    async restoreWorkoutVersion(workout: Workout, versionId: string) {
+      return workoutRecord((await request<RecordEnvelope<Workout>>(
+        `/library/${encodeURIComponent(workout.id)}/versions/${encodeURIComponent(versionId)}/restore?expected_revision=${workout.revision}`,
+        "POST", undefined, { generation: workout.generation }
+      )).data);
     },
     async saveWorkout(workout: AuthoredWorkout, creationKey?: string, generation?: number) {
       return workoutRecord(
