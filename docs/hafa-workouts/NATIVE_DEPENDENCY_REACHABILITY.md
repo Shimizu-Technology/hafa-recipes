@@ -248,3 +248,29 @@ The exact reviewed lock SHA-256 is renewed to
 No advisory IDs or exceptions are added, and the 2026-11-03 expiry and all
 fail-closed checks remain unchanged. These are bundle/source checks; fresh native
 builds and cold/warm share, OAuth and navigation acceptance remain separate gates.
+
+
+## Expo SDK 57 patch alignment (2026-10-16)
+
+Against `ad16ff8`, Doctor's current recommendations align Expo 57.0.30,
+Router 57.0.28 and UI 57.0.25. Their required transitive patches are CLI 57.0.31,
+router-server 57.0.13 and Babel preset 57.0.16. All other lock nodes, metadata
+and edges remain unchanged, including the scoped overrides. Fresh Node
+22.22.3/npm 10.9.8 installs and `npm ls --all` pass. Typecheck, Doctor 21/21,
+901 tests (one existing skip), all-platform export and the native bundle gate
+pass. The fresh production audit retains 32 inherited findings, the same six
+advisory IDs, zero critical and zero unexpected findings. The CLI signing helper,
+certificate utility and Router's active query parser are byte-identical to the
+previously reviewed installation.
+
+Fresh iOS/Android Hermes maps contain 1,827/1,826 sources, select native Clerk
+and the Router fork, and exclude forge, braces, micromatch, stream-json, Jayson
+and Solana. Map SHA-256: iOS
+`dfcd37ccaa50765de2ec96079a012bf2c9ccc54f3f2ee02f45767b05f2010608`;
+Android `97348721c6e162e27dfe983a208a57571eed7b966cdeb194d0254b9eb1a508e0`.
+The exact reviewed lock SHA-256 is renewed to
+`6989e7eadcf44c8cc7a2b8100c435d60436c1d0e4169443d427564fa544debf4`.
+The advisory IDs, November 3 expiry and fail-closed checks remain unchanged.
+[UI's Android TextInput placeholder fix](https://github.com/expo/expo/blob/396da4641605bb19c1e6b3efff1cafaab8890a29/packages/expo-ui/CHANGELOG.md#57025--2026-10-15)
+requires rebuilt native binaries. Fresh native builds and cold/warm share,
+OAuth and navigation acceptance remain separate release gates.
