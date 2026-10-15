@@ -6,9 +6,34 @@ import {
   emptyOrganization,
   organizationErrors,
   collectionTitleError,
+  workoutDeletionBlock,
 } from "./organization";
 import type { Workout } from "./models";
+import type { TrainingState } from "./training";
 describe("private library organization", () => {
+  it("protects active and unsynced direct sessions without blocking independent plan snapshots", () => {
+    const state: TrainingState = { version: 1, generation: 1, active: null, history: [] };
+    expect(workoutDeletionBlock("owned", state, false)).toContain("loading");
+    expect(workoutDeletionBlock("owned", state, true)).toBeNull();
+    const history = { request: { workout_id: "owned" }, state: "queued" } as TrainingState["history"][number];
+    state.history.push(history);
+    expect(workoutDeletionBlock("owned", state, true)).toContain("pending results");
+    history.state = "blocked";
+    expect(workoutDeletionBlock("owned", state, true)).toContain("pending results");
+    history.state = "synced";
+    expect(workoutDeletionBlock("owned", state, true)).toBeNull();
+    state.active = { source: { workout_id: "owned", workout_revision: 1 } } as TrainingState["active"];
+    expect(workoutDeletionBlock("owned", state, true)).toContain("active session");
+    state.active = { source: { program_id: "plan", program_revision: 1, program_session_id: "day" } } as TrainingState["active"];
+    expect(workoutDeletionBlock("owned", state, true)).toBeNull();
+  });
+  it("deletes with the captured owner and generation", async () => {
+    const transport = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    const api = createWorkoutsApi("https://example.test", async () => "token", transport, { owner: "stable", binding: "a", currentBinding: () => "a" });
+    await api.deleteWorkout("owned", 2);
+    expect(transport.mock.calls[0][0]).toContain("/library/owned");
+    expect(transport.mock.calls[0][1]).toMatchObject({ method: "DELETE", headers: { "X-Workouts-Generation": "2", "X-Hafa-Account-ID": "stable" } });
+  });
   it("encodes repeated tag filters and cursor without leaking private values into paths", () => {
     const query = new URLSearchParams(
       libraryQuery({ q: "Running & strength", tags: ["Gym days", "Basketball"], archived_only: true }, "saved cursor")

@@ -14,6 +14,7 @@ const fixture = vi.hoisted(() => ({
   discoverWorkout: vi.fn(),
   saveDiscovered: vi.fn(),
   workout: vi.fn(),
+  deleteWorkout: vi.fn(),
   importJob: vi.fn(),
   importJobs: vi.fn(),
   searchLibrary: vi.fn(), collections: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("@/lib/context", () => {
     discoverWorkout: fixture.discoverWorkout,
     saveDiscovered: fixture.saveDiscovered,
     workout: fixture.workout,
+    deleteWorkout: fixture.deleteWorkout,
     importJob: fixture.importJob,
     importJobs: fixture.importJobs,
     searchLibrary: fixture.searchLibrary, collections: fixture.collections,
@@ -59,7 +61,7 @@ vi.mock("@/lib/context", () => {
     acceptPublishingDisclosure: fixture.acceptPublishingDisclosure,
   };
   return {
-    useOfflineTraining: () => ({ ready: true, state: { active: null }, store: { start: vi.fn() } }),
+    useOfflineTraining: () => ({ ready: true, state: { active: null, history: [] }, store: { start: vi.fn(), snapshot: () => ({ active: null, history: [] }) } }),
     useTraining: () => ({
       api,
       owner: "owner",
@@ -174,7 +176,7 @@ beforeEach(() => {
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   for (const mock of [fixture.capabilities, fixture.discover, fixture.discoverWorkout, fixture.saveDiscovered, fixture.workout,
     fixture.importJob, fixture.importSource, fixture.acceptImport, fixture.publishingDisclosure, fixture.acceptPublishingDisclosure,
-    fixture.push, fixture.replace, fixture.toast, fixture.cancelImport]) mock.mockReset();
+    fixture.push, fixture.replace, fixture.toast, fixture.cancelImport, fixture.deleteWorkout]) mock.mockReset();
   fixture.params = {};
   fixture.focus = false;
   fixture.appState = "active"; fixture.appStateListeners.clear();
@@ -782,4 +784,48 @@ it.each([true, false])("plan previews keep explicit sets and only omit unspecifi
   await mount(() => createElement(PrescriptionPreview, { workout }));
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
   expect(text).toContain("2 sets"); expect(text.includes("Sets not specified")).toBe(!timed);
+});
+
+it("deletes only after explicit confirmation and returns to the library", async () => {
+  fixture.params = { id: saved.id };
+  fixture.workout.mockResolvedValue(saved);
+  fixture.deleteWorkout.mockResolvedValue(undefined);
+  await mount(WorkoutDetail);
+  await act(async () => nodes("Screen")[0].props.action.props.onPress());
+  await act(async () => nodes("ListRow").find(n => n.props.title === "Delete workout")!.props.onPress());
+  expect(fixture.deleteWorkout).not.toHaveBeenCalled();
+  await act(async () => button("Keep workout")!.props.onPress());
+  expect(fixture.deleteWorkout).not.toHaveBeenCalled();
+  await act(async () => nodes("ListRow").find(n => n.props.title === "Delete workout")!.props.onPress());
+  await act(async () => button("Delete workout")!.props.onPress());
+  expect(fixture.deleteWorkout).toHaveBeenCalledWith(saved.id, saved.generation);
+  expect(fixture.replace).toHaveBeenCalledWith("/(tabs)/library");
+});
+
+it("keeps a failed deletion available for retry", async () => {
+  fixture.params = { id: saved.id }; fixture.workout.mockResolvedValue(saved);
+  fixture.deleteWorkout.mockRejectedValue(new Error("Could not delete. Try again."));
+  await mount(WorkoutDetail);
+  await act(async () => nodes("Screen")[0].props.action.props.onPress());
+  await act(async () => nodes("ListRow").find(n => n.props.title === "Delete workout")!.props.onPress());
+  await act(async () => button("Delete workout")!.props.onPress());
+  expect(fixture.replace).not.toHaveBeenCalled();
+  expect(nodes("Notice").some(n => n.children.includes("Could not delete. Try again."))).toBe(true);
+});
+
+it("serializes deletion and suppresses navigation after an account change", async () => {
+  fixture.params = { id: saved.id }; fixture.workout.mockResolvedValue(saved);
+  let release!: () => void;
+  fixture.deleteWorkout.mockImplementation(() => new Promise<void>(resolve => { release = resolve; }));
+  await mount(WorkoutDetail);
+  await act(async () => nodes("Screen")[0].props.action.props.onPress());
+  await act(async () => nodes("ListRow").find(n => n.props.title === "Delete workout")!.props.onPress());
+  const remove = button("Delete workout")!.props.onPress;
+  await act(async () => { remove(); remove(); });
+  expect(fixture.deleteWorkout).toHaveBeenCalledTimes(1);
+  fixture.current = false;
+  await act(async () => { release(); });
+  await settle();
+  expect(fixture.replace).not.toHaveBeenCalled();
+  expect(fixture.toast).not.toHaveBeenCalled();
 });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Linking } from "react-native";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
@@ -31,9 +31,16 @@ import { trackingPrescriptionWarning } from "@/lib/training";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutSource } from "@/components/workout-source";
 import { amrapCap, blockSummary } from "@/lib/amrap-editor";
+import { workoutDeletionBlock } from "@/lib/organization";
 export default function WorkoutDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { api, owner, enrollment } = useTraining();
+  const { api, owner, enrollment, isCurrentAccount } = useTraining();
+  const mounted = useRef(true);
+  const action = useRef<"start" | "delete" | null>(null);
+  const scope = `${owner}:${enrollment?.generation}:${id}`;
+  const liveScope = useRef(scope);
+  liveScope.current = scope;
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const q = useQuery({
     queryKey: [owner, "workout", id, enrollment?.generation],
     queryFn: () => api.workout(id),
@@ -44,6 +51,8 @@ export default function WorkoutDetail() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [more, setMore] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const cache = useQueryClient();
   const toast = useToast();
@@ -54,6 +63,31 @@ export default function WorkoutDetail() {
     staleTime: 60000,
   });
   const discoverOn = capabilities.data?.discover === true;
+  const deleteBlock = workout ? workoutDeletionBlock(workout.id, offline.state, offline.ready) : null;
+  async function remove() {
+    if (!workout || action.current || !isCurrentAccount()) return;
+    const blocked = workoutDeletionBlock(workout.id, offline.store?.snapshot() ?? offline.state, offline.ready);
+    if (blocked) { setError(blocked); return; }
+    action.current = "delete";
+    setDeleteBusy(true);
+    setError("");
+    try {
+      await api.deleteWorkout(workout.id, workout.generation);
+      if (!isCurrentAccount()) return;
+      cache.removeQueries({ queryKey: [owner, "workout", id] });
+      await Promise.all([
+        cache.invalidateQueries({ queryKey: [owner, "library"] }),
+        cache.invalidateQueries({ queryKey: [owner, "collections"] }),
+        cache.invalidateQueries({ queryKey: discoverKeys.all(owner) }),
+        cache.invalidateQueries({ queryKey: [owner, "imports"] }),
+      ]);
+      if (!mounted.current || liveScope.current !== scope || !isCurrentAccount()) return;
+      toast("Workout deleted");
+      router.replace("/(tabs)/library");
+    } catch (e) {
+      if (mounted.current && liveScope.current === scope && isCurrentAccount()) setError((e as Error).message);
+    } finally { action.current = null; if (mounted.current) setDeleteBusy(false); }
+  }
   const publication = workout?.publication;
   const isPublic = !!publication?.is_public;
   async function setShared(share: boolean) {
@@ -85,7 +119,8 @@ export default function WorkoutDetail() {
     }
   }
   async function start() {
-    if (!workout || !offline.store || !workout.blocks.some(block => block.exercises.length)) return;
+    if (!workout || !offline.store || action.current || !isCurrentAccount() || !workout.blocks.some(block => block.exercises.length)) return;
+    action.current = "start";
     setBusy(true);
     try {
       await offline.store.start(
@@ -93,10 +128,11 @@ export default function WorkoutDetail() {
         { workout_id: workout.id, workout_revision: workout.revision },
         Crypto.randomUUID()
       );
-      router.push("/training");
+      if (mounted.current && isCurrentAccount()) router.push("/training");
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      action.current = null;
       setBusy(false);
     }
   }
@@ -289,7 +325,16 @@ export default function WorkoutDetail() {
         )}
       </QueryState>
       {workout && (
-        <Sheet visible={more} onClose={() => setMore(false)} title="Workout">
+        <Sheet visible={more || deleting} onClose={() => { if (!deleteBusy) { setMore(false); setDeleting(false); } }} title={deleting ? "Delete workout?" : "Workout"}>
+          {deleting ? <>
+            <Copy>Delete “{workout.title}” from your library and Discover? This cannot be undone.</Copy>
+            <Copy kind="small">Saved session history, workouts already in your plans and other people’s copies stay available. Save pending sessions on your other devices first.</Copy>
+            {!!deleteBlock && <Notice tone="warning">{deleteBlock}</Notice>}
+            {!!error && <Notice error>{error}</Notice>}
+            <Button title="Delete workout" variant="destructive" icon="trash-outline" busy={deleteBusy} disabled={!!deleteBlock || busy} onPress={() => void remove()} />
+            <Button title="Keep workout" secondary disabled={deleteBusy} onPress={() => setDeleting(false)} />
+            <Button title="Archive instead" variant="ghost" disabled={deleteBusy} onPress={() => { setDeleting(false); go({ pathname: "/organize/[id]", params: { id: workout.id } }); }} />
+          </> : <>
           <ListRow
             icon="chatbubble-ellipses-outline"
             title="Chat about this workout"
@@ -324,6 +369,8 @@ export default function WorkoutDetail() {
             title="Edit workout details"
             onPress={() => go({ pathname: "/edit-workout/[id]", params: { id: workout.id } })}
           />
+          <ListRow icon="trash-outline" title="Delete workout" detail="Remove from your library" onPress={() => { setError(""); setDeleting(true); }} />
+          </>}
         </Sheet>
       )}
       {disclosure.sheet}

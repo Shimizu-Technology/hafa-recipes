@@ -423,6 +423,7 @@ async def test_hard_removal_cascades_metadata_but_retains_actual_snapshot(organi
         PREFIX + "/sessions", json=session_payload(row), headers=GENERATION
     )
     assert response.status_code == 201
+    original = response.json()
     snapshot = response.json()["content"]
     assert (
         await api.client.delete(f"{PREFIX}/library/{row['id']}", headers=GENERATION)
@@ -435,6 +436,25 @@ async def test_hard_removal_cascades_metadata_but_retains_actual_snapshot(organi
         assert await db.scalar(select(func.count()).select_from(WorkoutVersion)) == 0
         assert (await db.scalar(select(WorkoutsSession))).content == snapshot
         assert await db.scalar(select(func.count()).select_from(WorkoutLibraryCollection)) == 1
+    correction = session_payload(row, supersedes_session_id=original["id"])
+    correction["actuals"][0]["reps"] = 9
+    amended = await api.client.post(PREFIX + "/sessions", json=correction, headers=GENERATION)
+    assert amended.status_code == 201, amended.text
+    assert amended.json()["content"]["prescription_snapshot"] == snapshot["prescription_snapshot"]
+    assert (await api.client.get(PREFIX + "/sessions/" + original["id"])).json() == original
+
+
+async def test_correction_cannot_replace_original_prescription(organization_api):
+    api = organization_api
+    first = await create(api)
+    second = await create(api, title="Different prescription")
+    original = await api.client.post(
+        PREFIX + "/sessions", json=session_payload(first), headers=GENERATION
+    )
+    correction = session_payload(second, supersedes_session_id=original.json()["id"])
+    assert (
+        await api.client.post(PREFIX + "/sessions", json=correction, headers=GENERATION)
+    ).status_code == 409
 
 
 async def test_export_product_cleanup_and_account_cascade(organization_api):
