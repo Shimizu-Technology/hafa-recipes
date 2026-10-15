@@ -200,6 +200,8 @@ def test_setup_script_explicitly_applies_development_seed():
 
 @pytest.mark.asyncio
 async def test_enabled_workouts_migration_follows_core_chain(monkeypatch):
+    assert "migrations.049_add_workouts_coach_attachments" in migration_runner.OPTIONAL_MIGRATIONS
+    assert "migrations.049_add_workouts_coach_attachments" not in migration_runner.ACTIVE_MIGRATIONS
     calls = []
     def load(module_name):
         async def run_migration():

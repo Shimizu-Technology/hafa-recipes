@@ -1785,6 +1785,8 @@ async def test_coach_real_tcp_slow_reader_disconnect_closes_owned_request_withou
         receipt = json.loads(replay.text)["receipt"]
         assert receipt["state"] in {"pending", "failed"} and receipt["assistant_message"] != "Synthetic initial fragment"
     assert len(calls) == 1
+
+
 async def private_attachment_fixture(api, monkeypatch):
     from types import SimpleNamespace
 

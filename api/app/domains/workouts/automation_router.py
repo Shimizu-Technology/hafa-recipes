@@ -95,7 +95,7 @@ async def capabilities(user: User, db: Database):
         and configured.workouts_ai_budget_24h_microusd > 0
         and bool(configured.workouts_ai_budget_database_url)
         and configured.is_ai_capability_enabled("workout_coach"),
-        # Registry storage alone does not admit vision or expose an upload route.
+        # Private image transport alone does not admit model vision.
         "coach_images": False,
         "health_sync": configured.workouts_health_sync_enabled,
         "discover": await discover_ready(db),
