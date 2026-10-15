@@ -752,14 +752,15 @@ it("account change after workout acceptance cannot register or upload into a dif
 
 it("restored prescriptions remove source covers/evidence/generated claims without changing the original", () => {
   const original = { ...fixture(), provenance: "suggestion" as const, source_thumbnail_url: "https://old.example/cover",
+    instructions: ["Repeat in order."],
     blocks: fixture().blocks.map(block => ({ ...block, evidence: [{ field: "name", wording: "Private evidence" }],
       exercises: block.exercises.map(exercise => ({ ...exercise, provenance: "suggestion" as const,
-        evidence: [{ field: "name", wording: "Private evidence" }] })) })) };
+        instructions: "Keep heels down.", evidence: [{ field: "name", wording: "Private evidence" }] })) })) };
   const before = JSON.stringify(original), content = restoredPrescription(original);
-  expect(content).toMatchObject({ provenance: "user", source_thumbnail_url: null });
+  expect(content).toMatchObject({ provenance: "user", source_thumbnail_url: null, instructions: ["Repeat in order."] });
   expect(content).not.toHaveProperty("id"); expect(content).not.toHaveProperty("generation");
   expect(content.blocks[0]).toMatchObject({ evidence: [] });
-  expect(content.blocks[0].exercises[0]).toMatchObject({ provenance: "user", evidence: [] });
+  expect(content.blocks[0].exercises[0]).toMatchObject({ provenance: "user", evidence: [], instructions: "Keep heels down." });
   expect(JSON.stringify(original)).toBe(before);
 });
 it("rejected corrections are never turned into independent duplicate training", async () => {
