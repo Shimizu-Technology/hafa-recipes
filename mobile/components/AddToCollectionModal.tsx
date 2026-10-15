@@ -3,7 +3,8 @@
  * Uses a smart single-button approach for cleaner UX.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useAuth } from '@clerk/expo';
 import {
   Modal,
   StyleSheet,
@@ -51,10 +52,31 @@ export default function AddToCollectionModal({
   const [showCreateNew, setShowCreateNew] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState('');
   const [justCreated, setJustCreated] = useState(false); // For success feedback
+  const [error, setError] = useState<string | null>(null);
+  const [createdCollectionId, setCreatedCollectionId] = useState<string | null>(null);
+  const { userId } = useAuth();
+  const committedScope = useMemo(() => ({ userId, visible, recipeId }), [userId, visible, recipeId]);
+  const scope = useRef<typeof committedScope | null>(null);
+  const alive = useRef(false);
+  const working = useRef(false);
+  useLayoutEffect(() => {
+    scope.current = committedScope;
+    alive.current = true;
+    working.current = false;
+    return () => {
+      if (scope.current === committedScope) { scope.current = null; alive.current = false; }
+    };
+  }, [committedScope]);
+
+  const current = () => alive.current && visible && scope.current === committedScope;
+  const requestGuard = () => { if (!current()) throw new Error('Collection choices changed; reopen them.'); };
+  const close = () => { if (current()) onClose(); };
 
   // Fetch data
-  const { data: collections, isLoading: isLoadingCollections } = useCollections();
-  const { data: recipeCollectionIds, isLoading: isLoadingRecipeCollections } = useRecipeCollections(recipeId);
+  const collectionsQuery = useCollections(visible);
+  const membershipQuery = useRecipeCollections(recipeId, visible);
+  const { data: collections, isLoading: isLoadingCollections } = collectionsQuery;
+  const { data: recipeCollectionIds, isLoading: isLoadingRecipeCollections } = membershipQuery;
 
   // Mutations
   const addToCollection = useAddToCollection();
@@ -62,7 +84,9 @@ export default function AddToCollectionModal({
   const createCollection = useCreateCollection();
 
   const isLoading = isLoadingCollections || isLoadingRecipeCollections;
-  const isCreating = createCollection.isPending;
+  const isCreating = createCollection.isPending || (showCreateNew && addToCollection.isPending);
+  const isSaving = createCollection.isPending || addToCollection.isPending || removeFromCollection.isPending;
+  const hasData = collections !== undefined && recipeCollectionIds !== undefined;
 
   // Determine button state
   const hasValidName = newCollectionName.trim().length > 0;
@@ -74,19 +98,25 @@ export default function AddToCollectionModal({
       // Ensure we only have strings (guard against corrupted cache data)
       const validIds = recipeCollectionIds.filter((id): id is string => typeof id === 'string');
       setSelectedIds(new Set(validIds));
-    }
-  }, [recipeCollectionIds]);
+    } else setSelectedIds(new Set());
+  }, [recipeCollectionIds, visible, recipeId, userId]);
 
   // Reset state when modal closes
   useEffect(() => {
+    setError(null);
+    setCreatedCollectionId(null);
     if (!visible) {
       setShowCreateNew(false);
       setNewCollectionName('');
       setJustCreated(false);
     }
-  }, [visible]);
+  }, [visible, recipeId, userId]);
 
-  const handleToggleCollection = (collectionId: string) => {
+  const handleToggleCollection = async (collectionId: string) => {
+    if (!current() || working.current || !hasData) return;
+    working.current = true;
+    const captured = committedScope;
+    setError(null);
     const isCurrentlySelected = selectedIds.has(collectionId);
     haptics.light();
 
@@ -99,55 +129,72 @@ export default function AddToCollectionModal({
     }
     setSelectedIds(newSelectedIds);
 
-    // Fire-and-forget API call (no await - allows rapid clicking)
-    if (isCurrentlySelected) {
-      removeFromCollection.mutate(
-        { collectionId, recipeId },
-        { onError: () => setSelectedIds(selectedIds) }
-      );
-    } else {
-      addToCollection.mutate(
-        { collectionId, recipeId },
-        { onError: () => setSelectedIds(selectedIds) }
-      );
+    try {
+      await (isCurrentlySelected ? removeFromCollection : addToCollection).mutateAsync({ collectionId, recipeId, requestGuard });
+    } catch {
+      if (alive.current && scope.current === captured) {
+        setSelectedIds((current) => {
+          const restored = new Set(current);
+          if (isCurrentlySelected) restored.add(collectionId); else restored.delete(collectionId);
+          return restored;
+        });
+        setError('Couldn’t update this collection. Check your connection and try again.');
+      }
+    } finally {
+      if (scope.current === captured) working.current = false;
     }
   };
 
   const handleCreateAndAdd = async () => {
-    if (!newCollectionName.trim()) return;
+    if (!current() || !newCollectionName.trim() || working.current || !hasData) return;
+    working.current = true;
+    const captured = committedScope;
+    setError(null);
 
     const name = newCollectionName.trim();
+    let savedCollectionId = createdCollectionId;
     Keyboard.dismiss();
 
     try {
       // Create collection
-      const newCollection = await createCollection.mutateAsync({ name });
+      const collectionId = savedCollectionId ?? (await createCollection.mutateAsync({ name, requestGuard })).id;
+      savedCollectionId = collectionId;
+      if (!alive.current || scope.current !== captured) return;
+      setCreatedCollectionId(collectionId);
 
       // Add recipe to the new collection
       await addToCollection.mutateAsync({
-        collectionId: newCollection.id,
-        recipeId,
+        collectionId,
+        recipeId, requestGuard,
       });
 
       // Update local state
-      setSelectedIds(new Set([...selectedIds, newCollection.id]));
+      if (!alive.current || scope.current !== captured) return;
+      setSelectedIds((current) => new Set([...current, collectionId]));
 
       // Show success feedback
       haptics.success();
       setJustCreated(true);
       setNewCollectionName('');
+      setCreatedCollectionId(null);
 
       // Reset after brief delay
       setTimeout(() => {
+        if (!alive.current || scope.current !== captured) return;
         setShowCreateNew(false);
         setJustCreated(false);
       }, 800);
     } catch {
-      // Mutation error handled by React Query
+      if (alive.current && scope.current === captured) setError(savedCollectionId
+        ? 'Collection created. Couldn’t confirm the recipe was added. Retry adding it.'
+        : 'Couldn’t create this collection. Check your connection and refresh your collections before trying again.');
+    } finally {
+      if (scope.current === captured) working.current = false;
     }
   };
 
   const handleMainButtonPress = () => {
+    if (!current() || working.current) return;
     if (isInCreateMode && hasValidName) {
       // Create the collection
       handleCreateAndAdd();
@@ -155,6 +202,8 @@ export default function AddToCollectionModal({
       // Cancel create mode
       setShowCreateNew(false);
       setNewCollectionName('');
+      setCreatedCollectionId(null);
+      setError(null);
       Keyboard.dismiss();
     } else {
       // Close modal
@@ -168,15 +217,16 @@ export default function AddToCollectionModal({
       return { title: 'Created', disabled: true };
     }
     if (isCreating) {
-      return { title: 'Creating...', disabled: true, loading: true };
+      return { title: createdCollectionId ? 'Adding recipe…' : 'Creating…', disabled: true, loading: true };
     }
+    if (isSaving) return { title: 'Saving…', disabled: true, loading: true };
     if (isInCreateMode && hasValidName) {
-      return { title: 'Create Collection', disabled: false };
+      return { title: createdCollectionId ? 'Retry adding recipe' : 'Create Collection', disabled: isSaving || !hasData };
     }
     if (isInCreateMode && !hasValidName) {
       return { title: 'Cancel', disabled: false };
     }
-    return { title: 'Done', disabled: false };
+    return { title: 'Done', disabled: isSaving };
   };
 
   const buttonConfig = getMainButtonConfig();
@@ -186,13 +236,13 @@ export default function AddToCollectionModal({
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={onClose}
+      onRequestClose={close}
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
-        <TouchableWithoutFeedback onPress={onClose}>
+        <TouchableWithoutFeedback onPress={close}>
           <RNView style={styles.overlay}>
             <TouchableWithoutFeedback>
               <RNView style={[styles.modal, { backgroundColor: colors.background }]}>
@@ -206,12 +256,21 @@ export default function AddToCollectionModal({
                     {recipeTitle}
                   </Text>
                 </RNView>
-                <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <TouchableOpacity onPress={close} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                   <Ionicons name="close" size={24} color={colors.textMuted} />
                 </TouchableOpacity>
               </RNView>
 
               {/* Collections list */}
+              {(error || collectionsQuery.isError || membershipQuery.isError) && (
+                <RNView style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.md }} accessibilityRole="alert">
+                  <Text style={{ color: colors.error }}>
+                    {error ?? (hasData ? 'Couldn’t refresh your collections. Your last loaded choices are shown.' : 'Couldn’t load your collections. Check your connection and try again.')}
+                  </Text>
+                  <Button title={error ? 'Refresh collections' : 'Try again'} disabled={isSaving || collectionsQuery.isFetching || membershipQuery.isFetching}
+                    onPress={() => { if (current() && !working.current) { setError(null); void collectionsQuery.refetch(); void membershipQuery.refetch(); } }} />
+                </RNView>
+              )}
               {isLoading ? (
                 <RNView style={styles.loadingContainer}>
                   <ActivityIndicator size="large" color={colors.tint} />
@@ -236,6 +295,10 @@ export default function AddToCollectionModal({
                               },
                             ]}
                             onPress={() => handleToggleCollection(collection.id)}
+                            disabled={isSaving || !hasData}
+                            accessibilityRole="checkbox"
+                            accessibilityLabel={collection.name}
+                            accessibilityState={{ checked: isSelected, disabled: isSaving || !hasData }}
                             activeOpacity={0.7}
                           >
                             <RNView style={styles.collectionInfo}>
@@ -266,14 +329,14 @@ export default function AddToCollectionModal({
                         );
                       })}
                     </>
-                  ) : (
+                  ) : collections !== undefined ? (
                     <RNView style={styles.emptyState}>
                       <Ionicons name="folder-outline" size={48} color={colors.textMuted} />
                       <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
                         No collections yet
                       </Text>
                     </RNView>
-                  )}
+                  ) : null}
 
                   {/* Create new collection */}
                   {showCreateNew ? (
@@ -287,11 +350,11 @@ export default function AddToCollectionModal({
                         <RNView style={styles.inputWrapper}>
                           <Input
                             value={newCollectionName}
-                            onChangeText={setNewCollectionName}
+                            onChangeText={(value) => { if (current() && !working.current) { setNewCollectionName(value); setError(null); } }}
                             placeholder="Collection name..."
                             autoFocus
                             style={styles.collectionInput}
-                            editable={!isCreating && !justCreated}
+                            editable={!isSaving && !justCreated && !createdCollectionId}
                             onSubmitEditing={hasValidName ? handleCreateAndAdd : undefined}
                             returnKeyType="done"
                           />
@@ -299,8 +362,11 @@ export default function AddToCollectionModal({
                         {!justCreated && (
                           <TouchableOpacity
                             onPress={() => {
+                              if (!current() || working.current) return;
                               setShowCreateNew(false);
                               setNewCollectionName('');
+                              setCreatedCollectionId(null);
+                              setError(null);
                               Keyboard.dismiss();
                             }}
                             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -313,7 +379,9 @@ export default function AddToCollectionModal({
                   ) : (
                     <TouchableOpacity
                       style={[styles.createNewButton, { borderColor: colors.border }]}
-                      onPress={() => setShowCreateNew(true)}
+                      onPress={() => { if (current() && !working.current) setShowCreateNew(true); }}
+                      accessibilityLabel="Create new collection"
+                      disabled={isSaving || !hasData}
                     >
                       <Ionicons name="add-circle-outline" size={24} color={colors.tint} />
                       <Text style={[styles.createNewText, { color: colors.tint }]}>
@@ -480,4 +548,3 @@ const styles = StyleSheet.create({
     width: '100%',
   },
 });
-

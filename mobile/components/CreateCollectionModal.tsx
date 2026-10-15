@@ -2,7 +2,8 @@
  * Modal for creating or editing a collection.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useAuth } from '@clerk/expo';
 import {
   Modal,
   StyleSheet,
@@ -36,45 +37,70 @@ export default function CreateCollectionModal({
 }: CreateCollectionModalProps) {
   const colors = useColors();
   const [name, setName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const { userId } = useAuth();
+  const committedScope = useMemo(() => ({ userId, visible, id: editingCollection?.id }), [userId, visible, editingCollection?.id]);
+  const scope = useRef<typeof committedScope | null>(null);
+  const alive = useRef(false);
+  const working = useRef(false);
+  useLayoutEffect(() => {
+    scope.current = committedScope;
+    alive.current = true;
+    working.current = false;
+    return () => {
+      if (scope.current === committedScope) { scope.current = null; alive.current = false; }
+    };
+  }, [committedScope]);
+
+  const current = () => alive.current && visible && scope.current === committedScope;
+  const requestGuard = () => { if (!current()) throw new Error('Collection editor changed; reopen it.'); };
+  const close = () => { if (current()) onClose(); };
 
   const createMutation = useCreateCollection();
   const updateMutation = useUpdateCollection();
   const deleteMutation = useDeleteCollection();
 
   const isEditing = !!editingCollection;
-  const isPending = createMutation.isPending || updateMutation.isPending;
+  const isPending = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending;
 
   // Pre-fill form when editing
   useEffect(() => {
+    setError(null);
     if (editingCollection) {
       setName(editingCollection.name);
     } else {
       setName('');
     }
-  }, [editingCollection, visible]);
+  }, [editingCollection?.id, visible, userId]);
 
   const handleSave = async () => {
-    if (!name.trim()) return;
+    if (!current() || !name.trim() || working.current) return;
+    const captured = committedScope;
+    working.current = true;
+    setError(null);
 
     try {
       if (isEditing && editingCollection) {
         await updateMutation.mutateAsync({
           collectionId: editingCollection.id,
-          updates: { name: name.trim() },
+          updates: { name: name.trim() }, requestGuard,
         });
       } else {
         await createMutation.mutateAsync({
-          name: name.trim(),
+          name: name.trim(), requestGuard,
         });
       }
-      onClose();
+      if (alive.current && scope.current === captured) onClose();
     } catch {
-      // Mutation error handled by React Query
+      if (alive.current && scope.current === captured) setError('Couldn’t save this collection. Check your connection and try again.');
+    } finally {
+      if (scope.current === captured) working.current = false;
     }
   };
 
   const handleDelete = () => {
-    if (!editingCollection) return;
+    if (!current() || !editingCollection || isPending || working.current) return;
+    const captured = committedScope;
 
     haptics.warning();
     Alert.alert(
@@ -86,13 +112,19 @@ export default function CreateCollectionModal({
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
+            if (!current() || scope.current !== captured || working.current) return;
+            working.current = true;
+            setError(null);
             try {
-              await deleteMutation.mutateAsync(editingCollection.id);
+              await deleteMutation.mutateAsync({ collectionId: editingCollection.id, requestGuard });
+              if (!alive.current || scope.current !== captured) return;
               onClose();
               // Navigate back after deletion (if callback provided)
               onDeleted?.();
             } catch {
-              // Mutation error handled by React Query
+              if (alive.current && scope.current === captured) setError('Couldn’t delete this collection. Check your connection and try again. Your recipes won’t be deleted.');
+            } finally {
+              if (scope.current === captured) working.current = false;
             }
           },
         },
@@ -105,9 +137,9 @@ export default function CreateCollectionModal({
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={onClose}
+      onRequestClose={close}
     >
-      <TouchableWithoutFeedback onPress={onClose}>
+      <TouchableWithoutFeedback onPress={close}>
         <RNView style={styles.overlay}>
           <TouchableWithoutFeedback>
             <KeyboardAvoidingView
@@ -120,7 +152,7 @@ export default function CreateCollectionModal({
                   <Text style={[styles.title, { color: colors.text }]}>
                     {isEditing ? 'Edit Collection' : 'New Collection'}
                   </Text>
-                  <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <TouchableOpacity onPress={close} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                     <Ionicons name="close" size={24} color={colors.textMuted} />
                   </TouchableOpacity>
                 </RNView>
@@ -130,7 +162,8 @@ export default function CreateCollectionModal({
                   <Text style={[styles.label, { color: colors.textSecondary }]}>Name</Text>
                   <Input
                     value={name}
-                    onChangeText={setName}
+                    onChangeText={(value) => { if (current() && !working.current) { setName(value); setError(null); } }}
+                    editable={!isPending}
                     placeholder="e.g., Weeknight Dinners"
                     autoFocus
                   />
@@ -149,13 +182,15 @@ export default function CreateCollectionModal({
                   </RNView>
                 </RNView>
 
+                {error && <Text accessibilityRole="alert" style={{ color: colors.error, marginBottom: spacing.md }}>{error}</Text>}
                 {/* Actions */}
                 <RNView style={styles.actions}>
                   {isEditing && (
                     <TouchableOpacity
                       style={[styles.deleteButton, { borderColor: colors.error }]}
                       onPress={handleDelete}
-                      disabled={deleteMutation.isPending}
+                      disabled={isPending}
+                      accessibilityLabel="Delete collection"
                     >
                       <Ionicons name="trash-outline" size={20} color={colors.error} />
                     </TouchableOpacity>
@@ -163,7 +198,7 @@ export default function CreateCollectionModal({
                   <RNView style={styles.actionsSpacer} />
                   <Button
                     title="Cancel"
-                    onPress={onClose}
+                    onPress={close}
                     variant="outline"
                     style={styles.cancelButton}
                   />
@@ -275,4 +310,3 @@ const styles = StyleSheet.create({
     minWidth: 80,
   },
 });
-

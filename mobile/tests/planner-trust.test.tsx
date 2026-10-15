@@ -1,7 +1,7 @@
 import React from 'react';
 import { act } from 'react';
 import { createRoot } from 'test-renderer';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { MealPlanEntry } from '@/types/recipe';
 
@@ -85,7 +85,9 @@ vi.mock('@/lib/plannerNavigation', () => ({
 }));
 vi.mock('@/lib/routes', () => ({ appRoutes: {} }));
 
-import { MealSlot } from '../app/(tabs)/planner';
+import PlannerScreen, { MealSlot } from '../app/(tabs)/planner';
+import * as planHooks from '@/hooks/useMealPlan';
+import { useRecipe } from '@/hooks/useRecipes';
 
 const colors = {
   card: '#fff', cardBorder: '#ddd', text: '#111', textMuted: '#666',
@@ -150,5 +152,48 @@ describe('planner meal readiness', () => {
     } finally {
       await act(async () => renderer.unmount());
     }
+  });
+});
+
+describe('planner loading recovery', () => {
+  const refetch = vi.fn();
+  beforeEach(() => {
+    refetch.mockReset().mockResolvedValue({});
+    vi.mocked(planHooks.getWeekStart).mockImplementation((date) => date);
+    vi.mocked(planHooks.getWeekEnd).mockImplementation((date) => date);
+    vi.mocked(planHooks.formatDateForApi).mockImplementation((date) => date.toISOString().slice(0, 10));
+    vi.mocked(planHooks.formatDayLabel).mockReturnValue({ day: 'Wed', number: '14' });
+    vi.mocked(useRecipe).mockReturnValue({} as any);
+    for (const hook of [planHooks.useAddMeal, planHooks.useDeleteMeal, planHooks.useAddPlanToGrocery]) {
+      vi.mocked(hook).mockReturnValue({ isPending: false } as any);
+    }
+  });
+
+  it('shows a retry instead of empty meal slots after initial load fails', async () => {
+    vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ isError: true, refetch } as any);
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<PlannerScreen />));
+      expect(renderer.container.queryAll((node) => node.props.children === 'Couldn’t load your meal plan')).toHaveLength(1);
+      expect(renderer.container.queryAll((node) => node.props.accessibilityLabel === 'Add Dinner')).toHaveLength(0);
+      await act(async () => renderer.container.queryAll((node) => node.props.title === 'Try again')[0].props.onPress());
+      expect(refetch).toHaveBeenCalledOnce();
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('keeps cached meals visible after a refresh error and clears the warning on success', async () => {
+    const meal = entry('ready');
+    const date = new Date().toISOString().slice(0, 10);
+    const data = { days: [{ date, dinner: [meal] }] };
+    vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data, isError: true, refetch } as any);
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<PlannerScreen />));
+      expect(renderer.container.queryAll((node) => node.props.children === 'Chicken Kelaguen')).toHaveLength(1);
+      expect(renderer.container.queryAll((node) => node.props.children === 'Couldn’t refresh your meal plan')).toHaveLength(1);
+      vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data, isError: false, refetch } as any);
+      await act(async () => renderer.render(<PlannerScreen />));
+      expect(renderer.container.queryAll((node) => node.props.children === 'Couldn’t refresh your meal plan')).toHaveLength(0);
+    } finally { await act(async () => renderer.unmount()); }
   });
 });

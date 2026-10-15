@@ -2,7 +2,8 @@
  * Collection detail screen - shows all recipes in a collection.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useLayoutEffect, useMemo } from 'react';
+import { useAuth } from '@clerk/expo';
 import {
   StyleSheet,
   FlatList,
@@ -16,9 +17,10 @@ import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { View, Text, useColors } from '@/components/Themed';
+import { View, Text, Button, useColors } from '@/components/Themed';
 import CreateCollectionModal from '@/components/CreateCollectionModal';
 import { useCollectionRecipes, useCollections, useRemoveFromCollection } from '@/hooks/useCollections';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { CollectionRecipe, Collection } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
@@ -108,23 +110,36 @@ export function RecipeCard({
 
 export default function CollectionDetailScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id: idParam } = useLocalSearchParams<{ id: string | string[] }>();
+  const id = typeof idParam === 'string' && idParam.trim() ? idParam : '';
+  const { userId } = useAuth();
+  const committedScope = useMemo(() => ({ userId, id }), [userId, id]);
+  const scope = useRef<typeof committedScope | null>(null);
+  useLayoutEffect(() => {
+    scope.current = committedScope;
+    return () => { if (scope.current === committedScope) scope.current = null; };
+  }, [committedScope]);
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
   const [showEditModal, setShowEditModal] = useState(false);
 
   // Get collection details
-  const { data: collections } = useCollections();
+  const collectionsQuery = useCollections(!!id);
+  const { data: collections } = collectionsQuery;
   const collection = collections?.find(c => c.id === id);
 
   // Get recipes in collection
   const {
     data: recipes,
     isLoading,
+    isError,
     refetch,
     isRefetching
-  } = useCollectionRecipes(id || '');
+  } = useCollectionRecipes(id, !!collection);
+  const { isPullRefreshing, onPullRefresh } = usePullToRefresh(
+    () => Promise.all([collectionsQuery.refetch(), refetch()]),
+  );
 
   const removeFromCollection = useRemoveFromCollection();
 
@@ -138,12 +153,23 @@ export default function CollectionDetailScreen() {
           text: 'Remove',
           style: 'destructive',
           onPress: () => {
-            removeFromCollection.mutate({ collectionId: id!, recipeId });
+            if (scope.current !== committedScope) return;
+            removeFromCollection.mutate({ collectionId: id, recipeId }, {
+              onError: () => {
+                if (scope.current === committedScope) {
+                  Alert.alert('Couldn’t remove recipe', 'Refresh this collection and try again. Your recipe remains in your library.');
+                }
+              },
+            });
           },
         },
       ]
     );
-  }, [id, removeFromCollection]);
+  }, [id, userId, removeFromCollection, committedScope]);
+
+  const leaveCollection = () => {
+    router.replace('/(tabs)/history');
+  };
 
   const renderItem = ({ item, index }: { item: CollectionRecipe; index: number }) => (
     <AnimatedListItem index={index} delay={40}>
@@ -179,7 +205,19 @@ export default function CollectionDetailScreen() {
       <View style={styles.container}>
         <Stack.Screen options={{ headerTitle: 'Collection' }} />
         <RNView style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.tint} />
+          {id && collectionsQuery.isLoading ? <ActivityIndicator size="large" color={colors.tint} /> : (
+            <>
+              <Text style={[styles.emptyTitle, { color: colors.text }]} accessibilityRole="alert">
+                {id && collectionsQuery.isError ? 'Couldn’t load this collection' : 'Collection unavailable'}
+              </Text>
+              <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+                {id && collectionsQuery.isError ? 'Check your connection and try again.' : 'It may have been deleted or belong to another account.'}
+              </Text>
+              {id && collectionsQuery.isError && <Button title={collectionsQuery.isFetching ? 'Trying again…' : 'Try again'}
+                disabled={collectionsQuery.isFetching} onPress={() => { void collectionsQuery.refetch(); }} />}
+              <Button title="Back to library" onPress={leaveCollection} variant="outline" />
+            </>
+          )}
         </RNView>
       </View>
     );
@@ -206,27 +244,38 @@ export default function CollectionDetailScreen() {
         visible={showEditModal}
         onClose={() => setShowEditModal(false)}
         editingCollection={collection}
-        onDeleted={() => router.back()}
+        onDeleted={leaveCollection}
       />
 
       {/* Recipe count header */}
       <RNView style={styles.header}>
         <Text style={[styles.countText, { color: colors.textSecondary }]}>
-          {recipes?.length || 0} recipe{(recipes?.length || 0) !== 1 ? 's' : ''}
+          {recipes !== undefined ? `${recipes.length} recipe${recipes.length !== 1 ? 's' : ''}` : 'Recipes'}
         </Text>
+        {(collectionsQuery.isError || isError) && (
+          <RNView accessibilityRole="alert">
+            <Text style={{ color: colors.textSecondary }}>
+              {isError && !recipes ? 'Couldn’t load these recipes.' : 'Couldn’t refresh this collection. Your last loaded data is still shown.'}
+            </Text>
+            <Button title={isRefetching || collectionsQuery.isFetching ? 'Trying again…' : 'Try again'}
+              disabled={isRefetching || collectionsQuery.isFetching}
+              onPress={() => { void collectionsQuery.refetch(); void refetch(); }} />
+          </RNView>
+        )}
+        {isLoading && !recipes && <ActivityIndicator size="large" color={colors.tint} />}
       </RNView>
 
       <FlatList
         data={recipes}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
-        ListEmptyComponent={!isLoading ? ListEmpty : null}
+        ListEmptyComponent={!isLoading && !isError ? ListEmpty : null}
         contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.xl }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
+            refreshing={isPullRefreshing}
+            onRefresh={onPullRefresh}
             tintColor={colors.tint}
           />
         }

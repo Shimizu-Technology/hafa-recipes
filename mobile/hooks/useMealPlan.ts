@@ -23,10 +23,11 @@ export const mealPlanKeys = {
 /**
  * Get the meal plan for a specific week.
  */
-export function useMealPlanWeek(weekOf?: string) {
+export function useMealPlanWeek(weekOf?: string, enabled = true) {
   return useQuery({
     queryKey: mealPlanKeys.week(weekOf),
     queryFn: () => api.getMealPlanWeek(weekOf),
+    enabled,
     staleTime: 30_000, // 30 seconds
   });
 }

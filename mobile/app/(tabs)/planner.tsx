@@ -356,7 +356,9 @@ export default function PlannerScreen() {
 
   // Fetch week data
   const weekOfStr = formatDateForApi(currentWeekStart);
-  const { data: weekPlan, isLoading, refetch } = useMealPlanWeek(weekOfStr);
+  const { data: weekPlan, isLoading, isError, isFetching, refetch } = useMealPlanWeek(
+    weekOfStr, isLoaded && isSignedIn === true,
+  );
   const { isPullRefreshing, onPullRefresh } = usePullToRefresh(refetch);
 
   // Mutations
@@ -711,14 +713,26 @@ export default function PlannerScreen() {
           />
         )}
 
-        {isLoading ? (
+        {isError && (
+          <RNView style={styles.loadingContainer} accessibilityRole="alert">
+            <Text style={[styles.loadingText, { color: colors.text }]}>
+              {weekPlan ? 'Couldn’t refresh your meal plan' : 'Couldn’t load your meal plan'}
+            </Text>
+            <Text style={[styles.loadingText, { color: colors.textMuted }]}>
+              {weekPlan ? 'Your last loaded meals are still shown below.' : 'Check your connection and try again.'}
+            </Text>
+            <Button title={isFetching ? 'Trying again…' : 'Try again'}
+              disabled={isFetching} onPress={() => { void refetch(); }} />
+          </RNView>
+        )}
+        {(isLoading || !isLoaded) && !weekPlan ? (
           <RNView style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={colors.tint} />
             <Text style={[styles.loadingText, { color: colors.textMuted }]}>
               Loading meal plan...
             </Text>
           </RNView>
-        ) : (
+        ) : !weekPlan && isError ? null : (
           <>
             {/* Meal Slots */}
             {MEAL_TYPES.map((mealType) => (
