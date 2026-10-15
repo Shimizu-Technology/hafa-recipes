@@ -30,6 +30,7 @@ from app.domains.workouts.coach_control import (
     message_quota_count,
     respond_while_current,
 )
+from app.domains.workouts.coach_stream import completed_response
 from app.domains.workouts.imports import require_ai_consent
 from app.domains.workouts.lifecycle import membership_for, now
 from app.domains.workouts.models import (
@@ -171,7 +172,8 @@ class ProductionCoachProvider:
         configured = getattr(settings, "workouts_development_ai_api_key", None)
         return self.development_api_key or (configured.get_secret_value() if configured else None)
 
-    async def respond(self, items, *, tools):
+    async def respond(self, items, *, tools, on_text_delta=None):
+        """Optionally await provisional text deltas; return the usual final payload."""
         if not self.enabled:
             raise CoachFailure("provider_disabled")
         if len(json.dumps(items).encode()) > 160000:
@@ -202,23 +204,31 @@ class ProductionCoachProvider:
                     async with httpx.AsyncClient(
                         timeout=45, transport=httpx.AsyncHTTPTransport(retries=0)
                     ) as client:
-                        response = await client.post(
-                            "https://api.openai.com/v1/responses",
-                            headers={"Authorization": f"Bearer {self.key(settings)}"},
-                            json={
-                                "model": invocation.model,
-                                "input": items,
-                                "tools": tools,
-                                "tool_choice": "auto" if tools else "none",
-                                "parallel_tool_calls": False,
-                                "max_output_tokens": 1800,
-                                "store": False,
-                                "service_tier": "default",
-                            },
-                        )
-                    if response.status_code != 200 or len(response.content) > 256000:
-                        raise CoachFailure("provider_unavailable")
-                    data = response.json()
+                        body = {
+                            "model": invocation.model,
+                            "input": items,
+                            "tools": tools,
+                            "tool_choice": "auto" if tools else "none",
+                            "parallel_tool_calls": False,
+                            "max_output_tokens": 1800,
+                            "store": False,
+                            "service_tier": "default",
+                        }
+                        url = "https://api.openai.com/v1/responses"
+                        headers = {"Authorization": f"Bearer {self.key(settings)}"}
+                        if on_text_delta is None:
+                            response = await client.post(url, headers=headers, json=body)
+                            if response.status_code != 200 or len(response.content) > 256000:
+                                raise CoachFailure("provider_unavailable")
+                            data = response.json()
+                        else:
+                            body["stream"] = True
+                            headers["Accept"] = "text/event-stream"
+                            async with asyncio.timeout(45):
+                                async with client.stream("POST", url, headers=headers, json=body) as response:
+                                    if response.status_code != 200:
+                                        raise CoachFailure("provider_unavailable")
+                                    data = await completed_response(response, on_text_delta)
                     if data.get("status") != "completed":
                         raise CoachFailure("provider_incomplete")
                     response_parts(data, allow_tools=bool(tools))
