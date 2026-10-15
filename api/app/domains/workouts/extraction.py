@@ -1190,12 +1190,11 @@ def _reuse_rep_name_quotes(item, source: SourceBundle):
             continue
         for entry in list(item.evidence):
             if (entry.field != "name" or not re.fullmatch(row, entry.wording, re.I)
-                    or not any(part.location == entry.location and entry.wording in part.text
-                               for part in source.parts)
                     or not _numeric_supported(field_name, value, entry.wording, item.name)
-                    or not any(re.fullmatch(row, clause, re.I)
-                               and _numeric_supported(field_name, value, clause, item.name)
-                               for clause in _prescription_wording(item, entry, source))):
+                    or not any(part.location == entry.location and any(
+                        entry.wording in line and re.fullmatch(row, line, re.I)
+                        and _numeric_supported(field_name, value, line, item.name)
+                        for line in part.text.splitlines()) for part in source.parts)):
                 continue
             if not any(existing.field == field_name and existing.wording == entry.wording
                        and existing.location == entry.location for existing in item.evidence):
