@@ -44,6 +44,16 @@ for (const [name, vulnerability] of Object.entries(report.vulnerabilities)) {
       || severities.indexOf(advisory.severity) > severities.indexOf(vulnerability.severity)) invalidReport();
   }
 }
+// Transitive findings must lead to an advisory we can actually evaluate.
+// A visited cycle is inconclusive, but another branch may still reach an anchor.
+function hasDirectAdvisory(name, seen = new Set()) {
+  if (seen.has(name)) return false;
+  seen.add(name);
+  return report.vulnerabilities[name].via.some((via) =>
+    typeof via === 'object' || hasDirectAdvisory(via, seen));
+}
+if (Object.keys(report.vulnerabilities).some((name) => !hasDirectAdvisory(name))) invalidReport();
+
 if (severities.some((key) => counts[key] !== actual[key])
   || severities.reduce((sum, key) => sum + counts[key], 0) !== counts.total
   || audit.status === 1 && counts.total === 0) invalidReport();

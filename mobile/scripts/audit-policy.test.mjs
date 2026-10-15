@@ -235,6 +235,19 @@ describe('npm audit report validation', () => {
   ])('rejects malformed vulnerability entry %#', async (finding) => {
     expect((await runAudit(result(report({ uuid: finding })))).status).toBe(1);
   });
+  it.each([
+    { rogue: { severity: 'high', via: ['rogue'] } },
+    { first: { severity: 'high', via: ['second'] }, second: { severity: 'high', via: ['first'] } },
+  ])('rejects unanchored vulnerability cycles %#', async (findings) => {
+    expect((await runAudit(result(report(findings), 1))).status).toBe(1);
+  });
+  it('accepts cycles anchored in a reviewed direct advisory', async () => {
+    const findings = {
+      first: { severity: 'high', via: ['second'] },
+      second: { severity: 'high', via: ['first', ...reviewedFinding.via] },
+    };
+    expect(await runAudit(result(report(findings), 1))).toMatchObject({ status: 0, output: expect.stringContaining('2 inherited') });
+  });
   it('retains denial of critical and unreviewed advisories', async () => {
     const critical = { severity: 'critical', via: [{ source: 1119441, severity: 'critical', title: 'Critical UUID' }] };
     expect((await runAudit(result(report({ uuid: critical }, 'critical')))).status).toBe(1);
