@@ -17,6 +17,7 @@ export function WorkoutEditor({
 }) {
   const [expandedBlocks, setExpandedBlocks] = useState<string[]>([]);
   const [expandedExercises, setExpandedExercises] = useState<string[]>([]);
+  const [removingBlock, setRemovingBlock] = useState<string | null>(null);
   function update(next: AuthoredWorkout) { if (!disabled) onChange(next); }
   function toggle(key: string, selected: string[], set: (keys: string[]) => void) {
     if (!disabled) set(selected.includes(key) ? selected.filter((item) => item !== key) : [...selected, key]);
@@ -245,25 +246,37 @@ export function WorkoutEditor({
             </Card>
           ); })}
           <Button
-            disabled={disabled}
+            disabled={disabled || block.exercises.length >= 100}
             title="Add exercise to this block"
             secondary
-            onPress={() =>
+            onPress={() => {
+              if (block.exercises.length >= 100) return;
               update({
                 ...value,
                 blocks: value.blocks.map((b, i) =>
                   i === bi ? { ...b, exercises: [...b.exercises, { name: "", provenance: "user" }] } : b
                 )
-              })
-            }
+              });
+            }}
           />
+          {removingBlock === block.id ? <Card tone="sunken" compact>
+            <Copy>Remove this block and all its exercises from this draft?</Copy>
+            <Button title="Keep this block" secondary disabled={disabled} onPress={() => { if (!disabled) setRemovingBlock(null); }} />
+            <Button title="Remove this block" variant="destructive" disabled={disabled} onPress={() => {
+              if (disabled) return;
+              update({ ...value, blocks: value.blocks.filter((_, index) => index !== bi) });
+              setRemovingBlock(null);
+            }} />
+          </Card> : <Button title={`Remove block: ${block.label || "Workout block"}`} secondary disabled={disabled}
+            onPress={() => { if (!disabled) setRemovingBlock(block.id); }} />}
         </Card>
       ); })}
       <Button
-        disabled={disabled}
+        disabled={disabled || value.blocks.length >= 100}
         title={value.blocks.length ? "Add another block" : "Add exercises"}
         secondary
-        onPress={() =>
+        onPress={() => {
+          if (value.blocks.length >= 100) return;
           update({
             ...value,
             blocks: [
@@ -275,8 +288,8 @@ export function WorkoutEditor({
                 exercises: [{ name: "", provenance: "user" }]
               }
             ]
-          })
-        }
+          });
+        }}
       />
     </View>
   );

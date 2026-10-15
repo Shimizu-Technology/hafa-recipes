@@ -6,6 +6,7 @@ import { initialProfile, type AuthoredWorkout, type Workout } from "./models";
 import { ApiError } from "./api";
 import { draftKey } from "./drafts";
 import { createPrivateForm } from "./private-form";
+import { workoutErrors } from "./library";
 import { submittedCaptureScope } from "./capture";
 import type { Measurement } from "./measurements";
 const fixture = vi.hoisted(() => ({
@@ -1758,6 +1759,42 @@ async function mountRealWorkoutEditor(content: AuthoredWorkout, disabled = false
   }
   await mount(Controlled);
 }
+it("repairs a restored oversized block list without discarding the remaining prescription", async () => {
+  const content: AuthoredWorkout = { ...workout, blocks: Array.from({ length: 101 }, (_, index) => ({
+    ...workout.blocks[0], id: `block-${index}`, label: `Block ${index}`,
+  })) };
+  await mountRealWorkoutEditor(content);
+  expect(button("Add another block").props.disabled).toBe(true);
+  await click("Add another block");
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+  await click("Remove block: Block 0");
+  await click("Keep this block");
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+  await click("Remove block: Block 0");
+  await click("Remove this block");
+  const repaired = fixture.updateWorkout.mock.lastCall![0] as AuthoredWorkout;
+  expect(repaired).toEqual({ ...content, blocks: content.blocks.slice(1) });
+  expect(workoutErrors(repaired)).toEqual([]);
+  expect(button("Add another block").props.disabled).toBe(true);
+  await click("Add another block");
+  expect(fixture.updateWorkout).toHaveBeenCalledTimes(1);
+  await click("Remove block: Block 1");
+  await click("Remove this block");
+  expect(button("Add another block").props.disabled).toBe(false);
+  await click("Add another block");
+  expect(fixture.updateWorkout.mock.lastCall![0].blocks).toHaveLength(100);
+});
+it("caps additions in a full exercise list while retaining exercise removal", async () => {
+  await mountRealWorkoutEditor({ ...workout, blocks: [{ ...workout.blocks[0], exercises: Array.from({ length: 100 }, (_, index) => ({
+    name: `Movement ${index}`, provenance: "user" as const,
+  })) }] });
+  expect(button("Add exercise to this block").props.disabled).toBe(true);
+  await click("Add exercise to this block");
+  expect(fixture.updateWorkout).not.toHaveBeenCalled();
+  await click("Remove Movement 0");
+  expect(fixture.updateWorkout.mock.lastCall![0].blocks[0].exercises).toHaveLength(99);
+  expect(button("Add exercise to this block").props.disabled).toBe(false);
+});
 it("keeps unknowns and less common prescription values intact through simple editing and expansion", async () => {
   const content: AuthoredWorkout = { ...workout, provenance: "source", blocks: [{
     id: "main", label: "Strength", grouping: "circuit", rounds: 3, rest_between_rounds_seconds: 60,
