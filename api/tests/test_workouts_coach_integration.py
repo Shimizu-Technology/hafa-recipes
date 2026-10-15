@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, select
 
 from app.domains.workouts import (
@@ -1538,7 +1539,7 @@ async def test_coach_stream_completion_wins_before_late_stop_and_retains_review(
     final = [json.loads(event) async for event in events][-1]["receipt"]
     async with api.sessions() as db:
         stopped = await api.coach.cancel(db, "owner", 1, request.request_id)
-    assert stopped == final and final["state"] == "completed" and not final.get("cancelled")
+    assert jsonable_encoder(stopped) == final and final["state"] == "completed" and not final.get("cancelled")
 
 
 async def test_coach_stream_disconnect_is_bounded_while_another_transaction_holds_owner_lock(coach_api, monkeypatch):
