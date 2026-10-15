@@ -50,6 +50,7 @@ const fixture = vi.hoisted(() => ({
   workout: vi.fn(),
   measurement: vi.fn(),
   writeFailure: false,
+  readFailure: false,
   removeFailureScope: "",
   foreground: new Set<(state: string) => void>(),
   os: "android", nativeSharing: false, nativeCaptures: vi.fn(), nativeAck: vi.fn()
@@ -61,7 +62,10 @@ vi.mock("@/lib/context", () => {
       if (fixture.removeFailureScope && key === draftKey(fixture.owner, fixture.removeFailureScope)) throw Error("device cleanup failed");
       fixture.map.delete(key);
     },
-    getItem: async (key: string) => fixture.map.get(key) ?? null,
+    getItem: async (key: string) => {
+      if (fixture.readFailure) throw Error("device read failed");
+      return fixture.map.get(key) ?? null;
+    },
     setItem: async (key: string, value: string) => {
       if (fixture.writeFailure) throw Error("device write failed");
       await fixture.persist(key, value);
@@ -277,6 +281,7 @@ beforeEach(() => {
   fixture.revision = 1;
   fixture.generation = 1;
   fixture.writeFailure = false;
+  fixture.readFailure = false;
   fixture.removeFailureScope = "";
   fixture.current = true;
   fixture.next = 0;
@@ -993,6 +998,25 @@ it("restores legacy manual input and retries its frozen pre-upgrade command unch
   const command = { key: "frozen-key", generation: 1, workout: { ...workout, title: "Original frozen body" } };
   fixture.map.set(key, JSON.stringify({ version: 1, input: legacy, command, terminal: false, removed: false }));
   await mount(AddWorkout);
+  expect(nodes("WorkoutEditor")[0].props.disabled).toBe(true);
+  fixture.saveWorkout.mockRejectedValueOnce(Error("offline"));
+  await click("Retry saving workout");
+  expect(fixture.saveWorkout).toHaveBeenCalledWith(command.workout, command.key, command.generation);
+});
+
+it("keeps creation locked after a failed draft read and restores the original pending save on retry", async () => {
+  const key = draftKey(fixture.owner, "manual-workout:1");
+  const command = { key: "pending-before-read-failure", generation: 1, workout: { ...workout, title: "Keep original save" } };
+  const stored = JSON.stringify({ version: 1, input: { workout: command.workout }, command, terminal: false, removed: false });
+  fixture.map.set(key, stored);
+  fixture.readFailure = true;
+  await mount(AddWorkout);
+  expect(nodes("WorkoutEditor")).toHaveLength(0);
+  expect(button("Save to my library").props.disabled).toBe(true);
+  expect(fixture.map.get(key)).toBe(stored);
+  expect(fixture.saveWorkout).not.toHaveBeenCalled();
+  fixture.readFailure = false;
+  await click("Retry loading draft");
   expect(nodes("WorkoutEditor")[0].props.disabled).toBe(true);
   fixture.saveWorkout.mockRejectedValueOnce(Error("offline"));
   await click("Retry saving workout");

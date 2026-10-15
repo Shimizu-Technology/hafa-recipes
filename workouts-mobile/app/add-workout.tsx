@@ -1,5 +1,5 @@
 import * as Crypto from "expo-crypto";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { router } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Copy, Field, Notice, Screen } from "@/components/ui";
@@ -28,12 +28,12 @@ export default function AddWorkout() {
   const [command, setCommand] = useState<Command | null>(null);
   const [resolved, setResolved] = useState(false);
   const sealed = useRef(false);
-  sealed.current = !!command || resolved;
+  useLayoutEffect(() => { sealed.current = !!command || resolved; }, [command, resolved]);
   const [abandon, setAbandon] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
   const identity = `${owner}:${draftScope}`;
   const live = useRef(identity);
-  live.current = identity;
+  useLayoutEffect(() => { live.current = identity; }, [identity]);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -47,12 +47,15 @@ export default function AddWorkout() {
   }
   const [draft, setDraft] = useState<ManualDraft>(blankManualDraft);
   const [loaded, setLoaded] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [busyAction, setBusyAction] = useState<"save" | "reset">("save");
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
     setLoaded(false);
+    setLoadFailed(false);
     setDraft(blankManualDraft());
     setCommand(null);
     setResolved(false);
@@ -80,16 +83,16 @@ export default function AddWorkout() {
       })
       .catch(() => {
         if (active) {
-          setLoaded(true);
-          setError("Could not restore your draft. You can enter the workout again.");
+          setLoadFailed(true);
+          setError("Could not restore your saved draft. Retry before changing it so any pending save is kept.");
         }
       });
     return () => {
       active = false;
     };
-  }, [form]);
+  }, [form, loadAttempt]);
   function update(value: ManualDraft) {
-    if (guard.current || sealed.current) return;
+    if (!loaded || guard.current || sealed.current) return;
     try {
       current();
     } catch {
@@ -150,7 +153,9 @@ export default function AddWorkout() {
         Your draft is private and saved on this device. Sets and reps can stay blank when you do not know them.
       </Notice>
       {!loaded ? (
-        <Copy>Loading your draft…</Copy>
+        loadFailed
+          ? <Button title="Retry loading draft" secondary onPress={() => setLoadAttempt(value => value + 1)} />
+          : <Copy>Loading your draft…</Copy>
       ) : resolved ? (
         <Notice>Your workout was saved. Open it or start another draft.</Notice>
       ) : "workout" in draft ? (
