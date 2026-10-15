@@ -3,7 +3,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useMemo, useRef } from 'react';
 import { useAuth } from '@clerk/expo';
 import { api, type RequestGuard } from '../lib/api';
 import { Collection, CollectionRecipe } from '../types/recipe';
@@ -20,12 +20,13 @@ export const collectionKeys = {
 function useCollectionAccount() {
   const { userId, isLoaded } = useAuth();
   const owner = isLoaded ? userId ?? null : null;
-  const identity = useRef({ owner });
-  const mounted = useRef(true);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  if (identity.current.owner !== owner) identity.current = { owner };
-  const captured = identity.current;
-  const current = () => mounted.current && !!owner && identity.current === captured;
+  const captured = useMemo(() => ({ owner }), [owner]);
+  const identity = useRef<typeof captured | null>(null);
+  useLayoutEffect(() => {
+    identity.current = captured;
+    return () => { if (identity.current === captured) identity.current = null; };
+  }, [captured]);
+  const current = () => !!owner && identity.current === captured;
   const guard = () => { if (!current()) throw new Error('Account changed; reopen this collection.'); };
   return { owner, current, guard };
 }

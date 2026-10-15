@@ -2,7 +2,7 @@
  * Collection detail screen - shows all recipes in a collection.
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useLayoutEffect, useMemo } from 'react';
 import { useAuth } from '@clerk/expo';
 import {
   StyleSheet,
@@ -113,8 +113,12 @@ export default function CollectionDetailScreen() {
   const { id: idParam } = useLocalSearchParams<{ id: string | string[] }>();
   const id = typeof idParam === 'string' && idParam.trim() ? idParam : '';
   const { userId } = useAuth();
-  const scope = useRef({ userId, id });
-  scope.current = { userId, id };
+  const committedScope = useMemo(() => ({ userId, id }), [userId, id]);
+  const scope = useRef<typeof committedScope | null>(null);
+  useLayoutEffect(() => {
+    scope.current = committedScope;
+    return () => { if (scope.current === committedScope) scope.current = null; };
+  }, [committedScope]);
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
@@ -149,10 +153,10 @@ export default function CollectionDetailScreen() {
           text: 'Remove',
           style: 'destructive',
           onPress: () => {
-            if (scope.current.userId !== userId || scope.current.id !== id) return;
+            if (scope.current !== committedScope) return;
             removeFromCollection.mutate({ collectionId: id, recipeId }, {
               onError: () => {
-                if (scope.current.userId === userId && scope.current.id === id) {
+                if (scope.current === committedScope) {
                   Alert.alert('Couldn’t remove recipe', 'Refresh this collection and try again. Your recipe remains in your library.');
                 }
               },
@@ -161,7 +165,7 @@ export default function CollectionDetailScreen() {
         },
       ]
     );
-  }, [id, userId, removeFromCollection]);
+  }, [id, userId, removeFromCollection, committedScope]);
 
   const leaveCollection = () => {
     router.replace('/(tabs)/history');

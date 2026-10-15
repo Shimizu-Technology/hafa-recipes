@@ -251,6 +251,29 @@ describe('collection recovery', () => {
       expect(close).toHaveBeenCalledOnce();
     } finally { await act(async () => screen.unmount()); }
   });
+  it('does not let an old modal save unlock or close a new account save', async () => {
+    const close = vi.fn();
+    let first!: (value: typeof collection) => void, second!: (value: typeof collection) => void;
+    createCollection.mockImplementationOnce(() => new Promise(resolve => { first = resolve; }))
+      .mockImplementationOnce(() => new Promise(resolve => { second = resolve; }));
+    const element = () => <CreateCollectionModal visible onClose={close} />;
+    const screen = await mount(element());
+    const typeName = async () => { await act(async () => screen.container.queryAll(node => node.props.placeholder === 'e.g., Weeknight Dinners')[0].props.onChangeText('Dinners')); };
+    try {
+      await typeName();
+      let old!: Promise<unknown>, current!: Promise<unknown>;
+      await act(async () => { old = action(screen, 'Create').props.onPress(); });
+      account.userId = 'owner-b'; await act(async () => screen.render(element()));
+      await typeName(); await act(async () => { current = action(screen, 'Create').props.onPress(); });
+      expect(createCollection).toHaveBeenCalledTimes(2);
+      await act(async () => { first(collection); await old; });
+      expect(close).not.toHaveBeenCalled();
+      await act(async () => action(screen, 'Create').props.onPress());
+      expect(createCollection).toHaveBeenCalledTimes(2);
+      await act(async () => { second(collection); await current; });
+      expect(close).toHaveBeenCalledOnce();
+    } finally { await act(async () => screen.unmount()); }
+  });
   it('explains a failed delete and suppresses late navigation after an account change', async () => {
     const close = vi.fn(), deleted = vi.fn();
     deleteCollection.mockRejectedValueOnce(new Error('offline'));

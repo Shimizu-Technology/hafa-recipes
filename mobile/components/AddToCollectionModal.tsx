@@ -3,7 +3,7 @@
  * Uses a smart single-button approach for cleaner UX.
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useAuth } from '@clerk/expo';
 import {
   Modal,
@@ -55,13 +55,18 @@ export default function AddToCollectionModal({
   const [error, setError] = useState<string | null>(null);
   const [createdCollectionId, setCreatedCollectionId] = useState<string | null>(null);
   const { userId } = useAuth();
-  const scope = useRef({ userId, visible, recipeId });
-  if (scope.current.userId !== userId || scope.current.visible !== visible || scope.current.recipeId !== recipeId) {
-    scope.current = { userId, visible, recipeId };
-  }
-  const alive = useRef(true);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const committedScope = useMemo(() => ({ userId, visible, recipeId }), [userId, visible, recipeId]);
+  const scope = useRef<typeof committedScope | null>(null);
+  const alive = useRef(false);
   const working = useRef(false);
+  useLayoutEffect(() => {
+    scope.current = committedScope;
+    alive.current = true;
+    working.current = false;
+    return () => {
+      if (scope.current === committedScope) { scope.current = null; alive.current = false; }
+    };
+  }, [committedScope]);
 
   // Fetch data
   const collectionsQuery = useCollections(visible);
@@ -132,7 +137,7 @@ export default function AddToCollectionModal({
         setError('Couldn’t update this collection. Check your connection and try again.');
       }
     } finally {
-      working.current = false;
+      if (scope.current === captured) working.current = false;
     }
   };
 
@@ -180,7 +185,7 @@ export default function AddToCollectionModal({
         ? 'Collection created. Couldn’t confirm the recipe was added. Retry adding it.'
         : 'Couldn’t create this collection. Check your connection and refresh your collections before trying again.');
     } finally {
-      working.current = false;
+      if (scope.current === captured) working.current = false;
     }
   };
 

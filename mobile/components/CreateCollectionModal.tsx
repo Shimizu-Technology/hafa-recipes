@@ -2,7 +2,7 @@
  * Modal for creating or editing a collection.
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useAuth } from '@clerk/expo';
 import {
   Modal,
@@ -39,13 +39,18 @@ export default function CreateCollectionModal({
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const { userId } = useAuth();
-  const scope = useRef({ userId, visible, id: editingCollection?.id });
-  if (scope.current.userId !== userId || scope.current.visible !== visible || scope.current.id !== editingCollection?.id) {
-    scope.current = { userId, visible, id: editingCollection?.id };
-  }
-  const alive = useRef(true);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const committedScope = useMemo(() => ({ userId, visible, id: editingCollection?.id }), [userId, visible, editingCollection?.id]);
+  const scope = useRef<typeof committedScope | null>(null);
+  const alive = useRef(false);
   const working = useRef(false);
+  useLayoutEffect(() => {
+    scope.current = committedScope;
+    alive.current = true;
+    working.current = false;
+    return () => {
+      if (scope.current === committedScope) { scope.current = null; alive.current = false; }
+    };
+  }, [committedScope]);
 
   const createMutation = useCreateCollection();
   const updateMutation = useUpdateCollection();
@@ -85,7 +90,7 @@ export default function CreateCollectionModal({
     } catch {
       if (alive.current && scope.current === captured) setError('Couldn’t save this collection. Check your connection and try again.');
     } finally {
-      working.current = false;
+      if (scope.current === captured) working.current = false;
     }
   };
 
@@ -115,7 +120,7 @@ export default function CreateCollectionModal({
             } catch {
               if (alive.current && scope.current === captured) setError('Couldn’t delete this collection. Check your connection and try again. Your recipes won’t be deleted.');
             } finally {
-              working.current = false;
+              if (scope.current === captured) working.current = false;
             }
           },
         },
