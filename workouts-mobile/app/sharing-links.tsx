@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Share } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Card, Copy, Empty, Notice, Screen } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
 import type { OwnerShare } from "@/lib/sharing";
-import { sharingURL } from "@/lib/sharing";
+import { sharingURL, shareAvailable } from "@/lib/sharing";
 export default function SharingLinks() {
   const { api, owner, enrollment } = useTraining();
   const q = useQuery({
@@ -15,6 +15,13 @@ export default function SharingLinks() {
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [clock, setClock] = useState(Date.now);
+  useEffect(() => {
+    const future = (q.data ?? []).filter(share => shareAvailable(share)).map(share => Date.parse(share.expires_at));
+    if (!future.length) return;
+    const timer = setTimeout(() => setClock(Date.now()), Math.min(2147483647, Math.max(1, Math.min(...future) - Date.now() + 1)));
+    return () => clearTimeout(timer);
+  }, [q.data, clock]);
   async function revoke(share: OwnerShare) {
     setBusy(true);
     try {
@@ -53,16 +60,17 @@ export default function SharingLinks() {
                 {share.kind} ·{" "}
                 {share.revoked_at
                   ? "Revoked"
-                  : new Date(share.expires_at).getTime() < Date.now()
+                  : !shareAvailable(share, Math.max(clock, Date.now()))
                     ? "Expired"
                     : `Expires ${new Date(share.expires_at).toLocaleDateString()}`}
               </Copy>
-              {!share.revoked_at && (
+              {shareAvailable(share, Math.max(clock, Date.now())) && (
                 <>
                   <Button
                     title="Share this link"
                     secondary
                     onPress={() => {
+                      if (!shareAvailable(share)) { setClock(Date.now()); setError("This link expired. Open the workout or plan to create a new sharing link."); return; }
                       void Share.share({ message: url(share) }).catch(() => setError("Could not open sharing."));
                     }}
                   />

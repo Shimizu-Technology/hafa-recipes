@@ -28,6 +28,10 @@ export interface OwnerShare extends ShareSnapshot {
   app_path: string;
   website_path: string;
 }
+export function shareAvailable(share: Pick<OwnerShare, "expires_at" | "revoked_at">, now = Date.now()) {
+  const expires = Date.parse(share.expires_at);
+  return !share.revoked_at && Number.isFinite(expires) && expires > now;
+}
 export function sharingURL(share: Pick<OwnerShare, "app_path">, website?: string) {
   const match = /^hafaworkouts:\/\/shared\/([A-Za-z0-9_-]{43})$/.exec(share.app_path);
   if (!match) throw Error("This sharing link is invalid. Reload your saved links.");

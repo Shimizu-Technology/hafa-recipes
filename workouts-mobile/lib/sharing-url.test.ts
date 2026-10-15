@@ -1,8 +1,16 @@
 import { expect, it } from "vitest";
-import { sharingURL } from "./sharing";
+import { sharingURL, shareAvailable } from "./sharing";
 import { incomingNativePath } from "./native-intent";
 const token = "a".repeat(43);
 const share = { app_path: `hafaworkouts://shared/${token}` };
+it("only shares unrevoked links strictly before their real expiry", () => {
+  const now = Date.parse("2026-10-15T00:00:00Z");
+  const link = { expires_at: new Date(now + 1).toISOString(), revoked_at: null };
+  expect(shareAvailable(link, now)).toBe(true);
+  expect(shareAvailable(link, now + 1)).toBe(false);
+  expect(shareAvailable({ ...link, revoked_at: "2026-10-14T00:00:00Z" }, now)).toBe(false);
+  expect(shareAvailable({ ...link, expires_at: "invalid" }, now)).toBe(false);
+});
 it("opens the native fallback without duplicating its scheme", () => {
   const url = sharingURL(share);
   expect(url).toBe(share.app_path);
