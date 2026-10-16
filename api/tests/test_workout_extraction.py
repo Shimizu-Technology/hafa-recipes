@@ -741,7 +741,7 @@ async def test_streamed_slideshow_images_bound_bytes_and_normalize(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("primary", ["malformed", "empty", "missing_dose", "missing_some_dose", "missing_movement",
+@pytest.mark.parametrize("primary", ["name_quote_dose", "malformed", "empty", "missing_dose", "missing_some_dose", "missing_movement",
                                      "missing_inline_movement",
                                      "missing_dose_and_unsupported_movement",
                                      "partial_recovery_failed", "partial_recovery_denied",
@@ -794,7 +794,15 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
         payloads.append(json.loads(request.content))
         value = reel_workout()
         if len(payloads) == 1:
-            if primary == "malformed":
+            if primary == "name_quote_dose":
+                value["blocks"][0]["execution"] = {"mode": "amrap", "time_cap_seconds": 1200}
+                value["blocks"][0]["evidence"].extend([
+                    evidence("execution.mode", REEL_INSTRUCTIONS, "caption"),
+                    evidence("execution.time_cap_seconds", REEL_INSTRUCTIONS, "caption")])
+                for item in value["blocks"][0]["exercises"]:
+                    item["evidence"] = [evidence("name", f"10 x {item['name']}" +
+                        (" (5 each side)" if item['name'] in {"Gorilla Rows", "Strict Press"} else ""), "caption")]
+            elif primary == "malformed":
                 value = {"ingredients": []}
             elif primary == "empty":
                 value = {"title": "Empty extraction", "blocks": []}
@@ -842,6 +850,14 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
     ).extract(source)
     assert len(result["blocks"][0]["exercises"]) == (8 if partial else 9)
     assert source.paid_recovery_denied is denied
+    if primary == "name_quote_dose":
+        assert [attempt.model for attempt in attempts] == ["primary-test"]
+        assert [attempt.status for attempt in attempts] == ["success"]
+        assert len(payloads) == 1
+        grounded, warnings, _ = ground_workout(result, source)
+        assert warnings == []
+        assert [item.reps_min for item in grounded.blocks[0].exercises] == [10, 10, 10, 5, 5, 10, 10, 10, 10]
+        return
     assert [attempt.model for attempt in attempts] == ["primary-test", "fallback-test"]
     assert [attempt.status for attempt in attempts] == [
         "provider_invalid_response" if primary == "malformed" else "provider_insufficient_prescription",
@@ -1740,7 +1756,8 @@ async def test_separate_format_and_global_cap_quotes_keep_typed_execution(cap):
 
 
 @pytest.mark.asyncio
-async def test_actual_nine_movement_reel_headline_and_mode_are_read_together():
+@pytest.mark.parametrize("dose_evidence", ["complete", "name_quote", "invalid_duplicate"])
+async def test_actual_nine_movement_reel_headline_and_mode_are_read_together(dose_evidence):
     names = ["Kettlebell Swings", "Goblet Reverse Lunges", "Goblet Squats", "Gorilla Rows",
              "Strict Press", "Halos", "Leg Open & Closes", "Seated Twists", "Jumping Lunges"]
     headline = "ALL YOU NEED IS 20 MINUTES AND ONE KETTLEBELL"
@@ -1757,6 +1774,12 @@ async def test_actual_nine_movement_reel_headline_and_mode_are_read_together():
         "exercises": [{"name": name, "reps_min": 10, "reps_max": 10,
             "evidence": [evidence("name", name), evidence("reps_min", row), evidence("reps_max", row)]}
             for name, row in zip(names, rows)]}]}
+    if dose_evidence != "complete":
+        for item, row in zip(raw["blocks"][0]["exercises"], rows):
+            item["evidence"] = [evidence("name", row)]
+            if dose_evidence == "invalid_duplicate":
+                item["evidence"].extend([evidence("reps_min", row, "missing_part"),
+                                         evidence("reps_max", "fabricated dose")])
     result = await WorkoutExtractor(FakeProvider(raw)).extract(ExtractionRequest(
         kind="text", text=caption, ai_consent=True))
     assert result.workout.blocks[0].execution.time_cap_seconds == 1200
@@ -2235,3 +2258,82 @@ async def test_direct_capture_reports_its_real_reading_stage(kind, first_stage):
         stages.append(stage)
     await WorkoutExtractor(FakeProvider()).extract_with_progress(ExtractionRequest(kind=kind, ai_consent=True, **payload), progress)
     assert stages == [first_stage, "extracting_workout"]
+
+
+@pytest.mark.parametrize("quote,source_text,candidate", [
+    ("Squat", "10 x Squat", 10),  # Bare names do not contain a dose.
+    ("not 10 x Squat", "not 10 x Squat", 10),
+    ("10 x Squat", "10 x Squat", 8),
+    ("10 x Row; 20 x Squat", "10 x Row; 20 x Squat", 10),
+    ("10 x Squat", "20 x Squat", 10),  # Fabricated quote.
+    ("10 kg Squat", "10 kg Squat", 10),
+    ("10 Squat", "not 10 Squat", 10),  # A positive quote can omit its negation.
+    ("10 x Squat", "not 10 x Squat", 10),
+    ("10× Squat", "not 10× Squat", 10),
+    ("10 reps Squat", "10 reps Squat and 20 reps Row", 10),
+])
+def test_name_quote_reps_do_not_borrow_unrelated_or_unsupported_doses(quote, source_text, candidate):
+    raw = {"title": "Source", "blocks": [{"id": "main", "label": "Main", "exercises": [
+        {"name": "Squat", "reps_min": candidate, "reps_max": candidate,
+         "evidence": [evidence("name", quote)]}]}]}
+    workout, warnings, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", source_text)]))
+    item = workout.blocks[0].exercises[0]
+    assert item.reps_min is None and item.reps_max is None
+    assert len([warning for warning in warnings if "Unsupported reps_" in warning]) == 2
+
+
+def test_visual_name_observation_is_not_reused_as_reps_evidence():
+    raw = {"title": "Source", "blocks": [{"id": "main", "label": "Main", "exercises": [
+        {"name": "Squat", "reps_min": 10, "reps_max": 10,
+         "evidence": [evidence("name", "10 x Squat", "image:0")]}]}]}
+    source = SourceBundle(SourceMetadata(), images=[SourceImage("image:0", "data:image/png;base64,eA==")])
+    workout, _, _ = ground_workout(raw, source)
+    assert workout.blocks[0].exercises[0].reps_min is None
+
+
+@pytest.mark.parametrize("quote,minimum,maximum", [
+    ("not 10 Squat", 10, 10),
+    ("not 8–12 reps Squat", 8, 12),
+    ("10 reps Row and 20 reps Squat", 10, 10),
+    ("8–12 reps Row and 20 reps Squat", 8, 12),
+])
+def test_reused_name_dose_cannot_be_negated_or_belong_to_another_movement(quote, minimum, maximum):
+    raw = {"title": "Source", "blocks": [{"id": "main", "label": "Main", "exercises": [
+        {"name": "Squat", "reps_min": minimum, "reps_max": maximum,
+         "evidence": [evidence("name", quote)]}]}]}
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", quote)]))
+    item = workout.blocks[0].exercises[0]
+    assert item.reps_min is None and item.reps_max is None
+
+
+@pytest.mark.parametrize("quote", ["10 x Squat", "10× Squat", "10 reps Squat", "10 Squat"])
+def test_complete_single_movement_dose_name_quote_keeps_matching_reps(quote):
+    raw = {"title": "Source", "blocks": [{"id": "main", "label": "Main", "exercises": [
+        {"name": "Squat", "reps_min": 10, "reps_max": 10,
+         "evidence": [evidence("name", quote)]}]}]}
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", quote)]))
+    item = workout.blocks[0].exercises[0]
+    assert item.reps_min == item.reps_max == 10
+
+
+@pytest.mark.parametrize("candidate,expected,per_side", [(5, 5, True), (10, None, None)])
+def test_reused_name_quote_requires_the_stated_side_count(candidate, expected, per_side):
+    quote = "5 Squat (5 each side)"
+    raw = {"title": "Source", "blocks": [{"id": "main", "label": "Main", "exercises": [
+        {"name": "Squat", "reps_min": candidate, "reps_max": candidate,
+         "evidence": [evidence("name", quote)]}]}]}
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", quote)]))
+    item = workout.blocks[0].exercises[0]
+    assert item.reps_min == item.reps_max == expected
+    assert item.per_side is per_side
+
+
+def test_reused_name_quote_declines_excessive_whitespace_without_changing_the_source():
+    quote = "10 x Squat" + " " * 2000 + "?"
+    raw = {"title": "Source", "blocks": [{"id": "main", "label": "Main", "exercises": [
+        {"name": "Squat", "reps_min": 10, "reps_max": 10,
+         "evidence": [evidence("name", "10 x Squat")]}]}]}
+    source = SourceBundle(SourceMetadata(), [SourcePart("provided_text", quote)])
+    workout, _, _ = ground_workout(raw, source)
+    assert workout.blocks[0].exercises[0].reps_min is None
+    assert source.parts[0].text == quote

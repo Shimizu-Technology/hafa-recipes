@@ -1180,6 +1180,31 @@ def _prescription_wording(item, entry, source):
     return clauses or [entry.wording]
 
 
+def _reuse_rep_name_quotes(item, source: SourceBundle):
+    """Reuse only an unambiguous whole movement/dose row, never a nearby number."""
+    row = re.compile(
+        rf"\s{{0,8}}\d{{1,4}}\s{{0,8}}(?:[x×]\s{{0,8}}|(?:reps?|repetitions?)\s{{1,8}})?{re.escape(item.name)}"
+        r"(?:\s{0,8}\(\d{1,4}\s{1,8}(?:each|per)\s{1,8}(?:side|leg|arm|limb)\))?\s{0,8}[.!]?\s{0,8}",
+        re.I,
+    )
+    for field_name in ("reps_min", "reps_max"):
+        value = getattr(item, field_name)
+        if value is None or len(item.evidence) >= 100:
+            continue
+        for entry in list(item.evidence):
+            if (entry.field != "name" or not row.fullmatch(entry.wording)
+                    or not _numeric_supported(field_name, value, entry.wording, item.name)
+                    or not any(part.location == entry.location and any(
+                        entry.wording in line and row.fullmatch(line)
+                        and _numeric_supported(field_name, value, line, item.name)
+                        for line in part.text.splitlines()) for part in source.parts)):
+                continue
+            if not any(existing.field == field_name and existing.wording == entry.wording
+                       and existing.location == entry.location for existing in item.evidence):
+                item.evidence.append(entry.model_copy(update={"field": field_name}))
+            break
+
+
 def _normalize_side_counts(item, source: SourceBundle):
     """Keep a total-count caption from becoming twice that count per side."""
     candidates = []
@@ -1388,6 +1413,7 @@ def ground_workout(
             item.instructions = None
             item.exercise_id = None  # Movement matching is a distinct review step.
             item.evidence = [value for value in item.evidence if _quote_is_supported(value, source)]
+            _reuse_rep_name_quotes(item, source)
             side_warning = _normalize_side_counts(item, source)
             if side_warning:
                 warnings.append(side_warning)
