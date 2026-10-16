@@ -483,7 +483,7 @@ describe('frozen recipe write authentication', () => {
         await interceptor({ ...(config as object), url, headers: {} }); return transport();
       };
       mocks.client.patch.mockImplementationOnce(dispatch); mocks.post.mockImplementationOnce(dispatch);
-      const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'recipe-a' }) }); vi.stubGlobal('fetch', fetchMock);
       try {
         const request = operation === 'original-restore' ? api.restoreOriginalRecipe('recipe-a', () => {})
           : operation === 'version-restore' ? api.restoreRecipeVersion('recipe-a', 'version-a')
@@ -502,7 +502,8 @@ describe('frozen recipe write authentication', () => {
     mocks.platform = 'web';
     let finishImage!: (value: { ok: boolean; blob(): Promise<Blob> }) => void;
     const getToken = vi.fn(async () => 'replacement-token'); api.setAuthContext(getToken, 'owner-a');
-    const fetchMock = vi.fn().mockImplementationOnce(() => new Promise(resolve => { finishImage = resolve; }));
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'recipe-a' }) })
+      .mockImplementationOnce(() => new Promise(resolve => { finishImage = resolve; }));
     vi.stubGlobal('fetch', fetchMock);
     try {
       const request = api.editRecipe('recipe-a', { title: 'A', ingredients: [], steps: [] }, 'file:///recipe.jpg', () => {});
