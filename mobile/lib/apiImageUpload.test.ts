@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => {
     _config?: unknown,
   ): Promise<{ data: Record<string, unknown> }> => ({ data: { success: true } }));
   return {
-    readBytes: vi.fn(async () => new Uint8Array([1, 2, 3])),
+    platform: 'ios',
     client: {
       delete: vi.fn(),
       get: vi.fn(),
@@ -31,10 +31,10 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock('react-native', () => ({ Platform: { OS: 'ios' } }));
+vi.mock('react-native', () => ({ Platform: { get OS() { return mocks.platform; } } }));
 vi.mock('expo-file-system', () => ({ File: class {
   constructor(public uri: string) {}
-  async bytes() { return mocks.readBytes(); }
+  async bytes() { return new Uint8Array([1, 2, 3]); }
 } }));
 
 vi.mock('axios', () => ({
@@ -72,7 +72,7 @@ function uploadedFiles(formData: unknown, fieldName: string) {
 
 describe('recipe image multipart requests', () => {
   beforeEach(() => {
-    mocks.readBytes.mockReset(); mocks.readBytes.mockResolvedValue(new Uint8Array([1, 2, 3]));
+    mocks.platform = 'ios';
     mocks.post.mockClear();
     mocks.addBreadcrumb.mockClear();
     mocks.captureError.mockClear();
@@ -470,7 +470,7 @@ describe('recipe image multipart requests', () => {
 describe('frozen recipe write authentication', () => {
   beforeEach(() => {
     mocks.client.patch.mockReset(); mocks.post.mockReset();
-    mocks.readBytes.mockReset(); mocks.readBytes.mockResolvedValue(new Uint8Array([1, 2, 3]));
+    mocks.platform = 'ios';
     vi.stubGlobal('FormData', InspectableFormData);
   });
   it.each(['image-edit', 'patch-edit', 'original-restore', 'version-restore'] as const)(
@@ -499,19 +499,21 @@ describe('frozen recipe write authentication', () => {
   );
 
   it('freezes image-edit authentication before asynchronous image conversion', async () => {
-    let finishImage!: (bytes: Uint8Array) => void;
-    mocks.readBytes.mockImplementationOnce(() => new Promise<Uint8Array>(resolve => { finishImage = resolve; }));
+    mocks.platform = 'web';
+    let finishImage!: (value: { ok: boolean; blob(): Promise<Blob> }) => void;
     const getToken = vi.fn(async () => 'replacement-token'); api.setAuthContext(getToken, 'owner-a');
-    const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn().mockImplementationOnce(() => new Promise(resolve => { finishImage = resolve; }));
+    vi.stubGlobal('fetch', fetchMock);
     try {
       const request = api.editRecipe('recipe-a', { title: 'A', ingredients: [], steps: [] }, 'file:///recipe.jpg', () => {});
       void request.catch(() => undefined);
       for (let tick = 0; tick < 20 && !finishImage; tick++) await Promise.resolve();
       expect(finishImage).toBeTypeOf('function');
       api.setAuthContext(async () => 'b-token', 'owner-b'); api.setAuthContext(getToken, 'owner-a');
-      finishImage(new Uint8Array([1, 2, 3]));
+      finishImage({ ok: true, blob: async () => new Blob(['selected image'], { type: 'image/jpeg' }) });
       await expect(request).rejects.toThrow('Authentication changed');
-      expect(getToken).not.toHaveBeenCalled(); expect(fetchMock).not.toHaveBeenCalled();
+      expect(getToken).not.toHaveBeenCalled(); expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith('file:///recipe.jpg');
     } finally { api.setAuthContext(null, null); }
   });
 });
