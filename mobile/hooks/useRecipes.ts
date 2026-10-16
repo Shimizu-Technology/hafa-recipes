@@ -1121,16 +1121,17 @@ export function useDeleteRecipe() {
     const current = () => !!userId && identity.current === captured;
     const authScope = api.getAuthScope();
     const admitted = current() && authScope.userId === userId;
+    const authorized = () => admitted && api.getAuthScope() === authScope;
     const guard = () => {
-      if (!admitted || api.getAuthScope() !== authScope) throw new Error('Account changed; reopen your library.');
+      if (!authorized()) throw new Error('Account changed; reopen your library.');
     };
-    return { id, current, guard };
+    return { id, current, guard, authorized };
   };
   const mutation = useMutation({
     mutationFn: ({ id, guard }: ReturnType<typeof freeze>) => api.deleteRecipe(id, guard),
     
     // Optimistic update - remove immediately from UI
-    onMutate: async ({ id: deletedId, current, guard }) => {
+    onMutate: async ({ id: deletedId, current, guard, authorized }) => {
       guard();
       // Cancel any outgoing refetches for both My Recipes and Discover
       await queryClient.cancelQueries({ queryKey: recipeKeys.all });
@@ -1159,12 +1160,12 @@ export function useDeleteRecipe() {
       );
       queryClient.setQueriesData({ queryKey: recipeKeys.saved() }, removeFromPages);
       
-      return { previousRecipeQueries, previousDiscoverQueries, previousSavedQueries, current };
+      return { previousRecipeQueries, previousDiscoverQueries, previousSavedQueries, current, authorized };
     },
     
     // On error, roll back both
     onError: (err, deletedId, context) => {
-      if (!context?.current()) return;
+      if (!context?.authorized()) return;
       if (context?.previousRecipeQueries) {
         context.previousRecipeQueries.forEach(([queryKey, data]) => {
           queryClient.setQueryData(queryKey, data);

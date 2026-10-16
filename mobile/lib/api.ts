@@ -299,6 +299,16 @@ class ApiClient {
     return this.authScope;
   }
 
+  private recipeWriteGuard(requestGuard?: RequestGuard): RequestGuard {
+    const authScope = this.authScope;
+    const guard = () => {
+      if (this.authScope !== authScope) throw new Error('Authentication changed; reopen this recipe.');
+      requestGuard?.();
+    };
+    guard();
+    return guard;
+  }
+
   /** Get a fresh session token with the same bounded retry for Axios and streams. */
   private async getAuthTokenWithRetry(
     endpoint: string,
@@ -1281,6 +1291,7 @@ class ApiClient {
     imageUri?: string | null,
     requestGuard?: RequestGuard,
   ): Promise<Recipe> {
+    requestGuard = this.recipeWriteGuard(requestGuard);
     // If no image, use simple PATCH
     if (!imageUri) {
       const { data } = await this.client.patch(`/api/recipes/${recipeId}`, editData, { requestGuard } as GuardedRequestConfig);
@@ -1292,9 +1303,10 @@ class ApiClient {
     formData.append('recipe_data', JSON.stringify(editData));
     
     await appendRecipeImage(formData, 'image', imageUri);
+    requestGuard();
 
     const token = this.getTokenFn ? await this.getTokenFn() : null;
-    requestGuard?.();
+    requestGuard();
     
     const response = await fetch(`${API_BASE_URL}/api/recipes/${recipeId}/edit`, {
       method: 'POST',
@@ -1318,6 +1330,7 @@ class ApiClient {
   }
 
   async restoreOriginalRecipe(recipeId: string, requestGuard?: RequestGuard): Promise<Recipe> {
+    requestGuard = this.recipeWriteGuard(requestGuard);
     const { data } = await this.client.post(`/api/recipes/${recipeId}/restore`, null, { requestGuard } as GuardedRequestConfig);
     return data;
   }
@@ -1425,7 +1438,8 @@ class ApiClient {
   }
 
   async restoreRecipeVersion(recipeId: string, versionId: string): Promise<any> {
-    const { data } = await this.client.post(`/api/recipes/${recipeId}/versions/${versionId}/restore`);
+    const requestGuard = this.recipeWriteGuard();
+    const { data } = await this.client.post(`/api/recipes/${recipeId}/versions/${versionId}/restore`, undefined, { requestGuard } as GuardedRequestConfig);
     return data;
   }
 
